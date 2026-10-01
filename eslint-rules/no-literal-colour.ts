@@ -1,13 +1,14 @@
-import type { CSSSourceCode, CSSSyntaxElement } from "@eslint/css";
+import { CSSLanguage, type CSSSourceCode, type CSSSyntaxElement } from "@eslint/css";
 import { AST_NODE_TYPES, ASTUtils, type TSESLint, type TSESTree } from "@typescript-eslint/utils";
 import { createRule } from "./create-rule.js";
 
 /**
  * ADR 0023: every colour a renderer paints is a token, so no literal colour
- * may stand in a renderer package's source or stylesheets (docs/specs/gui.md,
- * "Theme: tokens, the setting and the lint"). The configuration scopes it to
- * the packages that paint with the theme's tokens and names the two places
- * allowlisted: xterm's fallback theme and the preview frame's content.
+ * may stand in a renderer package's source, stylesheets, SVG assets or HTML
+ * documents (docs/specs/gui.md, "Theme: tokens, the setting and the lint").
+ * The configuration scopes it to the packages that paint with the theme's
+ * tokens and names the two places allowlisted: xterm's fallback theme and the
+ * preview frame's content.
  *
  * Refused:
  * - a hex colour of three, four, six or eight digits, and a literal colour
@@ -32,13 +33,21 @@ import { createRule } from "./create-rule.js";
  *   (`SVG_COLOUR_ATTRIBUTES`), since logos use `currentColor`. A colour name
  *   anywhere else is data, such as an environment's colour, and passes.
  *
+ * An SVG asset or an HTML document (html-eslint's HTML language parses both)
+ * is read as a script is: every attribute's value is a string, and a `style`
+ * attribute, an SVG colour attribute and the `content` of
+ * `<meta name="theme-color">` are styles; a `<style>` element is a stylesheet,
+ * parsed as a stylesheet file is, a CDATA section around it included.
+ *
  * A token (`var(--beam)`, `bg-(--beam)`, a class the theme maps such as
  * `bg-beam`), `currentColor`, `transparent` and `inherit` pass everywhere, as
  * does a relative colour whose origin is a token or `currentColor`
  * (`oklch(from var(--beam) l c h / 50%)`) and a mix of them (`color-mix()`).
  * Not read: quoted text inside a CSS value, a `url()`'s argument, selectors,
- * comments and JSX text. A string shaped exactly like a hex colour is refused
- * whatever it means (`"#454"`): write such text from data.
+ * comments, JSX text, a document's text and an inline `<script>`'s body (a
+ * painting package's document loads its scripts as modules, which are read).
+ * A string shaped exactly like a hex colour is refused whatever it means
+ * (`"#454"`): write such text from data.
  */
 
 /** A hex colour of three, four, six or eight digits, not inside a word, an entity (`&#123;`) or a longer run. */
@@ -317,27 +326,114 @@ const scriptVisitors = (context: Context): TSESLint.RuleListener => {
   };
 };
 
-// Stylesheets, as ESLint's CSS language parses them.
+// Stylesheets, as ESLint's CSS language parses them: a stylesheet file, and a document's `<style>` element.
 
-type Declaration = Extract<CSSSyntaxElement, { type: "Declaration" }>;
-type Atrule = Extract<CSSSyntaxElement, { type: "Atrule" }>;
+type CssNode = CSSSyntaxElement;
+
+/** Where a stylesheet node's colours stand and what they are: a declaration's value's, an `@apply`'s classes; any other node holds none. */
+const stylesheetColours = (node: CssNode, text: (node: CssNode) => string): { at: CssNode; found: Found[] } | undefined => {
+  if (node.type === "Declaration") return { at: node.value, found: valueColours(text(node.value)) };
+  if (node.type === "Atrule" && node.name.toLowerCase() === "apply" && node.prelude) return { at: node.prelude, found: classStringColours(text(node.prelude)) };
+  return undefined;
+};
 
 const isStylesheet = (sourceCode: unknown): sourceCode is CSSSourceCode =>
   (sourceCode as { ast: { type: string } }).ast.type === "StyleSheet";
 
 const stylesheetVisitors = (context: Context, sourceCode: CSSSourceCode): TSESLint.RuleListener => {
-  // typescript-eslint types a report's node as a script's; ESLint takes a stylesheet's the same way.
-  const report = (node: CSSSyntaxElement, { colour, messageId }: Found) =>
-    context.report({ node: node as unknown as TSESTree.Node, messageId, data: { colour } });
-  return {
-    Declaration(node: Declaration) {
-      for (const found of valueColours(sourceCode.getText(node.value))) report(node.value, found);
-    },
-    Atrule(node: Atrule) {
-      if (node.name.toLowerCase() !== "apply" || !node.prelude) return;
-      for (const found of classStringColours(sourceCode.getText(node.prelude))) report(node.prelude, found);
-    },
+  const check = (node: CssNode) => {
+    const colours = stylesheetColours(node, (n) => sourceCode.getText(n));
+    // typescript-eslint types a report's node as a script's; ESLint takes a stylesheet's the same way.
+    const at = colours?.at as unknown as TSESTree.Node;
+    for (const { colour, messageId } of colours?.found ?? []) context.report({ node: at, messageId, data: { colour } });
   };
+  return { Declaration: check, Atrule: check };
+};
+
+/** ESLint's CSS language, which reads a document's `<style>` element as the configuration reads a stylesheet file: tolerantly. */
+const cssLanguage = new CSSLanguage();
+
+/** A CDATA section's markers, in which an SVG file may wrap a `<style>` element's stylesheet. */
+const CDATA_MARKER = /<!\[CDATA\[|\]\]>/g;
+
+/** A stylesheet's every node, through the CSS language's visitor keys. */
+const nodesOf = (node: CssNode): CssNode[] => [
+  node,
+  ...(cssLanguage.visitorKeys[node.type] ?? []).flatMap((key) => {
+    const child = (node as unknown as Record<string, CssNode | CssNode[] | null | undefined>)[key];
+    return (Array.isArray(child) ? child : child ? [child] : []).flatMap(nodesOf);
+  }),
+];
+
+/** The colours of a `<style>` element's stylesheet, its CDATA markers blanked, each with its offsets in the stylesheet. */
+const styleElementColours = (stylesheet: string): { start: number; end: number; found: Found[] }[] => {
+  const text = blank(stylesheet, CDATA_MARKER);
+  const parsed = cssLanguage.parse({ path: "style.css", physicalPath: "style.css", body: text, bom: false }, { languageOptions: { tolerant: true } });
+  if (!parsed.ok) return [];
+  // The language parses with positions, so every node has its place; a node without one holds no text.
+  const textOf = (node: CssNode) => (node.loc ? text.slice(node.loc.start.offset, node.loc.end.offset) : "");
+  return nodesOf(parsed.ast).flatMap((node) => {
+    const colours = stylesheetColours(node, textOf);
+    const loc = colours?.at.loc;
+    return colours && loc ? [{ start: loc.start.offset, end: loc.end.offset, found: colours.found }] : [];
+  });
+};
+
+// SVG assets and HTML documents, as html-eslint's HTML language parses them.
+
+/** An element as the HTML language parses one (a `Tag`, `StyleTag` or `ScriptTag`): its name, lower-cased, and its attributes. */
+interface MarkupElement {
+  readonly name?: string;
+  readonly attributes: readonly MarkupAttribute[];
+}
+/** An attribute: its key as written, and its value as written, which a bare attribute (`disabled`) has none of. */
+interface MarkupAttribute {
+  readonly key: { readonly value: string };
+  readonly value?: { readonly value: string };
+}
+/** A `<style>` element: its attributes, and its content with where the content starts in the file. */
+interface StyleElement extends MarkupElement {
+  readonly value?: { readonly value: string; readonly range: readonly [number, number] };
+}
+
+/** Whether an HTML document or an SVG file, which the HTML language parses into a program holding one `Document`. */
+const isMarkup = (sourceCode: unknown): boolean =>
+  (sourceCode as { ast: { body?: readonly { type: string }[] } }).ast.body?.[0]?.type === "Document";
+
+/** Whether an element is `<meta name="theme-color">`, whose `content` colours the browser's frame before the theme is applied. */
+const isThemeColourMeta = (element: MarkupElement): boolean =>
+  element.name === "meta" &&
+  element.attributes.some((a) => a.key.value.toLowerCase() === "name" && a.value?.value.trim().toLowerCase() === "theme-color");
+
+/** Whether an attribute's value is a style: a `style` attribute, an SVG colour attribute, or the theme-color meta's `content`. */
+const isStyleAttribute = (element: MarkupElement, key: string): boolean =>
+  key === "style" || SVG_COLOUR_ATTRIBUTES.has(key) || (key === "content" && isThemeColourMeta(element));
+
+/**
+ * A document's checks: every attribute's value read as a script's every string is, the named colours of the ones that
+ * are a style, and each `<style>` element as a stylesheet. Text, comments and an inline `<script>`'s body are not read.
+ */
+const markupVisitors = (context: Context): TSESLint.RuleListener => {
+  // typescript-eslint types a report's node as a script's; ESLint takes a document's the same way.
+  const report = (node: object, { colour, messageId }: Found) => context.report({ node: node as TSESTree.Node, messageId, data: { colour } });
+  const checkAttributes = (element: MarkupElement) => {
+    for (const { key, value } of element.attributes) {
+      if (!value) continue;
+      for (const found of classStringColours(value.value)) report(value, found);
+      if (!isStyleAttribute(element, key.value.toLowerCase())) continue;
+      for (const found of valueColours(value.value)) if (found.messageId === "named") report(value, found);
+    }
+  };
+  const checkStyleElement = (element: StyleElement) => {
+    checkAttributes(element);
+    if (!element.value) return;
+    const offset = element.value.range[0];
+    const locAt = (index: number) => context.sourceCode.getLocFromIndex(offset + index);
+    for (const { start, end, found } of styleElementColours(element.value.value)) {
+      for (const { colour, messageId } of found) context.report({ loc: { start: locAt(start), end: locAt(end) }, messageId, data: { colour } });
+    }
+  };
+  return { Tag: checkAttributes, StyleTag: checkStyleElement, ScriptTag: checkAttributes };
 };
 
 export const rule = createRule<[], MessageId>({
@@ -357,6 +453,8 @@ export const rule = createRule<[], MessageId>({
   },
   defaultOptions: [],
   create(context) {
-    return isStylesheet(context.sourceCode) ? stylesheetVisitors(context, context.sourceCode) : scriptVisitors(context);
+    if (isStylesheet(context.sourceCode)) return stylesheetVisitors(context, context.sourceCode);
+    if (isMarkup(context.sourceCode)) return markupVisitors(context);
+    return scriptVisitors(context);
   },
 });
