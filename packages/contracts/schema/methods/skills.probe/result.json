@@ -274,7 +274,7 @@
         ],
         "description": "A folder the probe found: the root when it is itself a skill, else a folder whose children hold SKILL.md, with its members as a source on it would read them, the count of valid ones, and any licence file in it."
       },
-      "description": "Every folder up to four levels below the root, the root included, that does not hold SKILL.md itself and whose child folders do, by path; empty when the repository has no skill folder."
+      "description": "Every folder up to four levels below the root, the root included, that does not hold SKILL.md itself and whose child folders do, in the order the walk finds them: by depth, then by name; empty when the repository has no skill folder."
     },
     "truncated": {
       "type": "boolean",

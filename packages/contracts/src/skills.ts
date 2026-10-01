@@ -435,7 +435,7 @@ export const SkillsProbeResult = z
     root: SkillProbeFolder.nullable().meta({ description: "The root, when it holds SKILL.md and so is one skill, named after the repository unless its frontmatter names it; null otherwise." }),
     folders: z.array(SkillProbeFolder).meta({
       description:
-        "Every folder up to four levels below the root, the root included, that does not hold SKILL.md itself and whose child folders do, by path; empty when the repository has no skill folder.",
+        "Every folder up to four levels below the root, the root included, that does not hold SKILL.md itself and whose child folders do, in the order the walk finds them: by depth, then by name; empty when the repository has no skill folder.",
     }),
     truncated: z.boolean().meta({ description: "Whether the probe stopped at 2,000 directories read, so a folder further on may be missing." }),
   })
