@@ -250,7 +250,7 @@ function* calendarDays(first: number, last: number): Generator<readonly [number,
  * which between them hold every day of the Gregorian cycle, with the day
  * after it. The years are stand-ins of the kind; the weekday is the kind's.
  */
-function* twoDaysRunning(): Generator<readonly [CalendarDay, CalendarDay]> {
+function* consecutiveDays(): Generator<readonly [CalendarDay, CalendarDay]> {
   for (const year of [2001, 2004]) {
     for (let weekday = 0; weekday < 7; weekday += 1) {
       let day: CalendarDay = { year, month: 1, day: 1, weekday };
@@ -301,7 +301,7 @@ interface CronField {
   readonly elements: readonly CronElement[];
   /** Ascending; Sunday is 0 in the day of week, however it was written. */
   readonly values: readonly number[];
-  readonly star: boolean;
+  readonly beginsWithStar: boolean;
 }
 
 /** A five-field cron expression as read. */
@@ -356,7 +356,7 @@ const readCronField = (text: string, rule: CronFieldRule): { readonly ok: true; 
   }
   const covered = new Set<number>();
   for (const { from, to, step } of elements) for (let value = from; value <= to; value += step) covered.add(rule.name === "day of week" ? value % 7 : value);
-  return { ok: true, field: { elements, values: [...covered].sort((a, b) => a - b), star: text.startsWith("*") } };
+  return { ok: true, field: { elements, values: [...covered].sort((a, b) => a - b), beginsWithStar: text.startsWith("*") } };
 };
 
 /**
@@ -397,7 +397,7 @@ const cronDueOn = ({ dayOfMonth, month, dayOfWeek }: CronExpression, day: Calend
   if (!month.values.includes(day.month)) return false;
   const onDate = dayOfMonth.values.includes(day.day);
   const onWeekday = dayOfWeek.values.includes(day.weekday);
-  return dayOfMonth.star || dayOfWeek.star ? onDate && onWeekday : onDate || onWeekday;
+  return dayOfMonth.beginsWithStar || dayOfWeek.beginsWithStar ? onDate && onWeekday : onDate || onWeekday;
 };
 
 // The schedule as wall-clock minutes ------------------------------------------------------
@@ -588,7 +588,7 @@ const cronDayWords = (cron: CronExpression): string => {
   const onDates = everyValue(dayOfMonth) ? null : `on ${elementWords(dayOfMonth, CRON_WORDS.dayOfMonth)}${dayOfMonth.elements.some((element) => element.star) ? "" : " of the month"}`;
   const onWeekdays = everyValue(dayOfWeek) ? null : `on ${elementWords(dayOfWeek, CRON_WORDS.dayOfWeek)}`;
   const days =
-    onDates === null ? (onWeekdays ?? "") : onWeekdays === null ? onDates : dayOfMonth.star || dayOfWeek.star ? `${onDates}, if ${onWeekdays}` : `${onDates} or ${onWeekdays}`;
+    onDates === null ? (onWeekdays ?? "") : onWeekdays === null ? onDates : dayOfMonth.beginsWithStar || dayOfWeek.beginsWithStar ? `${onDates}, if ${onWeekdays}` : `${onDates} or ${onWeekdays}`;
   const months = everyValue(month) ? "" : `in ${elementWords(month, CRON_WORDS.month)}`;
   return [days, months].filter((part) => part !== "").map((part) => ` ${part}`).join("");
 };
@@ -634,13 +634,13 @@ export const describeSchedule = ({ schedule, timezone }: ZonedSchedule): string 
 
 /** Whether `onDay` takes any day the calendar has. */
 const dueOnAnyDay = (onDay: (day: CalendarDay) => boolean): boolean => {
-  for (const [day] of twoDaysRunning()) if (onDay(day)) return true;
+  for (const [day] of consecutiveDays()) if (onDay(day)) return true;
   return false;
 };
 
 /** Whether `onDay` takes two days running anywhere on the calendar. */
 const dueTwoDaysRunning = (onDay: (day: CalendarDay) => boolean): boolean => {
-  for (const [day, next] of twoDaysRunning()) if (onDay(day) && onDay(next)) return true;
+  for (const [day, next] of consecutiveDays()) if (onDay(day) && onDay(next)) return true;
   return false;
 };
 
