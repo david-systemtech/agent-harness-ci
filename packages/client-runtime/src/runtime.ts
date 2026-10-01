@@ -161,7 +161,9 @@ export interface Runtime {
      * with its availability, and the browser dock where the shell has
      * `webView`; the session's browser marked. From `browser.chromes.list`
      * and `browser.status` in the request cache, fetched while followed and
-     * again on `chrome.updated`.
+     * again on `chrome.updated`; the status also on `extension.seen` and on
+     * `settings.changed`, since the default and headless rows read its
+     * `browser.headless.*` part.
      */
     browsers(environmentId: string, sessionId: string): Observable<BrowsersView>;
   };
