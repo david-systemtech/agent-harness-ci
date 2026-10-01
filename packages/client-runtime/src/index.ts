@@ -76,6 +76,7 @@ export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type Not
 export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
 export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js";
 export type { Forges, HandOverParams } from "./forges.js";
+export type { SkillsCopies, SkillsCopySelection, SkillsCopyItem, SkillsCopyItemReport } from "./skills-copy.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
   INJECTION_SWITCH_WORDS,

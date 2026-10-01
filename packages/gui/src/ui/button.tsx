@@ -1,12 +1,13 @@
 import type { ComponentProps } from "react";
 import { classes } from "./classes.js";
 
-/** How a button reads: the one action that acts, a quiet one, or one that removes or stops. */
-export type ButtonTone = "primary" | "quiet" | "danger";
+/** How a button reads: the one action that acts, a quiet one, one needing attention, or one that removes or stops. */
+export type ButtonTone = "primary" | "quiet" | "warning" | "danger";
 
 const TONES: Readonly<Record<ButtonTone, string>> = {
   primary: "bg-beam text-beam-ink hover:bg-beam-dim",
   quiet: "text-ink hover:bg-wash",
+  warning: "text-amber hover:bg-wash",
   danger: "bg-signal text-signal-ink",
 };
 
