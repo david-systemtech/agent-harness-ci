@@ -174,6 +174,7 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
+import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -812,6 +813,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trustProjector,
       instructionsProjector,
       skillChoicesProjector,
+      skillSourcesProjector,
       chromesProjector,
       ...(options.projectors ?? []),
     ]) {
@@ -907,7 +909,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clientSessionLabel: (id) => loadedClientSessions.list({ live: false }).find((session) => session.id === id)?.label,
       ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
       ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
-      knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
+      // The sessions' repositories, most recently used first, then the skill sources' (#498).
+      knownRepositories: () => [...new Set([...knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }), ...readSkillSourceIdentities(log)])],
       gh: managedGh({ row: () => tools.row("gh"), ...(options.managedTools?.hostEnv !== undefined && { hostEnv: options.managedTools.hostEnv }) }),
       keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
@@ -1089,6 +1092,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // kept thirty minutes for an add to reuse.
   const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
   closers.push(() => skillProbes.close());
+  // The skill sources (#498): a folder added from a probe's checkout, or a fetch, exported at its commit into a snapshot.
+  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1206,7 +1211,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trust: (place) => trustStore.of(place),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
-      skillSet: runSkillSets({ own: ownSkills, log, generations }),
+      skillSet: runSkillSets({ own: ownSkills, sources: skillSources, log, generations }),
       holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
@@ -1547,13 +1552,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accounts: listedAccounts,
       carryOver: carrySkills,
       probe: skillProbes.probe,
+      sources: skillSources,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
     ...skillReadinessMethods({
       scopeOf: (target) => host.previewScope(target),
       account: (id) => host.account(id),
-      place: placeSkillSet({ own: ownSkills, log }),
+      place: placeSkillSet({ own: ownSkills, sources: skillSources, log }),
       hostEnv: options.managedTools?.hostEnv ?? process.env,
       clock,
     }),
