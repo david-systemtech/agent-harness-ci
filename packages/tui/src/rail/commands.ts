@@ -32,6 +32,8 @@ export const RAIL_KEYS = [
   "rail.group",
   "rail.moveUp",
   "rail.moveDown",
+  "rail.renameGroup",
+  "rail.deleteGroup",
 ] as const satisfies readonly KeyActionId[];
 export type RailKey = (typeof RAIL_KEYS)[number];
 
