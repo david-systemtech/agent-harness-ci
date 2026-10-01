@@ -1811,7 +1811,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {
-      checkoutIndex: createCheckoutIndex(log),
+      checkoutIndex: createCheckoutIndex({ log, availability }),
       identityPass: identityPasses.resolved,
       availabilityPass: availabilityPasses.pass,
       reaped: () => reaper.settled(),
