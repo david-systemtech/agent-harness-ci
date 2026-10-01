@@ -130,6 +130,7 @@ _Avoid_: shell (the program inside it), console, the terminal UI (a client) or t
 
 **One-off command**:
 A command an environment starts for a session through `terminals.run`, with closed stdin and pipe output, without a login shell or controlling terminal; its output uses terminal scrollback and the terminal stream, whose exit carries its status. `!` shows it in a pane; `!!` sends its bounded output to the agent.
+_Avoid_: interactive terminal, tool terminal (an install or update), shell (the program interpreting it)
 
 **Tool terminal**:
 A terminal the Managed tools registry owns rather than a session, running one install or update command through the user's login shell where a person can watch it and answer its prompts; no session lists it, counts it or closes it, so the Terminal entry's "closes with its session" does not cover it: it closes thirty minutes after its command exits, or when the environment stops. Any client session with the terminal scope may watch it; only one holding `admin` may type at it, resize it or close it.
