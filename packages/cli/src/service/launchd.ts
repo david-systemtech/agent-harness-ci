@@ -73,6 +73,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
 
   return {
     kind: "launchd",
+    drainsOnStop: true,
     definitionPath: () => path,
     install: async (spec, { restartRunning }) => {
       const written = writeDefinition(path, renderLaunchdPlist(spec));
@@ -82,7 +83,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
         // launchd keeps a loaded job's old definition until it is loaded again: a running job left running loads the new
         // one at the next login. Otherwise the job is unloaded, and the new one loaded only if the old one was running.
         if (print !== undefined && (restartRunning || !running(print))) {
-          await launchctl("bootout", target);
+          await commands.stop("launchctl", ["bootout", target]);
           bootedOut = true;
           if (running(print)) await launchctl("bootstrap", domain, path);
         }
@@ -95,7 +96,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
       return { createdDirectories: written.createdDirectories };
     },
     uninstall: async () => {
-      if ((await printed()) !== undefined) await launchctl("bootout", target);
+      if ((await printed()) !== undefined) await commands.stop("launchctl", ["bootout", target]);
       rmSync(path, { force: true });
     },
     start: async () => {

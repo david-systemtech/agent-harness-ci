@@ -80,6 +80,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
 
   return {
     kind: "systemd",
+    drainsOnStop: true,
     definitionPath: () => path,
     install: async (spec, { restartRunning }) => {
       const written = writeDefinition(path, renderSystemdUnit(spec));
@@ -96,7 +97,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
         enabled = true;
         // try-restart restarts a running unit onto the new definition and leaves a stopped one stopped. Left running, the
         // unit takes the reloaded definition at its next start.
-        if (restartRunning) await systemctl("try-restart", unit);
+        if (restartRunning) await commands.stop("systemctl", ["--user", "try-restart", unit]);
       } catch (error) {
         if (enabled && !wasEnabled) {
           await commands.attempt("systemctl", ["--user", "disable", unit]);
@@ -110,7 +111,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
       return { createdDirectories: written.createdDirectories };
     },
     uninstall: async () => {
-      await systemctl("disable", "--now", unit);
+      await commands.stop("systemctl", ["--user", "disable", "--now", unit]);
       rmSync(path, { force: true });
       // `enable` created the wants directory when it was absent; an empty one goes with the unit.
       removeIfEmpty(wantsDir);
