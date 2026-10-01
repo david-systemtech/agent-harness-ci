@@ -268,6 +268,7 @@ describe("the method registry", () => {
       "permissions.review.seen",
       "permissions.denylist.set",
       "permissions.denylist.restorePresets",
+      "setup.mint",
       "carryOver.run",
       "carryOver.assignMemory",
       "stateImport.run",
@@ -505,6 +506,7 @@ describe("the method registry", () => {
       | "permissions.denylist.restorePresets"
       | "permissions.denylist.test"
       | "setup.check"
+      | "setup.mint"
       | "carryOver.inventory"
       | "carryOver.run"
       | "carryOver.assignMemory"

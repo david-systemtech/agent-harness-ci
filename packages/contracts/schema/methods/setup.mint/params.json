@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "setup.mint params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "step": {
+      "type": "string",
+      "enum": [
+        "account",
+        "carry-over",
+        "your-machines",
+        "forges",
+        "key-manager",
+        "instructions",
+        "browser",
+        "permissions",
+        "appearance"
+      ],
+      "description": "The LLM step to mint a session for."
+    },
+    "subject": {
+      "description": "What the artefact is for, as the step names it: a bank's id for the Memory bank step; none when absent.",
+      "type": "string",
+      "minLength": 1
+    },
+    "variant": {
+      "type": "string",
+      "enum": [
+        "first",
+        "revise"
+      ],
+      "description": "Which of an LLM step's prompts a minted session starts with: first, which authors the step's artefact, or revise, which revises the one there."
+    },
+    "account": {
+      "description": "The account the session's runs use; the environment's default account when absent.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "description": "The model the session's runs use, one the account offers; the strongest of the default model family when absent.",
+      "type": "string",
+      "minLength": 1
+    },
+    "effort": {
+      "description": "The reasoning effort of the first run; the default effort when absent and the model takes it.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "commandId",
+    "step",
+    "variant"
+  ]
+}
