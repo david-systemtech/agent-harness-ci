@@ -49,7 +49,13 @@ tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
 
 echo "Pushing $sha to $repo as ci/$id"
 auth=(-c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_CI_TOKEN" | base64 -w0)")
-git "${auth[@]}" push --quiet "https://github.com/$repo.git" "+$sha:refs/heads/ci/$id"
+# GitHub sometimes rejects a push while other relays push at once ("[remote rejected] ... (failed)",
+# main run 3778 on 2026-10-01, in a burst of six merges in three minutes), so try it three times.
+for try in 1 2 3; do
+  git "${auth[@]}" push --quiet "https://github.com/$repo.git" "+$sha:refs/heads/ci/$id" && break
+  [ "$try" = 3 ] && { echo "::error::GitHub rejected the push of ci/$id three times"; exit 1; }
+  echo "push rejected; trying again in $((try * 10)) s"; sleep $((try * 10))
+done
 # The anchor in its own push, and allowed to fail: two relays at once race
 # for it ("cannot lock ref"), and in one push that failed the run's ref too.
 if git rev-parse -q --verify origin/main >/dev/null; then

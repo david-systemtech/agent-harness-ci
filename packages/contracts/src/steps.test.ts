@@ -625,12 +625,12 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Key manager on every key-manager.* event and tools.updated, Instructions on nothing until #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Instructions on nothing until #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
-      ["forges", ["forge.account.*"]],
+      ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
       ["instructions", []],
       ["browser", []],
