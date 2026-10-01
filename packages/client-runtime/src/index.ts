@@ -668,3 +668,5 @@ export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/action
 export type { ToolRunsView } from "./managed-tools/tool-runs.js";
 
 export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
+
+export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";
