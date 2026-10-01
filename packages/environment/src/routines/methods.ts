@@ -331,8 +331,9 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      * once: the firing starter starts it once the command commits, under
      * the routine's definition as it is now and the lower of its saved
      * ceiling and the caller's. Refused `conflict` `firing_running` while a
-     * firing of the routine is starting or live. The pre-check it may ask
-     * for is #526's.
+     * firing of the routine is starting or live. Its routine's pre-check
+     * runs first only when `withPreCheck` asks (#526); a firing without one
+     * leaves the baseline alone.
      */
     "routines.runNow": (params, context) => {
       const id = params.routineId.toLowerCase();
@@ -351,6 +352,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
         count: 1,
         requestedBy: context.clientSession.id,
         ceiling: lowerMode(routine.state.savedUnderCeiling, ceilingOf(context.clientSession)),
+        withPreCheck: params.withPreCheck === true,
       };
       context.tx.afterCommit(() => options.firings.start(firing));
       return { aggregate, result: { entryId: firing.firingId } };

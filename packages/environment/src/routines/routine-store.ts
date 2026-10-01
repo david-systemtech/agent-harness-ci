@@ -42,8 +42,10 @@ import type { Reader } from "../sessions/session-tables.js";
  * its last outcome (the latest entry to end) and its failure streak:
  * consecutive failed firings and failing skips, reset by `succeeded`,
  * `silent` and `no-change`, and left as it was by `cancelled`, `missed` and
- * `overlap`. The baseline and `handledThrough` are the tickets' that keep
- * them (#526, #527); until then they are null.
+ * `overlap`. The baseline (#526) is the pre-check of the latest firing that
+ * ended with `baselineAdvanced`: its hash, when it ran, and its kept output,
+ * which the next firing's diff reads. `handledThrough` is the scheduler's
+ * (#527); until then it is null.
  *
  * Each entry keeps the targets it delivers to (#525): a firing the ones its
  * `routine.firing-started` recorded, so an edit during it changes nothing
@@ -69,7 +71,8 @@ export const ROUTINES_TABLES = {
     deleted_at TEXT,
     live_firing TEXT,
     last_outcome TEXT,
-    failure_streak INTEGER NOT NULL DEFAULT 0
+    failure_streak INTEGER NOT NULL DEFAULT 0,
+    baseline TEXT
   ) STRICT;
   CREATE UNIQUE INDEX routines_live_name ON routines (name_key) WHERE deleted_at IS NULL`,
   routine_entries: `CREATE TABLE routine_entries (
@@ -205,6 +208,11 @@ const firingEnded = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFir
   const entry: FiringEntry = { ...(JSON.parse(row.entry) as FiringEntry), endedAt: event.occurredAt, outcome, reason, text, usage, durationMs, baselineAdvanced };
   db.run("UPDATE routine_entries SET entry = ? WHERE id = ?", json(entry), firingId);
   db.run("UPDATE routines SET live_firing = NULL WHERE id = ? AND live_firing = ?", event.streamId, firingId);
+  const { preCheck } = entry;
+  if (baselineAdvanced && preCheck !== null && preCheck.hash !== null) {
+    const baseline: Baseline = { hash: preCheck.hash, at: preCheck.startedAt, output: preCheck.output };
+    db.run("UPDATE routines SET baseline = ? WHERE id = ?", json(baseline), event.streamId);
+  }
   settle(db, event.streamId, { kind: "firing", entryId: firingId, outcome, reason, at: event.occurredAt }, outcome);
 };
 
@@ -280,6 +288,18 @@ export const routinesProjector: Projector = {
   },
 };
 
+/** A routine's baseline: the hash of the pre-check output it was advanced to, when that pre-check ran, and its kept output. */
+export interface Baseline {
+  readonly hash: string;
+  readonly at: string;
+  /** The output's kept part, scrubbed, its first 64 KiB; null when the pre-check kept none. */
+  readonly output: string | null;
+}
+
+/** The routine's baseline; null until a firing with a pre-check has ended succeeded or silent. */
+export const routineBaseline = (reader: Reader, routineId: string): Baseline | null =>
+  parsed<Baseline>(reader.all<{ baseline: string | null }>("SELECT baseline FROM routines WHERE id = ?", routineId)[0]?.baseline ?? null);
+
 /** One `routines` row as SQLite returns it. */
 interface RoutineRow {
   id: string;
@@ -292,6 +312,7 @@ interface RoutineRow {
   moved_to: string | null;
   last_outcome: string | null;
   failure_streak: number;
+  baseline: string | null;
   /** The live firing's entry, joined from `routine_entries`. */
   live_entry: string | null;
 }
@@ -304,7 +325,7 @@ export interface StoredRoutine {
 
 /** A routine's row with its live firing's entry beside it. */
 const SELECT_ROUTINES = `SELECT r.id, r.definition, r.saved_under_ceiling, r.saved_by, r.created_at, r.edited_at, r.moved_from, r.moved_to,
-  r.last_outcome, r.failure_streak, e.entry AS live_entry
+  r.last_outcome, r.failure_streak, r.baseline, e.entry AS live_entry
   FROM routines r LEFT JOIN routine_entries e ON e.id = r.live_firing`;
 
 /** A live firing as the state names it, from its entry. */
@@ -317,6 +338,12 @@ const liveFiringOf = (entry: FiringEntry): LiveFiring => ({
   runId: entry.runId,
 });
 
+/** The baseline as the state names it: its hash and when it ran. */
+const baselineOf = (text: string | null): RoutineState["baseline"] => {
+  const baseline = parsed<Baseline>(text);
+  return baseline === null ? null : { hash: baseline.hash, at: baseline.at };
+};
+
 const storedOf = (row: RoutineRow): StoredRoutine => ({
   definition: JSON.parse(row.definition) as RoutineDefinition,
   state: {
@@ -327,7 +354,7 @@ const storedOf = (row: RoutineRow): StoredRoutine => ({
     editedAt: row.edited_at,
     movedFrom: parsed<RoutineMoveLink>(row.moved_from),
     movedTo: parsed<RoutineMoveLink>(row.moved_to),
-    baseline: null,
+    baseline: baselineOf(row.baseline),
     handledThrough: null,
     liveFiring: row.live_entry === null ? null : liveFiringOf(JSON.parse(row.live_entry) as FiringEntry),
     lastOutcome: parsed<RoutineLastOutcome>(row.last_outcome),

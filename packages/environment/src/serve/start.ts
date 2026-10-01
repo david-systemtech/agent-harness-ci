@@ -149,12 +149,16 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { preCheckMethods } from "../routines/pre-check-methods.js";
+import { createPreCheckRunner } from "../routines/pre-check.js";
+import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
+import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
@@ -787,10 +791,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }
   };
 
-  // The data directory, and the own skills directory in it (#494), made before anything reads them.
-  const ownSkillsPath = await step("data-directory", () => {
+  // The data directory, and the own skills directory (#494) and the routines' scripts directory (#526) in it, made before
+  // anything reads them.
+  const { ownSkillsPath, scriptsPath } = await step("data-directory", () => {
     prepareDataDirectory(dataDir);
-    return prepareOwnDirectory(dataDir);
+    return { ownSkillsPath: prepareOwnDirectory(dataDir), scriptsPath: prepareScriptsDirectory(dataDir) };
   });
 
   const log: EventLog = await step("database", () => {
@@ -1400,7 +1405,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
   const checkoutIndex = createCheckoutIndex({ log, availability });
-  const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
+  // The scripts routines' pre-checks run (#526), which the OS user places, and what runs a pre-check: a script there, run
+  // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
+  const scripts = scriptsDirectory(scriptsPath, { platform: process.platform, env: process.env });
+  const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
+  const preChecks = createPreCheckRunner({ scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub, baseEnvironment: () => baseEnvironment() });
+  const firings = createFiringStarter({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    host,
+    accounts,
+    resolver: workspaceResolver,
+    preChecks,
+  });
   closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
@@ -1452,7 +1471,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environmentId: record.id,
     name: () => look.read().name,
     vault,
-    denylisted: (url) => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0,
+    denylisted: denylistedHost,
     scrub,
   });
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
@@ -1532,6 +1551,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       firings,
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
     }),
+    ...preCheckMethods({ scripts }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
