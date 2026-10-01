@@ -82,7 +82,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const box = useBox();
   useSessionDraft(environmentId, sessionId, projection, box);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
-  const menus = useMenus({ environmentId, sessionId, summary: projection.summary, provider, text: box.text, caret: box.caret });
+  const menus = useMenus({ environmentId, sessionId, provider, text: box.text, caret: box.caret });
   const walk = usePromptWalk(projection, box);
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose, attachments.dialog);

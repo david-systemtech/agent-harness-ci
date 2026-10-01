@@ -1,5 +1,5 @@
-import { fuzzyMatch, matchCommands, mentionAt, type CachedAnswer, type FileMatch, type Mention } from "@agent-harness/client-runtime";
-import type { AdapterCapabilities, SessionSummary } from "@agent-harness/contracts";
+import { fuzzyMatch, matchCommands, mentionAt, slashMenuRows, type CachedAnswer, type FileMatch, type Mention, type SlashMenuRow } from "@agent-harness/client-runtime";
+import type { AdapterCapabilities } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { classes } from "../ui/classes.js";
 import { useFollowed, useRuntime } from "../window-context.js";
@@ -9,20 +9,16 @@ import { typedCommand, useWiredCommands } from "./slash-commands.js";
  * The composer's two menus (docs/specs/gui.md, "A session pane"; #400), one
  * at a time, as the terminal UI opens them: the slash menu while the text is
  * one word after a `/` and the caret at its end, listing the commands the
- * window wires and the provider's own (`commands.list`) in the runtime's
- * order (`matchCommands`); and the files while the caret is in an `@` token,
+ * window wires, then the session's skills and the provider's own
+ * (`commands.list`, #503), as the runtime lists them (`slashMenuRows`) and
+ * in its order (`matchCommands`); and the files while the caret is in an `@` token,
  * the session's workspace from `files.list` ranked by the runtime's scorer
  * (`fuzzyMatch`) as the token is typed. Each menu has a key naming what it
  * was opened over, so a highlight or an Esc belongs to that text alone.
  */
 
-/** A row of the slash menu: a command the window wired, or the provider's own, which goes to the agent as typed. */
-export interface CommandRow {
-  readonly name: string;
-  readonly usage: string;
-  readonly description: string;
-  readonly provider: boolean;
-}
+/** A row of the slash menu: a command the window wired, a skill of the session's set, or the provider's own (#503). */
+export type CommandRow = SlashMenuRow;
 
 export type Menu =
   | { readonly kind: "commands"; readonly key: string; readonly rows: readonly CommandRow[] }
@@ -70,16 +66,12 @@ export const menuOf = (text: string, caret: number, commands: readonly CommandRo
   return { kind: "files", key: `files ${String(mention.start)} ${mention.query}`, mention, rows, note };
 };
 
-/** The slash menu's rows: the commands wired, then the provider's own that no command of the shared list shadows. */
-const commandRowsOf = (wired: readonly Omit<CommandRow, "provider">[], provided: readonly { readonly name: string; readonly description: string }[]): readonly CommandRow[] => [
-  ...wired.map(({ name, usage, description }) => ({ name, usage, description, provider: false })),
-  ...provided.filter((command) => typedCommand(`/${command.name}`) === undefined).map(({ name, description }) => ({ name, usage: `/${name}`, description, provider: true })),
-];
+/** Whether a command of the shared list takes `/<name>` in the window, which the provider's command or a skill of that name then yields to. */
+const answers = (name: string): boolean => typedCommand(`/${name}`) !== undefined;
 
 export interface MenusHost {
   readonly environmentId: string;
   readonly sessionId: string;
-  readonly summary: SessionSummary | null;
   readonly provider: AdapterCapabilities | undefined;
   /** The box's text and where its caret is. */
   readonly text: string;
@@ -98,27 +90,22 @@ export interface Menus {
 }
 
 /**
- * The menu the box opens, over what each needs: the commands wired and the
- * provider's own while its adapter lists them (`commands.list`, asked while
- * the text begins with a `/`), and the workspace's files (`files.list`, asked
- * while a file is being named), both through the request cache.
+ * The menu the box opens, over what each needs: the commands wired, and the
+ * session's skills and the provider's own while its adapter lists them
+ * (`commands.list` for the session, asked while the text begins with a `/`),
+ * and the workspace's files (`files.list`, asked while a file is being
+ * named), both through the request cache.
  */
-export const useMenus = ({ environmentId, sessionId, summary, provider, text, caret }: MenusHost): Menus => {
+export const useMenus = ({ environmentId, sessionId, provider, text, caret }: MenusHost): Menus => {
   const runtime = useRuntime();
   const wired = useWiredCommands();
-  const workspace = summary?.workspace;
-  const accountId = summary?.accountId ?? undefined;
-  // The workspace and account are read through their key, so an equal summary does not make a new query.
-  const commandsKey = text.startsWith("/") && provider?.commands === true && workspace !== undefined ? JSON.stringify([workspace, accountId ?? null]) : undefined;
+  const listing = text.startsWith("/") && provider?.commands === true;
   const provided = useFollowed(
-    useMemo(
-      () => (commandsKey === undefined || workspace === undefined ? undefined : runtime.requests.cached(environmentId, "commands.list", { workspace, ...(accountId !== undefined && { accountId }) })),
-      [runtime, environmentId, commandsKey],
-    ),
+    useMemo(() => (listing ? runtime.requests.cached(environmentId, "commands.list", { sessionId }) : undefined), [runtime, environmentId, sessionId, listing]),
   );
   const naming = mentionAt(text, caret) !== null;
   const files = useFollowed(useMemo(() => (naming ? runtime.requests.cached(environmentId, "files.list", { sessionId }) : undefined), [runtime, environmentId, sessionId, naming]));
-  const commands = useMemo(() => commandRowsOf(wired, provided?.result?.commands ?? []), [wired, provided]);
+  const commands = useMemo(() => slashMenuRows(wired, provided?.result?.entries ?? [], answers), [wired, provided]);
   const [highlight, setHighlight] = useState<{ readonly key: string; readonly index: number } | null>(null);
   const [dismissed, dismiss] = useState<string | null>(null);
   const listId = useId();
@@ -194,7 +181,8 @@ const CommandOption = ({ row }: { readonly row: CommandRow }) => (
     <span className="font-mono text-xs">/{row.name}</span>
     <span className="min-w-0 truncate text-xs text-ink-muted">
       {row.description}
-      {row.provider && " · the agent's"}
+      {row.source === "provider" && " · the agent's"}
+      {row.slashOnly && " · slash-only"}
     </span>
   </>
 );

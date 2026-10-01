@@ -294,9 +294,9 @@ const rows = (name: "Commands" | "Files") => {
 const highlightedRow = () => screen.getAllByRole("option").find((option) => option.getAttribute("aria-selected") === "true")?.textContent;
 
 const PROVIDER_COMMANDS = [
-  { name: "compact", description: "Compact the conversation" },
-  { name: "model", description: "The provider's own model picker" },
-];
+  { kind: "command", name: "compact", description: "Compact the conversation", builtin: true },
+  { kind: "command", name: "model", description: "The provider's own model picker", builtin: true },
+] as const;
 
 /**
  * The slash commands the window wires (the composer's, the side column's, #408 and #427, the status line's pickers, #402,
@@ -330,6 +330,23 @@ describe("slash commands", () => {
     // The provider's /model is shadowed by the window's; its /compact is listed after the window's own.
     await write(app, "m");
     await waitFor(() => expect(rows("Commands")).toEqual([...WINDOW_M, "/compactCompact the conversation · the agent's"]));
+  });
+
+  it("list the session's skills after the window's commands and before the provider's, slash-only ones marked and one the window's /model shadows as /skill:model", async () => {
+    const skill = (name: string, description: string, invocation: "model+slash" | "slash-only") =>
+      ({ kind: "skill", name, description, invocation, origin: null, alwaysOn: false, argumentHint: null }) as const;
+    const { app, env, session } = await opened({
+      commands: [skill("migrate", "Move the schema", "slash-only"), skill("model", "Sketch a data model", "model+slash"), ...PROVIDER_COMMANDS],
+    });
+    await write(app, "/m");
+    // Those /m begins first, then those holding an m, each group in the menu's order: the window's, the skills, the provider's.
+    const [model, mode, ...holding] = WINDOW_M;
+    await waitFor(() =>
+      expect(rows("Commands")).toEqual([model, mode, "/migrateMove the schema · slash-only", ...holding, "/skill:modelSketch a data model", "/compactCompact the conversation · the agent's"]),
+    );
+    await write(app, "ig");
+    await waitFor(() => expect(rows("Commands")).toEqual(["/migrateMove the schema · slash-only"]));
+    expect(env.requests("commands.list").map((request) => request.params)).toContainEqual({ sessionId: session });
   });
 
   it("list the provider's commands only while its adapter lists them", async () => {
