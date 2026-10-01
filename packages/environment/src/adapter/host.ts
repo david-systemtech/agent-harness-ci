@@ -1444,11 +1444,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     nativeRoots: run.account.descriptor.nativeSkillRoots,
   });
 
-  /** What a run's instructions are composed for: its session, account, workspace, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and repository identity, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
+    readonly repositoryIdentity: string | null;
     readonly trust: RunTrust;
     readonly skillSet: RunSkillSet;
     readonly origin: RunActorKind;
@@ -1459,6 +1460,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     sessionId: run.sessionId,
     accountId: run.account.id,
     workspace: run.workspace,
+    repositoryIdentity: run.repositoryIdentity,
     trust: run.trust,
     skillSet: run.skillSet,
     origin: run.origin,
@@ -1605,6 +1607,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: plan.runId,
       accountId: plan.account.id,
       workspace: plan.workspace,
+      repositoryIdentity: plan.repositoryIdentity,
       clientTools: plan.clientTools,
       browser: plan.browser.browser,
     });
@@ -2233,7 +2236,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     previewScope,
     orientationScope(accountId, workspace, injection) {
       const account = placeAccount({ sessionId: null, accountId, workspace, repositoryIdentity: null, containment: null });
-      return instructionScope({ sessionId: null, account, workspace, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
+      return instructionScope({ sessionId: null, account, workspace, repositoryIdentity: null, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
     },
     async previewInstructions(target) {
       return instructions(await previewScope(target));

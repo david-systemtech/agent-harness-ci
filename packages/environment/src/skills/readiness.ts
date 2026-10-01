@@ -74,8 +74,8 @@ const MAX_FILE_BYTES = 1024 * 1024;
 /** The most of a git answer read: a ref, a path, a line or two. */
 const GIT_BYTES = 64 * 1024;
 
-/** What a readiness read is checked under: the session (null for a new one), the account, the workspace and the trust. */
-export type ReadinessScope = Pick<InstructionScope, "sessionId" | "accountId" | "workspace" | "trust">;
+/** What a readiness read is checked under: the session (null for a new one), the account, the workspace and its repository identity, and the trust. */
+export type ReadinessScope = Pick<InstructionScope, "sessionId" | "accountId" | "workspace" | "repositoryIdentity" | "trust">;
 
 /** Git as the checks run it: the hardened runner's signature. */
 export type ReadinessGit = (cwd: string, args: readonly string[], options: GitOptions) => Promise<GitAnswer>;
@@ -386,7 +386,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
 
     /**
      * The names of the servers the factory gives the session's next run, or a new session's first under an id of its
-     * own: a fresh run with no client tools and no browser resolved, as the browser server has one name whichever
+     * own: a fresh run under the scope's repository identity, with no client tools and no browser resolved, as the browser server has one name whichever
      * browser it drives. Asked once for the call's checks; nothing is started or recorded.
      */
     const serverNames = once(async (): Promise<ReadonlySet<string>> => {
@@ -395,6 +395,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
         runId: randomUUID(),
         accountId: scope.accountId,
         workspace: scope.workspace,
+        repositoryIdentity: scope.repositoryIdentity,
         clientTools: [],
         browser: { kind: "none" },
       });
