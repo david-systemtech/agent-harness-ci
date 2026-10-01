@@ -139,29 +139,51 @@ const bindable = (address: string, what: string): string => {
   return address;
 };
 
+/** One listener a start binds: its address, and which interface that is. */
+export interface Bind {
+  readonly host: string;
+  readonly interface: BoundInterface;
+}
+
+/** What a start binds, and the line it says when it skips the LAN address it was asked for. */
+export interface BindPlan {
+  /** Loopback first, then the tailnet's and the LAN's addresses where they are bound. */
+  readonly binds: readonly Bind[];
+  /** Why the LAN address asked for is not bound, for standard error: the machine does not hold it (#773). Undefined when none was skipped. */
+  readonly skipped?: string;
+}
+
+/**
+ * The sentence saying the LAN address `address` is not one the machine,
+ * holding `held`, holds, naming those it does; true when it holds it,
+ * however either is written.
+ */
+export const lanAddressHeld = (address: string, held: readonly string[]): true | string =>
+  held.some((each) => canonical(each) === canonical(address)) ||
+  `The LAN address ${address} is not an address this machine holds (it holds ${held.length === 0 ? "none" : held.join(", ")})`;
+
 /**
  * What the environment binds (env spec, "Binding and discovery"): loopback
  * always; the Tailscale address when one is found and the tailnet setting is
- * on; the LAN address when LAN binding is on, which without an address, or
- * with one the machine does not hold, throws saying so. Never the wildcard
+ * on; the LAN address when LAN binding is on, which without an address
+ * throws saying so. A LAN address the machine does not hold is skipped, not
+ * refused (#773): a laptop that joined another network still starts, on
+ * loopback and the tailnet, and the plan says why. Never the wildcard
  * address: asking for it throws.
  */
-export const bindList = (choice: BindChoice): { readonly host: string; readonly interface: BoundInterface }[] => {
-  const binds: { host: string; interface: BoundInterface }[] = [{ host: LOOPBACK, interface: "loopback" }];
+export const bindPlan = (choice: BindChoice): BindPlan => {
+  const binds: Bind[] = [{ host: LOOPBACK, interface: "loopback" }];
   const add = (host: string, what: BoundInterface) => {
     if (!binds.some((bind) => bind.host === host)) binds.push({ host, interface: what });
   };
   if (choice.tailscaleAddress !== undefined && (choice.bindTailnet ?? true)) add(bindable(choice.tailscaleAddress, "Tailscale"), "tailnet");
-  if (choice.bindLan === true) {
-    if (choice.lanAddress === undefined) throw new Error("LAN binding is on, but no LAN address is given to bind: set lanAddress, or turn LAN binding off.");
-    const lan = bindable(choice.lanAddress, "LAN");
-    const held = choice.lanAddresses ?? [];
-    if (!held.some((address) => canonical(address) === canonical(lan))) {
-      throw new Error(
-        `The LAN address ${lan} is not an address this machine holds (it holds ${held.length === 0 ? "none" : held.join(", ")}): bind one it holds, or turn LAN binding off.`,
-      );
-    }
-    add(lan, "lan");
+  if (choice.bindLan !== true) return { binds };
+  if (choice.lanAddress === undefined) throw new Error("LAN binding is on, but no LAN address is given to bind: set lanAddress, or turn LAN binding off.");
+  const lan = bindable(choice.lanAddress, "LAN");
+  const held = lanAddressHeld(lan, choice.lanAddresses ?? []);
+  if (held !== true) {
+    return { binds, skipped: `${held}, so the environment starts without it: pick one it holds on the Your machines step, or turn LAN binding off.` };
   }
-  return binds;
+  add(lan, "lan");
+  return { binds };
 };

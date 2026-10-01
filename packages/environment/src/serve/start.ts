@@ -218,7 +218,7 @@ import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
-import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
+import { LOOPBACK, bindChoiceOf, bindPlan, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { refuseMarkedRestore } from "./launcher-files.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
@@ -1839,7 +1839,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The binding keys as this start finds them (#574), which the start options override.
     const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
     const choice = bindChoiceOf({ bindTailnet: values["network.bindTailnet"], bindLan: values["network.bindLan"] }, options);
-    const binds = bindList({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
+    const { binds, skipped } = bindPlan({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
+    if (skipped !== undefined) console.error(skipped);
     closers.push(() => surface.close());
     // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
     const listening: { address: Address; interface: BoundInterface }[] = [];
