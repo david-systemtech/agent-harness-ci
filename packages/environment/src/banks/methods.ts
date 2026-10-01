@@ -4,10 +4,10 @@ import type { BankService } from "./bank-service.js";
 
 /**
  * The BankService's methods on the method table (banks spec, "The
- * BankService's methods"; #1025): `banks.list` and `banks.get` at `read`;
- * `banks.register`, an `admin` command prepared by reading and verifying
- * the checkout first; `banks.verify`, a `read` query that records what it
- * finds as `system:banks`. The rules are the BankService's.
+ * BankService's methods"; #1025, #1026): reads and verification at `read`,
+ * registry writes and forgetting at `admin`, a session's own pins at
+ * `runs:drive`. Checkout reads and validation are prepared outside the
+ * command transaction. The rules are the BankService's.
  */
 export const bankMethods = (banks: BankService): MethodHandlers => ({
   "banks.list": async () => ({ banks: await banks.list() }),
@@ -17,5 +17,8 @@ export const bankMethods = (banks: BankService): MethodHandlers => ({
     return { bank };
   },
   "banks.register": banks.register,
+  "banks.registry.update": banks.update,
+  "banks.pin": banks.pin,
+  "banks.forget": banks.forget,
   "banks.verify": async (params) => ({ banks: await banks.verify(params.bankId) }),
 });

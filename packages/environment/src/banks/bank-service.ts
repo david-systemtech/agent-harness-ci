@@ -1,10 +1,11 @@
-import { existsSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
+import { existsSync, lstatSync, realpathSync, rmSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import {
   BANK_INDEX_BUDGET,
   BankName,
   ENVIRONMENT_STREAM_KIND,
   normaliseRemote,
+  parseBankPointer,
   type BankEntry,
   type BankIndexConflict,
   type BankLocation,
@@ -19,18 +20,20 @@ import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeOperations } from "../forge/operations.js";
 import type { Clock } from "../serve/clock.js";
-import type { CommandRejection, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
+import type { CommandContext, CommandRejection, MethodHandler, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
+import { readSummary } from "../sessions/session-reads.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { runGit } from "../workspace/git.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank, type BankIndex } from "./bank-index.js";
-import { bankEver, importHolder, listBanks, liveBank, nameHolder } from "./bank-store.js";
-import { renderFixedTiers } from "./index-renderer.js";
+import { bankEver, importHolder, listBanks, liveBank, nameHolder, sessionBankPins } from "./bank-store.js";
+import { readPointer, renderFixedTiers } from "./index-renderer.js";
 
 /**
  * The BankService's registry part (banks spec, "The registry" and "The
- * BankService's methods"; ADR 0010, ADR 0035, ADR 0036; #1025): it
- * registers an existing checkout, verifies every enabled bank, and answers
+ * BankService's methods"; ADR 0010, ADR 0035, ADR 0036, ADR 0037; #1025, #1026): it
+ * registers and updates banks, keeps session pins, forgets banks with
+ * optional removal of its own checkout, verifies enabled banks, and answers
  * the records with their status, counts and rendered bank line. A bank's
  * files are read as committed at its checkout's head (`bank-files.ts`),
  * never as the working tree holds them.
@@ -191,6 +194,7 @@ export interface BankServiceOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   readonly environmentId: string;
+  readonly dataDir: string;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
   readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
 }
@@ -205,6 +209,11 @@ export interface BankService {
   /** Verifies one bank, or every enabled one, joining a verification of every one running; answers the records after. */
   verify(bankId?: string): Promise<BankRecord[]>;
   readonly register: PreparedCommand<"banks.register">;
+  readonly update: PreparedCommand<"banks.registry.update">;
+  readonly pin: PreparedCommand<"banks.pin">;
+  readonly forget: MethodHandler<"banks.forget">;
+  /** This session's own pins for the BankLayer and renderer, separate from every entry's registry pins. */
+  sessionPins(sessionId: string): readonly string[];
 }
 
 export const createBankService = (options: BankServiceOptions): BankService => {
@@ -214,6 +223,26 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
   let verifyingAll: Promise<BankRecord[]> | null = null;
+
+  /** A chosen default replaces the old one for those accounts, in the same transaction. */
+  const transferDefaults = (entry: BankEntry, command: CommandContext): void => {
+    for (const bank of listBanks(reader)) {
+      if (bank.id === entry.id) continue;
+      const defaultFor = bank.defaultFor.filter((account) => !entry.defaultFor.includes(account));
+      if (defaultFor.length === bank.defaultFor.length) continue;
+      log.append(stream, [{ type: "bank.updated", payload: { bankId: bank.id, defaultFor } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+    }
+  };
+
+  /** Admission uses the renderer's fixed tiers, excluding the entry being replaced and disabled banks. */
+  const admission = (entry: BankEntry, reading: Reading | null): CommandRejection<"conflict"> | null => {
+    if (!entry.enabled) return null;
+    const weighed = listBanks(reader).filter((bank) => bank.id !== entry.id && bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
+    const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
+    if (conflict === null) return null;
+    const [first] = conflict.scopes;
+    return { code: "conflict", message: `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`, data: { reason: "index_too_large", ...conflict } };
+  };
 
   /** The bank's record from its entry and reading, its shared aliases those `others` claim too. */
   const recordOf = (entry: BankEntry, reading: Reading | null, others: readonly Claim[]): BankRecord => {
@@ -386,7 +415,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const location = await locationOf(params.path);
       const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
       const { status, reading } = await inspect(draft);
-      const entry: BankEntry = { ...draft, status };
+      const entry: BankEntry = { ...draft, defaultFor: [...new Set(draft.defaultFor)], status };
       const held = await readAll();
       const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
       return (_params, command) => {
@@ -397,20 +426,83 @@ export const createBankService = (options: BankServiceOptions): BankService => {
           return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
         }
         // Weighed against the banks registered now, as the name is: one registered or forgotten while this one was read counts.
-        const weighed = listBanks(reader)
-          .filter((bank) => bank.enabled)
-          .map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
-        const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
-        if (conflict !== null) {
-          const [first] = conflict.scopes;
-          const message = `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`;
-          return { aggregate: stream, rejected: { code: "conflict", message, data: { reason: "index_too_large", ...conflict } } };
-        }
+        const rejected = admission(entry, reading);
+        if (rejected !== null) return { aggregate: stream, rejected };
+        transferDefaults(entry, command);
         command.tx.afterCommit(() => readings.set(entry.id, reading));
         log.append(stream, [{ type: "bank.added", payload: { bank: entry } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
         return { aggregate: stream, result: { bank: recordOf(entry, reading, claims) } };
       };
     },
+  };
+
+  const update: BankService["update"] = {
+    async prepare(params) {
+      const held = liveBank(reader, params.bankId);
+      if (held === null) return () => ({ aggregate: stream, rejected: { code: "not_found" } });
+      const { bankId } = params;
+      const changes = Object.fromEntries(Object.entries(params).filter(([key, value]) => key !== "commandId" && key !== "bankId" && value !== undefined)) as Partial<BankEntry>;
+      if (changes.defaultFor !== undefined) changes.defaultFor = [...new Set(changes.defaultFor)];
+      const read = await readCheckout(held.checkout, { ...held, ...changes });
+      if ("problem" in read) return () => ({ aggregate: stream, rejected: { code: "invalid_params", message: read.problem, data: { issues: [] } } });
+      const verdict = validateBank({ files: read.reading.files });
+      if (!verdict.valid) return () => ({ aggregate: stream, rejected: { code: "validation_failed", message: "The bank's committed files fail validation.", data: { rules: [...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))], findings: verdict.findings } } });
+      if (changes.pins?.some((pointer) => parseBankPointer(pointer)?.bank !== held.name || !readPointer(read.reading.index === null ? [] : [read.reading.index], pointer).found)) {
+        return () => ({ aggregate: stream, rejected: { code: "not_found", message: "A registry pin names no folder in this bank." } });
+      }
+      const others = await readAll();
+      return (_params, command) => {
+        const current = liveBank(reader, bankId);
+        if (current === null) return { aggregate: stream, rejected: { code: "not_found" } };
+        const entry = { ...current, ...changes };
+        const reading = readingFrom(read.reading.files, entry);
+        const rejected = admission(entry, reading);
+        if (rejected !== null) return { aggregate: stream, rejected };
+        transferDefaults(entry, command);
+        const changed = Object.fromEntries(Object.entries(changes).filter(([key, value]) => JSON.stringify(current[key as keyof BankEntry]) !== JSON.stringify(value)));
+        if (Object.keys(changed).length > 0) log.append(stream, [{ type: "bank.updated", payload: { bankId, ...changed } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        command.tx.afterCommit(() => readings.set(bankId, reading));
+        return { aggregate: stream, result: { bank: recordOf(entry, reading, others.map(({ entry: bank, reading: its }) => claimOf(bank, its))) } };
+      };
+    },
+  };
+
+  const pin: BankService["pin"] = {
+    async prepare(params) {
+      const named = parseBankPointer(params.pointer);
+      const entry = listBanks(reader).find((bank) => bank.name === named?.bank);
+      const reading = entry === undefined ? null : await readingOf(entry);
+      const apply: MethodHandler<"banks.pin"> = (_params, command) => {
+        if (entry === undefined || liveBank(reader, entry.id) === null || readSummary(reader, params.sessionId) === null || !readPointer(reading?.index == null ? [] : [reading.index], params.pointer).found) {
+          return { aggregate: stream, rejected: { code: "not_found", message: "The session or bank folder is not present." } };
+        }
+        const pins = sessionBankPins(reader, params.sessionId);
+        if (pins.includes(params.pointer) !== params.pinned) {
+          log.append(stream, [{ type: "bank.pinned", payload: { bankId: entry.id, sessionId: params.sessionId, pointer: params.pointer, pinned: params.pinned } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        }
+        return { aggregate: stream, result: { sessionId: params.sessionId, pins: sessionBankPins(reader, params.sessionId) } };
+      };
+      return apply;
+    },
+  };
+
+  const forget: BankService["forget"] = (params, command) => {
+    const entry = liveBank(reader, params.bankId);
+    if (entry === null) return { aggregate: stream, rejected: { code: "not_found" } };
+    const remove = params.removeCheckout === true;
+    if (remove && !removableCheckout(entry, listBanks(reader), options.dataDir)) return { aggregate: stream, rejected: { code: "conflict", message: "Only a BankService-owned checkout with no registered path in it may be removed.", data: { reason: "registered_path", bankId: entry.id } } };
+    // Do not commit a checkoutRemoved verdict before removal has succeeded.
+    if (remove) {
+      try {
+        rmSync(entry.checkout, { recursive: true, force: true });
+      } catch {
+        return { aggregate: stream, rejected: { code: "internal", message: "The bank's checkout could not be removed; it remains registered." } };
+      }
+    }
+    const result = { bankId: entry.id, checkoutRemoved: remove };
+    log.append(stream, [{ type: "bank.forgotten", payload: result }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+    command.tx.afterCommit(() => readings.delete(entry.id));
+    return { aggregate: stream, result };
   };
 
   return {
@@ -424,7 +516,29 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       return records();
     },
     register,
+    update,
+    pin,
+    forget,
+    sessionPins: (sessionId) => sessionBankPins(reader, sessionId),
   };
+};
+
+/** Ownership is explicit; an old record or adopted path is never inferred to be ours from its location. */
+const removableCheckout = (entry: BankEntry, banks: readonly BankEntry[], dataDir: string): boolean => {
+  if (entry.checkoutOwnership !== "managed") return false;
+  const canonical = (path: string): string => existsSync(path) ? realpathSync(path) : resolve(path);
+  try {
+    const checkout = canonical(entry.checkout);
+    const root = canonical(join(dataDir, "banks"));
+    if (dirname(checkout) !== root || (existsSync(entry.checkout) && lstatSync(entry.checkout).isSymbolicLink())) return false;
+    return !banks.some((bank) => {
+      if (bank.id === entry.id) return false;
+      const other = canonical(bank.checkout);
+      return other === checkout || other.startsWith(checkout + sep) || checkout.startsWith(other + sep);
+    });
+  } catch {
+    return false;
+  }
 };
 
 /** The bytes of a bank's fixed tiers (T0 to T2), which the 8 KB rule adds up; none for a bank whose BANK.md names no kind. */
