@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "skills.sources.remove result",
+  "title": "skills.sources.pull result",
   "type": "object",
   "properties": {
     "source": {
@@ -253,7 +253,7 @@
         "sync",
         "attemptedAt"
       ],
-      "description": "The source as skills.get listed it before."
+      "description": "The source as the sync left it: its commit, skill count, what the sync came to, and when it ended."
     }
   },
   "required": [

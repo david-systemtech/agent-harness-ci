@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "skills.sources.add response",
+  "title": "skills.sources.pull response",
   "type": "object",
   "properties": {
     "receipt": {
@@ -343,7 +343,7 @@
             "sync",
             "attemptedAt"
           ],
-          "description": "The source as skills.get lists it now."
+          "description": "The source as the sync left it: its commit, skill count, what the sync came to, and when it ended."
         }
       },
       "required": [
