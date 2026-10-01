@@ -451,6 +451,9 @@ import {
 } from "./methods/forge.js";
 import {
   BitwardenReference,
+  BitwardenMoveLocator,
+  KeyManagerMoveLocator,
+  ReferenceProviderUnavailableError,
   CredentialSourceUnavailableError,
   DopplerReference,
   KeyManagerConnectionId,
@@ -948,6 +951,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/openbao-reference.json", title: "OpenBaoReference", schema: OpenBaoReference },
   { path: "key-managers/doppler-reference.json", title: "DopplerReference", schema: DopplerReference },
   { path: "key-managers/onepassword-reference.json", title: "OnePasswordReference", schema: OnePasswordReference },
+  { path: "key-managers/bitwarden-move-locator.json", title: "BitwardenMoveLocator", schema: BitwardenMoveLocator },
+  { path: "key-managers/move-locator.json", title: "KeyManagerMoveLocator", schema: KeyManagerMoveLocator },
+  { path: "key-managers/reference-provider-unavailable-error.json", title: "ReferenceProviderUnavailableError", schema: ReferenceProviderUnavailableError },
   { path: "key-managers/bitwarden-reference.json", title: "BitwardenReference", schema: BitwardenReference },
   { path: "key-managers/reference.json", title: "KeyManagerReference", schema: KeyManagerReference },
   { path: "key-managers/address.json", title: "KeyManagerAddress", schema: KeyManagerAddress },

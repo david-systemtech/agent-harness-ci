@@ -78,6 +78,7 @@ const listed = (items: readonly string[]): string => (items.length <= 1 ? (items
  * text. Every status but signed in gives runs no token.
  */
 const STATUS_WORDS: Readonly<Record<KeyManagerStatusKind, (since: string) => string>> = {
+  "provider-unavailable": (since) => `provider unavailable since ${since}; runs get no token from it until the SDK is available`,
   "signed-in": (since) => `signed in, verified every fifteen minutes; unchanged since ${since}`,
   "signing-in": (since) => `signing in since ${since}; a run spawned now gets no token from it unless the sign-in ends within five seconds`,
   "awaiting-sign-in": (since) => `awaiting its sign-in since ${since}; runs get no token from it until the user signs it in`,

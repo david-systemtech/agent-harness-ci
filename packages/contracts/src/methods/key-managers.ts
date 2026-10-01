@@ -20,6 +20,8 @@ import {
 } from "../key-manager-connections.js";
 import {
   CredentialSourceUnavailableError,
+  ReferenceProviderUnavailableError,
+  KeyManagerMoveLocator,
   KeyManagerConnectionId,
   KeyManagerProvider,
   KeyManagerReference,
@@ -113,7 +115,7 @@ export type AddressUnreachableError = z.infer<typeof AddressUnreachableError>;
 /** This environment has no provider for the key manager a credential is for. */
 export const ProviderUnavailableError = errorSchema(
   "provider_unavailable",
-  z.object({ provider: KeyManagerProvider.meta({ description: "The provider this environment cannot sign in to." }) }),
+  z.object({ provider: KeyManagerProvider, connectionId: KeyManagerConnectionId.optional() }),
 ).meta({ description: "This environment cannot sign in to the provider: nothing was stored. data names the provider." });
 export type ProviderUnavailableError = z.infer<typeof ProviderUnavailableError>;
 
@@ -228,7 +230,7 @@ export const keyManagersConnectionsUpdate = defineMethod({
     tokenRole: KeyManagerTokenRole.nullable().optional().meta({ description: "The token role from now on; null for none. OpenBao only." }),
   }),
   result: connectionResult,
-  errors: [KeyManagerVerificationFailedError, UnreachableError, SealedError, CertificateRejectedError],
+  errors: [KeyManagerVerificationFailedError, UnreachableError, SealedError, CertificateRejectedError, ProviderUnavailableError],
 });
 
 /**
@@ -367,7 +369,7 @@ export const keyManagersReferencesBrowse = defineMethod({
   result: z.object({
     names: z.array(z.string().min(1)).meta({ description: "The names under the path, in the key manager's order: a folder's, or a mount's, ending in /. Never a value." }),
   }),
-  errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
+  errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, ReferenceProviderUnavailableError],
 });
 
 /**
@@ -495,7 +497,7 @@ export const keyManagersMoveCopyValue = defineMethod({
   }),
   result: z.object({
     item: KeyManagerMoveItemRef,
-    reference: KeyManagerReference.meta({ description: "The target to paste the value at: the reference the item holds once keyManagers.move with verifyOnly has read it back." }),
+    reference: KeyManagerMoveLocator.meta({ description: "The target to paste the value at: the reference the item holds once keyManagers.move with verifyOnly has read it back." }),
     value: z.string().min(1).meta({ description: "The item's stored value, unredacted: answered here once, and in no event, receipt or log line." }),
   }),
   errors: [],

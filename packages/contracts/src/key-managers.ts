@@ -106,6 +106,15 @@ export const KeyManagerReference = z
   });
 export type KeyManagerReference = z.infer<typeof KeyManagerReference>;
 
+/** A Bitwarden Move target before the service assigns its secret id. Never a stored credential reference. */
+export const BitwardenMoveLocator = z.object({ provider: z.literal("bitwarden"), connectionId, project: name("The base project name or id."), key: name("The secret key Move writes.") });
+export type BitwardenMoveLocator = z.infer<typeof BitwardenMoveLocator>;
+export const KeyManagerMoveLocator = z.union([KeyManagerReference, BitwardenMoveLocator]);
+export type KeyManagerMoveLocator = z.infer<typeof KeyManagerMoveLocator>;
+
+export const ReferenceProviderUnavailableError = errorSchema("provider_unavailable", z.object({ connectionId: KeyManagerConnectionId }));
+export type ReferenceProviderUnavailableError = z.infer<typeof ReferenceProviderUnavailableError>;
+
 // The refusals a resolve answers ------------------------------------------------
 
 const referenceData = z.object({ connectionId: KeyManagerConnectionId.meta({ description: "The key-manager connection the reference names." }) });
@@ -137,6 +146,6 @@ export type ReferenceDeniedError = z.infer<typeof ReferenceDeniedError>;
 
 /** What a reference that does not resolve is refused with. */
 export const KeyManagerReferenceProblem = z
-  .discriminatedUnion("code", [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError])
+  .discriminatedUnion("code", [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, ReferenceProviderUnavailableError])
   .meta({ description: "Why a key-manager reference does not resolve: credential_source_unavailable, reference_not_found or reference_denied, as a resolve refuses it." });
 export type KeyManagerReferenceProblem = z.infer<typeof KeyManagerReferenceProblem>;

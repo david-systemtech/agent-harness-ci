@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "ProviderUnavailableError",
+  "title": "ReferenceProviderUnavailableError",
   "type": "object",
   "properties": {
     "code": {
@@ -13,16 +13,6 @@
     "data": {
       "type": "object",
       "properties": {
-        "provider": {
-          "type": "string",
-          "enum": [
-            "openbao",
-            "doppler",
-            "onepassword",
-            "bitwarden"
-          ],
-          "description": "A key manager's provider: openbao (OpenBao or Vault), doppler, onepassword (1Password) or bitwarden (Bitwarden Secrets Manager)."
-        },
         "connectionId": {
           "type": "string",
           "format": "uuid",
@@ -31,7 +21,7 @@
         }
       },
       "required": [
-        "provider"
+        "connectionId"
       ]
     }
   },
@@ -39,6 +29,5 @@
     "code",
     "message",
     "data"
-  ],
-  "description": "This environment cannot sign in to the provider: nothing was stored. data names the provider."
+  ]
 }

@@ -549,6 +549,7 @@ export interface EnvironmentOptions {
    * path's list (#370) may take. Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds.
    */
   readonly keyManagerTimeoutMs?: number;
+  readonly bitwardenSdk?: import("../key-managers/bitwarden-sdk.js").BitwardenSdkLoader;
   /**
    * The Move sources registered at start (#371): each owning service's
    * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
@@ -954,6 +955,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => tools.close());
     const connections = createKeyManagerConnections({
+      ...(options.bitwardenSdk !== undefined && { bitwardenSdk: options.bitwardenSdk }),
       log,
       clock,
       environmentId: loaded.id,

@@ -1,4 +1,4 @@
-import type { KeyManagerConnectionRecord, KeyManagerProvider, OpenBaoReference } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, KeyManagerProvider, KeyManagerMoveLocator } from "@agent-harness/contracts";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
 /**
@@ -22,7 +22,8 @@ export const basePathProblem = (provider: KeyManagerProvider, basePath: string):
  * base path, or of a provider a Move cannot write to yet (#377 to #379 map
  * theirs).
  */
-export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): OpenBaoReference | null => {
+export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): KeyManagerMoveLocator | null => {
+  if (record.provider === "bitwarden" && record.basePath !== null) return { provider: "bitwarden", connectionId: record.id, project: record.basePath, key: entry };
   if (record.provider !== "openbao" || record.basePath === null) return null;
   const [mount = "", project = ""] = record.basePath.split("/");
   return { provider: "openbao", connectionId: record.id, mount, path: `${project}/${entry}`, key };
