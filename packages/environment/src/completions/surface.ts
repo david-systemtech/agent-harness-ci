@@ -1,4 +1,4 @@
-import type { SlashScope } from "../adapter/slash-resolution.js";
+import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -633,11 +633,14 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     let begun: Begun;
     try {
       const text = where.fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
-      const slash = text.startsWith("/") ? await host.prepareSlash(place === null ? where.sessionId : {
-        accountId: model.account.id, workspace: place.workspace, repositoryIdentity: place.repositoryIdentity,
-      }) : undefined;
-      ready(true);
-      if (exchange.gone) { follower.stop(); await place?.discard(); return; }
+      let slash: PreparedSlash | undefined;
+      do {
+        slash = text.startsWith("/") ? await host.prepareSlash(place === null ? where.sessionId : {
+          accountId: model.account.id, workspace: place.workspace, repositoryIdentity: place.repositoryIdentity,
+        }) : undefined;
+        ready(true);
+        if (exchange.gone) { follower.stop(); await place?.discard(); return; }
+      } while (slash?.isCurrent() === false);
       begun = begin(turn, model, clientSession, where, place, slash);
     } catch (error) {
       follower.stop();

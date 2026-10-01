@@ -1,4 +1,4 @@
-import type { SlashScope } from "../adapter/slash-resolution.js";
+import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { AttachmentInput, Mode, RunOrigin, RunPolicy, SendResponse } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
@@ -181,12 +181,14 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       if (sessionWorkspace(log, sessionId) === null) return handler;
       await availability.check(sessionId);
       const text = "text" in params ? params.text : null;
-      let slash: SlashScope | undefined;
+      let slash: PreparedSlash | undefined;
       if (typeof text === "string" && text.startsWith("/")) {
         const facts = host.startFacts(sessionId, { kind: "client", ceiling: "acceptEdits", clientSessionId: null });
         if (facts.account?.signedIn === true && facts.session?.workspaceMissingSince === null) slash = await host.prepareSlash(sessionId);
       }
-      return (prepared, context) => handler(prepared, context, slash);
+      return Object.assign((prepared: Parameters<MethodHandler<N>>[0], context: CommandContext) => handler(prepared, context, slash), {
+        isCurrent: () => slash?.isCurrent() !== false,
+      });
     },
   });
 

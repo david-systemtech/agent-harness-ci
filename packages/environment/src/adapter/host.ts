@@ -1,4 +1,4 @@
-import { resolveSlash, type SlashScope } from "./slash-resolution.js";
+import { resolveSlash, type PreparedSlash, type SlashScope } from "./slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
@@ -365,7 +365,7 @@ export interface AdapterHost {
    */
   launch(run: PlannedRun): void;
   /** Prepares slash resolution before message.sent commits, using a live run's set when present. */
-  prepareSlash(target: string | { readonly accountId: string; readonly workspace: Workspace; readonly repositoryIdentity: string | null }): Promise<SlashScope>;
+  prepareSlash(target: string | { readonly accountId: string; readonly workspace: Workspace; readonly repositoryIdentity: string | null }): Promise<PreparedSlash>;
   resolveMessage(text: string, scope: SlashScope): ReturnType<typeof resolveSlash>;
   /**
    * What a run would be handed now (`instructions.preview`): composed as a
@@ -2374,22 +2374,25 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (typeof target === "string") {
         const entry = live.get(target.toLowerCase());
         if (entry !== undefined && !entry.ended) {
+          const isCurrent = (): boolean => live.get(target.toLowerCase()) === entry && !entry.ended;
           const scope = await entry.slash;
           if (scope !== null && !entry.ended) {
-            if (scope.provided !== null) return scope;
+            if (scope.provided !== null) return { ...scope, isCurrent };
             const listed = slashScope(entry.plan.account, entry.plan.workspace, scope.trust, scope.skillSet);
             entry.slash = listed;
             const resolved = await listed;
             entry.resolvedSlash = resolved;
-            if (!entry.ended) return resolved;
+            if (!entry.ended) return { ...resolved, isCurrent };
           }
         }
       }
       const place = typeof target === "string" ? sessionPlace(target.toLowerCase()) : { ...target, sessionId: null, containment: null };
+      const previous = typeof target === "string" ? lastPlans.get(target.toLowerCase()) : undefined;
       const account = placeAccount(place);
       const trust = trustOf({ workspace: place.workspace, repositoryIdentity: place.repositoryIdentity });
       const skillSet = await skillSetOf(skillSetScope({ ...place, account, trust }));
-      return slashScope(account, place.workspace, trust, skillSet);
+      const scope = await slashScope(account, place.workspace, trust, skillSet);
+      return { ...scope, isCurrent: () => typeof target !== "string" || (runActive(target.toLowerCase()) === null && lastPlans.get(target.toLowerCase()) === previous) };
     },
     async commands(sessionId) {
       const place = sessionPlace(sessionId);

@@ -107,6 +107,44 @@ describe("slash resolution", () => {
     expect(t.env.log.readStream({ kind: "session", id }).find((event) => event.type === "message.sent")?.payload).toMatchObject({ text: "/review branch", skill: { name: "review", origin: null } });
   });
 
+  it.each([false, true])("rechecks a run started during the provider listing (ended=%s)", async (ended) => {
+    const listing = gate();
+    const listed = gate();
+    const running = gate();
+    const adapter = fakeAdapter({ commands: [], script: async function* () { await running.opened; yield end(); } });
+    vi.spyOn(adapter, "commands").mockImplementationOnce(async () => {
+      listed.open();
+      await listing.opened;
+      return [];
+    });
+    const t = await startTestEnvironment({ adapter });
+    onCleanup(() => t.close());
+    onCleanup(() => { listing.open(); running.open(); });
+    writeOwn(t, "skills/tdd/SKILL.md", skill("tdd"));
+    const client = await t.client();
+    const { id } = await create(client);
+    const pending = client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "/tdd pending" });
+    await listed.opened;
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "tdd", accountId: null, enabled: false });
+    const started = await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await adapter.reached(1);
+    if (ended) {
+      await client.request("runs.interrupt", { commandId: randomUUID(), runId: started.result!.runId });
+      await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).some((event) => event.type === "run.ended")).toBe(true), { timeout: WAIT_MS });
+    }
+    listing.open();
+    const sent = await pending;
+    expect(sent.result?.delivery).toBe(ended ? "prompt" : "queued");
+    if (ended) {
+      await adapter.reached(2);
+      expect(adapter.lastRun().input.prompt[0]?.text).toBe("/tdd pending");
+    } else {
+      await vi.waitFor(() => expect(adapter.lastRun().sent[0]?.text).toBe("/tdd pending"), { timeout: WAIT_MS });
+    }
+    expect(t.env.log.readStream({ kind: "session", id }).find((event) => event.type === "message.sent" && event.payload["messageId"] === sent.result?.messageId)?.payload).not.toHaveProperty("skill");
+    running.open();
+  });
+
   it("invokes a native member by its bare name and records its repository origin", async () => {
     const origin = { kind: "repository", repository: "https://example.com/team/repo", path: ".claude/skills/release" } as const;
     const t = await startTestEnvironment({ adapter: fakeAdapter({ commands: [] }), adapterSeams: { skillSet: async () => ({

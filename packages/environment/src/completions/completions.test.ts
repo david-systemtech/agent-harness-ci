@@ -1926,6 +1926,44 @@ describe("client-tool passthrough (#139)", () => {
 
 // The completions surface shares the host's provider-neutral slash invocation.
 describe("completions slash resolution", () => {
+  it("uses the run started during its provider listing for attribution and provider text", async () => {
+    const listing = gate();
+    const listed = gate();
+    const running = gate();
+    const adapter = fakeAdapter({ commands: [] });
+    vi.spyOn(adapter, "commands").mockImplementationOnce(async () => {
+      listed.open();
+      await listing.opened;
+      return [];
+    });
+    const t = await start(adapter);
+    onCleanup(() => { listing.open(); running.open(); });
+    const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: tdd\ndescription: Test first.\n---\nTest first.\n");
+    const client = await t.client();
+    const { id } = await create(client);
+    const { token } = await program(t);
+    const answer = complete(t, token, turn("/tdd pending", { "agent-harness": { sessionId: id } }));
+    await listed.opened;
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "tdd", accountId: null, enabled: false });
+    adapter.nextScripts.push(async function* ({ nextSent }) {
+      await running.opened;
+      yield say((await nextSent()).text);
+      yield end();
+    });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await adapter.reached(1);
+    listing.open();
+    try {
+      await vi.waitFor(() => expect(adapter.lastRun().sent[0]?.text).toBe("/tdd pending"), { timeout: WAIT_MS });
+      expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "message.sent").at(-1)?.payload).not.toHaveProperty("skill");
+    } finally {
+      running.open();
+    }
+    await answer;
+  });
+
   it("rewrites a skill on a fresh turn and records its typed text and origin", async () => {
     const t = await start({ commands: [] });
     const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");

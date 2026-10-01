@@ -10,6 +10,11 @@ export interface SlashScope {
   readonly provided: readonly ProviderCommand[] | null;
 }
 
+/** A prepared scope can be used only while the session still has the run it was read for. */
+export interface PreparedSlash extends SlashScope {
+  isCurrent(): boolean;
+}
+
 export interface ResolvedMessage {
   readonly text: string;
   readonly skill?: MessageSentPayload["skill"];
