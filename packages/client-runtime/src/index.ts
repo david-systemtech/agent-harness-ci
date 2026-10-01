@@ -240,6 +240,7 @@ export {
   RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
+  pullSetupSources,
   restoreStep,
   setupActions,
   updateEnvironment,
@@ -310,6 +311,7 @@ export type {
   TasksEntry,
   ToolCallEntry,
   TranscriptEntry,
+  UpdateInterruptedEntry,
   UserMessageEntry,
 } from "./projections/session.js";
 export {
@@ -367,6 +369,7 @@ export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
 export {
   callsRowId,
+  environmentMessage,
   folded,
   forkedFrom,
   lastReply,
@@ -376,11 +379,13 @@ export {
   rewoundRowId,
   transcriptRows,
   undoableFold,
+  updateInterruptedText,
   type ForkedFrom,
   type TranscriptRow,
 } from "./transcript/rows.js";
 export {
   TOOL_CATEGORIES,
+  attachmentChip,
   classifyTool,
   clockTime,
   describeActivity,

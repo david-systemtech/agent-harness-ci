@@ -1,5 +1,7 @@
 import {
   SESSION_STREAM_KIND,
+  RunBrowserResolvedPayload,
+  type RunBrowserResolution,
   eventTypeEntry,
   type AssistantDeltaPayload,
   type AssistantTextPayload,
@@ -19,6 +21,7 @@ import {
   type RunPolicyResolvedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type RunUpdateInterruptedPayload,
   type SessionContainmentSetPayload,
   type SessionForkedPayload,
   type SessionHistoryImportedPayload,
@@ -128,6 +131,8 @@ import type { SessionLease } from "../streams/streams.js";
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type SnapshotItem<K extends string> = Extract<TranscriptItem, { kind: K }>;
+
+export type UpdateInterruptedEntry = SnapshotItem<"update-interrupted">;
 
 export type UserMessageEntry = SnapshotItem<"user-message">;
 
@@ -242,6 +247,7 @@ export interface RewoundEntry {
 
 export type TranscriptEntry =
   | UserMessageEntry
+  | UpdateInterruptedEntry
   | AssistantEntry
   | ToolCallEntry
   | CommandEntry
@@ -274,6 +280,8 @@ export interface SessionTranscript {
    * holds has none here.
    */
   readonly policies: Readonly<Record<string, RunPolicy>>;
+  /** Browsers resolved at run start after the snapshot, fixed for each run. */
+  readonly browserResolutions: Readonly<Record<string, RunBrowserResolution>>;
   /**
    * The session's own containment level, as its latest `session.containment.set`
    * gave it or the latest run's policy asked for it; null while neither was
@@ -314,6 +322,7 @@ interface Fold {
 /** An entry as the fold holds it: of a known kind, before subagents are gathered, a rewind's fold, or opaque. */
 type Held =
   | Mutable<UserMessageEntry>
+  | UpdateInterruptedEntry
   | Mutable<AssistantEntry>
   | Mutable<ToolCallEntry>
   | Mutable<CommandEntry>
@@ -370,6 +379,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
     case "command":
     case "tasks":
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
+    case "update-interrupted":
+      return { ...(item as UpdateInterruptedEntry) };
     case "history-unreadable":
       return { ...(item as HistoryUnreadableEntry) };
     case "forked":
@@ -433,6 +444,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   let folds: Fold[] = everyFold(items).sort(bySequence);
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   const policies: Record<string, RunPolicy> = {};
+  const browserResolutions: Record<string, RunBrowserResolution> = {};
   let containment: ContainmentLevel | null = null;
   let instructions = snapshot.instructions;
   /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
@@ -514,6 +526,11 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         for (const entry of assistant.values()) if (entry.runId === payload.runId) entry.streaming = false;
         return;
       }
+      case "run.browser.resolved": {
+        const { runId, ...resolution } = RunBrowserResolvedPayload.parse(event.payload);
+        browserResolutions[runId] = resolution;
+        return;
+      }
       case "run.policy.resolved": {
         const { runId, ...policy } = event.payload as RunPolicyResolvedPayload;
         if (typeof runId !== "string" || typeof policy.containment !== "object") throw new TypeError("run.policy.resolved names no run or no containment.");
@@ -539,6 +556,11 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         if (run !== undefined) run.usage = payload.models;
         return;
       }
+      case "run.update-interrupted": {
+        const payload = event.payload as RunUpdateInterruptedPayload;
+        push<UpdateInterruptedEntry>({ ...payload, kind: "update-interrupted", sequence });
+        return;
+      }
       case "message.sent": {
         const payload = event.payload as MessageSentPayload;
         messages.set(
@@ -553,6 +575,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
             delivery: payload.delivery,
             heldBy: holderOf(payload.delivery, payload.heldBy),
             sentAt: event.occurredAt,
+            sender: event.actor,
           }),
         );
         return;
@@ -738,6 +761,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     queued: queuedOf(messages),
     rewound: rewound(),
     policies,
+    browserResolutions,
     containment,
     instructions,
   };
@@ -822,7 +846,7 @@ export interface SessionProjectionInput {
   readonly waitingDraft: string | null | undefined;
 }
 
-const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, containment: null, instructions: "" };
+const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, browserResolutions: {}, containment: null, instructions: "" };
 
 /** The view of one session: its stream's reduction beside its freshness, its overlaid summary and its draft. `transcript` reuses a reduction of the same data. */
 export const projectSession = (input: SessionProjectionInput, transcript?: SessionTranscript): SessionProjection => {

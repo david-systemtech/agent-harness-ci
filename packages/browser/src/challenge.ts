@@ -121,7 +121,7 @@ export function challengeModule(pageText: ReturnType<typeof pageTextModule>) {
       if (form !== null) forms.add(form);
     }
     if (forms.size === 0) return false;
-    return pageText.shownText(document.body ?? document.documentElement, (element) => forms.has(element)).length < INTERSTITIAL_TEXT_CHARS;
+    return pageText.shownText(pageText.pageBody(document), (element) => forms.has(element)).length < INTERSTITIAL_TEXT_CHARS;
   };
 
   /** The text of each of the page's inline scripts. */

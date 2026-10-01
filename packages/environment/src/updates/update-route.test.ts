@@ -8,6 +8,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { testLauncher, type TestLauncherOptions } from "../../test/launcher.js";
 import { startFakeReleaseSource, type FakeRelease, type FakeReleaseSource } from "../../test/release-source.js";
+import type { WireClient } from "../../test/wire-client.js";
 
 /**
  * `POST /api/update` (launcher-update spec, "Across a protocol gap"; #353)
@@ -63,6 +64,12 @@ const withReleases = async (options: Parameters<typeof start>[1] = {}) => {
   return { fake, t, client, admin: admin.token };
 };
 
+/** Idle a minute in: the idle window set to a minute, past the one its start holds (#445), before the first scheduled check at two. */
+const idleNow = async (t: TestEnvironment, client: WireClient): Promise<void> => {
+  await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.idleWindowMinutes": 1 } });
+  t.clock.advance(60_000);
+};
+
 const release = (version: string): FakeRelease => ({ version, artefact: readFileSync(serverArtefact(tempDir("agent-harness-artefact-"), version)) });
 
 const updateNotices = (t: TestEnvironment) =>
@@ -89,8 +96,9 @@ describe("POST /api/update with a token holding admin", () => {
   });
 
   it("drains at once when the environment is idle, as updates.apply with when idle does, and says who asked", async () => {
-    const { fake, t, admin } = await withReleases();
+    const { fake, t, client, admin } = await withReleases();
     fake.publish(release("0.5.0"));
+    await idleNow(t, client);
 
     const taken = UpdateAnswer.parse((await post(t, admin, { version: "0.5.0" })).body);
 
@@ -242,8 +250,9 @@ describe("POST /api/update refuses", () => {
   });
 
   it("a draining environment as unavailable, naming it", async () => {
-    const { fake, t, admin } = await withReleases();
+    const { fake, t, client, admin } = await withReleases();
     fake.publish(release("0.5.0"));
+    await idleNow(t, client);
     expect((await post(t, admin, { version: "0.5.0" })).status).toBe(200);
     expect(t.env.readiness()).toBe("draining");
 

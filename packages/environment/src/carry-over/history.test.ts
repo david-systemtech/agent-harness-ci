@@ -133,7 +133,7 @@ const streamOf = (t: TestEnvironment, sessionId: string) => t.env.log.readStream
 
 /** The items a snapshot of the history shows, the history's run id and each message's id as the log gave them. */
 const historyItems = (runId: string, messageId: string, sequence: (index: number) => number) => [
-  { kind: "user-message", sequence: sequence(0), runId, messageId, text: "Find the flaky test", attachments: [], delivery: "prompt", heldBy: null, sentAt: said(0) },
+  { kind: "user-message", sequence: sequence(0), runId, messageId, text: "Find the flaky test", attachments: [], delivery: "prompt", heldBy: null, sentAt: said(0), sender: { kind: "system", id: "carry-over" } },
   { kind: "assistant-text", sequence: sequence(1), runId, itemId: "a1:0", text: "I will ask a helper.", aborted: false },
   { kind: "tool-call", sequence: sequence(2), runId, toolCallId: "toolu_agent", name: "Task", input: { prompt: "Find it" }, title: null, agentId: null, parentToolCallId: null, status: "ok", update: null, output: "It is in runs.test.ts.", durationMs: 7000 },
   { kind: "tool-call", sequence: sequence(3), runId, toolCallId: "toolu_grep", name: "Grep", input: { pattern: "flaky" }, title: null, agentId: "toolu_agent", parentToolCallId: "toolu_agent", status: "ok", update: null, output: "runs.test.ts:12", durationMs: 2000 },
@@ -285,6 +285,21 @@ describe("an imported session's message anchors", () => {
 });
 
 describe("an imported session's runs", () => {
+  it("forks the end of an unlinked imported session into its provider conversation", async () => {
+    const session = listed();
+    const { t, adapter } = await start([session], { fake: { capabilities: { fork: true } } });
+    const client = await t.client();
+    const [sessionId = ""] = await importAll(t, client, [session]);
+    const id = randomUUID();
+
+    const fork = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId, id }));
+    expect(fork.receipt.status).toBe("accepted");
+    const run = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Go on" }));
+    expect(run.receipt.status).toBe("accepted");
+    await expect.poll(() => adapter.runs.length, { timeout: WAIT_MS }).toBe(1);
+    expect(adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: session.providerSessionId, atMessageId: null });
+  });
+
   it("resumes its provider session on the first run, and the session store's link on every later run, as any session's", async () => {
     const session = listed();
     const { t, adapter } = await start([session], {

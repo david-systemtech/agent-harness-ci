@@ -73,4 +73,11 @@ describe("a site's own challenge form", () => {
     expect(detectChallenge(pageOf(`<body>${article}<form action="/verify"><input name="captcha"></form></body>`))).toBeNull();
     expect(detectChallenge(pageOf(`<body><form action="/search"><input name="q"></form></body>`))).toBeNull();
   });
+
+  it("measures the page's body on a page whose element named body takes the document's own member's place (#1052)", () => {
+    const article = `<p>${"A paragraph of an article about something else entirely. ".repeat(5)}</p>`;
+    const named = pageOf(`<body><img name="body" src="/logo.png" alt="">${article}<form action="/verify"><input name="captcha"></form></body>`);
+    expect(named.body.localName).toBe("img");
+    expect(detectChallenge(named)).toBeNull();
+  });
 });

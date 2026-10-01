@@ -554,3 +554,18 @@ describe("the find bar", () => {
     await waitFor(() => expect(within(bar).getByText("1 of 2")).toBeDefined());
   });
 });
+
+describe("a run an update cut", () => {
+  it("says why the run waits and draws the continuation as an environment message", async () => {
+    const { env, transcript, session } = await opened();
+    const { runId } = env.startRun(session, "Fix the receipts");
+    await within(transcript).findByRole("article", { name: "Your message" });
+    env.emit(session, "run.update-interrupted", { runId, updateId: runId, toVersion: "0.5.0", outcome: "next-message", reason: "account", continuationRunId: null });
+    await within(transcript).findByText("Updated to 0.5.0 while this ran; waits for your next message: the account changed or is signed out");
+    env.emit(session, "message.sent", { runId, messageId: "0199aa00-0000-4000-8000-000000000099", text: "Check the current state, then continue.", attachments: [], delivery: "prompt", heldBy: null, ceiling: "auto" }, { actor: { kind: "system", id: "updates" } });
+    const message = await within(transcript).findByRole("article", { name: "Environment message" });
+    expect(within(message).getByText("Environment")).toBeTruthy();
+    expect(within(message).getByText("Check the current state, then continue.")).toBeTruthy();
+    expect(within(transcript).getAllByRole("article", { name: "Your message" })).toHaveLength(1);
+  });
+});
