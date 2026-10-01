@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryFrontmatter",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 60,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 60,
+      "maxLength": 160,
+      "description": "What a run matches the memory by: 60 to 160 characters, opening with a trigger word, unique in its folder."
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "feedback",
+            "project",
+            "reference"
+          ],
+          "description": "A memory's type: user, feedback, project or reference."
+        },
+        "applies_to": {
+          "description": "The repository identities the memory applies to; absent for everywhere.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+            "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+          }
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "A memory's metadata: its type and the repositories it applies to."
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "metadata"
+  ],
+  "description": "A memory's frontmatter: name, description and metadata (type, applies_to). The body after it is at most 6,000 characters."
+}

@@ -14,6 +14,11 @@
       "types": "./dist/launcher.d.ts",
       "default": "./dist/launcher.js"
     },
+    "./bank-validator": {
+      "@agent-harness/source": "./src/bank-validator.ts",
+      "types": "./dist/bank-validator.d.ts",
+      "default": "./dist/bank-validator.js"
+    },
     "./routine-yaml": {
       "@agent-harness/source": "./src/routine-yaml.ts",
       "types": "./dist/routine-yaml.d.ts",

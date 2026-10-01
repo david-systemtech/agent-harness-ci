@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrgFile",
+  "type": "object",
+  "properties": {
+    "line": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "The org header's one-liner, at most 100 characters."
+    }
+  },
+  "required": [
+    "line"
+  ],
+  "description": "An org folder's ORG.md frontmatter: line, the org header's one-liner."
+}

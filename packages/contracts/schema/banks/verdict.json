@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankVerdict",
+  "type": "object",
+  "properties": {
+    "validator": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "const": "bank-validator"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "description": "The validator and the version of its rules that gave the verdict."
+    },
+    "valid": {
+      "type": "boolean",
+      "description": "True when no finding is a refusal."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": [
+              "manifest_missing",
+              "manifest_malformed",
+              "manifest_fact_missing",
+              "manifest_fact_invalid",
+              "retired_key",
+              "unknown_scope_label",
+              "orientation_over_cap",
+              "orientation_missing",
+              "orientation_too_large",
+              "scope_file_missing",
+              "scope_file_malformed",
+              "scope_line",
+              "scope_topics",
+              "unknown_scope",
+              "undeclared_topic",
+              "repository_identity",
+              "index_over_cap",
+              "root_over_cap",
+              "memory_malformed",
+              "memory_name",
+              "memory_name_taken",
+              "memory_type",
+              "description_length",
+              "description_is_name",
+              "description_duplicate",
+              "body_too_long",
+              "secret_shaped",
+              "description_trigger",
+              "unresolved_link"
+            ],
+            "description": "A bank validator rule's id; data/bank-validator-rules.json says what each refuses or warns of."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "refusal",
+              "warning"
+            ],
+            "description": "refusal: the bank or the write is refused; warning: reported, nothing refused."
+          },
+          "path": {
+            "type": "string",
+            "description": "The file or folder it is about, relative to the bank's root: BANK.md, projects/acme/web/, or a memory's file."
+          },
+          "field": {
+            "description": "The field of the file it is about, where it is one: purpose, orientation, topics, description, body.",
+            "type": "string",
+            "minLength": 1
+          },
+          "secret": {
+            "description": "secret_shaped only: the shape rule that found it, or registered-value; never the value.",
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai-style",
+              "aws",
+              "google",
+              "github",
+              "private-key",
+              "bearer",
+              "key-assignment",
+              "openbao",
+              "doppler",
+              "onepassword",
+              "bitwarden",
+              "registered-value"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What is wrong and what to do, for the bank's author; never a secret's value."
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "path",
+          "message"
+        ],
+        "description": "One finding of the bank validator: the rule's id, refusal or warning, the path and field it is about, and an actionable message."
+      },
+      "description": "Every finding, refusals and warnings, in the rules' order, then by path."
+    }
+  },
+  "required": [
+    "validator",
+    "valid",
+    "findings"
+  ],
+  "description": "The bank validator's verdict, the same from the functions, the BankService and the vendored validate.mjs."
+}
