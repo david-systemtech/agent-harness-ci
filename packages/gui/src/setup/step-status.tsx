@@ -83,6 +83,8 @@ const useSetupActions = (environmentId: string, say: (line: string) => void, sig
 interface StepStatusProps extends StepCardProps {
   /** The card's own restore, in place of the client runtime's. */
   readonly restore?: CardRestore;
+  /** A registered card's commands for named health actions. */
+  readonly actions?: Readonly<Partial<Record<SetupAction, { readonly disabled: boolean; readonly run: (targets: readonly SetupTarget[]) => void }>>>;
   /** An authoring or import card's actions, on the targets its result names. */
   readonly cardAction?: (action: CardAction, targets: readonly SetupTarget[]) => Promise<void>;
   /** Actions drawn and carried out by the card itself, beside the inventory they act on. */
@@ -100,7 +102,7 @@ interface StepStatusProps extends StepCardProps {
  * calls, whose line the card says. Sign in again opens the sign-in card over
  * it. It is the whole of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore, cardAction, handledActions = [] }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, actions, cardAction, handledActions = [] }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const [line, say] = useState<string | undefined>(undefined);
@@ -116,7 +118,17 @@ export const StepStatus = ({ environmentId, step, restore, cardAction, handledAc
       {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, runtime.environmentNow(environmentId))}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (
-          <Button key={action.key} tone="primary" disabled={!may(action.plan)} onClick={() => void (action.plan.kind === "card" && cardAction !== undefined ? cardAction(action.plan.action, action.plan.targets) : act(action.plan))}>
+          <Button
+            key={action.key}
+            tone="primary"
+            disabled={actions?.[action.action]?.disabled ?? !may(action.plan)}
+            onClick={() => {
+              const own = actions?.[action.action];
+              if (own !== undefined) own.run(action.targets);
+              else if (action.plan.kind === "card" && cardAction !== undefined) void cardAction(action.plan.action, action.plan.targets);
+              else void act(action.plan);
+            }}
+          >
             {action.words}
           </Button>
         ))}
