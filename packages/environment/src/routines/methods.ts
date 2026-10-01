@@ -236,6 +236,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
   };
 
   return {
+    // Read from the store again once the skill set is read, since a command may have changed it meanwhile.
     "routines.list": () =>
       withSkillSet(
         listStoredRoutines(reader).flatMap((routine) => routine.definition.skills),

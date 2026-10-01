@@ -9,5 +9,5 @@
     "bot",
     "completions"
   ],
-  "description": "Who made a skill always-on for a run: account (its account's always-on choice), or the kind of actor whose run asked for it among the run's extra always-on names: routine (the routine's skills), completions (a request's alwaysOnSkills), bot or client."
+  "description": "Who made a skill always-on for a run: account (its account's always-on choice); else, for the run's extra always-on names, the kind of actor the run is for: routine (the routine's skills), completions (a request's alwaysOnSkills), client (a person's read-now run that took a completions request's names from the run before it) or bot."
 }

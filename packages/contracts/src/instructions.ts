@@ -71,14 +71,15 @@ export type InstructionManifestLayer = z.infer<typeof InstructionManifestLayer>;
 
 /**
  * Who made an always-on skill always-on for a run: its account
- * (`skills.setAlwaysOn`), or the actor whose run asked for it among its
- * extra names: a routine's skills (#531), a completions request's
- * `alwaysOnSkills` (#507).
+ * (`skills.setAlwaysOn`), else, for the run's extra names, the kind of
+ * actor the run is for: a routine, whose skills they are (#531), or the
+ * completions surface, a request's `alwaysOnSkills` (#507), which a
+ * person's read-now run takes from the run of the queue before it.
  */
 export const ALWAYS_ON_CHOOSERS = ["account", ...RUN_ACTOR_KINDS] as const;
 export const AlwaysOnChooser = z.enum(ALWAYS_ON_CHOOSERS).meta({
   description:
-    "Who made a skill always-on for a run: account (its account's always-on choice), or the kind of actor whose run asked for it among the run's extra always-on names: routine (the routine's skills), completions (a request's alwaysOnSkills), bot or client.",
+    "Who made a skill always-on for a run: account (its account's always-on choice); else, for the run's extra always-on names, the kind of actor the run is for: routine (the routine's skills), completions (a request's alwaysOnSkills), client (a person's read-now run that took a completions request's names from the run before it) or bot.",
 });
 export type AlwaysOnChooser = z.infer<typeof AlwaysOnChooser>;
 
