@@ -309,7 +309,8 @@ describe("the caption", () => {
   it("shows the session's badge, its title renamed in place, run info, and close while the grid holds another pane", async () => {
     const app = await withTrain();
     const pane = paneOf("Train tidy");
-    expect(within(pane).getByRole("img", { name: "laptop" }).style.color).toBe("var(--environment-amber)");
+    // The caption's badge, named for the environment laptop, then the status line's, named for its icon, laptop too.
+    expect(within(pane).getAllByRole("img", { name: "laptop" }).map((badge) => badge.style.color)).toEqual(["var(--environment-amber)", "var(--environment-amber)"]);
     expect(within(pane).queryByRole("button", { name: "Close the pane" })).toBeNull();
 
     await app.user.click(within(pane).getByRole("button", { name: "Run info" }));
