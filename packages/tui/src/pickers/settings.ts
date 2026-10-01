@@ -1,5 +1,5 @@
 import { SETTINGS_ROWS, type SettingsKey, type SettingsRowId } from "@agent-harness/contracts";
-import { rowKeys } from "@agent-harness/client-runtime";
+import { noSettingsRowLine, rowKeys } from "@agent-harness/client-runtime";
 
 /**
  * `/settings`, the generic editor (docs/specs/tui.md, "Status, usage,
@@ -31,5 +31,5 @@ export const editorRows = (id: SettingsRowId | null): readonly EditorRow[] =>
 /** The keys the editor lists, in its order: what its cursor moves over. */
 export const editorKeys = (id: SettingsRowId | null): readonly SettingsKey[] => editorRows(id).flatMap((row) => row.keys);
 
-/** What `/settings <id>` says when no row has the id. */
-export const noRowLine = (typed: string): string => `No settings row is named ${typed}. The rows holding settings: ${ROWS_WITH_KEYS.join(", ")}.`;
+/** What `/settings <id>` says when no row has the id: the client runtime's words, then the rows holding settings. */
+export const noRowLine = (typed: string): string => `${noSettingsRowLine(typed)} The rows holding settings: ${ROWS_WITH_KEYS.join(", ")}.`;

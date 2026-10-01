@@ -17,6 +17,7 @@ import { useSessionQueue } from "../queue/session-queue.js";
 import { useModelChoice } from "../status/run-choices.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
+import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -53,6 +54,8 @@ export interface ComposerProps {
  *   request cache) as the name is typed; choosing one writes its path.
  * - **Attachments** by a paste, a drop or the shell's file dialog (Attach
  *   files, `/attach`), shown as chips.
+ * - **`/settings [row]`** opens Settings on the row it names, or the last
+ *   one opened, on this session's environment (`useSettingsCommand`, #625).
  * - **Send and Stop** share one button (story 9).
  * - **The queue** (#401): ↑ in an empty composer takes the newest queued
  *   message back (`composer.withdrawLast`), and `composer.readNow` reads the
@@ -86,6 +89,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const walk = usePromptWalk(projection, box);
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose, attachments.dialog);
+  useSettingsCommand(environmentId);
   const queue = useSessionQueue();
   const [choice] = useModelChoice(environmentId, sessionId);
 
