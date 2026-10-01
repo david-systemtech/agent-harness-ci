@@ -3,6 +3,7 @@ import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./
 import { ChromeUpdatedPayload } from "./browser-chromes.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
 import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carry-over.js";
+import { ClientCallPayload } from "./client-calls.js";
 import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
@@ -152,6 +153,9 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // A paired Chrome paired, renamed or unpaired, connected or disconnected, or reporting another
   // extension version (#548).
   "chrome.updated",
+  // A call addressed to the client session that started a run: a verb on a Chrome paired with another
+  // environment, relayed through that client (#554).
+  "client.call",
 ] as const;
 
 /**
@@ -219,6 +223,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "state-import.finished": "A state import ended, with its report and what failed; a client reads stateImport.detect again.",
   "workspace.kept": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why.",
   "chrome.updated": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again.",
+  "client.call": "A call addressed to one client session, which answers it with client.answer before its deadline; every other client leaves it alone.",
 };
 
 /**
@@ -465,6 +470,12 @@ const ChromeUpdated = describedNotice(
   "A paired Chrome was paired, renamed or unpaired, connected or disconnected, or reported another extension version: which, its name and what changed.",
 );
 
+const ClientCall = describedNotice(
+  "client.call",
+  ClientCallPayload,
+  "A call addressed to the client session that started a run: a verb on a Chrome paired with another environment, its arguments and its deadline, never its answer.",
+);
+
 const WorkspaceKept = describedNotice(
   "workspace.kept",
   WorkspaceKeptPayload,
@@ -534,6 +545,7 @@ export const EnvironmentNotice = z
     StateImportFinished,
     WorkspaceKept,
     ChromeUpdated,
+    ClientCall,
   ])
   .meta({
     description:

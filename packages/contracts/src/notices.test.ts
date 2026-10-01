@@ -74,6 +74,7 @@ describe("environment notices", () => {
       "state-import.finished",
       "workspace.kept",
       "chrome.updated",
+      "client.call",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
