@@ -44,6 +44,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -313,6 +314,7 @@ describe("the options a run is handed", () => {
             scratchDirectory: "/data/containment/session/scratch",
             temporaryDirectory: "/data/containment/session/tmp",
             writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            readOnly: [],
             network: level !== "workspace-no-network",
           },
           denylist,
@@ -344,12 +346,37 @@ describe("the options a run is handed", () => {
             scratchDirectory,
             temporaryDirectory,
             writable: [worktree, scratchDirectory, temporaryDirectory, "/work/repo/.git"],
+            readOnly: [],
             network: level !== "workspace-no-network",
           },
         }),
       );
       expect(options.sandbox?.filesystem?.allowWrite).toEqual([worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"]);
     });
+
+    it.each(["workspace", "workspace-no-network"] as const)(
+      "closes to a command at %s what the run may not write inside its writable set, the git directory's hooks and config, and names none when there is none (#791)",
+      (level) => {
+        const worktree = "/data/worktrees/repo-3f9a2c1b";
+        const readOnly = ["hooks", "config", "config.worktree", "worktrees/repo-3f9a2c1b/config.worktree"].map((path) => `/work/repo/.git/${path}`);
+        const options = buildRunOptions(
+          input({
+            workspace: { kind: "worktree", path: worktree, repository: "/work/repo", branch: "agent-harness/3f9a2c1b" },
+            containment: {
+              level,
+              mechanism: "bubblewrap",
+              scratchDirectory: "/data/containment/session/scratch",
+              temporaryDirectory: "/data/containment/session/tmp",
+              writable: [worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"],
+              readOnly,
+              network: level !== "workspace-no-network",
+            },
+          }),
+        );
+        expect(options.sandbox?.filesystem?.denyWrite).toEqual(readOnly);
+        expect(at(level).sandbox?.filesystem).not.toHaveProperty("denyWrite");
+      },
+    );
 
     it("leaves the network open at workspace, local binding included, and names no domain", () => {
       const network = at("workspace").sandbox?.network;
@@ -384,6 +411,7 @@ describe("the options a run is handed", () => {
             scratchDirectory: "/data/containment/session/scratch",
             temporaryDirectory: "/data/containment/session/tmp",
             writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            readOnly: [],
             network: true,
           },
           denylist,

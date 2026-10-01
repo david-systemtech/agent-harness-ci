@@ -161,7 +161,9 @@ import {
   skillsSetAlwaysOn,
   skillsSetEnabled,
   skillsSourcesAdd,
+  skillsSourcesPull,
   skillsSourcesRemove,
+  skillsSourcesSetFollow,
 } from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
 import { browserChromesList, browserChromesPerform, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
@@ -385,6 +387,8 @@ export const methods = [
   skillsSetEnabled,
   skillsSourcesAdd,
   skillsSourcesRemove,
+  skillsSourcesPull,
+  skillsSourcesSetFollow,
   skillsReadiness,
   trustGet,
   trustList,

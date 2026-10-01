@@ -152,21 +152,24 @@ const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Pa
 });
 
 /**
- * The shell side of the run's containment, as the SDK's sandbox (permissions
- * spec, "Enforcement for Claude"): none at `off`; at both workspace levels
- * enabled, failing the run rather than running a command unsandboxed, with
- * no way for the model to ask its way out (`allowUnsandboxedCommands`) and no
- * approval for being sandboxed (`autoAllowBashIfSandboxed`: containment
- * changes where a command may reach, never whether it asks). A command may
- * write in the run's writable set (the workspace is the CLI's working
- * directory already). The network is open at `workspace`, local binding
- * included; the pinned sandbox cannot name "any domain", so it asks the
- * host about each new host, which the adapter answers itself once the gate
- * lets the host through (`process.ts`, #140's verify note). At
- * `workspace-no-network` it is closed: no domain, no unix socket, no local
- * binding, and a host outside the (empty) list is refused without asking.
- * On an unattended run the denylist's paths are unreadable to a command,
- * the directories the denylist leaves out read again.
+ * The shell side of the run's containment, as the SDK's sandbox
+ * (permissions spec, "Enforcement for Claude"): none at `off`; at both
+ * workspace levels enabled, failing the run rather than running a command
+ * unsandboxed, with no way for the model to ask its way out
+ * (`allowUnsandboxedCommands`) and no approval for being sandboxed
+ * (`autoAllowBashIfSandboxed`: containment changes where a command may
+ * reach, never whether it asks). A command may write in the run's writable
+ * set (the workspace is the CLI's working directory already), less what the
+ * run may not write inside it (`denyWrite`, which the sandbox puts above
+ * `allowWrite`: the repository git directory's hooks and config, #791). The
+ * network is open at `workspace`, local binding included; the pinned
+ * sandbox cannot name "any domain", so it asks the host about each new
+ * host, which the adapter answers itself once the gate lets the host
+ * through (`process.ts`, #140's verify note). At `workspace-no-network` it
+ * is closed: no domain, no unix socket, no local binding, and a host
+ * outside the (empty) list is refused without asking. On an unattended run
+ * the denylist's paths are unreadable to a command, the directories the
+ * denylist leaves out read again.
  */
 export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): SandboxSettings | null => {
   const { containment, denylist } = run;
@@ -183,6 +186,7 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
       : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: {
       allowWrite: [...containment.writable],
+      ...(containment.readOnly.length > 0 && { denyWrite: [...containment.readOnly] }),
       ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
       ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
     },
