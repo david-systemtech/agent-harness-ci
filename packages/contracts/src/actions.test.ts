@@ -81,6 +81,7 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   // The routines card's row verbs (#533), and its webhook endpoints' (David, 2026-09-28): Enter, the moves and Esc are the picker's.
   "routines.runNow": ["r"],
   "routines.enable": ["Space"],
+  "routines.move": ["m"],
   "routines.history": ["h"],
   "routines.export": ["x"],
   "routines.edit": ["e"],

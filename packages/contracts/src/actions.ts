@@ -596,6 +596,7 @@ export const ACTION_GROUPS = [
   group("The routines", "routines", [
     key("routines.runNow", ["r"], "Run the routine now", ROUTINES_PANE),
     key("routines.enable", ["Space"], "Enable the routine, or disable it", ROUTINES_PANE),
+    key("routines.move", ["m"], "Move the routine to another environment", ROUTINES_PANE),
     key("routines.history", ["h"], "Its firings and skips, newest first", ROUTINES_PANE),
     key("routines.export", ["x"], "Export it to a file, as YAML", ROUTINES_PANE),
     key("routines.edit", ["e"], "Edit it as YAML in your editor", ROUTINES_PANE),

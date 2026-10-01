@@ -639,3 +639,53 @@ describe("a routine's notice", () => {
     expect(app.frame()).not.toContain("Notices");
   });
 });
+
+describe("/routines: moving", () => {
+  it("picks the target then confirms with two Enter presses, showing its warnings before importing or disabling", async () => {
+    const { app, deskRoutines, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] }, laptop: {} }, { size: { columns: 99, rows: 30 } });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    laptopRoutines.warnNext({ attention: ["script_missing", "endpoint_missing"], workspace: { kind: "scratch", repositoryIdentity: null } });
+    await app.press("m");
+    await app.waitFor("Move Upstream watch to");
+    await app.press(KEY.enter);
+    await app.waitFor("Confirm move to laptop");
+    await app.waitFor("a scratch directory");
+    expect(app.frame()).toContain("script missing");
+    expect(app.frame()).toContain("an endpoint is missing");
+    expect(app.frame()).toContain("a scratch directory");
+    expect(laptopRoutines.heard("routines.import")).toHaveLength(0);
+    expect(deskRoutines.heard("routines.disable")).toHaveLength(0);
+    await app.press(KEY.enter);
+    await app.waitFor("Moved Upstream watch to laptop.");
+    expect(laptopRoutines.heard("routines.import")).toHaveLength(1);
+    expect(laptopRoutines.heard("routines.import")[0]?.params["movedFrom"]).toEqual({ environmentId: app.environment("desk").environmentId, routineId: WATCH });
+    await app.waitUntil(() => deskRoutines.heard("routines.disable").length === 1, "the original disabled");
+  });
+});
+
+it("asks for another name on a taken target name, rechecks it, and moves only after confirmation", async () => {
+  const { app, deskRoutines, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] }, laptop: { routines: [listedRoutine(BACKUP)] } }, { size: { columns: 99, rows: 30 } });
+  await openRoutines(app);
+  await app.waitFor("laptop · 1 routine");
+  await app.press("m", KEY.enter);
+  await app.waitFor("Another name:");
+  expect(laptopRoutines.heard("routines.import")).toHaveLength(0);
+  await app.type("Monday watch");
+  await app.press(KEY.enter);
+  await app.waitFor("1. Monday watch");
+  expect(deskRoutines.heard("routines.disable")).toHaveLength(0);
+  await app.press(KEY.enter);
+  await app.waitFor("Moved Upstream watch to laptop.");
+  expect(laptopRoutines.routines.map(r => r.definition.name)).toEqual(["Upstream watch", "Monday watch"]);
+});
+
+it("shows both linked copies beside their environment and routine names", async () => {
+  const { app, desk, laptop, deskRoutines, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH, { definition: { enabled: false } })] }, laptop: { routines: [listedRoutine(BACKUP)] } }, { size: { columns: 99, rows: 30 } });
+  deskRoutines.routines[0] = listedRoutine(WATCH, { definition: { enabled: false }, state: { movedTo: { environmentId: laptop.environmentId, routineId: BACKUP, at: "2026-10-01T08:00:00.000Z" } } });
+  laptopRoutines.routines[0] = listedRoutine(BACKUP, { state: { movedFrom: { environmentId: desk.environmentId, routineId: WATCH, at: "2026-10-01T08:00:00.000Z" } } });
+  await openRoutines(app);
+  await app.waitFor("laptop · 1 routine");
+  expect(app.frame()).toContain("moved to laptop: Upstream watch");
+  expect(app.frame()).toContain("moved from desk: Upstream watch");
+});
