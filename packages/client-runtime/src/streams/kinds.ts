@@ -295,6 +295,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return { ...data, look: { ...data.look, icon: notice.data.payload.icon } };
       case "environment.colour-set":
         return { ...data, look: { ...data.look, colour: notice.data.payload.colour } };
+      // The known environments' union changing (#382) changes no status: the request cache reads instructions.preview again.
+      case "environment.known-environments-updated":
+        return data;
       // A new version, an account changed (#134), the sign-in moved (#135), or an account's plan usage (#136): the status
       // holds none of them. The request cache refreshes on all but `signin.executable-chosen` (`CACHE_REFRESH_NOTICES` and
       // `QUERY_REFRESH_NOTICES`, #142), and the notices queue says what is news.

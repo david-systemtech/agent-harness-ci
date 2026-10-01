@@ -6,6 +6,7 @@ import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carr
 import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
+import { KnownEnvironmentsUpdatedPayload } from "./known-environments.js";
 import {
   ForgeAccountAddedPayload,
   ForgeAccountCapabilityLearnedPayload,
@@ -82,6 +83,9 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "environment.renamed",
   "environment.icon-set",
   "environment.colour-set",
+  // The union of what client sessions report of their other connections changed (#382): the orientation block's other
+  // environments section.
+  "environment.known-environments-updated",
   // An account changed, appended by the account store once the change has committed (#134); the
   // sign-in's state and the executable its sign-ins run, chosen once per environment and bundled
   // binary (the sign-in director, #135).
@@ -169,6 +173,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "environment.renamed": "The environment was renamed; a client redraws its badge.",
   "environment.icon-set": "The environment took another icon; a client redraws its badge.",
   "environment.colour-set": "The environment took another colour; a client redraws its badge.",
+  "environment.known-environments-updated": "The union of the other environments client sessions report changed; a client reads instructions.list and instructions.preview again.",
   "account.updated": "An account changed; a client refreshes what it caches of the accounts.",
   "signin.updated": "The sign-in changed state: the verification URL, the end.",
   "signin.executable-chosen": "Which executable sign-ins run, recorded once.",
@@ -277,6 +282,10 @@ const EnvironmentIconSet = z
 const EnvironmentColourSet = z
   .object({ type: z.literal("environment.colour-set"), payload: EnvironmentColourSetPayload })
   .meta({ description: "The environment took another colour, which every client's badge takes." });
+
+const KnownEnvironmentsUpdated = z
+  .object({ type: z.literal("environment.known-environments-updated"), payload: KnownEnvironmentsUpdatedPayload })
+  .meta({ description: "The union of what client sessions report of their other connections changed: the union as it now is, what the orientation block's other environments section lists." });
 
 const AccountUpdated = z
   .object({
@@ -479,6 +488,7 @@ export const EnvironmentNotice = z
     EnvironmentRenamed,
     EnvironmentIconSet,
     EnvironmentColourSet,
+    KnownEnvironmentsUpdated,
     AccountUpdated,
     SignInUpdated,
     SignInExecutableChosen,

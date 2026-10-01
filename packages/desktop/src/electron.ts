@@ -33,6 +33,8 @@ export interface ElectronApp {
   setBadgeCount(count?: number): boolean;
   /** macOS only; undefined elsewhere. */
   readonly dock: { setBadge(text: string): void } | undefined;
+  /** Windows: the AppUserModelID the app's notifications are sent as, which its Start menu shortcut must carry for them to show. */
+  setAppUserModelId(id: string): void;
   /** A second launch: its command line, where Windows and Linux put the deep link it was opened with. */
   on(name: "second-instance", listener: (details: unknown, argv: string[]) => void): unknown;
   /** macOS: a deep link opened, before or after the app is ready. */
@@ -185,6 +187,27 @@ export interface ElectronSafeStorage {
   setUsePlainTextEncryption(usePlainText: boolean): void;
 }
 
+/** What an OS notification shows: `Notification`'s options the desktop sets. */
+export interface NotificationOptions {
+  title: string;
+  body: string;
+}
+
+/** An OS notification, once made: shown by `show`, and heard when it is clicked or goes. */
+export interface ElectronNotification {
+  /** It was clicked. */
+  on(name: "click", listener: () => void): unknown;
+  /** It went: dismissed, or taken off by the OS. */
+  on(name: "close", listener: () => void): unknown;
+  show(): void;
+}
+
+/** The `Notification` class: whether this OS shows notifications at all, and `new Notification(options)`. */
+export interface ElectronNotifications {
+  isSupported(): boolean;
+  create(options: NotificationOptions): ElectronNotification;
+}
+
 /** Electron's main-process modules, and the window's constructor, as the desktop takes them. */
 export interface DesktopElectron {
   readonly app: ElectronApp;
@@ -197,6 +220,7 @@ export interface DesktopElectron {
   /** Whether the OS prefers dark: which of the preset's ladders the first window opens on. */
   readonly nativeTheme: { readonly shouldUseDarkColors: boolean };
   readonly safeStorage: ElectronSafeStorage;
+  readonly notification: ElectronNotifications;
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
 }

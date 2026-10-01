@@ -1,12 +1,13 @@
 import { COUNTDOWN_TICK_MS, choiceRows, noteOf, oneLine, rowAnswer, ttlWords, type CapabilityAnswer, type ChoiceRow, type RowOutcome } from "@agent-harness/client-runtime";
 import { describeDenylistMatch, type ParkedPrompt, type PromptAnswerInput, type PromptKind, type PromptOpenedPayload } from "@agent-harness/contracts";
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
 import { useInFocusedPane } from "../grid/grid.js";
 import { KeyContext, useEscapeStep, useFirstKey, useKeyAction } from "../keys/key-dispatch.js";
 import { Markdown } from "../transcript/markdown.js";
-import { Button, Input } from "../ui/index.js";
+import { Input } from "../ui/index.js";
 import { classes } from "../ui/classes.js";
 import { useClock, useObservable, useRuntime } from "../window-context.js";
+import { Answer } from "./answer-button.js";
 import { useAnswering } from "./answering.js";
 import { QuestionForm, questionAnswers, questionsOf, type Picks } from "./question.js";
 
@@ -238,42 +239,6 @@ const inputText = (input: PromptOpenedPayload["input"]): string | undefined => {
     .map((line, at) => `${at === 0 ? "$" : " "} ${line}`)
     .join("\n");
 };
-
-interface AnswerProps {
-  /** The connection cannot answer now: drawn dim, and a press says why. */
-  readonly dim: boolean;
-  /** It approves: a bare Enter never presses it, even with the focus on it. */
-  readonly approves?: boolean;
-  /** A mode above the ceiling: greyed, and a press says why. */
-  readonly greyed?: boolean;
-  readonly describedBy?: string | undefined;
-  readonly onClick: () => void;
-  readonly children: ReactNode;
-}
-
-/** A bare Enter, which never approves. */
-const bareEnter = (event: KeyboardEvent) => event.key === "Enter" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-
-/**
- * One answer's button. Dim or greyed is `aria-disabled`, not `disabled`, so
- * it still takes the pointer and the focus, and a press says why nothing is
- * sent. An approving one refuses a bare Enter, which a button would
- * otherwise take as a click.
- */
-const Answer = ({ dim, approves = false, greyed = false, describedBy, onClick, children }: AnswerProps) => (
-  <Button
-    tone={approves && !greyed ? "primary" : "quiet"}
-    aria-disabled={dim || greyed ? true : undefined}
-    aria-describedby={describedBy}
-    className="border border-line aria-disabled:cursor-default aria-disabled:border-hairline aria-disabled:bg-transparent aria-disabled:text-ink-faint"
-    onKeyDown={(event) => {
-      if (approves && bareEnter(event)) event.preventDefault();
-    }}
-    onClick={onClick}
-  >
-    {children}
-  </Button>
-);
 
 /** An approval's or a plan's row as a button, with what it does beside it: a greyed mode's reason. */
 const RowButton = ({ row, dim, onClick }: { readonly row: ChoiceRow; readonly dim: boolean; readonly onClick: () => void }) => {

@@ -20,6 +20,7 @@ import { ACCOUNT_DEFAULT_KEYS, newSessionProjection, type NewSessionHost } from 
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
 import { createKeyManagers } from "./key-managers.js";
+import { reportKnownEnvironments } from "./known-environments.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
 import { createKeyManagerNotices } from "./projections/key-manager-notices.js";
 import { createToolRuns } from "./managed-tools/tool-runs.js";
@@ -153,6 +154,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const { call } = createRequests({ clock: platform.clock, capability, request: registry.seams.request });
   const requestCache = createRequestCache({ clock: platform.clock, call, records: registry.list, report });
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
+  // Each environment told of this client's other connections, after each hello and as they change (#382).
+  const stopReporting = reportKnownEnvironments({ kind: platform.client.kind, records: registry.list, call, report });
   const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
   // The desktop's own update and the server it carries (#354): through the local environment, its stage given the time a download takes.
   const desktopUpdate = createDesktopUpdate({
@@ -378,6 +381,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         sessionList.stop();
         runs.close();
         clientCalls.close();
+        stopReporting();
         forgeNotices.close();
         keyManagerNotices.close();
         setup.close();
