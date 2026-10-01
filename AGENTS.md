@@ -43,7 +43,10 @@ A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
 much as the environment's jsdom: on contracts and Mozilla Readability alone,
-with no Node built-in and no environment code), `tui`, `gui` (the
+with no Node built-in and no environment code), `extension` (the MV3
+extension Chrome loads unpacked, its service worker and options page: on
+contracts and the browser package alone, bundled by Vite into its `dist`,
+where the environment finds the extension it unpacks), `tui`, `gui` (the
 desktop window's renderer, a React app whose bundle runs in a browser tab
 too), `desktop` (the Electron shell that carries the `gui` build), and `cli`,
 the `agent-harness` binary). Node 24 or later: the LTS
@@ -82,6 +85,18 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Chromium skips unless `AGENT_HARNESS_CHROMIUM` names one; running it is the
   manual checklist in `docs/agents/browser-checklist.md`. Never launch a
   browser on the shared agent box.
+- The extension's tests run under Node: the service worker against the fake
+  `chrome` API (`packages/extension/test/fake-chrome.ts`) and a scripted
+  environment speaking the bridge protocol on a loopback WebSocket
+  (`test/scripted-environment.ts`), on a manual clock, and the options page in
+  a jsdom window over its markup, type-checked by
+  `packages/extension/tsconfig.test.json`. `pnpm --filter
+  @agent-harness/extension build`, a step of `pnpm build`, bundles it into
+  `packages/extension/dist`; the build's test bundles it into a scratch folder
+  and runs the built worker on a thread with the fake `chrome`, and the
+  environment's extension tests build `dist` and unpack it. Never load it in a
+  browser on the shared agent box: what only a real Chrome proves is the
+  extension section of `docs/agents/browser-checklist.md`.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency
   whose package downloads its binary the first time Node requires it, never
   on install, so CI and the agent box hold none. Its tests drive the main
