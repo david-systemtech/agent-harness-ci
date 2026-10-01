@@ -2201,13 +2201,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return facts;
   };
 
+  /** The repository identity a session made in `workspace` gets: none for a scratch directory, which is no checkout wherever it lies. */
+  const newSessionIdentity = (workspace: Workspace): Promise<string | null> => (workspace.kind === "scratch" ? Promise.resolve(null) : identityAt(workspace.path));
+
   /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
   const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
     const run: RunPlace =
       "sessionId" in target
         ? sessionPlace(target.sessionId)
         : // A new session's repository identity as its create will read it; it has no level of its own until it is made.
-          { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: await identityAt(target.workspace.path), containment: null };
+          { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: await newSessionIdentity(target.workspace), containment: null };
     const facts = placeAccount(run);
     // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
     const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });

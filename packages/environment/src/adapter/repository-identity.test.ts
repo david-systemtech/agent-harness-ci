@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { registry, type WorkspaceRequest } from "@agent-harness/contracts";
+import { registry, type Workspace, type WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { InstructionScope, ToolServerScope } from "./seams.js";
 import { composeInstructions } from "../instructions/composer.js";
@@ -167,5 +167,22 @@ describe("instructions.preview", () => {
     const [firstRun] = t.adapter.runs.map(({ input }) => input);
     expect(preview.text).toContain(repositoryLine(IDENTITY));
     expect(firstRun?.instructions).toBe(preview.text);
+  });
+
+  it("composes a new session's preview under null where a session made there gets none: a repository with no remote, a plain directory, a scratch workspace", async () => {
+    const { t, instructionScopes } = await start();
+    const client = await t.client();
+    const workspaces: Workspace[] = [
+      { kind: "directory", path: repository() },
+      { kind: "directory", path: tempDir("agent-harness-plain-") },
+      // A scratch directory is no checkout, wherever it lies: no git is asked.
+      { kind: "scratch", path: repository({ origin: "https://github.com/acme/receipts.git" }) },
+    ];
+    for (const workspace of workspaces) {
+      const preview = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+      expect(preview.text).toContain(repositoryLine(null));
+    }
+
+    expect(instructionScopes.map(({ sessionId, workspace, repositoryIdentity }) => [sessionId, workspace, repositoryIdentity])).toEqual(workspaces.map((workspace) => [null, workspace, null]));
   });
 });
