@@ -111,7 +111,7 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
  * the list's words.
  */
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
-  "app.focus.next": "Round the composer, the rail, the delegated strip, the pane and the transcript",
+  "app.focus.next": "Round the composer, rail, delegated strip, pane and transcript",
   "terminal.leave": "Leave the pane for the transcript, where Tab would go; twice sends the key to the shell",
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",

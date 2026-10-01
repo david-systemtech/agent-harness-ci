@@ -1838,7 +1838,11 @@ export const App = (props: AppProps) => {
       "delegated.leave": () => setFocus("composer"),
       "delegated.stop": () => {
         if (!opened || !delegatedTask) return false;
-        void stopCall(runtime, opened.environmentId, delegatedTask.runId, delegatedTask.task.taskId).then((line) => line && say(oneLine(line, 300)));
+        const target = opened;
+        void stopCall(runtime, target.environmentId, delegatedTask.runId, delegatedTask.task.taskId).then((line) => {
+          if (quit.signal.aborted || latest.current.opened?.environmentId !== target.environmentId || latest.current.opened.sessionId !== target.sessionId) return;
+          if (line) say(oneLine(line, 300));
+        });
       },
       "delegated.open": () => {
         if (!opened || !delegatedTask) return false;

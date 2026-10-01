@@ -87,6 +87,29 @@ describe("delegated work", () => {
     expect(app.frame()).toContain("The delegated strip has the keys");
   });
 
+  it("keeps a delayed stop refusal out of the session opened afterwards", async () => {
+    const { app, env, runId } = await launch({ sessions: [{ title: "Receipts" }, { title: "Parser", draft: "continue parsing" }] });
+    let release = () => {};
+    env.wire.answer("runs.stopTask", () => new Promise((resolve) => {
+      release = () => resolve({ error: { code: "conflict", message: "The adapter cannot stop this task.", data: {} } });
+    }));
+    env.emit(SESSION, "tasks.changed", { runId, tasks: [task("agent", "Inspect receipts")] });
+    await app.waitFor("Inspect receipts");
+    await app.press(KEY.tab, KEY.tab, "x");
+    await app.waitUntil(() => env.requests("runs.stopTask").length === 1, "the stop request to arrive");
+    await app.press(KEY.esc);
+    await app.type("/resume");
+    await app.press(KEY.enter);
+    await app.waitFor("Sessions");
+    await app.type("Pars");
+    await app.press(KEY.enter);
+    await app.waitFor("› continue parsing");
+    release();
+    await app.tick();
+    expect(app.frame()).not.toContain("Not stopped:");
+    expect(app.frame()).toContain("› continue parsing");
+  });
+
   it("says when the adapter cannot read subagent transcripts", async () => {
     const { app, env, runId } = await launch();
     env.emit(SESSION, "tasks.changed", { runId, tasks: [task("agent", "Inspect receipts")] });
