@@ -240,7 +240,12 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
  * `browser.status`, whose unpaired flag a pairing clears; and a drain
- * beginning (`environment.draining`, #417) `environment.status`.
+ * beginning (`environment.draining`, #417) `environment.status`; the
+ * denylist changing (`denylist.updated`, #811) `permissions.denylist.get`
+ * and `permissions.settings.get`, which counts each section's entries; and
+ * the Unattended review changing (`review.updated`, #811: a decision in a
+ * run it lists, the watermark moved, a session holding one deleted or
+ * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
   "accounts.list": ["account.updated", "signin.updated"],
@@ -254,7 +259,9 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
   "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
-  "permissions.settings.get": ["settings.changed"],
+  "permissions.settings.get": ["settings.changed", "denylist.updated"],
+  "permissions.denylist.get": ["denylist.updated"],
+  "permissions.review.list": ["review.updated"],
   "skills.get": ["skills.updated", "account.updated"],
   "skills.readiness": ["skills.updated", "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
