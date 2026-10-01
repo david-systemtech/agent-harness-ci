@@ -136,24 +136,35 @@ export {
   FORGE_PROBLEM_WORDS,
   PULL_REQUEST_STATE_WORDS,
   capabilitiesWords,
+  capabilityName,
+  capabilityStateWords,
   credentialWords,
   forgeAccountName,
+  forgeAliasWords,
   forgeCopyLine,
   forgeIdentityWords,
   forgeOriginWords,
+  forgeProblemAction,
+  forgeRowProblem,
   forgeStatusWords,
+  machineGhAbsence,
+  machineGhLogin,
   primaryWords,
   pullRequestNumber,
   pullRequestWords,
   shownPullRequest,
   tokenPageWords,
+  type ForgeProblemAction,
 } from "./forges/words.js";
 export {
+  addForgeAlias,
   addFromGh,
+  addFromMachineGh,
   addPastedForge,
   detectForge,
   removeForge,
   setPrimaryForge,
+  signInForgeAgain,
   verifyForge,
   type Detection,
   type ForgeOutcome,
@@ -379,7 +390,7 @@ export { isLiveTask, sessionTasks, type SessionTask } from "./transcript/tasks.j
 export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
-export { matchCommands } from "./composer/commands.js";
+export { matchCommands, slashMenuRows, type ClientCommandRow, type SlashMenuRow, type SlashMenuSource } from "./composer/commands.js";
 export {
   FORK_USAGE,
   REWIND_USAGE,
@@ -489,7 +500,7 @@ export {
   type SettingSaved,
   type SettingsWriter,
 } from "./settings/editor.js";
-export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, stepHome, type SettingsLink } from "./settings/rows.js";
+export { matchSettingsRows, noSettingsRowLine, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, stepHome, type SettingsLink } from "./settings/rows.js";
 export {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,

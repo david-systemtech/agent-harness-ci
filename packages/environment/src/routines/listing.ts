@@ -1,4 +1,13 @@
-import { ROUTINE_ATTENTION, type AccountIdentity, type ListedRoutine, type ModeResolution, type RoutineAttention, type UnattendedMode } from "@agent-harness/contracts";
+import {
+  ROUTINE_ATTENTION,
+  type AccountIdentity,
+  type ListedRoutine,
+  type ModeResolution,
+  type RoutineAttention,
+  type RoutineDefinition,
+  type RoutineState,
+  type UnattendedMode,
+} from "@agent-harness/contracts";
 import type { HostAccounts } from "../accounts/account-service.js";
 import { accountByIdentity } from "../accounts/account-store.js";
 import { EVERY_MODE, clampMode, startingMode } from "../permissions/resolver.js";
@@ -32,6 +41,12 @@ export const routineAccount = (identity: AccountIdentity | null, { reader, accou
   return id === null ? null : accounts.facts(id);
 };
 
+/** What a routine's effective mode and attention read: its definition, the ceiling it is saved under and its failure streak. */
+export interface RoutineFacts {
+  readonly definition: RoutineDefinition;
+  readonly state: Pick<RoutineState, "savedUnderCeiling" | "failureStreak">;
+}
+
 /**
  * A routine's effective mode, as the policy resolver clamps an unattended
  * run: its mode, else the unattended default, clamped to the ceiling it was
@@ -40,7 +55,7 @@ export const routineAccount = (identity: AccountIdentity | null, { reader, accou
  * the ceiling's clamp alone: a firing could not start then, which the run's
  * start refuses.
  */
-const effectiveMode = (routine: StoredRoutine, account: AccountFacts | null, unattendedMode: UnattendedMode): ModeResolution => {
+const effectiveMode = (routine: RoutineFacts, account: AccountFacts | null, unattendedMode: UnattendedMode): ModeResolution => {
   const { mode } = routine.definition;
   const start = startingMode(mode, false, unattendedMode);
   const ceiling = routine.state.savedUnderCeiling;
@@ -48,7 +63,7 @@ const effectiveMode = (routine: StoredRoutine, account: AccountFacts | null, una
 };
 
 /** Each attention code that holds, in the codes' own order. */
-const attentionOf = (routine: StoredRoutine, account: AccountFacts | null, mode: ModeResolution): RoutineAttention[] => {
+const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution): RoutineAttention[] => {
   const { model } = routine.definition;
   const holds: Partial<Record<RoutineAttention, boolean>> = {
     account_missing: account === null,
@@ -58,6 +73,12 @@ const attentionOf = (routine: StoredRoutine, account: AccountFacts | null, mode:
     failing: routine.state.failureStreak > 0,
   };
   return ROUTINE_ATTENTION.filter((code) => holds[code] === true);
+};
+
+/** What a routine saved as `routine` would need attention for here, as `routines.list` would show it: an import's warnings (#528). */
+export const routineAttention = (routine: RoutineFacts, where: RoutineAccounts, unattendedMode: UnattendedMode): RoutineAttention[] => {
+  const account = routineAccount(routine.definition.account, where);
+  return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode));
 };
 
 /** The routine as `routines.list` answers it, under the unattended default and the accounts as they are now. */

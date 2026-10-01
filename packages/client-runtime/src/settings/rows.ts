@@ -18,8 +18,8 @@ import {
  * Settings' rows as every renderer finds and opens them (docs/specs/gui.md,
  * "Settings: the rail, the rows and the addresses"; ADR 0027), over the
  * contracts' row registry and address table: the search the rail filters by,
- * the row an existing address or a row id names, the deep link that opens a
- * row, and the steps a row links to.
+ * the row an existing address or a row id names and the words for a name no
+ * row has, the deep link that opens a row, and the steps a row links to.
  */
 
 /** What search reads of a row: its id, label, hint and search terms (its old addresses and section names), in lower case. */
@@ -46,6 +46,9 @@ export const settingsRowNamed = (name: string): SettingsRowId | undefined => {
   if (isSettingsAddress(typed)) return rowOfAddress(typed);
   return isSettingsRowId(typed) ? typed : undefined;
 };
+
+/** What both renderers' `/settings <name>` say first when no row is named `typed`, as it was typed; each adds where to find one. */
+export const noSettingsRowLine = (typed: string): string => `No settings row is named ${typed}.`;
 
 /** The deep link that opens the row `name` (an address or a row id) in the desktop: `agent-harness://settings/<name>` (a chosen default). */
 export const settingsDeepLink = (name: string): string => `${PRODUCT_NAME}://settings/${encodeURIComponent(name)}`;

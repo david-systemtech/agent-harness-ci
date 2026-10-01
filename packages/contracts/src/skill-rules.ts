@@ -352,7 +352,7 @@ export const SkillWhileActiveKey = z.enum(SKILL_WHILE_ACTIVE_KEYS).meta({
 export type SkillWhileActiveKey = z.infer<typeof SkillWhileActiveKey>;
 
 /** What a member's own files say of it: the fields of the member shape the reader takes from its frontmatter and folder. */
-export type SkillMemberReading = Pick<SkillMember, "name" | "description" | "invocation" | "userInvocable" | "whileActive" | "problems" | "warnings">;
+export type SkillMemberReading = Pick<SkillMember, "name" | "description" | "invocation" | "userInvocable" | "argumentHint" | "whileActive" | "problems" | "warnings">;
 
 /** A name a member may be named after, with what it is to a person. */
 interface NameCandidate {
@@ -417,6 +417,26 @@ const declared = (value: unknown): boolean => {
   return typeof value !== "object" || Object.keys(value).length > 0;
 };
 
+/** A scalar's text as YAML wrote it: text, a finite number or a boolean; null for anything else. */
+const scalarText = (value: unknown): string | null => {
+  if (typeof value === "string") return value;
+  return (typeof value === "number" && Number.isFinite(value)) || typeof value === "boolean" ? String(value) : null;
+};
+
+/**
+ * A member's argument hint (Claude Code's `argument-hint`): text, trimmed; a
+ * number YAML read from it, as its text; and a flow list of scalars, which
+ * YAML reads from the documented `argument-hint: [message]`, written back as
+ * typed, in brackets. Null for none, blank text, an empty list or anything
+ * else.
+ */
+const argumentHintOf = (value: unknown): string | null => {
+  const items = Array.isArray(value) ? value.map(scalarText) : null;
+  if (items !== null) return items.length === 0 || items.includes(null) ? null : `[${items.join(", ")}]`;
+  const text = scalarText(value)?.trim() ?? "";
+  return text === "" ? null : text;
+};
+
 /**
  * Reads a member from its frontmatter, as parsed (an empty object for
  * none; null for frontmatter that does not read as a YAML mapping), and its
@@ -425,7 +445,8 @@ const declared = (value: unknown): boolean => {
  * than white space in it, trimmed, without which it is invalid (Codex
  * refuses such a skill too); its invocation, `slash-only` exactly when
  * `disable-model-invocation` is `true`; whether a person may invoke it,
- * false exactly when `user-invocable` is `false`; and the keys it declares
+ * false exactly when `user-invocable` is `false`; its argument hint
+ * (`argumentHintOf`); and the keys it declares
  * that act while it is active (`hooks`, `allowed-tools`), each flagged when
  * it holds anything. Frontmatter that does not read is a `frontmatter`
  * problem in place of the description's, and the member is named by its
@@ -449,6 +470,7 @@ export const readSkillMember = (frontmatter: Readonly<Record<string, unknown>> |
     description,
     invocation: fields["disable-model-invocation"] === true ? "slash-only" : "model+slash",
     userInvocable: fields["user-invocable"] !== false,
+    argumentHint: argumentHintOf(fields["argument-hint"]),
     whileActive: SKILL_WHILE_ACTIVE_KEYS.filter((key) => declared(fields[key])),
     problems,
     warnings: naming.name === null ? [] : naming.warnings,

@@ -99,7 +99,8 @@ export const skillsOwnRemove = defineMethod({
  * Carry over's skills half (ADR 0021): reads the adopted account
  * directory's `skills/` and `commands/`, and the machine's
  * `~/.agents/skills`. A skill folder that resolves into a git working tree
- * with a remote is offered as a source, not copied. Every other valid skill
+ * with a remote is offered as a source, not copied, once for each folder
+ * it resolves to. Every other valid skill
  * folder and command file is copied into the own directory, dereferencing
  * links, unless the own directory already holds its name (a member's, or
  * the folder or file it would be copied to), when it is kept and reported.
@@ -111,8 +112,11 @@ export const skillsOwnRemove = defineMethod({
  * adopted directory or `~/.agents/skills` is created, linked or deleted.
  * An account the environment does not hold is `not_found` (data `kind:
  * account`); one whose directory it owns rather than adopted is `conflict`
- * (reason `not_adopted`). A prepared command: the reads and the copies come
- * first, outside the transaction, and are undone when it is not accepted.
+ * (reason `not_adopted`); an own directory whose `skills/` holds a
+ * `SKILL.md` itself, which makes it one skill whose folders are not read,
+ * is `conflict` (reason `root_skill`), dry run or not. A prepared command:
+ * the reads and the copies come first, outside the transaction, and are
+ * undone when it is not accepted.
  */
 export const skillsCarryOver = defineMethod({
   name: "skills.carryOver",

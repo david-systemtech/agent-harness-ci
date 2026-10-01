@@ -168,6 +168,12 @@ export interface FakeOpenBao {
   revoke(token: string): void;
   /** Every request so far, in order. */
   readonly requests: readonly FakeOpenBaoRequest[];
+  /**
+   * Settles once `condition` holds: asked at once, then again as the fake
+   * answers each request and as the test revokes a token (#745). A test
+   * waits on what the fake was asked, never within a time budget.
+   */
+  until(condition: () => boolean): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -328,6 +334,11 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   const created: string[] = [];
   const roles = new Map<string, FakeRole>();
   const requests: FakeOpenBaoRequest[] = [];
+  /** The waits `until` holds, each asked again as what the fake holds moves. */
+  const waits = new Set<() => void>();
+  const moved = (): void => {
+    for (const wait of [...waits]) wait();
+  };
   let sealed = false;
   let connections = 0;
 
@@ -673,7 +684,9 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
   };
 
   const server = createServer({ key, cert: certificate }, (request, response) => {
-    serve(request, response).catch((error: unknown) => send(response, 500, { errors: [String(error)] }));
+    serve(request, response)
+      .catch((error: unknown) => send(response, 500, { errors: [String(error)] }))
+      .finally(moved);
   });
   server.on("connection", () => void (connections += 1));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -723,8 +736,19 @@ export const startFakeOpenBao = async (options: { readonly now?: () => Date } = 
       const held = tokens.get(token);
       if (held === undefined) throw new Error(`The fake OpenBao holds no token ${token}.`);
       held.revoked = true;
+      moved();
     },
     requests,
+    until: (condition) =>
+      new Promise((resolve) => {
+        const ask = (): void => {
+          if (!condition()) return;
+          waits.delete(ask);
+          resolve();
+        };
+        waits.add(ask);
+        ask();
+      }),
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.closeAllConnections();

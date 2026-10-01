@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "browser.chromes.perform result",
+  "type": "object",
+  "properties": {
+    "outcome": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean",
+              "const": true
+            },
+            "value": {
+              "description": "The verb's value, as PAGE_VERB_SCHEMAS gives it.",
+              "$ref": "#/$defs/__schema0"
+            },
+            "notice": {
+              "description": "Something true of the answer that is not part of it: a wait clamped, a buffer that dropped its oldest entries.",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "ok",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The sentence the model reads: what went wrong and what it can do instead."
+            },
+            "denylist": {
+              "description": "The denylist entry that refused an address a frame reached, and which frame.",
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "string",
+                  "enum": [
+                    "top-level",
+                    "sub-frame"
+                  ],
+                  "description": "top-level: a navigation of the page, held at about:blank and put to the person; sub-frame: a frame of the page, which refuses the page whole."
+                },
+                "match": {
+                  "type": "object",
+                  "properties": {
+                    "section": {
+                      "type": "string",
+                      "enum": [
+                        "browserDomains",
+                        "paths",
+                        "commandPatterns",
+                        "hosts"
+                      ],
+                      "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+                    },
+                    "entry": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200,
+                          "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                        },
+                        "pattern": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The pattern, in its section's grammar."
+                        },
+                        "note": {
+                          "type": "string",
+                          "maxLength": 500,
+                          "description": "Why the entry is there, for people; empty for none."
+                        },
+                        "preset": {
+                          "type": "boolean",
+                          "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                        },
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "Whether it matches: a disabled entry never does."
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "pattern",
+                        "note",
+                        "preset",
+                        "enabled"
+                      ],
+                      "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+                    },
+                    "matched": {
+                      "type": "string",
+                      "description": "What the call gave that matched it: a path, a command line, an address."
+                    }
+                  },
+                  "required": [
+                    "section",
+                    "entry",
+                    "matched"
+                  ],
+                  "description": "One denylist entry a call matched: the section, the entry, and what matched it."
+                }
+              },
+              "required": [
+                "frame",
+                "match"
+              ]
+            }
+          },
+          "required": [
+            "ok",
+            "reason"
+          ],
+          "description": "A refusal: a sentence the model can act on, never an exception, with the denylist's match when the browser section refused an address."
+        }
+      ],
+      "description": "The extension's value or refusal, or the environment's refusal sentence."
+    }
+  },
+  "required": [
+    "outcome"
+  ],
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}

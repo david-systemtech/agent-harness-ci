@@ -9,6 +9,11 @@
       "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
       "maxLength": 64
     },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Its description, as its frontmatter says it, trimmed."
+    },
     "origin": {
       "anyOf": [
         {
@@ -106,6 +111,22 @@
       ],
       "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
     },
+    "userInvocable": {
+      "type": "boolean",
+      "description": "Whether a person may invoke it: false when its frontmatter sets user-invocable: false, which leaves it out of a / menu and of slash resolution."
+    },
+    "argumentHint": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What follows the member's name in a / menu, from its frontmatter's argument-hint: text trimmed, a number as its text, or a flow list of scalars written back in brackets; null when it declares none."
+    },
     "native": {
       "type": "boolean",
       "description": "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation."
@@ -117,10 +138,13 @@
   },
   "required": [
     "name",
+    "description",
     "origin",
     "invocation",
+    "userInvocable",
+    "argumentHint",
     "native",
     "alwaysOn"
   ],
-  "description": "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, whether the provider loads it itself, and whether it is always-on for the run's account."
+  "description": "A member of a run's skill set as its adapter is handed it: its name, description, origin and invocation, whether a person may invoke it and its argument hint, whether the provider loads it itself, and whether it is always-on for the run's account."
 }

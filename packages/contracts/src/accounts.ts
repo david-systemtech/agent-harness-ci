@@ -231,13 +231,23 @@ export const AccountCatalogue = z
   .meta({ description: "The models an account can use: enumerated live from its provider, or the adapter's static list." });
 export type AccountCatalogue = z.infer<typeof AccountCatalogue>;
 
-/** A slash command a provider offers an account in a workspace. */
+/**
+ * A command entry of `commands.list` (skills spec, "Materialisation and the
+ * Claude mapping"): a slash command the provider offers of its own, flagged
+ * when it is the provider's built-in, which a member's `/name` never
+ * shadows (skills spec, "Slash resolution").
+ */
 export const CommandEntry = z
   .object({
+    kind: z.literal("command"),
     name: z.string().min(1).meta({ description: "The command's name, without its slash." }),
     description: z.string().meta({ description: "The provider's one-line description of it." }),
+    builtin: z.boolean().meta({
+      description:
+        "Whether it is the provider's own built-in command, rather than one a user, a project or a plugin defined: /<name> stays the built-in's, and a skill of that name is reached as /skill:<name>.",
+    }),
   })
-  .meta({ description: "A slash command the provider offers an account in a workspace." });
+  .meta({ description: "A command entry of commands.list: a slash command the provider offers of its own, its built-ins flagged." });
 export type CommandEntry = z.infer<typeof CommandEntry>;
 
 /** Whether `accounts.add` started the account's sign-in, and what to tell a person when it did not. */

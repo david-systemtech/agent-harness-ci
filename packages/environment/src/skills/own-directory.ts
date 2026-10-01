@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ENVIRONMENT_STREAM_KIND, type SkillLayer, type SkillMember, type SkillOrigin } from "@agent-harness/contracts";
-import { formatActor, type EventInput, type EventLog, type StreamRef, type Tx } from "../event-log/event-log.js";
+import { formatActor, type EventInput, type EventLog, type JsonObject, type StreamRef, type Tx } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, CommandRejection, PreparedCommand } from "../serve/methods.js";
 import type { Trash } from "../serve/trash.js";
 import { folderNameOf, resolveSkillSet } from "./precedence.js";
@@ -79,11 +79,18 @@ const minimalSkill = (name: string, description: string): string =>
 /** Whether a member is `skills/` itself: a SKILL.md of its own makes the folder one skill, and no folder in it is read. */
 const isRootSkill = (member: SkillMember): boolean => member.path === SKILLS;
 
-/** The refusal while `skills/` is one skill: neither a create, whose folder would not be read, nor a remove, which would trash every folder in it. */
-const rootSkill = (name: string): CommandRejection<"conflict"> => ({
+/** Whether the own directory's members, as read, make `skills/` one skill, so no folder written into it would be read. */
+export const holdsRootSkill = (members: readonly SkillMember[]): boolean => members.some(isRootSkill);
+
+/**
+ * The refusal while `skills/` is one skill: neither a create or a carry
+ * over, whose folders would not be read, nor a remove, which would trash
+ * every folder in it. `data` names what the command was about.
+ */
+export const rootSkill = (data: JsonObject): CommandRejection<"conflict"> => ({
   code: "conflict",
   message: "The own directory's skills/ holds a SKILL.md of its own, so it is one skill and no folder in it is read: move that SKILL.md into a folder first.",
-  data: { reason: "root_skill", name },
+  data: { reason: "root_skill", ...data },
 });
 
 /** Whether anything, a link included, is at `path`. */
@@ -169,7 +176,7 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
           message: `The own directory already holds ${JSON.stringify(name)}: pick another name, or remove it first.`,
           data: { reason: "exists", name },
         });
-        if (members.some(isRootSkill)) return refusing(rootSkill(name));
+        if (holdsRootSkill(members)) return refusing(rootSkill({ name }));
         const folder = join(skillsFolder, name);
         if (members.some((member) => member.name === name) || (await occupied(folder)) || (await occupied(join(path, COMMANDS, `${name}.md`)))) return exists;
         await mkdir(skillsFolder, { recursive: true });
@@ -198,7 +205,7 @@ export const createOwnDirectory = (options: OwnDirectoryOptions): OwnDirectory =
           return refusing({ code: "not_found", message: `The own directory holds no skill named ${JSON.stringify(name)}.`, data: { kind: "skill", name } });
         }
         // Trashing skills/ itself would take every folder in it, which the root-skill rule leaves unread.
-        if (isRootSkill(member)) return refusing(rootSkill(name));
+        if (isRootSkill(member)) return refusing(rootSkill({ name }));
         const location = join(path, ...member.path.split("/"));
         const trashed = await trash.put(location);
         context.onUndo(() => trash.restore(trashed, location));

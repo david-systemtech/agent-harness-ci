@@ -54,4 +54,33 @@ describe("the scripted CDP peer", () => {
     page.navigate("https://example.com/next");
     await expect(call()).rejects.toThrow("Cannot find context with specified id");
   });
+
+  it("sends a document's request and response for a fetched address only: about:blank, which nothing serves, commits with none", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    const page = peer.createPage();
+    const session = await connection.attach(page.targetId);
+    const heard: string[] = [];
+    session.onEvent(({ method, params }) => {
+      if (method === "Page.frameNavigated") heard.push(`${method} ${(params.frame as { url: string }).url}`);
+      else if (method.startsWith("Network.") || method === "Page.frameStoppedLoading") heard.push(method);
+    });
+    const loadsStopped = () => heard.filter((method) => method === "Page.frameStoppedLoading").length;
+    await session.send("Page.enable");
+    await session.send("Network.enable");
+    page.navigate("https://example.com/");
+    await expect.poll(() => heard.at(-1), { timeout: 30_000 }).toBe("Network.loadingFinished");
+    page.navigate("about:blank");
+    await expect.poll(loadsStopped, { timeout: 30_000 }).toBe(2);
+    expect(heard).toEqual([
+      "Network.requestWillBeSent",
+      "Network.responseReceived",
+      "Page.frameNavigated https://example.com/",
+      "Page.frameStoppedLoading",
+      "Network.loadingFinished",
+      "Page.frameNavigated about:blank",
+      "Page.frameStoppedLoading",
+    ]);
+  });
 });

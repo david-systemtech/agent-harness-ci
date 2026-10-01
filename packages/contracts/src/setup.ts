@@ -205,14 +205,14 @@ const GivenResult = z.object({
   }),
   actions: z.array(OfferedAction).meta({
     description:
-      "The actions to offer beside the reason: those of the checks that failed, each once, or check-again alone on a result that timed out; empty when done or skipped. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
+      "The actions to offer beside the reason: those of the checks that failed, each once, after try-again, write-it-myself and start-over when an LLM step's latest minted session last ended with an error or was stopped, or check-again alone on a result that timed out; revise alone on a done LLM step; empty when skipped or done otherwise. The reader leaves out a verb it does not know, and one whose every target it leaves out.",
   }),
   targets: z
     .array(OfferedTarget)
     .optional()
     .meta({
       description:
-        "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once; absent when no check that failed named one. The reader leaves out one of a verb or a kind it does not know.",
+        "The items the actions apply to, each with the action it serves, as the checks that failed named them, in the entry's order and each once, after the session try-again continues when an LLM step's minted session stopped; on a done LLM step, each of its subjects for revise; absent when none is named. The reader leaves out one of a verb or a kind it does not know.",
     }),
   checkedAt: Timestamp.meta({ description: "When the check ran, on the environment's clock." }),
   lastGood: LastGood.optional(),

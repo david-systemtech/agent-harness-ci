@@ -1,6 +1,7 @@
 import {
   FORGE_EVENT_PAYLOADS,
   ForgeAccountRecord,
+  GH_MINIMUM_VERSION,
   GITHUB_ORIGIN,
   UNKNOWN_FORGE_CAPABILITIES,
   deriveForgeSlug,
@@ -9,10 +10,13 @@ import {
   invalidParams,
   normaliseRemote,
   type ForgeAddCredential,
+  type ForgeAlias,
   type ForgeCapabilities,
   type ForgeCredentialSource,
   type ForgeKind,
+  type ForgeOrigin,
   type ForgeProblem,
+  type GhProbe,
 } from "@agent-harness/contracts";
 import { uuidv4 } from "../ids.js";
 import type { FakeAnswer, FakeWire } from "./fake-wire.js";
@@ -27,7 +31,9 @@ import type { ManualClock } from "./in-memory-platform.js";
  * environment stream, so a client's request cache reads the list again and
  * its notices hear the problems. `forge.detect` answers the kind the script
  * gives an origin (github.com GitHub, any other Forgejo); a token the script
- * names is refused, any other answers as the script's login. The tokens the
+ * names is refused, any other answers as the script's login; an alias
+ * answers as the script says (#589), and `forge.gh.probe` what the
+ * environment's own `gh` is. The tokens the
  * environment keeps are the test's to read (`forgeToken`), never answered
  * on the wire. A test has the environment's own verification find a problem
  * (`verifyForge`).
@@ -35,6 +41,9 @@ import type { ManualClock } from "./in-memory-platform.js";
 
 /** What `forge.detect` finds at an origin: a kind a forge account is added for, GitLab (refused), or no forge at all. */
 export type ScriptedDetection = ForgeKind | "not_a_forge" | "unreachable";
+
+/** How an alias's origin answers a forge account's credential: as the same login and user id, as someone else, or not at all. */
+export type ScriptedAliasAnswer = "same" | "someone-else" | "unreachable";
 
 export interface ScriptedForges {
   /** The forge accounts held from the start, each over a GitHub one on github.com with a pasted token, verified as the login, the first primary; the fields given replace its own. */
@@ -45,6 +54,10 @@ export interface ScriptedForges {
   readonly rejects?: readonly string[];
   /** Who a credential answers as: preset `david`, user id 42. */
   readonly login?: string;
+  /** How each alias origin answers a forge account's credential (`forge.accounts.update`): preset as the same login and user id. */
+  readonly aliases?: Readonly<Record<string, ScriptedAliasAnswer>>;
+  /** What `forge.gh.probe` answers of the environment's own `gh`, over none installed. */
+  readonly gh?: Partial<GhProbe>;
 }
 
 export interface ScriptedForgesHandle {
@@ -75,7 +88,7 @@ export interface ForgesHost {
 }
 
 /** The forge commands this module answers, which a script's receipts never answer in its place. */
-export const FORGE_COMMANDS: readonly string[] = ["forge.accounts.add", "forge.accounts.remove", "forge.accounts.setPrimary"];
+export const FORGE_COMMANDS: readonly string[] = ["forge.accounts.add", "forge.accounts.update", "forge.accounts.remove", "forge.accounts.setPrimary"];
 
 /** The label the scripted environment knows the calling client session by. */
 const CLIENT_LABEL = "seth@desk";
@@ -251,6 +264,68 @@ export const scriptedForges = (host: ForgesHost): ScriptedForgesHandle => {
     });
     return accepted({ account: record });
   });
+
+  /** Who an alias's origin answers a credential as, by what the script says of it. */
+  const aliasAnswer = (origin: ForgeOrigin): ScriptedAliasAnswer => script.aliases?.[origin] ?? "same";
+
+  wire.answer("forge.accounts.update", (params) => {
+    const refusal = host.refusal("forge.accounts.update");
+    if (refusal) return refusal;
+    const record = find(params["forgeAccountId"]);
+    if (record === undefined) return notFound(params["forgeAccountId"]);
+    let next: ForgeAccountRecord = record;
+    const changed: Record<string, unknown> = { forgeAccountId: record.id };
+    const given = params["aliases"] as readonly string[] | undefined;
+    if (given !== undefined) {
+      const origins: ForgeOrigin[] = [];
+      for (const [index, text] of given.entries()) {
+        const alias = normaliseRemote(text)?.origin;
+        const problem = alias === undefined ? "names no forge: give its https or http address" : alias === record.origin ? "is the forge account's own origin, not an alias of it" : null;
+        if (problem !== null) {
+          const message = `The alias ${index + 1} ${problem}.`;
+          return { error: invalidParams([{ code: "custom", path: ["aliases", index], message }], message) };
+        }
+        if (alias !== undefined && !origins.includes(alias)) origins.push(alias);
+      }
+      const held = origins.find((origin) => accounts.some((account) => account.id !== record.id && (account.origin === origin || account.aliases.some((alias) => alias.origin === origin))));
+      if (held !== undefined) return rejected("conflict", `${held} is already held by another forge account on this environment.`, { reason: "origin_held", origin: held });
+      const aliases: ForgeAlias[] = [];
+      for (const origin of origins) {
+        const kept = record.aliases.find((alias) => alias.origin === origin && alias.verifiedAt !== null);
+        const answer = aliasAnswer(origin);
+        if (kept !== undefined) aliases.push(kept);
+        else if (record.identity === null || answer === "unreachable") aliases.push({ origin, verifiedAt: null });
+        else if (answer === "same") aliases.push({ origin, verifiedAt: now() });
+        else {
+          const found = { login: "other", userId: "7" };
+          const expected = record.identity;
+          return rejected(
+            "alias_identity_mismatch",
+            `${origin} answers the credential as ${found.login} (user ${found.userId}), not ${expected.login} (user ${expected.userId}): it is not the same forge. Nothing was changed.`,
+            { origin, expected, found, status: 200 },
+          );
+        }
+      }
+      next = { ...next, aliases };
+      changed["aliases"] = aliases;
+    }
+    const credential = params["credential"] as ForgeAddCredential | undefined;
+    if (credential !== undefined) {
+      if (credential.kind === "stored" && (script.rejects ?? []).includes(credential.token)) {
+        return rejected("verification_failed", `${record.origin} refused the token (HTTP 401): nothing was stored.`, { origin: record.origin, status: 401 });
+      }
+      const { source, token } = sourceOf(record.id, credential);
+      next = { ...next, credential: source, identity, problem: null, statusSince: record.problem === null ? record.statusSince : now() };
+      if (token !== undefined) vault.set(record.id, token);
+      else vault.delete(record.id);
+      Object.assign(changed, { credential: source, identity, problem: null });
+    }
+    put(next);
+    event("forge.account.updated", changed);
+    return accepted({ account: find(record.id) });
+  });
+
+  wire.answer("forge.gh.probe", () => ({ result: { installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [], ...script.gh } }));
 
   wire.answer("forge.accounts.remove", (params) => {
     const refusal = host.refusal("forge.accounts.remove");

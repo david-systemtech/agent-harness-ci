@@ -1,13 +1,13 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { settingsRow } from "@agent-harness/contracts";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { AddForge } from "./add-forge.js";
-import { ForgeCard } from "./forge-card.js";
+import { AddForge, type AddForgeGh } from "./add-forge.js";
+import { ForgeCard, type ForgeCardProps } from "./forge-card.js";
 
 /**
  * The Forges row, `access.forges` (forge spec, "The Forges step" and "Wire
@@ -29,30 +29,45 @@ export const ForgesPane = () => {
   return picked === undefined ? null : <ForgesOn key={picked.environmentId} view={picked} />;
 };
 
-const ForgesOn = ({ view }: { readonly view: EnvironmentView }) => {
+/** The row offers this computer's `gh` on every environment, and leaves the environment's own to the Forges step (#589). */
+const ROW_GH: AddForgeGh = { computer: true, machine: false };
+
+const ForgesOn = ({ view }: { readonly view: EnvironmentView }) => (
+  <>
+    <p className="text-sm text-ink-muted">{settingsRow("access.forges").hint}</p>
+    <ForgesList view={view} Account={ForgeCard} gh={ROW_GH} />
+  </>
+);
+
+export interface ForgesListProps {
+  readonly view: EnvironmentView;
+  /** How each forge account is drawn: the Forges row's card, or the Forges step's row (#589). */
+  readonly Account: ComponentType<ForgeCardProps>;
+  /** The `gh` paths Add a forge offers. */
+  readonly gh: AddForgeGh;
+}
+
+/**
+ * The forge accounts on an environment and Add a forge, as the Forges row
+ * and the Forges step's card both draw them: `forge.accounts.list` from the
+ * request cache, each drawn as `Account`, and the line the last command
+ * said. Without the `forge` flag it holds the flag's line alone.
+ */
+export const ForgesList = ({ view, Account, gh }: ForgesListProps) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const flagged = runtime.capability(environmentId, "forge");
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "forge.accounts.list", {}), [runtime, environmentId]));
   const [adding, setAdding] = useState(false);
   const [line, say] = useState<string | undefined>(undefined);
-  const hint = <p className="text-sm text-ink-muted">{settingsRow("access.forges").hint}</p>;
 
-  if (flagged.status === "absent" && flagged.reason === "unsupported") {
-    return (
-      <>
-        {hint}
-        <p className="text-sm text-amber">{flagged.message}</p>
-      </>
-    );
-  }
+  if (flagged.status === "absent" && flagged.reason === "unsupported") return <p className="text-sm text-amber">{flagged.message}</p>;
   const accounts = listed.result?.accounts ?? null;
   const ready = view.phase === "ready";
   const admin = runtime.capability(environmentId, "forge.accounts.add");
   const writable = admin.status === "present";
   return (
     <>
-      {hint}
       {!ready && (
         <p className="text-sm text-amber">
           {reachWords(runtime, view)}: {accounts === null ? "this window has read none of its forge accounts." : "its forge accounts as this window last read them, read-only."}
@@ -69,8 +84,8 @@ const ForgesOn = ({ view }: { readonly view: EnvironmentView }) => {
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the forge accounts…" : `The forge accounts could not be read: ${listed.error.message}`}</p>
         : accounts.length === 0
           ? <p className="text-sm text-ink-muted">No forge account is on this environment.</p>
-          : accounts.map((account) => <ForgeCard key={account.id} environmentId={environmentId} account={account} writable={writable} say={say} />)}
-      {adding && <AddForge environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} />}
+          : accounts.map((account) => <Account key={account.id} environmentId={environmentId} account={account} writable={writable} say={say} />)}
+      {adding && <AddForge environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} gh={gh} />}
     </>
   );
 };

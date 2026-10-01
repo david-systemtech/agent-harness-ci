@@ -632,7 +632,7 @@
           "type": "null"
         }
       ],
-      "description": "The definition as it would be saved; null when an issue refuses it."
+      "description": "The definition as it would be saved, its workspace placed on this environment; null when the document does not read as a routine. A name another routine holds is an issue beside it."
     },
     "issues": {
       "type": "array",

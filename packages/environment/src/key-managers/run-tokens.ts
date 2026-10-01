@@ -5,6 +5,7 @@ import type { SuppliedVariables } from "../adapter/contract.js";
 import { holderName, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
 import { openBaoBlock } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
@@ -102,6 +103,8 @@ export interface RunTokensOptions {
   readonly cliDirectory: string;
   /** How long one call to a key manager may take, on the wall clock. */
   readonly budgetMs: number;
+  /** Where each renewal and revocation runs, off any request (#745). */
+  readonly background: BackgroundWork;
 }
 
 export interface RunTokens {
@@ -129,7 +132,7 @@ interface HeldRunToken {
 const NOTHING: SuppliedVariables = { variables: {}, release: () => undefined };
 
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
-  const { source, clock, scrub, budgetMs } = options;
+  const { source, clock, scrub, budgetMs, background } = options;
   const held = new Set<HeldRunToken>();
   /** How many times each connection's run tokens were all revoked (its sign-outs and removal): a mint under way across one is revoked as it lands. */
   const revocations = new Map<string, number>();
@@ -191,7 +194,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
         registered();
         use();
       },
-      renewal: clock.setInterval(() => void renew(run).catch((error: unknown) => console.error("Renewing a run token failed:", error)), RUN_TOKEN_RENEWAL_MS),
+      renewal: clock.setInterval(() => background.run(renew(run).catch((error: unknown) => console.error("Renewing a run token failed:", error))), RUN_TOKEN_RENEWAL_MS),
       revoked: false,
     };
     held.add(run);
@@ -204,9 +207,11 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     held.delete(run);
     if (run.revoked) return run.unregister();
     run.revoked = true;
-    void revoke(run)
-      .catch((error: unknown) => console.error("Revoking a run token failed:", error))
-      .finally(run.unregister);
+    background.run(
+      revoke(run)
+        .catch((error: unknown) => console.error("Revoking a run token failed:", error))
+        .finally(run.unregister),
+    );
   };
 
   /** Waits up to five seconds on the environment's clock for the connection's sign-in under way, if one is. */
@@ -313,7 +318,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
         if (run.connectionId !== connectionId || run.revoked) continue;
         run.revoked = true;
         run.renewal.cancel();
-        void revoke(run).catch((error: unknown) => console.error("Revoking a run token failed:", error));
+        background.run(revoke(run).catch((error: unknown) => console.error("Revoking a run token failed:", error)));
       }
     },
 

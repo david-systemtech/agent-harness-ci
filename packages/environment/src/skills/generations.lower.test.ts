@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, symlinkSync, writeFileSync, type RmOptions } from "node:fs";
 import { join } from "node:path";
 import { SKILL_PLUGIN_NAME } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -25,10 +25,29 @@ import { GENERATIONS_DIRECTORY, GENERATION_SWEEP_INTERVAL_MS, createGenerations,
  */
 const refusals = vi.hoisted(() => ({ fileSymlinks: false, nextHardLink: false, unlinksBeforeBusy: null as number | null }));
 
+/**
+ * Whether a recursive `rm` follows each link it meets and deletes what the
+ * link leads to: the worst a platform's recursive removal could do with a
+ * junction, which a generation's deletion must not rely on any platform not
+ * doing.
+ */
+const recursiveRemoval = vi.hoisted(() => ({ followsLinks: false }));
+
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const { join: joined } = await import("node:path");
+  /** Deletes what each link under `path` leads to. */
+  const deleteThroughLinks = async (path: string): Promise<void> => {
+    const found = await actual.lstat(path).catch(() => null);
+    if (found?.isSymbolicLink()) await actual.rm(await actual.realpath(path), { recursive: true, force: true });
+    else if (found?.isDirectory()) for (const entry of await actual.readdir(path)) await deleteThroughLinks(joined(path, entry));
+  };
   return {
     ...actual,
+    rm: async (path: string, options?: RmOptions) => {
+      if (recursiveRemoval.followsLinks && options?.recursive === true) await deleteThroughLinks(path);
+      return actual.rm(path, options);
+    },
     symlink: (target: string, path: string, type?: string) =>
       refusals.fileSymlinks && type === "file"
         ? Promise.reject(Object.assign(new Error(`EPERM: operation not permitted, symlink '${target}' -> '${path}'`), { code: "EPERM" }))
@@ -70,26 +89,32 @@ const fixture = (options: Partial<GenerationsOptions> = {}) => {
   const generations = createGenerations({ dataDir, clock, ...options });
   const tdd: PlacedMember = {
     name: "tdd",
+    description: "Test-driven development.",
     kind: "skill",
     target: join(own, "skills", "tdd"),
     origin: null,
     commit: null,
     invocation: "model+slash",
+    userInvocable: true,
+    argumentHint: null,
     native: false,
     alwaysOn: false,
   };
-  const review: PlacedMember = { ...tdd, name: "review", kind: "command", target: join(own, "commands", "review.md") };
+  const review: PlacedMember = { ...tdd, name: "review", description: "Review the branch.", kind: "command", target: join(own, "commands", "review.md") };
   return { dataDir, own, clock, generations, tdd, review, root: join(dataDir, GENERATIONS_DIRECTORY) };
 };
 
 /** A native member: a trusted repository's `.claude/skills` member, which the adapter loads itself. */
 const native = (name: string): PlacedMember => ({
   name,
+  description: `The repository's ${name}.`,
   kind: "skill",
   target: `/work/repo/.claude/skills/${name}`,
   origin: { kind: "repository", repository: "github.com/david/repo", path: `.claude/skills/${name}` },
   commit: null,
   invocation: "model+slash",
+  userInvocable: true,
+  argumentHint: null,
   native: true,
   alwaysOn: false,
 });
@@ -228,6 +253,29 @@ describe("the sweep", () => {
     // What the cut-short deletion left goes at the next sweep, with the generation no resolution holds current.
     await generations.sweep();
     expect(listed(root)).toEqual([whole.fingerprint]);
+  });
+
+  it("deletes in one sweep a generation whose command folder holds more than its SKILL.md, never following a link there or a member's to what it leads to", async () => {
+    const { generations, tdd, review, root, own } = fixture();
+    const stale = await generations.materialise({ members: [tdd, review], hiddenNativeNames: [] }, "scope");
+    const kept = await generations.materialise({ members: [tdd], hiddenNativeNames: [] }, "scope");
+    await generations.sweep();
+    // What a run at containment off could leave in a command folder: a file, and a link to a folder outside the generation.
+    const folder = join(stale.generation as string, "skills", "review");
+    write(join(folder, "notes.md"), "Left by a run.\n");
+    const outside = tempDir();
+    write(join(outside, "kept.md"), "Not the generation's.\n");
+    symlinkSync(outside, join(folder, "elsewhere"), "dir");
+    recursiveRemoval.followsLinks = true;
+    onCleanup(() => void (recursiveRemoval.followsLinks = false));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => errors.mockRestore());
+    await generations.sweep();
+    expect(errors).not.toHaveBeenCalled();
+    expect(listed(root)).toEqual([kept.fingerprint]);
+    expect(readFileSync(join(outside, "kept.md"), "utf8")).toBe("Not the generation's.\n");
+    expect(readFileSync(join(own, "skills", "tdd", "scripts", "run.sh"), "utf8")).toBe("#!/bin/sh\necho red\n");
+    expect(readFileSync(review.target, "utf8")).toContain("Review it.");
   });
 
   it("clears what a start before this one left: generations and a build a crash cut short", async () => {

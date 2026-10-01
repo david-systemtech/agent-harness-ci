@@ -15,7 +15,7 @@ import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-di
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
-import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
+import { mirrorUserTitle, readGeneratedTitle, readStoredSession, readSubagentTranscript, resolveForkPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { readDirectoryHistory } from "./imported-history.js";
 import { createLoginRefresher, reachedPlanLimits, type RefreshOutcome } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
@@ -277,6 +277,12 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
+    async hasHistoryBefore(account, sessionId, providerSessionId, messageId) {
+      const stored = await readStoredSession({ queue, harnessSessionId: sessionId, directory: configDirectory(account), providerSessionId, sessionStore: store ?? null, getSessionMessages: sdkGetSessionMessages });
+      if (resolveForkPoint(stored, messageId) !== null) return true;
+      // A failed continuation may have branched past the anchor: startup resumes that chain unchanged (#137).
+      return !stored.some((entry) => entry.uuid === messageId) && store !== undefined && await storedHolds(store, sessionId, providerSessionId, messageId);
+    },
     // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
     ambientDirectory: () => ambient,
     async models(account) {
@@ -329,7 +335,9 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
         // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.
         const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted };
         const commands = await withControlQuery(asked, (query) => query.supportedCommands());
-        return commands.filter((command) => command.name !== "").map((command) => ({ name: command.name, description: command.description }));
+        // The pinned SDK marks Claude Code's own commands `builtin` and leaves a user's, a project's or a plugin's unmarked
+        // (verified on 0.3.283, CLI 2.1.283, #503), so no list of the built-ins is kept here.
+        return commands.filter((command) => command.name !== "").map((command) => ({ name: command.name, description: command.description, builtin: command.builtin === true }));
       } catch (error) {
         diagnostic(`Listing the commands of the Claude account ${account.id} failed.`, error);
         return [];

@@ -93,7 +93,7 @@ const SecretCheck = z
     reference: KeyManagerReference.meta({ description: "The key-manager reference that must resolve; its value is never asked for in a session." }),
     ...explained,
   })
-  .meta({ description: "secret: a key-manager reference resolves through the environment's key-manager registry. Not evaluated yet: it fails as such." });
+  .meta({ description: "secret: a key-manager reference resolves through the environment's key-manager registry, read in process and let go at once: its value is never shown, kept or asked for in a session." });
 
 /** A ref `changes-since` compares with: never an option, never white space. */
 const GitRef = z
@@ -116,7 +116,10 @@ const GitCheck = z
       .meta({ description: "HEAD holds changes since its merge base with the ref: what git diff <ref>...HEAD shows is not empty." }),
     z
       .strictObject({ kind: z.literal("git"), condition: z.literal("forge-account"), ...explained })
-      .meta({ description: "The repository's origin has a forge account on this environment. Not evaluated yet: it fails as such." }),
+      .meta({
+        description:
+          "A forge account on this environment serves the repository's remote (origin, else the only one, else the first by name, as its identity reads it) on its canonical origin or a verified alias.",
+      }),
   ])
   .meta({ description: "git: a condition of the workspace's repository: repository, merge-in-progress, changes-since (a ref) or forge-account." });
 
@@ -139,7 +142,7 @@ const McpCheck = z
       .meta({ description: "The name one of the run's tool servers must have." }),
     ...explained,
   })
-  .meta({ description: "mcp: among the tool servers the session's next run is given, one has that name. Not evaluated yet: it fails as such." });
+  .meta({ description: "mcp: among the tool servers the session's next run is given (without a session, a new session's of that account and workspace), one has that name." });
 
 const ProviderCheck = z
   .strictObject({
@@ -201,7 +204,7 @@ export type ReadinessDeclarer = z.infer<typeof ReadinessDeclarer>;
 export const READINESS_FAILURE_OUTCOMES = ["failed", "timed-out", "not-evaluated"] as const;
 export const ReadinessFailureOutcome = z.enum(READINESS_FAILURE_OUTCOMES).meta({
   description:
-    "How the check failed: failed (it ran and does not hold), timed-out (it could not be checked in time: five seconds, within the call's ten), or not-evaluated (a secret, mcp or git forge-account check, which this environment does not evaluate yet).",
+    "How the check failed: failed (it ran and does not hold), timed-out (it could not be checked in time: five seconds, within the call's ten), or not-evaluated (a kind the environment does not evaluate: an environment from before secret, mcp and git forge-account checks were evaluated answers those so).",
 });
 export type ReadinessFailureOutcome = z.infer<typeof ReadinessFailureOutcome>;
 
