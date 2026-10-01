@@ -272,6 +272,26 @@ describe("this client's own check", () => {
     expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", checkedAt: after(1), stale: false });
   });
 
+  it("reads as asked a result its check changed, which the environment notices too, and as followed one a later check noticed with the same checked-at (#671)", async () => {
+    const { runtime, wire, env, environment } = await withResults();
+    const checks = heldChecks(wire);
+    const fixed = doneResult("permissions", { reason: "The denylist holds its presets.", checkedAt: after(1) });
+    const checking = runtime.setup.check(env, "permissions");
+    await flush();
+    // The check put the denylist right: the environment notices it, and answers it.
+    environment.event(noticeEvent(4, env, "setup.result-changed", fixed));
+    await flush();
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "done", asked: false });
+    checks.answer([fixed]);
+    expect(await checking).toMatchObject({ ok: true });
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "done", checkedAt: after(1), asked: true });
+
+    // Another client's check, on a clock that has not moved: the stream's shows, followed.
+    environment.event(noticeEvent(5, env, "setup.result-changed", attentionResult("permissions", "permissions.denylist", ["restore"], { checkedAt: after(1) })));
+    await flush();
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", checkedAt: after(1), asked: false });
+  });
+
   it("applies a newer environment's answer whole, its results of steps this build does not register beside the rest, each aged against the preset cadence (#672)", async () => {
     const { runtime, wire, clock, env } = await withResults();
     const checks = heldChecks(wire);

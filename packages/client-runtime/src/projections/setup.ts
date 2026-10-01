@@ -12,7 +12,7 @@ import {
 import type { ConnectionPhase, ConnectionRecord } from "../connections/records.js";
 import { derived, writable, type Observable } from "../observable.js";
 import type { Clock, Timer } from "../platform.js";
-import { REQUEST_TIMEOUT_MS, type RequestAnswer, type Requests } from "../requests.js";
+import { REQUEST_TIMEOUT_MS, canonical, type RequestAnswer, type Requests } from "../requests.js";
 import type { EnvironmentData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 import { stepHome } from "../settings/rows.js";
@@ -238,14 +238,14 @@ const countsOf = (steps: readonly SetupStepView[]): SetupCounts => {
 /**
  * The later of the stream's result and an answer's for one step, by when
  * each check ran, as the environment's cache keeps the check that started
- * last; the answer's on a tie, which is the one check both carry, since a
- * step's checks run one at a time (#571): a check this client asked for
- * that changed the result is noticed too, and is still the one it asked for
- * (#671).
+ * last; the stream's on a tie, since it is the cache's. The stream's result
+ * is still the one this client asked for when its answer carried that very
+ * result, checked-at included: a check of its own that changed the result is
+ * noticed too (#671).
  */
 const latest = (streamed: StepResult | undefined, answered: StepResult | undefined): Held | undefined => {
-  if (answered !== undefined && (streamed === undefined || Date.parse(answered.checkedAt) >= Date.parse(streamed.checkedAt))) return { result: answered, answered: true };
-  return streamed === undefined ? undefined : { result: streamed, answered: false };
+  if (answered !== undefined && (streamed === undefined || Date.parse(answered.checkedAt) > Date.parse(streamed.checkedAt))) return { result: answered, answered: true };
+  return streamed === undefined ? undefined : { result: streamed, answered: answered !== undefined && canonical(answered) === canonical(streamed) };
 };
 
 export const createSetup = (host: SetupHost): Setup => {
