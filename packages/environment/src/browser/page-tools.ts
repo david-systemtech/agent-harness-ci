@@ -6,6 +6,7 @@ import {
   WAIT_FOR_MS,
   type ChallengeKind,
   type JsonObject,
+  type OneTimeAllowance,
   type PageArgs,
   type PageArrival,
   type PageCallOf,
@@ -16,7 +17,8 @@ import {
   type PageValue,
   type PageVerb,
 } from "@agent-harness/contracts";
-import type { HostTool, HostToolResult } from "../adapter/contract.js";
+import type { HostTool, HostToolCall, HostToolResult, ToolGate } from "../adapter/contract.js";
+import { performBrowserCall } from "./denylist.js";
 import { CHALLENGE_NAMES } from "./web-read.js";
 
 /**
@@ -597,6 +599,12 @@ export interface ChosenBrowser {
 export interface PageToolsOptions {
   /** The session's page: the run environment's id and the session id. */
   readonly pageKey: PageKey;
+  /** The person's allow of the gate's prompt for this call. */
+  readonly allowance?: (call: HostToolCall) => OneTimeAllowance | undefined;
+  /** The session's live gate, captured before this call reaches its browser. */
+  readonly gate?: () => ToolGate | null;
+  /** The environment whose page policy the browser enforces. */
+  readonly environmentId?: () => string;
   /** The browser of the session's live run, looked up at each call, never the run that built the tools. */
   readonly live: () => LiveBrowser;
   /** The address each session's page last reported, kept across the session's runs for the frames of the verbs whose values name none. */
@@ -640,28 +648,39 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
     const browses = spec.verb === "open" || spec.verb === "navigate";
 
     /** The verb on `browser`, and what the model reads of it. */
-    const drive = async (input: Input, args: PageArgs<PageVerb>, browser: LiveBrowser): Promise<HostToolResult> => {
+    const drive = async (input: Input, args: PageArgs<PageVerb>, browser: LiveBrowser, call: HostToolCall): Promise<HostToolResult> => {
       if (browser.kind === "refused") return refused(browser.reason);
       const { driver } = browser;
       if (!(PAGE_DRIVER_ABILITIES[driver.kind].verbs as readonly PageVerb[]).includes(spec.verb)) {
         return refused(`${KIND_NAMES[driver.kind]}, this run's browser, has no ${name}: it reads and acts on pages, without the developer tools.`);
       }
       let result: PageResult<PageVerb>;
+      let resultVerb: PageVerb;
+      let answerInput = input;
       try {
-        result = await driver.perform({ pageKey, command: { verb: spec.verb, args } } as PageCallOf<PageVerb>);
+        const { result: performed, command } = await performBrowserCall(driver, { pageKey, command: { verb: spec.verb, args } } as PageCallOf<PageVerb>, {
+          call,
+          tool: `mcp__browser__${name}`,
+          input,
+          policy: { gate: options.gate?.(), environmentId: options.environmentId?.(), allowance: () => options.allowance?.(call) },
+          ...("snapshot" in args && args.snapshot !== undefined && { snapshot: args.snapshot }),
+        });
+        result = performed;
+        resultVerb = command.verb;
+        if (command.verb === "navigate" && "url" in command.args && typeof command.args.url === "string") answerInput = { ...input, address: command.args.url };
       } catch (error) {
         return refused(`The browser failed: ${error instanceof Error ? error.message : String(error)}.`);
       }
       if (!result.ok) return refused(result.reason);
       // A value from another machine (the extension, a relayed client) is checked against the verb here, where the call is known.
-      const value = PAGE_VERB_SCHEMAS[spec.verb].value.safeParse(result.value);
+      const value = PAGE_VERB_SCHEMAS[resultVerb].value.safeParse(result.value);
       if (!value.success) return refused(`The browser answered ${name} with a value it does not give: ${value.error.issues[0]?.message ?? "not valid"}.`);
-      const outcome = { verb: spec.verb, value: value.data } as Outcome;
-      if (spec.verb === "close") addresses.delete(pageKey);
+      const outcome = { verb: resultVerb, value: value.data } as Outcome;
+      if (resultVerb === "close") addresses.delete(pageKey);
       const reported = addressIn(outcome);
       if (reported !== undefined) remember(addresses, pageKey, reported);
       const notice = result.notice === undefined ? undefined : redactTokens(result.notice);
-      return answerOf(outcome, { kind: driver.kind, input, address: addresses.get(pageKey) ?? "this session's page", notice });
+      return answerOf(outcome, { kind: driver.kind, input: answerInput, address: addresses.get(pageKey) ?? "this session's page", notice });
     };
 
     return {
@@ -669,15 +688,15 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
       description,
       inputSchema: schemaOf(spec),
       ...(browses && { access: (input: JsonObject) => ({ kind: "browse" as const, urls: typeof input["address"] === "string" ? [input["address"]] : [] }) }),
-      call: async (given) => {
+      call: async (given, call) => {
         const input = passed(given);
         const args = argsOf(name, spec, input);
         if (typeof args === "string") return refused(args);
         // Only browser_open of the plain My Chrome takes browser: no other tool's input fits with it.
         const chromeName = input["browser"];
-        if (typeof chromeName !== "string" || choose === undefined) return drive(input, args, options.live());
+        if (typeof chromeName !== "string" || choose === undefined) return drive(input, args, options.live(), call);
         const browser = choose(chromeName);
-        const answer = await drive(input, args, browser);
+        const answer = await drive(input, args, browser, call);
         return "chosen" in browser ? { ...answer, text: `This session uses the Chrome ${browser.chosen} from now on.\n${answer.text}` } : answer;
       },
     };

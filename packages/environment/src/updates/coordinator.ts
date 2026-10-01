@@ -746,7 +746,11 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
 
     async channelContext() {
       const versions = launcher.present() ? await launcher.request({ type: "versions?" }) : undefined;
-      return { launcherProtocol: versions?.type === "versions" ? versions.launcherProtocol : null, failedVersions: readUpdateHistory(log).outcomes.failedVersions };
+      return {
+        launcherProtocol: versions?.type === "versions" ? versions.launcherProtocol : null,
+        ...(versions?.type === "versions" && versions.failedHandoverVersion !== undefined ? { failedHandoverVersion: versions.failedHandoverVersion } : {}),
+        failedVersions: readUpdateHistory(log).outcomes.failedVersions,
+      };
     },
 
     async follow(reading, settings) {

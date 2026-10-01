@@ -56,7 +56,9 @@ import type { ForgeRelease, ForgeReleaseAsset } from "../forge/providers.js";
  *   failed) that the launcher hosts, whose handover brings the launcher the
  *   next check goes onward with. With none, and no handover due from the
  *   running version's own launcher, the target is blocked (`launcher`) until
- *   `service install` from its release installs its launcher.
+ *   `service install` from its release installs its launcher. A failed
+ *   handover to the running release is no longer due: the block names
+ *   `service install` from that running release instead.
  * - **A pin** is checked the same way before it is set: refused when the
  *   release or this platform's artefact is missing, by the schema rule, or
  *   when the release cannot be read. **A requested version** (`updates.apply`
@@ -97,6 +99,8 @@ export const channelSettingsOf = (values: Pick<UpdateSettingsValues, "updates.au
 export interface ChannelContext {
   /** The launcher protocol the launcher running the environment speaks; null with no launcher, when no release is refused for it. */
   readonly launcherProtocol: number | null;
+  /** The version whose launcher handover failed, if the launcher reports one. */
+  readonly failedHandoverVersion?: string;
   /** The versions whose trial or watch failed (#344): never the target. */
   readonly failedVersions: readonly string[];
 }
@@ -226,8 +230,8 @@ const downloadFailureOf = (version: string, answer: Exclude<ForgeAnswer<unknown>
 };
 
 /** What unblocks a target that needs a newer launcher, for people. */
-const launcherMessage = (version: string, needs: number, speaks: number): string =>
-  `${version} needs launcher protocol ${needs}, and the launcher running this environment speaks ${speaks}: run \`${PRODUCT_NAME} service install\` from the ${version} release to install its launcher.`;
+const launcherMessage = (version: string, needs: number, speaks: number, installVersion = version): string =>
+  `${version} needs launcher protocol ${needs}, and the launcher running this environment speaks ${speaks}: run \`${PRODUCT_NAME} service install\` from the ${installVersion} release to install its launcher.`;
 
 export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseChannelReader => {
   const { forge, source, harnessVersion } = options;
@@ -402,9 +406,10 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
       const stone = await steppingStone(listed, target.version, { channel: settings.channel, failed, launcherProtocol });
       if (stone !== null && "outcome" in stone) return stone;
       if (stone !== null) return reading({ target, stage: stone });
-      // The running version's own launcher speaks a newer protocol: its handover is due, and the check after it goes onward.
-      if (ownLauncherProtocol > launcherProtocol) return reading({ target });
-      const message = launcherMessage(target.version, release.launcherProtocol, launcherProtocol);
+      // A handover to the running version's newer launcher is due unless it already failed.
+      if (ownLauncherProtocol > launcherProtocol && context.failedHandoverVersion !== harnessVersion) return reading({ target });
+      const installVersion = ownLauncherProtocol > launcherProtocol ? harnessVersion : target.version;
+      const message = launcherMessage(target.version, release.launcherProtocol, launcherProtocol, installVersion);
       return reading({ target, blocked: { reason: "launcher", toVersion: target.version, message } });
     },
 

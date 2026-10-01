@@ -609,7 +609,14 @@ export type ToolAccess =
   | { readonly kind: "shell"; readonly command: string }
   | { readonly kind: "fetch"; readonly urls: readonly string[] }
   | { readonly kind: "search"; readonly query: string; readonly domains?: readonly string[] }
-  | { readonly kind: "browse"; readonly urls: readonly string[] }
+  | {
+      readonly kind: "browse";
+      readonly urls: readonly string[];
+      /** A frame's match under the browser's own environment policy. */
+      readonly match?: DenylistMatch;
+      readonly frame?: "top-level" | "sub-frame";
+      readonly environmentId?: string;
+    }
   | { readonly kind: "other" };
 
 /**

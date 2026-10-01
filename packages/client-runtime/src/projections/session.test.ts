@@ -434,6 +434,19 @@ describe("session.forked", () => {
     expect(reduce(fork(null)).items).toEqual([{ kind: "forked", sequence: 4, fromSessionId: SOURCE, atMessageId: null }]);
   });
 
+  it("reads the same forked entry from a cached snapshot, before later events, without changing an older snapshot", () => {
+    const entry = { kind: "forked", sequence: 4, fromSessionId: SOURCE, atMessageId: FIXTURE_MESSAGE };
+    const kind = sessionKind();
+    const original = recordedSnapshot();
+    const data = kind.fromSnapshot({ ...original, runs: [], items: [entry], parkedPrompts: [], rewinds: [], instructions: "" });
+    const cached = kind.decode(kind.encode(data));
+    const later = numbered(5, [["run.started", recorded("run.started")], ["message.sent", recorded("message.sent")]]);
+    expect(reduceSession(cached.snapshot, later).items).toEqual(reduce([...fork(FIXTURE_MESSAGE), ...later]).items);
+    const older = kind.fromSnapshot(original);
+    expect(reduceSession(older.snapshot, []).items.some((item) => item.kind === "forked")).toBe(false);
+    expect(data.snapshot.items).toEqual([entry]);
+  });
+
   it("stays where it is when the fork is rewound to its first message, before the fold", () => {
     const { items } = reduce([
       ...fork(null),

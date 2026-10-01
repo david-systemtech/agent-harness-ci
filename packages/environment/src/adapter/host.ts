@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
+  EMPTY_RUN_SKILL_SET,
   RunInstructionsComposedPayload,
   SESSION_STREAM_KIND,
   lowerMode,
@@ -99,6 +100,7 @@ import { composeInstructions, instructionsDigest } from "../instructions/compose
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import { createProcessEnvironments, runOverrideOf, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
+import type { ToolGate } from "./contract.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
 import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
@@ -342,6 +344,8 @@ export interface AdapterHost {
   startFacts(sessionId: string, actor: RunActor): StartFacts;
   /** The session's live run and its adapter's descriptor; null when none is live. */
   live(sessionId: string): LiveRunFacts | null;
+  /** The live run's gate for a browser-discovered address; null with no live run. */
+  gate(sessionId: string): ToolGate | null;
   /**
    * The run the session counts as live, as a start does (`startFacts`): its
    * live run, or, while a turn its provider opened after that run's end waits
@@ -369,10 +373,11 @@ export interface AdapterHost {
   previewInstructions(target: InstructionTarget): Promise<ComposedInstructions>;
   /**
    * The scope `previewInstructions` composes for `target`, refused as it is,
-   * with the skill set a run would have resolved (#496): what the
-   * Orientation row renders the block for (#505).
+   * with the skill set a run would have resolved (#496).
    */
   previewScope(target: InstructionTarget): Promise<InstructionScope>;
+  /** The Orientation row and health check's local scope: no skill materialisation or provider process decision. */
+  orientationScope(accountId: string, workspace: Workspace, injection: InjectionDecision): InstructionScope;
   /**
    * Stages on disk the attachments of a message about to be queued, inside
    * the command that queues it and before it answers, so its receipt means
@@ -2171,11 +2176,24 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     admit: () => registry.admit(),
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),
+    gate: (sessionId) => {
+      const entry = live.get(sessionId);
+      if (entry === undefined || entry.ended) return null;
+      const gate = gateFor(gatedRun(entry));
+      return { check: (call, signal) => {
+        if (entry.ended || live.get(sessionId) !== entry) return Promise.resolve({ decision: "deny", message: RUN_ENDED_MESSAGE });
+        return gate.check(call, signal);
+      } };
+    },
     runActive,
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
     previewScope,
+    orientationScope(accountId, workspace, injection) {
+      const account = placeAccount({ sessionId: null, accountId, workspace, repositoryIdentity: null, containment: null });
+      return instructionScope({ sessionId: null, account, workspace, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
+    },
     async previewInstructions(target) {
       return instructions(await previewScope(target));
     },

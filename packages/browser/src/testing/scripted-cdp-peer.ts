@@ -53,6 +53,8 @@ export interface ScriptedFrame {
 export interface InPageCall {
   /** The function's name, from its declaration (`function locateElement(…)` is `locateElement`). */
   readonly name: string;
+  /** The declaration as sent, which a test may run in a page of its own (a jsdom window) to answer as the page would. */
+  readonly declaration: string;
   readonly args: readonly unknown[];
   readonly frame: ScriptedFrame;
   /** The isolated world's name, as the driver made it. */
@@ -242,6 +244,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
   /** Owner elements resolved into a world, by object id. */
   const objects = new Map<string, { readonly contextId: number; readonly owner: OwnerModel }>();
   /** Each browser context's cookies, by host and name. */
+  const browserContexts = new Set<string>();
   const jars = new Map<string, Map<string, { readonly name: string; readonly value: string; readonly domain: string }>>();
   let holding = false;
   let counter = 0;
@@ -511,9 +514,15 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
       switch (method) {
         case "Browser.getVersion":
           return { protocolVersion: "1.3", product: "ScriptedChromium/1.0", revision: "0", userAgent: "ScriptedChromium", jsVersion: "0" };
-        case "Target.createBrowserContext":
-          return { browserContextId: next("CONTEXT").toUpperCase() };
+        case "Target.getBrowserContexts":
+          return { browserContextIds: [...browserContexts] };
+        case "Target.createBrowserContext": {
+          const browserContextId = next("CONTEXT").toUpperCase();
+          browserContexts.add(browserContextId);
+          return { browserContextId };
+        }
         case "Target.disposeBrowserContext":
+          browserContexts.delete(params.browserContextId as string);
           for (const target of [...targets.values()]) if (target.browserContextId === params.browserContextId) closeTarget(target);
           jars.delete(params.browserContextId as string);
           return {};
@@ -562,6 +571,8 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
     }
     const target = session.target;
     switch (method) {
+      case "Runtime.getHeapUsage":
+        return { usedSize: 0, totalSize: 0 };
       case "Page.enable":
       case "Runtime.enable":
       case "Log.enable":
@@ -665,6 +676,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
         try {
           const value = answer?.({
             name: functionName(declaration),
+            declaration,
             args,
             frame: { ...frame, targetId: target.targetId },
             worldName: world.name,
