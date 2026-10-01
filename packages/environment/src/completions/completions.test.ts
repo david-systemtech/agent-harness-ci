@@ -1097,11 +1097,11 @@ describe("session continuity", () => {
     // A read-now: its run reads the message with the queued turn's, and that turn's answer carries the reply.
     const readNow = holding();
     const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: readNow.instructions } });
-    const { token: program2 } = await program(u);
-    const second = await stream(u, program2, turn("First"));
+    const { token: readNowToken } = await program(u);
+    const second = await stream(u, readNowToken, turn("First"));
     const head = await second.chunk();
     const sessionId = head["agent-harness"].sessionId as string;
-    const queued = await stream(u, program2, turn("Then this", { "agent-harness": { sessionId } }));
+    const queued = await stream(u, readNowToken, turn("Then this", { "agent-harness": { sessionId } }));
     await queued.chunk();
     await readNow.composing.opened;
     await (await u.client()).request("runs.readNow", { commandId: randomUUID(), sessionId });

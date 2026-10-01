@@ -411,7 +411,7 @@ export const createRenderer = (options: RendererOptions) => {
         case "message.requeued": {
           // The run a prompt turn started ends before its adapter had the prompt (interrupted while it composed its
           // instructions): the host takes the prompt back into the environment's queue just before the end, and the
-          // next run reads it, so the answer ends naming it waiting rather than following that run (#833).
+          // next run reads it, so the answer ends naming it waiting, never following the run that reads it (#833).
           const { messageId } = event.payload as MessageRequeuedPayload;
           if (queued === null && messageId === options.head.messageId) takenBack = messageId;
           return;
