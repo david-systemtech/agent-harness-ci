@@ -830,26 +830,28 @@
               "properties": {
                 "operation": {
                   "type": "string",
-                  "const": "list"
+                  "const": "list",
+                  "description": "List the paired Chromes of the target environment before matching browser_open's browser name."
                 },
                 "environmentId": {
                   "type": "string",
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                  "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+                  "description": "The environment the Chromes are paired with, which the client reaches through its local connection."
                 },
                 "deadline": {
                   "type": "string",
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-                  "description": "An instant as an ISO 8601 UTC timestamp."
+                  "description": "When the run stops waiting for the list, on the run environment's clock. A later answer is dropped."
                 }
               },
               "required": [
                 "operation",
                 "environmentId",
                 "deadline"
-              ]
+              ],
+              "description": "A browser.chrome call that lists another environment's paired Chromes through the addressed client's local connection."
             }
           ]
         }

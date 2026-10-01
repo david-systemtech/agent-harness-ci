@@ -5,10 +5,12 @@
   "properties": {
     "ok": {
       "type": "boolean",
-      "const": true
+      "const": true,
+      "description": "The client read the target environment's paired Chromes."
     },
     "environmentName": {
-      "type": "string"
+      "type": "string",
+      "description": "The target environment's name, used in the sentence when no paired Chrome matches."
     },
     "chromes": {
       "type": "array",
@@ -64,12 +66,14 @@
           "outdated"
         ],
         "description": "A paired Chrome: its id, name, pairing time, last connection time and last reported version, whether it is connected, and whether it is outdated."
-      }
+      },
+      "description": "The target environment's paired Chromes, including their names and live connection state."
     }
   },
   "required": [
     "ok",
     "environmentName",
     "chromes"
-  ]
+  ],
+  "description": "The paired-Chrome list returned in client.answer, never appended to the run environment's log."
 }
