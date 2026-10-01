@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { cdpConnection, cdpPageDriver, pipeTransport, webSocketTransport, type CdpConnection, type CdpSession, type CdpTransport, type PageHost } from "@agent-harness/browser";
-import type { HeadlessBrowserStatus, HeadlessSource, PageDriver, PageKey, PagePolicy } from "@agent-harness/contracts";
+import type { HeadlessBrowserStatus, HeadlessLimits, HeadlessSource, PageDriver, PageKey, PagePolicy } from "@agent-harness/contracts";
+import type { Clock, Timer } from "../serve/clock.js";
 import type { AddressRules } from "./address-rules.js";
 import type { FoundExecutable } from "./headless-executable.js";
 import { launchArguments, type BrowserLauncher, type LaunchedBrowser } from "./headless-launch.js";
@@ -33,7 +34,7 @@ import type { HeadlessAvailability } from "./run-browser.js";
  * settings no longer name is let go when they change (`refresh`): its pages
  * go, and each session is told so at its next call. The tab rules (idle
  * contexts, the most contexts, the exit with none, the heap watchdog) are
- * #556's.
+ * enforced here (#556), on the environment's clock.
  */
 
 /** The settings the headless browser reads, as they are now. */
@@ -41,11 +42,13 @@ export interface HeadlessSettings {
   readonly allowRuns: boolean;
   readonly endpoint: string | null;
   readonly executable: string | null;
+  readonly limits: HeadlessLimits;
 }
 
 export interface HeadlessBrowserOptions {
   /** The environment's data directory, where a launched browser's throwaway profiles are made. */
   readonly dataDir: string;
+  readonly clock: Clock;
   readonly settings: () => HeadlessSettings;
   /** The page policy the frame judge reads beside the navigation policy: the denylist's browser section and the dev sites. */
   readonly policy: () => PagePolicy;
@@ -67,6 +70,8 @@ export interface HeadlessBrowser {
   readonly driver: PageDriver;
   /** Lets go of a browser the settings no longer name. */
   refresh(): void;
+  /** Gives back a deleted session's context and forgets its pending notice. */
+  release(pageKey: PageKey): Promise<void>;
   /** Removes the throwaway profiles a stop left behind. Never rejects. */
   start(): Promise<void>;
   /** Lets go of the browser: a launched one is ended and its profile removed. */
@@ -97,14 +102,20 @@ type Sourced = { readonly ok: true; readonly source: HeadlessSource } | { readon
 interface HeldContext {
   readonly contextId: string;
   targetId: string | undefined;
+  lastUsed: number;
+  idle: Timer | undefined;
 }
 
 /** A browser the environment holds: its connection, each session's context, and how it is let go. */
 interface Held {
   readonly connection: CdpConnection;
   readonly contexts: Map<PageKey, HeldContext>;
+  emptySince: number;
+  empty: Timer | undefined;
   /** Lets go of it: the connection closed, and a launched browser ended and its profile removed. */
   readonly end: () => Promise<void>;
+  /** Ends the process too: Browser.close for an endpoint, kill for a launched browser. */
+  readonly exit: () => Promise<void>;
 }
 
 /** A browser's DevTools WebSocket address: the endpoint itself, or what `/json/version` names at an http or https one. */
@@ -140,14 +151,55 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
   const keyOf = (source: HeadlessSource): string => JSON.stringify(source);
 
   /** The browser for the source the settings named when it was asked for, connecting or launching; settled, while it holds. */
-  let current: { readonly key: string; readonly held: Promise<Held> } | undefined;
+  let current: { readonly key: string; readonly held: Promise<Held>; readonly abort: AbortController } | undefined;
   let settled: Held | undefined;
   let closed = false;
+  let restartingEndpoint: string | undefined;
+  const notices = new Map<PageKey, string>();
 
-  const holding = (connection: CdpConnection, end: () => Promise<void>): Held => {
+  // Context creation is serial across sessions, so simultaneous opens cannot overbook the browser.
+  let management = Promise.resolve();
+  const manage = <T>(work: () => Promise<T>): Promise<T> => {
+    const result = management.then(work, work);
+    management = result.then(() => undefined, () => undefined);
+    return result;
+  };
+
+  const armEmpty = (browser: Held): void => {
+    browser.empty?.cancel();
+    if (browser.contexts.size !== 0 || settled !== browser) return;
+    const left = browser.emptySince + options.settings().limits.exitMinutes * 60_000 - options.clock.now().getTime();
+    browser.empty = options.clock.setTimeout(() => {
+      void manage(async () => {
+        if (settled !== browser || browser.contexts.size !== 0) return;
+        if (options.clock.now().getTime() - browser.emptySince < options.settings().limits.exitMinutes * 60_000) return armEmpty(browser);
+        const source = sourced();
+        if (source.ok && source.source.kind === "endpoint") restartingEndpoint = source.source.endpoint;
+        await letGo(true);
+      });
+    }, Math.max(0, left));
+  };
+
+  const armIdle = (browser: Held, pageKey: PageKey, context: HeldContext): void => {
+    context.idle?.cancel();
+    const left = context.lastUsed + options.settings().limits.idleMinutes * 60_000 - options.clock.now().getTime();
+    context.idle = options.clock.setTimeout(() => {
+      void (async () => {
+        if (browser.contexts.get(pageKey) !== context) return;
+        const limit = options.settings().limits.idleMinutes;
+        if (options.clock.now().getTime() - context.lastUsed < limit * 60_000) return armIdle(browser, pageKey, context);
+        notices.set(pageKey, `The session's browser context closed after ${limit} idle minutes. Open it again with browser_open.`);
+        await rawDriver.perform({ pageKey, command: { verb: "close", args: {} } });
+      })();
+    }, Math.max(0, left));
+  };
+
+  const holding = (connection: CdpConnection, end: () => Promise<void>, exit?: () => Promise<void>): Held => {
     let ending: Promise<void> | undefined;
-    const held: Held = { connection, contexts: new Map(), end: () => (ending ??= end()) };
+    const held: Held = { connection, contexts: new Map(), emptySince: options.clock.now().getTime(), empty: undefined, end: () => (ending ??= end()), exit: exit ?? (() => held.end()) };
     connection.onClose(() => {
+      held.empty?.cancel();
+      for (const context of held.contexts.values()) context.idle?.cancel();
       held.contexts.clear();
       if (settled === held) settled = undefined;
       void held.end();
@@ -161,6 +213,17 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
     const ended = gone?.then((how) => Promise.reject(new Error(how)));
     try {
       await within(Promise.race([connection.send("Browser.getVersion"), ...(ended ? [ended] : [])]), ANSWER_MS, what);
+      // This endpoint is dedicated to the environment; a prior connection may have left tabs or contexts behind.
+      await within((async () => {
+        const { targetInfos } = await connection.send("Target.getTargets");
+        for (const target of targetInfos as { targetId: string }[]) {
+          await connection.send("Target.closeTarget", { targetId: target.targetId }).catch(() => undefined);
+        }
+        const { browserContextIds } = await connection.send("Target.getBrowserContexts");
+        for (const browserContextId of browserContextIds as string[]) {
+          await connection.send("Target.disposeBrowserContext", { browserContextId });
+        }
+      })(), ANSWER_MS, `${what}'s leftover pages`);
     } catch (error) {
       connection.close();
       throw error;
@@ -168,13 +231,30 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
     return connection;
   };
 
-  const connectTo = async (endpoint: string): Promise<Held> => {
-    try {
-      const connection = await answering(await webSocketTransport(await devToolsAddress(endpoint)), "the browser");
-      return holding(connection, async () => connection.close());
-    } catch (error) {
-      throw new Error(`The headless browser at ${endpoint} could not be reached: ${messageOf(error)}.`, { cause: error });
+  const connectTo = async (endpoint: string, signal: AbortSignal): Promise<Held> => {
+    const restarting = restartingEndpoint === endpoint;
+    for (let attempt = 0; attempt < (restarting ? 12 : 1); attempt++) {
+      if (signal.aborted) throw new Error("The environment let go of the headless browser connection.");
+      try {
+        const connection = await answering(await webSocketTransport(await devToolsAddress(endpoint)), "the browser");
+        restartingEndpoint = undefined;
+        return holding(connection, async () => connection.close(), async () => {
+          await connection.send("Browser.close").catch(() => undefined);
+          connection.close();
+        });
+      } catch (error) {
+        if (!restarting) throw new Error(`The headless browser at ${endpoint} could not be reached: ${messageOf(error)}.`, { cause: error });
+        if (attempt === 11) throw new Error(`The headless browser at ${endpoint} could not be reached after twelve attempts one second apart. Wait for it to restart or tell the person.`, { cause: error });
+        await new Promise<void>((resolve) => {
+          const done = () => { signal.removeEventListener("abort", cancel); resolve(); };
+          const timer = options.clock.setTimeout(done, 1_000);
+          const cancel = () => { timer.cancel(); done(); };
+          signal.addEventListener("abort", cancel, { once: true });
+          if (signal.aborted) cancel();
+        });
+      }
     }
+    throw new Error("The headless browser could not reconnect.");
   };
 
   const launch = async (executable: string): Promise<Held> => {
@@ -219,13 +299,15 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
     if (current?.key === key) return current.held;
     void letGo();
     const { source } = found;
-    const held = source.kind === "endpoint" ? connectTo(source.endpoint) : launch(source.executable);
-    const entry = { key, held };
+    const abort = new AbortController();
+    const held = source.kind === "endpoint" ? connectTo(source.endpoint, abort.signal) : launch(source.executable);
+    const entry = { key, held, abort };
     current = entry;
     held.then(
       (browser) => {
         if (current !== entry) return void browser.end();
         settled = browser;
+        armEmpty(browser);
         browser.connection.onClose(() => {
           if (current === entry) current = undefined;
         });
@@ -239,11 +321,14 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
   };
 
   /** Lets go of the browser held now, if any: its pages go with it. */
-  const letGo = (): Promise<void> => {
+  const letGo = (exit = false): Promise<void> => {
     const before = current;
+    before?.abort.abort();
+    settled?.empty?.cancel();
+    if (settled) for (const context of settled.contexts.values()) context.idle?.cancel();
     current = undefined;
     settled = undefined;
-    return before === undefined ? Promise.resolve() : before.held.then((browser) => browser.end(), () => undefined);
+    return before === undefined ? Promise.resolve() : before.held.then((browser) => exit ? browser.exit() : browser.end(), () => undefined);
   };
 
   /** The browser held now, without starting one. */
@@ -257,7 +342,7 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
   };
 
   const host: PageHost = {
-    async attach(pageKey, make): Promise<CdpSession | null> {
+    attach: (pageKey, make) => manage(async (): Promise<CdpSession | null> => {
       const browser = make ? await live() : await existing();
       if (browser === null) return null;
       const context = browser.contexts.get(pageKey);
@@ -269,25 +354,35 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
         }
       }
       if (!make) return null;
+      if (context === undefined && browser.contexts.size >= options.settings().limits.maxContexts) {
+        throw new Error(`Other sessions hold the browser. Wait until their contexts close after ${options.settings().limits.idleMinutes} idle minutes or at their browser_close, or tell the person.`);
+      }
       // The session's own context, disposed with the connection too, so a browser beside the environment keeps none of it.
       const contextId = context?.contextId ?? ((await browser.connection.send("Target.createBrowserContext", { disposeOnDetach: true })).browserContextId as string);
-      const held: HeldContext = context ?? { contextId, targetId: undefined };
+      const held: HeldContext = context ?? { contextId, targetId: undefined, lastUsed: options.clock.now().getTime(), idle: undefined };
+      browser.empty?.cancel();
       browser.contexts.set(pageKey, held);
+      armIdle(browser, pageKey, held);
       const { targetId } = await browser.connection.send("Target.createTarget", { url: "about:blank", browserContextId: contextId });
       held.targetId = targetId as string;
       return browser.connection.attach(held.targetId);
-    },
+    }),
     async release(pageKey) {
       const browser = await existing();
       const context = browser?.contexts.get(pageKey);
       if (browser === null || context === undefined) return;
+      context.idle?.cancel();
       browser.contexts.delete(pageKey);
+      if (browser.contexts.size === 0) {
+        browser.emptySince = options.clock.now().getTime();
+        armEmpty(browser);
+      }
       await browser.connection.send("Target.disposeBrowserContext", { browserContextId: context.contextId }).catch(() => undefined);
     },
   };
 
   const policy = navigationPolicy(options.rules);
-  const driver = cdpPageDriver({
+  const rawDriver = cdpPageDriver({
     kind: "headless",
     host,
     policy: options.policy,
@@ -295,6 +390,32 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
     beforeNavigation: policy.named,
     networkAtAttach: true,
   });
+
+  let checkingHeap = false;
+  const watchdog = options.clock.setInterval(() => {
+    if (checkingHeap || !settled) return;
+    const browser = settled;
+    checkingHeap = true;
+    void (async () => {
+      const oldestFirst = [...browser.contexts].sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      for (const [pageKey, context] of oldestFirst) {
+        if (settled !== browser || browser.contexts.get(pageKey) !== context || context.targetId === undefined) continue;
+        let session: CdpSession | undefined;
+        try {
+          session = await within(browser.connection.attach(context.targetId), ANSWER_MS, "the heap watchdog attachment");
+          const heap = await within(session.send("Runtime.getHeapUsage"), ANSWER_MS, "the tab heap");
+          const limit = options.settings().limits.tabHeapMb;
+          if (typeof heap.usedSize !== "number" || heap.usedSize <= limit * 1024 * 1024) continue;
+          notices.set(pageKey, `The session's browser tab closed because its heap exceeded ${limit} MB. Open it again with browser_open.`);
+          await rawDriver.perform({ pageKey, command: { verb: "close", args: {} } });
+        } catch {
+          // A tab or connection may have gone while its heap was being read.
+        } finally {
+          if (session) await within(session.detach(), ANSWER_MS, "the heap watchdog detachment").catch(() => undefined);
+        }
+      }
+    })().finally(() => { checkingHeap = false; });
+  }, 30_000);
 
   return {
     availability() {
@@ -309,17 +430,42 @@ export const createHeadlessBrowser = (options: HeadlessBrowserOptions): Headless
         liveContexts: settled?.contexts.size ?? 0,
       };
     },
-    driver,
+    driver: {
+      kind: "headless",
+      async perform(call) {
+        const notice = notices.get(call.pageKey);
+        if (notice !== undefined) {
+          notices.delete(call.pageKey);
+          return { ok: false, reason: notice };
+        }
+        const browser = await existing();
+        const context = browser?.contexts.get(call.pageKey);
+        if (browser && context) {
+          context.lastUsed = options.clock.now().getTime();
+          armIdle(browser, call.pageKey, context);
+        }
+        return rawDriver.perform(call);
+      },
+    },
+    async release(pageKey) {
+      notices.delete(pageKey);
+      await rawDriver.perform({ pageKey, command: { verb: "close", args: {} } });
+    },
     refresh() {
       if (current === undefined) return;
       const found = sourced();
       if (!found.ok || keyOf(found.source) !== current.key) void letGo();
+      else if (settled) {
+        armEmpty(settled);
+        for (const [pageKey, context] of settled.contexts) armIdle(settled, pageKey, context);
+      }
     },
     async start() {
       await rm(profiles, { recursive: true, force: true }).catch((error: unknown) => console.error("Removing the headless browser's leftover profiles failed:", error));
     },
     async close() {
       closed = true;
+      watchdog.cancel();
       await letGo();
     },
   };
