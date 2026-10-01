@@ -38,9 +38,14 @@ FROM node:24-bookworm-slim
 # git for the workspace and the provider's runs; bubblewrap and socat so a
 # workspace containment level can be enforced where the container's seccomp
 # profile allows user namespaces (Docker's default does not, and then only
-# `off` is offered; permissions spec, "Containment").
+# `off` is offered; permissions spec, "Containment"); openssh-client so the
+# skill probe clones an ssh or scp URL no forge account covers over ssh as
+# written, as on every other install (#874; skills spec, "Further Notes"). The
+# user's keys are not in the image: mounted into its home they authenticate,
+# and without them ssh's refusal is answered as `authentication`, not the
+# shell's `ssh: not found`.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git bubblewrap socat \
+  && apt-get install -y --no-install-recommends ca-certificates git bubblewrap socat openssh-client \
   && rm -rf /var/lib/apt/lists/*
 # The non-root user, and the mount points of the two volumes given to it
 # before they are declared, so a named volume starts with its owner.
