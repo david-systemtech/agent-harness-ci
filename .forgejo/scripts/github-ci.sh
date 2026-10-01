@@ -47,12 +47,14 @@ tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
   { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
 
 echo "Pushing $sha to $repo as ci/$id"
-refs=("+$sha:refs/heads/ci/$id")
+auth=(-c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_CI_TOKEN" | base64 -w0)")
+git "${auth[@]}" push --quiet "https://github.com/$repo.git" "+$sha:refs/heads/ci/$id"
+# The anchor in its own push, and allowed to fail: two relays at once race
+# for it ("cannot lock ref"), and in one push that failed the run's ref too.
 if git rev-parse -q --verify origin/main >/dev/null; then
-  refs+=("+$(git rev-parse origin/main):refs/heads/mirror/main")
+  git "${auth[@]}" push --quiet "https://github.com/$repo.git" "+$(git rev-parse origin/main):refs/heads/mirror/main" ||
+    echo "mirror/main not moved (another relay moved it); the next push will"
 fi
-git -c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_CI_TOKEN" | base64 -w0)" \
-  push --quiet "https://github.com/$repo.git" "${refs[@]}"
 
 payload=$(python3 -c 'import json,sys; print(json.dumps({"event_type":"ci","client_payload":{"sha":sys.argv[1],"id":sys.argv[2],"group":sys.argv[3],"forgejo_run":sys.argv[4]}}))' \
   "$sha" "$id" "$group" "$FORGEJO_RUN")
