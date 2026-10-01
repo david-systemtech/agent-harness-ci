@@ -62,74 +62,74 @@ describe("the registered feature triggers", () => {
     expect(await changed("skills")).toMatchObject({ state: "done", checkedAt: CHECKED_AT });
     expect((await snapshot(t, client))?.find((result) => result.step === "skills")).toMatchObject({ state: "done", checkedAt: CHECKED_AT });
   });
-});
 
-it.each(["instructions", "account", "key-manager", "forge", "environment"] as const)("checks Instructions within a second of a real %s change, and publishes the changed orientation health", async (feature) => {
-  const forge = await startFakeForge();
-  onCleanup(() => forge.close());
-  forge.user(TOKEN, DAVID);
-  forge.repositories(TOKEN, []);
-  const bao = await startFakeOpenBao();
-  onCleanup(() => bao.close());
-  bao.token(PERSON_TOKEN, { policies: ["default"] });
-  let unreadRegistries: string[] = [];
-  let reads = 0;
-  const t = await start({
-    forgeFetch: forge.fetch,
-    orientation: () => {
-      reads += 1;
-      return { text: "# Orientation", unreadRegistries };
-    },
+  it.each(["instructions", "account", "key-manager", "forge", "environment"] as const)("checks Instructions within a second of a real %s change, and publishes the changed orientation health", async (feature) => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    forge.repositories(TOKEN, []);
+    const bao = await startFakeOpenBao();
+    onCleanup(() => bao.close());
+    bao.token(PERSON_TOKEN, { policies: ["default"] });
+    let unreadRegistries: string[] = [];
+    let reads = 0;
+    const t = await start({
+      forgeFetch: forge.fetch,
+      orientation: () => {
+        reads += 1;
+        return { text: "# Orientation", unreadRegistries };
+      },
+    });
+    const client = await t.client();
+    const changed = await observe(t, client);
+    expect((await snapshot(t, client))?.find((result) => result.step === "instructions")?.state).toBe("done");
+    unreadRegistries = ["banks"];
+    if (feature === "instructions") {
+      await client.request("instructions.create", { commandId: randomUUID(), id: randomUUID(), title: "My rules", body: "Use small modules." });
+    } else if (feature === "account") {
+      const { accounts } = await client.request("accounts.list", {});
+      await client.request("accounts.relabel", { commandId: randomUUID(), accountId: accounts[0]!.id, label: "Work" });
+    } else if (feature === "key-manager") {
+      await addKeyManager(client, { address: bao.address, ca: bao.ca, credential: token() });
+    } else if (feature === "forge") {
+      await addForge(client, { url: forge.origin, kind: "forgejo" });
+    } else {
+      await client.request("environment.rename", { commandId: randomUUID(), name: "Work" });
+    }
+    const before = reads;
+    await beforeWindow(t, client, "instructions");
+    expect(await changed("instructions")).toMatchObject({ state: "needs-attention", failing: ["instructions.orientation-renders"], checkedAt: CHECKED_AT });
+    expect(reads).toBe(before + 1);
+    expect((await snapshot(t, client))?.find((result) => result.step === "instructions")).toMatchObject({ state: "needs-attention", checkedAt: CHECKED_AT });
   });
-  const client = await t.client();
-  const changed = await observe(t, client);
-  expect((await snapshot(t, client))?.find((result) => result.step === "instructions")?.state).toBe("done");
-  unreadRegistries = ["banks"];
-  if (feature === "instructions") {
-    await client.request("instructions.create", { commandId: randomUUID(), id: randomUUID(), title: "My rules", body: "Use small modules." });
-  } else if (feature === "account") {
-    const { accounts } = await client.request("accounts.list", {});
-    await client.request("accounts.relabel", { commandId: randomUUID(), accountId: accounts[0]!.id, label: "Work" });
-  } else if (feature === "key-manager") {
+
+  it("turns a second client's Forges result from skipped to done a second after the first adds an account, without Check now", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    forge.repositories(TOKEN, []);
+    const t = await start({ forgeFetch: forge.fetch });
+    const writer = await t.client();
+    const reader = await t.client();
+    const changed = await observe(t, reader);
+    expect((await snapshot(t, reader))?.find((result) => result.step === "forges")?.state).toBe("skipped");
+    await addForge(writer, { url: forge.origin, kind: "forgejo" });
+    await beforeWindow(t, reader, "forges");
+    expect(await changed("forges")).toMatchObject({ state: "done", checkedAt: CHECKED_AT });
+    expect((await snapshot(t, reader))?.find((result) => result.step === "forges")).toMatchObject({ state: "done", checkedAt: CHECKED_AT });
+  });
+
+  it("checks Key manager within a second of adding an OpenBao connection and publishes its missing run access without setup.check", async () => {
+    const bao = await startFakeOpenBao();
+    onCleanup(() => bao.close());
+    bao.token(PERSON_TOKEN, { policies: ["default"] });
+    const t = await start();
+    const client = await t.client();
+    const changed = await observe(t, client);
+    expect((await snapshot(t, client))?.find((result) => result.step === "key-manager")?.state).toBe("skipped");
     await addKeyManager(client, { address: bao.address, ca: bao.ca, credential: token() });
-  } else if (feature === "forge") {
-    await addForge(client, { url: forge.origin, kind: "forgejo" });
-  } else {
-    await client.request("environment.rename", { commandId: randomUUID(), name: "Work" });
-  }
-  const before = reads;
-  await beforeWindow(t, client, "instructions");
-  expect(await changed("instructions")).toMatchObject({ state: "needs-attention", failing: ["instructions.orientation-renders"], checkedAt: CHECKED_AT });
-  expect(reads).toBe(before + 1);
-  expect((await snapshot(t, client))?.find((result) => result.step === "instructions")).toMatchObject({ state: "needs-attention", checkedAt: CHECKED_AT });
-});
-
-it("turns a second client's Forges result from skipped to done a second after the first adds an account, without Check now", async () => {
-  const forge = await startFakeForge();
-  onCleanup(() => forge.close());
-  forge.user(TOKEN, DAVID);
-  forge.repositories(TOKEN, []);
-  const t = await start({ forgeFetch: forge.fetch });
-  const writer = await t.client();
-  const reader = await t.client();
-  const changed = await observe(t, reader);
-  expect((await snapshot(t, reader))?.find((result) => result.step === "forges")?.state).toBe("skipped");
-  await addForge(writer, { url: forge.origin, kind: "forgejo" });
-  await beforeWindow(t, reader, "forges");
-  expect(await changed("forges")).toMatchObject({ state: "done", checkedAt: CHECKED_AT });
-  expect((await snapshot(t, reader))?.find((result) => result.step === "forges")).toMatchObject({ state: "done", checkedAt: CHECKED_AT });
-});
-
-it("checks Key manager within a second of adding an OpenBao connection and publishes its missing run access without setup.check", async () => {
-  const bao = await startFakeOpenBao();
-  onCleanup(() => bao.close());
-  bao.token(PERSON_TOKEN, { policies: ["default"] });
-  const t = await start();
-  const client = await t.client();
-  const changed = await observe(t, client);
-  expect((await snapshot(t, client))?.find((result) => result.step === "key-manager")?.state).toBe("skipped");
-  await addKeyManager(client, { address: bao.address, ca: bao.ca, credential: token() });
-  await beforeWindow(t, client, "key-manager");
-  expect(await changed("key-manager")).toMatchObject({ state: "needs-attention", checkedAt: CHECKED_AT });
-  expect((await snapshot(t, client))?.find((result) => result.step === "key-manager")).toMatchObject({ state: "needs-attention", checkedAt: CHECKED_AT });
+    await beforeWindow(t, client, "key-manager");
+    expect(await changed("key-manager")).toMatchObject({ state: "needs-attention", checkedAt: CHECKED_AT });
+    expect((await snapshot(t, client))?.find((result) => result.step === "key-manager")).toMatchObject({ state: "needs-attention", checkedAt: CHECKED_AT });
+  });
 });
