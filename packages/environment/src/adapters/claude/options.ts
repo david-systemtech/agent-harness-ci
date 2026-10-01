@@ -302,6 +302,9 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(allowed.length > 0 && { allowedTools: allowed }),
     ...(plugins.length > 0 && { plugins }),
     ...(settings !== null && { settings }),
+    // The store mirrors successful local writes; disabling persistence would disable resume from the store (#622).
+    // Tool image copies follow these local transcripts and are removed by deleteTranscript when the purge asks for it.
+    persistSession: true,
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),
     includePartialMessages: true,

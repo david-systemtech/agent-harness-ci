@@ -16,6 +16,8 @@ import type {
   ShellTray,
   ShellUpdate,
   ShellWebView,
+  ShellWebViewState,
+  ShellWebViewKey,
   ShellWindow,
 } from "../shell.js";
 
@@ -46,6 +48,14 @@ export interface ShellFunctions {
   "deepLinks.onOpen": NonNullable<ShellDeepLinks["onOpen"]>;
   "webView.create": ShellWebView["create"];
   "webView.attach": ShellWebView["attach"];
+  "webView.hide": ShellWebView["hide"];
+  "webView.back": ShellWebView["back"];
+  "webView.forward": ShellWebView["forward"];
+  "webView.reload": ShellWebView["reload"];
+  "webView.state": ShellWebView["state"];
+  "webView.onChange": ShellWebView["onChange"];
+  "webView.onKey": ShellWebView["onKey"];
+
   "webView.navigate": ShellWebView["navigate"];
   "webView.destroy": ShellWebView["destroy"];
   "preview.grant": ShellPreview["grant"];
@@ -90,6 +100,8 @@ export type FakeShell = Required<Shell> & {
   answer<M extends ScriptableShellFunction>(member: M, responder: ShellFunctions[M]): void;
   /** Opens `url` as the desktop does a deep link: every listener `deepLinks.onOpen` holds now hears it. */
   openDeepLink(url: string): void;
+  changeWebView(id: string, state: ShellWebViewState): void;
+  pressWebViewKey(id: string, key: ShellWebViewKey): void;
   /** Clicks the notification shown with `tag`: every listener `notifications.onActivate` holds now is handed the tag. Throws when none was shown with it. */
   activateNotification(tag: string): void;
 };
@@ -98,6 +110,9 @@ export const fakeShell = (): FakeShell => {
   const calls: ShellCall[] = [];
   const secrets = new Map<string, string>();
   const heard = { links: new Set<(url: string) => void>(), activations: new Set<(tag: string) => void>() };
+  const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
+  const viewListeners = new Set<(id: string, state: ShellWebViewState) => void>();
+  const viewStates = new Map<string, ShellWebViewState>();
   let views = 0;
   let previews = 0;
   const listen =
@@ -120,9 +135,27 @@ export const fakeShell = (): FakeShell => {
     "tray.setTooltip": () => undefined,
     "tray.onClick": () => () => undefined,
     "deepLinks.onOpen": listen(heard.links),
-    "webView.create": async () => `view-${++views}`,
+    "webView.create": async ({ url }) => {
+      const id = `view-${++views}`;
+      viewStates.set(id, { url, canGoBack: false, canGoForward: false });
+      return id;
+    },
     "webView.attach": () => undefined,
-    "webView.navigate": async () => undefined,
+    "webView.hide": () => undefined,
+    "webView.navigate": async (id, url) => {
+      const state = { url, canGoBack: true, canGoForward: false };
+      viewStates.set(id, state);
+      for (const listener of viewListeners) listener(id, state);
+    },
+    "webView.state": async (id) => viewStates.get(id) ?? { url: "about:blank", canGoBack: false, canGoForward: false },
+    "webView.onKey": (listener) => { keyListeners.add(listener); return () => void keyListeners.delete(listener); },
+    "webView.back": () => undefined,
+    "webView.forward": () => undefined,
+    "webView.reload": () => undefined,
+    "webView.onChange": (listener) => {
+      viewListeners.add(listener);
+      return () => void viewListeners.delete(listener);
+    },
     "webView.destroy": () => undefined,
     "preview.grant": async () => `${PRODUCT_NAME}-preview://fake/${++previews}`,
     // Carries no server artefact, as a desktop run from a checkout; runs a build that updates itself, and applies one when asked.
@@ -179,6 +212,14 @@ export const fakeShell = (): FakeShell => {
     webView: {
       create: recorded("webView.create"),
       attach: recorded("webView.attach"),
+      hide: recorded("webView.hide"),
+      back: recorded("webView.back"),
+      forward: recorded("webView.forward"),
+      reload: recorded("webView.reload"),
+      state: recorded("webView.state"),
+      onChange: recorded("webView.onChange"),
+      onKey: recorded("webView.onKey"),
+
       navigate: recorded("webView.navigate"),
       destroy: recorded("webView.destroy"),
     },
@@ -199,11 +240,18 @@ export const fakeShell = (): FakeShell => {
     answer(member, responder) {
       responders[member] = responder;
     },
+    pressWebViewKey(id, key) { for (const listener of keyListeners) listener(id, key); },
+    changeWebView(id, state) {
+      viewStates.set(id, state);
+      for (const listener of viewListeners) listener(id, state);
+    },
     openDeepLink(url) {
       for (const listener of [...heard.links]) listener(url);
     },
     activateNotification(tag) {
-      const shown = calls.some(([member, notification]) => member === "notifications.show" && (notification as { readonly tag?: string } | undefined)?.tag === tag);
+      const shown = calls.some(
+        ([member, notification]) => member === "notifications.show" && (notification as { readonly tag?: string } | undefined)?.tag === tag,
+      );
       if (!shown) throw new Error(`No notification tagged ${JSON.stringify(tag)} was shown, so none can be clicked.`);
       for (const listener of [...heard.activations]) listener(tag);
     },

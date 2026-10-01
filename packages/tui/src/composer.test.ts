@@ -461,7 +461,7 @@ describe("the transcript's keys", () => {
       tasks: [{ taskId: "task-1", kind: "local_agent", description: "Find it", status: "running", startedAt: app.clock.now().toISOString(), endedAt: null, subagentType: "Explore", toolCallId: "t1", error: null }],
     });
     await app.waitFor("Task(Find it)");
-    await app.press(KEY.tab, KEY.tab, KEY.up);
+    await app.press(KEY.tab, KEY.tab, KEY.tab, KEY.up);
     await app.press("x");
     await app.waitUntil(() => paramsOf(app, "runs.stopTask").length === 1, "the task to be stopped");
     expect(paramsOf(app, "runs.stopTask")[0]).toMatchObject({ runId, taskId: "task-1" });

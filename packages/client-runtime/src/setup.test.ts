@@ -91,7 +91,7 @@ describe("projections.setup from the snapshot and the notices", () => {
     await adding;
     await flush();
 
-    // Skippable as this build's registry says: Carry over, Forges, Key manager and Memory bank; a step it lacks is not (#573).
+    // Skippable as this build's registry says: Carry over, Forges, Key manager, Memory bank, Skills and Browser; a step it lacks is not (#573).
     expect(setup.read().steps.map(({ id, label, home, skippable }) => [id, label, home, skippable])).toEqual([
       ["account", "Account", "accounts.accounts", false],
       ["carry-over", "Carry over", "accounts.accounts", true],
@@ -99,9 +99,9 @@ describe("projections.setup from the snapshot and the notices", () => {
       ["forges", "Forges", "access.forges", true],
       ["key-manager", "Key manager", "access.key-managers", true],
       ["memory-bank", "Memory bank", "knowledge.banks", true],
-      ["skills", "Skills", "knowledge.skills", false],
+      ["skills", "Skills", "knowledge.skills", true],
       ["instructions", "Instructions", "knowledge.instructions", false],
-      ["browser", "Browser", "access.browser", false],
+      ["browser", "Browser", "access.browser", true],
       ["permissions", "Permissions", "access.permissions", false],
       ["appearance", "Appearance", "appearance.theme", false],
     ]);

@@ -505,11 +505,40 @@ export const STEP_REGISTRY = [
     llm: "describe-bank",
   },
   {
+    // Skills (ADR 0029; #514): local health from the sources' last attempts and the own directory.
+    // Its cards, cadence and triggers belong to the Set up workstream (#588).
+    id: "skills",
+    home: "knowledge.skills",
+    writes: [],
+    writesState: [
+      { method: "skills.sources.add", parts: ["skillSources"] },
+      { method: "skills.sources.remove", parts: ["skillSources"] },
+      { method: "skills.sources.setFollow", parts: ["skillSources"] },
+      { method: "skills.sources.pull", parts: ["skillSources"] },
+      { method: "skills.setAlwaysOn", parts: ["alwaysOnSkills"] },
+      { method: "trust.decide", parts: ["repositoryTrust"] },
+      { method: "trust.revoke", parts: ["repositoryTrust"] },
+    ],
+    checks: [],
+    stateChecks: [
+      { id: "skills.present", holds: "Skill sources are tracked, or the own directory is nonempty or unreadable.", actions: [] },
+      { id: "skills.sources-synced", holds: "Every unpinned source's last attempt succeeded within seven hours.", actions: ["pull-now"] },
+      { id: "skills.sources-yield", holds: "Every source yields skills.", actions: ["pull-now"] },
+      { id: "skills.source-limit", holds: "At most twenty skill sources are tracked.", actions: [] },
+      { id: "skills.own-directory", holds: "The own skills directory is readable.", actions: [] },
+    ],
+    links: [],
+    skippable: true,
+    skip: "skills.present",
+    budget: "local",
+    cadence: { minutes: 60 },
+    triggers: [],
+  },
+  {
     // The Instructions step (skills spec, "Set up"; ADR 0030; #505), at home on the Knowledge band's Instructions row
     // (ADR 0027): the orientation switch, which settings.update writes and which passes on any valid value, as a
     // preference's does, and the owned instructions and the dismissed suggestions (#509) through their commands. Never
-    // skipped. Its state check (the block rendered with no failed registry read) is #514's. The block renders each bank,
-    // so every bank.* notice re-runs it (#586); its other triggers are #588's.
+    // skipped. Its state check reads the rendered block (#514). Every bank.* notice re-runs it (#586); its other triggers are #588's.
     id: "instructions",
     home: "knowledge.instructions",
     writes: ["instructions.orientation"],
@@ -526,7 +555,7 @@ export const STEP_REGISTRY = [
       { method: "instructions.import", parts: ["ownedInstructions", "dismissedSuggestions"] },
     ],
     checks: [{ key: "instructions.orientation", check: anyValidValue("instructions.orientation") }],
-    stateChecks: [],
+    stateChecks: [{ id: "instructions.orientation-renders", holds: "The orientation block renders with no failed registry read.", actions: [] }],
     links: [],
     skippable: false,
     budget: "local",
@@ -536,9 +565,9 @@ export const STEP_REGISTRY = [
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's
     // Browser row, `access.browser` (ADR 0027): the nine browser keys (#541), which settings.update writes, each done on
-    // any valid value, with the local budget and the hour (#559 keeps both). Its state writes (a paired Chrome, an
-    // unpairing), its state checks, its skip check and its triggers (`chrome.updated`, `extension.seen`) are #559's, which
-    // makes it skippable; until then it has none of them.
+    // any valid value. Pairing and unpairing write the paired Chromes (#559); no denylist section belongs here.
+    // Skipped with no pairing; otherwise the listener and chrome projection check connection and the shipped version.
+    // The local budget and the hour stand; chrome.updated and extension.seen re-run the check.
     id: "browser",
     home: "access.browser",
     writes: [
@@ -552,6 +581,10 @@ export const STEP_REGISTRY = [
       "browser.headless.limits",
       "browser.internalHosts",
     ],
+    writesState: [
+      { method: "browser.pairing.code", parts: ["pairedChromes"] },
+      { method: "browser.chromes.unpair", parts: ["pairedChromes"] },
+    ],
     checks: [
       { key: "browser.devSites", check: anyValidValue("browser.devSites") },
       { key: "browser.evaluateEverywhere", check: anyValidValue("browser.evaluateEverywhere") },
@@ -563,12 +596,17 @@ export const STEP_REGISTRY = [
       { key: "browser.headless.limits", check: anyValidValue("browser.headless.limits") },
       { key: "browser.internalHosts", check: anyValidValue("browser.internalHosts") },
     ],
-    stateChecks: [],
+    stateChecks: [
+      { id: "browser.present", holds: "A Chrome is paired with this environment.", actions: [] },
+      { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
+      { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
+    ],
     links: [],
-    skippable: false,
+    skippable: true,
+    skip: "browser.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: [],
+    triggers: ["chrome.updated", "extension.seen"],
   },
   {
     // The Permissions step (permissions spec, "The Permissions step"; #129's keys, #141's entry): at home on the Access

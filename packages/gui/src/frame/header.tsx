@@ -7,6 +7,7 @@ import { HeaderNewSession } from "../new-session/control.js";
 import { ParkedAsksButton } from "../parked-asks/parked-asks.js";
 import { SetupLine } from "../setup/setup-line.js";
 import { SidePanesMenu } from "../side-column/side-panes-menu.js";
+import { BrowserAction } from "../browser/browser-action.js";
 import { TerminalAction } from "../terminal/terminal-action.js";
 import { RestartToUpdate } from "../updates/restart-to-update.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
@@ -36,6 +37,7 @@ export const Header = () => (
     <span className="pr-2 text-sm font-semibold text-ink">{PRODUCT_NAME}</span>
     <FocusedEnvironment />
     <TerminalAction />
+    <BrowserAction />
     <SidePanesMenu />
     <HeaderNewSession />
     <SplitActions />

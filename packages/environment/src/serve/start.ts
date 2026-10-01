@@ -151,6 +151,7 @@ import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
@@ -191,7 +192,7 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
-import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
@@ -1184,6 +1185,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
   closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
+  const webhookDeliveries = createWebhookDeliveries({
+    log, clock, environmentId: record.id, name: () => look.read().name, scrub,
+    endpoint: (name) => endpoints.resolve(name),
+  });
+  closers.push(() => webhookDeliveries.close());
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
@@ -1508,37 +1514,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => firings.close());
   // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
   closers.push(limitFiringDurations({ log, clock, host }));
-  // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
-  // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
-  // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
-  const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
-  const banks = options.banks ?? NO_BANKS;
-  const setupSteps: SetupSteps = options.setupSteps ?? {
-    steps: STEP_REGISTRY,
-    stateChecks: environmentStateChecks({
-      log,
-      adapters: host.adapters,
-      detectStateImport: () => detectSource(stateImportSource),
-      containment,
-      isRoot,
-      dataDir,
-      releaseChannel: () => channelChecks.releaseChannelHolds(),
-      updates: () => updates.machineHolds(channelChecks.status().newest),
-      hostUpdater: () => hostUpdater.holds(),
-      forge,
-      keyManagerConnections,
-      managedTools,
-      clock,
-      look: () => look.read(),
-      accounts: () => accounts.list(),
-      status: () => lifecycle.status(),
-      banks,
-    }),
-    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
-    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
-  };
-  const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
-  capabilities.push("setup");
   // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
   // committed, below.
   const browser = createBrowserService({
@@ -1566,6 +1541,47 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       resolve: options.browser?.resolve ?? systemResolver,
     },
   });
+  // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
+  // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
+  // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
+  const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  const banks = options.banks ?? NO_BANKS;
+  // One local preview for the Instructions row and its health check, even when the orientation switch is off.
+  // Read the injection setting directly; health never decides a provider process or materialises its skills.
+  const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
+  const readOrientation = async () => {
+    const accountId = accounts.defaultId();
+    return accountId === null ? null : orientationSeam(host.orientationScope(accountId, { kind: "scratch", path: roots.scratch }, orientationInjection({ sessionId: null, accountId, origin: "client", holder: "provider-process", override: null })));
+  };
+  const setupSteps: SetupSteps = options.setupSteps ?? {
+    steps: STEP_REGISTRY,
+    stateChecks: environmentStateChecks({
+      log,
+      orientation: readOrientation,
+      skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
+      adapters: host.adapters,
+      detectStateImport: () => detectSource(stateImportSource),
+      containment,
+      isRoot,
+      dataDir,
+      releaseChannel: () => channelChecks.releaseChannelHolds(),
+      updates: () => updates.machineHolds(channelChecks.status().newest),
+      hostUpdater: () => hostUpdater.holds(),
+      forge,
+      keyManagerConnections,
+      managedTools,
+      clock,
+      look: () => look.read(),
+      accounts: () => accounts.list(),
+      status: () => lifecycle.status(),
+      banks,
+      browser,
+    }),
+    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
+  };
+  const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
+  capabilities.push("setup");
   /** A client session's label, which sentences and records name it by; undefined for one never issued. */
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
@@ -1642,10 +1658,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       orientationOn,
       catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
-      orientation: async () => {
-        const accountId = accounts.defaultId();
-        return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
-      },
+      orientation: readOrientation,
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
@@ -1851,6 +1864,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());

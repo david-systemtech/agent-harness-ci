@@ -118,6 +118,7 @@ describe("the extension end to end", () => {
     const browser = await peer.listen();
     onCleanup(() => peer.close());
     peer.document("https://example.com/", { title: "Example Domain" });
+    peer.inPage("snapshotFrame", () => ({ nodes: [{ role: "heading", name: "Example Domain", level: 1, ref: "e1" }], lastRef: 1 }));
     const t = await startTestEnvironment({ name: "Laptop", adapter: fakeAdapter(), browser: { extensionSource: built } });
     onCleanup(() => t.close());
     const client = await t.client();
@@ -142,12 +143,13 @@ describe("the extension end to end", () => {
     await notice("chrome.updated", "connected");
 
     const session = await create(client, { browser: { value: { kind: "chrome", environmentId: t.env.id, chromeId: chromes[0]?.id ?? null }, chosenBy: "person" } });
-    const [opened, snapshot] = await run(t, client, session.id, ["browser_open", { address: "https://example.com/", snapshot: false }], ["browser_snapshot", {}]);
+    const [opened, snapshot] = await run(t, client, session.id, ["browser_open", { address: "https://example.com/", snapshot: false }], ["browser_snapshot", { filter: "all" }]);
 
     expect(opened?.isError).toBe(false);
     expect(opened?.text.split("\n")[0]).toBe("Opened https://example.com/. The page is at https://example.com/.");
     expect(opened?.text).toContain("Title: Example Domain");
-    expect(snapshot).toMatchObject({ isError: true, text: "This browser cannot take a snapshot yet. Take a screenshot to see the page." });
+    expect(snapshot?.isError).toBe(false);
+    expect(snapshot?.text).toContain('- heading "Example Domain" [level=1] [ref=e1]');
     expect(peer.sentOf("Target.attachToTarget")).toHaveLength(1);
     expect(peer.sentOf("Page.navigate").map(({ params }) => params.url)).toEqual(["https://example.com/"]);
   });

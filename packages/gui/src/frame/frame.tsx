@@ -7,6 +7,7 @@ import { SettingsView } from "../settings/settings-view.js";
 import { useSettings } from "../settings/settings-window.js";
 import { ChecklistView } from "../setup/checklist-view.js";
 import { useChecklist } from "../setup/checklist-window.js";
+import { BrowserPanesProvider } from "../browser/browser-panes.js";
 import { TerminalPanesProvider } from "../terminal/terminal-panes.js";
 import { usePresentation } from "../window-context.js";
 import { Header } from "./header.js";
@@ -50,41 +51,43 @@ export const Frame = () => {
   const { shown } = useSettings();
   const checklist = useChecklist();
   return (
-    <TerminalPanesProvider>
-      <PaneGridProvider>
-        <NewSessionSurfaces>
-          {checklist.shown ? (
-            <ChecklistView />
-          ) : (
-            <div className="flex h-dvh flex-col bg-abyss text-ink">
-              <Header />
-              {shown ? (
-                <SettingsView />
-              ) : (
-                <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
-                  {sidebarShown && (
-                    <>
-                      <Panel
-                        id={SIDEBAR}
-                        defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
-                        minSize={SIDEBAR_LEAST}
-                        maxSize={SIDEBAR_MOST}
-                        groupResizeBehavior="preserve-pixel-size"
-                      >
-                        <SidebarRegion />
-                      </Panel>
-                      <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
-                    </>
-                  )}
-                  <Panel id={SESSION_PANES}>
-                    <SessionPaneRegion />
-                  </Panel>
-                </Group>
-              )}
-            </div>
-          )}
-        </NewSessionSurfaces>
-      </PaneGridProvider>
-    </TerminalPanesProvider>
+    <BrowserPanesProvider>
+      <TerminalPanesProvider>
+        <PaneGridProvider>
+          <NewSessionSurfaces>
+            {checklist.shown ? (
+              <ChecklistView />
+            ) : (
+              <div className="flex h-dvh flex-col bg-abyss text-ink">
+                <Header />
+                {shown ? (
+                  <SettingsView />
+                ) : (
+                  <Group className="min-h-0 flex-1" onLayoutChanged={keep}>
+                    {sidebarShown && (
+                      <>
+                        <Panel
+                          id={SIDEBAR}
+                          defaultSize={sidebarWidth === null ? SIDEBAR_PRESET : `${sidebarWidth}%`}
+                          minSize={SIDEBAR_LEAST}
+                          maxSize={SIDEBAR_MOST}
+                          groupResizeBehavior="preserve-pixel-size"
+                        >
+                          <SidebarRegion />
+                        </Panel>
+                        <Separator aria-label="Resize the sidebar" className="w-px bg-line outline-none hover:bg-beam focus-visible:bg-beam" />
+                      </>
+                    )}
+                    <Panel id={SESSION_PANES}>
+                      <SessionPaneRegion />
+                    </Panel>
+                  </Group>
+                )}
+              </div>
+            )}
+          </NewSessionSurfaces>
+        </PaneGridProvider>
+      </TerminalPanesProvider>
+    </BrowserPanesProvider>
   );
 };
