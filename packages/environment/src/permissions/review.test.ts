@@ -392,7 +392,7 @@ describe("the review projection", () => {
     const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     onCleanup(() => errors.mockRestore());
-    const containment = { level: "workspace", mechanism: "bubblewrap", scratchDirectory: "/work/.scratch", temporaryDirectory: "/work/.tmp", writable: ["/work"], network: true } as const;
+    const containment = { level: "workspace", mechanism: "bubblewrap", scratchDirectory: "/work/.scratch", temporaryDirectory: "/work/.tmp", writable: ["/work"], readOnly: [], network: true } as const;
     const gate = createToolGate({ log, liveRunOf: () => undefined })({ runId, sessionId, workspace: "/work", containment });
     const write = (toolCallId: string) => ({ toolCallId, tool: "Write", summary: "Write /etc/hosts", access: { kind: "write", paths: ["/etc/hosts"] } }) as const;
     const decisions = () => log.readStream(stream).filter((event) => event.type === "tool.decision").map((event) => [event.payload["toolCallId"], event.payload["decidedBy"]]);

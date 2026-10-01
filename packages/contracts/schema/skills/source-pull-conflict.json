@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillSourcePullConflict",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string",
+      "const": "pinned"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+      "description": "The commit the source is pinned to."
+    }
+  },
+  "required": [
+    "reason",
+    "commit"
+  ],
+  "description": "The data of skills.sources.pull's conflict: pinned, the source never syncs until it is unpinned; the commit it is pinned to."
+}

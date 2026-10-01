@@ -48,8 +48,9 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  * idle; a failure leaves nothing pending, fails the check and is tried again
  * at the next. `updates.apply` stages a version asked for by name the same
  * way (Update now; with none, the pin or the channel's newest), or, from a
- * local client session, an artefact on this machine (#343). One is staged
- * at a time. A target the launcher cannot host, which no stepping stone
+ * local client session, an artefact on this machine (#343): an archive, or
+ * the folder one is unpacked in, as the desktop carries it (#789). One is
+ * staged at a time. A target the launcher cannot host, which no stepping stone
  * reaches, is `blocked` until `service install` from its release.
  *
  * **Waiting** (#343): the installed version is a pending update, `waiting`,

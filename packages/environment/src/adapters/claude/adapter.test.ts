@@ -109,6 +109,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -805,6 +806,7 @@ describe("the sandbox's ask for a host (SandboxNetworkAccess)", () => {
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   };
 
@@ -1369,6 +1371,27 @@ describe("the process across turns", () => {
     const fourth = await oneTurn(adapter, runInput({ containment: contained, denylist: { ...projected }, target: resume }), third.query);
     await fourth.finish();
     expect(fake.queries).toHaveLength(3);
+  });
+
+  it("spawns fresh for a run whose containment closes other paths, a worktree made since the last, since the sandbox's denyWrite is fixed at spawn (#791)", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const closing = (...worktrees: string[]): RunInput["containment"] => ({
+      ...runInput().containment,
+      level: "workspace",
+      mechanism: "bubblewrap",
+      readOnly: ["hooks", "config", "config.worktree", ...worktrees.map((name) => `worktrees/${name}/config.worktree`)].map((path) => `/work/repo/.git/${path}`),
+    });
+    const first = await oneTurn(adapter, runInput({ containment: closing() }));
+    await first.finish();
+    const second = await oneTurn(adapter, runInput({ containment: closing("feature"), target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.sandbox?.filesystem?.denyWrite).toContain("/work/repo/.git/worktrees/feature/config.worktree");
+    await second.finish();
+    // The same paths closed: the kept process serves it.
+    const third = await oneTurn(adapter, runInput({ containment: closing("feature"), target: resume }), second.query);
+    await third.finish();
+    expect(fake.queries).toHaveLength(2);
   });
 
   it("spawns fresh, with the opt-in, for a run under a bypass ceiling in a lower mode, so its mode can later be changed to bypass", async () => {

@@ -1,6 +1,7 @@
-import { UPDATE_PATH, UpdateAnswer, UpdateError, commandResponse, registry, type ResponseFrame } from "@agent-harness/contracts";
+import { UPDATE_PATH, UpdateAnswer, UpdateError, commandResponse, registry, type ResponseFrame, type UpdateRequest } from "@agent-harness/contracts";
 import { readJson } from "../discovery.js";
 import type { HttpFetch } from "../platform.js";
+import type { Shell } from "../shell.js";
 
 /**
  * The `update-environment` action's asking (launcher-update spec, "Across a
@@ -8,9 +9,10 @@ import type { HttpFetch } from "../platform.js";
  * version, `when: idle`. Blocked `protocol-mismatch`, the wire refuses this
  * client, so the ask goes over `POST /api/update` with the client session's
  * token (a local connection that holds none, blocked before any grant
- * exchange, exchanges the grant first, #826); otherwise it is `updates.apply`
- * on the connection's socket. Either way the environment answers the update
- * it took, or refuses with a reason.
+ * exchange, exchanges the grant first, #826), and a desktop hands its local
+ * environment the server it carries there when it is the version asked
+ * (#918); otherwise it is `updates.apply` on the connection's socket. Either
+ * way the environment answers the update it took, or refuses with a reason.
  */
 
 /** What asking an environment to update came to: the update it took, or why not. */
@@ -34,14 +36,32 @@ export const refusedBy = (error: { readonly code: string; readonly message: stri
 /** The ask failed on the way: nothing was refused. */
 export const failed = (reason: "unreachable" | "no-token" | "malformed", message: string): UpdateEnvironmentOutcome => ({ ok: false, refused: false, reason, message });
 
-/** `POST /api/update` at `origin` with the token, asking for `version`. */
-export const askOverRoute = async (fetch: HttpFetch, origin: string, token: string, version: string): Promise<UpdateEnvironmentOutcome> => {
+/**
+ * Where the server artefact this desktop carries is, when it is `version`:
+ * the path sent with the ask across the gap, so that the local environment
+ * stages it rather than downloading the same release (launcher-update spec,
+ * story 15; #918). Undefined for a shell that carries none (the terminal UI
+ * has no shell, a desktop run from a checkout carries none), carries another
+ * version, or cannot say what it carries: the ask then names the version
+ * alone, as it did before.
+ */
+export const carriedArtefact = async (shell: Shell | undefined, version: string): Promise<string | undefined> => {
+  try {
+    const carried = await shell?.installer?.bundledServer();
+    return carried?.version === version ? carried.path : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** `POST /api/update` at `origin` with the token, asking for the update `request` names. */
+export const askOverRoute = async (fetch: HttpFetch, origin: string, token: string, request: UpdateRequest): Promise<UpdateEnvironmentOutcome> => {
   let response;
   try {
     response = await fetch(`${origin}${UPDATE_PATH}`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ version }),
+      body: JSON.stringify(request),
     });
   } catch (error) {
     return failed("unreachable", `Nothing answered at ${origin}: ${error instanceof Error ? error.message : String(error)}.`);
