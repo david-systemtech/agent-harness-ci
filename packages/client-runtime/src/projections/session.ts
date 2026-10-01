@@ -292,8 +292,9 @@ export interface SessionTranscript {
   readonly containment: ContainmentLevel | null;
   /** The session's own instructions, the snapshot's or the latest `session.instructions-set` heard since; empty when it has none. */
   readonly instructions: string;
-  /** Every run, oldest first. */
+  /** The latest completed run's predicted next message, cleared by the next run or a rewind. */
   readonly suggestion: RunSuggestion | null;
+  /** Every run, oldest first. */
   readonly runs: readonly RunSummary[];
   /** The transcript, in the order its entries were opened; what a rewind cut is one `rewound` fold at the rewind point. */
   readonly items: readonly TranscriptEntry[];
