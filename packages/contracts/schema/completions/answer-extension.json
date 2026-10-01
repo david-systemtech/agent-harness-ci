@@ -104,7 +104,7 @@
       ]
     },
     "ignored": {
-      "description": "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.",
+      "description": "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.0.",
       "type": "array",
       "items": {
         "type": "string",

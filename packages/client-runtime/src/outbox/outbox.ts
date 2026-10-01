@@ -189,13 +189,10 @@ export interface Commands {
    * `title` (the source's title carried without one). Answers the fork's id
    * with the fork's answer; a refused fork raises its notice as any refused
    * command does. The environment writes an anchored fork's draft, the
-   * message's text; a hand-off (an account and no anchor) has none written,
-   * so once the fork is accepted the source's draft, as this client shows it
-   * when the fork is asked for (a draft still waiting its second included),
-   * is sent as the fork's (`sessions.setDraft`). A source with no draft that
-   * is a fork this runtime made at a message, which no run of it has read
-   * yet, carries that message's text instead: the environment writes no
-   * draft for a fork of it (#273).
+   * message's text, including an inherited anchor (#273). Once an unanchored
+   * hand-off is accepted, the source's current draft, as this client shows
+   * it when asked (one still waiting its second included), is sent as the
+   * fork's (`sessions.setDraft`) when nonempty.
    */
   fork(environmentId: string, sessionId: string, options?: ForkOptions): Promise<ForkAnswer>;
   /**
@@ -298,6 +295,8 @@ export interface OutboxHost {
   shown(environmentId: string): ListData | null;
   /** The name of routine `routineId` (in lowercase) as the environment last listed it (the request cache's `routines.list`), read without fetching; null when it is not held. */
   routineName(environmentId: string, routineId: string): string | null;
+  /** The environment accepted a `routines.create`, told before its entry leaves: `projections.routines` shows it until the environment's list does (#910). */
+  routineCreated(environmentId: string, params: CommandParams<"routines.create">): void;
   /** The environment's time now. */
   now(environmentId: string): Date;
   /** What the runtime holds of a session, read without subscribing anything: its transcript, runs and draft. */
@@ -701,6 +700,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
 
   /** Accepted: the entry leaves, its overlay stays until the list's cursor reaches the receipt's sequence. */
   const acknowledge = (entry: OutboxEntry, receipt: AcceptedReceipt, result: unknown) => {
+    if (entry.method === "routines.create") host.routineCreated(entry.environmentId, entry.params as CommandParams<"routines.create">);
     remove(entry, (overlay) => ({ ...overlay, sequence: receipt.sequence }));
     settleOverlays(entry.environmentId);
     answer(entry.commandId, { ok: true, commandId: entry.commandId, receipt, ...(result !== undefined && { result: result as ResultOf<CommandMethodName> }) });
@@ -843,25 +843,13 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     return message?.kind === "user-message" ? message.text : null;
   };
 
-  /** A session as the outbox's maps key it. */
-  const sessionKey = (environmentId: string, sessionId: string): string => `${environmentId} ${sessionId.toLowerCase()}`;
-
-  /** The forks `fork` made at a message, with its text: what a hand-off of one carries while no run of it has read that message. */
-  const branches = new Map<string, string>();
-
-  /**
-   * What a hand-off of a session carries onto the fork: the session's draft
-   * as this client shows it (a draft still waiting its second laid over);
-   * with none, for a fork this runtime made at a message no run of it has
-   * read yet, that message's text, the draft emptied to hand it off (#273).
-   */
+  /** The session's draft as this client shows it, including one still waiting its second. */
   const handOffDraft = (environmentId: string, sessionId: string): string | null => {
     const held = host.held(environmentId, sessionId);
     // The list's, which lays a waiting draft over as the held session's does; the held session's only for one the list lacks.
     const listed = host.shown(environmentId)?.sessions.get(sessionId.toLowerCase());
     const own = listed !== undefined ? listed.draft : held.draft;
-    if (own !== null && own.length > 0) return own;
-    return held.runs.length > 0 ? null : (branches.get(sessionKey(environmentId, sessionId)) ?? null);
+    return own !== null && own.length > 0 ? own : null;
   };
 
   const rewind = async (environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer> => {
@@ -1002,9 +990,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     async fork(environmentId, sessionId, options = {}) {
       const { anchor, account, title } = options;
       const id = uuidv4();
-      // Read now: the source's transcript and draft may move on while the fork is under way.
+      // Read now: the source's draft may move on while the fork is under way.
       const carried = account !== undefined && anchor === undefined ? handOffDraft(environmentId, sessionId) : null;
-      const anchorText = anchor === undefined ? null : messageText(environmentId, sessionId, anchor);
       const answer = await dispatch(environmentId, "sessions.fork", {
         sessionId,
         id,
@@ -1013,7 +1000,6 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         ...(title !== undefined && { title }),
       });
       if (answer.ok) {
-        if (anchorText !== null && anchorText.length > 0) branches.set(sessionKey(environmentId, id), anchorText);
         // Sent only once the fork exists, so a fork the environment refused leaves one notice, its own.
         if (carried !== null) void dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft: carried.slice(0, MAX_DRAFT_LENGTH) });
       }

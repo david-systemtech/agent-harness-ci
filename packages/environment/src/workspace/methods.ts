@@ -1,5 +1,5 @@
 import type { EventLog } from "../event-log/event-log.js";
-import { foldTranscript, readTranscriptEvents } from "../runs/transcript.js";
+import { sessionTranscript } from "../runs/transcript.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { AvailabilityWatcher } from "./availability.js";
 import { browseDirectory } from "./browse.js";
@@ -67,8 +67,8 @@ export const workspaceMethods = ({ log, availability, directoryRules, worktreesR
       const recorded = requireSessionWorkspace(log, sessionId);
       // Its data is the log's, so a workspace directory that is gone does not stop it: the recorded path is a root.
       const real = await workspaceRoot(recorded).catch(() => undefined);
-      // The runs' tool calls, as the session's snapshot folds them from its stream, deltas left out (`runs/transcript.ts`).
-      const { items } = foldTranscript(readTranscriptEvents(log, sessionId));
+      // The runs' tool calls from the compaction snapshot, if any, folded on with the remaining stream.
+      const { items } = sessionTranscript(log, sessionId);
       return sessionDiff(real === undefined || real === recorded ? [recorded] : [recorded, real], items);
     },
   };

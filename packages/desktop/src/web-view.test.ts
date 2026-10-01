@@ -87,4 +87,27 @@ describe("the browser dock's view", () => {
     electron.views[0]!.press("B", { control: true, shift: true });
     expect(keys).toHaveLength(1);
   });
+  it("carries debugger commands, child events and detachment through the preload", async () => {
+    const { electron, shell } = await start();
+    const views = shell().webView;
+    const id = await views.create({ url: "about:blank" });
+    const debug = views.debugger!;
+    await debug.attach(id);
+    const events: unknown[] = [];
+    const detached: unknown[] = [];
+    const stop = debug.onEvent((id, event) => events.push([id, event]));
+    debug.onDetach((id, reason) => detached.push([id, reason]));
+    const native = electron.views[0]!.webContents.debugger;
+    await expect(debug.send(id, "Page.enable", {}, "child-for-tests")).resolves.toEqual({});
+    expect(native.commands).toEqual([["Page.enable", {}, "child-for-tests"]]);
+    native.emit("message", {}, "Page.frameNavigated", { frame: { id: "frame" } }, "child-for-tests");
+    expect(events).toEqual([[id, { method: "Page.frameNavigated", params: { frame: { id: "frame" } }, sessionId: "child-for-tests" }]]);
+    stop();
+    native.emit("message", {}, "Page.loadEventFired", {});
+    expect(events).toHaveLength(1);
+    await debug.detach(id);
+    expect(detached).toEqual([[id, "target_closed"]]);
+    await expect(debug.send(id, "Page.enable")).rejects.toThrow("attached");
+  });
+
 });

@@ -165,6 +165,11 @@ export const shellMembers = ({
     },
     system: (): ShellSystem => ({ platform: platform.os, architecture: platform.architecture, hostname: platform.hostname, user: platform.user }),
     http: environmentHttp,
+    "webView.debugger.attach": (id) => webView.debugger!.attach(text(id, "A view's id")),
+    "webView.debugger.detach": (id) => webView.debugger!.detach(text(id, "A view's id")),
+    "webView.debugger.send": (id, method, params, sessionId) => webView.debugger!.send(
+      text(id, "A view's id"), text(method, "A debugger command"), params === undefined ? {} : options(params, "A debugger command's parameters"), optionalText(sessionId, "A child target's session id"),
+    ),
     "webView.create": (given) => {
       const chosen = options(given, "A page's options");
       const partition = optionalText(chosen["partition"], "A page's partition");

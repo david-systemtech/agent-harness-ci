@@ -1091,6 +1091,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
       // The headless browser (#555): one driver for every session, a browser context each.
       headless: () => browser.headless.driver,
+      dock: ({ sessionId, runId }) => relay.driverOf({ kind: "dock", sessionId, runId }),
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
@@ -1607,7 +1608,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
   // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
-  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel });
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel, scrub: (text) => scrub.scrub(text) });
   closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.

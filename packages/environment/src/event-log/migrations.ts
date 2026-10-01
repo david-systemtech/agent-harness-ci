@@ -164,6 +164,17 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 8,
+    name: "skill sources: the last attempt time beside the log (#936)",
+    // An unchanged fetch appends nothing, so replay cannot recover when it ended.
+    sql: `
+      CREATE TABLE skill_source_attempts (
+        source_id TEXT PRIMARY KEY,
+        attempted_at TEXT NOT NULL
+      ) STRICT;
+    `,
+  },
 ];
 
 /**

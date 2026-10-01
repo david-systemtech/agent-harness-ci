@@ -644,6 +644,7 @@ export const SkillSourceNoSkills = z
     }),
   })
   .meta({ description: "The folder yields no valid member at the commit; the folders that would." });
+export type SkillSourceNoSkills = z.infer<typeof SkillSourceNoSkills>;
 
 /**
  * `conflict`'s data when `skills.sources.add` is refused (skills spec,
@@ -811,6 +812,8 @@ export const RunSkillSetMember = z
       description: "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation.",
     }),
     alwaysOn: z.boolean().meta({ description: "Whether the run's account made it always-on, so its body rides the run's standing instructions." }),
+    file: AbsolutePath.optional().meta({ description: "The member’s Markdown file, through its generation when linked, else its native file; used to read always-on bodies." }),
+    commit: GitCommit.nullable().optional().meta({ description: "The source snapshot commit; null for members linked live." }),
   })
   .meta({
     description:

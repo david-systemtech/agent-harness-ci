@@ -21,6 +21,7 @@ import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { PRESET_SETTING_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
+import { createSkillsCopies } from "./skills-copy.js";
 import { createKeyManagers } from "./key-managers.js";
 import { reportKnownEnvironments } from "./known-environments.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
@@ -82,6 +83,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         outbox.applied(environmentId, event);
         // Every run and prompt event of every session comes on the list: the run states and the parked asks fold them all.
         runs.heard(environmentId, event);
+        if (news) requestCache.sessionChanged(environmentId, event.streamId, event.type);
         if (news && event.type === "run.ended") {
           const { runId, reason, cause } = event.payload as RunEndedPayload;
           attention.emit({ kind: "run-ended", environmentId, sessionId: event.streamId.toLowerCase(), runId, reason, cause });
@@ -128,6 +130,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     routineName: (environmentId, routineId) =>
       requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,
+    // `routines` is made below: nothing is accepted before the runtime starts.
+    routineCreated: (environmentId, params) => routines.created(environmentId, params),
     now: (environmentId) => made.now(environmentId),
     // What the runtime holds of the session, read without subscribing anything.
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
@@ -309,7 +313,14 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
   // Every enabled environment's routines (#532), the request cache giving the same observable for the same environment.
-  const routines = routinesProjection({ records: registry.list, outbox: outbox.view, source: (environmentId) => requestCache.cached(environmentId, "routines.list", {}) });
+  const routines = routinesProjection({
+    clock: platform.clock,
+    records: registry.list,
+    outbox: outbox.view,
+    source: (environmentId) => requestCache.cached(environmentId, "routines.list", {}),
+    askedAt: (environmentId) => requestCache.askedAt(environmentId, "routines.list", {}),
+  });
+  registry.seams.onForget((environmentId) => routines.forget(environmentId));
   const routineHistories = memo((key): RoutineHistory => {
     const [environmentId, routineId] = key.split(" ") as [string, string];
     const host = {
@@ -381,7 +392,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
       toolRuns: (environmentId) => toolRuns.view(environmentId),
-      routines,
+      routines: routines.view,
       routineHistory: (environmentId, routineId) => routineHistories(`${environmentId} ${routineId.toLowerCase()}`),
       browsers: (environmentId, sessionId) => browsers(`${environmentId} ${sessionId.toLowerCase()}`),
     },
@@ -392,6 +403,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
     },
     commands: {
+      ...createSkillsCopies({ clock: platform.clock, call, capability, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null, targetIds: (environmentId) => copyTargetsOf(registry.list.read(), environmentId).map((target) => target.environmentId) }),
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
       admits: (environmentId, method) => outbox.admits(environmentId, method),

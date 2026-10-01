@@ -387,6 +387,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     const linked = providerSessionOf(reader, sourceId);
     let atMessageId: string | null;
     let fromProviderSessionId: string | null;
+    let inheritedDraft: string | null = null;
     if (linked !== null) {
       atMessageId = anchor?.messageId ?? pendingRewind(log, sourceId)?.toMessageId ?? null;
       // Nothing of the provider's comes before the anchor when it is the source's first message: the fork starts fresh.
@@ -396,7 +397,19 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       // (its copy of those rows is the source's), since nothing the source was sent since reached the provider.
       const inherited = forkRecord(log, sourceId);
       fromProviderSessionId = inherited?.fromProviderSessionId ?? null;
-      atMessageId = inherited !== null && fromProviderSessionId !== null ? inherited.atMessageId : (anchor?.messageId ?? null);
+      atMessageId = fromProviderSessionId !== null ? (inherited?.atMessageId ?? null) : (anchor?.messageId ?? inherited?.atMessageId ?? null);
+      if (anchor === null && atMessageId !== null && inherited !== null) {
+        // The draft saved with the source's fork is the anchor's text, independent of later edits or a purged ancestor.
+        // Both events survive compaction; no client has to retain the source's prompt to hand this fork off (#273).
+        const [row] = log.read<{ payload: string }>(
+          `SELECT draft.payload FROM events draft JOIN events fork ON fork.stream_kind = draft.stream_kind AND fork.stream_id = draft.stream_id
+             AND fork.command_id = draft.command_id AND draft.sequence < fork.sequence
+           WHERE fork.stream_kind = '${SESSION_STREAM_KIND}' AND fork.stream_id = ? AND fork.type = 'session.forked'
+             AND draft.type = 'session.draft-set' ORDER BY draft.sequence DESC LIMIT 1`,
+          sourceId,
+        );
+        inheritedDraft = draftOf(row)?.draft ?? null;
+      }
     }
 
     // The source's account unless another is named; its model only on the same account, whose catalogue it came from.
@@ -434,7 +447,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       const payload: SessionTitleGeneratedPayload = { title: carried, source: "prompt" };
       events.push({ type: "session.title-generated", payload });
     }
-    const draft = anchor?.text.slice(0, MAX_DRAFT_LENGTH) ?? "";
+    const draft = (anchor?.text ?? inheritedDraft ?? "").slice(0, MAX_DRAFT_LENGTH);
     if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
     // The source's own instructions, which the fork keeps (#506).
     events.push(...forkedInstructions(reader, sourceId));
