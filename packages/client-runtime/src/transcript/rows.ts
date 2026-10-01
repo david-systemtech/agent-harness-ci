@@ -262,8 +262,8 @@ export const liveTasks = (view: Pick<SessionProjection, "items">, runId: string 
   return ledger?.kind === "tasks" ? ledger.tasks.filter(isLiveTask) : [];
 };
 
-/** Whether the message came from the environment, rather than a person. */
-export const environmentMessage = (entry: UserMessageEntry): boolean => entry.sender?.kind === "system";
+/** The import actor appended historical human messages; other system actors authored their messages. */
+export const environmentMessage = (entry: UserMessageEntry): boolean => entry.sender?.kind === "system" && entry.sender.id !== "carry-over";
 
 /** The update cut's line, shared by both renderers and transcript exports. */
 export const updateInterruptedText = (entry: UpdateInterruptedEntry): string => {

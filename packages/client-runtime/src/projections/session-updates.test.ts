@@ -5,6 +5,7 @@ import { foldTranscript } from "../../../environment/src/runs/transcript.js";
 import { formatActor } from "../../../environment/src/event-log/envelope.js";
 import { FIXTURE_MESSAGE, FIXTURE_OTHER_MESSAGE, FIXTURE_RUN, occurredAt, recorded, sessionStreamEvent } from "../../test/transcript.js";
 import { reduceSession } from "./session.js";
+import { environmentMessage } from "../transcript/rows.js";
 
 const EMPTY = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 const CONTINUATION = "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
@@ -17,6 +18,20 @@ const outcomes: RunUpdateInterruptedPayload[] = [
 const logged = (events: readonly EventEnvelope[]) => events.map((event) => ({ ...event, actor: formatActor(event.actor) }));
 
 describe("a run an update cut", () => {
+  it("keeps the import actor as provenance without calling a historical human message the environment's", () => {
+    const events = [
+      { ...sessionStreamEvent(1, "message.sent", recorded("message.sent")), actor: { kind: "system", id: "carry-over" } as const },
+    ];
+    const parts = foldTranscript(logged(events));
+    const snapshot = SessionSnapshot.parse({ sequence: 1, summary: freshSummary, ...parts });
+    for (const projection of [reduceSession(EMPTY, events), reduceSession(snapshot, [])]) {
+      const message = projection.items[0];
+      expect(message).toMatchObject({ kind: "user-message", sender: { kind: "system", id: "carry-over" } });
+      if (message?.kind !== "user-message") throw new Error("The imported human message is missing.");
+      expect(environmentMessage(message)).toBe(false);
+    }
+  });
+
   it.each(outcomes)("keeps $outcome ($reason) at its event sequence in replay, snapshots and stored folds", (payload) => {
     const events = [
       sessionStreamEvent(1, "run.started", recorded("run.started")),

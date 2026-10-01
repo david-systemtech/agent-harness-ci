@@ -133,7 +133,7 @@ const streamOf = (t: TestEnvironment, sessionId: string) => t.env.log.readStream
 
 /** The items a snapshot of the history shows, the history's run id and each message's id as the log gave them. */
 const historyItems = (runId: string, messageId: string, sequence: (index: number) => number) => [
-  { kind: "user-message", sequence: sequence(0), runId, messageId, text: "Find the flaky test", attachments: [], delivery: "prompt", heldBy: null, sentAt: said(0) },
+  { kind: "user-message", sequence: sequence(0), runId, messageId, text: "Find the flaky test", attachments: [], delivery: "prompt", heldBy: null, sentAt: said(0), sender: { kind: "system", id: "carry-over" } },
   { kind: "assistant-text", sequence: sequence(1), runId, itemId: "a1:0", text: "I will ask a helper.", aborted: false },
   { kind: "tool-call", sequence: sequence(2), runId, toolCallId: "toolu_agent", name: "Task", input: { prompt: "Find it" }, title: null, agentId: null, parentToolCallId: null, status: "ok", update: null, output: "It is in runs.test.ts.", durationMs: 7000 },
   { kind: "tool-call", sequence: sequence(3), runId, toolCallId: "toolu_grep", name: "Grep", input: { pattern: "flaky" }, title: null, agentId: "toolu_agent", parentToolCallId: "toolu_agent", status: "ok", update: null, output: "runs.test.ts:12", durationMs: 2000 },

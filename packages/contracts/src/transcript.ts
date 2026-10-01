@@ -511,7 +511,7 @@ const UserMessageItem = z
     delivery: MessageDelivery,
     heldBy: QueueHolder.nullable().meta({ description: "Who holds it while it is queued; null once it is read." }),
     sentAt: Timestamp,
-    sender: Actor.optional().meta({ description: "Who sent the message, from its event actor; a system sender is the environment, never the person. Absent in older snapshots." }),
+    sender: Actor.optional().meta({ description: "The message's event actor; system actors authored environment messages, except system:carry-over, which imported historical human messages. Absent in older snapshots." }),
   })
   .meta({ description: "A message a client or the environment sent: its sender, text, attachments and where it went." });
 

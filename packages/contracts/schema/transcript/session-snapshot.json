@@ -1017,7 +1017,7 @@
                 "description": "An instant as an ISO 8601 UTC timestamp."
               },
               "sender": {
-                "description": "Who sent the message, from its event actor; a system sender is the environment, never the person. Absent in older snapshots.",
+                "description": "The message's event actor; system actors authored environment messages, except system:carry-over, which imported historical human messages. Absent in older snapshots.",
                 "type": "object",
                 "properties": {
                   "kind": {
@@ -2770,7 +2770,7 @@
                     "description": "An instant as an ISO 8601 UTC timestamp."
                   },
                   "sender": {
-                    "description": "Who sent the message, from its event actor; a system sender is the environment, never the person. Absent in older snapshots.",
+                    "description": "The message's event actor; system actors authored environment messages, except system:carry-over, which imported historical human messages. Absent in older snapshots.",
                     "type": "object",
                     "properties": {
                       "kind": {
