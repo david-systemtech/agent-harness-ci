@@ -86,7 +86,7 @@ import { drainAndUpdateQuestionLine, updateCard, updateNow, updateRefusal, updat
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
-import { editInExternalEditor, openInExternalEditor, type ExternalEditResult, type OpenedFile, type OpenedResult } from "./composer/external-editor.js";
+import { ROUTINE_FILE, editInExternalEditor, openInExternalEditor, type ExternalEditResult, type OpenedFile, type OpenedResult } from "./composer/external-editor.js";
 import { HISTORY_FILE, PromptHistory, type HistoryScope } from "./composer/history.js";
 import { Frecency, MENTIONS_FILE } from "./composer/mentions.js";
 import { EXAMPLE_SNIPPETS, SNIPPETS_FILE, Snippets, toSnippetName, type SnippetTemplate } from "./composer/snippets.js";
@@ -123,6 +123,8 @@ import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
 import { isFullPath } from "./rail/workspace-step.js";
+import type { RoutinesCard } from "./routines/cards.js";
+import { useRoutines } from "./routines/use-routines.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
@@ -254,6 +256,10 @@ export interface AppProps {
   readonly clipboard?: TerminalClipboard;
   /** Ctrl+G's editor; preset `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** A routine's YAML in the editor (`/routines`' edit and new); preset `$VISUAL` or `$EDITOR` on a `.yaml` file, with the terminal lent to it. */
+  readonly editRoutine?: (yaml: string) => Promise<ExternalEditResult>;
+  /** Mints a routine's id for `/routines new` and an import: a version 4 UUID. */
+  readonly newRoutineId?: () => string;
   /** Mints a terminal id for `/terminal` and `!!`: a version 4 UUID. */
   readonly newTerminalId?: () => string;
   /** `o` on a local environment: the file in `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
@@ -317,7 +323,9 @@ type Card =
   /** `/documents`: the session's documents, newest first, from `projections.documents` (#427). */
   | { readonly kind: "documents"; readonly cursor: number }
   /** Esc Esc: the prompt picker of the session it was opened on; the cursor on the newest user message until a key moves it (null). */
-  | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null };
+  | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null }
+  /** `/routines` (#533): every environment's routines, a routine's history, the webhook endpoints, an import, a pre-check's test (`routines/`). */
+  | { readonly kind: "routines"; readonly routines: RoutinesCard };
 
 /** The cards that page lines with the pager's keys and search. */
 const paged = (card: Card): card is Extract<Card, { readonly kind: "pager" | "page" }> => card.kind === "pager" || card.kind === "page";
@@ -869,6 +877,27 @@ export const App = (props: AppProps) => {
     newCommandId: props.newCommandId,
     keys,
   });
+  const routines = useRoutines({
+    runtime,
+    clock,
+    request,
+    views,
+    current,
+    card: screen.card.kind === "routines" ? screen.card.routines : undefined,
+    open: (next) => update({ card: { kind: "routines", routines: next } }),
+    change: (next) => setScreen((s) => (s.card.kind === "routines" ? { ...s, card: { kind: "routines", routines: next(s.card.routines) } } : s)),
+    close: () => setScreen((s) => (s.card.kind === "routines" ? { ...s, card: { kind: "none" } } : s)),
+    say,
+    ask: (asked) => update({ question: asked }),
+    openSession: (next) => open(next),
+    newCommandId: props.newCommandId,
+    newRoutineId: props.newRoutineId ?? (() => crypto.randomUUID()),
+    keys,
+    editYaml:
+      props.editRoutine ??
+      ((yaml: string) => lendTerminal<ExternalEditResult>(suspendTerminal, () => editInExternalEditor(yaml, { file: ROUTINE_FILE }), { ok: false, reason: "the editor did not run" })),
+    cwd,
+  });
   const status = useStatus({
     runtime,
     clock,
@@ -1326,6 +1355,9 @@ export const App = (props: AppProps) => {
       case "picker":
         pickers.run(command.command);
         return true;
+      case "routines":
+        routines.run(command.command);
+        return true;
       case "rewind":
         forkRewind.rewindBack(command.back);
         return true;
@@ -1463,6 +1495,7 @@ export const App = (props: AppProps) => {
   const pickerCursor = (card: Extract<Card, { kind: "prompt-picker" }>): number => clampCursor(card.cursor ?? messages.length - 1, messages.length);
   const choose = (card: Card) => {
     if (card.kind === "panel") return pickers.choose(card.panel);
+    if (card.kind === "routines") return routines.choose(card.routines);
     if (card.kind === "prompt-picker") {
       // Enter rewinds here: the card closes, and the rewind (or the offer to stop the run first) is the line's.
       const message = messages[pickerCursor(card)];
@@ -1577,6 +1610,10 @@ export const App = (props: AppProps) => {
         const to = pickers.back(card.panel);
         return to ? { kind: "panel", panel: to } : { kind: "none" };
       }
+      case "routines": {
+        const to = routines.back(card.routines);
+        return to ? { kind: "routines", routines: to } : { kind: "none" };
+      }
       case "picker":
         // The query first, then a step back, then the card closes.
         if (card.picker.typed && card.picker.query !== "") return { kind: "picker", picker: { ...card.picker, query: "", cursor: 0 } };
@@ -1606,6 +1643,8 @@ export const App = (props: AppProps) => {
         return messages.length;
       case "panel":
         return pickers.rows(card.panel);
+      case "routines":
+        return routines.rows(card.routines);
       case "picker":
         return card.picker.rows(card.picker.query).length;
       default:
@@ -1788,6 +1827,7 @@ export const App = (props: AppProps) => {
       card.kind === "documents" ||
       card.kind === "picker" ||
       card.kind === "prompt-picker" ||
+      card.kind === "routines" ||
       (card.kind === "panel" && !linesPanel);
     // A list, the help overlay, the pager (the transcript's or a page's) and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
     const cardHasKeys = listCard || linesPanel || card.kind === "help" || paged(card) || card.kind === "lines" || card.kind === "asks" || promptShown;
@@ -1806,6 +1846,7 @@ export const App = (props: AppProps) => {
       if (card.kind === "help" || card.kind === "lines" || linesPanel) return scroll((top) => top + step);
       if (!listCard) return false;
       if (card.kind === "panel") return update({ card: { kind: "panel", panel: pickers.move(card.panel, step) } });
+      if (card.kind === "routines") return update({ card: { kind: "routines", routines: routines.move(card.routines, step) } });
       // A list typed at takes letters into its filter or query: k and j are letters there. A typed picker's letters
       // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
       if (action === "picker.moveVi" && (card.kind === "sessions" || card.kind === "files" || (card.kind === "picker" && card.picker.typed))) return false;
@@ -1820,6 +1861,7 @@ export const App = (props: AppProps) => {
       "app.mode.step": () => pickers.stepMode(),
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
+      ...routines.handlers,
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
       "row.leave": () => {
         setView((v) => ({ ...v, cursor: null }));
@@ -2077,6 +2119,13 @@ export const App = (props: AppProps) => {
       if (key.backspace || key.delete) return update({ card: { kind: "panel", panel: pickers.erased(card.panel) } });
       if (input !== "" && !key.ctrl && !key.meta && !key.tab) return update({ card: { kind: "panel", panel: pickers.typed(card.panel, input) } });
     }
+    // The routines card taking a line (a path, an endpoint's name, URL or secret) takes it as the panels do.
+    if (card.kind === "routines" && routines.takesText(card.routines) && !screen.question && !pairedEsc) {
+      if (key.return) return routines.choose(card.routines);
+      if (key.escape) return update({ card: back(card) });
+      if (key.backspace || key.delete) return update({ card: { kind: "routines", routines: routines.erased(card.routines) } });
+      if (input !== "" && !key.ctrl && !key.meta && !key.tab) return update({ card: { kind: "routines", routines: routines.typed(card.routines, input) } });
+    }
     // The note's line on the permission card takes what is typed; the move keys wait while it is open, and a key it does not
     // take (Ctrl+C, Ctrl+]) is looked up as any other.
     if (promptShown && promptState.line !== null && !pairedEsc) {
@@ -2122,6 +2171,8 @@ export const App = (props: AppProps) => {
     // A question a key action asked (`whileTyping`) takes its answer whatever the composer holds.
     if (screen.question && (!typing || screen.question.whileTyping === true)) lookups.push("confirm");
     if (card.kind === "asks") lookups.push("asks");
+    // The routines card's verbs, then the picker's moves, Enter and Esc.
+    else if (card.kind === "routines") lookups.push("routines", "picker");
     else if (card.kind === "help" || paged(card) || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");
     if (promptShown) lookups.push("permission");
@@ -2226,8 +2277,8 @@ export const App = (props: AppProps) => {
       ? ""
       : `${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
-    card.kind === "panel"
-      ? `The card has the keys · ${pickers.hint(card.panel)}`
+    card.kind === "panel" || card.kind === "routines"
+      ? `The card has the keys · ${card.kind === "panel" ? pickers.hint(card.panel) : `${keys("picker.leave")} ${routines.back(card.routines) ? "goes back" : "closes it"}`}`
       : card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "page"
         ? `The card has the keys · ${keys("pager.close")} closes it`
         : card.kind === "environments" ||
@@ -2390,6 +2441,7 @@ export const App = (props: AppProps) => {
             />
           )}
           {card.kind === "panel" && pickers.render(card.panel, { width: mainWidth, height: helpHeight })}
+          {card.kind === "routines" && routines.render(card.routines, { width: mainWidth, height: helpHeight })}
           {card.kind === "prompt-picker" && (
             <PromptPickerCard
               messages={messages}

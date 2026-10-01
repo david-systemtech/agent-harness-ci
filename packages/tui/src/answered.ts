@@ -2,6 +2,7 @@ import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
 import { COMPOSER_KEYS } from "./composer/use-composer.js";
 import { RAIL_KEYS } from "./rail/commands.js";
+import { ROUTINE_KEYS } from "./routines/commands.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -75,6 +76,7 @@ export const SCREEN_KEYS = [
   "row.rewind",
   "row.fork",
   "row.rewindUndo",
+  ...ROUTINE_KEYS,
 ] as const satisfies readonly KeyActionId[];
 
 /**
