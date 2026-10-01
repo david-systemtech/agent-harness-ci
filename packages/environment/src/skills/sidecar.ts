@@ -1,7 +1,8 @@
 import { open, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { join } from "node:path";
 import { ReadinessDeclaration, SKILL_READINESS_SIDECAR } from "@agent-harness/contracts";
 import { parse } from "yaml";
+import { isInside } from "../workspace/paths.js";
 
 /**
  * A skill's readiness sidecar (skills spec, "Readiness"; ADR 0009):
@@ -24,12 +25,6 @@ export type SidecarReading =
 
 const NONE: SidecarReading = { kind: "none" };
 
-/** Whether `path` lies in `tree` or is it. */
-const within = (tree: string, path: string): boolean => {
-  const rel = relative(tree, path);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-};
-
 /** An invalid sidecar, saying why. */
 const invalid = (why: string): SidecarReading => ({ kind: "invalid", message: `Its readiness sidecar, ${SKILL_READINESS_SIDECAR}, ${why}, so it counts as none.` });
 
@@ -43,7 +38,7 @@ export const readSidecar = async (folder: string): Promise<SidecarReading> => {
   } catch {
     return NONE;
   }
-  if (!within(tree, file)) return invalid("leads out of the skill's folder");
+  if (!isInside(tree, file)) return invalid("leads out of the skill's folder");
   let text: string;
   try {
     // A file only: opening a pipe would wait for a writer.

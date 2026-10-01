@@ -1,5 +1,5 @@
 import { lstat, open, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import {
   ContractError,
   READINESS_OVERLAY,
@@ -23,6 +23,7 @@ import type { AccountFacts } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import { runGit, type GitAnswer, type GitOptions } from "../workspace/git.js";
+import { isInside } from "../workspace/paths.js";
 import { fingerprintOf, type PlacedMember, type PlacedSet } from "./generations.js";
 import { readSidecar } from "./sidecar.js";
 
@@ -106,12 +107,6 @@ interface Declared {
   readonly declaredBy: ReadinessDeclarer;
   readonly declaration: ReadinessDeclaration;
 }
-
-/** Whether `path` lies in `tree` or is it. */
-const within = (tree: string, path: string): boolean => {
-  const rel = relative(tree, path);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-};
 
 /** A list for people: `a`, `a or b`, `a, b or c`. */
 const either = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} or ${items.at(-1) ?? ""}`);
@@ -273,7 +268,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
         } catch {
           continue;
         }
-        if (!within(tree, found)) continue;
+        if (!isInside(tree, found)) continue;
         if (wanted.length === 0) return null;
         const text = await readText(found).catch(() => null);
         if (text === null) continue;
