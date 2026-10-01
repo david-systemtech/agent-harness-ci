@@ -2,7 +2,9 @@ import { SettingsUpdatedPayload, triggerMatches, type RegisteredStepId } from "@
 import type { EventEnvelope } from "../event-log/envelope.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { Reader } from "../sessions/session-reads.js";
 import type { CheckedStep } from "./check.js";
+import { mintedRunEnd } from "./minted.js";
 import type { SetupService } from "./service.js";
 
 /**
@@ -26,7 +28,10 @@ import type { SetupService } from "./service.js";
  *   names include one the step writes. A change a step's checks read that
  *   the log does not record is named to `trigger` in process, and triggers
  *   the step the same way: each check of the release channel as it ends,
- *   for Your machines (#679).
+ *   for Your machines (#679). Every run end of a minted session, a
+ *   session tagged `setup` and a step's id (ADR 0019; #584), triggers that
+ *   step the same way, so an LLM step's check detects its artefact when the
+ *   conversation stops, never on a timeout.
  *
  * A trigger, the cadence or a `setup.check` that arrives while the step's
  * check runs takes that run's result (`service.ts`): a check never runs
@@ -115,8 +120,10 @@ export const startSetupScheduler = (options: SetupSchedulerOptions): SetupSchedu
     );
   };
 
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const unsubscribe = log.subscribe((event) => {
-    for (const step of steps) if (fires(step, event)) trigger(step);
+    const minted = mintedRunEnd(reader, event);
+    for (const step of steps) if (fires(step, event) || minted.has(step.id)) trigger(step);
   });
   const startPass = Promise.all(
     steps.map((step) => {
