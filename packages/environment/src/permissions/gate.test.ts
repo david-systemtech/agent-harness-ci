@@ -177,4 +177,37 @@ describe("what containment closes inside the writable set (#791)", () => {
     );
     expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".git", "hooks.old", "pre-commit"), join(workspace, ".git", "HEAD")), false)).toBeNull();
   });
+
+  it("denies a .git indirection and its programs even when .git links to a directory with another name (#1094)", () => {
+    const workspace = realpathSync(tempDir());
+    const metadata = join(workspace, "metadata");
+    mkdirSync(metadata);
+    symlinkSync(metadata, join(workspace, ".git"));
+    const containment = closing(workspace, []);
+    for (const path of [".git", ".git/", ".git/config", ".git/hooks/pre-commit", ".git/commondir"]) {
+      expect(containmentDenial(containment, workspace, writeTo(path), false), path).not.toBeNull();
+    }
+    expect(containmentDenial(containment, workspace, writeTo("metadata/ordinary-file", ".githooks/pre-commit", ".git/config.lock", ".git/HEAD"), false)).toBeNull();
+  });
+
+  it("closes new git programs case-blind where needed, without closing refs named config or hooks (#1094)", () => {
+    const workspace = realpathSync(tempDir());
+    const containment = closing(workspace, []);
+    for (const path of ["nested/.GIT", "nested/.GIT/Config", "nested/.GIT/HOOKS/pre-commit", "nested/.GIT/modules/new/Config.Worktree"]) {
+      expect(containmentDenial(containment, workspace, writeTo(path), true), path).not.toBeNull();
+      expect(containmentDenial(containment, workspace, writeTo(path), false), path).toBeNull();
+    }
+    mkdirSync(join(workspace, "nested", ".git"), { recursive: true });
+    symlinkSync(join(workspace, "nested", ".git"), join(workspace, "alias"));
+    expect(containmentDenial(containment, workspace, writeTo("alias/config"), false)).not.toBeNull();
+    expect(containmentDenial(containment, workspace, writeTo("nested/.git/refs/heads/config", "nested/.git/refs/heads/hooks", "nested/.git/objects/pack/new.pack", "nested/.git/info/exclude"), false)).toBeNull();
+  });
+
+  it("closes a repository nested anywhere beneath another repository's metadata (#1094)", () => {
+    const workspace = realpathSync(tempDir());
+    const containment = closing(workspace, []);
+    for (const path of [".git/other/.git", ".git/other/.git/config", ".git/other/.git/hooks/pre-commit"]) {
+      expect(containmentDenial(containment, workspace, writeTo(path), false), path).not.toBeNull();
+    }
+  });
 });

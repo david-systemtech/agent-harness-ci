@@ -7,6 +7,7 @@ import type { RuledRun, ToolGateRule } from "../adapter/seams.js";
 import { summarise, type BrokerAnswer } from "./broker.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import { recordToolDecision } from "./tool-decisions.js";
+import { isGitProgramPath } from "./git-program-paths.js";
 
 /**
  * The tool gate (permissions spec, "Modules": the tool gate) and its
@@ -15,7 +16,8 @@ import { recordToolDecision } from "./tool-decisions.js";
  * outside the workspace, the session's scratch directory and the session's
  * temporary directory, one that names no path, or one to what the run's
  * containment closes inside them (the repository git directory's hooks and
- * config, #791); at `workspace-no-network`
+ * config, #791, and the .git programs and indirection paths of existing or
+ * newly made/repointed repositories, #1094); at `workspace-no-network`
  * that, and every fetch and search. Shell commands are the sandbox's
  * (Claude's `sandbox` option, #140), reads are free at every level (the
  * denylist's paths are #132's), a browser verb and a tool server's call are
@@ -133,8 +135,14 @@ const writeDenial = (containment: RunContainment, workspace: string, paths: read
   const fold = (path: string): string => (caseInsensitive ? path.toLowerCase() : path);
   const closed = resolvedAll(containment.readOnly).map(fold);
   const shut = written.find(({ resolved }) => resolved !== null && closed.some((path) => within(path, fold(resolved))))?.path;
-  if (shut === undefined) return null;
-  return `Denied by containment (${containment.level}): ${shut} is in the repository's git hooks or config, which name programs the user's own git runs outside containment, so this run may not write it. ${NOT_WIDENED}`;
+  if (shut !== undefined) {
+    return `Denied by containment (${containment.level}): ${shut} is in the repository's git hooks or config, which name programs the user's own git runs outside containment, so this run may not write it. ${NOT_WIDENED}`;
+  }
+  // Read both spellings: resolving a .git symlink may erase that component,
+  // while a differently named link into .git is caught only after resolution.
+  const program = written.find(({ path, resolved }) => isGitProgramPath(path, caseInsensitive) || (resolved !== null && isGitProgramPath(resolved, caseInsensitive)))?.path;
+  if (program === undefined) return null;
+  return `Denied by containment (${containment.level}): ${program} is repository git metadata that can name programs or repoint a checkout for the user's own git outside containment, so this run may not write it. ${NOT_WIDENED}`;
 };
 
 /**
