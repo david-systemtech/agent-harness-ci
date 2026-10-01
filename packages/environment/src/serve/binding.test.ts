@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { request } from "node:http";
 import { join } from "node:path";
 import { DISCOVERY_PATH, DiscoveryDocument, HEALTH_PATH, PROTOCOL_VERSION, type SettingsPatch, type SnapshotFrame } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { ByeError, connectClient, openSocket, type WireClient } from "../../test/wire-client.js";
@@ -51,6 +51,14 @@ const detector = (tailscaleAddress: string | undefined, tailnetName?: string, la
   tailnetName: async () => tailnetName,
   lanAddresses: () => lanAddresses,
 });
+
+/** The lines written on standard error from now until the test ends. */
+const standardError = (): string[] => {
+  const lines: string[] = [];
+  const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void lines.push(args.map(String).join(" ")));
+  onCleanup(() => spy.mockRestore());
+  return lines;
+};
 
 /** Writes `values` through settings.update, as the Your machines card does. */
 const write = async (client: WireClient, values: SettingsPatch): Promise<void> => {
@@ -129,18 +137,29 @@ describe("binding", () => {
     expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({ state: "done", failing: [] });
   });
 
-  it("fails the start at the listen step when network.bindLan names an address the machine does not hold, saying so; a start option turning LAN binding off overrides the key", async () => {
+  it("starts without the LAN address network.bindLan names once the machine no longer holds it, on loopback, saying so on standard error and on the Your machines step until LAN binding is off", async () => {
     const dataDir = join(tempDir(), "data");
-    const machine = detector(undefined, undefined, ["192.168.1.20"]);
-    await written(dataDir, machine, { "network.bindLan": "192.0.2.10" });
+    await written(dataDir, detector(undefined, undefined, ["192.0.2.10"]), { "network.bindLan": "192.0.2.10" });
+    const lines = standardError();
 
-    await expect(startTestEnvironment({ dataDir, interfaces: machine })).rejects.toMatchObject({
-      step: "listen",
-      message: expect.stringContaining("The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20)"),
+    const t = await start({ dataDir, interfaces: detector(undefined, undefined, ["192.168.1.20"]) });
+    expect(t.env.addresses).toEqual([{ host: "127.0.0.1", port: t.address.port }]);
+    expect(await binding(t)).toEqual({ tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] });
+    expect(lines.filter((line) => line.includes("192.0.2.10"))).toEqual([
+      "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20), so the environment starts without it: pick one it holds on the Your machines step, or turn LAN binding off.",
+    ]);
+
+    const client = await t.client();
+    // With auto-update off, the release channel's check holds without a read (#346).
+    await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
+    expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({
+      state: "needs-attention",
+      reason: "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20): pick one it holds, or turn LAN binding off.",
+      failing: ["your-machines.lan"],
+      actions: ["check-again"],
     });
-    const off = await start({ dataDir, interfaces: machine, bindLan: false });
-    expect(off.env.addresses).toEqual([{ host: "127.0.0.1", port: off.address.port }]);
-    expect(await binding(off)).toEqual({ tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] });
+    await write(client, { "network.bindLan": null });
+    expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({ state: "done", failing: [] });
   });
 
   it("never binds the wildcard address: a start asked to fails at the listen step", async () => {
@@ -261,6 +280,20 @@ describe("binding", () => {
       const off = await start({ dataDir, interfaces: machine });
       expect(off.env.addresses.map((address) => address.host)).toEqual(["127.0.0.1", ALIAS]);
       expect(await binding(off)).toMatchObject({ lan: null });
+    });
+
+    it("binds loopback and the tailnet at a start whose network.bindLan names an address the machine no longer holds, skipping the LAN", async () => {
+      const dataDir = join(tempDir(), "data");
+      await written(dataDir, detector(ALIAS, "desk.tail1234.ts.net", [OTHER_ALIAS]), { "network.bindLan": OTHER_ALIAS });
+      standardError();
+
+      const t = await start({ dataDir, interfaces: detector(ALIAS, "desk.tail1234.ts.net", ["192.168.1.20"]) });
+      expect(t.env.addresses).toEqual([
+        { host: "127.0.0.1", port: t.address.port },
+        { host: ALIAS, port: t.address.port },
+      ]);
+      expect(t.env.authPolicy).toBe("tailnet");
+      expect(await binding(t)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.168.1.20"] });
     });
 
     it("takes the start options over both keys, for tests and the service verbs", async () => {

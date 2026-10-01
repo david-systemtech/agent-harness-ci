@@ -233,6 +233,7 @@ import {
   UpdatesStatus,
 } from "./updates.js";
 import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepResults, StepState } from "./setup.js";
+import { SetupMintedPayload } from "./setup-minted.js";
 import { PromptVariant } from "./setup-prompts.js";
 import {
   ADDRESS_ROWS,
@@ -1451,6 +1452,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   { path: "setup/step-results.json", title: "StepResults", schema: StepResults },
   { path: "setup/prompt-variant.json", title: "PromptVariant", schema: PromptVariant },
+  { path: "setup/minted-payload.json", title: "SetupMintedPayload", schema: SetupMintedPayload },
   { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },
   { path: "browser/page-key.json", title: "PageKey", schema: PageKey },
   ...PAGE_VERBS.flatMap((verb) => [

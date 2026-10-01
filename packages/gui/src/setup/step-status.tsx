@@ -112,10 +112,11 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
   const offered = result === null ? [] : setupActions(step, result).filter((offered) => !handledActions.includes(offered.action));
   /** Whether the connection may carry out a plan: a restore needs the method it calls. */
   const may = (plan: SetupActionPlan): boolean => plan.kind !== "restore" || runtime.capability(environmentId, RESTORE_METHODS[plan.step]).status === "present";
+  const now = runtime.environmentNow(environmentId);
   return (
     <>
-      <p className="text-sm text-ink">{stepLine(step)}</p>
-      {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, runtime.environmentNow(environmentId))}</p>}
+      <p className="text-sm text-ink">{stepLine(step, now)}</p>
+      {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (
           <Button

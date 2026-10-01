@@ -377,7 +377,10 @@ describe("skills.readiness", () => {
   });
 
   it("passes an mcp check when the tool-server factory gives the session's next run a server of that name, and without a session asks for a new session of the account and workspace", async () => {
+    // A repository whose remote gives the session a repository identity, which its next run's servers are asked under (#1022).
     const linearIn = tempDir();
+    git(linearIn, "init", "-q");
+    git(linearIn, "remote", "add", "origin", "https://github.com/acme/receipts.git");
     const asked: ToolServerScope[] = [];
     const toolServers: ToolServerFactory = (scope) => {
       asked.push(scope);
@@ -395,7 +398,9 @@ describe("skills.readiness", () => {
       { name: "tracker", state: "ready", declaredBy: "sidecar" },
     ]);
     expect(asked).not.toHaveLength(0);
-    for (const scope of asked) expect(scope).toMatchObject({ sessionId: id, accountId: "claude-max", workspace: { kind: "directory", path: linearIn }, clientTools: [] });
+    for (const scope of asked) {
+      expect(scope).toMatchObject({ sessionId: id, accountId: "claude-max", workspace: { kind: "directory", path: linearIn }, repositoryIdentity: "https://github.com/acme/receipts", clientTools: [] });
+    }
 
     asked.length = 0;
     const elsewhere = tempDir();
@@ -403,7 +408,7 @@ describe("skills.readiness", () => {
     expect(tracker).toMatchObject({ state: "setup-needed", why: "It files issues through the linear tool server." });
     expect(tracker !== undefined && failures(tracker)).toEqual([["failed", "A new session of this account in this workspace is given no tool server named linear."]]);
     const [newSession] = asked;
-    expect(newSession).toMatchObject({ accountId: "claude-max", workspace: { kind: "directory", path: elsewhere }, clientTools: [] });
+    expect(newSession).toMatchObject({ accountId: "claude-max", workspace: { kind: "directory", path: elsewhere }, repositoryIdentity: null, clientTools: [] });
     expect(newSession?.sessionId).not.toBe(id);
     expect(await readiness(client, at(linearIn, ["tracker"]))).toEqual([{ name: "tracker", state: "ready", declaredBy: "sidecar" }]);
 

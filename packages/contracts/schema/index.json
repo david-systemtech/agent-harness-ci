@@ -3159,6 +3159,10 @@
       "title": "PromptVariant"
     },
     {
+      "path": "setup/minted-payload.json",
+      "title": "SetupMintedPayload"
+    },
+    {
       "path": "browser/page-driver-kind.json",
       "title": "PageDriverKind"
     },

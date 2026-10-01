@@ -149,6 +149,15 @@ describe("browser_read through the driver", () => {
     });
   });
 
+  it("answers a page whose element named after a DOM method breaks the reader with a sentence that says what to do instead (#696)", async () => {
+    // This image makes `document.querySelectorAll` an element, and Readability calls it.
+    const page = await at(BLOG, LONG_ARTICLE.replace("<main>", `<main><img name="querySelectorAll" src="/logo.png" alt="">`));
+    expect(await page.perform("read", {})).toEqual({
+      ok: false,
+      reason: `${BLOG} could not be read. The reader could not read it: TypeError: doc.querySelectorAll is not a function. Take a snapshot to read its elements, or a screenshot to see what it shows.`,
+    });
+  });
+
   it("answers a sentence, never an empty reading, for a page with no article and no text", async () => {
     const page = await at(APP, `<!doctype html><title></title><body></body>`, "");
     page.peer.inPage("snapshotFrame", () => ({ nodes: [], lastRef: 0 }));
@@ -203,6 +212,16 @@ describe("a challenge on the driver's results", () => {
       ok: true,
       value: { url: BLOG, title: "The World Wide Web" },
       notice: "The browser could not check the page for a challenge: The page's script failed: Error: the check met a page it could not read.",
+    });
+  });
+
+  it("reads a page whose element named after a DOM method breaks the check, and says in a sentence, without the script's stack, that it could not check it (#696)", async () => {
+    // A document's named elements override its members: this image makes `document.querySelector` an element.
+    const page = await at(BLOG, LONG_ARTICLE.replace("<main>", `<main><img name="querySelector" src="/logo.png" alt="">`));
+    expect(await page.perform("read", {})).toMatchObject({
+      ok: true,
+      value: { url: BLOG, source: "article" },
+      notice: "The browser could not check the page for a challenge: The page's script failed: TypeError: document.querySelector is not a function.",
     });
   });
 
