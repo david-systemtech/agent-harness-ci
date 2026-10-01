@@ -171,7 +171,7 @@ describe("setup.result-changed", () => {
 });
 
 /** The status a fresh test environment's snapshot carries. */
-const IDLE = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } } as const;
+const IDLE = { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] } } as const;
 
 /** The environment's name, icon and colour the snapshot carries beside the results (#323): the look's own tests pin them. */
 const lookOf = (t: TestEnvironment) => ({ name: t.env.name, icon: expect.any(String) as unknown, colour: expect.any(String) as unknown });

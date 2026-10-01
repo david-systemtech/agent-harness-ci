@@ -113,6 +113,14 @@ describe("snapshotFrame", () => {
     ]);
   });
 
+  it("reads the page's body on a page whose element named body takes the document's own member's place (#1052)", () => {
+    const window = pageWith(`<img name="body" src="/x.png" alt=""><main><h1>Title</h1><p>Some text here.</p></main>`);
+    expect(window.document.body.localName).toBe("img");
+    expect(snapshotOf(window, { prefix: "", firstRef: 1 }).nodes).toMatchObject([
+      { role: "main", children: [{ role: "heading", name: "Title" }, { role: "paragraph", text: "Some text here." }] },
+    ]);
+  });
+
   it("keeps the latest snapshot's refs in the world's map, an element that left the page found no longer", () => {
     const window = pageWith(`<button id="save">Save</button><button id="cancel">Cancel</button>`);
     snapshotOf(window, { prefix: "", firstRef: 1 });

@@ -822,6 +822,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let tailnetName: string | undefined;
   // What the listeners bind beside loopback, for environment.status (#574): nothing until they are bound.
   let boundBeside: Pick<EnvironmentBinding, "tailnet" | "lan"> = { tailnet: null, lan: null };
+  // A Tailscale address the machine holds that the start did not bind (#861): found at the listen step with the tailnet setting
+  // off, or looked for again at each environment.status while no tailnet address is bound, so a Tailscale installed since shows.
+  let tailnetFound: string | null = null;
   // What is found to bind beside loopback: the Tailscale address and name, and the LAN addresses, read as each is asked.
   const interfaces = options.interfaces ?? tailscaleDetector();
 
@@ -1281,6 +1284,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const created = createAdapterHost({
       log,
       clock,
+      scrub,
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
@@ -1447,7 +1451,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    lookAgain: async () => {
+      if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
+    },
     onDraining: () => {
       readiness = "draining";
       // New runs are refused before any process stops, so none starts on a process the drain is stopping.
@@ -1876,6 +1883,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const boundOn = (which: BoundInterface) => listening.find((entry) => entry.interface === which)?.address.host ?? null;
     const tailnet = boundOn("tailnet");
     boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
+    tailnetFound = tailnet === null ? (tailscaleAddress ?? null) : null;
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());

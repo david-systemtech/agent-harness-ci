@@ -24,11 +24,12 @@ import type { SessionListView } from "./session-list.js";
  * cannot drive them for the session; the session environment's
  * headless browser with its availability; and the browser dock where the
  * shell has `webView`. No browser is also an explicit choice. The labels and notes are the picker copy ADR 0024
- * names, with the product name as the placeholder.
+ * names, with the product name as the placeholder. A stored Chrome choice
+ * outside the paired list is retained as a dim row with its reason.
  */
 
-/** Why a row is dimmed: its Chrome (or every Chrome, for the plain My Chrome) is not connected; the operator lets no run use the headless browser; the environment has none; or it has not said. */
-export type BrowserUnavailableReason = "disconnected" | "not-drivable" | "headless-not-allowed" | "headless-unavailable" | "unknown";
+/** Why a row is dimmed: a Chrome is disconnected, unreachable or cannot be driven here; headless runs are disallowed, unavailable or not yet known. */
+export type BrowserUnavailableReason = "disconnected" | "not-drivable" | "unreachable" | "headless-not-allowed" | "headless-unavailable" | "unknown";
 
 export interface BrowserUnavailable {
   readonly reason: BrowserUnavailableReason;
@@ -49,11 +50,23 @@ export interface BrowserRow {
   readonly selected: boolean;
 }
 
+export interface PairedChromeGroup {
+  readonly environmentId: string;
+  readonly name: string;
+  readonly chromes: readonly PairedChrome[];
+  readonly stale: boolean;
+  readonly error: string | null;
+}
+
 export interface BrowsersView {
   readonly environmentId: string;
   readonly sessionId: string;
   /** The rows, in the picker's order. */
   readonly rows: readonly BrowserRow[];
+  /** Paired Chromes, including last-seen times and whether their cached list is stale. */
+  readonly chromes: readonly PairedChromeGroup[];
+  /** The session environment's headless state and listener details, held by the request cache. */
+  readonly status: CachedAnswer<"browser.status">;
   /** The browser dock: present where the shell has `webView`, its row listed; else absent with `no-shell` and its line, and not listed. */
   readonly dock: CapabilityAnswer;
 }
@@ -84,6 +97,14 @@ const chromeEnvironments = (records: readonly ConnectionRecord[], environmentId:
   const local = localEnvironmentOf(records);
   return [...new Set([...(local === null ? [] : [local]), environmentId, ...records.filter((record) => record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId)])];
 };
+
+/** Management rows read the same cached lists as the picker, retaining offline answers. */
+const pairedChromes = (sources: BrowserSources, environmentId: string): PairedChromeGroup[] =>
+  chromeEnvironments(sources.records.read(), environmentId).map((id) => {
+    const record = sources.records.read().find((record) => record.environmentId === id);
+    const answer = sources.chromes(id).read();
+    return { environmentId: id, name: record?.descriptor.name ?? id, chromes: answer.result?.chromes ?? [], stale: record?.phase !== "ready" || answer.error !== null, error: answer.error?.message ?? null };
+  });
 
 /** What the rows for a session on `environmentId` follow. */
 export const browserInputs = (sources: BrowserSources, environmentId: string): Observable<unknown>[] => [
@@ -154,7 +175,7 @@ interface ChromeGroup {
   readonly chromes: readonly PairedChrome[];
   /** What a label adds so two environments' Chromes stay apart: ` on <name>` when both list some, else nothing. */
   readonly where: string;
-  /** Only the local or session environment can drive its Chrome for this client. */
+  /** The group is dim when this client cannot drive it or its environment cannot be reached. */
   readonly unavailable: BrowserUnavailable | null;
 }
 
@@ -211,13 +232,29 @@ export const browserRows = (sources: BrowserSources, environmentId: string, chos
   const local = localEnvironmentOf(records);
   const groups = listed.map((group): ChromeGroup => ({
     ...group, where: listed.length > 1 ? ` on ${nameOf(group.environmentId)}` : "",
-    unavailable: group.environmentId === environmentId || group.environmentId === local ? null
-      : { reason: "not-drivable", message: `Chrome on ${nameOf(group.environmentId)}: no local client can drive it for this session.` },
+    unavailable: group.environmentId !== environmentId && group.environmentId !== local
+      ? { reason: "not-drivable", message: `Chrome on ${nameOf(group.environmentId)}: no local client can drive it for this session.` }
+      : records.find((record) => record.environmentId === group.environmentId)?.phase !== "ready"
+        ? { reason: "unreachable", message: "The Chrome's environment cannot be reached. This list is cached and stale." }
+        : null,
   }));
   const headless = headlessUnavailable(sources.status(environmentId).read(), nameOf(environmentId));
   const dock = sources.webView.status === "present" ? [DOCK_ROW] : [];
-  const rows = [defaultRow(headless), ...groups.flatMap(chromeRows), headlessRow(headless, nameOf(environmentId)), NONE_ROW, ...dock];
+  const rows: Unmarked[] = [defaultRow(headless), ...groups.flatMap(chromeRows), headlessRow(headless, nameOf(environmentId)), NONE_ROW, ...dock];
   const marked = chosen === undefined ? undefined : markedAs(chosen, groups);
+  // A stored field can outlive its pairing or name a machine this client cannot drive.
+  // Keep that choice visible instead of presenting it as the default.
+  if (chosen?.kind === "chrome" && !rows.some((row) => sameBrowser(row.value, marked ?? null))) {
+    const drivable = sameId(chosen.environmentId, environmentId) || sameId(chosen.environmentId, local);
+    rows.splice(1, 0, {
+      value: chosen,
+      label: `${MY_CHROME} on ${nameOf(chosen.environmentId)}`,
+      note: chosen.chromeId === null ? PLAIN_NOTE : NAMED_NOTE,
+      unavailable: drivable
+        ? { reason: "disconnected", message: "This Chrome is not in the paired list. Pair it again or choose another browser." }
+        : { reason: "not-drivable", message: "This Chrome is on another machine; no local client can drive it here." },
+    });
+  }
   return rows.map((row) => ({ ...row, selected: marked !== undefined && sameBrowser(row.value, marked) }));
 };
 
@@ -228,6 +265,6 @@ export const browsersProjection = (host: BrowsersHost, environmentId: string, se
   const chosen = () => host.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === id)?.summary.browser;
   return dynamic(
     () => [host.sessionList, ...browserInputs(host, environmentId)],
-    (): BrowsersView => ({ environmentId, sessionId: id, rows: browserRows(host, environmentId, chosen()), dock: host.webView }),
+    (): BrowsersView => ({ environmentId, sessionId: id, rows: browserRows(host, environmentId, chosen()), chromes: pairedChromes(host, environmentId), status: host.status(environmentId).read(), dock: host.webView }),
   );
 };
