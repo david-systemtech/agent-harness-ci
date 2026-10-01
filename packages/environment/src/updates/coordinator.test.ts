@@ -121,11 +121,13 @@ describe("updates.apply with an artefact", () => {
     const folder = unpackedServerArtefact(tempDir("agent-harness-unpacked-"), TARGET);
     // A relative link stays one: never a link back into the folder copied from.
     symlinkSync("agent-harness", join(folder, "bin", "harness"));
+    // The source's own mode, not a literal: the umask masks the fixture's creation mode.
+    const mode = statSync(join(folder, "bin", "agent-harness")).mode & 0o777;
 
     const answer = await apply(client, { version: TARGET, artefactPath: folder, when: "idle" });
 
     expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
-    expect(staged).toEqual({ mode: 0o755, link: "agent-harness" });
+    expect(staged).toEqual({ mode, link: "agent-harness" });
     expect(readdirSync(folder).sort()).toEqual(["VERSION", "bin", "node", "packages"]);
     expect(updateNotices(t)).toEqual([{ type: "environment.update-pending", payload: expect.objectContaining({ updateId: answer.result?.updateId, toVersion: TARGET }) }]);
   });
