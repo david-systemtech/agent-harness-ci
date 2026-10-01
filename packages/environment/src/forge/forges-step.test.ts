@@ -379,6 +379,7 @@ describe("forges.coverage", () => {
     const { t, forge, client } = await withForge();
     await added(client, { url: forge.origin, kind: "forgejo" });
     const uncovered = await fakeForge();
+    uncovered.detectable("forgejo", "16.0.3+gitea-1.22.0");
     uncovered.answer(null, "GET /api/v1/repos/david/bank/releases", { status: 404, body: { message: "Not Found" } });
     expect(await t.env.forge.releases.list({ origin: uncovered.origin, repository: "david/bank", limit: 50, purpose: "read the release channel" })).toMatchObject({
       outcome: "refused",
