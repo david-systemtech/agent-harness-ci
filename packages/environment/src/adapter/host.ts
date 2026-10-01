@@ -224,9 +224,10 @@ export interface AdapterHostOptions {
   readonly trust?: TrustSeam;
   /**
    * The repository identity a session made in the workspace at `path` gets
-   * (workspace-picker spec, "Repository identity"), which a preview of a
-   * session not yet made is composed under (#1072): the environment's
-   * resolver's. Preset: none anywhere.
+   * (workspace-picker spec, "Repository identity"), which the preview scope
+   * of a session not yet made reads, for `instructions.preview` and
+   * `skills.readiness` (#1072): the environment's resolver's. Preset: none
+   * for any path.
    */
   readonly identityAt?: (path: string) => Promise<string | null>;
   /**
