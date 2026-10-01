@@ -539,7 +539,7 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
  * and client tools (a completions request's, #138, #139), which the log does
  * not hold, so a run started after a restart carries neither.
  */
-export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions" | "clientTools">;
+export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions" | "alwaysOn" | "clientTools">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -1444,6 +1444,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     readonly trust: RunTrust;
     readonly skillSet: RunSkillSet;
     readonly origin: RunActorKind;
+    readonly alwaysOn?: readonly string[];
     readonly containment: ContainmentLevel;
     readonly injection: InjectionDecision;
   }): InstructionScope => ({
@@ -1456,8 +1457,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     containment: run.containment,
     injection: run.injection,
     bot: null,
-    // The always-on layer (#507) fills a run's extra names.
-    alwaysOn: [],
+    alwaysOn: run.alwaysOn ?? [],
     channel: run.account.descriptor.instructionChannel,
     nativeProjectInstructions: run.account.descriptor.nativeProjectInstructions,
   });
@@ -1676,7 +1676,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
+    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, alwaysOn: [], clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1933,6 +1933,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         ...(previous.effort !== null && { effort: previous.effort }),
         ...(forAnswers && { keptAnswers: true }),
         ...(previous.appendedInstructions !== null && { appendedInstructions: previous.appendedInstructions }),
+        alwaysOn: previous.alwaysOn ?? [],
         clientTools: previous.clientTools,
       });
       if (decision.rejected !== undefined) {

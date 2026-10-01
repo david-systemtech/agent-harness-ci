@@ -391,11 +391,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     clientSession: VerifiedClientSession,
     target: Target,
     place: Place | null,
+    skills: { readonly names: readonly string[]; readonly ignored: readonly string[] },
     slash?: SlashScope,
   ): Begun => {
     const { sessionId, fresh, forked } = target;
     const clientActor = formatActor({ kind: "client_session", id: clientSession.id });
-    const ignored = [...turn.ignored];
+    const ignored = [...turn.ignored, ...skills.ignored];
     if (!fresh && turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
     // A session the turn makes has no browser unless the request asks for the headless one, since a program brings its own
     // tools (#550); a session it continues keeps its own.
@@ -450,6 +451,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         if (answeredIn !== model.id) ignored.push("model");
         if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
         ignored.push(...turn.instructionSources);
+        for (const index of (turn.extension.alwaysOnSkills ?? []).keys()) {
+          const path = `${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`;
+          if (!ignored.includes(path)) ignored.push(path);
+        }
         if (turn.effortParam !== null) ignored.push(turn.effortParam);
         if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
         ignored.push(...liveToolsIgnored(turn, sessionId));
@@ -477,6 +482,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         effort: turn.effort ?? undefined,
         mode: turn.extension.permissionMode ?? undefined,
         appendedInstructions: turn.appendedInstructions,
+        alwaysOn: skills.names,
         clientTools: turn.tools.served,
       });
       if (started.rejected !== undefined) throw refused(started.rejected);
@@ -633,15 +639,29 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     let begun: Begun;
     try {
       const text = where.fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
+      const names: string[] = [];
+      const ignored: string[] = [];
+      const asked = turn.extension.alwaysOnSkills ?? [];
       let slash: PreparedSlash | undefined;
       do {
         slash = text.startsWith("/") ? await host.prepareSlash(place === null ? where.sessionId : {
           accountId: model.account.id, workspace: place.workspace, repositoryIdentity: place.repositoryIdentity,
         }) : undefined;
+        names.length = 0;
+        ignored.length = 0;
+        if (asked.length > 0) {
+          const live = host.startFacts(where.sessionId, actorFor(turn, clientSession)).live !== null;
+          // A slash turn already resolved the set its run will use; its extra names must use that same set.
+          const scope = live ? null : slash ?? await host.previewScope(place === null ? { sessionId: where.sessionId } : { accountId: model.account.id, workspace: place.workspace });
+          for (const [index, name] of asked.entries()) {
+            if (scope?.skillSet.members.some((member) => member.name === name)) names.push(name);
+            else ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`);
+          }
+        }
         ready(true);
         if (exchange.gone) { follower.stop(); await place?.discard(); return; }
       } while (slash?.isCurrent() === false);
-      begun = begin(turn, model, clientSession, where, place, slash);
+      begun = begin(turn, model, clientSession, where, place, { names, ignored }, slash);
     } catch (error) {
       follower.stop();
       await place?.discard();
@@ -710,6 +730,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (requested?.id !== answeredIn) ignored.push("model");
     if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
     ignored.push(...turn.instructionSources);
+    ignored.push(...(turn.extension.alwaysOnSkills ?? []).map((_, index) => `${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`));
     if (turn.effortParam !== null) ignored.push(turn.effortParam);
     if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
     if (turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
