@@ -135,7 +135,7 @@ export interface DeliveriesOptions {
  * sweep or the host's close makes is delivered too. Answers the
  * unsubscribe.
  */
-export const followDeliveries = ({ log, clock, environmentId }: DeliveriesOptions): (() => void) => {
+const noticeDelivery = ({ log, clock, environmentId }: DeliveriesOptions) => {
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
   /** Delivers the entry's result to the client-notice targets it owes, in the open transaction. */
@@ -172,13 +172,39 @@ export const followDeliveries = ({ log, clock, environmentId }: DeliveriesOption
     log.append({ kind: ENVIRONMENT_STREAM_KIND, id: environmentId }, [{ type: "routine.delivered", payload, occurredAt: at }], attribution);
   };
 
-  return log.subscribe((event) => {
+  return deliver;
+};
+
+export const followDeliveries = (options: DeliveriesOptions): (() => void) => {
+  const deliver = noticeDelivery(options);
+  return options.log.subscribe((event) => {
     const entryId = endedEntryOf(event);
     if (entryId === null) return;
     try {
-      log.atomically((tx) => deliver(tx, event.streamId, entryId, event));
+      options.log.atomically((tx) => deliver(tx, event.streamId, entryId, event));
     } catch (error) {
       console.error(`Delivering the entry ${entryId} of the routine ${event.streamId} failed:`, error);
     }
   });
+};
+
+/** The start pass resumes notices lost between an entry's end and its delivery commit. */
+export const resumeDeliveries = (options: DeliveriesOptions): void => {
+  const { log } = options;
+  const deliver = noticeDelivery(options);
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  const ended = log.read<{ routine_id: string; id: string }>("SELECT routine_id, id FROM routine_entries WHERE json_extract(entry, '$.kind') = 'skip' OR json_extract(entry, '$.endedAt') IS NOT NULL ORDER BY position");
+  for (const { routine_id: routineId, id } of ended) {
+    const entry = deliverableEntry(reader, routineId, id);
+    if (entry === null) continue;
+    const outcome = deliveredOutcome(entry.entry);
+    if (outcome === null || !entry.targets.some((target) => target.kind === "client-notice" && takes(target.on, outcome) && !entry.entry.deliveries.some((delivery) => sameTarget(delivery.target, target)))) continue;
+    const cause = log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }).find((event) => endedEntryOf(event) === id);
+    if (cause === undefined) continue;
+    try {
+      log.atomically((tx) => deliver(tx, routineId, id, cause));
+    } catch (error) {
+      console.error(`Resuming the delivery of entry ${id} of routine ${routineId} failed; the next start retries it:`, error);
+    }
+  }
 };

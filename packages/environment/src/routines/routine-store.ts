@@ -15,6 +15,7 @@ import {
   type RoutineEnabledPayload,
   type RoutineEntry,
   type RoutineFiringEndedPayload,
+  type RoutineFiringContinuedPayload,
   type RoutineFiringStartedPayload,
   type RoutineLastOutcome,
   type RoutineMoveLink,
@@ -240,6 +241,13 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
   handled(db, event.streamId, trigger, dueAt);
 };
 
+const firingContinued = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringContinuedPayload): void => {
+  const row = db.get<{ entry: string }>("SELECT e.entry FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE e.id = ? AND e.routine_id = ?", payload.firingId, event.streamId);
+  if (row === undefined) return;
+  const entry = { ...(JSON.parse(row.entry) as FiringEntry), runId: payload.runId };
+  db.run("UPDATE routine_entries SET run_id = ?, entry = ? WHERE id = ?", payload.runId, json(entry), payload.firingId);
+};
+
 const firingEnded = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringEndedPayload): void => {
   const row = db.get<{ entry: string }>("SELECT entry FROM routine_entries WHERE id = ? AND routine_id = ?", payload.firingId, event.streamId);
   if (row === undefined) return;
@@ -318,6 +326,8 @@ export const routinesProjector: Projector = {
         return void db.run("UPDATE routines SET deleted_at = ? WHERE id = ?", event.occurredAt, event.streamId);
       case "routine.firing-started":
         return firingStarted(db, event, event.payload as RoutineFiringStartedPayload);
+      case "routine.firing-continued":
+        return firingContinued(db, event, event.payload as RoutineFiringContinuedPayload);
       case "routine.firing-ended":
         return firingEnded(db, event, event.payload as RoutineFiringEndedPayload);
       case "routine.skipped":

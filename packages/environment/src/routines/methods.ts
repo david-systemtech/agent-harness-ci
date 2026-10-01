@@ -72,7 +72,7 @@ export interface RoutineMethodsOptions {
   /** A client session's ceiling as it is now; undefined when it is not live. */
   readonly ceilingOf: (clientSessionId: string) => Ceiling | undefined;
   /** What starts a firing, and says whether one of a routine is starting or live (#523). */
-  readonly firings: Pick<FiringStarter, "live" | "start">;
+  readonly firings: Pick<FiringStarter, "live" | "start" | "admit">;
   /** Where a saved routine's workspace stands here: the identity it resolves to, and an import's re-resolution (#528). */
   readonly workspaces: RoutineWorkspaces;
   /** The scripts directory, whose missing script the list's attention names (#526). */
@@ -355,6 +355,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      * leaves the baseline alone.
      */
     "routines.runNow": (params, context) => {
+      options.firings.admit();
       const id = params.routineId.toLowerCase();
       const aggregate = routineStream(id);
       const routine = liveRoutine(reader, id);

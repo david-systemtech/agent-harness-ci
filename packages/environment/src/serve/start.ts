@@ -153,11 +153,11 @@ import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
-import { followDeliveries } from "../routines/delivery.js";
+import { followDeliveries, resumeDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
 import { limitFiringDurations } from "../routines/firing-duration.js";
-import { followFiringEnds } from "../routines/firing-end.js";
+import { followFiringEnds, settleFirings } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
@@ -1889,6 +1889,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  settleFirings({ log, clock: now, environmentId: record.id });
+  resumeDeliveries({ log, clock: now, environmentId: record.id });
   webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
