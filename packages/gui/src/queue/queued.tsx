@@ -1,4 +1,4 @@
-import type { QueuedMessage } from "@agent-harness/client-runtime";
+import { attachmentChip, type QueuedMessage } from "@agent-harness/client-runtime";
 import { Marked } from "../transcript/find.js";
 import { VerbButton } from "../session/verb-button.js";
 import { useSessionQueue } from "./session-queue.js";
@@ -8,7 +8,8 @@ const READ_NOW_DOES = "Reads the whole queue now, in the order it was sent: a li
 
 /**
  * A queued message, drawn after its turn (docs/specs/gui.md, "A session
- * pane"): its text and its attachments' names, marked Queued while it waits
+ * pane"): its text and its attachments' chips, by name and size as the
+ * transcript draws a sent message's (#473), marked Queued while it waits
  * for the next run, or Steering while the provider holds it and its adapter
  * steers it into the running turn; with Read now, which reads the whole
  * queue, and Edit, which takes this message back into the composer.
@@ -23,9 +24,9 @@ export const QueuedRow = ({ message }: { readonly message: QueuedMessage }) => {
     >
       {message.attachments.length > 0 && (
         <ul className="flex flex-wrap justify-end gap-1.5 text-[0.85em]">
-          {message.attachments.map((name, index) => (
+          {message.attachments.map((attachment, index) => (
             <li key={index} className="rounded-md border border-hairline px-2 py-0.5 font-mono">
-              <Marked text={name} />
+              <Marked text={attachmentChip(attachment)} />
             </li>
           ))}
         </ul>

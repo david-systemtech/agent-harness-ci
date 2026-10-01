@@ -1,4 +1,4 @@
-import { MAX_DRAFT_LENGTH, type AdapterCapabilities, type QueueHolder } from "@agent-harness/contracts";
+import { MAX_DRAFT_LENGTH, type AdapterCapabilities, type AttachmentRecord, type QueueHolder } from "@agent-harness/contracts";
 import type { AbsentReason, CapabilityAnswer } from "../capabilities.js";
 import type { RewoundAt, UserMessageEntry } from "./session.js";
 
@@ -76,8 +76,8 @@ export interface SessionVerbs {
 export interface QueuedMessage {
   readonly messageId: string;
   readonly text: string;
-  /** Its attachments' names, in order. */
-  readonly attachments: readonly string[];
+  /** Its attachments as `message.sent` logged them (kind, name, media type, size; never the bytes), in order: each drawn as its `attachmentChip`. */
+  readonly attachments: readonly AttachmentRecord[];
   /** Who holds it: the provider (which may steer it into the running turn) or the environment (the next run reads it). */
   readonly heldBy: QueueHolder;
   /** The run it was sent during. */
@@ -168,7 +168,7 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
     return {
       messageId: message.messageId,
       text: message.text,
-      attachments: message.attachments.map((attachment) => attachment.name),
+      attachments: message.attachments,
       heldBy,
       runId: message.runId,
       sequence: message.sequence,

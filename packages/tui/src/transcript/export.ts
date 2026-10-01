@@ -1,13 +1,16 @@
 import {
+  attachmentChip,
   classifyTool,
   clockTime,
   endWords,
+  environmentMessage,
   formatDuration,
   oneLine,
   outputText,
   summarizeToolInput,
   transcriptRows,
   turnFacts,
+  updateInterruptedText,
   type ForkedFrom,
   type SessionProjection,
   type ToolCallEntry,
@@ -35,8 +38,8 @@ const callState = (call: ToolCallEntry): string => (call.decision?.decision === 
 const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
   switch (row.kind) {
     case "user": {
-      const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${a.name}_`);
-      return [`### You · ${clockTime(row.entry.sentAt)}`, row.entry.text, ...attached].join("\n\n");
+      const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${attachmentChip(a)}_`);
+      return [`### ${environmentMessage(row.entry) ? "Environment" : "You"} · ${clockTime(row.entry.sentAt)}`, row.entry.text, ...attached].join("\n\n");
     }
     case "assistant":
       return row.entry.kind === "assistant-thinking" ? row.entry.text.split("\n").map((line) => `> ${line}`).join("\n") : row.entry.text;
@@ -72,6 +75,8 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
     }
     case "forked":
       return `_Forked from ${forked?.title ?? "another session"}${forked?.anchor != null ? ` at ${oneLine(forked.anchor, 200)}` : ""}._`;
+    case "update-interrupted":
+      return `_${updateInterruptedText(row.entry)}_`;
     case "history-unreadable":
       return `_The history could not be read: ${oneLine(row.entry.message, 300)}_`;
   }

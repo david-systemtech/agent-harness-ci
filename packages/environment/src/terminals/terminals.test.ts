@@ -9,6 +9,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { fakePty } from "../../test/fake-pty.js";
 import { deleteSession } from "../../test/sessions.js";
+import { PRESET_IDLE_WINDOW_MS } from "../serve/run-registry.js";
 import {
   follow,
   openTerminal,
@@ -508,7 +509,9 @@ describe("a terminal and the idle rule", () => {
   };
 
   it("holds the environment busy while its shell runs a command in its foreground, and nothing once the shell is back at its prompt", async () => {
-    const { client, sessionId } = await setUp();
+    const { t, client, sessionId } = await setUp();
+    // Past the idle window its start holds (#445).
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
     const { id } = await openTerminal(client, sessionId);
     await typeInto(client, id, "echo ready-$((1+1))\r");
     await waitForOutput(client, id, "ready-2");

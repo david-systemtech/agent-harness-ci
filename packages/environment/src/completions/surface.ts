@@ -829,6 +829,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         sessionId: begun.sessionId,
         runId: begun.runId,
         ...(ended.ended !== null && { ended: { reason: ended.ended.reason, cause: ended.ended.cause } }),
+        ...(ended.waiting !== null && { waiting: ended.waiting }),
       };
       if (ended.error !== null) {
         const reason = ended.ended?.reason;
