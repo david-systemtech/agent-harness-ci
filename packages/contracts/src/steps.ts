@@ -196,6 +196,13 @@ export interface Step {
    * (`triggerMatches`).
    */
   readonly triggers: readonly string[];
+  /**
+   * On an LLM step, a step whose artefact has to be authored rather than
+   * filled in, the prompt its minted sessions start with: the id of one of
+   * `STEP_PROMPTS` (ADR 0019; `setup-prompts.ts`). Every run end of a
+   * session tagged `setup` and the step's id checks the step again.
+   */
+  readonly llm?: string;
 }
 
 /** A check that passes on any value the key's schema accepts: what a setting with no stronger notion of done asks. */

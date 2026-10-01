@@ -13,6 +13,7 @@ import {
   SETTINGS,
   SETUP_ACTIONS,
   STEP_LABELS,
+  STEP_PROMPTS,
   STEP_ORDER,
   STEP_REGISTRY,
   UPDATE_SETTINGS_KEYS,
@@ -60,6 +61,7 @@ interface LooseStep {
   readonly cadence?: { readonly minutes: number; readonly reason?: string };
   readonly triggers?: readonly string[];
   readonly skip?: string;
+  readonly llm?: string;
 }
 
 /** Every event and notice type the log carries, on any stream: what a trigger may name. */
@@ -107,10 +109,11 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
  * number of minutes or leaves the hour without a reason, no triggers or a
  * trigger that names, or as a family prefixes, no event or notice type, a
  * skippable step with no skip check, a skip check on a step that may not be
- * skipped or that names none of its own state checks, or a part of the
- * state steps write through their own methods that two steps name.
+ * skipped or that names none of its own state checks, a prompt in `llm`
+ * that none of `prompts` has (ADR 0019; #584), or a part of the state
+ * steps write through their own methods that two steps name.
  */
-const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
+const stepShapeProblems = (steps: readonly LooseStep[], prompts: readonly { readonly id: string }[] = STEP_PROMPTS): string[] => {
   const problems: string[] = [];
   const order = STEP_ORDER as readonly string[];
   const positions = steps.map((step) => order.indexOf(step.id));
@@ -154,6 +157,7 @@ const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
       if (!step.skippable) problems.push(`${step.id}: names the skip check ${step.skip} but may not be skipped`);
       if (!step.stateChecks.some((check) => check.id === step.skip)) problems.push(`${step.id}: its skip check ${step.skip} is none of its state checks`);
     }
+    if (step.llm !== undefined && !prompts.some((prompt) => prompt.id === step.llm)) problems.push(`${step.id}: names the prompt ${step.llm} in llm, which is none of STEP_PROMPTS`);
   });
   const checkIds = steps.flatMap((step) => step.stateChecks.map((check) => check.id));
   for (const id of new Set(checkIds)) if (checkIds.filter((other) => other === id).length > 1) problems.push(`${id}: a state check named twice`);
@@ -665,6 +669,11 @@ describe("the step registry", () => {
       "appearance: triggers on environment.update, which names no event or notice type",
     ]);
     expect(stepShapeProblems([{ ...appearance, triggers: ["run.ended", "pairing.*", "account.*", "session.*"] }])).toEqual([]);
+  });
+
+  it("fails a step naming a prompt in llm that no prompt of STEP_PROMPTS has (ADR 0019; #584)", () => {
+    expect(stepShapeProblems([{ ...appearance, llm: "appearance-describe" }])).toEqual(["appearance: names the prompt appearance-describe in llm, which is none of STEP_PROMPTS"]);
+    expect(stepShapeProblems([{ ...appearance, llm: "appearance-describe" }], [{ id: "appearance-describe" }])).toEqual([]);
   });
 
   it("fails a skip check on a step that may not be skipped, a skippable step without one, and a skip check naming another step's check or none", () => {
