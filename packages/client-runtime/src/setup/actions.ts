@@ -1,4 +1,4 @@
-import { DenylistSection, SETTINGS, type MethodName, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
+import { DenylistSection, SETTINGS, type MethodName, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId, type UpdateWhen } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { restoreDenylistPresets } from "../permissions/actions.js";
 import { saveSetting } from "../settings/editor.js";
@@ -200,11 +200,21 @@ export const restoreStep = async (
 /**
  * Your machines' Update now (ADR 0025): `updates.apply` of the version the
  * environment waits on (the pin, else the channel's newest), under the idle
- * rules, as a direct `admin` command with `commandId`. Says which version it
- * goes to, naming the environment; a refusal is "Not updated: <why>".
+ * rules, as a direct `admin` command with `commandId`; with `when: now`,
+ * Drain and update now (#825), which takes the waiting update and drains at
+ * once. Says which version it goes to, naming the environment; a refusal is
+ * "Not updated: <why>".
  */
-export const updateEnvironment = async (runtime: Pick<Runtime, "requests">, environmentId: string, name: string, commandId: string): Promise<ActionOutcome> => {
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when: "idle" }));
+export const updateEnvironment = async (
+  runtime: Pick<Runtime, "requests">,
+  environmentId: string,
+  name: string,
+  commandId: string,
+  when: UpdateWhen = "idle",
+): Promise<ActionOutcome> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when }));
   if (!answer.ok) return { ok: false, line: `Not updated: ${answer.line}` };
-  return { ok: true, line: answer.result === undefined ? `Updating ${name} once it is idle.` : `Updating to ${answer.result.toVersion} once ${name} is idle.` };
+  const toVersion = answer.result?.toVersion;
+  if (when === "now") return { ok: true, line: toVersion === undefined ? `Draining ${name} to update it.` : `Draining ${name} to update to ${toVersion}.` };
+  return { ok: true, line: toVersion === undefined ? `Updating ${name} once it is idle.` : `Updating to ${toVersion} once ${name} is idle.` };
 };
