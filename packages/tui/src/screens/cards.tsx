@@ -53,7 +53,8 @@ export const EnvironmentsCard = (props: { readonly views: readonly EnvironmentVi
 /**
  * A connection's card: its update's lines (#827), then its actions: enable
  * or disable, remove, set primary, client sessions, rename, icon, colour,
- * Update now, and the offer of this client's version while it stands.
+ * Update now, Drain and update now while busy work holds the pending update
+ * (#878), and the offer of this client's version while it stands.
  */
 export const EnvironmentMenu = (props: {
   readonly view: EnvironmentView;
