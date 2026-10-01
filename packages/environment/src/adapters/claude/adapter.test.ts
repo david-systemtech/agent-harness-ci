@@ -1526,6 +1526,33 @@ describe("the process environment (#307)", () => {
     expect(supplied.count).toBe(1);
   });
 
+  it.each(["workspace", "workspace-no-network"] as const)(
+    "lets a contained command at %s write the directories its spawn was supplied as the holder's own, a key-manager CLI's per-holder directory, beside the run's writable set (#1119)",
+    async (level) => {
+      const adapter = adapterWith();
+      const holderDirectory = "/data/agent-harness/key-manager-cli/doppler-3f9a2c";
+      const environment: ProcessEnvironment = {
+        key: "key-managers generation 1",
+        supply: async () => ({ variables: { DOPPLER_CONFIG_DIR: holderDirectory }, writable: [holderDirectory], release: () => undefined }),
+      };
+      const contained: RunInput["containment"] = { ...runInput().containment, level, mechanism: "bubblewrap", network: level === "workspace" };
+      adapter.createRun(runInput({ containment: contained, processEnvironment: environment }), contextWith());
+      const query = await started();
+      expect(query.options.sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp", holderDirectory]);
+    },
+  );
+
+  it("sets no sandbox at off for a spawn supplied directories to write, since nothing is contained", async () => {
+    const adapter = adapterWith();
+    const environment: ProcessEnvironment = {
+      key: "key-managers generation 1",
+      supply: async () => ({ variables: {}, writable: ["/data/agent-harness/key-manager-cli/doppler-3f9a2c"], release: () => undefined }),
+    };
+    adapter.createRun(runInput({ processEnvironment: environment }), contextWith());
+    const query = await started();
+    expect(query.options).not.toHaveProperty("sandbox");
+  });
+
   it("serves a run whose key differs on a fresh process, the kept one let go with its queued message handed on, and attaches a run with the same key", async () => {
     const adapter = adapterWith();
     const context = contextWith();

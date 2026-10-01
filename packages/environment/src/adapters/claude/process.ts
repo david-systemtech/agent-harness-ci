@@ -650,6 +650,7 @@ export class ClaudeProcess implements TurnControl {
         run: { ...input, mode: this.#applied.mode },
         hostEnv: this.#deps.hostEnv,
         supplied: supplied?.variables ?? {},
+        suppliedWritable: supplied?.writable ?? [],
         configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
         autoMemoryDirectory: this.#deps.autoMemoryDirectory(input),
