@@ -106,8 +106,8 @@ export const formProblem = (form: ConnectionForm, credential: KeyManagerCredenti
  * Adds a connection with its credential (`keyManagers.connections.add`,
  * sent directly, never queued): the credential crosses the wire in this one
  * call and is kept nowhere on the client, and an OpenBao form's accepted CA
- * goes as the CA it pins. A 1Password form's goes without an address, which
- * its token names (`asksAddress`). A refusal (`verification_failed`,
+ * goes as the CA it pins. A 1Password form is sent without an address,
+ * which its token names (`asksAddress`). A refusal (`verification_failed`,
  * a connection held already, the environment not reachable) is one line,
  * and so is where the connection stands once added.
  */
