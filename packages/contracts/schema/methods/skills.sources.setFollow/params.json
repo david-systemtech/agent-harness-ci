@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skills.sources.setFollow params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "sourceId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+    },
+    "follow": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "branch"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+                  "description": "A branch a skill source follows, as git takes a branch name: 1 to 255 characters with no white space, control character or any of ~ ^ : ? * [ \\, no .. or @{, no empty segment, none beginning with . or ending with .lock, no trailing / or ., not @, and not beginning with -."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The branch; null for the remote's default branch, the one its HEAD names."
+            }
+          },
+          "required": [
+            "kind",
+            "branch"
+          ],
+          "description": "A branch the source syncs from, at start, every six hours and on Pull now."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "pinned"
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+              "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+            }
+          },
+          "required": [
+            "kind",
+            "commit"
+          ],
+          "description": "A commit the source is pinned to: it never syncs until it is unpinned."
+        }
+      ],
+      "description": "What the source follows from now: a commit to pin it at (its current one, or another, which is fetched), or a branch (null for the remote's default) to sync from."
+    }
+  },
+  "required": [
+    "commandId",
+    "sourceId",
+    "follow"
+  ]
+}

@@ -126,6 +126,7 @@ import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
 import { verifiedOrigins, type GitConfigEntry } from "../forge/git-helper.js";
+import type { ForgeGitAnswer, ForgeGitRequest } from "../forge/harness-git.js";
 import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -188,6 +189,7 @@ import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
 import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -480,6 +482,13 @@ export interface EnvironmentOptions {
    * written (skills spec, "Testing Decisions"). Preset none.
    */
   readonly harnessGitConfig?: readonly GitConfigEntry[];
+  /**
+   * What the skills' probes, adds and syncs ask of the ForgeService's git
+   * goes through this, handed the request and that git. Only tests give it:
+   * to see each request, hold a sync's fetch in flight, or answer one as
+   * stopped at its time (skills spec, "Testing Decisions"). Preset none.
+   */
+  readonly skillsGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
   /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
@@ -1144,10 +1153,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const carrySkills = skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: carryOverHome });
   // The probe (#497): a repository URL's skill folders, cloned through the ForgeService's git under the data directory and
   // kept thirty minutes for an add to reuse.
-  const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
+  const forgeGit = (request: ForgeGitRequest): Promise<ForgeGitAnswer> => forge.git(request);
+  const { skillsGit } = options;
+  const skillProbes = createSkillProbes({
+    dataDir,
+    clock,
+    git: skillsGit === undefined ? forgeGit : (request) => skillsGit(request, forgeGit),
+    forgeAccounts: () => verifiedOrigins(forge.list()),
+  });
   closers.push(() => skillProbes.close());
   // The skill sources (#498): a folder added from a probe's checkout, or a fetch, exported at its commit into a snapshot.
-  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
+  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, clock, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
+  // The syncer (#499): each unpinned source at start past the gate, every six hours staggered, on Pull now and at once
+  // when unpinned; never before a run.
+  const skillSync = createSkillSync({ log, environmentId: record.id, clock, sources: skillSources });
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1654,6 +1673,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       carryOver: carrySkills,
       probe: skillProbes.probe,
       sources: skillSources,
+      sync: skillSync,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
@@ -1842,8 +1862,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
-  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly.
-  closers.push(generations.start());
+  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly; each sweep
+  // followed by the snapshots' (#499), which keeps those the generations left link into. Its stop waits for a sweep in
+  // flight, so the snapshots' sweep never reads the log after it closes.
+  closers.push(generations.start(() => skillSources.sweepSnapshots()));
   // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
   // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
@@ -1895,6 +1917,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   managedTools.start();
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // The skill sources' syncs (#499): every unpinned source now, past the gate with the wire open, then staggered every six
+  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again.
+  closers.push(skillSync.start());
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
   closers.push(forge.links.start());
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
