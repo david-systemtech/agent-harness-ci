@@ -256,7 +256,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * skill set changing (`skills.updated`, whose own directory the skills
  * count is read against, #580) Carry over's inventory, whose new sessions,
  * memory and skills they change; a state import
- * ending (`state-import.finished`, #581) the state import's detection; and a
+ * ending (`state-import.finished`, #581) the state import's detection, adopted accounts and Carry over inventories; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
  * `browser.status`, whose unpaired flag a pairing clears, as settings
@@ -276,7 +276,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
-  "accounts.list": ["account.updated", "signin.updated"],
+  "accounts.list": ["account.updated", "signin.updated", "state-import.finished"],
   "models.list": ["account.updated", "signin.updated"],
   "accounts.probe": ["account.updated", "signin.updated"],
   "accounts.usage": ["usage.updated", "account.updated", "signin.updated"],
@@ -303,7 +303,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "tools.list": ["tools.updated"],
   "browser.status": ["extension.seen", "chrome.updated", "settings.changed"],
   "browser.chromes.list": ["chrome.updated"],
-  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated"],
+  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated", "state-import.finished"],
   "stateImport.detect": ["state-import.finished"],
   "environment.status": ["environment.draining"],
   "routines.list": ROUTINE_LIST_REFRESH_NOTICES,
