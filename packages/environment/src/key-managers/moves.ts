@@ -133,7 +133,7 @@ export interface KeyManagerMoves {
 }
 
 /** How each kind of item is named to people. */
-const ITEM_KINDS: Record<KeyManagerMoveItemKind, string> = { "forge-account": "forge account" };
+const ITEM_KINDS: Record<KeyManagerMoveItemKind, string> = { "forge-account": "forge account", endpoint: "webhook endpoint" };
 
 /** An item as a Move answers it. */
 const refOf = (kind: KeyManagerMoveItemKind, id: string): KeyManagerMoveItemRef => ({ kind, id });

@@ -21,7 +21,7 @@ export const SetupLine = () => {
   if (attention.length === 0) return null;
   const steps = attention.length === 1 ? "1 step needs" : `${attention.length} steps need`;
   return (
-    <Button className="text-amber" onClick={() => open(FIRST_ROW, home.environmentId)}>
+    <Button tone="warning" onClick={() => open(FIRST_ROW, home.environmentId)}>
       Set up on {nameOf(home)}: {steps} attention ({attention.map((step) => STEP_LABELS[step]).join(", ")})
     </Button>
   );

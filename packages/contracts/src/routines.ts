@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { KeyManagerReference } from "./key-managers.js";
+import { KeyManagerReferenceDisplay } from "./key-manager-connections.js";
 import { AccountIdentity, RunId } from "./adapter.js";
 import { SchemaIssue } from "./errors.js";
 import type { EventTypeEntry } from "./event-types.js";
@@ -725,7 +727,7 @@ export const EndpointUrl = HttpUrl.meta({
 });
 
 export const RoutineEndpointSetPayload = z
-  .object({ name: EndpointName, url: EndpointUrl, secretKind: EndpointSecretKind })
+  .object({ name: EndpointName, url: EndpointUrl, secretKind: EndpointSecretKind, reference: KeyManagerReference.optional() })
   .meta({ description: "routine.endpoint-set: a webhook endpoint was made or replaced: its name, URL and where its secret is, never the secret." });
 export type RoutineEndpointSetPayload = z.infer<typeof RoutineEndpointSetPayload>;
 
@@ -740,6 +742,7 @@ export const WebhookEndpoint = z
     name: EndpointName,
     url: EndpointUrl,
     secretKind: EndpointSecretKind,
+    reference: KeyManagerReferenceDisplay.optional().meta({ description: "The secret reference in display form, only for a reference: never its value." }),
     lastResult: z
       .object({ at: Timestamp, result: DeliveryAttemptResult, status: DeliveryAttempt.shape.status, error: DeliveryAttempt.shape.error })
       .nullable()

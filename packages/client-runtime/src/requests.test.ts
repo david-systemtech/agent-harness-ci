@@ -695,7 +695,7 @@ describe("the request cache", () => {
     expect(diffed.read()).toMatchObject({ result: { body: "New." }, error: null });
   });
 
-  it("fetches stateImport.detect again when a state import ends, and no other query (#581)", async () => {
+  it("fetches stateImport.detect again when a state import ends, leaving unrelated queries alone (#581)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     wire.answer("stateImport.detect", () => {
