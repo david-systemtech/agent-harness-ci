@@ -19,6 +19,7 @@ import {
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { DOPPLER_BLOCK_NAMES } from "./doppler-block.js";
 import { OPENBAO_BLOCK_NAMES } from "./openbao-block.js";
 
 /**
@@ -259,6 +260,8 @@ export interface StoredConnection {
   readonly generation: number;
 }
 
+const BLOCK_NAMES: Partial<Record<KeyManagerProvider, readonly string[]>> = { openbao: OPENBAO_BLOCK_NAMES, doppler: DOPPLER_BLOCK_NAMES };
+
 const storedOf = (row: ConnectionRow): StoredConnection => ({
   record: {
     id: row.id,
@@ -276,8 +279,8 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     // Suggested in memory from the provider (`connections.ts`), never kept.
     suggestedBasePath: null,
     injects: row.injects === 1,
-    // OpenBao's block alone this version gives (#368); the other providers' join with their tickets.
-    injectedVariables: row.injects === 1 && row.provider === "openbao" ? [...OPENBAO_BLOCK_NAMES] : [],
+    // The block names of each provider this version injects.
+    injectedVariables: row.injects === 1 ? [...(BLOCK_NAMES[row.provider] ?? [])] : [],
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),
     canMint: row.can_mint === null ? null : row.can_mint === 1,
