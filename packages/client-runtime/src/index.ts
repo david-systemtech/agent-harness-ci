@@ -76,6 +76,7 @@ export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js"
 export type { Forges, HandOverParams } from "./forges.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
+  INJECTION_SWITCH_WORDS,
   INJECTION_WORDS,
   KEY_MANAGER_METHOD_WORDS,
   KEY_MANAGER_PROVIDER_WORDS,
@@ -85,6 +86,7 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
+  cliHealthWords,
   cliWords,
   copyLine,
   injectsWords,
@@ -546,6 +548,7 @@ export {
   labelProblem,
   sendSignInCode,
   signInEnd,
+  signInLeftWords,
   startSignIn,
   type AccountAdded,
   type AttendedSignIn,
@@ -568,7 +571,7 @@ export {
   resetWords,
   type FamilyChoice,
 } from "./accounts/words.js";
-export { adoptAccount, relabelAccount, removeAccount, type AccountOutcome } from "./accounts/actions.js";
+export { adoptAccount, modelPreset, presetModelDefaults, relabelAccount, removeAccount, type AccountOutcome, type ModelPreset } from "./accounts/actions.js";
 export {
   DENYLIST_SECTION_NAMES,
   DENYLIST_TEST_KIND_NAMES,
