@@ -70,9 +70,10 @@ import { liveFiringOfRoutine, liveRoutine, routineBaseline, routinesWithLiveFiri
  *   with the model and mode, the routine's containment its own level; the
  *   run, through the actor start (#131) as a routine by its name and
  *   effort, under the firing's ceiling, starting with the header and the
- *   instructions and the pre-check's block; and `routine.firing-started`
- *   with the pre-check, and the targets, the silence marker and the
- *   maximum duration it finishes under (#524). A refusal anywhere, or a
+ *   instructions and the pre-check's block, its skills the run's extra
+ *   always-on names (#531); and `routine.firing-started` with the
+ *   pre-check, and the targets, the silence marker and the maximum duration
+ *   it finishes under (#524), and the skills its runs load (#531). A refusal anywhere, or a
  *   failure, rolls it all back: the resolver's undo removes what it made,
  *   and the entry is `cannot-start` `start_refused`, so no firing session
  *   is left without a run.
@@ -361,6 +362,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
       targets: definition.delivery,
       silenceMarker: definition.silenceMarker,
       maxDurationMinutes: definition.maxDurationMinutes,
+      skills: definition.skills,
     };
     appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.firing-started", payload }, change: "firing-started" }, attribution);
   };

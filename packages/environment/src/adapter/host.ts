@@ -284,6 +284,13 @@ export interface AdapterHostOptions {
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
   /**
+   * The skills a routine's firing made the session with (#531): the extra
+   * always-on names a run the environment starts for the routine takes when
+   * the run before it is known only from the log, after a restart. Preset:
+   * none.
+   */
+  readonly routineSkills?: (sessionId: string) => readonly string[];
+  /**
    * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
    * read each time a wait begins. Preset: the setting's preset; the
    * environment passes the settings store's value.
@@ -667,6 +674,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const trustOf = options.trust ?? undecidedTrust;
   const skillSetOf = options.skillSet ?? noSkillSet;
   const holdGeneration = options.holdGeneration ?? holdNothing;
+  const routineSkills = options.routineSkills ?? (() => []);
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -1676,8 +1684,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * last ended it, else as the log records it (after a restart), for the
    * actor its policy names, under the ceiling it was resolved under (the
    * client session behind it is not in the log, so a ceiling lowered since
-   * is not read), in its model with the model's own effort. Null when the
-   * session has never run.
+   * is not read), in its model with the model's own effort, with no extra
+   * always-on names but a routine's skills, which its firing recorded
+   * (#531). Null when the session has never run.
    */
   const basisOf = (sessionId: string): NextRunBasis | null => {
     const held = lastPlans.get(sessionId);
@@ -1685,7 +1694,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, alwaysOn: [], clientTools: [] };
+    const actor = actorOfPolicy(policy);
+    const alwaysOn = actor.kind === "routine" ? routineSkills(sessionId) : [];
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, alwaysOn, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */

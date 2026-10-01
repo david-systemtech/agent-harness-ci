@@ -160,7 +160,7 @@ import { limitFiringDurations } from "../routines/firing-duration.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
-import { routinesProjector } from "../routines/routine-store.js";
+import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
 import { createRoutineScheduler } from "../routines/scheduler.js";
 import { routineAccount } from "../routines/listing.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
@@ -1297,6 +1297,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
+      // A routine's skills for a run the environment starts for it after a restart, as its firing recorded them (#531).
+      routineSkills: (sessionId) => firingSkillsOfSession({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.

@@ -591,10 +591,13 @@ export const RoutineFiringStartedPayload = z
     maxDurationMinutes: maxDurationMinutes.meta({
       description: "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile.",
     }),
+    skills: setOf(SkillName).meta({
+      description: "The skills its runs load always-on, which a run the environment starts to continue it after a restart reads back: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
   })
   .meta({
     description:
-      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker and its maximum duration, whatever an edit changes meanwhile.",
+      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker, its maximum duration and its skills, whatever an edit changes meanwhile.",
   });
 export type RoutineFiringStartedPayload = z.infer<typeof RoutineFiringStartedPayload>;
 
