@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AccountId } from "./accounts.js";
+import { AccountId, CommandEntry } from "./accounts.js";
 import { InstructionChannelKind } from "./adapter.js";
 import { Actor } from "./envelope.js";
 import type { EventTypeEntry } from "./event-types.js";
@@ -174,11 +174,23 @@ export type SkillMemberKind = z.infer<typeof SkillMemberKind>;
 /** The approximate tokens a body of `size` characters costs: a quarter of its characters, rounded up (skills spec, "Choices"). */
 export const approximateTokens = (size: number): number => Math.ceil(size / 4);
 
+/** What a member's frontmatter says follows its name in a / menu (`argument-hint`), as `readSkillMember` reads it. */
+export const SkillArgumentHint = z
+  .string()
+  .min(1)
+  .nullable()
+  .meta({
+    description:
+      "What follows the member's name in a / menu, from its frontmatter's argument-hint: text trimmed, a number as its text, or a flow list of scalars written back in brackets; null when it declares none.",
+  });
+export type SkillArgumentHint = z.infer<typeof SkillArgumentHint>;
+
 /**
  * A member of a skill set (skills spec, "The skill set"): a folder holding
  * `SKILL.md`, or a command file in the own directory's `commands/`. Its
- * name, description, invocation, whether it is user-invocable and the keys
- * it declares that act while it is active are what `readSkillMember` reads
+ * name, description, invocation, whether it is user-invocable, its
+ * argument hint and the keys it declares that act while it is active are
+ * what `readSkillMember` reads
  * of it; where it lies, its body's size and the tokens that approximates
  * are the reader's. A member with problems is invalid, listed and left out
  * of the set, its name null when that is the problem.
@@ -194,6 +206,7 @@ export const SkillMember = z
     description: z.string().min(1).nullable().meta({ description: "The member's description, trimmed; null when it has none, a description problem saying so." }),
     invocation: SkillInvocation,
     userInvocable: z.boolean().meta({ description: "Whether a person may invoke it: false exactly when its frontmatter sets user-invocable: false, which leaves it out of the / menu." }),
+    argumentHint: SkillArgumentHint,
     whileActive: z.array(SkillWhileActiveKey).meta({ description: "The keys its frontmatter declares that act while it is active, hooks before allowed-tools; empty for none." }),
     origin: SkillOrigin.nullable().meta({ description: "Where it comes from; null for a member of the own directory with no provenance manifest, or of a repository with no identity." }),
     layer: SkillLayer,
@@ -472,7 +485,9 @@ export type SkillSetFingerprint = z.infer<typeof SkillSetFingerprint>;
 
 /**
  * A member of a run's skill set as its adapter is handed it (skills spec,
- * "Contract changes"): its name, origin, invocation, whether it is native,
+ * "Contract changes"): its name, its description, origin and invocation,
+ * whether a person may invoke it and its argument hint, which a commands
+ * listing answers and slash resolution reads (#503), whether it is native,
  * lying in a root the adapter loads itself under trust and so left out of
  * the generation, and whether the run's account made it always-on, which
  * the composer's always-on layer appends (#507).
@@ -480,15 +495,19 @@ export type SkillSetFingerprint = z.infer<typeof SkillSetFingerprint>;
 export const RunSkillSetMember = z
   .object({
     name: SkillName,
+    description: z.string().min(1).meta({ description: "Its description, as its frontmatter says it, trimmed." }),
     origin: SkillOrigin.nullable().meta({ description: "Where it comes from; null for a member of the own directory with no provenance manifest, or of a repository with no identity." }),
     invocation: SkillInvocation,
+    userInvocable: z.boolean().meta({ description: "Whether a person may invoke it: false when its frontmatter sets user-invocable: false, which leaves it out of a / menu and of slash resolution." }),
+    argumentHint: SkillArgumentHint,
     native: z.boolean().meta({
       description: "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation.",
     }),
     alwaysOn: z.boolean().meta({ description: "Whether the run's account made it always-on, so its body rides the run's standing instructions." }),
   })
   .meta({
-    description: "A member of a run's skill set as its adapter is handed it: its name, its origin, its invocation, whether the provider loads it itself, and whether it is always-on for the run's account.",
+    description:
+      "A member of a run's skill set as its adapter is handed it: its name, description, origin and invocation, whether a person may invoke it and its argument hint, whether the provider loads it itself, and whether it is always-on for the run's account.",
   });
 export type RunSkillSetMember = z.infer<typeof RunSkillSetMember>;
 
@@ -518,3 +537,33 @@ export type RunSkillSet = z.infer<typeof RunSkillSet>;
 
 /** The skill set a run is handed while nothing resolves one: no generation, no fingerprint, no member and nothing hidden. */
 export const EMPTY_RUN_SKILL_SET: RunSkillSet = { generation: null, fingerprint: null, members: [], hiddenNativeNames: [] };
+
+// The commands listing ---------------------------------------------------------------
+
+/**
+ * A skill entry of `commands.list` (skills spec, "Materialisation and the
+ * Claude mapping"): a member of the session's set a person may invoke,
+ * command members included, under its own name however the provider lists
+ * it (Claude: `agent-harness:<name>`, or `<name>` for a native member).
+ */
+export const SkillEntry = z
+  .object({
+    kind: z.literal("skill"),
+    name: SkillName,
+    description: RunSkillSetMember.shape.description,
+    invocation: SkillInvocation,
+    origin: RunSkillSetMember.shape.origin,
+    alwaysOn: z.boolean().meta({ description: "Whether the session's account made it always-on, so its body rides the session's runs." }),
+    argumentHint: SkillArgumentHint,
+  })
+  .meta({
+    description:
+      "A skill entry of commands.list: a member of the session's skill set a person may invoke, command members included, by its own name, with its description, invocation, origin, whether it is always-on and its argument hint.",
+  });
+export type SkillEntry = z.infer<typeof SkillEntry>;
+
+/** An entry of `commands.list`: a skill of the session's set, or a command the provider offers of its own. */
+export const CommandsListEntry = z
+  .discriminatedUnion("kind", [SkillEntry, CommandEntry])
+  .meta({ description: "An entry of commands.list: a skill of the session's skill set (kind skill), or a slash command the provider offers of its own (kind command)." });
+export type CommandsListEntry = z.infer<typeof CommandsListEntry>;

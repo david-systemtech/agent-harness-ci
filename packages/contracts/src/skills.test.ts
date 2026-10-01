@@ -160,13 +160,22 @@ describe("a run's skill set", () => {
     generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
     fingerprint: "3f9a",
     members: [
-      { name: "tdd", origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" }, invocation: "model+slash", native: false, alwaysOn: true },
-      { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+      {
+        name: "tdd",
+        description: "Test-driven development.",
+        origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" },
+        invocation: "model+slash",
+        userInvocable: true,
+        argumentHint: "<feature>",
+        native: false,
+        alwaysOn: true,
+      },
+      { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: false, argumentHint: null, native: true, alwaysOn: false },
     ],
     hiddenNativeNames: ["triage"],
   };
 
-  it("hands an adapter the generation, the fingerprint, every member with its name, origin, invocation, whether it is native and whether its account made it always-on, and the native names to hide, through the wire and the published schema", () => {
+  it("hands an adapter the generation, the fingerprint, every member with its name, description, origin, invocation, whether a person may invoke it, its argument hint, whether it is native and whether its account made it always-on, and the native names to hide, through the wire and the published schema", () => {
     const validate = published("skills/run-skill-set.json");
     for (const value of [set, EMPTY_RUN_SKILL_SET]) {
       expect(roundTrip(RunSkillSet, value)).toEqual(value);
@@ -178,6 +187,8 @@ describe("a run's skill set", () => {
     expect(RunSkillSet.safeParse({ ...set, hiddenNativeNames: ["Triage"] }).success).toBe(false);
     expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], native: undefined }] }).success).toBe(false);
     expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], alwaysOn: undefined }] }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], description: "" }] }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], userInvocable: undefined }] }).success).toBe(false);
   });
 
   it("names the plugin a generation is after the product, and knows the roots an adapter may load itself: a repository's two skill roots and its commands", () => {
