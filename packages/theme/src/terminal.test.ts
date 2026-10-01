@@ -1,6 +1,6 @@
-import { DEFAULT_THEME, type Theme } from "@agent-harness/contracts";
+import { DEFAULT_THEME, ENVIRONMENT_COLOURS, type Theme } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { ANSI_COLOURS, LADDERS, TERMINAL_ROLES, contrastRatio, derive, hueDistance, inGamut } from "./index.js";
+import { ANSI_COLOURS, ENVIRONMENT_ANSI, LADDERS, TERMINAL_ROLES, contrastRatio, derive, hueDistance, inGamut } from "./index.js";
 
 describe("the terminal's colours", () => {
   it("are its own sixteen, in palette order: the eight, then their bright forms", () => {
@@ -35,6 +35,23 @@ describe("the terminal's colours", () => {
       faint: "blackBright",
     });
     for (const colour of Object.values(TERMINAL_ROLES)) expect(ANSI_COLOURS).toContain(colour);
+  });
+
+  it("map the twelve environment colours, in order, onto red, bright red, yellow, bright yellow, bright green, green, cyan, bright cyan, blue, bright blue, magenta and bright magenta", () => {
+    expect(ENVIRONMENT_COLOURS.map((colour) => ENVIRONMENT_ANSI[colour])).toEqual([
+      "red",
+      "redBright",
+      "yellow",
+      "yellowBright",
+      "greenBright",
+      "green",
+      "cyan",
+      "cyanBright",
+      "blue",
+      "blueBright",
+      "magenta",
+      "magentaBright",
+    ]);
   });
 });
 

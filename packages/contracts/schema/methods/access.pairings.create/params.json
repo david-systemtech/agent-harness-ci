@@ -10,7 +10,7 @@
       "description": "The client-generated UUID every command takes; a retry with the same id applies once."
     },
     "scopes": {
-      "description": "The scopes the client session will hold; every scope when absent.",
+      "description": "The scopes the client session will hold; the minter's own scopes when absent. A scope the minter does not hold is forbidden with reason scope, naming it in data.scope.",
       "minItems": 1,
       "type": "array",
       "items": {

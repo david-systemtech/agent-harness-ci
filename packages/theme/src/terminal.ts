@@ -1,9 +1,12 @@
+import type { EnvironmentColour } from "@agent-harness/contracts";
+
 /**
  * The terminal UI keeps the terminal's own sixteen colours (ADR 0023): a
  * terminal user's theme is the emulator's, so the terminal UI names a
  * colour and the emulator paints it. What the theme gives it is which of
- * the sixteen each role is drawn in; the seeds reach a terminal only as the
- * diff backgrounds under truecolour (`Ladder.diff`).
+ * the sixteen each role, and each environment colour, is drawn in; the
+ * seeds reach a terminal only under truecolour, as the diff backgrounds
+ * (`Ladder.diff`) and an environment's badge and name (`Ladder.environment`).
  */
 
 /** The sixteen, in palette order (the index is the palette entry, 0 to 15), by the names Ink's `color` takes. */
@@ -44,3 +47,25 @@ export const TERMINAL_ROLES = {
   faint: "blackBright",
 } as const satisfies Readonly<Record<string, AnsiColour>>;
 export type TerminalRole = keyof typeof TERMINAL_ROLES;
+
+/**
+ * Each environment colour's slot among the sixteen (workspace-picker spec,
+ * "Name, icon and colour"): the twelve names, in order, onto red, bright
+ * red, yellow, bright yellow, bright green, green, cyan, bright cyan, blue,
+ * bright blue, magenta and bright magenta, so neighbours on the wheel are a
+ * colour and its bright form.
+ */
+export const ENVIRONMENT_ANSI = {
+  red: "red",
+  orange: "redBright",
+  amber: "yellow",
+  yellow: "yellowBright",
+  lime: "greenBright",
+  green: "green",
+  teal: "cyan",
+  cyan: "cyanBright",
+  blue: "blue",
+  indigo: "blueBright",
+  violet: "magenta",
+  pink: "magentaBright",
+} as const satisfies Readonly<Record<EnvironmentColour, AnsiColour>>;

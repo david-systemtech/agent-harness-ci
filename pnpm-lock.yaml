@@ -310,6 +310,9 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@agent-harness/theme':
+        specifier: workspace:*
+        version: link:../theme
       '@xterm/headless':
         specifier: 6.0.0
         version: 6.0.0

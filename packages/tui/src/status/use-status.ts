@@ -14,6 +14,7 @@ import {
   type SessionProjection,
 } from "@agent-harness/client-runtime";
 import type { ContainmentLevel, KeyActionId } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Badge } from "../rail/badge.js";
 import type { Opened } from "../session/use-session.js";
 import { useFollow } from "../session/use-session.js";
@@ -156,6 +157,6 @@ export const useStatus = (inputs: StatusInputs): StatusView => {
   ];
   const { activity } = facts;
   const styled: Styled =
-    activity.kind === "waiting" ? { text: activity.words, color: "yellow" } : activity.kind === "idle" ? { text: activity.words, dim: true } : { text: activity.words };
+    activity.kind === "waiting" ? { text: activity.words, color: TERMINAL_ROLES.warning } : activity.kind === "idle" ? { text: activity.words, dim: true } : { text: activity.words };
   return { one, two: { kind: "working", activity: styled, details, hints: hints() } };
 };
