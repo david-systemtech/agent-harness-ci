@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import {
@@ -40,6 +40,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import type { StartupStep } from "../serve/start.js";
 import type { Address } from "../serve/http.js";
 import { accountSlug } from "./models.js";
+import { WAIT_MS } from "../../test/wire-client.js";
 import { create, workspace } from "../../test/sessions.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 import { isInProcess, type AdapterEvent, type HostToolResult } from "../adapter/contract.js";
@@ -1921,4 +1922,52 @@ describe("client-tool passthrough (#139)", () => {
     const differing = await stream(t, token, turn("Then this", { tools: [TIME], "agent-harness": { sessionId: otherSession } }));
     expect((await differing.chunk())["agent-harness"].ignored).toEqual(["tools"]);
   });
+});
+
+// The completions surface shares the host's provider-neutral slash invocation.
+describe("completions slash resolution", () => {
+  it("rewrites a skill on a fresh turn and records its typed text and origin", async () => {
+    const t = await start({ commands: [] });
+    const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: tdd\ndescription: Test first.\n---\nTest first.\n");
+    const { token } = await program(t);
+    const answer = await complete(t, token, turn("/tdd the feature"));
+    expect(t.adapter.lastRun().input.prompt[0]?.text).toBe("/agent-harness:tdd the feature");
+    const sessionId = answer["agent-harness"].sessionId;
+    if (sessionId === undefined) throw new Error("The completion did not name its session.");
+    expect(t.env.log.readStream({ kind: "session", id: sessionId }).find((event) => event.type === "message.sent")?.payload).toMatchObject({
+      text: "/tdd the feature", skill: { name: "tdd", origin: null },
+    });
+  });
+  it("resolves a completions message queued on a live run using its set", async () => {
+    const held = gate();
+    const t = await start({ commands: [] });
+    const file = join(t.dataDir, "skills", "own", "skills", "compact", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: compact\ndescription: Test skill.\n---\nFollow this skill.\n");
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      yield say("Working");
+      await held.opened;
+      const sent = await nextSent();
+      yield say(sent.text);
+      yield end();
+    });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(1), { timeout: WAIT_MS });
+    const { token } = await program(t);
+    const answer = complete(t, token, turn("/skill:compact more", { "agent-harness": { sessionId: id } }));
+    try {
+      await vi.waitFor(() => expect(t.adapter.lastRun().sent[0]?.text).toBe("/agent-harness:compact more"), { timeout: WAIT_MS });
+      expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "message.sent").at(-1)?.payload).toMatchObject({
+        text: "/skill:compact more", skill: { name: "compact", origin: null },
+      });
+    } finally {
+      held.open();
+    }
+    await answer;
+  });
+
 });
