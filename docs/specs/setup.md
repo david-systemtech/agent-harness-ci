@@ -155,7 +155,7 @@ The vocabulary (`SETUP_ACTIONS`) gains the verbs the decisions name that it lack
 
 #### 4. Forges (ADR 0020, 0032, 0033)
 
-- **Entry** as the forge spec registers it, with `forges.present` as its skip check and triggers `forge.account.*`.
+- **Entry** as the forge spec registers it, with `forges.present` as its skip check and triggers `forge.account.*` and `tools.updated`, since `forges.gh` reads `gh`'s Managed tools row (#677).
 - **Card**: each forge account as a row (origin and aliases, kind, login, primary star, capabilities with their dots, problem line with its action). **Add a forge**: paste an origin or a repository URL (`forge.detect` names the kind), then a token form with the deep link to the forge's token page and the scopes named; on a remote environment, "Use the gh signed in on this computer" beside it, which hands this client's `gh` token over once (ADR 0032); on an environment with `gh`, "Use this machine's gh" (`forge.gh.probe`). Aliases: a field under an account, verified before use (ADR 0020). "Make primary". Stored tokens show "Move to your key manager" linking the Key manager step's Move card (ADR 0028). The GitLab walkthrough and the thirty-day expiry warning arrive in milestone 2 (ADR 0033).
 
 #### 5. Key manager (ADR 0028)
