@@ -1,5 +1,6 @@
 import {
   ROUTINE_ATTENTION,
+  nextDueAt,
   type AccountIdentity,
   type ListedRoutine,
   type ModeResolution,
@@ -23,8 +24,8 @@ import type { StoredRoutine } from "./routine-store.js";
  * and clamp attention are here, `failing` while the failure streak is not
  * zero (#523), and `script_missing` while no file is at a script
  * pre-check's path in the scripts directory (#526); the endpoints', skills'
- * and deliveries' are the tickets' that add them, and the next due time the
- * scheduler's.
+ * and deliveries' are the tickets' that add them. The next due time is the
+ * scheduler's (#527): the first after the later of `handledThrough` and now.
  */
 
 /** Where a routine's account is looked up: the account store's live accounts by identity, and the host's facts and default account. */
@@ -89,9 +90,21 @@ export const routineAttention = (routine: RoutineFacts, where: RoutineSurroundin
   return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode), where.scriptPresent);
 };
 
-/** The routine as `routines.list` answers it, under the unattended default and the accounts and scripts as they are now. */
-export const listRoutine = (routine: StoredRoutine, where: RoutineSurroundings, unattendedMode: UnattendedMode): ListedRoutine => {
+/**
+ * When the routine is next due as the scheduler owes it (#527): the first
+ * due time after the later of `now` and the latest it handled; null while it
+ * is disabled, and for `manual`.
+ */
+export const routineNextDueAt = ({ definition, state }: StoredRoutine, now: Date): Date | null => {
+  if (!definition.enabled) return null;
+  const handled = Date.parse(state.handledThrough ?? state.createdAt);
+  return nextDueAt(definition, new Date(Math.max(handled, now.getTime())));
+};
+
+/** The routine as `routines.list` answers it at `now`, under the unattended default and the accounts and scripts as they are now. */
+export const listRoutine = (routine: StoredRoutine, where: RoutineSurroundings, unattendedMode: UnattendedMode, now: Date): ListedRoutine => {
   const account = routineAccount(routine.definition.account, where);
   const mode = effectiveMode(routine, account, unattendedMode);
-  return { definition: routine.definition, state: routine.state, nextDueAt: null, mode, attention: attentionOf(routine, account, mode, where.scriptPresent) };
+  const due = routineNextDueAt(routine, now);
+  return { definition: routine.definition, state: routine.state, nextDueAt: due?.toISOString() ?? null, mode, attention: attentionOf(routine, account, mode, where.scriptPresent) };
 };
