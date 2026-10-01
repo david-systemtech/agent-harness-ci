@@ -27,6 +27,9 @@ api=https://api.github.com/repos/$repo
 sha=$(git rev-parse HEAD)
 id="$(date -u +%Y%m%d%H%M%S)-${sha:0:12}-$RANDOM"
 group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
+# A separate network job shares the transport, not the unit suite.
+event=${GH_CI_EVENT:-ci}
+case "$event" in ci | catalogue) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
 
 gh_api() {
   curl -sS --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
@@ -63,12 +66,12 @@ if git rev-parse -q --verify origin/main >/dev/null; then
     echo "mirror/main not moved (another relay moved it); the next push will"
 fi
 
-payload=$(python3 -c 'import json,sys; print(json.dumps({"event_type":"ci","client_payload":{"sha":sys.argv[1],"id":sys.argv[2],"group":sys.argv[3],"forgejo_run":sys.argv[4]}}))' \
-  "$sha" "$id" "$group" "$FORGEJO_RUN")
+payload=$(python3 -c 'import json,sys; print(json.dumps({"event_type":sys.argv[5],"client_payload":{"sha":sys.argv[1],"id":sys.argv[2],"group":sys.argv[3],"forgejo_run":sys.argv[4]}}))' \
+  "$sha" "$id" "$group" "$FORGEJO_RUN" "$event")
 code=$(gh_api -o /dev/null -w '%{http_code}' -X POST "$api/dispatches" -d "$payload")
 [ "$code" = 204 ] || { echo "::error::repository_dispatch answered HTTP $code"; exit 1; }
 
-title="ci $sha $id"
+title="$event $sha $id"
 run_id=
 for _ in $(seq 1 30); do
   sleep 5
