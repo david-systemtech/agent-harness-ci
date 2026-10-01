@@ -6,6 +6,7 @@ import {
   MessageId,
   QueueHolder,
   RunId,
+  RunSuggestion,
 } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { SkillOrigin } from "./skills.js";
@@ -456,6 +457,7 @@ export const TRANSCRIPT_EVENT_TYPES = {
   "session.rewind-undone": unlisted(SessionRewindUndonePayload),
   // An imported session's history, appended the first time a client opens it (ADR 0021; #579).
   "session.history-imported": unlisted(SessionHistoryImportedPayload),
+  "run.suggested": unlisted(RunSuggestion),
   "run.ended": { list: true, payload: RunEndedPayload, patch: SummaryPatch },
   // The settle after an update marks each run the update cut (#335; the launcher-update spec), on the run's session.
   "run.update-interrupted": unlisted(RunUpdateInterruptedPayload),
@@ -674,6 +676,7 @@ export const SessionSnapshot = z
         "Where the snapshot stands: the log's head it was read at; or, for a compacted session replayed from a cursor older than its compaction, the sequence of the last event the compaction folded, the events after it replayed next. The summary is always read at the head.",
     }),
     summary: SessionSummary,
+    suggestion: RunSuggestion.nullable().optional().meta({ description: "The latest completed run's predicted next message; cleared by the next run or a rewind. Absent on older environments." }),
     runs: z.array(RunSummary).meta({ description: "Every run of the session, oldest first." }),
     items: z.array(TranscriptItem).meta({ description: "The settled items of the transcript, in order; items a rewind hid are left out, carried by that rewind in rewinds until it is undone." }),
     parkedPrompts: z.array(ParkedPrompt).meta({ description: "The prompts parked on the session, oldest first." }),

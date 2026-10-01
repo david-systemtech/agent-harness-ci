@@ -315,6 +315,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),
     includePartialMessages: true,
+    promptSuggestions: true,
     // An SDK-driven CLI otherwise returns every thinking block empty; the transcript shows reasoning.
     extraArgs: { "thinking-display": "summarized" },
   };

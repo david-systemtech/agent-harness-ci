@@ -16,6 +16,7 @@ import type {
   PromptKind,
   PromptQuestion,
   RunError,
+  RunSuggestion,
   RunSkillSet,
   RunSkillSetMember,
   TranscriptPayload,
@@ -714,6 +715,7 @@ export interface ToolGate {
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
 export const ADAPTER_EVENT_TYPES = [
+  "run.suggested",
   "message.delivered",
   "assistant.delta",
   "assistant.text",
@@ -901,6 +903,8 @@ export interface RunContext {
    * failed check is logged.
    */
   reportIdentity(identity: AccountIdentity): void;
+  /** A prediction delivered after the turn's end, while the process keeps reading. The host accepts only its latest completed run. */
+  reportSuggestion?(suggestion: RunSuggestion): void;
   /**
    * The provider found the run's account unable to sign in (Claude: the
    * refresh of an expired login before a cold resume failed, #229): the

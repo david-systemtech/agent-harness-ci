@@ -1363,6 +1363,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
+    reportSuggestion: ({ runId, suggestion }) => {
+      if (closing) return;
+      const run = latestRun(reader, entry.sessionId);
+      if (run?.runId !== runId || run.state !== "ended") return;
+      if (reader.all<{ reason: string }>("SELECT reason FROM runs WHERE run_id = ?", runId)[0]?.reason !== "completed") return;
+      const session = readSessionFacts(log, reader, entry.sessionId);
+      if (session === null || session.deleted) return;
+      createScopedAppend({ log, sessionId: entry.sessionId, runId, actor: entry.actor })({ type: "run.suggested", payload: { suggestion } });
+    },
     // Checked against the account store's identity for the run's account (#134). The check appends and may run as the
     // environment closes: a throw is logged, never handed back to the adapter or left an unhandled rejection.
     reportIdentity: (identity) =>

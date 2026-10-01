@@ -46,7 +46,7 @@ export interface ListData {
  * after them. A cache document from before #260 holds no rewinds, one from
  * before #506 no instructions: neither reads, and is no cache.
  */
-export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds" | "instructions">;
+export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds" | "instructions" | "suggestion">;
 
 const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 /**
@@ -57,7 +57,7 @@ const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPro
  * hide a fold or the instructions the environment holds until the next fresh
  * snapshot, so it does not read.
  */
-const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true }).extend({ rewinds: StandingRewind.array(), instructions: SessionInstructions });
+const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true, suggestion: true }).extend({ rewinds: StandingRewind.array(), instructions: SessionInstructions });
 
 /** One session: its summary (null once it is gone), the rest of its snapshot as sent, and every event after that snapshot. */
 export interface SessionData {
@@ -220,8 +220,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
   // Past the bound, or holding an undo of a rewind nothing held says what it hid (#218): a fresh snapshot folds either.
   outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND || undoesUnheardRewind(data.snapshot, data.events),
   fromSnapshot(payload) {
-    const { summary, runs, items, parkedPrompts, rewinds, instructions } = SessionSnapshot.parse(payload);
-    return { summary, snapshot: { runs, items, parkedPrompts, rewinds, instructions }, events: [], eventBytes: 0 };
+    const { summary, runs, items, parkedPrompts, rewinds, instructions, suggestion } = SessionSnapshot.parse(payload);
+    return { summary, snapshot: { runs, items, parkedPrompts, rewinds, instructions, suggestion }, events: [], eventBytes: 0 };
   },
   apply(data, event) {
     const patch = summaryPatchOf(event);

@@ -20,6 +20,7 @@ import type {
   ViewOptions,
   ViewBounds,
   ElectronWebView,
+  MediaPermissionDetails,
 } from "../src/electron.js";
 import { APP_URL } from "../src/schemes.js";
 
@@ -70,6 +71,8 @@ export interface Navigation {
 }
 
 export interface FakeContents extends ElectronContents {
+  checkPermission(permission: string, details: MediaPermissionDetails, origin?: string, source?: ElectronContents | null): boolean;
+  requestPermission(permission: string, details: MediaPermissionDetails, source?: ElectronContents): boolean;
   on(name: string, listener: (...args: never[]) => unknown): unknown;
   /** Every message sent to the page, by channel. */
   readonly sent: Call[];
@@ -219,7 +222,9 @@ const fakeContents = (): FakeContents => {
   const sent: Call[] = [];
   let openHandler: ((details: { readonly url: string }) => { action: "deny" }) | undefined;
   let requestHook: RequestListener | undefined;
-  return {
+  let checkPermission: Parameters<ElectronContents["session"]["setPermissionCheckHandler"]>[0] | undefined;
+  let requestPermission: Parameters<ElectronContents["session"]["setPermissionRequestHandler"]>[0] | undefined;
+  const contents: FakeContents = {
     sent,
     on: heard.on,
     setWindowOpenHandler(handler) {
@@ -231,11 +236,21 @@ const fakeContents = (): FakeContents => {
     },
     listen: page.on,
     session: {
+      setPermissionCheckHandler(handler) { checkPermission = handler; },
+      setPermissionRequestHandler(handler) { requestPermission = handler; },
       webRequest: {
         onBeforeRequest(listener) {
           requestHook = listener;
         },
       },
+    },
+    checkPermission(permission, details, origin = APP_URL, source = contents) {
+      return checkPermission?.(source, permission, origin, details) ?? true;
+    },
+    requestPermission(permission, details, source = contents) {
+      let allowed = true;
+      requestPermission?.(source, permission, (answer) => { allowed = answer; }, details);
+      return allowed;
     },
     navigate(url) {
       let prevented = false;
@@ -257,6 +272,7 @@ const fakeContents = (): FakeContents => {
       heard.emit("console-message", { level, message, lineNumber: 1, sourceId: "agent-harness://app/assets/index.js" });
     },
   };
+  return contents;
 };
 
 const fakeWindow = (options: WindowOptions): FakeWindow => {

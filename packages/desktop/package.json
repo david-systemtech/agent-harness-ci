@@ -14,11 +14,13 @@
     "@agent-harness/client-runtime": "workspace:*",
     "@agent-harness/contracts": "workspace:*",
     "@agent-harness/gui": "workspace:*",
-    "@agent-harness/theme": "workspace:*"
+    "@agent-harness/theme": "workspace:*",
+    "jsqr": "1.4.0"
   },
   "devDependencies": {
     "electron": "44.4.5",
     "electron-builder": "26.15.3",
+    "uqr": "^0.1.3",
     "vite": "8.3.0"
   }
 }
