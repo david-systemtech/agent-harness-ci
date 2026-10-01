@@ -390,7 +390,7 @@ export { isLiveTask, sessionTasks, type SessionTask } from "./transcript/tasks.j
 export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
-export { matchCommands } from "./composer/commands.js";
+export { matchCommands, slashMenuRows, type ClientCommandRow, type SlashMenuRow, type SlashMenuSource } from "./composer/commands.js";
 export {
   FORK_USAGE,
   REWIND_USAGE,

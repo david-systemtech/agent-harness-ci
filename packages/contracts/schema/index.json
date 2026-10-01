@@ -1519,6 +1519,18 @@
       "title": "RunSkillSet"
     },
     {
+      "path": "skills/argument-hint.json",
+      "title": "SkillArgumentHint"
+    },
+    {
+      "path": "skills/entry.json",
+      "title": "SkillEntry"
+    },
+    {
+      "path": "skills/commands-list-entry.json",
+      "title": "CommandsListEntry"
+    },
+    {
       "path": "skills/source-id.json",
       "title": "SkillSourceId"
     },

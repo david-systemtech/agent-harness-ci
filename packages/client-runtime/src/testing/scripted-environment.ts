@@ -38,7 +38,7 @@ import {
   type AttachmentInput,
   type ByeReason,
   type CapabilityFlags,
-  type CommandEntry,
+  type CommandsListEntry,
   type DiscoveryDocument,
   type EnvironmentStatus,
   type EventEnvelope,
@@ -139,8 +139,8 @@ export interface ScriptedEnvironment {
   readonly autoAccept?: boolean;
   /** What `files.list` lists for any session: preset none. */
   readonly files?: readonly string[];
-  /** The provider's own slash commands, as `commands.list` answers them: preset none. */
-  readonly commands?: readonly CommandEntry[];
+  /** What `commands.list` answers for any session it holds (#503): the session's skill entries and the provider's own commands; preset none. */
+  readonly commands?: readonly CommandsListEntry[];
   /** The one provider `providers.list` describes, over a Claude-shaped descriptor that neither queues nor steers. */
   readonly provider?: Partial<AdapterCapabilities>;
   /** Several providers instead, each over the same descriptor; `provider` is then ignored. */
@@ -1408,7 +1408,11 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     }
     return acceptedWith({ sessionId, messageId: latest.toMessageId, rewindSequence: latest.sequence });
   });
-  wire.answer("commands.list", () => ({ result: { accountId: "account-1", commands: [...(spec.commands ?? [])] } }));
+  wire.answer("commands.list", (params) => {
+    const sessionId = String(params["sessionId"]).toLowerCase();
+    if (!sessions.some((s) => s.id === sessionId)) return { error: { code: "not_found", message: "No such session.", data: { kind: "session", sessionId } } };
+    return { result: { accountId: "account-1", entries: [...(spec.commands ?? [])] } };
+  });
   wire.answer("providers.list", () => ({ result: { providers: (spec.providers ?? [spec.provider ?? {}]).map((p) => providerOf(p)) } }));
   // A subagent's transcript, read from the provider's store on demand (#137): refused, as the environment's host refuses
   // it, while the session's provider (the script's first) does not declare `subagentTranscripts`.
