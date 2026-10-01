@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetupMintedPayload",
+  "type": "object",
+  "properties": {
+    "step": {
+      "type": "string",
+      "enum": [
+        "account",
+        "carry-over",
+        "your-machines",
+        "forges",
+        "key-manager",
+        "memory-bank",
+        "skills",
+        "instructions",
+        "browser",
+        "permissions",
+        "appearance"
+      ],
+      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "account",
+                "forge-account",
+                "key-manager-connection",
+                "tool",
+                "skill-source",
+                "chrome",
+                "session",
+                "bank",
+                "denylist-section",
+                "environment"
+              ],
+              "description": "The kind of item a result's action applies to: account (a provider account), forge-account, key-manager-connection, tool (a managed tool), skill-source, chrome (a paired Chrome), session (an authoring session), bank (a memory bank), denylist-section, or environment."
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The item's id, as the methods behind its action name it: an account's id, a forge account's origin, a denylist section's name, a session's id."
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The item as a person reads it, for the client to name beside the action."
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "label"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The subject chosen when minting, or null when the call named none."
+    },
+    "variant": {
+      "type": "string",
+      "enum": [
+        "first",
+        "revise"
+      ],
+      "description": "Which of an LLM step's prompts a minted session starts with: first, which authors the step's artefact, or revise, which revises the one there."
+    }
+  },
+  "required": [
+    "step",
+    "subject",
+    "variant"
+  ],
+  "description": "The LLM step, subject and prompt variant that minted this session."
+}

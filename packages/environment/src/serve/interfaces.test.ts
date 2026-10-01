@@ -1,6 +1,6 @@
 import type { NetworkInterfaceInfo } from "node:os";
 import { describe, expect, it } from "vitest";
-import { bindList, processRunner, tailscaleDetector, type CommandRunner } from "./interfaces.js";
+import { bindPlan, processRunner, tailscaleDetector, type CommandRunner } from "./interfaces.js";
 
 /** A runner that answers from a table of command lines, and records what it was asked. */
 const scripted = (answers: Record<string, string | undefined>) => {
@@ -77,45 +77,58 @@ describe("the default runner", () => {
   });
 });
 
-describe("the bind list", () => {
+describe("the bind plan", () => {
+  /** What the plan for `choice` binds. */
+  const bindsOf = (choice: Parameters<typeof bindPlan>[0]) => bindPlan(choice).binds;
+
   it("is loopback alone when there is no Tailscale address and LAN binding is off", () => {
-    expect(bindList({})).toEqual([{ host: "127.0.0.1", interface: "loopback" }]);
+    expect(bindsOf({})).toEqual([{ host: "127.0.0.1", interface: "loopback" }]);
   });
 
   it("adds the Tailscale address when one is found, the tailnet setting's preset", () => {
-    expect(bindList({ tailscaleAddress: "100.101.102.103" })).toEqual([
+    expect(bindsOf({ tailscaleAddress: "100.101.102.103" })).toEqual([
       { host: "127.0.0.1", interface: "loopback" },
       { host: "100.101.102.103", interface: "tailnet" },
     ]);
-    expect(bindList({ tailscaleAddress: "100.101.102.103", bindTailnet: true })).toHaveLength(2);
+    expect(bindsOf({ tailscaleAddress: "100.101.102.103", bindTailnet: true })).toHaveLength(2);
   });
 
   it("leaves the Tailscale address out when the tailnet setting is off", () => {
-    expect(bindList({ tailscaleAddress: "100.101.102.103", bindTailnet: false })).toEqual([{ host: "127.0.0.1", interface: "loopback" }]);
+    expect(bindsOf({ tailscaleAddress: "100.101.102.103", bindTailnet: false })).toEqual([{ host: "127.0.0.1", interface: "loopback" }]);
   });
 
   it("binds a LAN address only when LAN binding is on, and refuses LAN binding with no address, naming it", () => {
     const lanAddresses = ["192.168.1.20"];
-    expect(bindList({ lanAddress: "192.168.1.20", lanAddresses })).toHaveLength(1);
-    expect(() => bindList({ bindLan: true, lanAddresses })).toThrow(/no LAN address/);
-    expect(bindList({ lanAddress: "192.168.1.20", bindLan: true, lanAddresses })).toEqual([
+    expect(bindsOf({ lanAddress: "192.168.1.20", lanAddresses })).toHaveLength(1);
+    expect(() => bindsOf({ bindLan: true, lanAddresses })).toThrow(/no LAN address/);
+    expect(bindsOf({ lanAddress: "192.168.1.20", bindLan: true, lanAddresses })).toEqual([
       { host: "127.0.0.1", interface: "loopback" },
       { host: "192.168.1.20", interface: "lan" },
     ]);
   });
 
-  it("refuses a LAN address the machine does not hold, saying which it holds, and knows one the machine names another way", () => {
-    expect(() => bindList({ lanAddress: "192.0.2.10", bindLan: true, lanAddresses: ["192.168.1.20", "fd00::20"] })).toThrow(
-      "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20, fd00::20): bind one it holds, or turn LAN binding off.",
-    );
-    expect(() => bindList({ lanAddress: "192.168.1.20", bindLan: true })).toThrow(/it holds none/);
-    expect(bindList({ lanAddress: "FD00:0:0::20", bindLan: true, lanAddresses: ["fd00::20"] })).toContainEqual({ host: "FD00:0:0::20", interface: "lan" });
+  it("skips a LAN address the machine does not hold, binding the rest and saying which it holds, and knows one the machine names another way", () => {
+    expect(bindPlan({ tailscaleAddress: "100.101.102.103", lanAddress: "192.0.2.10", bindLan: true, lanAddresses: ["192.168.1.20", "fd00::20"] })).toEqual({
+      binds: [
+        { host: "127.0.0.1", interface: "loopback" },
+        { host: "100.101.102.103", interface: "tailnet" },
+      ],
+      skipped:
+        "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20, fd00::20), so the environment starts without it: pick one it holds on the Your machines step, or turn LAN binding off.",
+    });
+    expect(bindPlan({ lanAddress: "192.168.1.20", bindLan: true }).skipped).toMatch(/it holds none\)/);
+    expect(bindPlan({ lanAddress: "FD00:0:0::20", bindLan: true, lanAddresses: ["fd00::20"] })).toEqual({
+      binds: [
+        { host: "127.0.0.1", interface: "loopback" },
+        { host: "FD00:0:0::20", interface: "lan" },
+      ],
+    });
   });
 
   it("never binds the wildcard address, nor anything that is not an address", () => {
     for (const address of ["0.0.0.0", "::", "0:0:0:0:0:0:0:0", "::0", "::ffff:0.0.0.0", "::ffff:0:0", "0:0:0:0:0:ffff:0:0", "desk.local", ""]) {
-      expect(() => bindList({ lanAddress: address, bindLan: true }), address).toThrow();
-      expect(() => bindList({ tailscaleAddress: address }), address).toThrow();
+      expect(() => bindsOf({ lanAddress: address, bindLan: true }), address).toThrow();
+      expect(() => bindsOf({ tailscaleAddress: address }), address).toThrow();
     }
   });
 });
