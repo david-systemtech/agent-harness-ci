@@ -595,3 +595,15 @@ export {
   pinnedWords,
 } from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";
+export {
+  INSTALL_METHOD_WORDS,
+  MANAGED_TOOL_STATUS_WORDS,
+  doctorMethodWords,
+  noCommandWords,
+  requiredWords,
+  runWords,
+  toolRunWords,
+  verificationWords,
+} from "./managed-tools/words.js";
+export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/actions.js";
+export type { ToolRunsView } from "./managed-tools/tool-runs.js";
