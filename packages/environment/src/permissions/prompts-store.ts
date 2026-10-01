@@ -3,6 +3,7 @@ import {
   PromptOpenedPayload,
   promptAnswerMisfits,
   type ListedPrompt,
+  type PromptKind,
   type MessageRequeuedPayload,
   type RunStartedPayload,
 } from "@agent-harness/contracts";
@@ -218,6 +219,15 @@ export const allParkedPrompts = (reader: Reader): PromptRecord[] =>
 /** The answers kept for the run `runId` as its first messages, in the order they were given. */
 export const answersFor = (reader: Reader, runId: string): PromptRecord[] =>
   reader.all<PromptRow>("SELECT * FROM prompts WHERE delivered_run_id = ? ORDER BY answered_sequence", runId).map(toRecord);
+
+/** The latest prompt about this run's call: an allowance belongs to that call alone. */
+export const readCallPrompt = (reader: Reader, runId: string, toolCallId: string, kind?: PromptKind): PromptRecord | null => {
+  const [row] = reader.all<PromptRow>(
+    `SELECT * FROM prompts WHERE run_id = ? AND tool_call_id = ? ${kind === undefined ? "" : "AND json_extract(prompt, '$.kind') = ?"} ORDER BY sequence DESC LIMIT 1`,
+    runId, toolCallId, ...(kind === undefined ? [] : [kind]),
+  );
+  return row === undefined ? null : toRecord(row);
+};
 
 /** Whether run `runId` asked a prompt about its tool call `toolCallId`, answered or not: that prompt's answer is the call's decision (#131). */
 export const isAsked = (reader: Reader, runId: string, toolCallId: string): boolean =>

@@ -49,6 +49,7 @@ import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-ex
 import { spawnBrowser, type BrowserLauncher } from "../browser/headless-launch.js";
 import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { chooseChrome } from "../browser/chrome-choice.js";
+import { browserAllowance } from "../browser/denylist.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
@@ -1010,6 +1011,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
+    environmentId: record.id,
     // And the skills a run reads (#496): the own directory, the sources' snapshots and the generations linking to them.
     exempt: [
       join(dataDir, CONTAINMENT_DIRECTORY),
@@ -1072,6 +1074,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     environmentId: record.id,
     live: (sessionId) => host.live(sessionId),
+    gate: (sessionId) => host.gate(sessionId),
+    allowance: (sessionId, call) => {
+      const live = host.live(sessionId);
+      return live === null ? undefined : browserAllowance({ all: (sql, ...params) => log.read(sql, ...params) }, live.runId, call);
+    },
     drivers: {
       // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
       // browser when its client closes (#552); another environment's goes through the browser relay (#554).

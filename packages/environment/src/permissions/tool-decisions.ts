@@ -4,7 +4,7 @@ import type { EventInput, EventLog, Tx } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, summarise } from "./broker.js";
-import { isAsked } from "./prompts-store.js";
+import { isAsked, readCallPrompt } from "./prompts-store.js";
 import { isDecided } from "./review-store.js";
 
 /**
@@ -28,7 +28,8 @@ import { isDecided } from "./review-store.js";
  *   provider's end-of-turn denial report has had its say.
  *
  * The first decision a call gets is its one (the review projection refuses
- * a second): each source checks the log first. A source outside the host
+ * a second): each source checks the log first. A browser denylist allowance
+ * waits until the call ends, since a later frame can still refuse the page. A source outside the host
  * (the gate's containment and denylist decisions, #132 and #133, made at
  * hook time) records through `recordToolDecision`, which checks too.
  */
@@ -101,16 +102,21 @@ export const answerDecision = (prompt: PromptOpenedPayload, answer: PromptAnswer
   );
 };
 
+/** Browser navigation keeps checking frames after an allow; its final decision waits for the call. */
+const browsingAfterAllow = (prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): boolean =>
+  (prompt.kind === "denylist" || prompt.kind === "permission") && answer.decision === "allow" && prompt.toolCallId !== null && (prompt.toolName?.startsWith("mcp__browser__browser_") ?? false);
+
 /**
  * A prompt's `prompt.answered` and the `tool.decision` it makes, for the
  * transaction that answers it: the decision is left out when the call has
- * one already (a second prompt about the same call), so it stays one.
+ * one already (a second prompt about the same call), so it stays one. A
+ * browser allowance defers it until the verb finishes its frame checks.
  */
 export const answerEvents = (reader: Reader, prompt: PromptOpenedPayload, answer: PromptAnsweredPayload): EventInput[] => {
   const decided = prompt.toolCallId !== null && isDecided(reader, prompt.runId, prompt.toolCallId);
   return [
     { type: "prompt.answered", payload: answer },
-    ...(decided ? [] : [{ type: "tool.decision", payload: answerDecision(prompt, answer) }]),
+    ...(decided || browsingAfterAllow(prompt, answer) ? [] : [{ type: "tool.decision", payload: answerDecision(prompt, answer) }]),
   ];
 };
 
@@ -141,7 +147,7 @@ export interface RunToolCalls {
   /**
    * The decision a transcript event brings with it, for the transaction
    * `tx` it is appended in: the mode's, for a call that ended `ok` unasked
-   * and undecided.
+   * and undecided, or a browser allowance whose remaining frames passed.
    */
   after(event: TranscriptEvent, tx: Tx): EventInput[];
   /** The provider's report of a call it denied, for the transaction `tx`: the call's decision, unless it was asked about or is decided already. */
@@ -171,9 +177,16 @@ export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
    * decides it.
    */
   const forget = (toolCallId: string, tx: Tx): void => tx.afterCommit(() => started.delete(toolCallId));
+  /** The allowance deferred while the browser was still checking its frames. */
+  const allowedBrowser = (toolCallId: string): EventInput | null => {
+    const record = readCallPrompt(reader, runId, toolCallId);
+    return record?.answer !== null && record?.answer !== undefined && browsingAfterAllow(record.prompt, record.answer)
+      ? { type: "tool.decision", payload: answerDecision(record.prompt, record.answer) }
+      : null;
+  };
   /** Whether the call is still to be decided here; one that is not is forgotten. */
   const open = (toolCallId: string): boolean => {
-    const undecided = !isDecided(reader, runId, toolCallId) && !isAsked(reader, runId, toolCallId);
+    const undecided = !isDecided(reader, runId, toolCallId) && (!isAsked(reader, runId, toolCallId) || allowedBrowser(toolCallId) !== null);
     if (!undecided) started.delete(toolCallId);
     return undecided;
   };
@@ -188,12 +201,14 @@ export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
       started.set(toolCallId, { tool: name, summary: summarise("permission", { toolName: name, input, summary: title }) });
     },
     after(event, tx) {
-      if (event.type !== "tool.ended" || event.payload.status !== "ok") return [];
+      if (event.type !== "tool.ended") return [];
       const id = event.payload.toolCallId;
       const call = started.get(id);
       if (call === undefined || !open(id)) return [];
+      const allowed = allowedBrowser(id);
+      if (allowed === null && event.payload.status !== "ok") return [];
       forget(id, tx);
-      return [byMode(id, call)];
+      return [allowed ?? byMode(id, call)];
     },
     denied(report, tx) {
       if (!open(report.toolCallId)) return [];
@@ -205,7 +220,7 @@ export const runToolCalls = (reader: Reader, runId: string): RunToolCalls => {
       return [{ type: "tool.decision", payload }];
     },
     settle() {
-      return [...started].flatMap(([toolCallId, call]) => (open(toolCallId) ? [byMode(toolCallId, call)] : []));
+      return [...started].flatMap(([toolCallId, call]) => (open(toolCallId) ? [allowedBrowser(toolCallId) ?? byMode(toolCallId, call)] : []));
     },
   };
 };
