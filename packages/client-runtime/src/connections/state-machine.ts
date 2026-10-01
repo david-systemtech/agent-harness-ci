@@ -37,14 +37,16 @@ export const PROBE_TIMEOUT_MS = 5000;
 export const STARTING_POLL_MS = 2000;
 /** How long `bye: draining` or `bye: updating` is waited out before polling discovery. */
 export const BYE_WAIT_MS = 5000;
+/** An update taken across a protocol gap is waited for at most the widest deferral cap, 168 hours. */
+export const PROTOCOL_UPDATE_WAIT_MS = 168 * 60 * 60 * 1000;
 /** A token with less than this left is refreshed. */
 export const REFRESH_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
 /** How often a connected socket checks whether its token is due a refresh. */
 export const REFRESH_CHECK_MS = 24 * 60 * 60 * 1000;
 
 /** The timers a connection runs, each at most once. */
-export type TimerName = "retry" | "establish" | "watchdog" | "healthy" | "probe" | "refresh";
-const everyTimer = (): readonly TimerName[] => ["retry", "establish", "watchdog", "healthy", "probe", "refresh"];
+export type TimerName = "retry" | "establish" | "watchdog" | "healthy" | "probe" | "refresh" | "update-wait";
+const everyTimer = (): readonly TimerName[] => ["retry", "establish", "watchdog", "healthy", "probe", "refresh", "update-wait"];
 
 /** What the machine waits on: nothing, a discovery read, the socket's `hello`, or nothing because the socket is open. */
 export type Step = "idle" | "discovery" | "dialing" | "open";
@@ -98,9 +100,10 @@ export interface MachineState {
    * protocol gap (`POST /api/update`): the block it was under is kept, and
    * only `hello` agreeing clears it, but the connection shows `updating` and
    * polls discovery through the restart, where a re-check of a block would
-   * fall back to `blocked`.
+   * fall back to `blocked`. This deadline bounds the wait even while offline
+   * or discovery never answers; null means no update wait is under way.
    */
-  readonly updateTaken: boolean;
+  readonly updateDeadline: number | null;
 }
 
 export interface MachineConfig {
@@ -135,7 +138,7 @@ export const initialMachine = (config: MachineConfig): MachineState => ({
   unreachableSince: null,
   expiresAt: null,
   refreshFailed: null,
-  updateTaken: false,
+  updateDeadline: null,
 });
 
 /** What discovery came to: the document, nothing answering, an answer that is not a document, or a failed grant exchange. */
@@ -269,7 +272,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
   };
 
   /** Whether a failure is a block being re-checked: a block held, and no update taken across the gap to wait out. */
-  const rechecking = (s: MachineState): boolean => s.blocked !== null && !s.updateTaken;
+  const rechecking = (s: MachineState): boolean => s.blocked !== null && s.updateDeadline === null;
 
   /** A re-check of a block that could not finish: back to blocked, quietly, with no retry; only discovery and `hello` agreeing clear it. */
   const reblock = (s: MachineState): MachineState => ({ ...unreachable(halt(s)), phase: "blocked" });
@@ -330,7 +333,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     if (reason === "revoked" || reason === "expired") out.push({ type: "clear-token" });
     const notice = halted.blocked === reason ? undefined : noticeFor(halted, reason, theirs);
     if (notice) out.push({ type: "notice", notice });
-    return { ...halted, phase: "blocked", blocked: reason, updateTaken: false };
+    return { ...halted, phase: "blocked", blocked: reason, updateDeadline: null };
   };
 
   /** Where nothing answering leaves the connection. */
@@ -354,6 +357,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
     }
     out.push(
       { type: "cancel-timer", timer: "establish" },
+      { type: "cancel-timer", timer: "update-wait" },
       { type: "attach" },
       { type: "arm-timer", timer: "healthy", ms: HEALTHY_RESET_MS },
       { type: "arm-timer", timer: "refresh", ms: REFRESH_CHECK_MS },
@@ -363,7 +367,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       phase: "ready",
       step: "open",
       blocked: null,
-      updateTaken: false,
+      updateDeadline: null,
       bye: null,
       retryAt: null,
       parked: false,
@@ -413,7 +417,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         if (check.ok) {
           // A block clears only on `hello`: until then a re-check says blocked, so the record never shows a reason beside another phase.
           out.push({ type: "open-socket", attempt: known.attempt }, { type: "arm-timer", timer: "establish", ms: ESTABLISH_TIMEOUT_MS });
-          const phase = known.updateTaken ? "updating" : known.blocked === null ? "connecting" : "blocked";
+          const phase = known.updateDeadline !== null ? "updating" : known.blocked === null ? "connecting" : "blocked";
           return { ...known, phase, step: "dialing" };
         }
         switch (check.reason) {
@@ -423,7 +427,7 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
             return fail(known, known.phase === "updating" ? "updating" : "draining");
           case "protocol-mismatch":
             // The old environment still answers: the update it took waits for idle, or for the restart it will bring.
-            if (known.updateTaken) return wait(unreachable(halt(known)), "updating", BYE_WAIT_MS);
+            if (known.updateDeadline !== null) return wait(unreachable(halt(known)), "updating", BYE_WAIT_MS);
             return block(known, check.reason, document.protocolVersion);
           default:
             return block(known, check.reason, document.protocolVersion);
@@ -455,6 +459,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
 
   const fired = (s: MachineState, timer: TimerName): MachineState => {
     switch (timer) {
+      case "update-wait":
+        return s.updateDeadline !== null && now >= s.updateDeadline ? block(s, "protocol-mismatch") : s;
       case "retry":
         return s.step === "idle" && s.phase !== "disabled" ? begin(halt(s)) : s;
       case "establish":
@@ -487,18 +493,18 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
         return begin(halted);
       }
       case "disable":
-        return { ...halt(state), phase: "disabled", failures: 0, unreachableSince: null, updateTaken: false };
+        return { ...halt(state), phase: "disabled", failures: 0, unreachableSince: null, updateDeadline: null };
       case "release":
-        return { ...halt(state), phase: state.blocked === null ? "connecting" : "blocked", updateTaken: false };
+        return { ...halt(state), phase: state.blocked === null ? "connecting" : "blocked", updateDeadline: null };
       case "retryNow": {
         if (state.phase === "disabled") return state;
         // David asking to try again gives up waiting on the update taken: the block is re-checked as it was.
-        const asked = state.updateTaken ? { ...state, updateTaken: false, phase: "blocked" as const } : state;
+        const asked = state.updateDeadline !== null ? { ...state, updateDeadline: null, phase: "blocked" as const } : state;
         return begin(halt(input.fresh ? { ...asked, failures: 0 } : asked));
       }
       case "update-taken":
         if (state.phase !== "blocked" || state.blocked !== "protocol-mismatch") return state;
-        return wait(unreachable(halt({ ...state, updateTaken: true, failures: 0 })), "updating", BYE_WAIT_MS);
+        return wait(unreachable(halt({ ...state, updateDeadline: now + PROTOCOL_UPDATE_WAIT_MS, failures: 0 })), "updating", BYE_WAIT_MS);
       case "discovery-result":
         return live(input.attempt, "discovery") ? discovered(state, input.answer) : state;
       case "no-token":
@@ -570,5 +576,8 @@ export const reduce = (state: MachineState, input: MachineInput, context: Machin
       }
     }
   })();
+  // `halt` cancels every timer as an attempt ends. Re-arm this wait for the
+  // time left, so polling, a hanging attempt or going offline cannot renew it.
+  if (next.updateDeadline !== null) out.push({ type: "arm-timer", timer: "update-wait", ms: Math.max(0, next.updateDeadline - now) });
   return { state: next, effects: out };
 };
