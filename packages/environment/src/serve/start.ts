@@ -619,7 +619,9 @@ export interface EnvironmentHandle {
   readonly forge: ForgeService;
   /**
    * The key-manager connections (#365): the add the state import (ADR
-   * 0036) and the bulk copy call in process, without a credential.
+   * 0036) and the bulk copy call in process, without a credential, and what
+   * a test on a held clock waits on once it has moved the clock (`settled`,
+   * #745).
    */
   readonly keyManagerConnections: KeyManagerConnections;
   /**

@@ -27,6 +27,7 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { createBackgroundWork } from "./background.js";
 import { basePathProblem, suggestBasePath } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
@@ -189,6 +190,13 @@ export interface KeyManagerConnections {
   readable(connectionId: string): ReadableConnection | null;
   /** The key managers' part of every provider process and terminal (#368): the injecting connections' blocks and each holder's run tokens. */
   readonly processEnvironment: ProcessEnvironmentSupplier;
+  /**
+   * Settles once every renewal, verification, sign-in and revocation the
+   * connections took up off any request has ended, with what each took up in
+   * turn (#745): what a test on a held clock waits on after it moves the
+   * clock on, before it looks.
+   */
+  settled(): Promise<void>;
   /** Stops the sign-ins and verifications under way from recording anything, and lets go of every login and credential registration; a login is not revoked, and expires. */
   close(): void;
 }
@@ -246,6 +254,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const signingIn = new Map<string, string>();
   /** The startup's sign-in of each connection while it runs: a verification waits for it. */
   const startupSignIns = new Map<string, Promise<void>>();
+  /** What the connections, their logins and their run tokens do off any request. */
+  const background = createBackgroundWork();
   /** When each connection was last verified, whatever it found: beside the record, which keeps only the time of the last one that changed something. */
   const verifiedTimes = new Map<string, string>();
   /** The base path each connection's provider suggested at its last verification that asked, while it has none (#371). */
@@ -282,7 +292,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const letGo = (connectionId: string, login: LoginToken): Promise<void> => letGoOf(connectionId, login, scrub);
 
   /** The logins held, renewed and replaced on the clock; a login due, or one the key manager no longer knows, is verified at once, which signs in again. */
-  const logins = createLogins({ clock, scrub, budgetMs, due: (connectionId) => void schedule.verify(connectionId) });
+  const logins = createLogins({ clock, scrub, budgetMs, background, due: (connectionId) => void schedule.verify(connectionId) });
 
   /** Deletes a vault entry a committed command let go of; one left behind is deleted by the next start. */
   const deleteEntry = (entry: string): void => {
@@ -634,7 +644,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           if (refused !== null) return { aggregate: stream, rejected: refused };
           const changes = changesOf(now, wanted);
           if (Object.keys(changes).length === 0) {
-            if (signed !== null) command.tx.afterCommit(() => void letGo(connectionId, signed.login));
+            if (signed !== null) command.tx.afterCommit(() => background.run(letGo(connectionId, signed.login)));
             return { aggregate: stream, result: { connection: standing(now) } };
           }
           const at = { tx: command.tx, actor: command.actor, commandId: command.commandId };
@@ -786,7 +796,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     });
     const working = work(controller.signal).then(
       (checked) => {
-        if (controller.signal.aborted && checked.outcome === "verified" && checked.fresh) void letGo(record.id, checked.login);
+        if (controller.signal.aborted && checked.outcome === "verified" && checked.fresh) background.run(letGo(record.id, checked.login));
         return checked;
       },
       (error: unknown) => {
@@ -794,6 +804,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         return failedWith(statusNow("unreachable", `Verifying ${PROVIDER_NAMES[record.provider]} at ${record.address} failed inside the environment; it is tried again in fifteen minutes.`));
       },
     );
+    // Past the budget the verification ends, and its work goes on until its signal stops it.
+    background.run(working);
     // On the wall clock, never the environment's, which a test may hold still.
     const timer = setTimeout(() => controller.abort(), budgetMs);
     timer.unref();
@@ -880,7 +892,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         // A login the verification made is held once what it found is recorded; otherwise, a failed write included, it is let go.
         if (checked.outcome === "verified" && checked.fresh) {
           if (taken) logins.hold(connectionId, checked.login);
-          else void letGo(connectionId, checked.login);
+          else background.run(letGo(connectionId, checked.login));
         }
       }
     } catch (error) {
@@ -893,6 +905,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     connectionIds: () => listConnections(reader).map((held) => held.record.id),
     subjectOf,
     verifyNow,
+    background,
   });
 
   const readable = (connectionId: string): ReadableConnection | null => {
@@ -918,6 +931,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     scrub,
     cliDirectory: options.cliDirectory,
     budgetMs,
+    background,
   });
 
   return {
@@ -945,6 +959,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           if (startupSignIns.get(record.id) === running) startupSignIns.delete(record.id);
         });
         startupSignIns.set(record.id, running);
+        background.run(running);
       }
       schedule.start();
     },
@@ -1045,6 +1060,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     readable,
 
     processEnvironment: runTokens.supplier,
+
+    settled: () => background.settled(),
 
     close() {
       closed = true;

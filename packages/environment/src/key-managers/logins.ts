@@ -1,6 +1,7 @@
 import type { KeyManagerTokenInformation } from "@agent-harness/contracts";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { BackgroundWork } from "./background.js";
 import type { ConnectionProvider, RenewAnswer, SignInTarget, TokenLife } from "./provider.js";
 
 /**
@@ -87,6 +88,8 @@ export interface LoginsOptions {
   readonly scrub: ScrubRegistry;
   /** How long one renewal may take, on the wall clock. */
   readonly budgetMs: number;
+  /** Where each renewal and revocation runs, off any request (#745). */
+  readonly background: BackgroundWork;
   /** The connection's current login is due, or the key manager no longer knows it: the connection verifies it at once. */
   readonly due: (connectionId: string) => void;
 }
@@ -136,7 +139,7 @@ interface Held {
 const targetKey = (target: SignInTarget): string => JSON.stringify([target.address, target.mount, target.method, target.username]);
 
 export const createLogins = (options: LoginsOptions): Logins => {
-  const { clock, scrub, budgetMs } = options;
+  const { clock, scrub, budgetMs, background } = options;
   const now = (): number => clock.now().getTime();
   /** Every login held, current and retired. */
   const held = new Set<Held>();
@@ -191,7 +194,7 @@ export const createLogins = (options: LoginsOptions): Logins => {
       schedule(entry);
       return;
     }
-    void renew(entry).catch((error: unknown) => console.error(`Renewing a login of the key-manager connection ${entry.connectionId} failed:`, error));
+    background.run(renew(entry).catch((error: unknown) => console.error(`Renewing a login of the key-manager connection ${entry.connectionId} failed:`, error)));
   };
 
   const renew = async (entry: Held): Promise<void> => {
@@ -228,7 +231,7 @@ export const createLogins = (options: LoginsOptions): Logins => {
   const end = (entry: Held): void => {
     if (!held.delete(entry)) return;
     entry.timer?.cancel();
-    void letGo(entry.connectionId, entry.login, scrub);
+    background.run(letGo(entry.connectionId, entry.login, scrub));
   };
 
   /** The login is no longer current: revoked at once when no run token of it is held, else once none is, renewed until then. */

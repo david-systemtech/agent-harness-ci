@@ -1,4 +1,5 @@
 import type { Clock, Timer } from "../serve/clock.js";
+import type { BackgroundWork } from "./background.js";
 
 /**
  * When the key-manager connections are verified (key-managers spec, "The
@@ -30,6 +31,8 @@ export interface ScheduleOptions {
   readonly subjectOf: (connectionId: string) => string | null;
   /** One verification of the connection, recording what it found; it never rejects. */
   readonly verifyNow: (connectionId: string) => Promise<void>;
+  /** Where each verification runs, asked for or on the clock (#745). */
+  readonly background: BackgroundWork;
 }
 
 export interface VerificationSchedule {
@@ -86,6 +89,7 @@ export const createVerificationSchedule = (options: ScheduleOptions): Verificati
         if (!closed && subjectOf(connectionId) !== null) arm(connectionId, KEY_MANAGER_VERIFY_INTERVAL_MS);
       });
     runs.set(connectionId, { subject, done });
+    options.background.run(done);
     return done;
   };
 
