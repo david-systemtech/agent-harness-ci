@@ -12,6 +12,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, get, refusal } from "../../test/sessions.js";
 import { scriptedStep } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
+import type { StepSubject } from "./mint.js";
 import { TRIGGER_WINDOW_MS } from "./scheduler.js";
 import type { SetupSteps } from "./service.js";
 
@@ -41,9 +42,10 @@ const notePrompt = stepPrompt({
 
 /** The note step's one subject. */
 const BANK = { kind: "bank", id: "bank-1", label: "david-memory" } as const;
+const TEAM_BANK = { kind: "bank", id: "bank-2", label: "team-memory" } as const;
 
 /** The note step: a registry of its own, its check finding NOTE.md in the workspace of the fake's latest run, which is a scratch one unless the step names another. */
-const noteSteps = (adapter: FakeAdapter, workspace?: WorkspaceRequest): SetupSteps => ({
+const noteSteps = (adapter: FakeAdapter, workspace?: WorkspaceRequest, subjects: readonly StepSubject[] = [BANK]): SetupSteps => ({
   steps: [
     scriptedStep("instructions", {
       llm: "test-note",
@@ -60,7 +62,7 @@ const noteSteps = (adapter: FakeAdapter, workspace?: WorkspaceRequest): SetupSte
   prompts: [notePrompt],
   llmSteps: {
     instructions: {
-      subjects: () => [BANK],
+      subjects: () => subjects,
       facts: (subject) => ({ name: subject?.label ?? "nothing" }),
       ...(workspace !== undefined && { workspace: () => workspace }),
     },
@@ -74,9 +76,9 @@ const writesNote: Script = async function* ({ input }) {
   yield end();
 };
 
-const start = async (options: TestEnvironmentOptions & { readonly script?: Script; readonly workspace?: WorkspaceRequest } = {}): Promise<TestEnvironment> => {
+const start = async (options: TestEnvironmentOptions & { readonly script?: Script; readonly workspace?: WorkspaceRequest; readonly subjects?: readonly StepSubject[] } = {}): Promise<TestEnvironment> => {
   const adapter = options.adapter ?? fakeAdapter({ ...(options.script !== undefined && { script: options.script }) });
-  const t = await startTestEnvironment({ ...options, adapter, setupSteps: noteSteps(adapter, options.workspace) });
+  const t = await startTestEnvironment({ ...options, adapter, setupSteps: noteSteps(adapter, options.workspace, options.subjects) });
   onCleanup(() => t.close());
   await t.env.setup.startPass;
   return t;
@@ -138,6 +140,93 @@ const noteResult = async (t: TestEnvironment, client: WireClient): Promise<StepR
 };
 
 describe("setup.mint", () => {
+  it("keeps a subject's failed run visible when a different subject's later session ends cleanly, targeting manual authoring and start over at the failed subject", async () => {
+    const t = await start({ subjects: [BANK, TEAM_BANK], script: function* () { yield end(); } });
+    t.adapter.nextScripts.push(fails);
+    const client = await t.client();
+    const failed = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(client, failed);
+    const clean = await minted(client, { step: "instructions", subject: TEAM_BANK.id, variant: "first" });
+    await runEnded(client, clean);
+    const { results } = await client.request("setup.check", { step: "instructions" });
+    expect(results[0]).toMatchObject({
+      state: "needs-attention",
+      reason: "The session's run failed: The provider is overloaded. NOTE.md is missing from the session's workspace.",
+      actions: ["try-again", "write-it-myself", "start-over"],
+      targets: [
+        { action: "try-again", kind: "session", id: failed, label: "Set up: Instructions (david-memory)" },
+        { action: "write-it-myself", ...BANK },
+        { action: "start-over", ...BANK },
+      ],
+    });
+  });
+
+  it("records the step, subject and prompt variant on the minted session's stream, even when the prompt remains a draft", async () => {
+    const t = await start({ accounts: [] });
+    const client = await t.client();
+    const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "revise" });
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
+    const draft = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "session.draft-set");
+    const events = client.received.filter((f) => f.type === "event" && f.subscription === subscription);
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({
+      event: expect.objectContaining({ type: "setup.minted", payload: { step: "instructions", subject: BANK, variant: "revise" } }),
+    })]));
+    expect(draft.event.payload).toEqual({ draft: "Revise NOTE.md for david-memory." });
+  });
+
+  it("reads both subjects' stopped sessions, then a new draft supersedes only its own subject's session", async () => {
+    const t = await start({ subjects: [BANK, TEAM_BANK], script: holds });
+    t.adapter.nextScripts.push(fails);
+    const client = await t.client();
+    const failed = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(client, failed);
+    const stopped = await minted(client, { step: "instructions", subject: TEAM_BANK.id, variant: "revise" });
+    const runId = await runStarted(client, stopped);
+    expect((await client.request("runs.interrupt", { commandId: randomUUID(), runId })).receipt.status).toBe("accepted");
+    await runEnded(client, stopped);
+    const both = (await client.request("setup.check", { step: "instructions" })).results[0];
+    expect(both).toMatchObject({
+      reason: "The session's run was stopped. The session's run failed: The provider is overloaded. NOTE.md is missing from the session's workspace.",
+      actions: ["try-again", "write-it-myself", "start-over"],
+      targets: [
+        { action: "try-again", kind: "session", id: stopped },
+        { action: "write-it-myself", ...TEAM_BANK },
+        { action: "start-over", ...TEAM_BANK },
+        { action: "try-again", kind: "session", id: failed },
+        { action: "write-it-myself", ...BANK },
+        { action: "start-over", ...BANK },
+      ],
+    });
+    await minted(client, { step: "instructions", subject: TEAM_BANK.id, variant: "first", account: "missing-account" });
+    const afterDraft = (await client.request("setup.check", { step: "instructions" })).results[0];
+    expect(afterDraft).toMatchObject({
+      reason: "The session's run failed: The provider is overloaded. NOTE.md is missing from the session's workspace.",
+      targets: [
+        { action: "try-again", kind: "session", id: failed },
+        { action: "write-it-myself", ...BANK },
+        { action: "start-over", ...BANK },
+      ],
+    });
+  });
+
+  it("records a subjectless mint explicitly and keeps older or hand-tagged sessions readable without inventing subject targets", async () => {
+    const t = await start({ script: fails });
+    const client = await t.client();
+    const byHand = await create(client, { tags: ["setup", "instructions"], title: "Set up: Instructions (david-memory)" });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: byHand.id, text: "Write NOTE.md." });
+    await runEnded(client, byHand.id);
+    const old = (await client.request("setup.check", { step: "instructions" })).results[0];
+    expect(old?.targets).toEqual([{ action: "try-again", kind: "session", id: byHand.id, label: "Set up: Instructions (david-memory)" }]);
+
+    const subjectless = await minted(client, { step: "instructions", variant: "first", account: "missing-account" });
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: subjectless, afterSequence: 0 });
+    const provenance = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "setup.minted");
+    expect(provenance.event.payload).toEqual({ step: "instructions", subject: null, variant: "first" });
+    const afterDraft = (await client.request("setup.check", { step: "instructions" })).results[0];
+    expect(afterDraft?.actions).toEqual([]);
+    expect(afterDraft?.targets).toBeUndefined();
+  });
+
   it("creates a session in a scratch workspace of its own, tagged setup and the step, titled for the step and its subject, and starts its first run with the step's first prompt rendered from the subject's facts", async () => {
     const t = await start({ script: writesNote });
     const client = await t.client();
@@ -296,7 +385,11 @@ describe("a minted session's run end", () => {
       reason: "The session's run failed: The provider is overloaded. NOTE.md is missing from the session's workspace.",
       failing: ["instructions.note"],
       actions: ["try-again", "write-it-myself", "start-over"],
-      targets: [{ action: "try-again", kind: "session", id: sessionId, label: "Set up: Instructions (david-memory)" }],
+      targets: [
+        { action: "try-again", kind: "session", id: sessionId, label: "Set up: Instructions (david-memory)" },
+        { action: "write-it-myself", ...BANK },
+        { action: "start-over", ...BANK },
+      ],
       checkedAt: after(TRIGGER_WINDOW_MS),
     });
 
@@ -321,7 +414,11 @@ describe("a minted session's run end", () => {
       state: "needs-attention",
       reason: "The session's run was stopped. NOTE.md is missing from the session's workspace.",
       actions: ["try-again", "write-it-myself", "start-over"],
-      targets: [{ action: "try-again", kind: "session", id: sessionId }],
+      targets: [
+        { action: "try-again", kind: "session", id: sessionId },
+        { action: "write-it-myself", ...BANK },
+        { action: "start-over", ...BANK },
+      ],
     });
   });
 

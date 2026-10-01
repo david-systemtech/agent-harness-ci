@@ -23,10 +23,12 @@ export interface PageReadOptions {
   readonly links: boolean;
 }
 
-/** What the reader found: the page's article as Markdown, or null where Readability judges the page not readerable or finds no article with text in it. */
-export interface PageArticle {
-  readonly article: string | null;
-}
+/**
+ * What the reader found: the page's article as Markdown, or null where Readability judges the page not readerable or
+ * finds no article with text in it; or what was thrown, by name and message, where the page broke the reader (an
+ * element named after a DOM method it calls takes that method's place, #696).
+ */
+export type PageArticle = { readonly article: string | null } | { readonly failed: string };
 
 /** The isolated world's global, where the reader lives once installed. */
 interface ReaderGlobal {
@@ -49,9 +51,13 @@ export function installReaderWorld(
   const { readArticle } = reader(readability(), readerable());
   const { articleMarkdown } = markdown();
   world.agentHarnessReader = ({ links }) => {
-    const article = readArticle(document);
-    const text = article === null ? "" : articleMarkdown(article, { links });
-    return { article: text.trim() === "" ? null : text };
+    try {
+      const article = readArticle(document);
+      const text = article === null ? "" : articleMarkdown(article, { links });
+      return { article: text.trim() === "" ? null : text };
+    } catch (error) {
+      return { failed: String(error) };
+    }
   };
 }
 

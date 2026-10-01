@@ -50,6 +50,21 @@ const checkouts = (t: TestEnvironment): string[] => {
   return existsSync(root) ? readdirSync(root) : [];
 };
 
+/** Runs the rest of the test with `PATH` set to `path`, then puts it back. */
+const usePath = (path: string): void => {
+  const before = process.env["PATH"];
+  process.env["PATH"] = path;
+  onCleanup(() => void (before === undefined ? delete process.env["PATH"] : (process.env["PATH"] = before)));
+};
+
+/** An ssh on the PATH that says `refusal` and exits 255, as OpenSSH does when it cannot authenticate. */
+const refusingSsh = (refusal: string): void => {
+  const bin = tempDir("agent-harness-refusing-ssh-");
+  writeFileSync(join(bin, "ssh"), `#!/bin/sh\ncat >&2 <<'EOF'\n${refusal}\nEOF\nexit 255\n`);
+  chmodSync(join(bin, "ssh"), 0o755);
+  usePath(`${bin}:${process.env["PATH"] ?? ""}`);
+};
+
 describe("skills.probe on a repository", () => {
   it("answers a repository whose root holds SKILL.md as one member named after the repository, with its licence file, the branch and the commit", async () => {
     const forge = skillRepositories(tempDir);
@@ -260,9 +275,7 @@ process.stdin.on("end", async () => {
     const record = join(bin, "asked");
     writeFileSync(join(bin, "ssh"), `#!/bin/sh\necho "$*" >> '${record}'\nfor last; do :; done\ncd '${forge.root}' && exec sh -c "git \${last#git-}"\n`);
     chmodSync(join(bin, "ssh"), 0o755);
-    const path = process.env["PATH"];
-    process.env["PATH"] = `${bin}:${path ?? ""}`;
-    onCleanup(() => void (path === undefined ? delete process.env["PATH"] : (process.env["PATH"] = path)));
+    usePath(`${bin}:${process.env["PATH"] ?? ""}`);
     const { client } = await start(forge);
 
     expect(await probe(client, "git@ssh.skills.test:david/skills.git")).toMatchObject({ identity: "https://ssh.skills.test/david/skills", commit, folders: [{ folder: "skills", count: 1 }] });
@@ -276,12 +289,24 @@ process.stdin.on("end", async () => {
     // A PATH that holds git and nothing else, so the shell git runs ssh through says it is not found.
     const bin = tempDir("agent-harness-no-ssh-");
     symlinkSync(execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(), join(bin, "git"));
-    const path = process.env["PATH"];
-    process.env["PATH"] = bin;
-    onCleanup(() => void (path === undefined ? delete process.env["PATH"] : (process.env["PATH"] = path)));
+    usePath(bin);
 
     const answer = await refused(client, "git@ssh.skills.test:david/skills.git");
     expect(answer.data).toMatchObject({ reason: "unreachable", problem: "git_failed", line: expect.stringMatching(/\bssh: (?:command )?not found$/) });
     expect(answer.message).toContain("git could not clone the repository.");
+  });
+
+  // The image installs openssh-client but holds none of the user's keys (#874): ssh runs, refuses, and the
+  // probe answers that as authentication, never the shell's `ssh: not found`.
+  it.each([
+    ["a host it holds no key for", "No ED25519 host key is known for ssh.skills.test and you have requested strict checking.\nHost key verification failed."],
+    ["a host that takes none of the keys it has", "git@ssh.skills.test: Permission denied (publickey)."],
+  ])("is authentication, not git_failed, when ssh runs without the user's keys and refuses %s", async (_case, refusal) => {
+    refusingSsh(refusal);
+    const { client } = await start(skillRepositories(tempDir));
+
+    const answer = await refused(client, "git@ssh.skills.test:david/skills.git");
+    expect(answer.data).toMatchObject({ reason: "unreachable", problem: "authentication", line: "fatal: Could not read from remote repository." });
+    expect(answer.message).toContain("check your ssh keys");
   });
 });
