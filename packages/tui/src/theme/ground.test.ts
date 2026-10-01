@@ -137,8 +137,8 @@ describe("agent-harness tui's colour depth", () => {
     const keyboard = new FakeKeyboard();
     const terminal = terminalAnswering(keyboard, answer);
     const depths: (ColourDepth | undefined)[] = [];
-    const render = (element: ReactElement<{ readonly depth?: ColourDepth }>): Instance => {
-      depths.push(element.props.depth);
+    const render = (element: ReactElement): Instance => {
+      depths.push((element.props as { readonly depth?: ColourDepth }).depth);
       return { waitUntilExit: async () => undefined } as unknown as Instance;
     };
     const services: LocalService = {

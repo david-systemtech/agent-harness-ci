@@ -1,6 +1,7 @@
 import type { EnvironmentView, MergedGroupHeading, SessionListView, SessionRow } from "@agent-harness/client-runtime";
 import type { SessionSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { SIXTEEN_COLOURS } from "../theme/colours.js";
 import { badgesOf } from "./badge.js";
 import { railLines, type RailInput, type RailLine } from "./model.js";
 
@@ -64,7 +65,7 @@ const heading = (key: string, name: string, active: SessionRow[], awaitingReceip
 const input = (fields: Partial<RailInput>): RailInput => ({
   list: listOf({}),
   environments: [view("desk")],
-  badges: badgesOf(fields.environments ?? [view("desk")]),
+  badges: badgesOf(fields.environments ?? [view("desk")], SIXTEEN_COLOURS),
   folded: {},
   matches: null,
   startingService: false,
