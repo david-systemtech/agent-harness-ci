@@ -40,19 +40,17 @@ export interface AddressRules {
 
 /** Who the rules are applied for, as their sentences name it: what it is called, and what it does with an address. */
 export interface AddressReader {
-  /** Its name, as a sentence's subject. */
+  /** Its name inside a sentence, and as a sentence's first words. */
   readonly name: string;
+  readonly subject: string;
   /** What it does with an address (`read`), as the sentence's verb takes it: `reads`, and `read` once it has. */
   readonly verb: string;
   readonly does: string;
   readonly done: string;
 }
 
-export const WEB_READ: AddressReader = { name: "web_read", verb: "read", does: "reads", done: "read" };
-export const HEADLESS_BROWSER: AddressReader = { name: "The headless browser", verb: "open", does: "opens", done: "opened" };
-
-/** The reader's name inside a sentence: lower case unless it is a tool's. */
-const named = (reader: AddressReader): string => (reader.name === WEB_READ.name ? reader.name : reader.name.toLowerCase());
+export const WEB_READ: AddressReader = { name: "web_read", subject: "web_read", verb: "read", does: "reads", done: "read" };
+export const HEADLESS_BROWSER: AddressReader = { name: "the headless browser", subject: "The headless browser", verb: "open", does: "opens", done: "opened" };
 
 /** How an internal class is named in a sentence. */
 const CLASS_NAMES: { readonly [K in Exclude<AddressClass, "public" | "metadata">]: string } = {
@@ -71,10 +69,10 @@ export interface FoundAddress {
 }
 
 const metadataRefusal = (host: string, found: FoundAddress | null, reader: AddressReader): string =>
-  `${found === null ? host : `${host} ${found.how} ${found.address}, which`} is a cloud metadata address. ${reader.name} never ${reader.does} one, listed or not: what answers there is the host machine's credentials.`;
+  `${found === null ? host : `${host} ${found.how} ${found.address}, which`} is a cloud metadata address. ${reader.subject} never ${reader.does} one, listed or not: what answers there is the host machine's credentials.`;
 
 const internalRefusal = (host: string, found: FoundAddress | null, addressClass: keyof typeof CLASS_NAMES, reader: AddressReader): string =>
-  `${found === null ? `${host} is` : `${host} ${found.how} ${found.address},`} ${CLASS_NAMES[addressClass]}, which ${named(reader)} ${reader.does} only when the host is listed in the browser.internalHosts setting. Ask the person to list ${host} there if it should be ${reader.done}.`;
+  `${found === null ? `${host} is` : `${host} ${found.how} ${found.address},`} ${CLASS_NAMES[addressClass]}, which ${reader.name} ${reader.does} only when the host is listed in the browser.internalHosts setting. Ask the person to list ${host} there if it should be ${reader.done}.`;
 
 /**
  * The ruling on one address, `host` the name it was found for (the host
@@ -84,7 +82,7 @@ const internalRefusal = (host: string, found: FoundAddress | null, addressClass:
 export const refusalOf = (host: string, found: FoundAddress | null, listed: boolean, reader: AddressReader = WEB_READ): string | null => {
   const addressClass = addressClassOf(found?.address ?? host);
   if (addressClass === "metadata") return metadataRefusal(host, found, reader);
-  if (addressClass === null) return `${host} is no address ${named(reader)} can ${reader.verb}.`;
+  if (addressClass === null) return `${host} is no address ${reader.name} can ${reader.verb}.`;
   if (addressClass !== "public" && !listed) return internalRefusal(host, found, addressClass, reader);
   return null;
 };
