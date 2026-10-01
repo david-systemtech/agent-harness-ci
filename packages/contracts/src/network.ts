@@ -77,6 +77,12 @@ export const EnvironmentBinding = z
       })
       .nullable()
       .meta({ description: "The tailnet address the environment binds and its tailnet name; null when it binds none: no Tailscale address was found at its start, or network.bindTailnet is off." }),
+    tailnetFound: BindAddress.nullable()
+      .optional()
+      .meta({
+        description:
+          "A Tailscale address the machine holds that the environment does not bind, which it binds at its next start while network.bindTailnet is on: one found since its start (Tailscale installed or started since), or one found at its start with network.bindTailnet off. Looked for at the start and again at each environment.status while no tailnet address is bound; null when one is bound or none is found; absent from an environment that predates it.",
+      }),
     lan: BindAddress.nullable().meta({ description: "The LAN address the environment binds; null when it binds none." }),
     lanAddresses: z.array(BindAddress).meta({
       description:

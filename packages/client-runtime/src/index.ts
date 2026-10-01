@@ -240,6 +240,7 @@ export {
   RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
+  pullSetupSources,
   restoreStep,
   setupActions,
   updateEnvironment,

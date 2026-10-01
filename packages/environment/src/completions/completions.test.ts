@@ -516,6 +516,16 @@ describe("a completion, whole", () => {
 });
 
 describe("a completion, streamed", () => {
+  it("never streams a registered value split across assistant deltas", async () => {
+    const value = "token-for-tests";
+    const t = await start({ script: () => [delta("reply", "Token: token-for-"), delta("reply", "tests!"), text("reply", `Token: ${value}!`), end()] });
+    t.scrub.register(value, { owner: "test:completion" });
+    const { token } = await program(t);
+    const chunks = chunksOf(await (await stream(t, token, turn("Show the token"))).rest());
+    expect(contentOf(chunks)).toBe("Token: [redacted]!");
+    expect(JSON.stringify(chunks)).not.toContain(value);
+  });
+
   it("follows OpenAI's chunk order, every chunk carrying the log sequence of the event it renders", async () => {
     const t = await start({ script: streamingScript });
     const { token } = await program(t);

@@ -165,6 +165,8 @@ export interface TestEnvironmentOptions {
   readonly moveSources?: EnvironmentOptions["moveSources"];
   /** The command git names as its credential helper, before `git-credential <slug>`; preset none. */
   readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
+  /** What that command reads as it runs, beyond its own words (the shim's service state and versions directory); preset none. */
+  readonly harnessReads?: EnvironmentOptions["harnessReads"];
   /** Configuration the harness's git is given after its own (`insteadOf` to a local bare repository); preset none. */
   readonly harnessGitConfig?: EnvironmentOptions["harnessGitConfig"];
   /** What the skills' git calls go through (#499); preset none. */
@@ -407,6 +409,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     vault: options.vault ?? fileVault(join(dataDir, VAULT_FILE)),
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
+    ...(options.harnessReads !== undefined && { harnessReads: options.harnessReads }),
     ...(options.harnessGitConfig !== undefined && { harnessGitConfig: options.harnessGitConfig }),
     ...(options.skillsGit !== undefined && { skillsGit: options.skillsGit }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),

@@ -33,6 +33,8 @@ export interface GitOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** What git reads on its standard input; nothing when absent. */
   readonly input?: Buffer;
+  /** Stops git when it aborts, as the timeout does, without marking it timed out; git never starts once it has. */
+  readonly signal?: AbortSignal;
 }
 
 export interface GitAnswer {
@@ -68,6 +70,11 @@ export const gitEnvironment = (extra: Readonly<Record<string, string>> = {}): Re
 /** Runs `git <args>` in `cwd`; never throws: a git that cannot run answers `ok: false` with nothing. */
 export const runGit = (cwd: string, args: readonly string[], options: GitOptions): Promise<GitAnswer> =>
   new Promise((resolve) => {
+    const { signal } = options;
+    if (signal?.aborted === true) {
+      resolve({ ok: false, stdout: Buffer.alloc(0), truncated: false, timedOut: false, missing: false, code: null, stderr: "" });
+      return;
+    }
     const chunks: Buffer[] = [];
     let kept = 0;
     let truncated = false;
@@ -84,19 +91,24 @@ export const runGit = (cwd: string, args: readonly string[], options: GitOptions
       child.stdin?.on("error", () => undefined);
       child.stdin?.end(options.input);
     }
+    const stop = (): void => {
+      child.kill("SIGKILL");
+      // A process git started (a filter, a helper) can hold the pipes open past git's own end: the answer does not wait for it.
+      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
+    };
     const finish = (answer: GitAnswer): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", stop);
       resolve(answer);
     };
     const timer = setTimeout(() => {
       truncated = true;
       timedOut = true;
-      child.kill("SIGKILL");
-      // A process git started (a filter, a helper) can hold the pipes open past git's own end: the answer does not wait for it.
-      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
+      stop();
     }, options.timeoutMs ?? GIT_TIMEOUT_MS);
+    signal?.addEventListener("abort", stop, { once: true });
     const errors: Buffer[] = [];
     let errorBytes = 0;
     child.stderr?.on("data", (chunk: Buffer) => {

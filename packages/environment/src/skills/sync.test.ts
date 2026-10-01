@@ -28,22 +28,32 @@ const { onCleanup, tempDir } = useCleanups();
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
-/** The skills' git as a test sees it: every request, in order, and a hold on the calls made while one is set. */
+/** The skills' git as a test sees it: every request and every answer, in order, and a hold on the calls made while one is set. */
 interface SkillsGit {
   readonly requests: ForgeGitRequest[];
-  /** Holds every call made from now until the release, which lets them all go. */
+  readonly answers: ForgeGitAnswer[];
+  /** Holds every call made from now until the release, which lets them all go; a call whose signal aborts (a close's cut) goes on to git at once. */
   hold(): () => void;
   /** Answers every call from now as git stopped at its time, having run none. */
   stopAtTime(): void;
   readonly wrap: NonNullable<TestEnvironmentOptions["skillsGit"]>;
 }
 
+/** Settles once `signal` aborts; never when there is none. */
+const abortOf = (signal: AbortSignal | undefined): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal?.aborted === true) resolve();
+    else signal?.addEventListener("abort", () => resolve(), { once: true });
+  });
+
 const skillsGit = (): SkillsGit => {
   const requests: ForgeGitRequest[] = [];
+  const answers: ForgeGitAnswer[] = [];
   let gate: Promise<void> | null = null;
   let stopped = false;
   return {
     requests,
+    answers,
     stopAtTime() {
       stopped = true;
     },
@@ -58,9 +68,12 @@ const skillsGit = (): SkillsGit => {
     },
     wrap: async (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>): Promise<ForgeGitAnswer> => {
       requests.push(request);
-      if (gate !== null) await gate;
-      if (stopped) return { outcome: "ran", git: { ok: false, stdout: Buffer.alloc(0), truncated: true, timedOut: true, missing: false, code: null, stderr: "" } };
-      return git(request);
+      if (gate !== null) await Promise.race([gate, abortOf(request.signal)]);
+      const answer: ForgeGitAnswer = stopped
+        ? { outcome: "ran", git: { ok: false, stdout: Buffer.alloc(0), truncated: true, timedOut: true, missing: false, code: null, stderr: "" } }
+        : await git(request);
+      answers.push(answer);
+      return answer;
     },
   };
 };
@@ -515,5 +528,23 @@ describe("a sync cut by a drain", () => {
     await vi.waitFor(async () => expect((await view(next.client)).sources[0]).toMatchObject({ commit: after, sync: { outcome: "ok" } }), { timeout: WAIT_MS });
     await vi.waitFor(() => expect(existsSync(partial)).toBe(false), { timeout: WAIT_MS });
     expect(skillsEvents(next.t)).toEqual([...events, ["skills.source-synced", { sourceId: source.id, outcome: "ok", commit: after, members: [{ name: "tdd", path: "tdd", description: "After.", invocation: "model+slash", problems: [] }] }]]);
+  });
+
+  it("stops its git, and the close settles only once the sync has ended, so nothing it would clone or export outlives the close", async () => {
+    const forge = skillRepositories(tempDir);
+    const before = forge.commit("david/skills", { "SKILL.md": skill("tdd", "Before.") });
+    const first = await start(forge, { dataDir: join(tempDir(), "data") });
+    const source = await add(first.client, `${SKILLS_HOST}david/skills`);
+    forge.commit("david/skills", { "SKILL.md": skill("tdd", "After.") });
+
+    // The close comes while the start's fetch is held, and the hold is never let go.
+    const git = skillsGit();
+    git.hold();
+    const cut = await restartAfter(first.t, MINUTE, (options) => start(forge, { ...options, skillsGit: git.wrap }));
+    await vi.waitFor(() => expect(git.requests).toHaveLength(1), { timeout: WAIT_MS });
+    await cut.t.close();
+    // By the time the close settled, the fetch's git had been stopped before it cloned, and had answered so.
+    expect(git.answers).toEqual([{ outcome: "ran", git: expect.objectContaining({ ok: false }) }]);
+    expect(snapshotsOf(cut.t, source.id)).toEqual([before]);
   });
 });

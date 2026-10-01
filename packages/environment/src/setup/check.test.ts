@@ -15,7 +15,7 @@ const stepOf = (id: RegisteredStep["id"]): RegisteredStep => STEP_REGISTRY.find(
 
 /** The step's check at `AT`, its state checks answering as `stateChecks` says, with no last good result. */
 const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateCheckers) =>
-  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, lastGood: undefined });
+  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, askedBy: "client", lastGood: undefined });
 
 const holding: StateCheckers = {
   "account.present": () => true,

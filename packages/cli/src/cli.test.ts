@@ -145,7 +145,7 @@ describe("agent-harness serve", () => {
       readiness: "ready",
       activity: { state: "idle" },
       updatesManagedOutside: false,
-      binding: { tailnet: null, lan: null, lanAddresses: [] },
+      binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] },
     });
     expect(cli.ask({ type: "drain?" })).toMatchObject({ type: "draining", trigger: "launcher" });
     expect(await exit).toBe(0);

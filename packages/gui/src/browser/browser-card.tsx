@@ -41,13 +41,13 @@ export const BrowserCard = (props: StepCardProps) => {
       {local === undefined ? (
         <p>Install agent-harness on this machine to pair your Chrome.</p>
       ) : (
-        <BrowserSetUp key={local.environmentId} another={another} environmentId={local.environmentId} accountsEnvironmentId={props.environmentId} />
+        <BrowserPairing key={local.environmentId} another={another} environmentId={local.environmentId} accountsEnvironmentId={props.environmentId} />
       )}
     </>
   );
 };
 
-const BrowserSetUp = ({ environmentId, accountsEnvironmentId, another }: { readonly environmentId: string; readonly accountsEnvironmentId: string; readonly another: number }) => {
+export const BrowserPairing = ({ environmentId, accountsEnvironmentId, another }: { readonly environmentId: string; readonly accountsEnvironmentId: string; readonly another: number }) => {
   const runtime = useRuntime();
   const status = useObservable(useMemo(() => runtime.requests.cached(environmentId, "browser.status", {}), [runtime, environmentId]));
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "browser.chromes.list", {}), [runtime, environmentId]));

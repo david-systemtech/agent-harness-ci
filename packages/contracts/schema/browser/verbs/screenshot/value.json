@@ -3,6 +3,10 @@
   "title": "ScreenshotValue",
   "type": "object",
   "properties": {
+    "url": {
+      "type": "string",
+      "description": "The address the page has now."
+    },
     "mimeType": {
       "type": "string",
       "enum": [
@@ -18,8 +22,9 @@
     }
   },
   "required": [
+    "url",
     "mimeType",
     "data"
   ],
-  "description": "A screenshot of the viewport."
+  "description": "The page's address and a screenshot of its viewport."
 }

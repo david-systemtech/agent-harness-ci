@@ -1,6 +1,7 @@
 import type { ChallengeKind } from "@agent-harness/contracts";
 import { detectChallenge } from "./challenge.js";
 import { articleMarkdown, type ReaderArticle } from "./markdown.js";
+import { pageBody } from "./page-text.js";
 import { isShell } from "./shell.js";
 import { mozillaReaderable, type IsProbablyReaderable } from "./vendor/readability-readerable.js";
 import { mozillaReadability, type ReadabilityConstructor } from "./vendor/readability.js";
@@ -57,5 +58,5 @@ export const readFetchedPage = (document: Document): FetchedPage => {
   if (isShell(document)) return { kind: "shell" };
   const article = readArticle(document);
   if (article !== null) return { kind: "article", markdown: articleMarkdown(article) };
-  return { kind: "document", markdown: articleMarkdown({ content: document.body ?? document.documentElement }) };
+  return { kind: "document", markdown: articleMarkdown({ content: pageBody(document) }) };
 };

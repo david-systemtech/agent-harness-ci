@@ -59,7 +59,7 @@ describe("always-on instructions through the environment", () => {
     expect(text).toContain("Keep it tidy.");
     expect(text).not.toContain("description: A test skill.");
     expect(text).not.toContain("DO NOT APPEND");
-    expect(manifest.alwaysOn).toEqual([{ name: "tidy", origin: null, commit: null }]);
+    expect(manifest.alwaysOn).toEqual([{ name: "tidy", origin: null, commit: null, chosenBy: "account" }]);
     const other = await create(client, { account: "other" });
     await run(t, client, other.id);
     expect(t.adapter.lastRun().input.instructions).toBe("SESSION");
@@ -79,7 +79,7 @@ describe("always-on instructions through the environment", () => {
     expect(input.instructions).toContain("x".repeat(60_000) + "\n\n[Body cut at 60,000 characters;");
     expect(input.instructions).not.toContain("THE REST");
     expect(input.instructions).toContain(join(input.skillSet.generation as string, "skills", "long", "SKILL.md"));
-    expect(manifest.alwaysOn).toEqual([{ name: "long", origin: { kind: "repository", repository: `${SKILLS_HOST}team/skills`, path: "long" }, commit }]);
+    expect(manifest.alwaysOn).toEqual([{ name: "long", origin: { kind: "repository", repository: `${SKILLS_HOST}team/skills`, path: "long" }, commit, chosenBy: "account" }]);
   });
 
   it("drops always-on members last first before owned instructions under a channel cap", async () => {
@@ -157,14 +157,14 @@ describe("always-on instructions through the environment", () => {
     await ownSkill(t, client, "account", "ACCOUNT");
     await ownSkill(t, client, "requested", "REQUESTED");
     await client.request("skills.setAlwaysOn", { commandId: randomUUID(), name: "requested", accountId: "claude-max", on: false });
-    const { state } = await created(client, written({ schedule: { kind: "manual" }, skills: ["requested", "unknown"] }));
+    // A name the skill set lacks makes the firing a skip cannot-start instead (#531: routines/routine-skills.test.ts).
+    const { state } = await created(client, written({ schedule: { kind: "manual" }, skills: ["requested"] }));
     const firingId = await ranNow(client, state.id);
     await untilSettled(t, state.id, firingId);
     const text = t.adapter.lastRun().input.instructions ?? "";
     expect(text).toContain("# Always-on skill: account");
     expect(text).toContain("# Always-on skill: requested");
     expect(text.indexOf("ACCOUNT")).toBeLessThan(text.indexOf("REQUESTED"));
-    expect(text).not.toContain("# Always-on skill: unknown");
   });
 
 });
