@@ -23,7 +23,8 @@
       "@agent-harness/source": "./src/routine-yaml.ts",
       "types": "./dist/routine-yaml.d.ts",
       "default": "./dist/routine-yaml.js"
-    }
+    },
+    "./bank-validator-file": "./dist/bank-validator/validate.mjs"
   },
   "scripts": {
     "test": "vitest run",

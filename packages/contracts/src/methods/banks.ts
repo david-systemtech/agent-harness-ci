@@ -2,9 +2,13 @@ import { z } from "zod";
 import { AccountId } from "../accounts.js";
 import { BankAccountScope, BankId, BankRecord, BankRepositoryScope, BankRole } from "../bank-registry.js";
 import { BankFinding, BankName, BankRuleId } from "../banks.js";
+import { ForgeAccountId } from "../forge-accounts.js";
+import { CredentialUnavailableError } from "../git-credential.js";
+import { KindUnsupportedError, ForgeAccountMissingError, ForgeOwner, ForgeUnreachableError, VerificationFailedError } from "./forge.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
 import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError, ReferenceProviderUnavailableError, KeyManagerReference } from "../key-managers.js";
+import { SecretShapedError } from "../shape-rules.js";
 import { RepositoryIdentity } from "../repository-identity.js";
 
 /**
@@ -145,4 +149,35 @@ export const banksCredentialSwap = defineMethod({
   params: commandParams({ bankId: BankId, reference: KeyManagerReference }),
   result: z.object({}),
   errors: [CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError, ReferenceProviderUnavailableError],
+});
+
+/** Creates and admits a bank from the shipped template; describe is a later session. */
+export const banksCreate = defineMethod({
+  name: "banks.create",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    bankId: BankId,
+    name: BankName,
+    creation: z.discriminatedUnion("kind", [
+      z.strictObject({
+        kind: z.literal("personal"),
+        localOnly: z.boolean().meta({ description: "Keep the bank on this machine, else create it privately under the login on the primary forge." }),
+        personName: z.string().trim().min(1).max(40).optional().meta({ description: "Optional display name for the first entity; otherwise the creator's forge login, or OS username locally." }),
+        org: BankName.meta({ description: "First seed answer: what the person calls their own work, preset personal." }),
+        project: BankName.meta({ description: "Second seed answer: the first project, preset to the primary repository's name." }),
+      }),
+      z.strictObject({
+        kind: z.literal("team"),
+        forgeAccountId: ForgeAccountId,
+        owner: ForgeOwner.meta({ description: "A user or organisation from forge.orgs.list for the selected verified account." }),
+        repositoryName: BankName,
+        teamName: z.string().trim().min(1).max(40),
+        org: BankName.meta({ description: "The team's first org folder." }),
+        projects: z.array(z.strictObject({ name: z.string().trim().min(1).max(100), folder: BankName })).min(1).max(40),
+      }),
+    ]),
+  }),
+  result: z.object({ bank: BankRecord }),
+  errors: [ValidationFailedError, SecretShapedError, ForgeAccountMissingError, CredentialUnavailableError, VerificationFailedError, ForgeUnreachableError, KindUnsupportedError],
 });

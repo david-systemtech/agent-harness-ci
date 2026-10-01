@@ -20,5 +20,6 @@ export const bankMethods = (banks: BankService, credentials: BankCredentials): M
   "banks.register": banks.register,
   "banks.credential.set": credentials.set,
   "banks.credential.swap": credentials.swap,
+  "banks.create": banks.create,
   "banks.verify": async (params) => ({ banks: await banks.verify(params.bankId) }),
 });

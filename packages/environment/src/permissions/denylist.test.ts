@@ -652,6 +652,7 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
       join(t.env.dataDir, "skills", "own"),
       join(t.env.dataDir, "skills", "snapshots"),
       join(t.env.dataDir, "skills", "generations"),
+      join(t.env.dataDir, "banks"),
     ]);
     expect(projected?.commandPatterns).toContain("sudo *");
     expect(projected?.commandPatterns).toContain("terraform destroy *");
