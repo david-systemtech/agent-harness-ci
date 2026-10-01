@@ -203,7 +203,7 @@ describe("the draft", () => {
 
 describe("slash commands", () => {
   it("opens the command menu on / and runs the highlighted command on Enter", async () => {
-    const { app } = await launch({ commands: [{ name: "compact", description: "Compact the conversation" }] });
+    const { app } = await launch({ commands: [{ kind: "command", name: "compact", description: "Compact the conversation", builtin: true }] });
     await app.type("/ta");
     await app.waitFor("/tasks");
     await app.press(KEY.enter);
@@ -211,6 +211,44 @@ describe("slash commands", () => {
     await app.press(KEY.esc);
     await app.type("/comp");
     await app.waitFor("Compact the conversation · the agent's");
+  });
+
+  it("lists its own commands, then the open session's skills with slash-only ones marked, then the provider's, from commands.list asked for the open session (#503)", async () => {
+    const { app } = await launch({
+      commands: [
+        { kind: "skill", name: "commit", description: "Write the commit", invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: "[message]" },
+        { kind: "skill", name: "cover", description: "Raise the coverage", invocation: "model+slash", origin: null, alwaysOn: false, argumentHint: null },
+        { kind: "command", name: "compact", description: "Compact the conversation", builtin: true },
+      ],
+    });
+    await app.type("/co");
+    await app.waitFor("Compact the conversation · the agent's");
+    const frame = app.frame();
+    const at = (text: string) => frame.indexOf(text);
+    expect([at("/copy"), at("/commit [message]"), at("/cover"), at("/compact")].every((place, index, all) => place !== -1 && (index === 0 || (all[index - 1] ?? -1) < place))).toBe(true);
+    expect(frame).toContain("Write the commit · slash-only");
+    expect(frame).toContain("Raise the coverage");
+    expect(frame).not.toContain("Raise the coverage ·");
+    expect(paramsOf(app, "commands.list")).toEqual([{ sessionId: SESSION }]);
+  });
+
+  it("offers a skill its own /new shadows as /skill:new, and fills in a skill that takes words with a space after it", async () => {
+    const { app } = await launch({
+      commands: [
+        { kind: "skill", name: "new", description: "Draft a new module", invocation: "model+slash", origin: null, alwaysOn: false, argumentHint: null },
+        { kind: "skill", name: "triage", description: "Triage the issues", invocation: "model+slash", origin: null, alwaysOn: false, argumentHint: "<label>" },
+      ],
+    });
+    await app.type("/skill:n");
+    await app.waitFor("Draft a new module");
+    await app.press(KEY.enter);
+    await app.waitFor("▌ /skill:new");
+    expect(paramsOf(app, "runs.start")).toEqual([expect.objectContaining({ text: "/skill:new" })]);
+
+    await app.type("/tria");
+    await app.waitFor("/triage <label>");
+    await app.press(KEY.tab);
+    await app.waitFor("› /triage ");
   });
 
   it("types ? into /resume's filter rather than opening the keys", async () => {

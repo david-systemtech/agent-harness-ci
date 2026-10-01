@@ -125,7 +125,9 @@ describe("the account, model and command methods", () => {
     expect(registry["models.list"].result.safeParse({ catalogues: [catalogue] }).success).toBe(true);
     expect(registry["models.list"].result.safeParse({ catalogues: [{ ...catalogue, live: "static" }] }).success).toBe(false);
     expect(registry["models.list"].result.safeParse({ catalogues: [{ ...catalogue, models: [{ id: "opus", family: "opus", tier: 2.5, efforts: [], label: null }] }] }).success).toBe(false);
-    expect(registry["commands.list"].params.safeParse({ workspace: { kind: "directory", path: "/work" } }).success).toBe(true);
+    // By session (#503): its account, workspace and trust apply, so neither an account nor a workspace is taken.
+    expect(registry["commands.list"].params.safeParse({ sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" }).success).toBe(true);
+    expect(registry["commands.list"].params.safeParse({ workspace: { kind: "directory", path: "/work" } }).success).toBe(false);
     expect(registry["commands.list"].params.safeParse({ accountId: record.id }).success).toBe(false);
   });
 });

@@ -5,14 +5,14 @@ import {
   AccountLabel,
   AccountRecord,
   AmbientProbe,
-  CommandEntry,
   SignIn,
   SignInCode,
   SignInStart,
 } from "../accounts.js";
 import { ProviderId } from "../adapter.js";
 import { commandParams, defineMethod } from "../method.js";
-import { Workspace } from "../sessions.js";
+import { SessionId } from "../sessions.js";
+import { CommandsListEntry } from "../skills.js";
 import { AccountUsage, HandoffRecommendation } from "../usage.js";
 
 /**
@@ -161,19 +161,29 @@ export const modelsList = defineMethod({
 });
 
 /**
- * The slash commands the provider offers an account in a workspace, listed
- * without spending tokens; needs the adapter's `commands` capability, else
- * `invalid_params` with `data.reason` `unsupported`.
+ * What a session's `/` menu lists beside a client's own commands (skills
+ * spec, "Materialisation and the Claude mapping"; ADR 0009), listed without
+ * spending tokens, under the trust and the skill set the session's next run
+ * would have: a skill entry for every member of its set a person may
+ * invoke, then a command entry for each command the provider offers of its
+ * own, in the provider's order. The provider's listing of a member (Claude:
+ * `agent-harness:<name>`, or a native member's `<name>`) is folded into the
+ * member's skill entry, so no skill is listed twice. Needs the adapter's
+ * `commands` capability, else `invalid_params` with `data.reason`
+ * `unsupported`. A session the environment does not hold, or a deleted
+ * one, is `not_found` (data `kind: session`); a session on no account when
+ * the environment holds none, or on one it no longer holds, `not_found`
+ * (data `kind: account`).
  */
 export const commandsList = defineMethod({
   name: "commands.list",
   scope: "read",
   kind: "query",
-  params: z.object({
-    accountId: AccountId.optional().meta({ description: "The account; the environment's default account when absent." }),
-    workspace: Workspace,
+  params: z.object({ sessionId: SessionId.meta({ description: "The session whose / menu to list: its account, its workspace and its trust." }) }),
+  result: z.object({
+    accountId: AccountId.meta({ description: "The account listed: the session's, else the environment's default account." }),
+    entries: z.array(CommandsListEntry).meta({ description: "The skill entries, by name, then the command entries, in the provider's order." }),
   }),
-  result: z.object({ accountId: AccountId, commands: z.array(CommandEntry) }),
   errors: [],
 });
 

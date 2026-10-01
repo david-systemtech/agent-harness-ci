@@ -123,8 +123,8 @@ const skillSetOf = (fingerprint: string): RunSkillSet => ({
   generation: `/data/skills/generations/${fingerprint}`,
   fingerprint,
   members: [
-    { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
-    { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+    { name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+    { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: true, argumentHint: null, native: true, alwaysOn: false },
   ],
   hiddenNativeNames: ["triage"],
 });
@@ -1785,11 +1785,22 @@ describe("status, models and commands", () => {
     expect(await adapter.models({ id: "work", directory: "/d" })).toMatchObject({ live: false, models: expect.arrayContaining([expect.objectContaining({ id: "fable", tier: 3 })]) });
   });
 
-  it("lists the commands for a workspace without starting a turn", async () => {
-    fake.controls = { supportedCommands: async () => [{ name: "review", description: "Review the branch", argumentHint: "" }] };
+  it("lists the commands for a workspace without starting a turn, flagged built-in where the CLI marks them Claude Code's own (#503)", async () => {
+    // As the pinned CLI (2.1.283) answers: its own marked, a project's command and the generation plugin's member unmarked.
+    fake.controls = {
+      supportedCommands: async () => [
+        { name: "compact", description: "Clear the conversation history but keep a summary", argumentHint: "<optional custom summarization instructions>", builtin: true },
+        { name: "review", description: "Review the branch", argumentHint: "[branch]" },
+        { name: "agent-harness:tdd", description: "Test first", argumentHint: "<feature>", aliases: ["tdd"] },
+      ],
+    };
     const adapter = adapterWith();
     const scope = { trusted: false, skillSet: EMPTY_RUN_SKILL_SET };
-    expect(await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, scope)).toEqual([{ name: "review", description: "Review the branch" }]);
+    expect(await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, scope)).toEqual([
+      { name: "compact", description: "Clear the conversation history but keep a summary", builtin: true },
+      { name: "review", description: "Review the branch", builtin: false },
+      { name: "agent-harness:tdd", description: "Test first", builtin: false },
+    ]);
     expect(fake.last().options.cwd).toBe("/work/repo");
     expect(fake.last().prompts).toEqual([]);
   });

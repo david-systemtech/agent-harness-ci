@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillArgumentHint",
+  "anyOf": [
+    {
+      "type": "string",
+      "minLength": 1
+    },
+    {
+      "type": "null"
+    }
+  ],
+  "description": "What follows the member's name in a / menu, from its frontmatter's argument-hint: text trimmed, a number as its text, or a flow list of scalars written back in brackets; null when it declares none."
+}

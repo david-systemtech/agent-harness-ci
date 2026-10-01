@@ -15,6 +15,9 @@ const accountId = "5b1c6f3e-2a4d-4e8f-9b0a-1c2d3e4f5a6b";
 const at = "2026-09-24T01:02:03.456Z";
 const identity = { provider: "claude", email: "david@example.com", organisation: null };
 const workspace = { kind: "directory", path: "/work/agent-harness" };
+const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const compact = { kind: "command", name: "compact", description: "Compact the conversation.", builtin: true };
+const tdd = { kind: "skill", name: "tdd", description: "Test-driven development.", invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: "<feature>" };
 
 const signedIn = { state: "signed-in", checkedAt: at, detail: null };
 const unread = { state: "signed-out", checkedAt: null, detail: null };
@@ -171,8 +174,8 @@ export const accountSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...catalogue, live: "static" }, { accountId, models: [] }],
   },
   "accounts/command-entry.json": {
-    valid: [{ name: "review", description: "Review the branch." }, { name: "compact", description: "" }],
-    invalid: [{ name: "", description: "x" }, { name: "review" }],
+    valid: [compact, { kind: "command", name: "deploy", description: "", builtin: false }],
+    invalid: [{ ...compact, name: "" }, { ...compact, builtin: undefined }, { ...compact, kind: "skill" }, { name: "review", description: "Review the branch." }],
   },
   "accounts/sign-in-start.json": {
     valid: [{ started: true, message: null }, { started: false, message: "Signing in from the environment is not built yet." }],
@@ -258,10 +261,10 @@ export const accountMethodFixtures: Record<string, { params: Fixtures; result: F
     result: { valid: [{ catalogues: [] }, { catalogues: [catalogue] }], invalid: [{}, { catalogues: [{ accountId, models: [model] }] }] },
   },
   "commands.list": {
-    params: { valid: [{ workspace }, { accountId, workspace }], invalid: [{}, { accountId }, { accountId, workspace: { kind: "scratch" } }] },
+    params: { valid: [{ sessionId }], invalid: [{}, { workspace }, { accountId, workspace }, { sessionId: "not-a-session" }] },
     result: {
-      valid: [{ accountId, commands: [] }, { accountId, commands: [{ name: "review", description: "Review the branch." }] }],
-      invalid: [{ commands: [] }, { accountId, commands: [{ name: "" , description: "" }] }],
+      valid: [{ accountId, entries: [] }, { accountId, entries: [tdd, compact] }],
+      invalid: [{ entries: [] }, { accountId, commands: [compact] }, { accountId, entries: [{ ...compact, kind: "provider" }] }, { accountId, entries: [{ ...tdd, invocation: "model" }] }],
     },
   },
 };

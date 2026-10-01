@@ -31,11 +31,14 @@ const set: PlacedSet = {
   members: [
     {
       name: "slow",
+      description: "Slow to check.",
       kind: "command",
       target: "/nonexistent/agent-harness-slow.md",
       origin: { kind: "repository", repository: REPOSITORY, path: "slow" },
       commit: null,
       invocation: "model+slash",
+      userInvocable: true,
+      argumentHint: null,
       native: false,
       alwaysOn: false,
     },

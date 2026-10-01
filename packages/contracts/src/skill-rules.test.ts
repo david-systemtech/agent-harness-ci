@@ -93,11 +93,12 @@ const answerOf = (entry: SkillMemberCase): MemberAnswer => {
 };
 
 /** The answer the case expects. */
-const expectedOf = ({ name, description, invocation, userInvocable, whileActive, problems, warnings }: SkillMemberCase): MemberAnswer => ({
+const expectedOf = ({ name, description, invocation, userInvocable, argumentHint, whileActive, problems, warnings }: SkillMemberCase): MemberAnswer => ({
   name,
   description,
   invocation,
   userInvocable,
+  argumentHint,
   whileActive,
   problems,
   warnings,
@@ -113,6 +114,7 @@ describe("reading a member's name, description and invocation", () => {
     description: "Test-driven development.",
     invocation: "model+slash",
     userInvocable: true,
+    argumentHint: null,
     whileActive: [],
     problems: [],
     warnings: [],
@@ -171,8 +173,19 @@ describe("reading a member's name, description and invocation", () => {
       member("a command, named by its file", described, review, { name: "review" }),
       member("a command's frontmatter name passed over", { name: "code-review", ...described }, review, { name: "review" }),
       member("a command file whose name fails: invalid", { name: "review", ...described }, { kind: "file", name: "Review_Notes" }, { problems: ["name"] }),
-      member("a command without a description: invalid", { "argument-hint": "[branch]" }, review, { name: "review", description: null, problems: ["description"] }),
+      member("a command without a description: invalid", { "argument-hint": "[branch]" }, review, { name: "review", description: null, argumentHint: "[branch]", problems: ["description"] }),
       member("a slash-only command", { ...described, "disable-model-invocation": true }, review, { name: "review", invocation: "slash-only" }),
+    ],
+    "reads the argument hint a / menu shows after the name: text trimmed, a number or a flow list as typed, nothing else": [
+      member("an argument hint, trimmed", { ...described, "argument-hint": "  <feature> " }, tdd, { name: "tdd", argumentHint: "<feature>" }),
+      member("a command's argument hint", { ...described, "argument-hint": "[branch]" }, review, { name: "review", argumentHint: "[branch]" }),
+      member("an argument hint YAML reads as a list, as typed", { ...described, "argument-hint": ["branch"] }, tdd, { name: "tdd", argumentHint: "[branch]" }),
+      member("a list of several, as typed", { ...described, "argument-hint": ["pr-number", 2] }, tdd, { name: "tdd", argumentHint: "[pr-number, 2]" }),
+      member("an argument hint YAML reads as a number", { ...described, "argument-hint": 42 }, tdd, { name: "tdd", argumentHint: "42" }),
+      member("a blank argument hint: none", { ...described, "argument-hint": "  " }, tdd, { name: "tdd" }),
+      member("an empty list: none", { ...described, "argument-hint": [] }, tdd, { name: "tdd" }),
+      member("a mapping: none", { ...described, "argument-hint": { file: "path" } }, tdd, { name: "tdd" }),
+      member("a list holding a mapping: none", { ...described, "argument-hint": [{ file: "path" }] }, tdd, { name: "tdd" }),
     ],
     "flags the frontmatter keys that act while the skill is active: hooks and allowed-tools": [
       member("hooks", { ...described, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./check.sh" }] }] } }, tdd, { name: "tdd", whileActive: ["hooks"] }),

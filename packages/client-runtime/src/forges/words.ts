@@ -2,13 +2,17 @@ import {
   FORGE_CAPABILITIES,
   forgeOriginHost,
   type ForgeAccountRecord,
+  type ForgeAlias,
   type ForgeCapabilities,
+  type ForgeCapability,
   type ForgeCapabilityName,
   type ForgeCredentialSource,
   type ForgeIdentity,
   type ForgeKind,
+  type ForgeProblem,
   type ForgeProblemKind,
   type ForgeTokenPage,
+  type GhProbe,
   type PullRequest,
   type PullRequestState,
 } from "@agent-harness/contracts";
@@ -21,8 +25,11 @@ import { whenWords } from "../transcript/format.js";
  * renderers say them (forge spec, "The forge account record" and
  * "Pull-request links and status"; ADR 0020, ADR 0032; #419): each fact of
  * `forge.accounts.list`'s record a card shows, the token pages
- * `forge.detect` names, what a copy came to, and a pull request's state.
- * Nothing here reads a secret: the record holds none.
+ * `forge.detect` names, what a copy came to, and a pull request's state;
+ * and the Forges step's row (#589): each capability with its state, each
+ * alias with its verification, what fixes a problem, and what the
+ * environment's own `gh` offers. Nothing here reads a secret: the record
+ * holds none.
  */
 
 /** What each kind of forge is called. */
@@ -90,6 +97,69 @@ export const capabilitiesWords = (capabilities: ForgeCapabilities): string => {
     names("unknown").length > 0 && `Not tried yet: ${listWords(names("unknown").map((name) => CAPABILITY_WORDS[name]))}.`,
   ];
   return parts.filter((part) => part !== false).join(" ");
+};
+
+/** A capability as a list of them names it on its own: `Read repositories`. */
+export const capabilityName = (name: ForgeCapabilityName): string => `${CAPABILITY_WORDS[name].charAt(0).toUpperCase()}${CAPABILITY_WORDS[name].slice(1)}`;
+
+/** Where a capability stands: verified, refused with the HTTP status a failure answered, or not tried yet. */
+export const capabilityStateWords = ({ state, status }: Pick<ForgeCapability, "state" | "status">): string => {
+  switch (state) {
+    case "verified":
+      return "verified";
+    case "failed":
+      return status === null ? "refused" : `refused (HTTP ${String(status)})`;
+    case "unknown":
+      return "not tried yet";
+  }
+};
+
+/** Where an alias stands (ADR 0020): when the credential last answered there as the forge account's identity, or that it is not used until it does. */
+export const forgeAliasWords = (alias: ForgeAlias, account: Pick<ForgeAccountRecord, "identity">, now: Date): string =>
+  alias.verifiedAt === null
+    ? `not verified yet, so not used until it answers as ${account.identity?.login ?? "the forge account's login"}`
+    : `last verified ${whenWords(alias.verifiedAt, now)}`;
+
+/**
+ * The problem the Forges step's row draws: any but `expiring`, since the
+ * card's expiry warning is milestone 2's (ADR 0033); the step's own line,
+ * from its `forges.expiry` check, still says it. Null for none.
+ */
+export const forgeRowProblem = (account: Pick<ForgeAccountRecord, "problem">): ForgeProblem | null => (account.problem?.kind === "expiring" ? null : account.problem);
+
+/**
+ * What fixes the problem a forge account's row draws (forge spec, "The
+ * Forges step": `forges.identity` offers Check again on an unreachable
+ * forge and Sign in again on the rest): `check-again` verifies it now;
+ * `key-manager` is the Key manager step, for a reference whose key manager
+ * cannot be read, since a new token there would replace the reference;
+ * `sign-in-again` a new token in its place. Null where the row draws none.
+ */
+export type ForgeProblemAction = "check-again" | "key-manager" | "sign-in-again";
+
+export const forgeProblemAction = (account: Pick<ForgeAccountRecord, "problem" | "credential">): ForgeProblemAction | null => {
+  const problem = forgeRowProblem(account);
+  if (problem === null) return null;
+  if (problem.kind === "unreachable") return "check-again";
+  return problem.kind === "credential-unavailable" && account.credential.kind === "reference" ? "key-manager" : "sign-in-again";
+};
+
+/**
+ * Why the environment's own `gh` (`forge.gh.probe`; ADR 0032) cannot give
+ * a forge account its token: not installed, older than the minimum, or
+ * signed in to no host; null when it can be offered.
+ */
+export const machineGhAbsence = (probe: GhProbe, environmentName: string): string | null => {
+  if (!probe.installed) return `${environmentName} has no gh to read a token from.`;
+  if (!probe.meetsMinimum) return `The gh on ${environmentName} is ${probe.version ?? "of a version it does not say"}, older than ${probe.minimum}, the oldest a forge account reads.`;
+  if (probe.accounts.length === 0) return `The gh on ${environmentName} is signed in to no host: run gh auth login there, or paste a token.`;
+  return null;
+};
+
+/** The login the environment's own `gh` reads a token for on `host`, as `gh` names a host: the host's active account, else its first; null where it is signed in to none there. */
+export const machineGhLogin = (probe: GhProbe, host: string): string | null => {
+  const there = probe.accounts.filter((account) => account.host === host);
+  return (there.find((account) => account.active) ?? there[0])?.login ?? null;
 };
 
 /** Whether the forge account is the primary forge, which new repositories go to. */

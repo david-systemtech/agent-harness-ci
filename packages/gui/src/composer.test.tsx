@@ -294,13 +294,13 @@ const rows = (name: "Commands" | "Files") => {
 const highlightedRow = () => screen.getAllByRole("option").find((option) => option.getAttribute("aria-selected") === "true")?.textContent;
 
 const PROVIDER_COMMANDS = [
-  { name: "compact", description: "Compact the conversation" },
-  { name: "model", description: "The provider's own model picker" },
-];
+  { kind: "command", name: "compact", description: "Compact the conversation", builtin: true },
+  { kind: "command", name: "model", description: "The provider's own model picker", builtin: true },
+] as const;
 
 /**
- * The slash commands the window wires (the composer's, the side column's, #408 and #427, the status line's pickers, #402,
- * and the session pane's fork and rewind, #665), in
+ * The slash commands the window wires (the composer's, /settings among them since #625, the side column's, #408 and #427,
+ * the status line's pickers, #402, and the session pane's fork and rewind, #665), in
  * the shared list's order, as the menu and the palette list them; the menu offers the first `MENU_ROWS` at once.
  */
 const WINDOW_COMMANDS = [
@@ -312,6 +312,7 @@ const WINDOW_COMMANDS = [
   "/handoffMove this conversation to another account, or start it fresh there",
   "/accountSwitch the account this session's next run uses, or add one",
   "/containmentSet how contained this session's runs are",
+  "/settingsEvery environment setting under its row, in a generic editor; a row's id opens that row",
   "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
   "/documentsThe pages, SVGs and markdown this session wrote, newest first",
@@ -320,7 +321,7 @@ const WINDOW_COMMANDS = [
 ];
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
-const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[8], WINDOW_COMMANDS[10]];
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[9], WINDOW_COMMANDS[11]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {
@@ -330,6 +331,23 @@ describe("slash commands", () => {
     // The provider's /model is shadowed by the window's; its /compact is listed after the window's own.
     await write(app, "m");
     await waitFor(() => expect(rows("Commands")).toEqual([...WINDOW_M, "/compactCompact the conversation · the agent's"]));
+  });
+
+  it("list the session's skills after the window's commands and before the provider's, slash-only ones marked and one the window's /model shadows as /skill:model", async () => {
+    const skill = (name: string, description: string, invocation: "model+slash" | "slash-only") =>
+      ({ kind: "skill", name, description, invocation, origin: null, alwaysOn: false, argumentHint: null }) as const;
+    const { app, env, session } = await opened({
+      commands: [skill("migrate", "Move the schema", "slash-only"), skill("model", "Sketch a data model", "model+slash"), ...PROVIDER_COMMANDS],
+    });
+    await write(app, "/m");
+    // Those /m begins first, then those holding an m, each group in the menu's order: the window's, the skills, the provider's.
+    const [model, mode, ...holding] = WINDOW_M;
+    await waitFor(() =>
+      expect(rows("Commands")).toEqual([model, mode, "/migrateMove the schema · slash-only", ...holding, "/skill:modelSketch a data model", "/compactCompact the conversation · the agent's"]),
+    );
+    await write(app, "ig");
+    await waitFor(() => expect(rows("Commands")).toEqual(["/migrateMove the schema · slash-only"]));
+    expect(env.requests("commands.list").map((request) => request.params)).toContainEqual({ sessionId: session });
   });
 
   it("list the provider's commands only while its adapter lists them", async () => {

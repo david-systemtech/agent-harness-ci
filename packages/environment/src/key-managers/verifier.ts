@@ -1,4 +1,5 @@
 import type { Clock, Timer } from "../serve/clock.js";
+import type { BackgroundWork } from "./background.js";
 
 /**
  * When the key-manager connections are verified (key-managers spec, "The
@@ -13,7 +14,10 @@ import type { Clock, Timer } from "../serve/clock.js";
  * - **One at a time per connection.** A request while one runs for the
  *   same subject (the credential, login and settings it verifies) joins it;
  *   one for a subject changed since waits for it and verifies again, so what
- *   was found for the one replaced is never taken for the new one.
+ *   was found for the one replaced is never taken for the new one. What the
+ *   login scheduler asks for, a login falling due or one the key manager no
+ *   longer knows, waits for the one running and verifies again whatever its
+ *   subject: that one may have looked the login up before (#745).
  *
  * What one verification does and records is the connections'
  * (`verifyNow`); the schedule knows only when.
@@ -30,6 +34,8 @@ export interface ScheduleOptions {
   readonly subjectOf: (connectionId: string) => string | null;
   /** One verification of the connection, recording what it found; it never rejects. */
   readonly verifyNow: (connectionId: string) => Promise<void>;
+  /** Where each verification runs, asked for or on the clock (#745). */
+  readonly background: BackgroundWork;
 }
 
 export interface VerificationSchedule {
@@ -37,6 +43,8 @@ export interface VerificationSchedule {
   start(): void;
   /** Verifies the connection now, joining one running for the same subject; settles once what it found is recorded. */
   verify(connectionId: string): Promise<void>;
+  /** Verifies the connection once the one running for it, if any, has ended, never joining it; settles once what it found is recorded. */
+  verifyAgain(connectionId: string): Promise<void>;
   /** The connection was signed in or changed: it is verified at once, on the environment's clock. */
   changed(connectionId: string): void;
   /** The connection was removed: its schedule is let go. */
@@ -63,16 +71,17 @@ export const createVerificationSchedule = (options: ScheduleOptions): Verificati
       connectionId,
       clock.setTimeout(() => {
         timers.delete(connectionId);
-        void verify(connectionId);
+        void verify(connectionId, true);
       }, ms),
     );
   };
 
-  const verify = (connectionId: string): Promise<void> => {
+  /** A verification of the connection, after the one running for it; `joining`, the one running is it when it verifies the same subject. */
+  const verify = (connectionId: string, joining: boolean): Promise<void> => {
     const subject = closed ? null : subjectOf(connectionId);
     if (subject === null) return Promise.resolve();
     const running = runs.get(connectionId);
-    if (running?.subject === subject) return running.done;
+    if (joining && running?.subject === subject) return running.done;
     const done: Promise<void> = (running?.done ?? Promise.resolve())
       .then(() => {
         // This verification is the one that was due: the schedule starts again from its end.
@@ -86,6 +95,7 @@ export const createVerificationSchedule = (options: ScheduleOptions): Verificati
         if (!closed && subjectOf(connectionId) !== null) arm(connectionId, KEY_MANAGER_VERIFY_INTERVAL_MS);
       });
     runs.set(connectionId, { subject, done });
+    options.background.run(done);
     return done;
   };
 
@@ -93,7 +103,8 @@ export const createVerificationSchedule = (options: ScheduleOptions): Verificati
     start() {
       for (const connectionId of options.connectionIds()) if (subjectOf(connectionId) !== null) arm(connectionId, 0);
     },
-    verify,
+    verify: (connectionId) => verify(connectionId, true),
+    verifyAgain: (connectionId) => verify(connectionId, false),
     changed(connectionId) {
       cancel(connectionId);
       arm(connectionId, 0);

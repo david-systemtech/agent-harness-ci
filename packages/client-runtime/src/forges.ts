@@ -67,7 +67,7 @@ export interface ForgesHost {
 const failed = (code: string, message: string) => ({ ok: false, error: { code, message } }) as const;
 
 /** The host `gh` names a forge by: an origin's host, with its port when it has one. */
-const ghHost = (origin: string): string => origin.replace(/^https?:\/\//, "");
+export const ghHost = (origin: string): string => origin.replace(/^https?:\/\//, "");
 
 export const createForges = (host: ForgesHost): Forges => ({
   async handOverGh(environmentId, params) {

@@ -212,7 +212,9 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * checked, and the account's provider); a trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
- * of a verified alias; an owned instruction changing
+ * of a verified alias; the skill set changing, the trust or an account (a
+ * session's listing is resolved under its set, its trust and its account's
+ * choices, #503) a session's `commands.list`; an owned instruction changing
  * (`instructions.updated`, #505), a setting (the orientation switch), an
  * account, a forge account, a key-manager connection, the managed tools or
  * the known environments' union (#382; what the block's sections read)
@@ -223,8 +225,10 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; a probe changing managed-tool
- * rows (`tools.updated`) the managed tools (#384) and the key-manager
- * connections, each carrying its CLI's row (#375); an unpaired extension
+ * rows (`tools.updated`) the managed tools (#384), the key-manager
+ * connections, each carrying its CLI's row (#375), and what the
+ * environment's own `gh` is (`forge.gh.probe`, which reads the `gh` row,
+ * #589); an unpaired extension
  * opening its socket (`extension.seen`, #547) `browser.status`, whose
  * unpaired flag ticks the Browser card's Load sub-step; an import of an
  * adopted account's directory ending (`carry-over.imported`, #578), a
@@ -248,12 +252,14 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
+  "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated", "account.updated"],
   "skills.readiness": ["skills.updated", "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
+  "commands.list": ["skills.updated", ...TRUST_REFRESH_NOTICES, "account.updated"],
   "instructions.list": INSTRUCTION_REFRESH_NOTICES,
   "instructions.preview": INSTRUCTION_REFRESH_NOTICES,
   "instructions.diff": ["instructions.updated"],
