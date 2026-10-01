@@ -33,6 +33,7 @@ import type {
   ForgeReleaseAsset,
   ForgeReply,
   ForgeRepository,
+  ForgeRepositoryCapabilities,
   IssueContent,
   MergeMethod,
   PullRequestOpening,
@@ -135,6 +136,8 @@ export interface ForgeOperations {
   readonly repositories: {
     /** Reads a repository: its visibility, default branch and web address. */
     get(request: RepositoryTarget): Promise<ForgeAnswer<ForgeRepository>>;
+    /** This repository's read/push access with the account matched by origin. */
+    capabilities(request: RepositoryTarget & { readonly signal?: AbortSignal }): Promise<ForgeAnswer<ForgeRepositoryCapabilities>>;
     /** Creates a repository, private or public, under the user or an organisation the forge account may create under (`createRepository`). */
     create(request: RepositoryCreationRequest): Promise<ForgeAnswer<ForgeRepository>>;
     /** Reads the content of the file at `path` on the branch `ref`. */
@@ -371,6 +374,10 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
 
   return {
     repositories: {
+      async capabilities(request) {
+        const fullName = fullNameOf(request.repository);
+        return read(request, ({ provider: forge, origin, token, call }) => forge.repositoryCapabilities(origin, token, fullName, { ...call, ...(request.signal !== undefined && { signal: request.signal }) }));
+      },
       async get(request) {
         const fullName = fullNameOf(request.repository);
         return read(request, ({ provider: forge, origin, token, call }) => forge.repository(origin, token, fullName, call));

@@ -10,6 +10,7 @@ import {
   type BankEntry,
   type BankIndexConflict,
   type BankLocation,
+  type BankJoinPreview,
   type BankManifestStatus,
   type BankRecord,
   type BankStatus,
@@ -20,8 +21,8 @@ import { readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/c
 import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
+import { joinBank, previewBank } from "./join.js";
 import { createBankCommand } from "./create.js";
-import type { ForgeOperations } from "../forge/operations.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
@@ -36,7 +37,7 @@ import { renderFixedTiers } from "./index-renderer.js";
 /**
  * The BankService's registry part (banks spec, "The registry" and "The
  * BankService's methods"; ADR 0010, ADR 0035, ADR 0036; #1025): it
- * registers an existing checkout, verifies every enabled bank, and answers
+ * registers an existing checkout, previews and joins a remote bank, verifies every enabled bank, and answers
  * the records with their status, counts and rendered bank line. A bank's
  * files are read as committed at its checkout's head (`bank-files.ts`),
  * never as the working tree holds them.
@@ -197,8 +198,10 @@ export interface BankServiceOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   readonly environmentId: string;
+  readonly dataDir: string;
+  readonly scrub: Pick<ScrubRegistry, "check">;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
-  readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
+  readonly forge: Pick<ForgeService, "repositories" | "pullRequests" | "users" | "git">;
   readonly credentials: BankCredentials;
   readonly creation?: {
     readonly dataDir: string;
@@ -219,9 +222,11 @@ export interface BankService {
   entries(): readonly { readonly entry: BankEntry; readonly index: BankIndex | null }[];
   /** Verifies one bank, or every enabled one, joining a verification of every one running; answers the records after. */
   verify(bankId?: string): Promise<BankRecord[]>;
+  preview(url: string): Promise<BankJoinPreview>;
   /** Records a fetch outcome and refreshes the cached reading; only a moved head emits bank.synced. */
   recordSync(bankId: string, outcome: { readonly head: string; readonly previousHead: string | null } | { readonly problem: string }): Promise<void>;
   readonly register: PreparedCommand<"banks.register">;
+  readonly join: PreparedCommand<"banks.join">;
   readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
 }
@@ -484,6 +489,8 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       });
     },
     register,
+    preview: (url) => previewBank(options, url),
+    join: joinBank({ ...options, register }),
     create,
   };
 };
