@@ -92,14 +92,30 @@ describe("the bank validator's validate.mjs", () => {
   });
 
   it("gives a verdict on a Markdown file it cannot read, not a stack trace, and reads a link to a file as the file", async () => {
-    const { bank, unreadable, path } = RULE_FIXTURES.file_unreadable;
+    const { bank, unreadable, path } = RULE_FIXTURES.unreadable;
     const root = onDisk(bank, unreadable);
     expect(await validate(root)).toEqual({
       code: 1,
-      stdout: `refused file_unreadable: ${path} could not be read (ENOENT): make it a readable file, or remove it.\nbank-validator 1: 1 refused\n`,
+      stdout: `refused unreadable: ${path} could not be read (ENOENT), so the verdict is on the bank without it: make it readable, or remove it.\nbank-validator 1: 1 refused\n`,
     });
     writeFileSync(join(root, "nowhere.md"), memory("restore-drill"));
     expect(await validate(root)).toEqual({ code: 0, stdout: "bank-validator 1: valid\n" });
+  });
+
+  it("refuses a folder it cannot list and a link back to a folder it is in, and reads a linked folder as the folder", async () => {
+    const manifest = { "BANK.md": PERSONAL_BANK["BANK.md"] ?? "" };
+    const flat = await validate(onDisk({ ...manifest, projects: "A file where the projects/ folder goes.\n" }), "--json");
+    expect(JSON.parse(flat.stdout)).toEqual(validateBank({ files: manifest, unreadable: { "projects/": "ENOTDIR" } }));
+    expect(flat.code).toBe(1);
+    const looped = onDisk(PERSONAL_BANK);
+    symlinkSync("..", join(looped, "projects/personal/homelab/memories/loop"));
+    expect((await validate(looped)).stdout).toBe(
+      "refused unreadable: projects/personal/homelab/memories/loop/ could not be read (ELOOP), so the verdict is on the bank without it: make it readable, or remove it.\nbank-validator 1: 1 refused\n",
+    );
+    const nas = "projects/personal/homelab/nas";
+    const linked = onDisk(Object.fromEntries(Object.entries(PERSONAL_BANK).map(([path, text]) => [path.replace(`${nas}/`, "elsewhere/nas/"), text])));
+    symlinkSync("../../../elsewhere/nas", join(linked, nas));
+    expect(await validate(linked)).toEqual({ code: 0, stdout: "bank-validator 1: valid\n" });
   });
 
   it("validates the bank a path names, from anywhere", async () => {

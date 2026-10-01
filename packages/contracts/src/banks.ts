@@ -261,7 +261,7 @@ export type MemoryFrontmatter = z.infer<typeof MemoryFrontmatter>;
 
 /** The validator's rules, by id, each a refusal or a warning, in the order the validator reports them. */
 export const BANK_RULE_IDS = [
-  "file_unreadable",
+  "unreadable",
   "manifest_missing",
   "manifest_malformed",
   "manifest_fact_missing",
@@ -310,7 +310,7 @@ const warning = (summary: string) => ({ severity: "warning", summary }) as const
 
 /** What each rule finds and how a bank author answers it (ADR 0013, ADR 0034, ADR 0037; key-managers spec for secret_shaped). */
 const RULE_SUMMARIES: Record<BankRuleId, Omit<BankValidatorRule, "id">> = {
-  file_unreadable: refusal("A file the validator reads, BANK.md or Markdown under projects/, is there but could not be read: a permission, or a link to nothing. The finding names the error: make it a readable file, or remove it."),
+  unreadable: refusal("A file the validator reads (BANK.md, or Markdown under projects/) or a folder holding them is there but could not be read: a permission, a link to nothing, or a link back to a folder it is in. The finding names the error and the verdict is on the bank without it: make it readable, or remove it."),
   manifest_missing: refusal("The bank has no BANK.md at its root: write one with its name, kind, purpose, entities, orientation, memories, docs and write."),
   manifest_malformed: refusal("BANK.md's frontmatter does not parse as a YAML mapping between --- lines."),
   manifest_fact_missing: refusal("BANK.md lacks a fact it must hold: name, kind, purpose, entities each with aliases, orientation, memories, docs, write, and a team bank's owners."),

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync, type Dirent, type Stats } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 import { validateBank } from "../../src/bank-validator.js";
@@ -19,16 +19,28 @@ const USAGE = "Usage: node validate.mjs [bank directory] [--json] [--version]";
 /** An error's code (ENOENT, EACCES), or the error itself where it has none. */
 const codeOf = (error: unknown): string => (error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : String(error));
 
+/** What `path` points at, or null where nothing is. */
+const statOf = (path: string): Stats | null => {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+};
+
 /**
  * What the validator reads, by path from the bank's root: `BANK.md` and the
- * Markdown under `projects/`, and those of them that are there but could
- * not be read, each with its error's code, which the verdict refuses.
+ * Markdown under `projects/`, and the files and folders there that could
+ * not be read, each with its error's code, which the verdict refuses. A
+ * link is followed to what it points at, as a reader of the checkout
+ * follows it.
  */
 const readBank = (root: string): { readonly files: Record<string, string>; readonly unreadable: Record<string, string> } => {
   const files: Record<string, string> = {};
   const unreadable: Record<string, string> = {};
+  const nameOf = (path: string): string => relative(root, path).split(sep).join("/");
   const read = (path: string): void => {
-    const name = relative(root, path).split(sep).join("/");
+    const name = nameOf(path);
     try {
       files[name] = readFileSync(path, "utf8");
     } catch (error) {
@@ -37,22 +49,33 @@ const readBank = (root: string): { readonly files: Record<string, string>; reado
       if (name !== "BANK.md" || code !== "ENOENT") unreadable[name] = code;
     }
   };
-  const walk = (directory: string): void => {
-    let entries;
+  /** Reads what `directory` holds; `ancestors` are the real paths of the folders it is in, so a link back to one is not followed round. */
+  const walk = (directory: string, ancestors: readonly string[]): void => {
+    let real: string;
+    let entries: Dirent[];
     try {
+      real = realpathSync(directory);
       entries = readdirSync(directory, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      // No projects/ folder: nothing to read. A folder that cannot be listed is refused, not passed over.
+      const code = codeOf(error);
+      if (code !== "ENOENT") unreadable[`${nameOf(directory)}/`] = code;
+      return;
+    }
+    if (ancestors.includes(real)) {
+      unreadable[`${nameOf(directory)}/`] = "ELOOP";
       return;
     }
     for (const entry of entries) {
       const path = join(directory, entry.name);
-      if (entry.isDirectory()) walk(path);
-      // A link is read as the file it points at, as a reader of the checkout follows it.
-      else if ((entry.isFile() || entry.isSymbolicLink()) && entry.name.endsWith(".md")) read(path);
+      // What a link points at; null for a link to nothing, which a Markdown name's read refuses.
+      const kind = entry.isSymbolicLink() ? statOf(path) : entry;
+      if (kind?.isDirectory()) walk(path, [...ancestors, real]);
+      else if ((kind === null || kind.isFile()) && entry.name.endsWith(".md")) read(path);
     }
   };
   read(join(root, "BANK.md"));
-  walk(join(root, "projects"));
+  walk(join(root, "projects"), []);
   return { files, unreadable };
 };
 

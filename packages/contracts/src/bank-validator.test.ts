@@ -32,8 +32,8 @@ describe("the bank validator", () => {
     const files = changed(PERSONAL_BANK, { "BANK.md": null, [org]: null });
     const unreadable = { "BANK.md": "EACCES", [org]: "EACCES" };
     expect(validateBank({ files, unreadable }).findings).toEqual([
-      { rule: "file_unreadable", severity: "refusal", path: "BANK.md", message: "BANK.md could not be read (EACCES): make it a readable file, or remove it." },
-      { rule: "file_unreadable", severity: "refusal", path: org, message: `${org} could not be read (EACCES): make it a readable file, or remove it.` },
+      { rule: "unreadable", severity: "refusal", path: "BANK.md", message: "BANK.md could not be read (EACCES), so the verdict is on the bank without it: make it readable, or remove it." },
+      { rule: "unreadable", severity: "refusal", path: org, message: `${org} could not be read (EACCES), so the verdict is on the bank without it: make it readable, or remove it.` },
     ]);
     // The write gives ORG.md back: read from it, and BANK.md, wrong before, is not the write's.
     expect(validateBank({ files, unreadable, writes: { [org]: PERSONAL_BANK[org] ?? "" } })).toMatchObject({ valid: true, findings: [] });

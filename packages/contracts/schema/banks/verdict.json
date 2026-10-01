@@ -34,7 +34,7 @@
           "rule": {
             "type": "string",
             "enum": [
-              "file_unreadable",
+              "unreadable",
               "manifest_missing",
               "manifest_malformed",
               "manifest_fact_missing",

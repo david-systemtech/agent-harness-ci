@@ -5,9 +5,9 @@
   "schema": "banks/validator-rule.json",
   "entries": [
     {
-      "id": "file_unreadable",
+      "id": "unreadable",
       "severity": "refusal",
-      "summary": "A file the validator reads, BANK.md or Markdown under projects/, is there but could not be read: a permission, or a link to nothing. The finding names the error: make it a readable file, or remove it."
+      "summary": "A file the validator reads (BANK.md, or Markdown under projects/) or a folder holding them is there but could not be read: a permission, a link to nothing, or a link back to a folder it is in. The finding names the error and the verdict is on the bank without it: make it readable, or remove it."
     },
     {
       "id": "manifest_missing",

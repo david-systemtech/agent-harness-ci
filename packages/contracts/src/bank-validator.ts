@@ -53,9 +53,10 @@ export interface BankValidation {
    */
   readonly registeredValues?: readonly string[];
   /**
-   * Files that are there but could not be read, by path, each with why (an
-   * error's code), as `validate.mjs`'s walk of a checkout finds them: each is
-   * refused as `file_unreadable` and otherwise left out of the verdict.
+   * Files, and folders (`projects/acme/`), that are there but could not be
+   * read, by path, each with why (an error's code), as `validate.mjs`'s walk
+   * of a checkout finds them: each is refused as `unreadable`, and the rest of
+   * the verdict is on the bank without it.
    */
   readonly unreadable?: Readonly<Record<string, string>>;
   /**
@@ -229,7 +230,7 @@ type ReadMemory = MemoryFile & { readonly file: Read };
 /** What every part of the validation reads and how it reports. */
 interface Context {
   readonly files: BankFiles;
-  /** The files that could not be read, each refused as such and not again as missing. */
+  /** The files and folders that could not be read, each refused as such and a file not again as missing. */
   readonly unreadable: Readonly<Record<string, string>>;
   readonly tree: Tree;
   readonly memories: readonly ReadMemory[];
@@ -259,7 +260,7 @@ const findingsOf = (files: BankFiles, unreadable: Readonly<Record<string, string
       return;
     }
   };
-  for (const [path, why] of Object.entries(unreadable)) add("file_unreadable", path, `${path} could not be read (${why}): make it a readable file, or remove it.`);
+  for (const [path, why] of Object.entries(unreadable)) add("unreadable", path, `${path} could not be read (${why}), so the verdict is on the bank without it: make it readable, or remove it.`);
   const tree = treeOf(Object.keys(files).sort(compare));
   // The memories are read first: the manifest's orientation and the links name them.
   const memories = tree.memories.map((memory): ReadMemory => ({ ...memory, file: read(files[memory.path] ?? "") }));
