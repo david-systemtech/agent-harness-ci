@@ -43,6 +43,7 @@ export const BrowserDefaults = ({ view, rows }: { readonly view: EnvironmentView
       {accounts.value?.map((account) => {
         const chosen = reach[account.id] ?? "per-session";
         const missing = chosen !== "per-session" && !options.some((option) => option.value.chrome.environmentId === chosen.chrome.environmentId && option.value.chrome.chromeId === chosen.chrome.chromeId);
+        const drivable = chosen !== "per-session" && (chosen.chrome.environmentId === view.environmentId || environments.some((environment) => environment.kind === "local" && environment.environmentId === chosen.chrome.environmentId));
         return <label key={account.id} className="flex flex-col gap-1">{account.label}
           <Select aria-label={`Default browser for ${account.label}`} value={JSON.stringify(chosen)} disabled={capability.status === "absent" || values === null || busy}
             onChange={(event) => {
@@ -51,7 +52,7 @@ export const BrowserDefaults = ({ view, rows }: { readonly view: EnvironmentView
             }}>
             <option value={JSON.stringify("per-session")}>Per-session</option>
             {options.map(({ row, value }, index) => <option key={index} value={JSON.stringify(value)} disabled={row.unavailable !== null}>{row.label}{row.unavailable !== null && ` — ${row.unavailable.message}`}</option>)}
-            {missing && <option value={JSON.stringify(chosen)} disabled>My Chrome on another machine — no local client can drive it here, or it is no longer paired.</option>}
+            {missing && <option value={JSON.stringify(chosen)} disabled>{drivable ? "My Chrome — no longer paired. Pair it again or choose another browser." : "My Chrome on another machine — no local client can drive it here, or it is no longer paired."}</option>}
           </Select>
         </label>;
       })}

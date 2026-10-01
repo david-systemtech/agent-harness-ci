@@ -34,6 +34,23 @@ describe("the Browser settings pane", () => {
     expect(within(pane).queryByRole("option", { name: /another machine/ })).toBeNull();
   });
 
+  it("keeps an unpaired local default selected and says to pair it again", async () => {
+    const { app, desk, pane, list } = await opened();
+    const defaults = await within(pane).findByRole("combobox", { name: "Default browser for Work" });
+    await app.user.selectOptions(defaults, JSON.stringify({ chrome: { environmentId: desk.environmentId, chromeId: chrome.id } }));
+    await within(pane).findByText("Default browser saved for Work.");
+    desk.wire.answer("browser.chromes.unpair", () => {
+      list([]);
+      return { result: { receipt: { status: "accepted", sequence: 2, changed: true } } };
+    });
+    await app.user.click(within(pane).getByRole("button", { name: "Unpair Work Chrome" }));
+    await within(pane).findByText("Unpaired Work Chrome.");
+    const option = await within(pane).findByRole("option", { name: "My Chrome — no longer paired. Pair it again or choose another browser." });
+    expect((option as HTMLOptionElement).disabled).toBe(true);
+    expect((option as HTMLOptionElement).selected).toBe(true);
+    expect(within(pane).queryByRole("option", { name: /another machine/ })).toBeNull();
+  });
+
   it("keeps a remote Chrome default visible and dim with the reason it cannot be driven here", async () => {
     const { desk, pane } = await opened();
     act(() => desk.setSettings({ "browser.reach": { work: { chrome: { environmentId: "0199aa00-0000-4000-8000-000000000999", chromeId: chrome.id } } } }));
