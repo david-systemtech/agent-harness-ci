@@ -676,14 +676,38 @@ describe("a client tool's call (mcp__client__*, #139)", () => {
     input: { path: "~/.ssh/id_rsa" },
   };
 
-  it("is read by the denylist like any other call, by default: its arguments are matched, though the tool runs on the caller's machine", async () => {
-    const t = await start({ script: calls(clientRead) });
-    const client = await t.client();
-    const { id } = await create(client);
-    const { runId } = startAsRoutine(t, id);
-    await untilEnded(t, id, runId);
-    expect(opened(t, id).map((prompt) => [prompt.toolName, prompt.denylist?.[0]?.entry.pattern])).toEqual([["mcp__client__read_file", "~/.ssh"]]);
-    expect(decisions(t, id)).toEqual([expect.objectContaining({ tool: "mcp__client__read_file", decision: "denied", decidedBy: "denylist" })]);
+  const subjects: { name: string; caller: Omit<GatedToolCall, "toolCallId">; environment: Omit<GatedToolCall, "toolCallId">; section: string }[] = [
+    { name: "path", caller: clientRead, environment: { ...clientRead, tool: "mcp__memory__read_file" }, section: "paths" },
+    {
+      name: "host",
+      caller: { tool: "mcp__client__fetch", summary: "Fetch metadata", access: { kind: "other" }, input: { url: "http://169.254.169.254/latest/" } },
+      environment: { tool: "WebFetch", summary: "Fetch metadata", access: { kind: "fetch", urls: ["http://169.254.169.254/latest/"] }, input: { url: "http://169.254.169.254/latest/" } },
+      section: "hosts",
+    },
+    { name: "command", caller: { ...sudo, tool: "mcp__client__shell", access: { kind: "other" } }, environment: sudo, section: "commandPatterns" },
+  ];
+
+  describe.each([true, false])("when attendance is %s", (attended) => {
+    it.each(subjects)("lets the caller's $name through and asks or denies the environment tool with the same arguments", async ({ caller, environment, section }) => {
+      const t = await start({ script: calls(caller, environment) });
+      const client = await t.client();
+      await send(client, "permissions.denylist.set", { sections: { hosts: [{ pattern: "169.254.169.254" }] } });
+      const { id } = await create(client);
+      const { runId } = attended ? await startRun(client, id, "bypassPermissions") : startAsRoutine(t, id, "bypassPermissions");
+      if (attended) {
+        const [prompt] = await untilOpened(t, id);
+        expect(prompt).toMatchObject({ kind: "denylist", toolName: environment.tool, denylist: [expect.objectContaining({ section })] });
+        expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "ok" })]);
+        await answer(client, prompt!.promptId, "deny");
+      }
+      await untilEnded(t, id, runId);
+      expect(toolEnds(t, id).map((ended) => ended.status)).toEqual(["ok", "error"]);
+      expect(opened(t, id)).toEqual([expect.objectContaining({ kind: "denylist", toolName: environment.tool, denylist: [expect.objectContaining({ section })] })]);
+      expect(decisions(t, id)).toEqual([
+        expect.objectContaining({ tool: caller.tool, decision: "allowed" }),
+        expect.objectContaining({ tool: environment.tool, decision: "denied", decidedBy: attended ? "person" : "denylist" }),
+      ]);
+    });
   });
 
   it("is passed over by the rule when the one seam that says which calls the denylist reads leaves it out", async () => {
@@ -705,7 +729,11 @@ describe("a client tool's call (mcp__client__*, #139)", () => {
     };
     expect(await rule.check({ ...clientRead, toolCallId: "call_1" }, run)).toBeNull();
     await expect(rule.check({ ...readKey, toolCallId: "call_2" }, run)).rejects.toThrow(/Nobody is asked/);
-    expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(true);
+    expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(false);
+    for (const tool of ["Read", "mcp__memory__read_file", "mcp__client_backup__read_file", "mcp__client_read_file"]) {
+      expect(denylistReadsCall({ ...clientRead, tool, toolCallId: "call_4" })).toBe(true);
+    }
+    expect(denylistReadsCall({ ...clientRead, tool: "mcp__client__read_file_extra", toolCallId: "call_5" })).toBe(false);
   });
 });
 

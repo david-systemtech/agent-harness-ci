@@ -633,12 +633,16 @@ describe("a Claude run through the adapter host", () => {
       expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
     });
 
-    it("gates a client tool's call (mcp__client__*, #139), which the provider lets through by its allow rule, like any other: its arguments meet the denylist", async () => {
+    it("lets a client tool's denylisted arguments past the hook while still denying the environment tool (#281)", async () => {
       const t = await setup(undefined, denylisted(), {}, { autoAnswer });
       const { query } = await opened(t, routineActor);
-      const answer = await query.preToolUse("mcp__client__read_file", { path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_client" });
-      expect(answer).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
-      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__client__read_file", toolCallId: "toolu_client" })]);
+      const input = { path: "~/.ssh/id_rsa" };
+      const allowed = await query.preToolUse("mcp__client__read_file", input, { toolUseID: "toolu_client" });
+      expect(allowed).toEqual({});
+      expect(openedOf(t)).toEqual([]);
+      const denied = await query.preToolUse("mcp__memory__read_file", input, { toolUseID: "toolu_memory" });
+      expect(denied).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__memory__read_file", toolCallId: "toolu_memory" })]);
     });
 
     it("denies a write outside the workspace from the hook at workspace, recorded by containment, asking nobody, in bypassPermissions too", async () => {

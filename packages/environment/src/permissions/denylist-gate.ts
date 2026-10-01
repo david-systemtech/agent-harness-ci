@@ -16,7 +16,8 @@ import { resolvePath } from "./gate.js";
 /**
  * The tool gate's denylist rule (#132; permissions spec, "The denylist",
  * "Enforcement in every mode, bypass included"; ADR 0006): every tool call
- * an adapter asks the gate about is read into what it touches, matched
+ * an adapter asks the gate about, except the caller's own tools (#281),
+ * is read into what it touches, matched
  * against the denylist as it is when the call is made, and a match is handed
  * to the broker as a `denylist` prompt naming the section and entry. The
  * broker records it whatever happens next: on an attended run it parks for
@@ -151,20 +152,17 @@ export interface DenylistContext {
   readonly user?: string;
   /** Whether paths compare without regard to case: preset, on macOS and Windows. */
   readonly caseInsensitive?: boolean;
-  /** Which calls the denylist reads at all; preset: `denylistReadsCall`, every one. */
+  /** Which calls the denylist reads at all; preset: `denylistReadsCall`, all except client tools. */
   readonly readsCall?: (call: GatedToolCall) => boolean;
 }
 
 /**
- * Which calls the denylist reads: every one, a client tool's included. A
- * client tool (`mcp__client__*`, the completions surface's passthrough,
- * #139) runs on the caller's machine, not the environment's, so whether its
- * arguments should meet this environment's denylist is David's open
- * question; until he answers, the safe default reads them like any other
- * call's (#140). The one seam an exemption would go in: a predicate here,
- * which the rule consults before it matches anything.
+ * Which calls the denylist reads: all except the completions caller's own
+ * tools (`mcp__client__*`, #139). Those tools run on the caller's machine,
+ * while the denylist protects the environment's machine (#281). Only the
+ * denylist skips them; containment and the provider's mode still apply.
  */
-export const denylistReadsCall: (call: GatedToolCall) => boolean = () => true;
+export const denylistReadsCall = (call: GatedToolCall): boolean => !call.tool.startsWith("mcp__client__");
 
 /** Every entry a call matches, and the paths whose links could not be followed. */
 export interface DenylistReading {
