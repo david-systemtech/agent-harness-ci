@@ -96,7 +96,8 @@ const AccountInventory = ({
 }) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const [skills, setSkills] = useState(inventory.skills.skills + inventory.skills.commands > 0);
+  const [skillsChoice, setSkillsChoice] = useState<boolean | undefined>(undefined);
+  const skills = skillsChoice ?? inventory.skills.skills + inventory.skills.commands > 0;
   const [report, setReport] = useState<CarryOverReport | undefined>(undefined);
   const [line, say] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -142,7 +143,7 @@ const AccountInventory = ({
         permission rules.
       </p>
       <label className="flex items-center gap-2 text-sm text-ink">
-        <input type="checkbox" checked={skills} disabled={!writable || busy} onChange={(event) => setSkills(event.target.checked)} />
+        <input type="checkbox" checked={skills} disabled={!writable || busy} onChange={(event) => setSkillsChoice(event.target.checked)} />
         Copy skills and commands
       </label>
       <Button tone="primary" disabled={!writable || busy} onClick={() => void run()}>

@@ -391,4 +391,39 @@ describe("Carry over in Set up", () => {
     await app.user.click(rail.getByRole("button", { name: "Carry over" }));
     expect(await account().findByRole("button", { name: "Import 2 new sessions" })).toBeDefined();
   });
+
+  it("defaults to copying skills found by the on-open refresh of a warmed empty inventory", async () => {
+    const empty = inventory();
+    empty.skills = { ...empty.skills, skills: 0, commands: 0 };
+    const app = await opened({}, empty);
+    await account().findByText("0 skills; 0 commands; 0 checkouts offered; 0 invalid.");
+    const rail = within(screen.getByRole("navigation", { name: "Set up steps" }));
+    await app.user.click(rail.getByRole("button", { name: "Appearance" }));
+    const answers: ((answer: { result: CarryOverInventory }) => void)[] = [];
+    app.environment("desk").wire.answer("carryOver.inventory", () => new Promise<{ result: CarryOverInventory }>((resolve) => answers.push(resolve)));
+    await app.user.click(rail.getByRole("button", { name: "Carry over" }));
+    await waitFor(() => expect(answers).toHaveLength(1));
+    expect(await account().findByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", false);
+    await act(async () => answers[0]?.({ result: inventory() }));
+    await account().findByText("3 skills; 1 commands; 0 checkouts offered; 0 invalid.");
+    expect(account().getByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", true);
+    await app.user.click(account().getByRole("button", { name: "Import" }));
+    await waitFor(() => expect(app.environment("desk").requests("carryOver.run")).toHaveLength(1));
+    expect(app.environment("desk").requests("carryOver.run")[0]?.params).toMatchObject({ skills: true });
+  });
+
+  it("keeps an explicit skills choice when an inventory refresh still finds no skills", async () => {
+    const empty = inventory();
+    empty.skills = { ...empty.skills, skills: 0, commands: 0 };
+    const app = await opened({}, empty);
+    await app.user.click(await account().findByRole("checkbox", { name: "Copy skills and commands" }));
+    const next = { ...empty, sessions: { ...empty.sessions, total: 6 } };
+    app.environment("desk").wire.answer("carryOver.inventory", () => ({ result: next }));
+    await act(async () => app.environment("desk").notice("carry-over.imported", report()));
+    await account().findByText("6 sessions; 2 archived; 1 missing directory.");
+    expect(account().getByRole("checkbox", { name: "Copy skills and commands" })).toHaveProperty("checked", true);
+    await app.user.click(account().getByRole("button", { name: "Import 5 new sessions" }));
+    await waitFor(() => expect(app.environment("desk").requests("carryOver.run")).toHaveLength(1));
+    expect(app.environment("desk").requests("carryOver.run")[0]?.params).toMatchObject({ skills: true });
+  });
 });
