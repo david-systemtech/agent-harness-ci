@@ -14,6 +14,7 @@ import { get } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { branchesOf, git } from "../../test/workspaces.js";
 import { TRIGGER_WINDOW_MS } from "../setup/scheduler.js";
+import { describeRepositoryAt } from "./describe-repository.js";
 
 /**
  * The Memory bank step (setup spec, "6. Memory bank"; banks spec, "The
@@ -412,6 +413,22 @@ describe("the describe session", () => {
     expect(prompt).toMatch(/^Describe the memory bank david-memory, a personal bank, by writing its BANK\.md\./);
   });
 
+  it("mints concurrent describe sessions on distinct branches without refusing either preparation", async () => {
+    const { checkout } = bankRepository();
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    const sessions = await Promise.all([
+      minted(client, { step: "memory-bank", subject: bank.id, variant: "first" }),
+      minted(client, { step: "memory-bank", subject: bank.id, variant: "revise" }),
+    ]);
+    const summaries = await Promise.all(sessions.map((id) => get(client, id)));
+    expect(summaries.map(({ workspace }) => workspace.kind === "worktree" ? workspace.branch : null).sort()).toEqual([
+      `setup/describe-${TODAY}`, `setup/describe-${TODAY}-2`,
+    ]);
+    expect(branchesOf(checkout)).toEqual(["main"]);
+  });
+
   it("takes the next free branch for a second session on the same day, the first one's branch kept", async () => {
     const { checkout } = bankRepository();
     const t = await start();
@@ -457,6 +474,56 @@ describe("the describe session", () => {
     const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "revise" });
     expect((await get(client, sessionId)).workspace).toMatchObject({ branch: `setup/describe-${TODAY}-2` });
     expect(branchesOf(checkout)).toEqual(["main", `setup/describe-${TODAY}`]);
+  });
+
+  it("reports a safe filesystem cause when describe metadata cannot be created", async () => {
+    const { checkout } = bankRepository();
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    mkdirSync(join(t.dataDir, "worktrees"), { recursive: true });
+    writeFileSync(join(t.dataDir, "worktrees", "bank-describe"), "A file blocks the metadata directory.");
+    const answer = await mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    expect(answer.receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", data: { reason: "filesystem_failed", bankId: bank.id, errno: expect.stringMatching(/^(EEXIST|ENOTDIR)$/), repository: expect.stringContaining("bank-describe") } },
+    });
+    expect((await client.request("sessions.list", {})).sessions).toEqual([]);
+  });
+
+  it("identifies a stale describe destination without removing its contents, and can mint after it is repaired", async () => {
+    const { checkout } = bankRepository();
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    const repository = describeRepositoryAt(t.dataDir, checkout);
+    mkdirSync(repository, { recursive: true });
+    const draft = join(repository, "draft.md");
+    writeFileSync(draft, "Keep this draft.");
+    const answer = await mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    expect(answer.receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", data: { reason: "filesystem_failed", repository, errno: expect.stringMatching(/^(ENOTEMPTY|EEXIST|EPERM)$/) } },
+    });
+    expect(readFileSync(draft, "utf8")).toBe("Keep this draft.");
+    rmSync(repository, { recursive: true });
+    await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+  });
+
+  it("reports only safe git status when a checkout has no main to describe", async () => {
+    const { checkout } = bankRepository();
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    git(checkout, "checkout", "--quiet", "--detach");
+    git(checkout, "branch", "-D", "main");
+    git(checkout, "remote", "set-url", "origin", "https://user:token-for-tests@forge.invalid/memory.git");
+    const answer = await mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    expect(answer.receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", data: { reason: "git_failed", operation: "clone", diagnostic: "exit_128" } },
+    });
+    expect(JSON.stringify(answer)).not.toContain("token-for-tests");
   });
 
   it("refuses a bank whose checkout is not there, and a call naming no bank, conflict bank_missing; a bank not registered is not_found; nothing is minted", async () => {
