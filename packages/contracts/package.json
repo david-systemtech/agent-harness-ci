@@ -27,7 +27,8 @@
   },
   "scripts": {
     "test": "vitest run",
-    "export-schemas": "tsx scripts/export-schemas.ts"
+    "export-schemas": "tsx scripts/export-schemas.ts",
+    "build-validator": "tsx --conditions=@agent-harness/source scripts/build-bank-validator.ts"
   },
   "dependencies": {
     "yaml": "^2.9.1",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "vite": "8.3.0"
   }
 }
