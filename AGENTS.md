@@ -201,8 +201,10 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   environment reaching into a client's or the CLI's folder). The fourth,
   `agent-harness/no-literal-colour` (ADR 0023), refuses a literal colour in
   the packages that paint with the theme's tokens (`gui`, `desktop`, `web`),
-  their stylesheets included through ESLint's CSS language (`@eslint/css`);
-  its two allowlisted modules are named in the configuration.
+  their stylesheets included through ESLint's CSS language (`@eslint/css`)
+  and their SVG assets and HTML documents through html-eslint's HTML language
+  (`@html-eslint/eslint-plugin`); its two allowlisted modules are named in the
+  configuration.
   `eslint.config.ts` scopes all four, and keeps the JavaScript rules to scripts.
 
 ## Merging
