@@ -282,6 +282,20 @@ describe("binding", () => {
       expect(await binding(off)).toMatchObject({ lan: null });
     });
 
+    it("binds loopback and the tailnet at a start whose network.bindLan names an address the machine no longer holds, skipping the LAN", async () => {
+      const dataDir = join(tempDir(), "data");
+      await written(dataDir, detector(ALIAS, "desk.tail1234.ts.net", [OTHER_ALIAS]), { "network.bindLan": OTHER_ALIAS });
+      standardError();
+
+      const t = await start({ dataDir, interfaces: detector(ALIAS, "desk.tail1234.ts.net", ["192.168.1.20"]) });
+      expect(t.env.addresses).toEqual([
+        { host: "127.0.0.1", port: t.address.port },
+        { host: ALIAS, port: t.address.port },
+      ]);
+      expect(t.env.authPolicy).toBe("tailnet");
+      expect(await binding(t)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.168.1.20"] });
+    });
+
     it("takes the start options over both keys, for tests and the service verbs", async () => {
       const dataDir = join(tempDir(), "data");
       const machine = detector(ALIAS, "desk.tail1234.ts.net", [OTHER_ALIAS]);
