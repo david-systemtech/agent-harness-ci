@@ -182,7 +182,7 @@ describe("Add", () => {
     expect(Object.keys(params)).not.toContain("mount");
   });
 
-  it("asks 1Password for its token alone, never an address: the account URL the token names, learned at sign-in (#1118)", async () => {
+  it("asks 1Password for its token alone, never an address: the account URL the token names, learned at sign-in", async () => {
     const app = await opened();
     const keyManagers = await openKeyManagers(app);
     await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
@@ -331,7 +331,7 @@ describe("the card's verbs", () => {
     expect(params).toMatchObject({ label: "Bao at home", tokenRole: "harness-runs" });
   });
 
-  it("offers no address in a 1Password connection's Edit, which its account names (#1118)", async () => {
+  it("offers no address in a 1Password connection's Edit, which its account names", async () => {
     const onePassword = { label: "Team 1Password", provider: "onepassword", address: "https://my.1password.com", ca: null, method: null, mount: null, username: null } as const;
     const app = await opened({ keyManagers: { connections: [onePassword] } });
     await openKeyManagers(app);
