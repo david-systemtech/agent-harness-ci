@@ -8,10 +8,11 @@
     "your-machines",
     "forges",
     "key-manager",
+    "memory-bank",
     "instructions",
     "browser",
     "permissions",
     "appearance"
   ],
-  "description": "A step with an entry in the step registry: account, carry-over, your-machines, forges, key-manager, instructions, browser, permissions, appearance."
+  "description": "A step with an entry in the step registry: account, carry-over, your-machines, forges, key-manager, memory-bank, instructions, browser, permissions, appearance."
 }

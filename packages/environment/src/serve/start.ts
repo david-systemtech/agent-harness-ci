@@ -41,6 +41,8 @@ import {
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
+import { describeBankStep } from "../banks/describe.js";
+import { NO_BANKS, type BankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
@@ -563,6 +565,13 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
+  /**
+   * The memory banks this environment registers, each with its status and
+   * the verification that records it, which the Memory bank step checks and
+   * its describe sessions work in (#586). Preset: none, until the banks
+   * build registers its BankRegistry here (#937); a test gives fixture banks.
+   */
+  readonly banks?: BankRecords;
   /**
    * How `web_read` reaches the web (#546): the resolver each hop's name is
    * resolved through, how a connection to an address the address rules
@@ -1500,6 +1509,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  const banks = options.banks ?? NO_BANKS;
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
@@ -1519,7 +1529,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       look: () => look.read(),
       accounts: () => accounts.list(),
       status: () => lifecycle.status(),
+      banks,
     }),
+    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
