@@ -25,6 +25,7 @@ import { createForgeNotices } from "./projections/forge-notices.js";
 import { createKeyManagerNotices } from "./projections/key-manager-notices.js";
 import { createToolRuns } from "./managed-tools/tool-runs.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
+import { routineHistoryProjection, routinesProjection, type RoutineHistory } from "./projections/routines.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
 import { SETUP_CHECK_TIMEOUT_MS, createSetup } from "./projections/setup.js";
@@ -123,6 +124,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     report,
     lists: made.lists,
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
+    routineName: (environmentId, routineId) =>
+      requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,
     now: (environmentId) => made.now(environmentId),
     // What the runtime holds of the session, read without subscribing anything.
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
@@ -293,6 +296,16 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     // The request cache gives the same observable for the same environment and query.
     source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
+  // Every enabled environment's routines (#532), the request cache giving the same observable for the same environment.
+  const routines = routinesProjection({ records: registry.list, outbox: outbox.view, source: (environmentId) => requestCache.cached(environmentId, "routines.list", {}) });
+  const routineHistories = memo((key): RoutineHistory => {
+    const [environmentId, routineId] = key.split(" ") as [string, string];
+    const host = {
+      newest: requestCache.cached(environmentId, "routines.history", { routineId }),
+      page: (before: string) => call(environmentId, "routines.history", { routineId, before }),
+    };
+    return routineHistoryProjection(host, environmentId, routineId);
+  });
   const newSessionHost: NewSessionHost = {
     records: registry.list,
     environments,
@@ -346,6 +359,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
       toolRuns: (environmentId) => toolRuns.view(environmentId),
+      routines,
+      routineHistory: (environmentId, routineId) => routineHistories(`${environmentId} ${routineId.toLowerCase()}`),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },

@@ -13,6 +13,7 @@ import { SessionQueueProvider } from "../queue/session-queue.js";
 import { PaneDocumentsProvider } from "../session/pane-documents.js";
 import { PaneLine } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
+import { PaneOrganising } from "../sidebar/pane-organising.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
 import { StatusLine } from "../status/status-line.js";
 import { Transcript } from "../transcript/transcript.js";
@@ -34,8 +35,9 @@ export interface PaneContentsProps extends CaptionProps {
  * what offers them: the actions under each message, the rewound fold and the
  * rewound strip over the composer (#403); and beside it the session's side
  * column ("The seven panes and the grid"), whose refusals are said on the
- * pane's line and whose panes the pane's slash commands open. It holds what
- * its documents are asked (the Preview's document, the call the transcript
+ * pane's line and whose panes the pane's slash commands open; and its
+ * organising slash commands, with the sidebar's dialogs they open (#753). It
+ * holds what its documents are asked (the Preview's document, the call the transcript
  * shows), which the transcript and the column both ask. Another session
  * opened in the pane brings its own column, and its own line, or the line
  * handed to it as it opened.
@@ -60,6 +62,7 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
                     <StatusLine environmentId={environmentId} sessionId={sessionId} />
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />
+                  <PaneOrganising environmentId={environmentId} sessionId={sessionId} />
                 </SessionForkRewindProvider>
               </PaneDialogs>
             </SlashCommands>

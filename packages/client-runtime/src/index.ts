@@ -342,6 +342,7 @@ export {
 } from "./attention/policy.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
+export type { RoutineGroup, RoutineHistory, RoutineHistoryView, RoutineRow, RoutinesView, SentDefinition } from "./projections/routines.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
   ByRepositoryHeading,
@@ -402,6 +403,7 @@ export {
   type ForkAsked,
   type RewindAsked,
 } from "./composer/fork-rewind-commands.js";
+export { organiseUsage } from "./composer/organise-commands.js";
 export { shellLine } from "./composer/shell-line.js";
 export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
 export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";

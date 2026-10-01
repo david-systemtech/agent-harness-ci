@@ -1,10 +1,13 @@
 import {
   askRestorable,
   changeHeading,
+  groupChoices,
   groupHeading,
   hasTag,
   parseWhen,
+  presetTimes,
   rowKey,
+  snoozeStands,
   whenWords,
   type EnvironmentView,
   type MergedGroupHeading,
@@ -13,6 +16,7 @@ import {
 import { useState, type FormEvent, type ReactNode } from "react";
 import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
+import type { Offer } from "../keys/key-dispatch.js";
 import { Button, Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { useOrganise } from "./organise.js";
@@ -25,7 +29,9 @@ import { notDone, quoted } from "./words.js";
  * asked once, for a session or a merged group; and Restore, what each
  * environment can still restore. Each reads the session or the group from
  * the list as it is now, so what it shows follows the list, and closes
- * itself once what it is about is gone.
+ * itself once what it is about is gone. A session pane's bare `/snooze` and
+ * `/group` (#753) open Snooze's presets and Move to group's choices as a
+ * dialog of their own, offering what the row's context menu offers.
  */
 
 /** The longest tag a session takes (`Tag`'s 40 characters) and group name (`GroupName`'s 80). */
@@ -46,6 +52,22 @@ const Shown = ({ close, title, description, children }: { close(): void; readonl
 
 /** A dialog's buttons, at its foot. */
 const Actions = ({ children }: { readonly children: ReactNode }) => <div className="flex justify-end gap-2">{children}</div>;
+
+/** One of a dialog's choices: its name, then a detail; dim, with the line saying why under it, while it cannot be chosen. */
+const Choice = ({ offer, detail, onClick, children }: { readonly offer: Offer; readonly detail?: string; onClick(): void; readonly children: string }) => {
+  const absent = offer.status === "absent" ? offer.message : undefined;
+  return (
+    <li className="flex flex-col">
+      <Button aria-label={detail === undefined ? children : `${children} ${detail}`} disabled={absent !== undefined} onClick={onClick} className="justify-between">
+        <span>{children}</span>
+        {detail !== undefined && <span className="text-xs text-ink-muted">{detail}</span>}
+      </Button>
+      {absent !== undefined && <span className="px-2 text-xs text-ink-faint">{absent}</span>}
+    </li>
+  );
+};
+
+const PRESENT: Offer = { status: "present" };
 
 /** A form's submit, its default action kept from the page. */
 const submitted = (then: () => void) => (event: FormEvent) => {
@@ -82,6 +104,52 @@ const SnoozeDialog = ({ row, close }: { readonly row: SessionRow; close(): void 
           </Button>
         </Actions>
       </form>
+    </Shown>
+  );
+};
+
+/** Snooze's presets, as the row's context menu offers them: each on this client's calendar from the environment's now, A date and time…, and Wake now while a snooze stands. */
+const SnoozePresetsDialog = ({ row, close }: { readonly row: SessionRow; close(): void }) => {
+  const runtime = useRuntime();
+  const organise = useOrganise();
+  const { environmentId, summary } = row;
+  const now = runtime.environmentNow(environmentId);
+  const snooze = (at: Date) => () => {
+    organise.send(environmentId, "sessions.snooze", { sessionId: summary.id, until: at.toISOString() });
+    close();
+  };
+  const wake = () => {
+    organise.send(environmentId, "sessions.unsnooze", { sessionId: summary.id });
+    close();
+  };
+  return (
+    <Shown close={close} title={`Snooze ${quoted(summary.title)} until`} description="Each time on this computer's calendar.">
+      <ul aria-label="When" className="flex flex-col gap-1">
+        {presetTimes(now).map(({ label, at, absent }) =>
+          at === null ? (
+            <Choice key={label} offer={{ status: "absent", message: absent ?? "Not now." }} onClick={() => undefined}>
+              {label}
+            </Choice>
+          ) : (
+            <Choice key={label} offer={PRESENT} detail={whenWords(at)} onClick={snooze(at)}>
+              {label}
+            </Choice>
+          ),
+        )}
+        <Choice offer={PRESENT} onClick={() => organise.open({ kind: "snooze", row: rowKey(row) })}>
+          A date and time…
+        </Choice>
+        {snoozeStands(summary, now) && (
+          <Choice offer={runtime.commands.admits(environmentId, "sessions.unsnooze")} onClick={wake}>
+            Wake now
+          </Choice>
+        )}
+      </ul>
+      <Actions>
+        <DialogClose asChild>
+          <Button>Cancel</Button>
+        </DialogClose>
+      </Actions>
     </Shown>
   );
 };
@@ -130,13 +198,12 @@ const TagsDialog = ({ row, close }: { readonly row: SessionRow; close(): void })
 };
 
 const NewGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): void }) => {
-  const runtime = useRuntime();
   const organise = useOrganise();
   const [typed, setTyped] = useState("");
   const name = typed.trim();
   const move = () => {
     if (name === "") return;
-    organise.hear(runtime.commands.moveToGroup(row.environmentId, row.summary.id, name).then((answer) => [answer]), notDone("sessions.setGroup"));
+    organise.move(row.environmentId, row.summary.id, name);
     close();
   };
   return (
@@ -152,6 +219,42 @@ const NewGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): voi
           </Button>
         </Actions>
       </form>
+    </Shown>
+  );
+};
+
+/** Move to group's choices, as the row's context menu offers them: every merged heading (the one it is in dim), New group…, and No group while it is in one. */
+const MoveToGroupDialog = ({ row, close }: { readonly row: SessionRow; close(): void }) => {
+  const runtime = useRuntime();
+  const organise = useOrganise();
+  const list = useObservable(runtime.projections.sessionList);
+  const choices = groupChoices(list.groups, row, "");
+  const move = (name: string | null) => () => {
+    organise.move(row.environmentId, row.summary.id, name);
+    close();
+  };
+  return (
+    <Shown close={close} title={`Move ${quoted(row.summary.title)} to a group`}>
+      <ul aria-label="Groups" className="flex flex-col gap-1">
+        {choices.listed.map(({ heading, here }) => (
+          <Choice key={heading.key} offer={here ? { status: "absent", message: "It is in this group." } : PRESENT} onClick={move(heading.name)}>
+            {heading.name}
+          </Choice>
+        ))}
+        <Choice offer={PRESENT} onClick={() => organise.open({ kind: "new-group", row: rowKey(row) })}>
+          New group…
+        </Choice>
+        {choices.out && (
+          <Choice offer={PRESENT} onClick={move(null)}>
+            No group
+          </Choice>
+        )}
+      </ul>
+      <Actions>
+        <DialogClose asChild>
+          <Button>Cancel</Button>
+        </DialogClose>
+      </Actions>
     </Shown>
   );
 };
@@ -203,20 +306,24 @@ const DeleteGroupDialog = ({ group, close }: { readonly group: MergedGroupHeadin
   );
 };
 
-const RestoreDialog = ({ close }: { close(): void }) => {
+const RestoreDialog = ({ query, close }: { readonly query: string; close(): void }) => {
   const runtime = useRuntime();
   const organise = useOrganise();
   const environments = useObservable(runtime.projections.environments);
   // Asked once, as the dialog opens.
   const [asked] = useState(() => askRestorable(runtime.requests, runtime.projections.environments.read()));
-  const { found, failed, asking } = useObservable(asked);
+  const { found: deleted, failed, asking } = useObservable(asked);
+  // Those whose titles hold what `/restore` was given, as the terminal UI's restore picker filters them.
+  const needle = query.trim().toLowerCase();
+  const found = deleted.filter(({ summary }) => summary.title.toLowerCase().includes(needle));
   return (
     <Shown close={close} title="Restore a deleted session" description="What each environment deleted in the last 30 days; after that it is purged.">
       {asking > 0 && <p className="text-sm text-ink-muted">Asking each environment what it deleted…</p>}
       {failed.map(({ environmentId, message }) => (
         <p key={environmentId} className="text-sm text-ink-muted">{`${nameOf(environments, environmentId)} could not be asked: ${message}`}</p>
       ))}
-      {asking === 0 && failed.length === 0 && found.length === 0 && <p className="text-sm text-ink-muted">Nothing deleted can be restored: a deleted session is purged after 30 days.</p>}
+      {asking === 0 && failed.length === 0 && deleted.length === 0 && <p className="text-sm text-ink-muted">Nothing deleted can be restored: a deleted session is purged after 30 days.</p>}
+      {asking === 0 && deleted.length > 0 && found.length === 0 && <p className="text-sm text-ink-muted">{`No deleted session's title holds “${query.trim()}”.`}</p>}
       {found.length > 0 && (
         <ul aria-label="Deleted sessions" className="flex flex-col gap-1">
           {found.map(({ environmentId, summary }) => {
@@ -260,7 +367,7 @@ export const SidebarDialogs = () => {
   const list = useObservable(runtime.projections.sessionList);
   const close = () => open(null);
   if (dialog === null) return null;
-  if (dialog.kind === "restore") return <RestoreDialog close={close} />;
+  if (dialog.kind === "restore") return <RestoreDialog query={dialog.query ?? ""} close={close} />;
   if (dialog.kind === "delete-group") {
     const group = list.groups.find((held) => groupHeading(held.key) === dialog.heading);
     return group === undefined ? null : <DeleteGroupDialog group={group} close={close} />;
@@ -270,6 +377,10 @@ export const SidebarDialogs = () => {
   switch (dialog.kind) {
     case "snooze":
       return <SnoozeDialog row={row} close={close} />;
+    case "snooze-presets":
+      return <SnoozePresetsDialog row={row} close={close} />;
+    case "move-to-group":
+      return <MoveToGroupDialog row={row} close={close} />;
     case "tags":
       return <TagsDialog row={row} close={close} />;
     case "new-group":

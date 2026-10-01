@@ -151,7 +151,18 @@ import {
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
-import { skillsCarryOver, skillsGet, skillsOwnCreate, skillsOwnRemove, skillsProbe, skillsReadiness, skillsSetAlwaysOn, skillsSetEnabled } from "./methods/skills.js";
+import {
+  skillsCarryOver,
+  skillsGet,
+  skillsOwnCreate,
+  skillsOwnRemove,
+  skillsProbe,
+  skillsReadiness,
+  skillsSetAlwaysOn,
+  skillsSetEnabled,
+  skillsSourcesAdd,
+  skillsSourcesRemove,
+} from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
 import { browserChromesList, browserChromesPerform, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
 import {
@@ -371,6 +382,8 @@ export const methods = [
   skillsCarryOver,
   skillsSetAlwaysOn,
   skillsSetEnabled,
+  skillsSourcesAdd,
+  skillsSourcesRemove,
   skillsReadiness,
   trustGet,
   trustList,
@@ -400,10 +413,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and
-  // commands, run now (#523) routines.runNow and routines.history, and the endpoints (#522) routines.endpoints.*.
-  "routines.testPreCheck": "#526",
-  "routines.scripts.list": "#526",
   // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
   "stateImport.run": "#94",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
