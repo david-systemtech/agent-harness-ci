@@ -16,7 +16,7 @@ interface SettlementHost {
 const unsettled = (original: ListedRoutine, copy: ListedRoutine): boolean => {
   const link = copy.state.movedFrom;
   return link !== null && copy.definition.enabled && copy.state.movedTo === null && original.definition.enabled && original.state.movedTo === null
-    && (original.state.editedAt === null || original.state.editedAt <= link.at);
+    && link.definitionSequence !== undefined && original.state.definitionSequence === link.definitionSequence;
 };
 
 /** While the routines view is followed, settlement follows both lists, rechecking over the wire before sending a disable once. */
@@ -50,7 +50,7 @@ export const createRoutineSettlement = (host: SettlementHost) => {
         const source = view.groups.find(g => g.environmentId === link.environmentId && !g.stale);
         const original = source?.routines.find(r => r.routineId === link.routineId)?.listed;
         const key = keyOf(link.environmentId, link.routineId, group.environmentId, row.routineId);
-        if (!original || !unsettled(original, copy) || checking.has(key) || sent.has(key)) continue;
+        if (!original || !unsettled(original, copy) || checking.has(key) || sent.has(key) || host.admits(link.environmentId, "routines.disable").status === "absent") continue;
         checking.add(key);
         void settle(link.environmentId, link.routineId, group.environmentId, row.routineId, key).catch(host.report);
       }

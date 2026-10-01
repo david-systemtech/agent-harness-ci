@@ -293,6 +293,7 @@ export const RoutineMoveLink = z
     environmentId: EnvironmentId,
     routineId: RoutineId,
     at: Timestamp.meta({ description: "When the move was recorded here." }),
+    definitionSequence: z.int().positive().optional().meta({ description: "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot." }),
   })
   .meta({ description: "The other copy of a moved routine: its environment, its id there, and when the move was recorded here." });
 export type RoutineMoveLink = z.infer<typeof RoutineMoveLink>;
@@ -342,6 +343,7 @@ export const RoutineState = z
     savedBy: ClientSessionId.meta({ description: "The client session whose create, edit, import or enable last touched it." }),
     createdAt: Timestamp,
     editedAt: Timestamp.nullable().meta({ description: "When its definition was last edited or replaced by an import; null until then." }),
+    definitionSequence: z.int().positive().optional().meta({ description: "The event sequence of its latest create, edit, enable or disable; unchanged by firings. Absent when an environment does not supply it." }),
     movedFrom: RoutineMoveLink.nullable().meta({ description: "The routine this one is a moved copy of; null for one made here." }),
     movedTo: RoutineMoveLink.nullable().meta({ description: "The copy this one was moved to, which disabled it; null until moved, and cleared when it is enabled." }),
     baseline: z

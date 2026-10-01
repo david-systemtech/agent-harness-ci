@@ -71,7 +71,7 @@ export const createRoutineMoves = (host: MoveHost): RoutineMoves => {
         // Settlement follows the copy's movedFrom link, including when this move restores its original.
         if (original) host.reserve(to, targetId, from, routineId);
         else host.reserve(from, routineId, to, targetId);
-        const imported = await host.dispatch(to, "routines.import", { yaml, ...(original ? { routineId: targetId } : { routineIds: [targetId], movedFrom: { environmentId: from, routineId } }) });
+        const imported = await host.dispatch(to, "routines.import", { yaml, ...(original ? { routineId: targetId } : { routineIds: [targetId], movedFrom: { environmentId: from, routineId, ...(source.state.definitionSequence !== undefined && { definitionSequence: source.state.definitionSequence }) } }) });
         if (!imported.ok) return imported;
         if (original) {
           const enabled = await host.dispatch(to, "routines.enable", { routineId: targetId });

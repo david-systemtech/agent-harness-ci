@@ -759,6 +759,12 @@
                     ],
                     "description": "When its definition was last edited or replaced by an import; null until then."
                   },
+                  "definitionSequence": {
+                    "description": "The event sequence of its latest create, edit, enable or disable; unchanged by firings. Absent when an environment does not supply it.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
                   "movedFrom": {
                     "anyOf": [
                       {
@@ -781,6 +787,12 @@
                             "format": "date-time",
                             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                             "description": "When the move was recorded here."
+                          },
+                          "definitionSequence": {
+                            "description": "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot.",
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -818,6 +830,12 @@
                             "format": "date-time",
                             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                             "description": "When the move was recorded here."
+                          },
+                          "definitionSequence": {
+                            "description": "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot.",
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [

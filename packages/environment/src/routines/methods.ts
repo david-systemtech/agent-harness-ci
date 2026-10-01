@@ -310,7 +310,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
               if (refused !== null) return { aggregate, rejected: refused };
             }
             const { movedFrom } = params;
-            const link = movedFrom === undefined ? null : { environmentId: movedFrom.environmentId, routineId: movedFrom.routineId.toLowerCase(), at };
+            const link = movedFrom === undefined ? null : { environmentId: movedFrom.environmentId, routineId: movedFrom.routineId.toLowerCase(), at, ...(movedFrom.definitionSequence !== undefined && { definitionSequence: movedFrom.definitionSequence }) };
             const listedMade = made.map(({ document, id }) => {
               appendCreated(id, document.definition, link, context, at);
               return { document, routine: listedAfter(id).routine };

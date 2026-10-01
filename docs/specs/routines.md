@@ -152,6 +152,8 @@ ADR 0008's two taps, pick the target and confirm, through `commands.moveRoutine(
 
 History stays where it was; each copy links to the other. **Settling**: a client runtime following both environments that sees a copy whose original is still enabled with no `movedTo`, and unedited since the move, sends that disable once. Until the original hears it, it may fire its copy too (automatic failover is milestone 2 or fog).
 
+- The move's source snapshot (#534): `RoutineState.definitionSequence` is the source event sequence of its latest create, edit, enable or disable; firings leave it unchanged. A moved copy captures it in `movedFrom.definitionSequence`. Settlement compares those sequences on the source instead of comparing clocks from different environments, so restoring or editing the original prevents an independent client from disabling it. A link without the snapshot cannot prove that the original is untouched and is not automatically settled; the move's queued disable still delivers. The fields are optional on the wire for environments and stored links without them. The environment reads the sequence from the routine's uncompacted event stream, so replay and restart preserve it without a new migration.
+
 ### YAML export and import
 
 - One document per routine, several per file, kebab-case keys: `kind: routine`, `version: 1`, `name`, `enabled`, `schedule`, `timezone`, `if-missed`, `workspace` with `repository-identity`, `account` (`provider`, `email`, `organisation`), `model`, `effort`, `mode`, `containment`, `injection`, `skills`, `pre-check`, `silent-marker`, `max-duration-minutes`, `delivery`, `instructions` (a block scalar). Export opens with a comment naming the environment and time.
