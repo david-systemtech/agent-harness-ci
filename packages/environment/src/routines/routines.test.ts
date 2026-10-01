@@ -54,6 +54,23 @@ const pathsOf = (data: Record<string, unknown>): SchemaIssue["path"][] => (data[
 /** The identity of an account the fake signs in as `<id>@example.com`. */
 const identityOf = (email: string) => ({ provider: "fake", email, organisation: null });
 
+describe("routine definition sequences", () => {
+  it("orders definition saves at the same timestamp and retains their sequence after a projection rebuild", async () => {
+    const t = await start();
+    const client = await t.client();
+    const routine = await created(client, written({ schedule: { kind: "manual" } }));
+    const updated = await routineCommand(client, "routines.update", { routineId: routine.state.id, fields: { instructions: "Updated at the same instant" } });
+    const editedSequence = updated.result?.routine.state.definitionSequence;
+    expect(editedSequence).toBeGreaterThan(routine.state.definitionSequence ?? 0);
+    const disabled = await routineCommand(client, "routines.disable", { routineId: routine.state.id });
+    expect(disabled.result?.routine.state.definitionSequence).toBeGreaterThan(editedSequence ?? 0);
+    const enabled = await routineCommand(client, "routines.enable", { routineId: routine.state.id });
+    expect(enabled.result?.routine.state.definitionSequence).toBeGreaterThan(disabled.result?.routine.state.definitionSequence ?? 0);
+    await client.apply("environment.rebuildProjections", { commandId: randomUUID() });
+    expect(await listed(client, routine.state.id)).toEqual(enabled.result?.routine);
+  });
+});
+
 describe("routines.create", () => {
   it("appends routine.created with the presets applied and the environment's zone, as the client session, and lists the routine it made", async () => {
     const t = await start();

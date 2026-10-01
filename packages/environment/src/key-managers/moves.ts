@@ -229,7 +229,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
       const keeps = `the ${kind} ${item.name} keeps its stored token`;
       if (!mode.verifyOnly) {
         // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
-        const checked = await login.provider.canWrite(login.target, login.token, { mount: reference.mount, path: reference.path }, AbortSignal.timeout(budgetMs));
+        const checked = await login.provider.canWrite(login.target, login.token, reference.provider === "openbao" ? { mount: reference.mount, path: reference.path } : { mount: reference.project ?? "", path: reference.config ?? "" }, AbortSignal.timeout(budgetMs));
         if (checked.outcome !== "checked") {
           return { result: failed(ref, "write", false, { code: WRITE_CODES[checked.outcome], message: `${said(checked.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
         }
@@ -317,7 +317,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         const held = connections.readable(connectionId);
         if (held === null) return rejecting(noConnection(connectionId));
         const { record, login } = held;
-        if (record.provider !== "openbao") {
+        if (record.provider !== "openbao" && record.provider !== "doppler") {
           return rejecting({ code: "provider_unavailable", message: `This environment cannot move stored tokens into ${PROVIDER_NAMES[record.provider]} yet.`, data: { provider: record.provider } });
         }
         if (record.basePath === null) invalid(["connectionId"], `The key-manager connection ${record.label} has no base path: set where Move keeps the harness's secrets first.`);

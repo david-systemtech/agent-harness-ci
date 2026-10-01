@@ -364,7 +364,8 @@ export interface RunContainment {
    * the git directory of the repository holding the workspace (the one `writable` ends with when it lies outside the workspace,
    * else the workspace's own `.git`), its `hooks`, its `config` and the per-worktree `config.worktree` (the main worktree's
    * beside `config`, each linked worktree's under `worktrees/<name>/`), there or not, since the user's own git runs what they
-   * name outside containment. Read as the run starts; empty at `off` and for a workspace in no repository.
+   * name outside containment; then the same in each submodule's git directory under its `modules` and in theirs in turn
+   * (#933), as listed then. Read as the run starts; empty at `off` and for a workspace in no repository.
    */
   readonly readOnly: readonly string[];
   /** Whether the model's commands and the provider's fetch and search tools may reach any host: false only at `workspace-no-network`. */
@@ -627,6 +628,8 @@ export type ToolAccess =
  * receive).
  */
 export interface GatedToolCall {
+  /** The adapter verified this call belongs to an in-process server whose tools run outside the environment. */
+  readonly external?: boolean;
   readonly toolCallId: string;
   readonly tool: string;
   readonly summary: string;

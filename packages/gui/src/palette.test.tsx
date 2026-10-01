@@ -306,14 +306,16 @@ describe("an entry that cannot be done now", () => {
   const dim = (option: HTMLElement) => option.getAttribute("aria-disabled") === "true";
 
   it("stays, dim with the shell's reason, and choosing it does nothing", async () => {
-    const shell = { ...fakeShell(), dialogs: undefined } as unknown as FakeShell;
+    const shell = { ...fakeShell(), clipboard: undefined, dialogs: undefined } as unknown as FakeShell;
     const { app } = await opened({}, shell);
     await inComposer(app, "{Control>}k{/Control}");
-    const attach = entry("/attach");
-    expect(dim(attach)).toBe(true);
-    expect(attach.textContent).toBe("/attachSend an image or file with the next messageThis client cannot open the system's file dialogs: its shell has no shell.dialogs.");
+    const paste = entry("Paste an image");
+    expect(dim(paste)).toBe(true);
+    expect(paste.textContent).toBe("Paste an image, or the text thereCtrl+VThis client cannot use the clipboard: its shell has no shell.clipboard.");
+    // Without the shell's file dialogs, /attach opens the page's own file picker (#484), so it is offered.
+    expect(dim(entry("/attach"))).toBe(false);
 
-    await app.user.click(attach);
+    await app.user.click(paste);
     expect(palette()).not.toBeNull();
   });
 
