@@ -8,6 +8,7 @@ import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { CheckoutOffer } from "./checkout-offer.js";
 import { ImportReport } from "./import-report.js";
 import { MemoryAssignment } from "./memory-assignment.js";
+import { StateImportSection } from "./state-import-section.js";
 
 /** Carry over's adopted accounts, each with its directory's inventory and one import (ADR 0021). */
 export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
@@ -34,6 +35,7 @@ export const CarryOverCard = ({ environmentId, step }: StepCardProps) => {
             retry={mayRetry(account.id)}
           />
         ))}
+      <StateImportSection environmentId={environmentId} />
       <p className="text-sm text-ink-muted">
         Not carried from your Claude Code directory: hooks, personal MCP servers, permission rules and the approvals you gave the CLI, your
         settings (model, theme, status line, key bindings), plugins and marketplaces, subagents, prompt history and trust decisions. Your

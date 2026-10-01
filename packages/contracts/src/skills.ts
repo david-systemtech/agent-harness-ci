@@ -643,6 +643,7 @@ export const SkillSourceNoSkills = z
     }),
   })
   .meta({ description: "The folder yields no valid member at the commit; the folders that would." });
+export type SkillSourceNoSkills = z.infer<typeof SkillSourceNoSkills>;
 
 /**
  * `conflict`'s data when `skills.sources.add` is refused (skills spec,
