@@ -110,6 +110,7 @@ describe("banks.register and banks.list", () => {
       memories: 5,
       folders: 3,
       line: PERSONAL_LINE,
+      sharedAliases: [],
     });
     expect(await list(client)).toEqual([bank]);
   });
@@ -185,6 +186,21 @@ describe("the 8 KB rule", () => {
     await registered(client, { path: gitBank(wideBank("bank-two", 20)), repositories: ["https://git.example/acme/web"] });
     const third = await registered(client, { path: gitBank(wideBank("bank-three", 20)), accounts: [account], repositories: ["https://git.example/acme/api"] });
     expect(third.name).toBe("bank-three");
+  });
+});
+
+describe("alias collisions", () => {
+  it("warns on each bank of an alias another bank claims too, whatever its case, leaving each bank as it was", async () => {
+    const client = await (await start()).client();
+    const personal = await registered(client, { path: gitBank(PERSONAL_BANK) });
+    const otherManifest = personalManifest({ name: "sam-memory", entities: [{ name: "Storage", aliases: ["NAS", "storage"] }], orientation: [] });
+    const other = await registered(client, { path: gitBank(changed(PERSONAL_BANK, { "BANK.md": markdown(otherManifest) })) });
+    expect(other.sharedAliases).toEqual([{ alias: "nas", banks: ["maya-memory"] }]);
+    expect((await list(client)).map((bank) => [bank.name, bank.sharedAliases])).toEqual([
+      ["maya-memory", [{ alias: "nas", banks: ["sam-memory"] }]],
+      ["sam-memory", [{ alias: "nas", banks: ["maya-memory"] }]],
+    ]);
+    expect((await client.request("banks.get", { bankId: personal.id })).bank).toMatchObject({ role: "read-write", sharedAliases: [{ alias: "nas", banks: ["sam-memory"] }] });
   });
 });
 

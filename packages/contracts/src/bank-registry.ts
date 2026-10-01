@@ -176,6 +176,14 @@ export const BankRecord = BankEntry.extend({
   memories: z.int().nonnegative().meta({ description: "How many memories its main holds." }),
   folders: z.int().nonnegative().meta({ description: "How many scope folders hold a memory." }),
   line: z.string().nullable().meta({ description: "The bank's line as a session's trail renders it (T0); null while BANK.md does not read." }),
+  sharedAliases: z
+    .array(
+      z.object({
+        alias: z.string().min(1).meta({ description: "The alias, in lower case." }),
+        banks: z.array(BankName).min(1).meta({ description: "The other banks whose BANK.md claims it too." }),
+      }),
+    )
+    .meta({ description: "A warning: the entity aliases this bank's BANK.md claims that another bank's claims too, compared without case. A write still goes only to the bank it names; an alias never routes one (ADR 0010)." }),
 }).meta({ description: "A registered bank with its status, its counts and its rendered bank line, as banks.list and banks.get answer it. Never a credential." });
 export type BankRecord = z.infer<typeof BankRecord>;
 

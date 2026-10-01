@@ -508,6 +508,35 @@
             "string",
             "null"
           ]
+        },
+        "sharedAliases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "alias": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The alias, in lower case."
+              },
+              "banks": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+                },
+                "description": "The other banks whose BANK.md claims it too."
+              }
+            },
+            "required": [
+              "alias",
+              "banks"
+            ]
+          },
+          "description": "A warning: the entity aliases this bank's BANK.md claims that another bank's claims too, compared without case. A write still goes only to the bank it names; an alias never routes one (ADR 0010)."
         }
       },
       "required": [
@@ -531,7 +560,8 @@
         "createdAt",
         "memories",
         "folders",
-        "line"
+        "line",
+        "sharedAliases"
       ],
       "description": "A registered bank with its status, its counts and its rendered bank line, as banks.list and banks.get answer it. Never a credential."
     }

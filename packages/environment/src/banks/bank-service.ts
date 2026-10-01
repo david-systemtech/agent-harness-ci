@@ -112,6 +112,31 @@ const keepSince = (held: BankStatus, found: BankStatus): BankStatus => {
 };
 
 
+/** The entity aliases a bank's BANK.md claims, in lower case, by its name. */
+interface Claim {
+  readonly id: string;
+  readonly name: string;
+  readonly aliases: ReadonlySet<string>;
+}
+
+const claimOf = (entry: BankEntry, reading: Reading | null): Claim => ({
+  id: entry.id,
+  name: entry.name,
+  aliases: new Set(reading?.index?.entities.flatMap((entity) => entity.aliases.map((alias) => alias.toLowerCase())) ?? []),
+});
+
+/**
+ * The aliases `own` claims that another bank claims too (banks spec, "The
+ * validator": a warning the BankService gives, which sees both banks): each
+ * with the other banks, by name. A write is never routed by an alias, so
+ * nothing else changes.
+ */
+const sharedAliases = (own: Claim, claims: readonly Claim[]): BankRecord["sharedAliases"] =>
+  [...own.aliases].sort().flatMap((alias) => {
+    const banks = claims.filter((other) => other.id !== own.id && other.aliases.has(alias)).map((other) => other.name);
+    return banks.length === 0 ? [] : [{ alias, banks }];
+  });
+
 /** A bank as the 8 KB rule weighs it: its scopes and its fixed tiers' bytes. */
 interface Weighed {
   readonly name: string;
@@ -186,10 +211,11 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const readings = new Map<string, Reading | null>();
   let verifyingAll: Promise<BankRecord[]> | null = null;
 
-  const recordOf = (entry: BankEntry, reading: Reading | null | undefined): BankRecord => {
+  /** The bank's record from its entry and reading, its shared aliases those `others` claim too. */
+  const recordOf = (entry: BankEntry, reading: Reading | null, others: readonly Claim[]): BankRecord => {
     const index = reading?.index ?? null;
     const line = index === null ? null : (renderFixedTiers(index).text.split("\n")[0] ?? null);
-    return { ...entry, memories: index?.count ?? 0, folders: index?.folderCount ?? 0, line };
+    return { ...entry, memories: index?.count ?? 0, folders: index?.folderCount ?? 0, line, sharedAliases: sharedAliases(claimOf(entry, reading), others) };
   };
 
   /** The reading held of the bank, read now when none is. */
@@ -201,7 +227,16 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return reading;
   };
 
-  const record = async (entry: BankEntry): Promise<BankRecord> => recordOf(entry, await readingOf(entry));
+  /** Every bank registered now with its reading, read where none is held. */
+  const readAll = async (): Promise<{ readonly entry: BankEntry; readonly reading: Reading | null }[]> =>
+    Promise.all(listBanks(reader).map(async (entry) => ({ entry, reading: await readingOf(entry) })));
+
+  /** Every bank registered now as the methods answer it. */
+  const records = async (): Promise<BankRecord[]> => {
+    const read = await readAll();
+    const claims = read.map(({ entry, reading }) => claimOf(entry, reading));
+    return read.map(({ entry, reading }) => recordOf(entry, reading, claims));
+  };
 
   /** Whether the remote answers for the repository, or why not. */
   const reachableRemote = async (location: Extract<BankLocation, { kind: "remote" }>): Promise<string | null> => {
@@ -294,7 +329,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     verifyingAll ??= (async () => {
       try {
         for (const entry of listBanks(reader).filter((bank) => bank.enabled)) await verifyOne(entry);
-        return await Promise.all(listBanks(reader).map(record));
+        return await records();
       } finally {
         verifyingAll = null;
       }
@@ -309,8 +344,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
         () => ({ aggregate: stream, rejected });
       const imported = params.importedFrom === undefined ? null : importHolder(reader, params.importedFrom);
       if (imported !== null) {
-        const held = liveBank(reader, imported);
-        const answer = held === null ? null : await record(held);
+        const answer = (await records()).find((bank) => bank.id === imported) ?? null;
         return () => (answer === null ? { aggregate: stream, rejected: { code: "not_found" } } : { aggregate: stream, result: { bank: answer } });
       }
       const read = await readCheckout(params.path, { name: "unnamed", role: params.role });
@@ -324,9 +358,10 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
       const { status, reading } = await inspect(draft);
       const entry: BankEntry = { ...draft, status };
-      const enabled = listBanks(reader).filter((bank) => bank.enabled);
-      const weighed = await Promise.all(enabled.map(async (bank): Promise<Weighed> => ({ ...bank, bytes: fixedBytes(await readingOf(bank)) })));
+      const held = await readAll();
+      const weighed = held.filter(({ entry: bank }) => bank.enabled).map(({ entry: bank, reading: its }): Weighed => ({ ...bank, bytes: fixedBytes(its) }));
       const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
+      const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
       return (_params, command) => {
         if (nameHolder(reader, entry.name) !== null) {
           return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
@@ -338,23 +373,20 @@ export const createBankService = (options: BankServiceOptions): BankService => {
         }
         command.tx.afterCommit(() => readings.set(entry.id, reading));
         log.append(stream, [{ type: "bank.added", payload: { bank: entry } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-        return { aggregate: stream, result: { bank: recordOf(entry, reading) } };
+        return { aggregate: stream, result: { bank: recordOf(entry, reading, claims) } };
       };
     },
   };
 
   return {
-    list: async () => Promise.all(listBanks(reader).map(record)),
-    async get(bankId) {
-      const entry = liveBank(reader, bankId);
-      return entry === null ? null : record(entry);
-    },
+    list: records,
+    get: async (bankId) => (await records()).find((bank) => bank.id === bankId) ?? null,
     entries: () => listBanks(reader).map((entry) => ({ entry, index: readings.get(entry.id)?.index ?? null })),
     async verify(bankId) {
       if (bankId === undefined) return verifyAll();
       const entry = liveBank(reader, bankId);
       if (entry !== null) await verifyOne(entry);
-      return Promise.all(listBanks(reader).map(record));
+      return records();
     },
     register,
   };
