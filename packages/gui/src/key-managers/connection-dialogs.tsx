@@ -95,9 +95,9 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
 
 /**
  * Edit (`keyManagers.connections.update`): the label, the address (never
- * 1Password's, which its account names, #1118), the token role and the CA,
- * pinned from the certificate the address presents once a person trusts
- * it, or unpinned. Save sends only what changed; a new address
+ * 1Password's, the account URL its token names, #1118), the token role and
+ * the CA, pinned from the certificate the address presents once a person
+ * trusts it, or unpinned. Save sends only what changed; a new address
  * or CA is signed in against by the environment first, and a refusal stays
  * in the form in one line.
  */

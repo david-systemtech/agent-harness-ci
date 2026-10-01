@@ -331,7 +331,7 @@ describe("the card's verbs", () => {
     expect(params).toMatchObject({ label: "Bao at home", tokenRole: "harness-runs" });
   });
 
-  it("offers no address in a 1Password connection's Edit, which its account names", async () => {
+  it("offers no address in a 1Password connection's Edit, the account URL its token names", async () => {
     const onePassword = { label: "Team 1Password", provider: "onepassword", address: "https://my.1password.com", ca: null, method: null, mount: null, username: null } as const;
     const app = await opened({ keyManagers: { connections: [onePassword] } });
     await openKeyManagers(app);
