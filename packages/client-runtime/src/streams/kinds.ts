@@ -318,6 +318,11 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "prompt.parked":
       case "prompt.resolved":
         return data;
+      // The denylist or the Unattended review changing (#811) changes no status: the request cache reads
+      // permissions.denylist.get and permissions.settings.get, or permissions.review.list, again.
+      case "denylist.updated":
+      case "review.updated":
+        return data;
       // The forge's events (#310) change no status: the request cache refreshes `forge.accounts.list` on them, and the
       // notices queue raises the forge's rows (#320).
       case "forge.account.added":

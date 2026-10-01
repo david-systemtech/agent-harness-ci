@@ -43,7 +43,9 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
-import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
+import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
+import { spawnBrowser, type BrowserLauncher } from "../browser/headless-launch.js";
+import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { chooseChrome } from "../browser/chrome-choice.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
@@ -99,6 +101,7 @@ import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
+import { startReviewNotices } from "../permissions/review-notices.js";
 import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
@@ -306,8 +309,9 @@ export interface EnvironmentOptions {
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
   /**
-   * The operating system the preset icon follows, outside a container (#323), and the rule the scripts directory judges a
-   * pre-check's script executable by, Windows's by its extension (#526). Preset: `process.platform`; tests script it.
+   * The operating system the preset icon follows, outside a container (#323), the rule the scripts directory judges a
+   * pre-check's script executable by, Windows's by its extension (#526), and where the headless browser's executable is
+   * looked for (#555). Preset: `process.platform`; tests script it.
    */
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
@@ -567,17 +571,25 @@ export interface EnvironmentOptions {
    * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
-   * at each run's start (#550); preset: none here, until #555's manager.
-   * And the page drivers the browser tools reach, by kind (#551), each over
-   * its preset: a Chrome paired with this environment is driven by its
-   * extension driver (#552), and every other kind answers that it cannot be
-   * driven here yet.
+   * at each run's start (#550); preset: the headless browser's own answer
+   * (#555). And the page drivers the browser tools reach, by kind (#551),
+   * each over its preset: a Chrome paired with this environment is driven by
+   * its extension driver (#552), the headless browser by its driver (#555),
+   * and the dock answers that it cannot be driven here yet.
+   * And how the headless browser is found and started (#555): whether a path
+   * is a file it can run (preset: one this process may execute), how a found
+   * Chromium is launched (preset: a child process over a pipe), and how its
+   * navigation policy resolves a name before navigating (preset: the system's
+   * resolver). Tests launch the scripted CDP peer and resolve from a table.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
     readonly headless?: HeadlessAvailabilitySeam;
     readonly drivers?: PageDrivers;
+    readonly isExecutable?: (path: string) => boolean;
+    readonly launch?: BrowserLauncher;
+    readonly resolve?: Resolver;
   };
 }
 
@@ -1047,6 +1059,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
         chrome.environmentId.toLowerCase() === record.id.toLowerCase()
           ? browser.driverOf(chrome.chromeId)
           : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
+      // The headless browser (#555): one driver for every session, a browser context each.
+      headless: () => browser.headless.driver,
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
@@ -1226,9 +1240,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       // Each run's browser (#550): the session's field by whether a person is present, the operator's switch as it is at the
-      // run's start, and whether a headless browser is here.
+      // run's start, and whether a headless browser is here, as the headless browser answers it (#555).
       resolveBrowser: (request) =>
-        resolveRunBrowser(request, { allowRuns: settings()["browser.headless.allowRuns"], headless: (options.browser?.headless ?? noHeadlessBrowser)() }),
+        resolveRunBrowser(request, {
+          allowRuns: settings()["browser.headless.allowRuns"],
+          headless: options.browser?.headless?.() ?? browser.headless.availability(),
+        }),
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
@@ -1307,8 +1324,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
-  // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
+  // A prompt that parks, and its answer, are told to every client there (#130), as is a change to the Unattended review (#811);
+  // stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
+  closers.push(startReviewNotices({ log, stream: environmentStream }));
   // The reaper (#330): a purged session's workspace inside a workspace root goes once the purge commits, off the log's path,
   // when no other session names it; a worktree with work in it stays, noticed. Closed before the log, letting its work end.
   const reaper = createReaper({
@@ -1497,6 +1516,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
+    // The headless browser (#555): an endpoint, else a Chromium it launches, never in a container the install declared.
+    headless: {
+      declaredContainer: detector.declared?.() ?? false,
+      find: (named) =>
+        findHeadlessExecutable(named, {
+          platform: options.platform ?? process.platform,
+          env: process.env,
+          home: homedir(),
+          isExecutable: options.browser?.isExecutable ?? isExecutableFile,
+        }),
+      launch: options.browser?.launch ?? spawnBrowser,
+      resolve: options.browser?.resolve ?? systemResolver,
+    },
   });
   /** A client session's label, which sentences and records name it by; undefined for one never issued. */
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
@@ -1559,7 +1591,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
-    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    ...denylistMethods({ log, accessLog, environmentId: record.id, dataDir, context: denylistContext }),
     ...setupMethods(setup),
     // An LLM step's minted session (#584): created and started as sessions.create and runs.start would, in process.
     ...mintMethods({ log, host, resolver: workspaceResolver, steps: setupSteps, ceilingOf: (id) => clientSessions.ceiling(id) }),

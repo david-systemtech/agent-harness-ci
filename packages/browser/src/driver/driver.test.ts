@@ -825,6 +825,20 @@ describe("the frame judge", () => {
     });
   });
 
+  it("puts an address the agent named to the host's own check before the browser opens it, after the denylist, and opens nothing it refuses", async () => {
+    const checked: string[] = [];
+    const beforeNavigation = async (url: string) => {
+      checked.push(url);
+      return url.includes("intranet") ? `${url} resolves to 10.0.0.5, a private address.` : null;
+    };
+    const { peer, perform } = await driven({ kind: "headless", policy: { ...plainPolicy, browserDomains: [listed("paypal.com")] }, beforeNavigation });
+    expect(await perform("open", { url: "intranet.example" })).toEqual({ ok: false, reason: "https://intranet.example resolves to 10.0.0.5, a private address." });
+    expect(await perform("navigate", { url: "https://paypal.com/" })).toMatchObject({ ok: false, denylist: { frame: "top-level" } });
+    expect(peer.sentOf("Page.navigate")).toEqual([]);
+    expect(await perform("navigate", { url: "https://news.example/" })).toMatchObject({ ok: true, value: { url: "https://news.example/" } });
+    expect(checked).toEqual(["https://intranet.example", "https://news.example/"]);
+  });
+
   it("gives the host's rule a document no server served with no address, not the one the frame's last document came from", async () => {
     const arrivals: FrameArrival[] = [];
     // The host lists intranet.example as internal: another address served from 10.x is refused.

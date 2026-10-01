@@ -79,7 +79,7 @@ const played = () => {
     print: (data: string) => listener?.({ kind: "output", data, sequence: ++sequence, live: true }),
     /** A snapshot of what the terminal's scrollback still holds, as a resubscription answered with one. */
     reset: (data: string, truncated: boolean) => listener?.({ kind: "reset", data, sequence: ++sequence, truncated, terminal: null as never }),
-    exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" } }),
+    exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" }, occurredAt: clock.now().toISOString() }),
     /** The terminal gone with no exit said (closed by another client, lost to a restart of the environment). */
     vanish: () => state.set({ status: "ended", cursor: sequence, terminal: null, exit: null, fault: null }),
     deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1", screens },

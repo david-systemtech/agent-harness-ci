@@ -34,6 +34,8 @@ import { DrainStarted } from "./lifecycle.js";
 import { ToolRunFinishedPayload, ToolRunStartedPayload } from "./managed-tool-commands.js";
 import { ToolsUpdatedPayload } from "./managed-tools.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
+import { DenylistUpdatedPayload } from "./denylist.js";
+import { ReviewUpdatedPayload } from "./permissions.js";
 import { RunId } from "./adapter.js";
 import {
   RoutineDeliveredPayload,
@@ -98,6 +100,10 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "prompt.parked",
   "prompt.resolved",
   "usage.updated",
+  // The denylist changed, and the Unattended review did: each on a stream no client follows whole (the access log, a
+  // session's, the settings stream), so a client's cached answers of them wait on these (#811).
+  "denylist.updated",
+  "review.updated",
   // The ForgeService's own events, which its store is kept from (#310).
   "forge.account.added",
   "forge.account.updated",
@@ -184,6 +190,8 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "prompt.parked": "A run waits for a person's answer.",
   "prompt.resolved": "A parked prompt was answered.",
   "usage.updated": "An account's plan-usage reading changed; a client refreshes what it caches of the readings.",
+  "denylist.updated": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again.",
+  "review.updated": "The Unattended review changed; a client reads permissions.review.list again.",
   "forge.account.added": "A forge account was added; a client refreshes what it caches of the forge accounts.",
   "forge.account.updated": "A forge account's slug, aliases or credential changed; a client refreshes what it caches of the forge accounts.",
   "forge.account.primary-set": "A forge account became the primary forge; a client refreshes what it caches of the forge accounts.",
@@ -351,6 +359,17 @@ const UsageUpdated = z
 const describedNotice = <const T extends string, P extends z.ZodType>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
+const DenylistUpdated = describedNotice(
+  "denylist.updated",
+  DenylistUpdatedPayload,
+  "The denylist changed through permissions.denylist.set or restorePresets, in the transaction of the access log's denylist.changed events: the sections that changed, whose entries and counts a client reads again.",
+);
+const ReviewUpdated = describedNotice(
+  "review.updated",
+  ReviewUpdatedPayload,
+  "The Unattended review changed once something committed: a run it lists was decided in, it was seen, or a session holding runs it lists was deleted or restored; a client reads permissions.review.list again.",
+);
+
 const ForgeAccountAdded = describedNotice("forge.account.added", ForgeAccountAddedPayload, "A forge account was added: its origin, kind, slug, identity, credential source, primary flag and problem.");
 const ForgeAccountUpdated = describedNotice("forge.account.updated", ForgeAccountUpdatedPayload, "A forge account's slug, aliases or credential changed.");
 const ForgeAccountPrimarySet = describedNotice("forge.account.primary-set", ForgeAccountPrimarySetPayload, "A forge account became the primary forge, and the one that was is cleared.");
@@ -506,6 +525,8 @@ export const EnvironmentNotice = z
     PromptParked,
     PromptResolved,
     UsageUpdated,
+    DenylistUpdated,
+    ReviewUpdated,
     ForgeAccountAdded,
     ForgeAccountUpdated,
     ForgeAccountPrimarySet,

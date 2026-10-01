@@ -60,7 +60,9 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * `carry-over.imported` (#578) or `carry-over.memory-assigned` (#580),
  * which refresh the cached `carryOver.inventory`; nor
  * `state-import.finished` (#581), which
- * refreshes the cached `stateImport.detect`.
+ * refreshes the cached `stateImport.detect`; nor `denylist.updated` and
+ * `review.updated` (#811), which refresh the cached denylist, permission
+ * settings and Unattended review.
  */
 
 export interface EnvironmentNoticeContext {
@@ -226,6 +228,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
         case "trust.updated":
+          return;
+        // The denylist or the Unattended review changed (#811): the request cache reads them again, and the Permissions pane
+        // and card show them.
+        case "denylist.updated":
+        case "review.updated":
           return;
         // An owned instruction changed (#505): the request cache reads instructions.list, instructions.preview and instructions.diff (#509) again.
         case "instructions.updated":
