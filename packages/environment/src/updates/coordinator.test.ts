@@ -346,6 +346,23 @@ describe("the pending update", () => {
     expect(await pendingOf(client)).toMatchObject({ state: "draining", updateId, cause: "cap" });
   });
 
+  it("read back from the log after a start, waits the idle window from the start before it drains, as after a run: the start counts as activity (#445)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const { t, updateId } = await pendingUpdate({ dataDir });
+    t.clock.advance(3 * HOUR);
+    // The stop cuts the run that held it: the new start's registry knows no run.
+    await t.close();
+
+    const again = await start({ dataDir, clock: t.clock });
+    const client = await again.client();
+    expect(await pendingOf(client)).toMatchObject({ state: "waiting", updateId, waitsOn: { reason: "recent-activity", until: at(3 * HOUR + 10 * MINUTE) } });
+    again.clock.advance(9 * MINUTE);
+    expect(await pendingOf(client)).toMatchObject({ state: "waiting", updateId });
+    expect(updateNotices(again).map((notice) => notice.type)).toEqual(["environment.update-pending"]);
+    again.clock.advance(MINUTE);
+    expect(updateNotices(again).at(-1)).toEqual({ type: "environment.update-started", payload: { updateId, fromVersion: RUNNING, toVersion: TARGET, cause: "idle" } });
+  });
+
   it("keeps its since when a newer artefact replaces it, under a new update id", async () => {
     const { t, client, updateId } = await pendingUpdate();
     t.clock.advance(2 * HOUR);

@@ -64,8 +64,19 @@ describe("the agent-harness command serve gives git as its credential helper", (
     });
   });
 
-  it("is the command line serve runs as in the foreground, and under a launcher with no shim, one started by hand, naming nothing it reads", () => {
+  it("is the command line serve runs as in the foreground, naming nothing it reads", () => {
     expect(harnessCommand("/data", false, { platform: "linux", program, exists: () => true })).toEqual({ command: program(), reads: [] });
-    expect(harnessCommand("/data", true, { platform: "linux", program, exists: () => false })).toEqual({ command: program(), reads: [] });
+  });
+
+  it("is the running command under a launcher with no shim, reading the versions directory so the CLI can load its packages and dependencies", () => {
+    const dataDir = "/data";
+    const running = () => [
+      join(dataDir, "versions", "0.1.0", "node", "bin", "node"),
+      join(dataDir, "versions", "0.1.0", "packages", "cli", "dist", "main.js"),
+    ];
+    expect(harnessCommand(dataDir, true, { platform: "linux", program: running, exists: () => false })).toEqual({
+      command: running(),
+      reads: [join(dataDir, "versions")],
+    });
   });
 });

@@ -2,6 +2,7 @@ import { serverArtefact } from "../../test/artefacts.js";
 import { testLauncher } from "../../test/launcher.js";
 import * as eventLogs from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
+import { PRESET_IDLE_WINDOW_MS } from "../serve/run-registry.js";
 import { createServer, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { create, refusal } from "../../test/sessions.js";
@@ -28,6 +29,8 @@ describe("routines across a drain and restart", () => {
     const dataDir = tempDir();
     const t = await start({ dataDir, adapter: fakeAdapter({ script: working }) });
     const client = await t.client();
+    // Past the idle window its start holds (#445), before the routine has any due time.
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
     const { state } = await created(client, written({ schedule: { kind: "cron", expression: "*/5 * * * *" }, ifMissed: "skip" }));
     expect((await client.request("environment.status", {})).activity).toEqual({ state: "idle" });
     // Another run holds the drain open while this routine has only a future due time.
