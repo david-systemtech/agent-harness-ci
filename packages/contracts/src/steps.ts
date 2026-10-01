@@ -375,9 +375,9 @@ export const STEP_REGISTRY = [
     // The Forges step (forge spec, "The Forges step"; ADR 0020, ADR 0032, ADR 0033; #319), at home on the Access band's
     // Forges row (ADR 0027), linking the Key manager step, whose Move card takes stored tokens (ADR 0028). It writes no
     // settings key: its forge accounts go through the four forge account commands. Skippable: with no forge account it
-    // answers skipped, the first step that does (ADR 0020). Its checks await a verification of every forge account
-    // (a network call); every forge.account.* event re-runs it, and tools.updated, since forges.gh reads gh's Managed
-    // tools row (#677).
+    // answers skipped, the first step that does (ADR 0020). Its checks read every forge account's last verification, or
+    // await one when it is older than the cadence (a network call; #680); every forge.account.* event re-runs it, and
+    // tools.updated, since forges.gh reads gh's Managed tools row (#677).
     id: "forges",
     home: "access.forges",
     writes: [],

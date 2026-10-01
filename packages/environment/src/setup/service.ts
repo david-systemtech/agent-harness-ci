@@ -59,7 +59,7 @@ export interface SetupService {
    * the results in the registry's order, each kept in the cache first. A
    * step whose check is running is not checked again: it answers that run's
    * result, whoever asked for it. The environment's own schedule asks
-   * unless a client is named (`setup.methods`).
+   * unless a client is named, as `setup.check` names one (`methods.ts`).
    */
   check(step?: RegisteredStepId, askedBy?: CheckAsker): Promise<StepResult[]>;
   /** Whether `step`'s check is running now. */
