@@ -155,6 +155,7 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { createRoutineScheduler } from "../routines/scheduler.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
 import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
@@ -1848,6 +1849,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
   const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
   closers.push(() => setupScheduler.stop());
+  // The routines' scheduler (#527): its start pass applies the missed rule to what came due while the environment was down,
+  // then arms its timer and its check, firing with no client needed; stopped before the firing starter closes.
+  const routineScheduler = createRoutineScheduler({ log, clock, environmentId: record.id, firings });
+  closers.push(() => routineScheduler.stop());
+  routineScheduler.start();
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
