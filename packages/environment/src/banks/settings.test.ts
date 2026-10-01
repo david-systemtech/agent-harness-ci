@@ -229,6 +229,21 @@ describe("bank registry settings through the wire", () => {
     expect(existsSync(staged)).toBe(false);
   });
 
+  it("preserves a staged checkout adopted by another bank even after that registration is forgotten", async () => {
+    const t = await start({ dataDir: tempDir("bank-removal-adopted-") });
+    const client = await t.client();
+    const bank = await managedBank(t, client);
+    const staged = join(t.dataDir, "bank-checkout-removals", bank.id);
+    mkdirSync(dirname(staged), { recursive: true });
+    renameSync(bank.checkout, staged);
+    t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, [{ type: "bank.forgotten", payload: { bankId: bank.id, checkoutRemoved: true } }], { actor: "system:banks" });
+    const adopted = await client.request("banks.register", { commandId: randomUUID(), bankId: randomUUID(), path: staged, role: "read-write", accounts: "all", repositories: "all", defaultFor: [] });
+    await client.request("banks.forget", { commandId: randomUUID(), bankId: adopted.result!.bank.id });
+    const restarted = await restartAfter(t, 0, start);
+    expect((await (await restarted.client()).request("banks.list", {})).banks).toEqual([]);
+    expect(existsSync(join(staged, "BANK.md"))).toBe(true);
+  });
+
   it("retains a forgotten checkout by default and refuses explicit removal of a registered path", async () => {
     const t = await start();
     const client = await t.client();

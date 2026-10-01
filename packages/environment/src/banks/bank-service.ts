@@ -551,7 +551,8 @@ export const createBankService = (options: BankServiceOptions): BankService => {
               const root = checkoutRemovalRoot(options.dataDir);
               mkdirSync(root, { recursive: true });
               assertRemovalRoot(root, options.dataDir);
-              const to = join(root, entry.id);
+              const to = join(realpathSync(root), entry.id);
+              if (protectedRemovalPath(reader, to, entry.id)) return { aggregate: stream, rejected: { code: "conflict", message: "The checkout removal path belongs to another registered bank.", data: { reason: "registered_path", bankId: entry.id } } };
               if (existsSync(to)) throw new Error("A checkout removal is pending already.");
               renameSync(entry.checkout, to);
               staged = { from: entry.checkout, to };
@@ -564,7 +565,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
         log.append(stream, [{ type: "bank.forgotten", payload: result }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
         command.tx.afterCommit(() => {
           readings.delete(entry.id);
-          if (staged !== undefined) rmSync(staged.to, { recursive: true, force: true });
+          if (staged !== undefined && !protectedRemovalPath(reader, staged.to, entry.id)) rmSync(staged.to, { recursive: true, force: true });
         });
         return { aggregate: stream, result };
       };
@@ -620,6 +621,20 @@ const assertRemovalRoot = (root: string, dataDir: string): void => {
   if (lstatSync(root).isSymbolicLink() || dirname(realpathSync(root)) !== realpathSync(dataDir)) throw new Error("The bank checkout removal directory must be a direct directory in the data directory.");
 };
 
+/** Adopting a staged path cancels its removal, even if that registration later forgets it. */
+const protectedRemovalPath = (reader: Reader, path: string, bankId: string): boolean => {
+  const canonical = (checkout: string): string => existsSync(checkout) ? realpathSync(checkout) : resolve(checkout);
+  try {
+    const staged = canonical(path);
+    return reader.all<{ entry: string }>("SELECT entry FROM banks WHERE id != ?", bankId).some((row) => {
+      const other = canonical((JSON.parse(row.entry) as BankEntry).checkout);
+      return other === staged || other.startsWith(staged + sep) || staged.startsWith(other + sep);
+    });
+  } catch {
+    return true;
+  }
+};
+
 /** A process interruption restores an uncommitted rename, or finishes a committed removal. */
 const recoverCheckoutRemovals = (reader: Reader, log: EventLog, stream: StreamRef, dataDir: string): void => {
   const root = checkoutRemovalRoot(dataDir);
@@ -632,6 +647,10 @@ const recoverCheckoutRemovals = (reader: Reader, log: EventLog, stream: StreamRe
     const entry = JSON.parse(row.entry) as BankEntry;
     if (entry.checkoutOwnership !== "managed") throw new Error("A pending checkout removal must belong to a managed bank.");
     const staged = join(root, directory.name);
+    if (protectedRemovalPath(reader, staged, entry.id)) {
+      if (row.forgotten_at === null) throw new Error("The pending bank checkout cannot be restored from a path adopted by another bank.");
+      continue;
+    }
     if (row.forgotten_at === null) {
       if (!removableCheckout(entry, listBanks(reader), dataDir) || existsSync(entry.checkout)) throw new Error("The pending bank checkout cannot be restored into an occupied or registered path.");
       renameSync(staged, entry.checkout);
