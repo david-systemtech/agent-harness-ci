@@ -167,7 +167,9 @@ describe("the call", () => {
   });
 
   it("goes, for a run the environment started itself, to the client session that started the session's latest run a client started", async () => {
-    const t = await start();
+    // An adapter without a provider queue, so the laptop's message waits in the environment's queue: the fake's steering
+    // queue would fold it into the desktop's run, and no run would follow (#1057).
+    const t = await start({ adapter: fakeAdapter({ capabilities: { providerQueue: false, steering: false } }) });
     const first = await clientNamed(t, "The laptop");
     const starter = await clientNamed(t, "David's desktop");
     const calls = await hearing(t, starter);
@@ -183,6 +185,8 @@ describe("the call", () => {
     const answers: HostToolResult[] = [];
     adapterOf(t).nextScripts.push(calling([["browser_snapshot"]], answers));
     await starter.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Wait for more" });
+    // Sent once the provider has the run, the order the flake lost.
+    await adapterOf(t).reached(2);
     await first.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "And look at the page" });
     sent.open();
 
