@@ -5,6 +5,7 @@ import { useMacOS } from "../keys/key-dispatch.js";
 import { clashOf, defaultGuiKeys, guiKeysOf, isRemappable, isWrittenOff, keyRefusal, withKey, withoutRemap, type KeyRemaps } from "../keys/key-map.js";
 import { Button, Input, Switch } from "../ui/index.js";
 import { usePresentation } from "../window-context.js";
+import { InstructionControlShortcuts, instructionControlsMatching } from "../instructions/shortcuts.js";
 
 /**
  * The Keyboard shortcuts pane, `appearance.shortcuts` (docs/specs/gui.md,
@@ -55,6 +56,7 @@ export const ShortcutsPane = () => {
     title: part.title,
     actions: (part.actions as readonly ListedAction[]).filter((action) => matches(action, remaps, macOS, query)),
   })).filter((part) => part.actions.length > 0);
+  const instructionControls = instructionControlsMatching(query);
 
   return (
     <>
@@ -70,7 +72,7 @@ export const ShortcutsPane = () => {
           Reset every key
         </Button>
       </div>
-      {found.length === 0 ? (
+      {found.length === 0 && instructionControls.length === 0 ? (
         <p className="text-sm text-ink-faint">No action matches “{query}”.</p>
       ) : (
         found.map((part) => (
@@ -97,6 +99,7 @@ export const ShortcutsPane = () => {
           </table>
         ))
       )}
+      <InstructionControlShortcuts rows={instructionControls} />
     </>
   );
 };

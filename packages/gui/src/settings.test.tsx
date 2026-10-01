@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
 import { BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
+import { scriptInstructions } from "../test/instructions.js";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -237,18 +238,14 @@ describe("an unreachable environment", () => {
   });
 });
 
-describe("a row whose feature is not built", () => {
-  it("shows its hint, its step's link and the generic editor for its keys, each drawn by its form", async () => {
+describe("built and unbuilt row controls", () => {
+  it("keeps its hint and step link beside built controls or generic keys", async () => {
     const app = await opened();
     await openSettings(app);
+    scriptInstructions(app.environment("desk"));
     const instructions = await openRow(app, "Instructions");
     expect(within(instructions).getByText("The standing instructions runs receive, beside the orientation block.")).toBeDefined();
-    expect(
-      within(instructions)
-        .getAllByRole("group")
-        .map((group) => within(group).getAllByText(/\./)[0]?.textContent),
-    ).toEqual(["instructions.orientation"]);
-    expect((await within(field(instructions, "instructions.orientation")).findByRole("switch")).getAttribute("aria-checked")).toBe("true");
+    expect((await within(instructions).findByRole("switch", { name: "Orientation enabled" })).getAttribute("aria-checked")).toBe("true");
 
     // A step's link opens the full checklist on its card; closing it comes back to Settings.
     await app.user.click(within(instructions).getByRole("button", { name: "Open the Instructions step in Set up" }));
@@ -256,7 +253,7 @@ describe("a row whose feature is not built", () => {
     expect(within(checklist).getByRole("region", { name: "Instructions" })).toBeDefined();
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
     const again = pane("Instructions");
-    expect(within(field(again, "instructions.orientation")).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+    expect(within(again).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox");
     expect(within(ceiling).getAllByRole("option").map((option) => option.textContent)).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);
