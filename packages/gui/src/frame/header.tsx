@@ -4,6 +4,7 @@ import { GridLine } from "../grid/grid.js";
 import { focusedPane } from "../grid/layout.js";
 import { SplitActions } from "../grid/split-actions.js";
 import { HeaderNewSession } from "../new-session/control.js";
+import { ParkedAsksButton } from "../parked-asks/parked-asks.js";
 import { SetupLine } from "../setup/setup-line.js";
 import { SidePanesMenu } from "../side-column/side-panes-menu.js";
 import { TerminalAction } from "../terminal/terminal-action.js";
@@ -26,8 +27,9 @@ const FocusedEnvironment = () => {
  * The window's header, across its top (docs/specs/gui.md, "The window and
  * the sidebar"): the product, the focused pane's environment and its
  * actions, New session (#420), the split actions with the grid's line,
- * "Restart to update" once a desktop build is staged (#424), and the Set up
- * line while a step on the home environment needs attention.
+ * "Restart to update" once a desktop build is staged (#424), the Parked
+ * asks button with its count (#405), and the Set up line while a step on
+ * the home environment needs attention.
  */
 export const Header = () => (
   <header className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-panel px-3">
@@ -40,6 +42,7 @@ export const Header = () => (
     <GridLine />
     <span className="ml-auto flex items-center gap-2">
       <RestartToUpdate />
+      <ParkedAsksButton />
       <SetupLine />
     </span>
   </header>

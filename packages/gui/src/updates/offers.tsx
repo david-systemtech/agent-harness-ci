@@ -1,4 +1,4 @@
-import { bundledServerWords, clientOfferWords, clientUpdateWords, offersClientVersion, type ActionOutcome, type BundledServerView, type EnvironmentView } from "@agent-harness/client-runtime";
+import { bundledServerWords, clientOfferAskWords, clientOfferWords, clientUpdateWords, offersClientVersion, type ActionOutcome, type BundledServerView, type EnvironmentView } from "@agent-harness/client-runtime";
 import { useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { Button } from "../ui/index.js";
@@ -50,7 +50,7 @@ export const ClientOffer = ({ view }: { readonly view: EnvironmentView }) => {
         <>
           <p className="text-ink">{clientOfferWords(client, name, version)}</p>
           <Button disabled={!writable || asking} onClick={ask}>
-            Update {name} to {client}
+            {clientOfferAskWords(client, name)}
           </Button>
         </>
       )}

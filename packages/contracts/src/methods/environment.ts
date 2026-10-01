@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EnvironmentColour } from "../environment-colours.js";
 import { EnvironmentIcon, EnvironmentLook, EnvironmentName } from "../environment-look.js";
+import { KNOWN_ENVIRONMENTS_MAX, KnownEnvironment } from "../known-environments.js";
 import { DrainStarted, EnvironmentStatus } from "../lifecycle.js";
 import { commandParams, defineMethod, subscriptionParams } from "../method.js";
 import { Sequence } from "../primitives.js";
@@ -98,4 +99,28 @@ export const environmentSetColour = defineMethod({
   result: EnvironmentLook,
   errors: [],
   kind: "command",
+});
+
+/**
+ * A desktop's or terminal UI's other connections, each its environment's id,
+ * name and the address the client uses (key-managers spec, "The orientation
+ * block"; #382). The report is whole: it replaces this client session's last,
+ * and is dropped when the client session is revoked or expires. The union of
+ * the reports, this environment left out, is the orientation block's other
+ * environments section; a change to it raises
+ * `environment.known-environments-updated`, and a report that changes nothing
+ * raises none. A program client session is refused `forbidden` with the
+ * reason `program`, so no program puts text into every run.
+ */
+export const environmentKnownEnvironmentsReport = defineMethod({
+  name: "environment.knownEnvironments.report",
+  scope: "read",
+  params: z.object({
+    environments: z.array(KnownEnvironment).max(KNOWN_ENVIRONMENTS_MAX).meta({
+      description: `The client's other connections, at most ${KNOWN_ENVIRONMENTS_MAX}: every one it holds but this environment's, in any order.`,
+    }),
+  }),
+  result: z.object({}),
+  errors: [],
+  kind: "query",
 });

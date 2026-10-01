@@ -14,11 +14,13 @@ import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
 import { instructionMethodFixtures, instructionSchemaFixtures } from "./instruction-fixtures.js";
 import { keyManagerMethodFixtures, keyManagerSchemaFixtures } from "./key-manager-fixtures.js";
+import { knownEnvironmentMethodFixtures, knownEnvironmentSchemaFixtures, knownEnvironmentsNotice } from "./known-environment-fixtures.js";
 import { lookMethodFixtures, lookSchemaFixtures, validLook } from "./look-fixtures.js";
 import { managedToolMethodFixtures, managedToolSchemaFixtures, toolRunNotices, toolsUpdatedNotice } from "./managed-tool-fixtures.js";
 import { invalidBindings, networkSchemaFixtures, validBindings } from "./network-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
+import { readinessMethodFixtures, readinessSchemaFixtures } from "./readiness-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
@@ -536,6 +538,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
     result: { valid: [{ events: [] }, { events: [validEnvelope] }], invalid: [{ events: [{}] }, {}] },
   },
   ...lookMethodFixtures,
+  ...knownEnvironmentMethodFixtures,
   ...sessionMethodFixtures,
   ...runMethodFixtures,
   ...providerMethodFixtures,
@@ -553,6 +556,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...updateMethodFixtures,
   ...routineMethodFixtures,
   ...skillMethodFixtures,
+  ...readinessMethodFixtures,
   ...trustMethodFixtures,
   ...browserMethodFixtures,
   ...carryOverMethodFixtures,
@@ -783,6 +787,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "environment.renamed",
       "environment.icon-set",
       "environment.colour-set",
+      "environment.known-environments-updated",
       "account.updated",
       "signin.updated",
       "signin.executable-chosen",
@@ -817,6 +822,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.renamed", payload: { name: "MNL" } },
       { type: "environment.icon-set", payload: { icon: "nas" } },
       { type: "environment.colour-set", payload: { colour: "amber" } },
+      knownEnvironmentsNotice.valid,
       { type: "account.updated", payload: { accountId: "claude-max", change: "status-changed", warning: null } },
       {
         type: "signin.updated",
@@ -878,6 +884,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "environment.renamed", payload: { name: "" } },
       { type: "environment.icon-set", payload: { icon: "phone" } },
       { type: "environment.colour-set", payload: { colour: "#ffbf00" } },
+      knownEnvironmentsNotice.invalid,
       { type: "environment.draining", payload: { drainingSince: "soon", trigger: "signal" } },
       { type: "environment.draining", payload: { drainingSince: at } },
       { type: "environment.stopped", payload: {} },
@@ -1006,12 +1013,14 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...managedToolSchemaFixtures,
   ...networkSchemaFixtures,
   ...skillSchemaFixtures,
+  ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
   ...carryOverSchemaFixtures,
   ...stateImportSchemaFixtures,
   ...themeSchemaFixtures,
   ...lookSchemaFixtures,
+  ...knownEnvironmentSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
   ...workspaceSchemaFixtures,

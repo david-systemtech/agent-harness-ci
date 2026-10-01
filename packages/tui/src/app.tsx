@@ -7,6 +7,9 @@ import {
   attachmentRefusal,
   attachmentRefused,
   browse,
+  bulkAsks,
+  bulkQuestion,
+  decidable,
   directoryOf,
   followDraft,
   inWorkspace,
@@ -28,6 +31,7 @@ import {
   undoableFold,
   userMessagesOf,
   withdrawQueued,
+  workspaceLabel,
   type BrowseRow,
   type Clock,
   type EnvironmentView,
@@ -57,7 +61,7 @@ import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
 import { RECAP_FLASH_MS } from "./attention/policy.js";
 import { useAttention } from "./attention/use-attention.js";
 import { useAnswers } from "./cards/answers.js";
-import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
+import { askKey, askRows, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import {
   applyAction,
@@ -74,6 +78,7 @@ import {
 } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
+import { updateCard, updateNow, updateToClient } from "./commands/updates.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
@@ -113,7 +118,7 @@ import { badgesOf } from "./rail/badge.js";
 import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
-import { isFullPath, workspaceLabel } from "./rail/workspace-step.js";
+import { isFullPath } from "./rail/workspace-step.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
@@ -231,6 +236,8 @@ export interface AppProps {
   readonly size?: { readonly columns: number; readonly rows: number };
   /** Mints a command id for a direct `admin` command. */
   readonly newCommandId: () => string;
+  /** This client's version, the harness version it was built as: what it offers an environment running an older one (#827). */
+  readonly version: string;
   /** Mints a session id for `/new`: a version 4 UUID. */
   readonly newSessionId?: () => string;
   /** The state directory: the prompt history, the snippets and the `@` pick memory live there. None, and they are not kept. */
@@ -1334,6 +1341,18 @@ export const App = (props: AppProps) => {
 
   const viewOf = (environmentId: string): EnvironmentView | undefined => views.find((v) => v.environmentId === environmentId);
 
+  // The update of the environment whose card is open (#827): its `updates.status`, followed while the card is open, which
+  // the request cache reads again on each update notice.
+  const cardEnvironmentId = screen.card.kind === "menu" ? screen.card.environmentId : undefined;
+  const cardStatus = useMemo(
+    () => (cardEnvironmentId !== undefined ? runtime.requests.cached(cardEnvironmentId, "updates.status", {}) : undefined),
+    [runtime, cardEnvironmentId],
+  );
+  useFollow(cardStatus, request);
+  const cardView = cardEnvironmentId !== undefined ? viewOf(cardEnvironmentId) : undefined;
+  const cardUpdate = cardView ? updateCard(cardView, cardStatus?.read(), props.version, clock.now()) : undefined;
+  const cardActions = cardView ? actionsFor(cardView, cardUpdate?.offered ?? null) : [];
+
   const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
   const rail = useRail({
     runtime,
@@ -1433,10 +1452,11 @@ export const App = (props: AppProps) => {
     if (card.kind === "menu") {
       const environment = viewOf(card.environmentId);
       if (!environment) return update({ card: { kind: "environments", cursor: 0 } });
-      const actions = actionsFor(environment);
-      const action = actions[clampCursor(card.cursor, actions.length)];
+      const action = cardActions[clampCursor(card.cursor, cardActions.length)];
       if (action === "sessions") return openClientSessions(environment);
       if (action === "name" || action === "icon" || action === "colour") return changeLook(environment, action, null);
+      if (action === "update") return void updateNow(runtime, environment, props.newCommandId()).then(say);
+      if (action === "update-to-client") return void updateToClient(runtime, environment).then(say);
       if (action === "remove") {
         return update({
           question: {
@@ -1532,10 +1552,8 @@ export const App = (props: AppProps) => {
     switch (card.kind) {
       case "environments":
         return views.length;
-      case "menu": {
-        const environment = viewOf(card.environmentId);
-        return environment ? actionsFor(environment).length : 0;
-      }
+      case "menu":
+        return cardActions.length;
       case "client-sessions":
         return card.rows?.length ?? 0;
       case "sessions":
@@ -1580,7 +1598,7 @@ export const App = (props: AppProps) => {
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
   const askList = card.kind === "asks" ? askRows(asks, views, opened) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
-  const bulk = askList.filter((row) => inBulk(row.ask.kind));
+  const bulk = bulkAsks(askList.map((row) => row.ask));
   /** `y` or `n` on the row under the cursor: a permission or denylist prompt answered in place; any other is opened to answer. */
   const decideInPlace = (decision: "allow" | "deny"): false | void => {
     if (!askAt) return false;
@@ -1589,12 +1607,11 @@ export const App = (props: AppProps) => {
   };
   /** `a` or `N`: every permission row answered at once, once confirmed, and only when there are two or more. */
   const decideAll = (decision: "allow" | "deny"): false | void => {
-    if (card.kind !== "asks" || bulk.length < 2) return false;
-    const targets = bulk.map((row) => row.ask);
+    if (card.kind !== "asks" || bulk.length === 0) return false;
     update({
       question: {
-        text: decision === "allow" ? `Allow all ${targets.length} permissions once? y/n` : `Deny all ${targets.length} permissions? y/n`,
-        yes: () => targets.forEach((target) => answers.answer(target, { decision })),
+        text: `${bulkQuestion(decision, bulk.length)} y/n`,
+        yes: () => bulk.forEach((target) => answers.answer(target, { decision })),
       },
     });
   };
@@ -2234,7 +2251,9 @@ export const App = (props: AppProps) => {
         )}
         <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {card.kind === "environments" && <EnvironmentsCard views={views} cursor={clampCursor(card.cursor, views.length)} hint={listHint("actions", "close")} />}
-          {card.kind === "menu" && menuView && <EnvironmentMenu view={menuView} actions={actionsFor(menuView)} cursor={card.cursor} hint={listHint("choose", "back")} />}
+          {card.kind === "menu" && cardView && cardUpdate && (
+            <EnvironmentMenu view={cardView} update={cardUpdate} actions={cardActions} cursor={clampCursor(card.cursor, cardActions.length)} hint={listHint("choose", "back")} />
+          )}
           {card.kind === "client-sessions" && menuView && (
             <ClientSessionsCard view={menuView} rows={card.rows} own={own} cursor={clampCursor(card.cursor, card.rows?.length ?? 0)} hint={listHint("revoke", "back")} />
           )}
@@ -2352,7 +2371,7 @@ export const App = (props: AppProps) => {
               height={Math.max(1, helpHeight - 3)}
               hint={{
                 decidable: `${keys("asks.move")} move · ${keys("asks.open")} open · ${keys("asks.allow")} allow once · ${keys("asks.deny")} deny${
-                  bulk.length > 1 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
+                  bulk.length > 0 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
                 } · ${keys("asks.close")} closes, deciding nothing`,
                 other: `${keys("asks.move")} move · ${keys("asks.open")} open · this one is answered on its own card · ${keys("asks.close")} closes, deciding nothing`,
               }}

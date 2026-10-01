@@ -43,7 +43,7 @@ import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
-import { browserToolServer } from "../browser/tool-server.js";
+import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
 import {
@@ -132,6 +132,8 @@ import { keyManagerMovesProjector } from "../key-managers/move-store.js";
 import { createKeyManagerMoves, type MoveSource } from "../key-managers/moves.js";
 import { createKeyManagerReferences } from "../key-managers/references.js";
 import { keyManagersSection } from "../key-managers/orientation.js";
+import { createKnownEnvironments, knownEnvironmentsMethods } from "../known-environments/known-environments.js";
+import { otherEnvironmentsSection } from "../known-environments/orientation.js";
 import { createEnvironmentLook, lookProjector, nameOfHostname, presetColour, presetIcon } from "../look/look.js";
 import { managedToolsMethods } from "../managed-tools/methods.js";
 import type { ReleaseOrigins } from "../managed-tools/latest.js";
@@ -176,7 +178,8 @@ import { detectSource, type SourceMachine } from "../state-import/source/folders
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
-import { runSkillSets } from "../skills/run-skill-set.js";
+import { skillReadinessMethods } from "../skills/readiness.js";
+import { placeSkillSet, runSkillSets } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
@@ -539,11 +542,14 @@ export interface EnvironmentOptions {
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
    * at each run's start (#550); preset: none here, until #555's manager.
+   * And the page drivers the browser tools reach, by kind (#551); preset:
+   * none, each kind answering that it cannot be driven here yet.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
     readonly headless?: HeadlessAvailabilitySeam;
+    readonly drivers?: PageDrivers;
   };
 }
 
@@ -977,10 +983,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
   // The browser tool server on every run (#546): web_read, reading the internal hosts and the denylist as they are at each
-  // call, so the one server serves every run and a kept provider process the next. A redirect's address meets the
-  // denylist's hosts section here, as the gate met the address the call named.
-  const browserTools = browserToolServer(
-    createWebReader({
+  // call, so the one tool serves every run and a kept provider process the next. A redirect's address meets the
+  // denylist's hosts section here, as the gate met the address the call named. Beside it the browser's verbs where a run's
+  // resolved browser is not none (#551), each call driving the browser of its session's live run as the host holds it then.
+  const browserTools = createBrowserToolServers({
+    reader: createWebReader({
       clock,
       harnessVersion,
       rules: () => ({
@@ -994,7 +1001,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       dial: options.webRead?.dial ?? systemDialer,
       ...(options.webRead?.hooks !== undefined && { hooks: options.webRead.hooks }),
     }),
-  );
+    environmentId: record.id,
+    live: (sessionId) => host.live(sessionId),
+    drivers: options.browser?.drivers ?? {},
+  });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
@@ -1011,9 +1021,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
+  // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
+  const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
+  closers.push(() => knownEnvironments.close());
   // Every run's orientation block (#380): this environment's section, its accounts' and the key managers' with the standing
-  // rule (#381), and the forges section where runs are given the forge's variables, each put in the block's order by its
-  // name. A section a test registers takes the place of the environment's own of its name.
+  // rule (#381), the forges section where runs are given the forge's variables, and the other environments the clients
+  // report (#382), each put in the block's order by its name. A section a test registers takes the place of the
+  // environment's own of its name.
   const orientation = createOrientationRenderer({ clock });
   const givenSections = options.orientationSections ?? [];
   const ownSections: OrientationSection[] = [
@@ -1021,6 +1035,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accountsSection({ accounts: () => listAccountStandings({ all: (sql, ...params) => log.read(sql, ...params) }) }),
     keyManagersSection({ connections: () => keyManagerConnections.list(), tool: (name) => managedTools.known(name) }),
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
+    otherEnvironmentsSection({ union: () => knownEnvironments.union() }),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
   // The owned instructions (#505), after the block in the user layer while instructions.orientation is on.
@@ -1180,7 +1195,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...hostSeams,
       instructions,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
-      toolServers: (scope) => [browserTools, ...seamServers(scope), ...passthrough.toolServers(scope)],
+      toolServers: (scope) => [browserTools(scope), ...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1415,6 +1430,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // result (#569).
     "environment.subscribe": () => ({ stream: environmentStream, snapshot: () => ({ status: lifecycle.status(), environment: look.read(), setup: setup.cached() }) }),
     ...look.handlers,
+    ...knownEnvironmentsMethods(knownEnvironments),
     // The rebuild joins the command's transaction, so it and the receipt commit together.
     "environment.rebuildProjections": () => ({
       aggregate: environmentStream,
@@ -1501,6 +1517,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       defaultAccountId: () => accounts.defaultId(),
       accounts: listedAccounts,
       carryOver: carrySkills,
+    }),
+    // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
+    // overlay, a tool on the PATH runs get, which is the host environment's.
+    ...skillReadinessMethods({
+      scopeOf: (target) => host.previewScope(target),
+      account: (id) => host.account(id),
+      place: placeSkillSet({ own: ownSkills, log }),
+      hostEnv: options.managedTools?.hostEnv ?? process.env,
+      clock,
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
@@ -1804,7 +1829,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {
-      checkoutIndex: createCheckoutIndex(log),
+      checkoutIndex: createCheckoutIndex({ log, availability }),
       identityPass: identityPasses.resolved,
       availabilityPass: availabilityPasses.pass,
       reaped: () => reaper.settled(),

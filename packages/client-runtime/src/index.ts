@@ -85,7 +85,6 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
-  cliRowOf,
   cliWords,
   copyLine,
   injectsWords,
@@ -180,6 +179,17 @@ export {
 } from "./desktop-update.js";
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
+export {
+  baseName,
+  heldWords,
+  presetBranch,
+  problemLine,
+  repositoryWords,
+  requestLabel,
+  resolverRefusal,
+  workspaceLabel,
+  type RefusalPlace,
+} from "./workspaces/words.js";
 export type {
   AccountChip,
   AccountPresetReason,
@@ -206,6 +216,7 @@ export {
   type SetupView,
 } from "./projections/setup.js";
 export {
+  RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
   restoreStep,
@@ -305,6 +316,17 @@ export {
 } from "./projections/runs.js";
 export { stopFirstOffer, workspaceGoneLine, type QueuedMessage, type SessionVerbs, type StopFirstOffer, type VerbAvailability, type VerbMethod, type VerbReason } from "./projections/verbs.js";
 export type { Attention, AttentionEvent } from "./projections/attention.js";
+export {
+  harnessActivity,
+  notificationFor,
+  titleStateOf,
+  type AttentionKind,
+  type AttentionNotification,
+  type AttentionSubject,
+  type HarnessActivity,
+  type SessionActivity,
+  type TitleState,
+} from "./attention/policy.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
@@ -450,6 +472,7 @@ export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, t
 export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
+export { BULK_LEAST, askDetail, bulkAsks, bulkQuestion, decidable, inBulk } from "./prompts/asks.js";
 export {
   confirmationOf,
   describeKey,
@@ -587,11 +610,14 @@ export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.
 export {
   bundledClaudeCodeWords,
   bundledServerWords,
+  clientOfferAskWords,
   clientOfferWords,
   clientUpdateWords,
   desktopBuildWords,
+  environmentVersionWords,
   offersClientVersion,
   pendingUpdateWords,
   pinnedWords,
+  updatesUnreadWords,
 } from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";

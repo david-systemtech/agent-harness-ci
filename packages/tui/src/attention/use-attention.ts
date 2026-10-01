@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
-import { lastReply, type Clock, type ParkedAsk, type RunsView, type Runtime, type SessionListView } from "@agent-harness/client-runtime";
+import { harnessActivity, lastReply, notificationFor, type Clock, type ParkedAsk, type Runtime, type SessionListView } from "@agent-harness/client-runtime";
 import { askKey } from "../cards/asks.js";
 import { useFollow, type Opened } from "../session/use-session.js";
 import { AttentionTimer, titleFor, type TerminalChrome } from "./chrome.js";
-import { AWAY_MS, awayRecap, noticeFor, titleStateOf, type RecapSubject, type RunEnded } from "./policy.js";
+import { AWAY_MS, awayRecap, type RecapSubject, type RunEnded } from "./policy.js";
 
 /**
  * Attention (docs/specs/tui.md, "Attention"): the runtime's attention events
@@ -65,10 +65,6 @@ interface Heard {
   readonly shown: Map<string, number>;
 }
 
-/** Every session's activity, as the title reduces it. */
-const activities = (runs: RunsView) =>
-  [...runs.sessions.values()].flatMap((sessions) => [...sessions.values()].map((run) => ({ status: run.state, pendingPrompts: run.state === "parked" ? 1 : 0 })));
-
 /** The sessions in the rail's order: its shelves, top to bottom. */
 const inRailOrder = (list: SessionListView) => [...list.pinned, ...list.active, ...list.snoozed, ...list.settled, ...list.archived];
 
@@ -84,7 +80,7 @@ export const useAttention = (options: AttentionOptions): AttentionState => {
   latest.current = { options, runs };
 
   // The title: every session in one word, the open one named.
-  const state = titleStateOf(activities(runs));
+  const state = harnessActivity(runs);
   const title = titleFor({ ...state, title: options.title, folder: options.folder });
   const written = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -115,7 +111,7 @@ export const useAttention = (options: AttentionOptions): AttentionState => {
           const listed = runtime.projections.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === sessionId.toLowerCase());
           const reply = lastReply(runtime.projections.session(environmentId, sessionId).read())?.text;
           const session = listed?.summary.title;
-          latest.current.options.chrome.notify(noticeFor("finished", { ...(session !== undefined && { session }), ...(reply !== undefined && { reply }) }));
+          latest.current.options.chrome.notify(notificationFor("finished", { ...(session !== undefined && { session }), ...(reply !== undefined && { reply }) }));
         });
       }),
     [runtime, clock, timer, request],
@@ -139,7 +135,7 @@ export const useAttention = (options: AttentionOptions): AttentionState => {
       const ask = parkedNews(latest.current.runs.parkedAsks);
       if (!ask) return;
       latest.current.options.chrome.notify(
-        noticeFor("needs-you", { ...(ask.title !== null && { session: ask.title }), prompt: ask.kind, ...(ask.prompt.toolName !== null && { tool: ask.prompt.toolName }) }),
+        notificationFor("needs-you", { ...(ask.title !== null && { session: ask.title }), prompt: ask.kind, ...(ask.prompt.toolName !== null && { tool: ask.prompt.toolName }) }),
       );
     });
   }, [waiting, timer]);

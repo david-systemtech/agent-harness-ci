@@ -61,6 +61,7 @@ describe.sequential("the rail through the real spine", () => {
         faults: writable<readonly Fault[]>([]),
         size: SIZE,
         newCommandId: () => `0199ee00-0000-7000-8000-${String(++ids).padStart(12, "0")}`,
+        version: platform.client.version,
       }),
     );
     onCleanup(async () => {

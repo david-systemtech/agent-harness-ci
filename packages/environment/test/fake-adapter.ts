@@ -17,6 +17,7 @@ import {
   isInProcess,
   recordedImage,
   toolCallSummary,
+  toolServersKey,
   type AccountRef,
   type Adapter,
   type AdapterEvent,
@@ -37,6 +38,7 @@ import {
   type RunContext,
   type RunEnd,
   type RunInput,
+  type ToolServer,
   type TranscriptEvent,
   type UsageReading,
   type UsageWindow,
@@ -80,10 +82,13 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * context's port (`backgroundTask`). A process is spawned with its run's
  * process environment (#307), supplied once and reported on its record
  * (`supplied`), with its run's instruction text (`instructions`) and with
- * its skill set's fingerprint (`fingerprint`, #495); a run whose key,
- * instructions, trust or fingerprint differ lets it go for a fresh one, as
- * Claude's adapter does; a script runs a command in what its process was
- * supplied (`runCommand`).
+ * its skill set's fingerprint (`fingerprint`, #495) and with its run's tool
+ * servers (`toolServers`); a run whose key, instructions, trust, fingerprint
+ * or in-process tools (`toolServersKey`) differ lets it go for a fresh
+ * one, as Claude's adapter does. A kept process serves a later run with the
+ * tool servers it was spawned with, as Claude's does (#139, #551): a
+ * script's `input.toolServers` are its process's. A script runs a command in
+ * what its process was supplied (`runCommand`).
  *
  * Accounts (#134): the status probe answers per account directory and can
  * be changed mid-test (`setStatus`), every read is recorded
@@ -113,6 +118,7 @@ import { MANUAL_CLOCK_START } from "./clock.js";
 
 /** What a script is handed: the run's input, its context, and the messages the run is sent while it plays. */
 export interface ScriptControls {
+  /** The run's input, with its process's tool servers: a kept process serves the run with the ones it was spawned with. */
   readonly input: RunInput;
   readonly context: RunContext;
   /** Resolves with the next message the run is sent (a steer), or at once with one sent and not taken yet. */
@@ -151,6 +157,8 @@ export interface FakeProcessRecord {
   readonly trusted: boolean;
   /** The fingerprint of the skill set it was spawned with, fixed for its life as Claude's plugins are: a run with another is served by a fresh process (#495). */
   readonly fingerprint: string | null;
+  /** The tool servers it was spawned with, which serve every run on it, as Claude's MCP servers do: a run whose in-process tools differ is served by a fresh process. */
+  readonly toolServers: readonly ToolServer[];
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -750,6 +758,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       instructions: input.instructions,
       trusted: input.trusted,
       fingerprint: input.skillSet.fingerprint,
+      toolServers: input.toolServers,
       stopping: false,
       stopped: false,
       killed: false,
@@ -761,8 +770,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   /**
    * The session's process for a new run: the live one, or one started cold.
    * A live one spawned with another process environment, other
-   * instructions, the other trust or another skill set is let go for a
-   * fresh one, as Claude lets its process go for a run it cannot serve.
+   * instructions, the other trust, another skill set or other in-process
+   * tools is let go for a fresh one, as Claude lets its process go for a run
+   * it cannot serve.
    */
   const processFor = (input: RunInput): FakeProcessRecord => {
     let process = liveProcess(input.sessionId);
@@ -771,7 +781,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       process.key === input.processEnvironment.key &&
       process.instructions === input.instructions &&
       process.trusted === input.trusted &&
-      process.fingerprint === input.skillSet.fingerprint;
+      process.fingerprint === input.skillSet.fingerprint &&
+      toolServersKey(process.toolServers) === toolServersKey(input.toolServers);
     if (process !== undefined && !spawnedFor) {
       process.stopping = true;
       process.stopped = true;
@@ -856,7 +867,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     }
 
     const controls: ScriptControls = {
-      input,
+      // The process's tool servers: a kept process serves the run with the ones it was spawned with.
+      input: { ...input, toolServers: process.toolServers },
       context: gated,
       signal: abort.signal,
       adopted,

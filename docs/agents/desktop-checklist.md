@@ -280,22 +280,36 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
 
 ## Notifications and their activation (#405)
 
-Needs the shell's `notifications`, which #405 builds: until it lands, record
-this section as not run. On each platform, with a packaged desktop (the
-notification's sender is the installed app) connected to an environment:
+On each platform, with a packaged desktop (the notification's sender is the
+installed app) connected to an environment:
 
 1. **Only while unfocused.** With the window focused, park a prompt in a
    session: no OS notification. Focus another app and park another: one OS
-   notification, naming the session.
-2. **Activation.** Click it: the window comes to the front with that
-   session open in the focused pane.
-3. **macOS.** The first notification asks for permission once; record
+   notification, naming the session and what waits ("Bash is waiting for
+   permission").
+2. **Activation.** Click it: the window comes to the front, restored if it
+   was minimised, with that session open in the focused pane.
+3. **A run ending.** With a session shown in a pane and the window behind
+   another app, let its run end: one notification with the reply's first
+   line. A run ending in a session no pane shows raises none.
+4. **The title and the badge.** While a prompt waits the window's title
+   reads "needs you · agent-harness" and the badge counts the sessions
+   waiting (the platform's badge step above); once answered, "working" while
+   a run goes on, then "ready".
+5. **From the console.** `desktopShell.notifications.onActivate(console.log)`,
+   then `desktopShell.notifications.show({ title: "Checklist", body: "Click me", tag: "checklist-tag" })`:
+   a click logs `checklist-tag`; shown without a tag, a click logs nothing.
+6. **macOS.** The first notification asks for permission once; record
    whether it did, and that the Dock badge follows (see macOS step 3 above).
-4. **Windows.** The notification names the app, not Electron: the setup's
+7. **Windows.** The notification names the app, not Electron: the setup's
    Start menu shortcut carries the app's id (`dev.systemtech.agent-harness`),
-   which the app must set as its AppUserModelID to send any. Record which.
-5. **Linux.** Under a notification daemon (GNOME, KDE Plasma), the same as
-   step 1 and 2.
+   which the app sets as its AppUserModelID. Record which. Run from a
+   checkout, the app sends as Electron's executable instead; record whether
+   Windows showed that one.
+8. **Linux.** Under a notification daemon (GNOME, KDE Plasma), the same as
+   steps 1 to 3. Record what step 5 does with no daemon running: where
+   Electron says the OS offers no notifications, `show` rejects with "This
+   desktop cannot show notifications: the OS offers none to it."
 
 ## The browser dock (#411)
 

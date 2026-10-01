@@ -101,7 +101,8 @@ const actionHint = (notice: Notice): string | undefined => {
     case "re-pair":
       return "(/pair <link>, or /pair <address> <code>)";
     case "update-environment":
-      return "Its self-update is the way to do it.";
+      // The offer of this client's version, on the environment's card (#827).
+      return "Its card in /environment offers the update.";
     default:
       return undefined;
   }
