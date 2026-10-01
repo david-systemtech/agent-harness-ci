@@ -201,3 +201,85 @@ export const readCommandFileAt = async (file: string, name: string): Promise<Fou
   if ((await kindOf(file)) !== "file") return null;
   return readMember(file, { kind: "file", name }, { kind: "command", relative: `${name}${COMMAND_EXTENSION}` });
 };
+
+/** What `findSkillFolders` found in a tree: whether its root holds `SKILL.md`, the folders whose children do, and whether it stopped short. */
+export interface FoundSkillFolders {
+  /** Whether the tree's root holds `SKILL.md` itself, and so is one skill. */
+  readonly rootIsSkill: boolean;
+  /** Each folder, from the tree's root with `/` between segments (`.` for the root), that holds no `SKILL.md` itself and has a child folder that does, in the order they were found: by depth, then by name. */
+  readonly folders: readonly string[];
+  /** Whether the walk stopped at `maxDirectories`. */
+  readonly truncated: boolean;
+}
+
+export interface FindSkillFoldersOptions {
+  /** How many levels below the root a folder may lie, the root being 0. */
+  readonly depth: number;
+  /** The most directories whose entries are read. */
+  readonly maxDirectories: number;
+  /** Names never entered, wherever they lie. */
+  readonly skipped: readonly string[];
+}
+
+/**
+ * Walks `tree` for folders a source could read skills from (the probe,
+ * skills spec "Skill sources"): breadth first, each directory's entries in
+ * name order, entering only directories themselves, never a link, so the
+ * walk never leaves the tree nor goes round a loop (a link inside the tree
+ * leads to a directory the walk reaches as itself), and skipping `skipped`.
+ * A folder is found when the reader reading it would list its children: it
+ * holds no `SKILL.md` and a child folder does, as the reader follows links
+ * from it. A tree that is not there holds none.
+ */
+export const findSkillFolders = async (tree: string, options: FindSkillFoldersOptions): Promise<FoundSkillFolders> => {
+  const root = await treeOf(tree);
+  if (root === null) return { rootIsSkill: false, folders: [], truncated: false };
+  const rootIsSkill = (await skillFileIn(root, root)) !== null;
+  const folders: string[] = [];
+  const queue: { readonly real: string; readonly path: string; readonly depth: number }[] = [{ real: root, path: ".", depth: 0 }];
+  let read = 0;
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    if (read === options.maxDirectories) return { rootIsSkill, folders, truncated: true };
+    read += 1;
+    let entries: Dirent[];
+    try {
+      entries = await entriesOf(next.real);
+    } catch {
+      continue;
+    }
+    let childSkill = false;
+    for (const entry of entries) {
+      if (options.skipped.includes(entry.name)) continue;
+      const path = join(next.real, entry.name);
+      // As the reader of this folder reads it: a child, a link among them, leading to a directory inside the folder.
+      const child = await inside(next.real, path);
+      if (!childSkill && child !== null && child !== next.real && (await kindOf(child)) === "directory" && (await skillFileIn(next.real, child)) !== null) childSkill = true;
+      if (entry.isDirectory() && next.depth < options.depth) queue.push({ real: path, path: next.path === "." ? entry.name : `${next.path}/${entry.name}`, depth: next.depth + 1 });
+    }
+    // As the reader reads it: a SKILL.md leading out of the folder makes no skill of it.
+    const holdsSkill = next.path === "." ? rootIsSkill : (await skillFileIn(next.real, next.real)) !== null;
+    if (childSkill && !holdsSkill) folders.push(next.path);
+  }
+  return { rootIsSkill, folders, truncated: false };
+};
+
+/** A licence file's name: LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case. */
+const LICENCE_FILE = /^(?:un)?licen[cs]e(?:[.-].*)?$|^copying(?:[.-].*)?$/i;
+
+/** The first licence file in `folder` by name, links resolved inside `tree`; its name, or null when it holds none. */
+export const findLicenceFile = async (tree: string, folder: string): Promise<string | null> => {
+  const root = await treeOf(tree);
+  if (root === null) return null;
+  let entries: Dirent[];
+  try {
+    entries = await entriesOf(folder);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!LICENCE_FILE.test(entry.name)) continue;
+    const file = await inside(root, join(folder, entry.name));
+    if (file !== null && (await kindOf(file)) === "file") return entry.name;
+  }
+  return null;
+};
