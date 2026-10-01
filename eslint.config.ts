@@ -93,6 +93,22 @@ export default defineConfig([
     languageOptions: { tolerant: true },
     rules: { "agent-harness/no-literal-colour": "error" },
   },
+  // The terminal UI draws the terminal's sixteen, each colour a role or an environment colour the theme package maps
+  // (ADR 0023, #392), so its source names no colour, by name or in hex; its tests may.
+  {
+    files: ["packages/tui/src/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Literal[value=/^(?:(?:black|red|green|yellow|blue|magenta|cyan|white|gray|grey)(?:Bright)?|#[0-9a-fA-F]{3,8})$/]",
+          message:
+            "The terminal UI draws a role (TERMINAL_ROLES) or an environment colour (ENVIRONMENT_ANSI, or the theme's colours under truecolour) from @agent-harness/theme, never a colour it names (ADR 0023).",
+        },
+      ],
+    },
+  },
 
   // Dependency direction, as source imports; test/workspace.test.ts holds the manifests to the same rules.
   {

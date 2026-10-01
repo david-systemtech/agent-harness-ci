@@ -1,4 +1,6 @@
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import stringWidth from "string-width";
+import type { DiffBand } from "../theme/colours.js";
 import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../transcript/lines.js";
 
 /**
@@ -15,7 +17,8 @@ import { colourOf, paletteColour, sameStyle, type Line, type Span } from "../tra
  *   C1 in UTF-8 takes as `ESC [` and the rest), so nothing in it can move
  *   the cursor or recolour the screen.
  * - **A diff with no tool of the user's** is coloured as `git diff` colours
- *   one: headers bold, hunk lines cyan, additions green, removals red.
+ *   one: headers bold, hunk lines cyan, additions green, removals red; under
+ *   truecolour an addition and a removal are drawn on the theme's bands.
  * - **A diff tool's answer** keeps the colours and attributes it wrote
  *   (SGR); every other escape it wrote (a hyperlink, an erase, a charset
  *   switch), in its ESC or its C1 form, is dropped, and so is any other
@@ -99,6 +102,9 @@ const expandTabs = (text: string, from = 0): string => {
 // eslint-disable-next-line no-control-regex -- the control characters are what is being removed.
 const CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
 
+/** A line of text as a page draws it: its carriage return and control characters gone, its tabs expanded. */
+const cleaned = (line: string): string => expandTabs(line.replace(/\r$/, "")).replace(CONTROLS, "");
+
 const pageLines = (logical: readonly (readonly Span[])[], width: number, name: string): Line[] =>
   logical.flatMap((spans, index) => cut(spans, width).map((line): Line => ({ row: `${name}:${index}`, spans: line })));
 
@@ -106,46 +112,57 @@ const pageLines = (logical: readonly (readonly Span[])[], width: number, name: s
 export const plainPage = (text: string, width: number): Line[] =>
   pageLines(
     text.split("\n").map((line) => {
-      const clean = expandTabs(line.replace(/\r$/, "")).replace(CONTROLS, "");
+      const clean = cleaned(line);
       return clean.length === 0 ? [] : [{ text: clean }];
     }),
     width,
     "file",
   );
 
-/** How a diff line is drawn when no tool of the user's colours it: as `git diff` would. */
-const diffStyle = (line: string): Omit<Span, "text"> => {
-  if (line.startsWith("diff ") || line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("index ")) return { bold: true };
-  if (line.startsWith("@@")) return { color: "cyan" };
-  if (line.startsWith("+")) return { color: "green" };
-  if (line.startsWith("-")) return { color: "red" };
-  return {};
+/** What a line of a unified diff is, as `git diff` colours it. */
+type DiffLine = "header" | "hunk" | "added" | "removed" | "context";
+
+const diffLineOf = (line: string): DiffLine => {
+  if (line.startsWith("diff ") || line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("index ")) return "header";
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("+")) return "added";
+  if (line.startsWith("-")) return "removed";
+  return "context";
 };
 
-/** The SGR git writes for each of `diffStyle`'s styles (its `color.diff` defaults). */
-const GIT_SGR = (style: Omit<Span, "text">): string | undefined =>
-  style.bold === true ? "1" : style.color === "cyan" ? "36" : style.color === "green" ? "32" : style.color === "red" ? "31" : undefined;
+/** How each is drawn when no tool of the user's colours it, as `git diff` would: headers bold, hunk lines cyan, additions green, removals red. */
+const DIFF_STYLES: Readonly<Record<DiffLine, Omit<Span, "text">>> = {
+  header: { bold: true },
+  hunk: { color: TERMINAL_ROLES.machine },
+  added: { color: TERMINAL_ROLES.success },
+  removed: { color: TERMINAL_ROLES.danger },
+  context: {},
+};
+
+/** The SGR git writes for each (its `color.diff` defaults). */
+const GIT_SGR: Readonly<Record<DiffLine, string | undefined>> = { header: "1", hunk: "36", added: "32", removed: "31", context: undefined };
+
+/** The band an addition and a removal are drawn on, which the theme gives a truecolour terminal (#392). */
+const DIFF_BANDS: Readonly<Record<DiffLine, DiffBand | undefined>> = { header: undefined, hunk: undefined, added: "added", removed: "removed", context: undefined };
 
 /** A unified diff coloured as `git diff --color` colours one, for a tool that reads the colours (diff-so-fancy). */
 export const colouredDiff = (text: string): string =>
   text
     .split("\n")
     .map((line) => {
-      const sgr = GIT_SGR(diffStyle(line));
+      const sgr = GIT_SGR[diffLineOf(line)];
       return sgr === undefined ? line : `\u001B[${sgr}m${line}\u001B[m`;
     })
     .join("\n");
 
-/** A unified diff, coloured as a diff. */
+/** A unified diff, coloured as a diff, each addition and removal on its band. */
 export const diffPage = (text: string, width: number): Line[] =>
-  pageLines(
-    text.split("\n").map((line) => {
-      const clean = expandTabs(line.replace(/\r$/, "")).replace(CONTROLS, "");
-      return clean.length === 0 ? [] : [{ ...diffStyle(clean), text: clean }];
-    }),
-    width,
-    "diff",
-  );
+  text.split("\n").flatMap((raw, index) => {
+    const clean = cleaned(raw);
+    const kind = diffLineOf(clean);
+    const band = DIFF_BANDS[kind];
+    return cut(clean.length === 0 ? [] : [{ ...DIFF_STYLES[kind], text: clean }], width).map((spans): Line => ({ row: `diff:${index}`, spans, ...(band && { band }) }));
+  });
 
 type Style = { -readonly [K in keyof Omit<Span, "text">]: Span[K] };
 

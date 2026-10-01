@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { actionWords, type ClientSessionRow, type EnvironmentAction } from "../commands/environment.js";
 import type { MintedLines } from "../commands/pair.js";
 import type { UpdateCard } from "../commands/updates.js";
@@ -67,7 +68,7 @@ export const EnvironmentMenu = (props: {
     </Text>
     {props.update.lines.map((line) => (
       <Box key={line.text} paddingLeft={2}>
-        <Text wrap="wrap" dimColor={line.tone === "quiet"} {...(line.tone === "warn" && { color: "yellow" })}>
+        <Text wrap="wrap" dimColor={line.tone === "quiet"} {...(line.tone === "warn" && { color: TERMINAL_ROLES.warning })}>
           {line.text}
         </Text>
       </Box>
@@ -153,7 +154,7 @@ export const HelpCard = (props: { readonly lines: readonly HelpLine[]; readonly 
         const keys = line.condition === undefined ? line.keys : `${line.keys} (${line.condition})`;
         return (
           <Text key={index} wrap="truncate-end">
-            <Text color="cyan" dimColor={dim}>
+            <Text color={TERMINAL_ROLES.machine} dimColor={dim}>
               {keys.length > HELP_KEY_WIDTH ? `${keys}  ` : keys.padEnd(HELP_KEY_WIDTH + 2)}
             </Text>
             <Text dimColor={dim}>
