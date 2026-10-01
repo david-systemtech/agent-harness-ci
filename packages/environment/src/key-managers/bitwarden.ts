@@ -5,6 +5,7 @@ import { sameValue } from "./same-value.js";
 
 const INFORMATION: KeyManagerTokenInformation = { displayName: "", policies: [], ttlSeconds: 0, renewable: false, expiresAt: null };
 const LIFE = { issuedAt: null, creationTtlSeconds: 0, periodSeconds: 0, explicitMaxTtlSeconds: 0 } as const;
+const AMBIGUOUS_PROJECT = { outcome: "unreachable", message: "The Bitwarden base project is ambiguous; select a unique project id." } as const;
 
 /** Native wrappers report HTTP/TLS failures as text; keep their categories and never include raw response text. */
 const failure = (error: unknown): ProviderFailure => {
@@ -73,6 +74,7 @@ export const createBitwardenProvider = (load: BitwardenSdkLoader = loadBitwarden
       return withSdk(target, token, async (sdk) => {
         if (location.mount === null) return { outcome: "listed", names: (await sdk.projects()).map((project) => project.name) } as const;
         const projects = (await sdk.projects()).filter((project) => project.id === location.mount || project.name === location.mount);
+        if (projects.length > 1) return AMBIGUOUS_PROJECT;
         const project = projects.length === 1 ? projects[0] : undefined;
         if (!project) return { outcome: "not-found", message: "Bitwarden holds no such project." } as const;
         return { outcome: "listed", names: (await sdk.identifiers(project.id)).map((identifier) => identifier.key) } as const;
@@ -81,6 +83,7 @@ export const createBitwardenProvider = (load: BitwardenSdkLoader = loadBitwarden
     async canWrite(target, token, location, signal) {
       return withSdk(target, token, async (sdk) => {
         const projects = (await sdk.projects()).filter((project) => project.id === location.mount || project.name === location.mount);
+        if (projects.length > 1) return AMBIGUOUS_PROJECT;
         const project = projects.length === 1 ? projects[0] : undefined;
         // There is no non-mutating SDK permission probe. The write itself
         // decides permission; a denied write is handled by Move's copy offer.
@@ -91,6 +94,7 @@ export const createBitwardenProvider = (load: BitwardenSdkLoader = loadBitwarden
       if (locator.provider !== "bitwarden" || !("project" in locator)) return { outcome: "not-found", message: "This is not a Bitwarden Move target." };
       return withSdk(target, token, async (sdk) => {
         const projects = (await sdk.projects()).filter((project) => project.id === locator.project || project.name === locator.project);
+        if (projects.length > 1) return AMBIGUOUS_PROJECT;
         const project = projects.length === 1 ? projects[0] : undefined;
         const matches = [];
         if (project) for (const identifier of await sdk.identifiers()) {
@@ -108,6 +112,7 @@ export const createBitwardenProvider = (load: BitwardenSdkLoader = loadBitwarden
       if (locator.provider !== "bitwarden" || !("project" in locator)) return { outcome: "not-found", message: "This is not a Bitwarden Move target." };
       return withSdk(target, token, async (sdk, budget) => {
         const projects = (await sdk.projects()).filter((project) => project.id === locator.project || project.name === locator.project);
+        if (projects.length > 1) return AMBIGUOUS_PROJECT;
         if (projects.length !== 1) return { outcome: "not-found", message: "Select a unique Bitwarden base project by its id or name." } as const;
         const project = projects[0]!;
         const matches = [];

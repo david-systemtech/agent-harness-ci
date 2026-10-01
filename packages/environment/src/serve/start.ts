@@ -549,6 +549,7 @@ export interface EnvironmentOptions {
    * path's list (#370) may take. Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds.
    */
   readonly keyManagerTimeoutMs?: number;
+  /** Loads the official Bitwarden SDK; tests inject a scripted loader or a load failure. */
   readonly bitwardenSdk?: import("../key-managers/bitwarden-sdk.js").BitwardenSdkLoader;
   /**
    * The Move sources registered at start (#371): each owning service's

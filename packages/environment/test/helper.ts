@@ -157,6 +157,7 @@ export interface TestEnvironmentOptions {
   readonly managedTools?: EnvironmentOptions["managedTools"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's own, over its connections. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
+  /** The scripted Bitwarden SDK loader; preset: the environment's official SDK loader. */
   readonly bitwardenSdk?: EnvironmentOptions["bitwardenSdk"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];

@@ -164,3 +164,25 @@ it("keeps the stored forge token when a write's read-back fails and swaps only a
   expect((await move(client, { connectionId: connection.id })).result?.items).toMatchObject([{ outcome: "moved" }]);
   expect(sdk.secrets.size).toBe(1);
 });
+
+it("reports an ambiguous base project on browse and both Move modes, and accepts a unique project id", async () => {
+  const sdk = scriptedBitwarden();
+  sdk.projects.push({ id: randomUUID(), name: "harness" });
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  forge.user(TOKEN, DAVID);
+  const t = await startTestEnvironment({ bitwardenSdk: sdk.load, forgeFetch: forge.fetch });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const connection = await added(client, { provider: "bitwarden", address: "https://bitwarden.test", credential: token(BITWARDEN_TEST_TOKEN), basePath: "harness" });
+  await forgeAdded(client, { url: forge.origin, kind: "forgejo", slug: "home" });
+  await expect(client.request("keyManagers.references.browse", { connectionId: connection.id, mount: "harness" })).rejects.toMatchObject({ code: "credential_source_unavailable", message: expect.stringContaining("ambiguous") });
+  for (const verifyOnly of [false, true]) {
+    expect((await move(client, { connectionId: connection.id, verifyOnly })).result?.items).toMatchObject([{ outcome: "failed", error: { code: "unreachable", message: expect.stringContaining("ambiguous") } }]);
+  }
+  expect(sdk.secrets.size).toBe(0);
+  expect(await moveList(client)).toHaveLength(1);
+  expect(await client.request("keyManagers.references.browse", { connectionId: connection.id, mount: sdk.projectId })).toEqual({ names: [] });
+  await setBasePath(client, connection.id, sdk.projectId);
+  expect((await move(client, { connectionId: connection.id })).result?.items).toMatchObject([{ outcome: "moved" }]);
+});
