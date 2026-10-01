@@ -17,8 +17,9 @@ import { sameValue } from "./same-value.js";
  *   vaults the service account can see proves it; a verification lists them
  *   again. The session is the environment's own (`minted`), kept per token
  *   until the login is let go (`revoke`), which ends the session and never
- *   the token, the person's: a verification that finds the session expired
- *   signs in again from the kept token. A service account has no policies,
+ *   the token, the person's: a call that finds the session expired (a
+ *   verification, a read, a list, a write) signs in again from the kept
+ *   token once and asks again (#1138). A service account has no policies,
  *   mints no run tokens (`canMint` null: runs are given the connection's own
  *   token) and has no lease to renew.
  * - **A reference** names a vault, an item and a field, by name or id, read
@@ -73,10 +74,13 @@ const REFERENCE_SAFE = /^[A-Za-z0-9_.\- ]+$/;
 const RATE_LIMITED = new Set(["RateLimitExceededError"]);
 const SESSION_EXPIRED = new Set(["AuthExpiredError", "DesktopSessionExpiredError"]);
 
+/** The SDK's error class `error` was thrown as, by name; empty for anything not thrown as an `Error`. */
+const errorClassOf = (error: unknown): string => (error instanceof Error ? error.constructor.name : "");
+
 /** Sorts what the SDK threw into the provider's categories, saying what was being done. */
 export const onePasswordFailure = (doing: string, error: unknown): ProviderFailure => {
   const text = error instanceof Error ? error.message : String(error);
-  const kind = error instanceof Error ? error.constructor.name : "";
+  const kind = errorClassOf(error);
   const message = `${doing} failed: ${text}`;
   if (RATE_LIMITED.has(kind) || /rate limit|too many requests/i.test(text)) return { outcome: "rate-limited", message };
   if (SESSION_EXPIRED.has(kind) || /service account token|not authenticated|unauthori[sz]ed|authentication/i.test(text)) return { outcome: "credential-rejected", message };
@@ -118,11 +122,29 @@ export const createOnePasswordProvider = (sdk: OnePasswordSdk): ConnectionProvid
     return session;
   };
 
-  /** Runs `work` with the token's session, answering what the SDK threw as its category. */
+  /** The session to ask again with in place of `expired`: one another call signed in since, else a new sign-in. */
+  const sessionAfter = (token: string, expired: Promise<OnePasswordSession>): Promise<OnePasswordSession> => {
+    const current = sessions.get(token);
+    return current !== undefined && current !== expired ? current : signIn(token);
+  };
+
+  /**
+   * Runs `work` with the token's session, answering what the SDK threw as its
+   * category. When the SDK says the session expired, `work` is asked once
+   * more with a session signed in again from the token (#1138).
+   */
   const using = async <A>(token: string, doing: string, signal: AbortSignal | undefined, work: (session: OnePasswordSession) => Promise<A>): Promise<A | ProviderFailure> => {
     try {
       if (signal?.aborted === true) return { outcome: "unreachable", message: `${doing} was stopped: 1Password did not answer in time.` };
-      return await work(await (sessions.get(token) ?? signIn(token)));
+      const session = sessions.get(token) ?? signIn(token);
+      // A sign-in that fails is answered as it is: only a session's call is asked again.
+      const signedIn = await session;
+      try {
+        return await work(signedIn);
+      } catch (error) {
+        if (!SESSION_EXPIRED.has(errorClassOf(error))) throw error;
+        return await work(await sessionAfter(token, session));
+      }
     } catch (error) {
       return error instanceof NotFound ? { outcome: "not-found", message: error.message } : onePasswordFailure(doing, error);
     }
