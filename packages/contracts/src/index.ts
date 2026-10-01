@@ -55,6 +55,7 @@ export * from "./prompts.js";
 export * from "./readiness.js";
 export * from "./readiness-overlay.js";
 export * from "./repository-identity.js";
+export * from "./routine-document.js";
 export * from "./routines.js";
 export * from "./schedule.js";
 export * from "./schedule-cases.js";
