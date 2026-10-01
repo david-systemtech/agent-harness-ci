@@ -170,3 +170,19 @@ it.runIf(process.platform !== "win32")("a provider's Doppler uses its block and 
   await t.env.keyManagerConnections.settled();
   expect(existsSync(call?.directory ?? "")).toBe(false);
 });
+
+it("hands a session's provider process its own Doppler CLI directory to write, so a contained run's doppler can keep its configuration and fallback there (#1119)", async () => {
+  const api = await startFakeDoppler();
+  onCleanup(api.close);
+  const t = await startTestEnvironment();
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { provider: "doppler", address: api.address, credential: token(DOPPLER_TEST_TOKEN) });
+  const session = await create(client);
+  await client.request("runs.start", { commandId: randomUUID(), sessionId: session.id, text: "Read the secret names" });
+  await vi.waitFor(() => expect(t.adapter.processesOf(session.id)).toHaveLength(1));
+  const [spawned] = t.adapter.processesOf(session.id);
+  const directory = (await spawned?.supplied)?.["DOPPLER_CONFIG_DIR"] ?? "";
+  expect(directory.startsWith(join(t.dataDir, "key-manager-cli", "doppler-"))).toBe(true);
+  expect(await spawned?.writable).toEqual([directory]);
+});
