@@ -90,7 +90,7 @@ export interface LoginsOptions {
   readonly budgetMs: number;
   /** Where each renewal and revocation runs, off any request (#745). */
   readonly background: BackgroundWork;
-  /** The connection's current login is due, or the key manager no longer knows it: the connection verifies it at once. */
+  /** The connection's current login is due, or the key manager no longer knows it: the connection verifies it again at once, after any verification under way, which may have looked it up before. */
   readonly due: (connectionId: string) => void;
 }
 

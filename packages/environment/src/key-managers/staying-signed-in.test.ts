@@ -3,6 +3,7 @@ import { registry } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { gate } from "../../test/fake-adapter.js";
 import { startFakeOpenBao, type FakeLogin, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, signIn, signOut, token, verify } from "../../test/key-manager-connections.js";
@@ -455,6 +456,32 @@ describe("a token a person gave", () => {
     const again = await signIn(client, { connectionId: connection.id, credential: token("another-person-token-for-tests") });
 
     expect(again.result?.connection.status.kind).toBe("signed-in");
+  });
+
+  it("is found expired at its end while a verification that found it alive is still under way: the end's verification waits for that one and asks again", async () => {
+    const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600 });
+    // Half an hour to live, and not renewable: its end, at thirty minutes, is when it is due.
+    bao.token(PERSON_TOKEN, { policies: ["default", "minter"], ttlSeconds: 30 * 60, renewable: false });
+    const connection = await added(client, { address: bao.address, ca: bao.ca, credential: token() });
+    await advance(t, 29 * MINUTE);
+    // A verification asked for a minute before its end finds it alive; the last thing it asks, the mounts a base path is suggested from, is answered once the end has come.
+    const mounts = () => bao.requests.filter((request) => request.path === "sys/internal/ui/mounts").length;
+    const asked = mounts();
+    const answered = gate();
+    bao.delay("GET sys/internal/ui/mounts", answered.opened);
+    const verifying = verify(client, connection.id);
+    await bao.until(() => mounts() > asked);
+
+    t.clock.advance(MINUTE);
+    answered.open();
+    await verifying;
+    await t.env.keyManagerConnections.settled();
+
+    expect((await list(client)).find((each) => each.id === connection.id)?.status).toEqual({
+      kind: "expired",
+      since: after(30 * MINUTE),
+      message: "The token this connection signed in with expired at 2026-09-24 00:30 UTC, the end of its life: sign in again with a new token in Set up, Key manager.",
+    });
   });
 });
 

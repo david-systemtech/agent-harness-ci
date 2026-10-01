@@ -291,8 +291,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /** Lets go of a login no command or sign-in holds: one the environment made is revoked first, while its token is still registered. */
   const letGo = (connectionId: string, login: LoginToken): Promise<void> => letGoOf(connectionId, login, scrub);
 
-  /** The logins held, renewed and replaced on the clock; a login due, or one the key manager no longer knows, is verified at once, which signs in again. */
-  const logins = createLogins({ clock, scrub, budgetMs, background, due: (connectionId) => void schedule.verify(connectionId) });
+  /** The logins held, renewed and replaced on the clock; a login due, or one the key manager no longer knows, is verified again at once, which signs in again. */
+  const logins = createLogins({ clock, scrub, budgetMs, background, due: (connectionId) => void schedule.verifyAgain(connectionId) });
 
   /** Deletes a vault entry a committed command let go of; one left behind is deleted by the next start. */
   const deleteEntry = (entry: string): void => {
