@@ -15,6 +15,7 @@ import {
   type RoutineEnabledPayload,
   type RoutineEntry,
   type RoutineFiringEndedPayload,
+  type RoutineFiringContinuedPayload,
   type RoutineFiringStartedPayload,
   type RoutineLastOutcome,
   type RoutineMoveLink,
@@ -25,6 +26,7 @@ import {
   type SkipReason,
 } from "@agent-harness/contracts";
 import { parseActor, type EventEnvelope, type ProjectionDb, type Projector } from "../event-log/event-log.js";
+import { deliveredOutcome, takes } from "./delivery-outcome.js";
 import type { Reader } from "../sessions/session-tables.js";
 
 /**
@@ -64,6 +66,9 @@ import type { Reader } from "../sessions/session-tables.js";
  * the silence marker and the maximum duration it finishes under (#524),
  * the presets for one recorded before they were, and its session with the
  * skills its runs load (#531), none for one recorded before them.
+ * `routine_pending_notices` keeps only ended entries still owed a client
+ * notice, with their end event sequence, so startup recovers pending work
+ * without reading delivered history.
  */
 
 export const ROUTINES_PROJECTOR = "routines";
@@ -103,6 +108,12 @@ export const ROUTINES_TABLES = {
   CREATE INDEX routine_entries_by_routine ON routine_entries (routine_id, position);
   CREATE INDEX routine_entries_by_run ON routine_entries (run_id) WHERE run_id IS NOT NULL;
   CREATE INDEX routine_entries_by_session ON routine_entries (session_id) WHERE session_id IS NOT NULL`,
+  routine_pending_notices: `CREATE TABLE routine_pending_notices (
+    id TEXT PRIMARY KEY,
+    routine_id TEXT NOT NULL,
+    cause_sequence INTEGER NOT NULL
+  ) STRICT;
+  CREATE INDEX routine_pending_notices_by_cause ON routine_pending_notices (cause_sequence)`,
 } as const;
 
 /** A routine's name as the one-name-per-environment rule compares it: trimmed, case folded. */
@@ -246,8 +257,15 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
   handled(db, event.streamId, trigger, dueAt);
 };
 
+const firingContinued = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringContinuedPayload): void => {
+  const row = db.get<{ entry: string }>("SELECT e.entry FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE e.id = ? AND e.routine_id = ?", payload.firingId, event.streamId);
+  if (row === undefined) return;
+  const entry = { ...(JSON.parse(row.entry) as FiringEntry), runId: payload.runId };
+  db.run("UPDATE routine_entries SET run_id = ?, entry = ? WHERE id = ?", payload.runId, json(entry), payload.firingId);
+};
+
 const firingEnded = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringEndedPayload): void => {
-  const row = db.get<{ entry: string }>("SELECT entry FROM routine_entries WHERE id = ? AND routine_id = ?", payload.firingId, event.streamId);
+  const row = db.get<{ entry: string; targets: string }>("SELECT entry, targets FROM routine_entries WHERE id = ? AND routine_id = ?", payload.firingId, event.streamId);
   if (row === undefined) return;
   const { firingId, outcome, reason, text, usage, durationMs, baselineAdvanced } = payload;
   const entry: FiringEntry = { ...(JSON.parse(row.entry) as FiringEntry), endedAt: event.occurredAt, outcome, reason, text, usage, durationMs, baselineAdvanced };
@@ -259,6 +277,7 @@ const firingEnded = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFir
     db.run("UPDATE routines SET baseline = ? WHERE id = ?", json(baseline), event.streamId);
   }
   settle(db, event.streamId, { kind: "firing", entryId: firingId, outcome, reason, at: event.occurredAt }, outcome);
+  pendingNotice(db, event, entry, JSON.parse(row.targets) as DeliveryTarget[]);
 };
 
 /** A skip delivers to its routine's targets at its record: none once the routine is deleted. */
@@ -277,11 +296,22 @@ const skipped = (db: ProjectionDb, event: EventEnvelope, payload: RoutineSkipped
   );
   handled(db, event.streamId, trigger, dueAt);
   settle(db, event.streamId, { kind: "skip", entryId: skipId, reason, at: event.occurredAt }, reason);
+  pendingNotice(db, event, entry, delivery);
 };
 
 /** Whether two targets are the same: a delivery is to a target, however often the routine names it. */
 export const sameTarget = (a: DeliveryTarget, b: DeliveryTarget): boolean =>
   a.kind === b.kind && a.on === b.on && (a.kind !== "webhook" || (b.kind === "webhook" && a.target === b.target));
+
+/** Entries owed a client notice, kept in the same transaction as their end and removed with their delivery. */
+const owesNotice = (entry: RoutineEntry, targets: readonly DeliveryTarget[]): boolean => {
+  const outcome = deliveredOutcome(entry);
+  return outcome !== null && targets.some((target) => target.kind === "client-notice" && takes(target.on, outcome) && !entry.deliveries.some((delivery) => sameTarget(delivery.target, target)));
+};
+
+const pendingNotice = (db: ProjectionDb, event: EventEnvelope, entry: RoutineEntry, targets: readonly DeliveryTarget[]): void => {
+  if (owesNotice(entry, targets)) db.run("INSERT INTO routine_pending_notices (id, routine_id, cause_sequence) VALUES (?, ?, ?)", entry.id, event.streamId, event.sequence);
+};
 
 /** Where a delivery stands once an attempt came to `result`. */
 const DELIVERY_RESULT: Readonly<Record<RoutineDeliveryAttemptedPayload["result"], RoutineDelivery["result"]>> = {
@@ -303,7 +333,9 @@ const deliveryAttempted = (db: ProjectionDb, event: EventEnvelope, payload: Rout
   const targets = JSON.parse(row.targets) as DeliveryTarget[];
   const place = (of: RoutineDelivery): number => targets.findIndex((named) => sameTarget(named, of.target));
   const deliveries = [...others, delivery].sort((a, b) => place(a) - place(b));
-  db.run("UPDATE routine_entries SET entry = ? WHERE id = ?", json({ ...entry, deliveries }), payload.entryId);
+  const updated = { ...entry, deliveries };
+  db.run("UPDATE routine_entries SET entry = ? WHERE id = ?", json(updated), payload.entryId);
+  if (!owesNotice(updated, targets)) db.run("DELETE FROM routine_pending_notices WHERE id = ?", payload.entryId);
 };
 
 export const routinesProjector: Projector = {
@@ -324,6 +356,8 @@ export const routinesProjector: Projector = {
         return void db.run("UPDATE routines SET deleted_at = ? WHERE id = ?", event.occurredAt, event.streamId);
       case "routine.firing-started":
         return firingStarted(db, event, event.payload as RoutineFiringStartedPayload);
+      case "routine.firing-continued":
+        return firingContinued(db, event, event.payload as RoutineFiringContinuedPayload);
       case "routine.firing-ended":
         return firingEnded(db, event, event.payload as RoutineFiringEndedPayload);
       case "routine.skipped":
