@@ -61,6 +61,9 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "rail.group": ["g"],
   "rail.moveUp": ["Shift+↑"],
   "rail.moveDown": ["Shift+↓"],
+  // A merged group's heading renamed or deleted, one command per member group (#752): the window's heading has its context menu.
+  "rail.renameGroup": ["R"],
+  "rail.deleteGroup": ["D"],
   "terminal.leave": ["Ctrl+\\"],
   "terminal.scrollback": ["Ctrl+O"],
   "asks.move": ["↑", "↓"],

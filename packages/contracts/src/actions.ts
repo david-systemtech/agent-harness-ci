@@ -363,6 +363,7 @@ const PHASE_D = "Deferred to phase D, carried if Seth relies on it (docs/specs/t
 const TEXT_FIELD = notInGui("A text field's own key in the GUI.");
 const TYPED_AT = notInGui("Typed into the query in the GUI, whose lists are typed at.");
 const CONTEXT_MENU = notInGui("The GUI does it from the session's context menu in the sidebar.");
+const GROUP_MENU = notInGui("The GUI does it from the group heading's context menu in the sidebar.");
 const FORK_REWIND = notInGui("The GUI does it with the Fork and Rewind buttons under each message you sent.");
 const SCROLL_BAR = notInGui("The GUI moves through the transcript with its scroll bar.");
 const ROW_POINTER = notInGui("The GUI has no row cursor: a row's controls answer the pointer.");
@@ -518,6 +519,8 @@ export const ACTION_GROUPS = [
     key("rail.group", ["g"], "Put it in a group, or a new one", CONTEXT_MENU),
     key("rail.moveUp", ["Shift+↑"], "Move it up, among the pinned or the active", notInGui("The GUI moves a session by dragging it in the sidebar.")),
     key("rail.moveDown", ["Shift+↓"], "Move it down, among the pinned or the active", notInGui("The GUI moves a session by dragging it in the sidebar.")),
+    key("rail.renameGroup", ["R"], "Rename the group under the cursor, on every environment", GROUP_MENU),
+    key("rail.deleteGroup", ["D"], "Delete the group under the cursor, on every environment; its sessions stay", GROUP_MENU),
   ]),
   group("Delegated work", "delegated", [
     key("delegated.enter", ["Tab"], "Reached after the list, while work is running", TASKS_PANE),
