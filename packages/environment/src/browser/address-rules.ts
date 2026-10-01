@@ -3,14 +3,17 @@ import { isIP } from "node:net";
 import { addressClassOf, hostOf, hostPatternMatches, type AddressClass } from "@agent-harness/contracts";
 
 /**
- * The environment's address rules for `web_read` (browser spec, "`web_read`"
- * and "The headless Chromium"; story 26), applied to every hop of a read:
- * the name resolved, an internal address refused unless its host is listed
- * in `browser.internalHosts`, and a cloud metadata address refused always,
- * listed or not. The rules answer the addresses they checked, and the read
- * connects to one of them and to nothing else, so a name that resolves to a
- * public address for the check and a private one a moment later gains
- * nothing: it is never resolved again.
+ * The environment's address rules for `web_read` and the headless browser
+ * (browser spec, "`web_read`" and "The headless Chromium"; story 26),
+ * applied to every hop of a read and to every address the headless browser
+ * opens: the name resolved, an internal address refused unless its host is
+ * listed in `browser.internalHosts`, and a cloud metadata address refused
+ * always, listed or not. The rules answer the addresses they checked, and a
+ * read connects to one of them and to nothing else, so a name that resolves
+ * to a public address for the check and a private one a moment later gains
+ * nothing: it is never resolved again. The headless browser resolves a name
+ * itself, so its navigation policy judges where each document was served
+ * from too (`navigation-policy.ts`).
  */
 
 /** An address a name resolved to, as the connection is made to it. */
@@ -35,6 +38,22 @@ export interface AddressRules {
   readonly resolve: Resolver;
 }
 
+/** Who the rules are applied for, as their sentences name it: what it is called, and what it does with an address. */
+export interface AddressReader {
+  /** Its name, as a sentence's subject. */
+  readonly name: string;
+  /** What it does with an address (`read`), as the sentence's verb takes it: `reads`, and `read` once it has. */
+  readonly verb: string;
+  readonly does: string;
+  readonly done: string;
+}
+
+export const WEB_READ: AddressReader = { name: "web_read", verb: "read", does: "reads", done: "read" };
+export const HEADLESS_BROWSER: AddressReader = { name: "The headless browser", verb: "open", does: "opens", done: "opened" };
+
+/** The reader's name inside a sentence: lower case unless it is a tool's. */
+const named = (reader: AddressReader): string => (reader.name === WEB_READ.name ? reader.name : reader.name.toLowerCase());
+
 /** How an internal class is named in a sentence. */
 const CLASS_NAMES: { readonly [K in Exclude<AddressClass, "public" | "metadata">]: string } = {
   loopback: "a loopback address",
@@ -45,20 +64,33 @@ const CLASS_NAMES: { readonly [K in Exclude<AddressClass, "public" | "metadata">
   "local-name": "a local network name",
 };
 
-const metadataRefusal = (host: string, address: string | null): string =>
-  `${address === null ? host : `${host} resolves to ${address}, which`} is a cloud metadata address. web_read never reads one, listed or not: what answers there is the host machine's credentials.`;
+/** An address found for a host: one its name resolves to, or the one a document was served from, which is how a sentence says it. */
+export interface FoundAddress {
+  readonly address: string;
+  readonly how: "resolves to" | "was served from";
+}
 
-const internalRefusal = (host: string, address: string | null, addressClass: keyof typeof CLASS_NAMES): string =>
-  `${address === null ? `${host} is` : `${host} resolves to ${address},`} ${CLASS_NAMES[addressClass]}, which web_read reads only when the host is listed in the browser.internalHosts setting. Ask the person to list ${host} there if it should be read.`;
+const metadataRefusal = (host: string, found: FoundAddress | null, reader: AddressReader): string =>
+  `${found === null ? host : `${host} ${found.how} ${found.address}, which`} is a cloud metadata address. ${reader.name} never ${reader.does} one, listed or not: what answers there is the host machine's credentials.`;
 
-/** The ruling on one address, `host` the name it was found for: null when it may be read. */
-const refusalOf = (host: string, address: string | null, listed: boolean): string | null => {
-  const addressClass = addressClassOf(address ?? host);
-  if (addressClass === "metadata") return metadataRefusal(host, address);
-  if (addressClass === null) return `${host} is no address web_read can read.`;
-  if (addressClass !== "public" && !listed) return internalRefusal(host, address, addressClass);
+const internalRefusal = (host: string, found: FoundAddress | null, addressClass: keyof typeof CLASS_NAMES, reader: AddressReader): string =>
+  `${found === null ? `${host} is` : `${host} ${found.how} ${found.address},`} ${CLASS_NAMES[addressClass]}, which ${named(reader)} ${reader.does} only when the host is listed in the browser.internalHosts setting. Ask the person to list ${host} there if it should be ${reader.done}.`;
+
+/**
+ * The ruling on one address, `host` the name it was found for (the host
+ * itself when `found` is null), and `listed` whether the host as named is in
+ * `browser.internalHosts`: null when it may be reached.
+ */
+export const refusalOf = (host: string, found: FoundAddress | null, listed: boolean, reader: AddressReader = WEB_READ): string | null => {
+  const addressClass = addressClassOf(found?.address ?? host);
+  if (addressClass === "metadata") return metadataRefusal(host, found, reader);
+  if (addressClass === null) return `${host} is no address ${named(reader)} can ${reader.verb}.`;
+  if (addressClass !== "public" && !listed) return internalRefusal(host, found, addressClass, reader);
   return null;
 };
+
+/** Whether the host as named is listed in `browser.internalHosts`: what is matched, never an address it resolved to. */
+export const isListedInternal = (internalHosts: readonly string[], host: string): boolean => internalHosts.some((pattern) => hostPatternMatches(pattern, host));
 
 /**
  * Checks the host of `url`, an http or https address: the host as named
@@ -68,12 +100,12 @@ const refusalOf = (host: string, address: string | null, listed: boolean): strin
  * refused whole. Answers the addresses to connect to, in the resolver's
  * order.
  */
-export const checkHop = async (url: URL, rules: AddressRules): Promise<HopRuling> => {
+export const checkHop = async (url: URL, rules: AddressRules, reader: AddressReader = WEB_READ): Promise<HopRuling> => {
   const host = hostOf(url.href);
   if (host === null) return { ok: false, reason: `${url.href} names no host.` };
-  const listed = rules.internalHosts.some((pattern) => hostPatternMatches(pattern, host));
-  const named = refusalOf(host, null, listed);
-  if (named !== null) return { ok: false, reason: named };
+  const listed = isListedInternal(rules.internalHosts, host);
+  const asNamed = refusalOf(host, null, listed, reader);
+  if (asNamed !== null) return { ok: false, reason: asNamed };
   // A literal address is what the connection reaches; the URL parser writes an IPv6 one in brackets.
   const literal = url.hostname.replace(/^\[(.*)\]$/, "$1");
   const family = isIP(literal);
@@ -87,7 +119,7 @@ export const checkHop = async (url: URL, rules: AddressRules): Promise<HopRuling
   }
   if (addresses.length === 0) return { ok: false, reason: `${host} resolves to no address: check the address.` };
   for (const { address } of addresses) {
-    const refused = refusalOf(host, address, listed);
+    const refused = refusalOf(host, { address, how: "resolves to" }, listed, reader);
     if (refused !== null) return { ok: false, reason: refused };
   }
   return { ok: true, addresses };
