@@ -1439,6 +1439,26 @@
       "title": "MemoryDraftScope"
     },
     {
+      "path": "banks/tools/search.json",
+      "title": "MemorySearchInput"
+    },
+    {
+      "path": "banks/tools/read.json",
+      "title": "MemoryReadInput"
+    },
+    {
+      "path": "banks/tools/promote.json",
+      "title": "MemoryPromoteInput"
+    },
+    {
+      "path": "banks/promote-result.json",
+      "title": "MemoryPromoteResult"
+    },
+    {
+      "path": "banks/events/bank.drafts-consumed.json",
+      "title": "BankDraftsConsumedPayload"
+    },
+    {
       "path": "banks/tools/draft.json",
       "title": "MemoryDraftInput"
     },

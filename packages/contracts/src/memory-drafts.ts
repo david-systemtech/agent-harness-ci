@@ -30,3 +30,28 @@ export const banksDraftsList = defineMethod({
   params: z.object({ sessionId: SessionId, bankId: BankId.optional() }),
   result: z.object({ queues: z.array(z.object({ bankId: BankId, drafts: z.array(BankDraft) })) }), errors: [],
 });
+
+/** Promotion lands this session's queue in the named bank, or the sole writable bank. */
+export const MemoryPromoteInput = z.object({ bank: BankName.optional() });
+export type MemoryPromoteInput = z.infer<typeof MemoryPromoteInput>;
+export const MemoryPromoteResult = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("landed"), bank: BankName, pullRequest: z.string().nullable(), files: z.array(z.object({ path: z.string(), state: z.enum(["present", "removed"]).meta({ description: "Verified main state: the written file is present with its exact content, or the retired file is removed." }) })) }),
+  z.object({ state: z.literal("awaiting-review"), bank: BankName, pullRequest: z.string(), files: z.array(z.object({ path: z.string(), state: z.literal("pending") })) }),
+  z.object({ state: z.literal("failed"), bank: BankName, step: z.string(), reason: z.string() }),
+]);
+export type MemoryPromoteResult = z.infer<typeof MemoryPromoteResult>;
+
+/** Consume exactly the landed queue snapshot; a later replacement of a name stays queued. */
+export const BankDraftsConsumedPayload = z.object({ sessionId: SessionId, bankId: BankId, changes: z.array(BankDraft) });
+export type BankDraftsConsumedPayload = z.infer<typeof BankDraftsConsumedPayload>;
+
+/** Search uses the draft's scope labels, allowing an org prefix before a project is named. */
+export const MemorySearchInput = z.object({
+  query: z.string().min(1), bank: BankName.optional(),
+  scope: z.union([z.strictObject({ org: MemoryScopeSegment }), MemoryDraftScope]).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+export type MemorySearchInput = z.infer<typeof MemorySearchInput>;
+/** A read follows a bank, folder/topic or memory pointer; absent, it reads all bank lines. */
+export const MemoryReadInput = z.object({ pointer: z.string().min(1).meta({ description: "A bank pointer: bank, bank:org/project[/area]/, bank:org/project[/area]/memories/topic/, or bank:name. Parsed by parseBankPointer, never a filesystem path." }).optional() });
+export type MemoryReadInput = z.infer<typeof MemoryReadInput>;

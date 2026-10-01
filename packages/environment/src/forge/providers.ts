@@ -160,7 +160,11 @@ export interface RepositoryCreation {
   readonly description?: string;
 }
 
+/** Only a completed, successful validate check permits a memory auto-merge. */
+export type ForgeValidateCheck = "pending" | "success" | "failure";
+
 export interface ForgeProvider {
+  validateCheck(origin: ForgeOrigin, token: string | null, fullName: string, sha: string, call?: CallOptions): Promise<ForgeReply<ForgeValidateCheck>>;
   /** Asks the forge at `origin` who `token` is. The token goes in a header and nowhere else: never in a URL or an answer. */
   identity(origin: ForgeOrigin, token: string, call?: CallOptions): Promise<IdentityAnswer>;
   /** Probes `readRepository`: reads the repository `fullName` (`owner/name`), or with none, the list of repositories the token reads. */
@@ -190,7 +194,7 @@ export interface ForgeProvider {
   /** Opens a pull request on `fullName`. */
   createPullRequest(origin: ForgeOrigin, token: string, fullName: string, opening: PullRequestOpening, call?: CallOptions): Promise<ForgeReply<ForgePullRequest>>;
   /** Merges the pull request `number` of `fullName` by `method`. */
-  mergePullRequest(origin: ForgeOrigin, token: string, fullName: string, number: number, method: MergeMethod, call?: CallOptions): Promise<ForgeReply<null>>;
+  mergePullRequest(origin: ForgeOrigin, token: string, fullName: string, number: number, method: MergeMethod, call?: CallOptions, expectedHead?: string): Promise<ForgeReply<null>>;
   /** Up to `limit` of `fullName`'s newest releases that are not drafts, page by page; with no token, anonymously. */
   releases(origin: ForgeOrigin, token: string | null, fullName: string, limit: number, call?: CallOptions): Promise<ForgeReply<ForgeRelease[]>>;
   /** `fullName`'s release tagged `tag`; a draft there answers as not found, 404, since a draft is never read. With no token, anonymously. */
@@ -216,7 +220,7 @@ interface ApiDialect {
   /** Whether a pull request as the API answers it has merged. */
   readonly merged: (body: unknown) => boolean;
   /** How a merge is sent: its HTTP method and body. */
-  readonly merge: (method: MergeMethod) => { readonly method: "POST" | "PUT"; readonly body: unknown };
+  readonly merge: (method: MergeMethod) => { readonly method: "POST" | "PUT"; readonly body: Readonly<Record<string, unknown>> };
   /** How pull requests from a head are listed: the list's query, and the items kept and pages read when the API cannot filter by head itself. */
   readonly byHead: (head: PullRequestHead) => { readonly query: string; readonly keep?: (item: unknown) => boolean; readonly maxPages?: number };
   /** Where an asset's bytes are asked for, on the forge's own origin or its API's; null when the forge gave it no address that can be read. */
@@ -536,9 +540,36 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
     createPullRequest: async (origin, token, fullName, { title, body, head, base }, call) =>
       replied(origin, await send(origin, "POST", `/repos/${repositoryPath(fullName)}/pulls`, token, { title, body, head, base }, call), "pull request", pullRequestOfKind),
 
-    async mergePullRequest(origin, token, fullName, number, method, call) {
+    async validateCheck(origin, token, fullName, sha, call) {
+      const path = `/repos/${repositoryPath(fullName)}/commits/${encodeURIComponent(sha)}`;
+      if (kind === "github") {
+        const reply = await get(origin, `${path}/check-runs?check_name=validate&filter=latest&per_page=100`, token, call);
+        return replied(origin, reply, "validate check", (body) => {
+          if (typeof body !== "object" || body === null || !("check_runs" in body) || !Array.isArray(body.check_runs)) return null;
+          const checks = body.check_runs as { name?: string; status?: string; conclusion?: string }[];
+          const matching = checks.filter((check) => check.name === "validate");
+          if (matching.length === 0 || matching.some((check) => check.status !== "completed")) return "pending";
+          return matching.every((check) => check.conclusion === "success") ? "success" : "failure";
+        });
+      }
+      const result = await pages(origin, `${path}/statuses`, token, { limit: 100 }, call);
+      if (result.outcome === "unanswered") return { outcome: "unreachable", message: "The validate check could not be read." };
+      if (result.outcome === "failed") return { outcome: "failed", status: result.status, message: "The validate check could not be read." };
+      // The API orders newest first. Never let a previous success mask a pending or failed rerun.
+      const latest = new Map<string, string>();
+      for (const item of result.items) {
+        if (typeof item !== "object" || item === null || !("context" in item) || typeof item.context !== "string" || !("state" in item) || typeof item.state !== "string") continue;
+        const context = item.context;
+        if ((context === "validate" || /^validate \/ validate(?: \((?:pull_request|push)\))?$/.test(context)) && !latest.has(context)) latest.set(context, item.state);
+      }
+      const states = [...latest.values()];
+      const value = states.some((state) => state === "failure" || state === "error") ? "failure" : states.length > 0 && states.every((state) => state === "success") ? "success" : "pending";
+      return { outcome: "done", status: 200, value };
+    },
+
+    async mergePullRequest(origin, token, fullName, number, method, call, expectedHead) {
       const merge = dialect.merge(method);
-      return acknowledged(origin, await send(origin, merge.method, `/repos/${repositoryPath(fullName)}/pulls/${number}/merge`, token, merge.body, call));
+      return acknowledged(origin, await send(origin, merge.method, `/repos/${repositoryPath(fullName)}/pulls/${number}/merge`, token, { ...merge.body, ...(expectedHead === undefined ? {} : kind === "github" ? { sha: expectedHead } : { head_commit_id: expectedHead }) }, call));
     },
 
     async releases(origin, token, fullName, limit, call) {

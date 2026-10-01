@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemorySearchInput",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bank": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "org": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^[a-z0-9][a-z0-9-]*$",
+              "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+            }
+          },
+          "required": [
+            "org"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "org": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^[a-z0-9][a-z0-9-]*$",
+              "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+            },
+            "project": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^[a-z0-9][a-z0-9-]*$",
+              "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+            },
+            "area": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^[a-z0-9][a-z0-9-]*$",
+              "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+            }
+          },
+          "required": [
+            "org",
+            "project"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

@@ -1,4 +1,4 @@
-import { ENVIRONMENT_STREAM_KIND, type BankDraft, type BankDraftQueuedPayload } from "@agent-harness/contracts";
+import { ENVIRONMENT_STREAM_KIND, type BankDraft, type BankDraftQueuedPayload, type BankDraftsConsumedPayload } from "@agent-harness/contracts";
 import type { Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-tables.js";
 
@@ -11,7 +11,13 @@ export const bankDraftsProjector: Projector = {
     PRIMARY KEY (session_id, bank_id, name)
   ) STRICT` },
   apply(event, db) {
-    if (event.streamKind !== ENVIRONMENT_STREAM_KIND || event.type !== "bank.draft-queued") return;
+    if (event.streamKind !== ENVIRONMENT_STREAM_KIND) return;
+    if (event.type === "bank.drafts-consumed") {
+      const { sessionId, bankId, changes } = event.payload as BankDraftsConsumedPayload;
+      for (const change of changes) db.run("DELETE FROM bank_drafts WHERE session_id = ? AND bank_id = ? AND name = ? AND change = ?", sessionId, bankId, change.name, JSON.stringify(change));
+      return;
+    }
+    if (event.type !== "bank.draft-queued") return;
     const { sessionId, bankId, change } = event.payload as BankDraftQueuedPayload;
     db.run(`INSERT INTO bank_drafts (session_id, bank_id, name, position, change) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT (session_id, bank_id, name) DO UPDATE SET change = excluded.change`, sessionId, bankId, change.name, event.sequence, JSON.stringify(change));

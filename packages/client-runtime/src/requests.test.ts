@@ -300,6 +300,11 @@ describe("the request cache", () => {
     await flush();
     expect(drafts.read()).toMatchObject({ result: { queues: [{ bankId, drafts: [change] }] }, error: null });
     expect(asked()).toBe(1);
+    queued = false;
+    environment?.event(noticeEvent(2, wire.environmentId, "bank.drafts-consumed", { sessionId, bankId, changes: [change] }));
+    await flush();
+    expect(drafts.read()).toMatchObject({ result: { queues: [] }, error: null });
+    expect(asked()).toBe(1);
   });
 
   it("fetches updates.status again on every update notice, and no other query for the pending, started, failed or cancelled one (#344)", async () => {

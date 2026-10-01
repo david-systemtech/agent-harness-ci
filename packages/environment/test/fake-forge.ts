@@ -137,6 +137,8 @@ export interface FakeForge {
    * and the Gitea API's answering them all. Scripting it again replaces it.
    */
   pullRequest(token: string | null, fullName: string, number: number, fields?: FakePullRequest): void;
+  /** Scripts the validate check for a pushed commit on both APIs; pending never permits a merge. */
+  validateCheck(token: string, fullName: string, sha: string, state: "pending" | "success" | "failure"): void;
   /** Every request of the APIs so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
   /**
@@ -416,6 +418,10 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       });
       script(caller, `GET /api/v1/repos/${fullName}/pulls`, () => ({ status: 200, body: listed("/api/v1").map(({ answer }) => answer) }));
     },
+    validateCheck(token, fullName, sha, state) {
+      script(token, `GET /api/v1/repos/${fullName}/commits/${sha}/statuses`, { status: 200, body: [{ context: "validate", state }] });
+      script(token, `GET /api/v3/repos/${fullName}/commits/${sha}/check-runs`, { status: 200, body: { check_runs: [{ name: "validate", status: state === "pending" ? "in_progress" : "completed", conclusion: state === "pending" ? null : state }] } });
+    },
     requests,
     gitRepository(path, options = {}) {
       const repository = `${path}.git`;
@@ -427,7 +433,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       const work = mkdtempSync(join(tmpdir(), "agent-harness-fake-forge-work-"));
       try {
         ownGit(work, "init", "--quiet", "--initial-branch=main");
-        for (const [name, content] of Object.entries(options.files ?? { "README.md": `# ${path}\n` })) writeFileSync(join(work, name), content);
+        for (const [name, content] of Object.entries(options.files ?? { "README.md": `# ${path}\n` })) { mkdirSync(dirname(join(work, name)), { recursive: true }); writeFileSync(join(work, name), content); }
         ownGit(work, "add", ".");
         ownGit(work, "commit", "--quiet", "-m", "first");
         ownGit(work, "push", "--quiet", bare, "main");
