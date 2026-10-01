@@ -13,11 +13,11 @@ import {
 } from "@agent-harness/contracts";
 import {
   inProcessToolAccess,
-  inProcessToolKey,
   inProcessToolName,
   isInProcess,
   recordedImage,
   toolCallSummary,
+  toolServersKey,
   type AccountRef,
   type Adapter,
   type AdapterEvent,
@@ -84,7 +84,7 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * (`supplied`), with its run's instruction text (`instructions`) and with
  * its skill set's fingerprint (`fingerprint`, #495) and with its run's tool
  * servers (`toolServers`); a run whose key, instructions, trust, fingerprint
- * or in-process tools (`inProcessToolKey`) differ lets it go for a fresh
+ * or in-process tools (`toolServersKey`) differ lets it go for a fresh
  * one, as Claude's adapter does. A kept process serves a later run with the
  * tool servers it was spawned with, as Claude's does (#139, #551): a
  * script's `input.toolServers` are its process's. A script runs a command in
@@ -767,9 +767,6 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     return process;
   };
 
-  /** What a run's tool servers show the model, as Claude's adapter keys a process by them: an in-process server by its tools, another by its name. */
-  const toolKey = (servers: readonly ToolServer[]): string => servers.map((server) => (isInProcess(server) ? inProcessToolKey(server) : server.name)).join("\n");
-
   /**
    * The session's process for a new run: the live one, or one started cold.
    * A live one spawned with another process environment, other
@@ -785,7 +782,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       process.instructions === input.instructions &&
       process.trusted === input.trusted &&
       process.fingerprint === input.skillSet.fingerprint &&
-      toolKey(process.toolServers) === toolKey(input.toolServers);
+      toolServersKey(process.toolServers) === toolServersKey(input.toolServers);
     if (process !== undefined && !spawnedFor) {
       process.stopping = true;
       process.stopped = true;
