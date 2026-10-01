@@ -104,6 +104,9 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
       <Entry offer={admits("sessions.tag")} onSelect={handOn(() => organise.open({ kind: "tags", row: key }))}>
         Tags…
       </Entry>
+      <Entry offer={admits("sessions.setInstructions")} onSelect={handOn(() => organise.open({ kind: "instructions", row: key }))}>
+        Session instructions…
+      </Entry>
       <SubEntry offer={moving} name="Move to group">
         {choices.listed.map(({ heading, here }) => (
           <Entry key={heading.key} offer={here ? { status: "absent", message: "It is in this group." } : { status: "present" }} onSelect={() => move(heading.name)}>

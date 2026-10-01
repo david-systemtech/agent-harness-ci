@@ -428,7 +428,7 @@ export const ACTION_GROUPS = [
     guiOnly("app.pane.splitRight", "Split the focused pane to the right", inGui(["Mod+\\"])),
     guiOnly("app.pane.splitDown", "Split the focused pane downwards", inGui(["Mod+Shift+\\"])),
     guiOnly("app.settings.toggle", "Open or close Settings", inGui(["Mod+,"])),
-    guiOnly("app.runInfo.toggle", "Show or hide the run's details", inGui(["Mod+I"])),
+    key("app.runInfo.toggle", ["Alt+I"], "Show or hide the run's details", inGui(["Mod+I"])),
   ]),
   group("Writing a message", "composer", [
     key("composer.send", ["Enter"], "Send it, steer a turn, run a row, send a failed check", inGui(["Enter"])),
@@ -647,6 +647,7 @@ export const ACTION_GROUPS = [
     command("terminal", "/terminal", "Open a terminal on the session's environment, in a pane"),
     command("files", "/files [path]", "Browse the workspace's files, and read one in the pager"),
     command("documents", "/documents", "The pages, SVGs and markdown this session wrote, newest first"),
+    command("trust", "/trust [decline]", "Trust this session's repository, or decline its offer", { guiAbsent: "Trust is decided in the session's trust question." }),
     command("notices", "/notices", "Every notice this terminal has shown"),
     command("reload", "/reload", "Read the keybindings file again", {
       guiAbsent: "The GUI reads no keybindings file: its keys are remapped in the Keyboard shortcuts pane.",

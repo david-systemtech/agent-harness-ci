@@ -60,6 +60,7 @@ import {
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
+  type SkillReadiness,
 } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
@@ -132,6 +133,7 @@ import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
+import { trustQuestion } from "./session/trust.js";
 import { FilesCard } from "./screens/files-card.js";
 import { OUTSIDE_COLUMN, TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
@@ -140,6 +142,7 @@ import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
 import { useForkRewind } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
+import { runInfoLines } from "./status/run-info.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
@@ -300,8 +303,8 @@ type Card =
   | { readonly kind: "sessions"; readonly cursor: number; readonly filter: string }
   /** `/snip`: the saved snippets. */
   | { readonly kind: "snippets"; readonly cursor: number }
-  /** `/tasks` or `/timeline`: lines about the session, scrolled from `top`. */
-  | { readonly kind: "lines"; readonly which: "tasks" | "timeline"; readonly top: number }
+  /** `/tasks`, `/timeline` or run info: lines about the session, scrolled from `top`. */
+  | { readonly kind: "lines"; readonly which: "tasks" | "timeline" | "run-info"; readonly top: number }
   /** `/notices`: every notice, newest first; Enter on one about a session (a routine's firing, a parked prompt) opens it (#533). */
   | { readonly kind: "notices"; readonly cursor: number }
   /** A picker or card of accounts, models, permissions and settings (`pickers/`). */
@@ -391,7 +394,7 @@ const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () 
  * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
  * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
  */
-const commandRows = (listed: readonly CommandsListEntry[]): readonly CommandRow[] => {
+const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[]): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
     .map((id): ClientCommandRow => {
@@ -399,7 +402,10 @@ const commandRows = (listed: readonly CommandsListEntry[]): readonly CommandRow[
       return { name: id.slice("command.".length), usage: action?.usage ?? `/${id.slice(8)}`, description: action?.description ?? "" };
     });
   const taken = new Set(own.map((row) => row.name));
-  return slashMenuRows(own, listed, (name) => taken.has(name));
+  return slashMenuRows(own, listed, (name) => taken.has(name)).map((row) => {
+    const state = row.source === "skill" ? readiness.find((skill) => skill.name === row.name.replace(/^skill:/, "")) : undefined;
+    return state === undefined ? row : { ...row, readiness: state };
+  });
 };
 
 export const App = (props: AppProps) => {
@@ -773,6 +779,11 @@ export const App = (props: AppProps) => {
   };
 
   // The composer.
+  const readiness = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "skills.readiness", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
+  useFollow(readiness, request);
+  const trust = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "trust.get", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
+  useFollow(trust, request);
+  const trustLine = trustQuestion(trust?.read().result);
   const files = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "files.list", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
   const paths = files?.read().result?.files ?? null;
   const scopes = useMemo((): readonly { readonly name: string; readonly scope: HistoryScope }[] => {
@@ -790,7 +801,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.listedCommands),
+      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? []),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],
@@ -874,6 +885,9 @@ export const App = (props: AppProps) => {
   const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
   /** The environment the header and the status line are about: the open session's, else the current one. */
   const headerView = sessionView ?? current;
+  const runInfoEnvironment = screen.card.kind === "lines" && screen.card.which === "run-info" ? opened?.environmentId : undefined;
+  const runInfoAccounts = useMemo(() => runInfoEnvironment === undefined ? undefined : runtime.projections.accounts(runInfoEnvironment), [runtime, runInfoEnvironment]);
+  useFollow(runInfoAccounts, request);
   const pickers = usePickers({
     runtime,
     request,
@@ -1243,6 +1257,24 @@ export const App = (props: AppProps) => {
   const submit = (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
     const command = parseCommand(raw);
     switch (command.kind) {
+      case "trust": {
+        if (!opened) {
+          say("Cannot decide repository trust: no session is open.");
+          return true;
+        }
+        const capability = runtime.capability(opened.environmentId, "trust.decide");
+        if (capability.status === "absent") {
+          say(`Cannot decide repository trust: ${capability.message}`);
+          return true;
+        }
+        void runtime.requests.call(opened.environmentId, "trust.decide", {
+          commandId: props.newCommandId(), sessionId: opened.sessionId, decision: command.decision,
+        }).then((answer) => {
+          const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : undefined;
+          say(refused === undefined ? `Repository trust set to ${command.decision}.` : `Cannot decide repository trust: ${refused}`);
+        });
+        return true;
+      }
       case "pair":
         pair(command.input);
         return true;
@@ -1685,15 +1717,23 @@ export const App = (props: AppProps) => {
     setScreen((s) => (s.card.kind === "help" && s.card.top > helpMaxTop ? { ...s, card: { ...s.card, top: helpMaxTop } } : s));
   }, [helpMaxTop]);
 
-  // The pager's lines: every row unfolded; `/tasks` and `/timeline` as lines too.
+  // The pager's lines: every row unfolded; `/tasks`, `/timeline` and run info as lines too.
   const card = screen.card;
   const pagerLines = card.kind === "pager" ? transcriptLines(allRows, { ...lineContext, width: mainWidth, expanded: true }) : card.kind === "page" ? card.lines : [];
   const cardLines: TranscriptLine[] =
     card.kind === "lines"
-      ? card.which === "timeline"
-        ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
-        : tasksLines(projection)
+      ? card.which === "run-info"
+        ? runInfoLines(projection, runInfoAccounts?.read().value, mainWidth)
+        : card.which === "timeline"
+          ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
+          : tasksLines(projection)
       : [];
+  const runInfoMaxTop = Math.max(0, cardLines.length - helpHeight);
+  useEffect(() => {
+    setScreen((s) => s.card.kind === "lines" && s.card.which === "run-info" && s.card.top > runInfoMaxTop
+      ? { ...s, card: { ...s.card, top: runInfoMaxTop } }
+      : s);
+  }, [runInfoMaxTop]);
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
   const askList = card.kind === "asks" ? askRows(asks, views, opened, colours) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
@@ -1890,6 +1930,11 @@ export const App = (props: AppProps) => {
     // Every key the screen answers, by action: the key is looked up in the keymap in force, never matched here.
     const handlers: Record<ScreenKey, Handler> & typeof composer.handlers = {
       ...composer.handlers,
+      "app.runInfo.toggle": () => {
+        if (card.kind === "lines" && card.which === "run-info") return update({ card: { kind: "none" } });
+        if (!projection) return say("No session is open.");
+        update({ card: { kind: "lines", which: "run-info", top: 0 } });
+      },
       "app.mode.step": () => pickers.stepMode(),
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
@@ -2522,7 +2567,7 @@ export const App = (props: AppProps) => {
           )}
           {card.kind === "lines" && (
             <LinesCard
-              title={card.which === "timeline" ? "Timeline" : "Tasks"}
+              title={card.which === "run-info" ? "The latest run" : card.which === "timeline" ? "Timeline" : "Tasks"}
               hint={`${keys("pager.close")} close`}
               lines={cardLines.length > 0 ? cardLines : [{ row: "none", spans: [{ text: LINES_EMPTY[card.which], dim: true }] }]}
               top={card.top}
@@ -2605,6 +2650,7 @@ export const App = (props: AppProps) => {
       </Box>
       <Line text={screen.line} />
       <Line text={promptLine} color={TERMINAL_ROLES.warning} />
+      {trustLine !== undefined && <Line text={trustLine} color={TERMINAL_ROLES.warning} />}
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
@@ -2633,9 +2679,10 @@ const absentReason = (id: KeyActionId): string => {
 };
 
 /** What a lines card says with nothing to list. */
-const LINES_EMPTY: Readonly<Record<"tasks" | "timeline", string>> = {
+const LINES_EMPTY: Readonly<Record<"tasks" | "timeline" | "run-info", string>> = {
   tasks: "No delegated work in this session.",
   timeline: "No turn yet.",
+  "run-info": "No run yet.",
 };
 
 /** `/notices`: the notices, newest first as given, each with when, where from and what it offers. */

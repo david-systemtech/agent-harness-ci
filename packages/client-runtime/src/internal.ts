@@ -130,6 +130,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
     routineName: (environmentId, routineId) =>
       requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,
+    // `routines` is made below: nothing is accepted before the runtime starts.
+    routineCreated: (environmentId, params) => routines.created(environmentId, params),
     now: (environmentId) => made.now(environmentId),
     // What the runtime holds of the session, read without subscribing anything.
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
@@ -311,7 +313,14 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
   // Every enabled environment's routines (#532), the request cache giving the same observable for the same environment.
-  const routines = routinesProjection({ records: registry.list, outbox: outbox.view, source: (environmentId) => requestCache.cached(environmentId, "routines.list", {}) });
+  const routines = routinesProjection({
+    clock: platform.clock,
+    records: registry.list,
+    outbox: outbox.view,
+    source: (environmentId) => requestCache.cached(environmentId, "routines.list", {}),
+    askedAt: (environmentId) => requestCache.askedAt(environmentId, "routines.list", {}),
+  });
+  registry.seams.onForget((environmentId) => routines.forget(environmentId));
   const routineHistories = memo((key): RoutineHistory => {
     const [environmentId, routineId] = key.split(" ") as [string, string];
     const host = {
@@ -383,7 +392,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
       toolRuns: (environmentId) => toolRuns.view(environmentId),
-      routines,
+      routines: routines.view,
       routineHistory: (environmentId, routineId) => routineHistories(`${environmentId} ${routineId.toLowerCase()}`),
       browsers: (environmentId, sessionId) => browsers(`${environmentId} ${sessionId.toLowerCase()}`),
     },

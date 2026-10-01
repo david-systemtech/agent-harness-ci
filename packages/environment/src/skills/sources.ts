@@ -27,7 +27,7 @@ import {
   type SkillsViewSource,
 } from "@agent-harness/contracts";
 import { parseActor } from "../event-log/envelope.js";
-import type { EventLog, Projector, StreamRef } from "../event-log/event-log.js";
+import type { EventLog, Projector, StreamRef, Tx } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PreparedCommand } from "../serve/methods.js";
 import type { SkillProbes, SourceCheckout } from "./probe.js";
@@ -60,8 +60,8 @@ import { createSnapshots, snapshotPath } from "./snapshots.js";
  * when it yields no valid member (the snapshot removed, the folders found),
  * or `failed` with the probe's problem. What it came to is recorded as
  * `skills.source-synced` only when the commit, the members or the outcome
- * change; when a fetch last ended is the source's status, held in memory
- * outside the log. The syncer (`sync.ts`) decides when a source syncs.
+ * change; when a fetch last ended is the source's status, persisted beside
+ * the log and retained by a projection rebuild. The syncer (`sync.ts`) decides when a source syncs.
  */
 
 export const SKILL_SOURCES_PROJECTOR = "skill-sources";
@@ -209,7 +209,7 @@ export interface SkillSources {
   /** Fetches what `follow` names of `source` and reads its folder at that commit from a snapshot. */
   fetch(source: Pick<SkillSource, "id" | "url" | "identity" | "folder">, follow: SkillSourceFollow): Promise<SourceFetch>;
   /** Notes that a fetch of the source ended now: its status, kept outside the log. */
-  noteAttempt(sourceId: string): void;
+  noteAttempt(tx: Tx, sourceId: string): void;
   /** The source as `skills.get` lists it: as the log holds it, with when a fetch of it last ended. */
   view(source: TrackedSource): SkillsViewSource;
   /** Deletes each snapshot no source holds current, no generation links into, and none made or read since the sweep before. */
@@ -267,8 +267,8 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
   const stream: StreamRef = { kind: SKILLS_STREAM_KIND, id: options.environmentId };
   const snapshots = createSnapshots({ dataDir, current: () => readSkillSources(log).map((source) => ({ sourceId: source.id, commit: source.commit })) });
   /** When a fetch of each source last ended, by its id: its status, kept outside the log. */
-  const attempts = new Map<string, string>();
-  const noteAttempt = (sourceId: string): void => void attempts.set(sourceId, clock.now().toISOString());
+  const attempts = log.skillSourceAttempts;
+  const noteAttempt = (tx: Tx, sourceId: string): void => attempts.write(tx, sourceId, clock.now().toISOString());
   const view = ({ id, url, identity, folder, follow, position, addedBy, addedAt, commit, skillCount, sync }: TrackedSource): SkillsViewSource => ({
     id,
     url,
@@ -281,7 +281,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
     commit,
     skillCount,
     sync,
-    attemptedAt: attempts.get(id) ?? null,
+    attemptedAt: attempts.read(id),
   });
 
   /** Where a source's member lies: its folder from the source's folder, in the source's current snapshot. */
@@ -383,7 +383,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
         ).events;
         if (event === undefined) throw new Error("skills.source-added was appended as no event.");
         log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [UPDATED], attribution);
-        noteAttempt(sourceId);
+        noteAttempt(command.tx, sourceId);
         const source: SkillsViewSource = {
           ...added,
           addedBy: parseActor(event.actor),
@@ -391,7 +391,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
           commit: synced.commit,
           skillCount: synced.members.filter(valid).length,
           sync: { outcome: "ok", since: event.occurredAt },
-          attemptedAt: attempts.get(sourceId) ?? null,
+          attemptedAt: attempts.read(sourceId),
         };
         return { aggregate: stream, result: { source } };
       };
@@ -406,6 +406,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
     }
     const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId };
     log.append(stream, [{ type: "skills.source-removed", payload: { sourceId } }], attribution);
+    attempts.remove(context.tx, sourceId);
     log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [UPDATED], attribution);
     return { aggregate: stream, result: { source } };
   };

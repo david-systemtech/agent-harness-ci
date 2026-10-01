@@ -1,6 +1,7 @@
 import { ROUTINE_HISTORY_LIMIT, registry, type EnvironmentColour, type EnvironmentIcon, type ListedRoutine, type ParamsOf, type RoutineEntry } from "@agent-harness/contracts";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "../connections/records.js";
 import { derived, dynamic, writable, type Observable } from "../observable.js";
+import type { Clock } from "../platform.js";
 import type { OutboxEntry } from "../outbox/entries.js";
 import { reachable, type OutboxView } from "../outbox/overlay.js";
 import { routineOf } from "../outbox/rules.js";
@@ -22,7 +23,9 @@ import type { CachedAnswer, RequestAnswer, RequestFailure } from "../requests.js
  * waiting command names is flagged pending while it cannot, as a session
  * row is; and a create waiting in the outbox shows its routine from the
  * definition it sent, its listing (state, next due time, mode, attention)
- * still to come from the environment.
+ * still to come from the environment. Once accepted it stays so until the
+ * list held was asked for after its receipt (#910): the list asked for
+ * before may not hold it yet. A refused create goes with its receipt.
  *
  * `projections.routineHistory` reads a routine's `routines.history`: its
  * newest page from the request cache, fetched again with the list, and each
@@ -36,9 +39,9 @@ export type SentDefinition = ParamsOf<"routines.create">["definition"];
 export interface RoutineRow {
   readonly environmentId: string;
   readonly routineId: string;
-  /** Its definition: as the environment listed it, or as the create still waiting in the outbox sent it. */
+  /** Its definition: as the environment listed it, or as a create it does not list yet sent it. */
   readonly definition: SentDefinition;
-  /** The routine as the environment listed it, with its state, next due time, effective mode and attention; null for a create still waiting in the outbox. */
+  /** The routine as the environment listed it, with its state, next due time, effective mode and attention; null for a create it does not list yet. */
   readonly listed: ListedRoutine | null;
   /** A routine command about it waits in the outbox while the environment cannot be reached. */
   readonly pending: boolean;
@@ -51,7 +54,7 @@ export interface RoutineGroup {
   readonly name: string;
   readonly icon: EnvironmentIcon | null;
   readonly colour: EnvironmentColour | null;
-  /** The routines the environment listed, in its order, then the creates waiting in the outbox it does not list yet, in the order they were dispatched. */
+  /** The routines the environment listed, in its order, then the creates accepted or waiting in the outbox it does not list yet, in the order they were dispatched. */
   readonly routines: readonly RoutineRow[];
   /** When the list shown was fetched, on this client's clock; null until one was. */
   readonly fetchedAt: string | null;
@@ -70,11 +73,33 @@ export interface RoutinesView {
 }
 
 export interface RoutinesHost {
+  readonly clock: Clock;
   /** The connection list: the environments, their order, whether each is enabled and can be reached, and their descriptors. */
   readonly records: Observable<readonly ConnectionRecord[]>;
   readonly outbox: Observable<OutboxView>;
   /** The request cache's `routines.list` for the environment: the same observable for each. */
   readonly source: (environmentId: string) => Observable<CachedAnswer<"routines.list">>;
+  /** When the environment's `routines.list` held was asked for, in milliseconds on the platform clock; null while none is held. */
+  readonly askedAt: (environmentId: string) => number | null;
+}
+
+export interface RoutinesProjection {
+  readonly view: Observable<RoutinesView>;
+  /** The environment accepted a `routines.create`, told before its entry leaves the outbox: its row stays until a list asked for after now is held. */
+  created(environmentId: string, sent: SentRoutine): void;
+  /** Lets go of an environment's accepted creates: it was removed. */
+  forget(environmentId: string): void;
+}
+
+/** A routine as a create sent it, before the environment lists it. */
+interface SentRoutine {
+  readonly routineId: string;
+  readonly definition: SentDefinition;
+}
+
+/** A create the environment accepted, with when its receipt came on the platform clock. */
+interface AcceptedCreate extends SentRoutine {
+  readonly at: number;
 }
 
 /** What waits in an environment's outbox about its routines: the routines its commands name, and its creates in the order dispatched. */
@@ -127,7 +152,8 @@ const keepingSameWaiting = () => {
 
 const NOTHING_WAITS: WaitingRoutines = { named: new Set(), creates: [] };
 
-const groupOf = (record: ConnectionRecord, answer: CachedAnswer<"routines.list">, waiting: WaitingRoutines): RoutineGroup => {
+/** One environment's group: its list, then the creates it does not list yet, those accepted since the list held was asked for before those still waiting. */
+const groupOf = (record: ConnectionRecord, answer: CachedAnswer<"routines.list">, accepted: readonly SentRoutine[], waiting: WaitingRoutines): RoutineGroup => {
   const { environmentId } = record;
   const unreachable = !reachable(record);
   const row = (routineId: string, definition: SentDefinition, listed: ListedRoutine | null): RoutineRow => ({
@@ -140,8 +166,8 @@ const groupOf = (record: ConnectionRecord, answer: CachedAnswer<"routines.list">
   const listed = (answer.result?.routines ?? []).map((routine) => row(routine.state.id, routine.definition, routine));
   const held = new Set(listed.map(({ routineId }) => routineId.toLowerCase()));
   // A create the environment lists already is its listing's; one under an id another create waiting took is refused there.
-  const created = waiting.creates.flatMap((entry) => {
-    const { routineId, definition } = entry.params as ParamsOf<"routines.create">;
+  const sent = [...accepted, ...waiting.creates.map((entry) => entry.params as ParamsOf<"routines.create">)];
+  const created = sent.flatMap(({ routineId, definition }) => {
     if (held.has(routineId.toLowerCase())) return [];
     held.add(routineId.toLowerCase());
     return [row(routineId, definition, null)];
@@ -160,16 +186,36 @@ const groupOf = (record: ConnectionRecord, answer: CachedAnswer<"routines.list">
 };
 
 /** `projections.routines`: every enabled environment's routines, each list followed while the view is. */
-export const routinesProjection = (host: RoutinesHost): Observable<RoutinesView> => {
+export const routinesProjection = (host: RoutinesHost): RoutinesProjection => {
   const enabled = derived([host.records] as const, (records) => records.filter((record) => record.enabled && record.environmentId !== LOCAL_PLACEHOLDER_ID));
   const waiting = derived([host.outbox] as const, keepingSameWaiting());
-  return dynamic(
-    () => [enabled, waiting, ...enabled.read().map((record) => host.source(record.environmentId))],
+  const accepted = new Map<string, readonly AcceptedCreate[]>();
+  /** Moves whenever a create is accepted, so the view recomputes. */
+  const version = writable(0);
+  // A list asked for when the receipt came may have been read before the create, as `projections.runs` reckons a prompt heard opening.
+  const acceptedSince = (environmentId: string, asked: number | null): readonly AcceptedCreate[] =>
+    (accepted.get(environmentId) ?? []).filter(({ at }) => asked === null || at >= asked);
+  const view = dynamic(
+    () => [enabled, waiting, version, ...enabled.read().map((record) => host.source(record.environmentId))],
     (): RoutinesView => {
-      const groups = enabled.read().map((record) => groupOf(record, host.source(record.environmentId).read(), waiting.read().get(record.environmentId) ?? NOTHING_WAITS));
+      const groups = enabled.read().map((record) => {
+        const { environmentId } = record;
+        return groupOf(record, host.source(environmentId).read(), acceptedSince(environmentId, host.askedAt(environmentId)), waiting.read().get(environmentId) ?? NOTHING_WAITS);
+      });
       return { groups, attention: groups.reduce((count, group) => count + group.routines.filter((row) => (row.listed?.attention.length ?? 0) > 0).length, 0) };
     },
   );
+  return {
+    view,
+    created(environmentId, { routineId, definition }) {
+      // Those a list asked for after their receipt has caught up with are let go.
+      accepted.set(environmentId, [...acceptedSince(environmentId, host.askedAt(environmentId)), { routineId, definition, at: host.clock.now().getTime() }]);
+      version.update((n) => n + 1);
+    },
+    forget(environmentId) {
+      if (accepted.delete(environmentId)) version.update((n) => n + 1);
+    },
+  };
 };
 
 /** A routine's history as read so far. */

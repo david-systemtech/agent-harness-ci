@@ -96,6 +96,8 @@ The rail renders `projections.sessionList` and `projections.environments` (ticke
 
 ### Status, usage, pickers
 
+- **Run info** (#655): `app.runInfo.toggle` (Alt+I) opens or closes the open session's latest run, live from `projections.session`'s `runs` and `policies`: who started it and whether attended, the resolved mode with its ceiling and clamp reason, containment with its mechanism and reason, account, model, effort, tokens by kind, cost and ending. The words are shared with the window's run info in the client runtime; a policy missed before catch-up says "not heard". The card wraps and scrolls with the pager's keys, closes with Esc or q and with the session, and says when no run has started.
+
 - **Status line one**: badge, account, model and effort, mode, containment glyph, and at the right the plan windows from `projections.usage`, pooled by account identity (ADR 0005, ADR 0018). **Line two**: the run's activity, elapsed time, tokens, cost, key hints; or the existing yellow hand-off offer when the window is out and no run is live.
 - `/account` lists `projections.accounts` for the session's environment with plan readings plus "add an account", which starts the sign-in the adapter workstream drives (ADR 0018: the environment publishes the URL, the terminal shows it and takes the code). `/model` lists `projections.models` with effort. Both are per environment (ADR 0001).
 - `/mode` and `Shift+Tab` step plan, acceptEdits, auto, bypassPermissions clamped to the connection's ceiling; a mode above it is greyed with the ceiling named; the choice is `permissions.mode.set`, which returns the effective mode; bypass shows the permissions spec's sentence. `/containment` calls `permissions.containment.set` among off, workspace, workspace-no-network, greying unavailable levels with the probe's reason from `permissions.settings.get`. `/review` renders `permissions.review.list`.
@@ -144,6 +146,7 @@ The defaults (keys separated by commas are alternatives; the description is the 
 | app.attention.next | Ctrl+] |
 | app.handoff | Alt+H |
 | app.help | ? |
+| app.runInfo.toggle | Alt+I |
 | composer.send | Enter |
 | composer.newline | Shift+Enter, Ctrl+J |
 | composer.continueLine | \ Enter |

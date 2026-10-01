@@ -82,7 +82,7 @@ export const runSkillSets = (options: RunSkillSetsOptions): SkillSetSeam => {
     return {
       generation,
       fingerprint,
-      members: set.members.map(({ name, description, origin, invocation, userInvocable, argumentHint, native, alwaysOn }) => ({
+      members: set.members.map(({ name, description, origin, invocation, userInvocable, argumentHint, native, alwaysOn, kind, target, commit }) => ({
         name,
         description,
         origin,
@@ -91,6 +91,8 @@ export const runSkillSets = (options: RunSkillSetsOptions): SkillSetSeam => {
         argumentHint,
         native,
         alwaysOn,
+        file: generation === null || native ? (kind === "skill" ? join(target, "SKILL.md") : target) : join(generation, "skills", name, "SKILL.md"),
+        commit,
       })),
       hiddenNativeNames: [...set.hiddenNativeNames],
     };

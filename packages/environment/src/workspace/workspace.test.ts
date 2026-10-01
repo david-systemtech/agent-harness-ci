@@ -4,9 +4,11 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, ut
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { manualClock } from "../../test/clock.js";
 import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { deleteSession } from "../../test/sessions.js";
+import { DAY } from "../../test/shelf.js";
 import { refusedWith, sessionIn } from "../../test/terminals.js";
 import { runGit } from "./git.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -461,6 +463,36 @@ const runToEnd = async (t: TestEnvironment, client: WireClient, sessionId: strin
 };
 
 describe("diffs.session", () => {
+  it("keeps an edit's diff and tool call after transcript compaction", async () => {
+    const dataDir = join(tempDir(), "data");
+    const adapter = fakeAdapter();
+    const first = await start({ dataDir, adapter });
+    const client = await first.client();
+    const root = tempDir("agent-harness-workspace-");
+    const sessionId = await sessionIn(client, root);
+    adapter.nextScripts.push(editingScript([{ name: "Edit", input: { file_path: join(root, "a.txt"), old_string: "old\n", new_string: "new\n" } }]));
+    const runId = await runToEnd(first, client, sessionId);
+    const before = await client.request("diffs.session", { sessionId });
+    expect(before).toEqual({
+      files: [
+        {
+          path: "a.txt",
+          diff: "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+          changes: [{ runId, toolCallId: "toolu_0", tool: "Edit", status: "ok" }],
+        },
+      ],
+      truncated: false,
+    });
+    await first.close();
+
+    const later = await start({ dataDir, clock: manualClock(new Date(first.clock.now().getTime() + 91 * DAY)) });
+    const laterClient = await later.client();
+    // Catch-up from zero now starts with the compaction snapshot rather than replaying the tool events.
+    const { subscription } = await laterClient.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
+    await laterClient.next((frame) => frame.type === "snapshot" && frame.subscription === subscription);
+    expect(await laterClient.request("diffs.session", { sessionId })).toEqual(before);
+  });
+
   it("still answers when the workspace directory is gone, from the path the session recorded", async () => {
     const adapter = fakeAdapter();
     const t = await start({ adapter });
