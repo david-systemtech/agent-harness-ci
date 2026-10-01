@@ -230,7 +230,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "bank.verified": "A verification found a bank's status changed; a client refreshes what it caches of the banks.",
   "bank.landed": "Drafts landed on a bank's main; a client refreshes what it caches of the banks.",
   "bank.landing-failed": "A landing on a bank failed; a client refreshes what it caches of the banks.",
-  "bank.awaiting-review": "A landing on a bank waits for an owner's review; a client refreshes what it caches of the banks.",
+  "bank.awaiting-review": "A landing on a bank waits for an owner's review in a pull request; no bank's record changes.",
   "key-manager.connection.added": "A key-manager connection was added; a client refreshes what it caches of the key-manager connections.",
   "key-manager.connection.signed-in": "A key-manager connection's sign-in ended; a client refreshes what it caches of the key-manager connections.",
   "key-manager.connection.signed-out": "A key-manager connection was signed out; a client refreshes what it caches of the key-manager connections.",

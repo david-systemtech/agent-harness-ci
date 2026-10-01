@@ -2612,7 +2612,8 @@
                       "enum": [
                         "personal",
                         "team"
-                      ]
+                      ],
+                      "description": "A bank's kind as its BANK.md names it: personal or team."
                     },
                     {
                       "type": "null"
@@ -3142,7 +3143,8 @@
                   "enum": [
                     "personal",
                     "team"
-                  ]
+                  ],
+                  "description": "A bank's kind as its BANK.md names it: personal or team."
                 },
                 {
                   "type": "null"

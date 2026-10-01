@@ -180,7 +180,7 @@
     {
       "type": "string",
       "const": "bank.awaiting-review",
-      "description": "A landing on a bank waits for an owner's review; a client refreshes what it caches of the banks."
+      "description": "A landing on a bank waits for an owner's review in a pull request; no bank's record changes."
     },
     {
       "type": "string",

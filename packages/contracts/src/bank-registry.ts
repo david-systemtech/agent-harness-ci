@@ -66,6 +66,9 @@ export const BankCredentialSource = z
   .meta({ description: "Where the bank's credential comes from, never the secret: forge (the forge account the origin matches), stored (a token in the vault) or reference (a key-manager reference)." });
 export type BankCredentialSource = z.infer<typeof BankCredentialSource>;
 
+/** A bank's kind, as its BANK.md names it. */
+const BankKindNamed = z.enum(BANK_KINDS).meta({ description: "A bank's kind as its BANK.md names it: personal or team." });
+
 /** The environment a bank's record was copied from. */
 export const BankCopiedFrom = z
   .object({
@@ -151,7 +154,7 @@ export const BankEntry = z
   .object({
     id: BankId,
     name: BankName.meta({ description: "The bank's name, from BANK.md, else its checkout's folder: unique per environment." }),
-    kind: z.enum(BANK_KINDS).nullable().meta({ description: "personal or team, from BANK.md; null while BANK.md names none." }),
+    kind: BankKindNamed.nullable().meta({ description: "personal or team, from BANK.md; null while BANK.md names none." }),
     location: BankLocation,
     checkout: z.string().min(1).meta({ description: "The bank's checkout on this machine, an absolute path: the BankService's, never written by a run." }),
     role: BankRole,
@@ -196,7 +199,7 @@ export const BankUpdatedPayload = z
   .object({
     bankId: BankId,
     name: BankName.optional(),
-    kind: z.enum(BANK_KINDS).nullable().optional(),
+    kind: BankKindNamed.nullable().optional(),
     location: BankLocation.optional(),
     role: BankRole.optional(),
     enabled: z.boolean().optional(),

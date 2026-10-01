@@ -1495,6 +1495,22 @@
       "title": "BankCredentialSource"
     },
     {
+      "path": "banks/copied-from.json",
+      "title": "BankCopiedFrom"
+    },
+    {
+      "path": "banks/reachability.json",
+      "title": "BankReachability"
+    },
+    {
+      "path": "banks/manifest-status.json",
+      "title": "BankManifestStatus"
+    },
+    {
+      "path": "banks/landing-status.json",
+      "title": "BankLandingStatus"
+    },
+    {
       "path": "banks/status.json",
       "title": "BankStatus"
     },
