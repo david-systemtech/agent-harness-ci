@@ -137,8 +137,8 @@ cut "curl $url"
  * container keeps the image it was created with. It logs each call without
  * compose's \`-f <file>\`, and \`run\` and \`up\` with the image compose would
  * take in brackets. FAKE_FAIL names the calls that fail (pull, begin, stop,
- * snapshot, restore, up, up-again, and record: the updater's record from the
- * begin on), FAKE_PULLED_DIGEST the digest the pulled
+ * snapshot, restore, discard, up, up-again, and record: the updater's record from the
+ * begin on, or record-after-snapshot: after the snapshot), FAKE_PULLED_DIGEST the digest the pulled
  * image turns out to have, and FAKE_TARGET_RESTARTS the seconds after its
  * \`up -d\` at which the target's container restarts.
  */
@@ -174,14 +174,18 @@ case "$*" in
     # From here the updater's record cannot be written, should the test say so.
     ! fails record || mkdir "$FAKE_COMPOSE_DIR/.host-updater.update.new"
     echo "Began the update." ;;
-  "compose exec -T environment agent-harness update discard "*) running; echo "Discarded the snapshot." ;;
+  "compose exec -T environment agent-harness update discard "*)
+    running
+    ! fails discard || { echo "The discard failed." >&2; exit 1; }
+    echo "Discarded the snapshot." ;;
   "compose config --images environment") image_now ;;
   "compose stop environment")
     ! fails stop || { echo "stop failed" >&2; exit 1; }
     rm -f "$FAKE_STATE/running" ;;
   "compose run --rm -T environment update snapshot "* | "compose run --rm -T environment update restore "*)
     if [ -f "$FAKE_STATE/running" ]; then echo "An environment holds the database." >&2; exit 1; fi
-    ! fails "$7" || { echo "The $7 failed." >&2; exit 1; } ;;
+    ! fails "$7" || { echo "The $7 failed." >&2; exit 1; }
+    if [ "$7" = snapshot ] && fails record-after-snapshot; then mkdir "$FAKE_COMPOSE_DIR/.host-updater.update.new"; fi ;;
   "compose up -d environment")
     if [ -f "$FAKE_STATE/upped" ]; then ! fails up-again || exit 1; else : > "$FAKE_STATE/upped"; ! fails up || exit 1; fi
     image_now > "$FAKE_STATE/created"
@@ -538,7 +542,7 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
         const f = fixture();
         const result = await tick(f, { FAKE_FAIL: step, AGENT_HARNESS_NOTIFY_COMMAND: NOTIFY });
         expect(result.code).toBe(1);
-        expect(f.calls()).toEqual(["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, ...last, startAgainOn(OLD)]);
+        expect(f.calls()).toEqual(["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, ...last, startAgainOn(OLD), DISCARD]);
         expect(f.running()).toBe(OLD);
         expect(f.envFile()).toBeNull();
         expect(notified(f)).toEqual([
@@ -546,6 +550,37 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
         ]);
       });
     }
+  });
+
+  describe("discards a completed snapshot after starting the old container again when the record or the .env write fails", () => {
+    for (const step of ["record", ".env"] as const) {
+      it(step, async () => {
+        const f = fixture();
+        if (step === ".env") mkdirSync(join(f.composeDir, ".env.new"));
+        const result = await tick(f, { FAKE_FAIL: step === "record" ? "record-after-snapshot" : "", AGENT_HARNESS_NOTIFY_COMMAND: NOTIFY });
+        expect(result.code).toBe(1);
+        expect(f.calls()).toEqual(["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, STOP, snapshotOn(OLD), startAgainOn(OLD), DISCARD]);
+        expect(f.running()).toBe(OLD);
+        expect(f.envFile()).toBeNull();
+        expect(existsSync(join(f.composeDir, ".host-updater.update"))).toBe(false);
+        expect(notified(f)).toEqual([
+          `abandoned|Update ${UPDATE_ID} to 0.6.0 was not carried out: ${join(f.composeDir, step === "record" ? ".host-updater.update" : ".env")} could not be written. 0.5.0 was started again as it was.`,
+        ]);
+      });
+    }
+  });
+
+  it("a failed discard after an abandon costs only the room: the old container runs and the abandonment is still reported", async () => {
+    const f = fixture();
+    const result = await tick(f, { FAKE_FAIL: "snapshot discard", AGENT_HARNESS_NOTIFY_COMMAND: NOTIFY });
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("The discard failed.");
+    expect(f.calls()).toEqual(["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, STOP, snapshotOn(OLD), startAgainOn(OLD), DISCARD]);
+    expect(f.running()).toBe(OLD);
+    expect(existsSync(join(f.composeDir, ".host-updater.update"))).toBe(false);
+    expect(notified(f)).toEqual([
+      `abandoned|Update ${UPDATE_ID} to 0.6.0 was not carried out: update snapshot failed. 0.5.0 was started again as it was.`,
+    ]);
   });
 
   const UPDATE_UP_TO_THE_TARGET = ["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, STOP, snapshotOn(OLD), upOn(NEW)];
@@ -678,7 +713,7 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
           expect(f.running()).toBe(step === "begin" ? OLD : null);
           const next = await tick(f, { AGENT_HARNESS_NOTIFY_COMMAND: NOTIFY });
           expect(next.code).toBe(1);
-          expect(f.calls()).toEqual(["flock -n 9", ...calls]);
+          expect(f.calls()).toEqual(["flock -n 9", ...calls, DISCARD]);
           expect(f.running()).toBe(OLD);
           expect(f.envFile()).toBeNull();
           expect(record(f)).toBeNull();
@@ -801,7 +836,7 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
 
       const begun = fixture();
       expect((await tick(begun, { FAKE_FAIL: "record", AGENT_HARNESS_NOTIFY_COMMAND: NOTIFY })).code).toBe(1);
-      expect(begun.calls()).toEqual(["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, startAgainOn(OLD)]);
+      expect(begun.calls()).toEqual(["flock -n 9", STATUS, IMAGES, PULL, TAG, CHECK, BEGIN, startAgainOn(OLD), DISCARD]);
       expect(begun.running()).toBe(OLD);
       expect(record(begun)).toBeNull();
       expect(notified(begun)).toEqual([
