@@ -88,7 +88,7 @@ const team = { name: "brandsolidate", kind: "team", entities: [], scopes: ["proj
  * exactly as shown, and the purpose, entities, orientation and a team's owners
  * filled in as its list asks.
  */
-const writtenTo = (text: string): string => {
+const writtenTo = (text: string, orientation: readonly string[] = []): string => {
   const name = /^- name: ([^,\s]+),/m.exec(text)?.[1];
   const kind = /^- kind: ([a-z]+)\./m.exec(text)?.[1];
   const shown = /^```yaml\n([\s\S]*?)\n```$/m.exec(text)?.[1];
@@ -98,10 +98,29 @@ const writtenTo = (text: string): string => {
     kind,
     purpose: "What the bank is for, in one line.",
     entities: [{ name: "Homelab", aliases: ["home lab"] }],
-    orientation: [],
+    orientation,
     ...(kind === "team" && { owners: ["david"] }),
   };
   return `---\n${stringify(asked)}${shown}\n---\n\n# How agents use this bank\n`;
+};
+
+/**
+ * The orientation memory `name` and the folder files a model writes beside
+ * that BANK.md to what a describe prompt's `text` asks for (#1106): the
+ * memory at the path the prompt gives, with the frontmatter it names, and
+ * the home folder's and its org's folder files at the paths it gives.
+ */
+const homeWrittenTo = (text: string, name: string): Record<string, string> => {
+  const memories = /(\S+\/memories\/)<name>\.md/.exec(text)?.[1];
+  const org = /(\S+\/)ORG\.md/.exec(text)?.[1];
+  const project = /(\S+\/)PROJECT\.md/.exec(text)?.[1];
+  expect({ memories, org, project }, "the prompt gives where the memory and the folder files go").toEqual({ memories: expect.any(String), org: expect.any(String), project: expect.any(String) });
+  const file = (frontmatter: Record<string, unknown>, body = ""): string => `---\n${stringify(frontmatter)}---\n${body}`;
+  return {
+    [`${memories}${name}.md`]: file({ name, description: "When a run needs to know where the bank keeps its secrets - the paths, never the values", metadata: { type: "reference" } }, "The keys live in the key manager, by path.\n"),
+    [`${org}ORG.md`]: file({ line: "The org's own work" }),
+    [`${project}PROJECT.md`]: file({ line: "This bank's own facts", topics: {}, repos: [] }),
+  };
 };
 
 describe("the Memory bank step's describe prompt (#586)", () => {
@@ -178,6 +197,35 @@ describe("the Memory bank step's describe prompt (#586)", () => {
       for (const variant of PROMPT_VARIANTS) {
         const { text } = describeBank.render(variant, facts);
         expect(validateBank({ files: { "BANK.md": writtenTo(text) } }), `${facts.kind}, ${variant}`).toEqual({ validator: { name: "bank-validator", version: 1 }, valid: true, findings: [] });
+      }
+    }
+  });
+
+  it("says, in both variants, what an orientation memory and its home folder hold (#1106)", () => {
+    for (const variant of PROMPT_VARIANTS) {
+      const { text } = describeBank.render(variant, team);
+      for (const part of [
+        "projects/brandsolidate/bank/memories/<name>.md",
+        "a lower-case slug of at most 60 characters",
+        "60 to 160 characters",
+        "Before, When, After, While, If, Where, How, What, Which or Why",
+        "one of user, feedback, project or reference",
+        "projects/brandsolidate/ORG.md with line:",
+        "projects/brandsolidate/bank/PROJECT.md with line:",
+        "at most 100 characters",
+        "topics: ({} for none)",
+      ]) {
+        expect(text, `${variant}: ${part}`).toContain(part);
+      }
+    }
+  });
+
+  it("asks, in both variants and for both kinds, for an orientation memory and a home folder that pass the validator with no finding beside that BANK.md (#1106)", () => {
+    for (const facts of [personal, team]) {
+      for (const variant of PROMPT_VARIANTS) {
+        const { text } = describeBank.render(variant, facts);
+        const files = { "BANK.md": writtenTo(text, ["secrets-layout"]), ...homeWrittenTo(text, "secrets-layout") };
+        expect(validateBank({ files }), `${facts.kind}, ${variant}`).toEqual({ validator: { name: "bank-validator", version: 1 }, valid: true, findings: [] });
       }
     }
   });
