@@ -10,7 +10,7 @@ import {
   RoutineDefinitionInput,
   type RoutineWorkspace,
 } from "./routines.js";
-import { RoutineSchedule, WrittenTimeZone } from "./schedule.js";
+import { RoutineSchedule } from "./schedule.js";
 import { WorkspaceRequest } from "./sessions.js";
 
 /**
