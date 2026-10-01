@@ -33,6 +33,7 @@ import {
   type ResultOf,
   type SettingsRowId,
 } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Span } from "../transcript/lines.js";
 import { clockTime, nameOf } from "../view.js";
 import { meterBar, meterTone } from "../status/line.js";
@@ -138,7 +139,7 @@ export const accountRows = (
       cells: [
         { text: pad(account.label, labels), bold: true },
         { text: pad(identityWords(account), identities), dim: account.identity === null },
-        { text: pad(ACCOUNT_STATUS_WORDS[account.status.state], statuses), ...(account.status.state !== "signed-in" && { color: "yellow" }) },
+        { text: pad(ACCOUNT_STATUS_WORDS[account.status.state], statuses), ...(account.status.state !== "signed-in" && { color: TERMINAL_ROLES.warning }) },
       ],
       dim: false,
       ...(account.id === context.sessionAccount && { note: { text: "this session", dim: true } }),
@@ -228,12 +229,12 @@ export const usageLines = (
       lines.push([
         { text: `  ${pad(windowWords(window.window), words)}` },
         ...(window.utilisation !== null && cells > 0 ? [{ text: `${meterBar(window.utilisation, cells)} `, ...(tone !== undefined && { color: tone }) }] : []),
-        { text: window.verdict === "rejected" ? `${percent(window.utilisation)} out` : percent(window.utilisation), ...(tone !== undefined && { color: tone }), bold: tone === "red" },
+        { text: window.verdict === "rejected" ? `${percent(window.utilisation)} out` : percent(window.utilisation), ...(tone !== undefined && { color: tone }), bold: tone === TERMINAL_ROLES.danger },
         { text: reset === undefined ? "" : `  ${reset}`, dim: true },
       ]);
     }
   }
-  for (const answer of usage.environments) if (answer.error) lines.push([{ text: `${name(answer.environmentId)}: ${answer.error.message}`, color: "yellow" }]);
+  for (const answer of usage.environments) if (answer.error) lines.push([{ text: `${name(answer.environmentId)}: ${answer.error.message}`, color: TERMINAL_ROLES.warning }]);
   if (lines.length === 0) lines.push([{ text: NO_PLAN_READING, dim: true }]);
   return lines;
 };
@@ -248,6 +249,6 @@ export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) =
       { text: ` · ${reviewRunWords(run)}` },
     ],
     [{ text: `      ${reviewCountsWords(run.counts)}`, dim: true }],
-    ...run.denials.map((denial): readonly Span[] => [{ text: `      ${reviewDenialWords(denial)}`, color: "yellow" }]),
+    ...run.denials.map((denial): readonly Span[] => [{ text: `      ${reviewDenialWords(denial)}`, color: TERMINAL_ROLES.warning }]),
   ]);
 };

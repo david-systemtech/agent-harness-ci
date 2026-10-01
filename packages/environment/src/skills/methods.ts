@@ -2,7 +2,7 @@ import { ContractError, ENVIRONMENT_STREAM_KIND, type SkillChoice, type SkillsVi
 import type { EventLog } from "../event-log/event-log.js";
 import type { ListedAccount } from "../instructions/methods.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import type { CommandAnswer, CommandContext, MethodHandlers, PreparedCommand } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { choicesFor, readSkillChoices, skillsStream } from "./choices.js";
 import type { OwnDirectory } from "./own-directory.js";
@@ -14,7 +14,8 @@ import { resolveSkillSet } from "./precedence.js";
  * set for a session's account, or the default account's, with the choices;
  * `skills.own.create` and `.remove` at `admin`, the own directory's
  * prepared commands; `skills.carryOver` at `admin`, Carry over's skills
- * half; and `skills.setEnabled` and `skills.setAlwaysOn` at `admin`, each
+ * half; `skills.probe` at `admin`, a repository URL's skill folders; and
+ * `skills.setEnabled` and `skills.setAlwaysOn` at `admin`, each
  * appending its choice on the skills stream and `skills.updated` after it,
  * in the command's transaction. Sources are none until their ticket adds
  * them, and the set holds the own directory's layer alone until the source
@@ -32,6 +33,8 @@ export interface SkillsMethodsOptions {
   readonly accounts: () => readonly ListedAccount[];
   /** Carry over's skills half (`carry-over.ts`). */
   readonly carryOver: PreparedCommand<"skills.carryOver">;
+  /** `skills.probe` (`probe.ts`). */
+  readonly probe: MethodHandler<"skills.probe">;
 }
 
 /** The notice every committed choice is followed by. */
@@ -105,6 +108,7 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
         })),
       };
     },
+    "skills.probe": options.probe,
     "skills.own.create": own.create,
     "skills.own.remove": own.remove,
     "skills.carryOver": options.carryOver,

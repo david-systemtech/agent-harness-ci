@@ -1,5 +1,6 @@
 import { MODE_BADGE_WORDS, containmentWords, pressureOf, readingsOf as readingsOfGauge, type Pressure, type UsageGauge } from "@agent-harness/client-runtime";
 import type { ContainmentLevel, Mode, UsageWindow } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 
 /**
  * How the status line draws its words in a terminal (docs/specs/tui.md,
@@ -18,16 +19,16 @@ export interface Styled {
 
 /** The mode's badge in its colour: bypassPermissions shouts in red, the one reading on the line that is a warning rather than a setting. */
 export const MODE_BADGES: Readonly<Record<Mode, Styled>> = {
-  plan: { text: MODE_BADGE_WORDS.plan, color: "cyan" },
-  acceptEdits: { text: MODE_BADGE_WORDS.acceptEdits, color: "green" },
+  plan: { text: MODE_BADGE_WORDS.plan, color: TERMINAL_ROLES.machine },
+  acceptEdits: { text: MODE_BADGE_WORDS.acceptEdits, color: TERMINAL_ROLES.success },
   auto: { text: MODE_BADGE_WORDS.auto },
-  bypassPermissions: { text: MODE_BADGE_WORDS.bypassPermissions, color: "red", bold: true },
+  bypassPermissions: { text: MODE_BADGE_WORDS.bypassPermissions, color: TERMINAL_ROLES.danger, bold: true },
 };
 
 /** The containment level's glyph and word, `off` in yellow, since nothing holds a run in. */
 export const containmentBadge = (level: ContainmentLevel, isDefault: boolean): Styled => ({
   text: containmentWords(level, isDefault),
-  ...(level === "off" && { color: "yellow" }),
+  ...(level === "off" && { color: TERMINAL_ROLES.warning }),
 });
 
 /**
@@ -49,7 +50,7 @@ export const meterBar = (utilisation: number, cells: number): string => {
 export const meterCells = (columns: number): number => (columns >= 118 ? 5 : columns >= 98 ? 4 : 0);
 
 /** A pressure's colour: red when high or out, yellow when raised, green when low. */
-const PRESSURE_COLOURS: Readonly<Record<Pressure, string>> = { out: "red", high: "red", raised: "yellow", low: "green" };
+const PRESSURE_COLOURS: Readonly<Record<Pressure, string>> = { out: TERMINAL_ROLES.danger, high: TERMINAL_ROLES.danger, raised: TERMINAL_ROLES.warning, low: TERMINAL_ROLES.success };
 
 /** Colour by pressure, the desktop's thresholds (red at 90%, yellow at 75%); a window the provider refuses is red whatever it reads. */
 export const meterTone = (window: Pick<UsageWindow, "utilisation" | "verdict">): string | undefined => {

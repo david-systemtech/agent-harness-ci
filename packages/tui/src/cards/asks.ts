@@ -1,5 +1,6 @@
 import { askDetail, ttlWords, type EnvironmentView, type ParkedAsk } from "@agent-harness/client-runtime";
 import { UNLISTED_BADGE, badgesOf, type Badge } from "../rail/badge.js";
+import type { ThemeColours } from "../theme/colours.js";
 
 /**
  * The parked-asks card as rows (docs/specs/tui.md, "Cards: permissions,
@@ -22,8 +23,8 @@ export const promptKey = (environmentId: string, sessionId: string, promptId: st
 export const askKey = (ask: Pick<ParkedAsk, "environmentId" | "sessionId" | "promptId">): string => promptKey(ask.environmentId, ask.sessionId, ask.promptId);
 
 /** An environment's badge, the rail's (`rail/badge.ts`), so it has the same two letters here; one not listed wears none of another's. */
-export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge =>
-  badgesOf(views).get(environmentId) ?? UNLISTED_BADGE;
+export const badgeOf = (views: readonly EnvironmentView[], environmentId: string, colours: ThemeColours): Badge =>
+  badgesOf(views, colours).get(environmentId) ?? UNLISTED_BADGE;
 
 /** One row, as the card draws it. */
 export interface AskRow {
@@ -44,11 +45,12 @@ export const askRows = (
   asks: readonly ParkedAsk[],
   views: readonly EnvironmentView[],
   open: { readonly environmentId: string; readonly sessionId: string } | null,
+  colours: ThemeColours,
 ): readonly AskRow[] =>
   asks.map((ask) => ({
     key: askKey(ask),
     ask,
-    badge: badgeOf(views, ask.environmentId),
+    badge: badgeOf(views, ask.environmentId, colours),
     title: ask.title ?? "a session",
     here: open !== null && open.environmentId === ask.environmentId && open.sessionId.toLowerCase() === ask.sessionId.toLowerCase(),
     kindWord: ask.kind === "permission" ? "" : ask.kind,

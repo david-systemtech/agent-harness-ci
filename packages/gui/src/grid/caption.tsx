@@ -1,7 +1,7 @@
 import { workspaceLabel } from "@agent-harness/client-runtime";
 import type { Workspace } from "@agent-harness/contracts";
 import { useMemo, useState, type ReactNode } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { PaneSession } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
@@ -70,7 +70,7 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
 
   return (
     <CaptionBar {...bar}>
-      <EnvironmentDot view={environment} label={environment?.name ?? THIS_MACHINE} />
+      <EnvironmentGlyph view={environment} label={environment?.name ?? THIS_MACHINE} />
       {editing ? (
         <RenameField label={`Rename ${quoted(name)}`} value={name} maxLength={TITLE_MOST} close={() => setEditing(false)} commit={rename} />
       ) : (

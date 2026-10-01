@@ -14,6 +14,7 @@ import {
 } from "@agent-harness/client-runtime";
 import type { ForgeAccountRecord } from "@agent-harness/contracts";
 import { useId, useState } from "react";
+import { MoveToKeyManager } from "../key-managers/move-card.js";
 import { CopyDialog } from "../settings/copy-dialog.js";
 import { Button, Dialog, DialogClose, DialogContent, Fact } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -34,7 +35,8 @@ export interface ForgeCardProps {
  * comes from, its status with when it last changed and the environment's
  * line, what it can do, whether it is primary and where it was copied from;
  * then Make primary, Verify now, Remove (confirmed) and Copy to other
- * environments.
+ * environments; and on a stored token, Move to your key manager, which opens
+ * the Key manager step's Move stored tokens (#590).
  */
 export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardProps) => {
   const runtime = useRuntime();
@@ -80,6 +82,7 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
           Remove
         </Button>
         <Button onClick={() => setOpen("copy")}>Copy to other environments</Button>
+        {account.credential.kind === "stored" && <MoveToKeyManager environmentId={environmentId} />}
       </div>
       {open === "remove" && <ConfirmRemove environmentId={environmentId} account={account} close={close} say={say} />}
       {open === "copy" && (
