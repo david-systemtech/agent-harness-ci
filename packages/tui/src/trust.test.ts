@@ -60,6 +60,7 @@ it.each(["trusted", "declined"] as const)("records %s and removes the question i
   await app.type(decision === "trusted" ? "/trust" : "/trust decline");
   await app.press(KEY.enter);
   await app.waitUntil(() => !app.frame().includes("Trust https://forge.test/seth/receipts?"), "the trust question to disappear");
+  await app.waitFor(`Repository trust set to ${decision}.`);
   expect(env.requests("trust.decide")[0]?.params).toMatchObject({ sessionId: SESSION, decision, commandId: expect.any(String) });
   expect(env.requests("runs.start")).toEqual([]);
   await app.type("/resume");

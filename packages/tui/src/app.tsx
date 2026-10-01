@@ -1267,7 +1267,7 @@ export const App = (props: AppProps) => {
           commandId: props.newCommandId(), sessionId: opened.sessionId, decision: command.decision,
         }).then((answer) => {
           const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : undefined;
-          say(refused === undefined ? `Repository trust ${command.decision}.` : `Cannot decide repository trust: ${refused}`);
+          say(refused === undefined ? `Repository trust set to ${command.decision}.` : `Cannot decide repository trust: ${refused}`);
         });
         return true;
       }
