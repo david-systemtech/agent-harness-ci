@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { SETUP_PENDING_MS } from "@agent-harness/client-runtime";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, STEP_ORDER, denylistPresets } from "@agent-harness/contracts";
+import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../test/harness.js";
 import type { StepCardProps } from "./setup/cards.js";
@@ -657,10 +658,12 @@ describe("a result this window did not ask for", () => {
 });
 
 describe("the header's Set up line", () => {
-  it("shows while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
+  it("shows in amber alone while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
     const app = await twoEnvironments();
     const header = screen.getByRole("banner");
     const line = await within(header).findByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" });
+    // Tailwind's stylesheet order, rather than className order, decides between conflicting colours.
+    expect([...line.classList].filter((name) => TOKEN_NAMES.some((token) => name === `text-${token}`))).toEqual(["text-amber"]);
     // laptop's Appearance needs attention too, but laptop is not the home environment.
     expect(within(header).queryByText(/laptop/)).toBeNull();
 

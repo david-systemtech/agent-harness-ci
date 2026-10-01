@@ -250,11 +250,11 @@ export const instructionMethods = (options: InstructionMethodsOptions): MethodHa
       return { catalogueId, fromVersion: version, toVersion: entry.version, from: textAt(entry, version), to: entry.text, body: held.body };
     },
 
-    "instructions.create": ({ id, catalogueId, title, body, ...placement }, context): CommandAnswer<{ instruction: OwnedInstruction }, Refused> => {
+    "instructions.create": ({ id, catalogueId, title, body, origin, ...placement }, context): CommandAnswer<{ instruction: OwnedInstruction }, Refused> => {
       if (catalogueId === undefined) {
         // The params' schema takes a title and a body with no catalogue id.
         if (title === undefined || body === undefined) throw new ContractError(invalidParams([{ code: "custom", path: [], message: "Give a title and a body, or a catalogue id." }]));
-        return createOwned(context, { id, title, body, origin: null }, placement);
+        return createOwned(context, { id, title, body, origin: origin ?? null }, placement);
       }
       const entry = entryOf(catalogueId);
       if (entry === undefined) return { aggregate: stream, rejected: noEntry(catalogueId) };

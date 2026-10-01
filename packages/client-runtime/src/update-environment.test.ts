@@ -105,6 +105,26 @@ describe("update-environment while blocked protocol-mismatch", () => {
     expect(wire.updatePosts()).toHaveLength(1);
   });
 
+  it("returns to blocked with the update action at 168 hours even if the client is offline, and can ask again", async () => {
+    const { clock, wire, platform, runtime } = await blocked();
+    await runtime.connections.updateEnvironment(wire.environmentId);
+    platform.network.setOnline(false);
+    await flush();
+
+    clock.advance(604_799_999);
+    await flush();
+    expect(record(runtime)).toMatchObject({ phase: "updating", blocked: null, action: null });
+    clock.advance(1);
+    await flush();
+    expect(record(runtime)).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", action: "update-environment", retryAt: null });
+
+    platform.network.setOnline(true);
+    await flush();
+    expect(await runtime.connections.updateEnvironment(wire.environmentId)).toMatchObject({ ok: true, toVersion: CLIENT_VERSION });
+    expect(record(runtime)).toMatchObject({ phase: "updating", blocked: null, action: null });
+    expect(wire.updatePosts()).toHaveLength(2);
+  });
+
   it("keeps the block across a restart of this client mid-update, and clears it when hello agrees", async () => {
     const { wire, platform, clock, runtime } = await blocked();
     await runtime.connections.updateEnvironment(wire.environmentId);

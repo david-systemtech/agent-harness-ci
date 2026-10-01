@@ -229,7 +229,8 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * (`skills.updated`, a command or a read of the own directory, #494) or an
  * account (the view lists the accounts, and a removal drops the choices
  * naming one, #501) `skills.get` and `skills.readiness` (#510: the set
- * checked, and the account's provider); a trust decision recorded or revoked (`trust.updated`,
+ * checked, and the account's provider); repository trust and forge alias changes
+ * also refresh both, since they change the repository layer (#517). A trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; the skill set changing, the trust or an account (a
@@ -256,7 +257,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * skill set changing (`skills.updated`, whose own directory the skills
  * count is read against, #580) Carry over's inventory, whose new sessions,
  * memory and skills they change; a state import
- * ending (`state-import.finished`, #581) the state import's detection; and a
+ * ending (`state-import.finished`, #581) the state import's detection, adopted accounts and Carry over inventories; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
  * `browser.status`, whose unpaired flag a pairing clears, as settings
@@ -276,7 +277,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
-  "accounts.list": ["account.updated", "signin.updated"],
+  "accounts.list": ["account.updated", "signin.updated", "state-import.finished"],
   "models.list": ["account.updated", "signin.updated"],
   "accounts.probe": ["account.updated", "signin.updated"],
   "accounts.usage": ["usage.updated", "account.updated", "signin.updated"],
@@ -290,8 +291,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "permissions.settings.get": ["settings.changed", "denylist.updated"],
   "permissions.denylist.get": ["denylist.updated"],
   "permissions.review.list": ["review.updated"],
-  "skills.get": ["skills.updated", "account.updated"],
-  "skills.readiness": ["skills.updated", "account.updated"],
+  "skills.get": ["skills.updated", "account.updated", ...TRUST_REFRESH_NOTICES],
+  "skills.readiness": ["skills.updated", "account.updated", ...TRUST_REFRESH_NOTICES],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
   "commands.list": ["skills.updated", ...TRUST_REFRESH_NOTICES, "account.updated"],
@@ -303,7 +304,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "tools.list": ["tools.updated"],
   "browser.status": ["extension.seen", "chrome.updated", "settings.changed"],
   "browser.chromes.list": ["chrome.updated"],
-  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated"],
+  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated", "state-import.finished"],
   "stateImport.detect": ["state-import.finished"],
   "environment.status": ["environment.draining"],
   "routines.list": ROUTINE_LIST_REFRESH_NOTICES,
@@ -325,6 +326,8 @@ export interface RequestCache {
   askedAt<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): number | null;
   /** An event applied to the environment's own stream, which this client had not seen: a matching notice fetches again. */
   noticed(environmentId: string, type: string): void;
+  /** A session changed the account or workspace its cached skill set and trust resolve against (#517). */
+  sessionChanged(environmentId: string, sessionId: string, type: string): void;
   /** Lets go of an environment's answers: it was removed. */
   forget(environmentId: string): void;
   close(): void;
@@ -526,6 +529,17 @@ export const createRequestCache = (host: {
       for (const entry of entries.values()) {
         if (entry.environmentId !== environmentId) continue;
         if (CACHE_REFRESH_NOTICES.includes(type) || (QUERY_REFRESH_NOTICES[entry.method] ?? []).includes(type)) refresh(entry);
+      }
+    },
+    sessionChanged(environmentId, sessionId, type) {
+      const methods: readonly QueryMethodName[] =
+        type === "session.workspace-set"
+          ? ["skills.get", "skills.readiness", "trust.get", "commands.list"]
+          : type === "run.started"
+            ? ["skills.get", "skills.readiness", "commands.list"]
+            : [];
+      for (const entry of entries.values()) {
+        if (entry.environmentId === environmentId && typeof entry.params["sessionId"] === "string" && entry.params["sessionId"].toLowerCase() === sessionId.toLowerCase() && methods.includes(entry.method)) refresh(entry);
       }
     },
     forget(environmentId) {

@@ -45,6 +45,7 @@ import {
   type SkillsView as SkillsViewType,
   type SkillSourceAddConflict as SkillSourceAddConflictType,
   type SkillSourceFollowConflict as SkillSourceFollowConflictType,
+  type SkillSourceNoSkills as SkillSourceNoSkillsType,
   type SkillsViewSource as SkillsViewSourceType,
 } from "./index.js";
 
@@ -651,7 +652,7 @@ describe("skill sources", () => {
     const validate = published("skills/source-follow-conflict.json");
     const conflicts: SkillSourceFollowConflictType[] = [
       { reason: "unreachable", problem: "not_found", line: "fatal: remote error: upload-pack: not our ref", origin: "https://github.com" },
-      { reason: "no_skills", folders: ["skills"] },
+      { reason: "no_skills", folders: ["skills"] } satisfies SkillSourceNoSkillsType,
     ];
     for (const data of conflicts) {
       expect(roundTrip(SkillSourceFollowConflict, data)).toEqual(data);

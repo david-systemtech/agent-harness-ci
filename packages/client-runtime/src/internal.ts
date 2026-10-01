@@ -21,6 +21,7 @@ import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { PRESET_SETTING_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
+import { createSkillsCopies } from "./skills-copy.js";
 import { createKeyManagers } from "./key-managers.js";
 import { reportKnownEnvironments } from "./known-environments.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
@@ -82,6 +83,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         outbox.applied(environmentId, event);
         // Every run and prompt event of every session comes on the list: the run states and the parked asks fold them all.
         runs.heard(environmentId, event);
+        if (news) requestCache.sessionChanged(environmentId, event.streamId, event.type);
         if (news && event.type === "run.ended") {
           const { runId, reason, cause } = event.payload as RunEndedPayload;
           attention.emit({ kind: "run-ended", environmentId, sessionId: event.streamId.toLowerCase(), runId, reason, cause });
@@ -392,6 +394,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
     },
     commands: {
+      ...createSkillsCopies({ clock: platform.clock, call, capability, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null, targetIds: (environmentId) => copyTargetsOf(registry.list.read(), environmentId).map((target) => target.environmentId) }),
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
       admits: (environmentId, method) => outbox.admits(environmentId, method),
