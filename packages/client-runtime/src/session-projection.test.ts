@@ -72,10 +72,13 @@ describe("a run the fake adapter plays", () => {
     const view = (): SessionProjection => session.read();
 
     // The first delta is an open item, streaming.
-    const reply = () => view().items.find((item) => item.kind === "assistant-text");
-    await deltaShown(t, "Look", (prefix) => until(() => reply()?.text.startsWith(prefix) === true, `the first delta to show ${prefix}`));
+    const replyText = (): string => {
+      const reply = view().items.find((item) => item.kind === "assistant-text");
+      return reply?.kind === "assistant-text" ? reply.text : "";
+    };
+    await deltaShown(t, "Look", (prefix) => until(() => replyText().startsWith(prefix), `the first delta to show ${prefix}`));
     expect(await started).toMatchObject({ ok: true });
-    expect(reply()).toMatchObject({ itemId: "i-1", text: "Look", streaming: true });
+    expect(view().items.find((item) => item.kind === "assistant-text")).toMatchObject({ itemId: "i-1", text: "Look", streaming: true });
     expect(view().runs).toEqual([expect.objectContaining({ state: "running", reason: null })]);
     streamed.open();
 
