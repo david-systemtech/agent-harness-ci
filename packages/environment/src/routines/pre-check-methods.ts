@@ -43,24 +43,24 @@ export const preCheckMethods = (options: PreCheckMethodsOptions): Required<Pick<
   const testedOf = (params: ParamsOf<"routines.testPreCheck">) => {
     if (params.routineId === undefined) {
       if (params.preCheck === undefined || params.workspace === undefined) throw new Error("routines.testPreCheck's schema lets through neither a routine nor a pre-check with its workspace.");
-      return { preCheck: params.preCheck, routine: null, workspace: params.workspace, baselineHash: null };
+      return { preCheck: params.preCheck, routine: null, workspace: params.workspace, account: null, injection: "inherit" as const, baselineHash: null };
     }
     const id = params.routineId.toLowerCase();
     const routine = liveRoutine(reader, id);
     if (routine === null) throw new ContractError(routineNotFound(id));
-    const { preCheck, name, workspace } = routine.definition;
+    const { preCheck, name, workspace, account, injection } = routine.definition;
     if (preCheck === null) {
       throw new ContractError(invalidParams([{ code: "custom", path: ["routineId"], message: `The routine ${id} has no pre-check to run.` }], "The routine has no pre-check."));
     }
-    return { preCheck, routine: { id, name }, workspace, baselineHash: routineBaseline(reader, id)?.hash ?? null };
+    return { preCheck, routine: { id, name }, workspace, account, injection, baselineHash: routineBaseline(reader, id)?.hash ?? null };
   };
 
   return {
     "routines.scripts.list": async () => ({ directory: options.scripts.path, scripts: await options.scripts.list() }),
 
     "routines.testPreCheck": async (params) => {
-      const { preCheck, routine, workspace, baselineHash } = testedOf(params);
-      const subject: PreCheckSubject = { routine, dueAt: options.clock().toISOString(), trigger: "test", workspace };
+      const { preCheck, routine, workspace, account, injection, baselineHash } = testedOf(params);
+      const subject: PreCheckSubject = { routine, dueAt: options.clock().toISOString(), trigger: "test", workspace, account, injection };
       const { record, deniedHost } = await options.preChecks.run(preCheck, subject, { baselineHash, boundMs: TEST_PRE_CHECK_BOUND_MS });
       if (record.failure?.reason === "output_too_large") {
         throw new ContractError({ code: "output_too_large", message: record.failure.detail, data: { limitBytes: MAX_PRE_CHECK_OUTPUT_BYTES } });

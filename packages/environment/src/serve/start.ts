@@ -161,6 +161,7 @@ import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
 import { createRoutineScheduler } from "../routines/scheduler.js";
+import { routineAccount } from "../routines/listing.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
 import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
@@ -1500,7 +1501,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
   const scripts = scriptsDirectory(scriptsPath, { platform: options.platform ?? process.platform, env: process.env });
   const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
-  const preChecks = createPreCheckRunner({ scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub, baseEnvironment: () => baseEnvironment() });
+  const preChecks = createPreCheckRunner({
+    scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub,
+    baseEnvironment: () => baseEnvironment(),
+    processEnvironment: (subject) => processEnvironments.of({
+      sessionId: null,
+      accountId: routineAccount(subject.account, { reader: { all: (sql, ...params) => log.read(sql, ...params) }, accounts })?.id ?? null,
+      origin: "routine",
+      holder: "pre-check",
+      override: subject.routine === null || subject.injection === "inherit"
+        ? null
+        : { answer: subject.injection, level: { kind: "routine", id: subject.routine.id } },
+    }),
+  });
   const firings = createFiringStarter({
     log,
     clock: now,
