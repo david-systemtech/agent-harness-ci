@@ -97,6 +97,8 @@ describe("the scripted CDP peer", () => {
     const signedIn = await pageIn();
     const other = await pageIn();
     expect(signedIn.browserContextId).not.toBe(other.browserContextId);
+    expect(await connection.send("Target.getBrowserContexts")).toEqual({ browserContextIds: [signedIn.browserContextId, other.browserContextId] });
+    expect(await signedIn.session.send("Runtime.getHeapUsage")).toEqual({ usedSize: 0, totalSize: 0 });
     signedIn.target.navigate("https://shop.example/login");
     other.target.navigate("https://shop.example/");
     const cookies = async (session: typeof signedIn.session) => ((await session.send("Network.getCookies", { urls: ["https://shop.example/"] })).cookies as { name: string; value: string; domain: string }[]);
@@ -104,6 +106,7 @@ describe("the scripted CDP peer", () => {
     expect(await cookies(other.session)).toEqual([]);
     expect((await signedIn.session.send("Network.getCookies", { urls: ["https://elsewhere.example/"] })).cookies).toEqual([]);
     await connection.send("Target.disposeBrowserContext", { browserContextId: signedIn.browserContextId });
+    expect(await connection.send("Target.getBrowserContexts")).toEqual({ browserContextIds: [other.browserContextId] });
     const again = await pageIn();
     expect(await cookies(again.session)).toEqual([]);
   });
