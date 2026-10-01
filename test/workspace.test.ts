@@ -60,8 +60,8 @@ describe("the workspace", () => {
     expect(runtimeDependencies(manifest("@agent-harness/theme"))).toEqual(["@agent-harness/contracts"]);
   });
 
-  it("gives the browser package two runtime dependencies, contracts and Mozilla Readability, the reader: it runs in every browser, the extension's included, so it takes no environment code (browser spec; #546)", () => {
-    expect(runtimeDependencies(manifest("@agent-harness/browser")).sort()).toEqual(["@agent-harness/contracts", "@mozilla/readability"]);
+  it("gives the browser package one runtime dependency, contracts, with Mozilla Readability vendored for the reader to send into a page: it runs in every browser, the extension's included, so it takes no environment code (browser spec; #546, #545)", () => {
+    expect(runtimeDependencies(manifest("@agent-harness/browser"))).toEqual(["@agent-harness/contracts"]);
   });
 
   it("gives the extension no workspace dependency but contracts and the browser package: it runs in Chrome and finds its environment by itself (browser spec; #549)", () => {
