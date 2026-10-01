@@ -671,20 +671,21 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
 describe("a client tool's call (mcp__client__*, #139)", () => {
   const clientRead: Omit<GatedToolCall, "toolCallId"> = {
     tool: "mcp__client__read_file",
+    external: true,
     summary: "read_file ~/.ssh/id_rsa",
     access: { kind: "other" },
     input: { path: "~/.ssh/id_rsa" },
   };
 
   const subjects: { name: string; caller: Omit<GatedToolCall, "toolCallId">; environment: Omit<GatedToolCall, "toolCallId">; section: string }[] = [
-    { name: "path", caller: clientRead, environment: { ...clientRead, tool: "mcp__memory__read_file" }, section: "paths" },
+    { name: "path", caller: clientRead, environment: { ...clientRead, external: false, tool: "mcp__memory__read_file" }, section: "paths" },
     {
       name: "host",
-      caller: { tool: "mcp__client__fetch", summary: "Fetch metadata", access: { kind: "other" }, input: { url: "http://169.254.169.254/latest/" } },
+      caller: { external: true, tool: "mcp__client__fetch", summary: "Fetch metadata", access: { kind: "other" }, input: { url: "http://169.254.169.254/latest/" } },
       environment: { tool: "WebFetch", summary: "Fetch metadata", access: { kind: "fetch", urls: ["http://169.254.169.254/latest/"] }, input: { url: "http://169.254.169.254/latest/" } },
       section: "hosts",
     },
-    { name: "command", caller: { ...sudo, tool: "mcp__client__shell", access: { kind: "other" } }, environment: sudo, section: "commandPatterns" },
+    { name: "command", caller: { ...sudo, external: true, tool: "mcp__client__shell", access: { kind: "other" } }, environment: sudo, section: "commandPatterns" },
   ];
 
   describe.each([true, false])("when attendance is %s", (attended) => {
@@ -730,6 +731,8 @@ describe("a client tool's call (mcp__client__*, #139)", () => {
     expect(await rule.check({ ...clientRead, toolCallId: "call_1" }, run)).toBeNull();
     await expect(rule.check({ ...readKey, toolCallId: "call_2" }, run)).rejects.toThrow(/Nobody is asked/);
     expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(false);
+    expect(denylistReadsCall({ ...clientRead, external: false, toolCallId: "call_local" })).toBe(true);
+    expect(denylistReadsCall({ tool: clientRead.tool, summary: clientRead.summary, access: clientRead.access, toolCallId: "call_unknown" })).toBe(true);
     for (const tool of ["Read", "mcp__memory__read_file", "mcp__client_backup__read_file", "mcp__client_read_file"]) {
       expect(denylistReadsCall({ ...clientRead, tool, toolCallId: "call_4" })).toBe(true);
     }

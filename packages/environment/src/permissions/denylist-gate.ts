@@ -159,10 +159,11 @@ export interface DenylistContext {
 /**
  * Which calls the denylist reads: all except the completions caller's own
  * tools (`mcp__client__*`, #139). Those tools run on the caller's machine,
+ * identified by the adapter from the run's external tool server,
  * while the denylist protects the environment's machine (#281). Only the
  * denylist skips them; containment and the provider's mode still apply.
  */
-export const denylistReadsCall = (call: GatedToolCall): boolean => !call.tool.startsWith("mcp__client__");
+export const denylistReadsCall = (call: GatedToolCall): boolean => !(call.external === true && call.tool.startsWith("mcp__client__"));
 
 /** Every entry a call matches, and the paths whose links could not be followed. */
 export interface DenylistReading {
