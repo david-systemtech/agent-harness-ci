@@ -348,6 +348,14 @@ _Avoid_: plugin directory, bridge, skills folder
 Whether a skill can help right now on this environment: ready, setup needed (with the failing check named) or unsupported, computed by the harness from the checks the skill or its overlay declares.
 _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
 
+**Sidecar**:
+The file `agents/agent-harness.yaml` beside a skill's `SKILL.md` that declares its readiness: version 1 and a list of checks, each with an optional one-line why and fix. It wins whole over the overlay; one that does not read is a warning on the member and counts as none. Kept out of the frontmatter, whose unknown keys claude.ai's upload refuses.
+_Avoid_: manifest (the provenance manifest), frontmatter keys
+
+**Overlay**:
+The readiness declarations the harness ships in its contracts, keyed by a member's origin (repository identity and folder path), so a skill that has no sidecar, such as a source's or a vendored copy whose provenance manifest names that origin, still says what it needs.
+_Avoid_: defaults, registry, catalogue (the suggestions list)
+
 **Standing instructions**:
 Text appended to every run through the provider's instruction channel, composed once on the run's environment, whoever started the run, from layers in a fixed order, general to specific: the user layer (the orientation block, then owned instructions), the team bank's, the project's, the session's, a bot's persona, then always-on skills; the run's own text follows. Each composition has a manifest beside its text, which the log keeps in place of the text: per layer what it put in (ids, versions and characters), the always-on skills with their origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why.
 _Avoid_: prompt library, house rules, system prompt (the whole thing the provider builds)
