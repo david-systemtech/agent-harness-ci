@@ -42,28 +42,29 @@ export const UnauthorizedError = errorSchema("unauthorized", z.object({})).meta(
 });
 /**
  * The client session lacks the scope the method requires, named in `data`;
- * or it holds the scope, and `data.reason` says why the call is still
+ * or it holds the method's scope, and `data.reason` says why the call is still
  * refused: `ceiling`, it would grant a ceiling above its own (#180: a
  * pairing, or raising another client session), `data.ceiling` being the
- * caller's; `local`, only a local client session (the bootstrap grant's)
- * may ask it (#335: an artefact path, the desktop's stage); `program`, a
+ * caller's; `scope`, a pairing would grant a scope the caller does not
+ * hold (#247), named in `data.scope`; `local`, only a local client session
+ * (the bootstrap grant's) may ask it (#335: an artefact path, the desktop's stage); `program`, a
  * program client session may not ask it (#382: the known-environments
  * report, whose text reaches every run).
  */
-export const FORBIDDEN_REASONS = ["ceiling", "local", "program"] as const;
+export const FORBIDDEN_REASONS = ["ceiling", "scope", "local", "program"] as const;
 export const ForbiddenError = errorSchema(
   "forbidden",
   z.object({
-    scope: Scope.meta({ description: "The scope the method requires." }),
+    scope: Scope.meta({ description: "The scope the method requires; with reason scope, the requested pairing scope the caller does not hold." }),
     reason: z.enum(FORBIDDEN_REASONS).optional().meta({
       description:
-        "Present when the scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage) or program (a program client session may not ask it: the known-environments report, whose text reaches every run).",
+        "Present when the method's scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), scope (a pairing would grant a scope the caller does not hold, named in data.scope), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage) or program (a program client session may not ask it: the known-environments report, whose text reaches every run).",
     }),
     ceiling: Ceiling.optional().meta({ description: "With reason ceiling: the caller's own ceiling, the highest it may grant." }),
   }),
 ).meta({
   description:
-    "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not.",
+    "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason scope, a pairing would grant a scope the caller does not hold, named in data.scope; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not.",
 });
 /** The environment is not ready yet, or is draining. */
 export const UnavailableError = errorSchema(

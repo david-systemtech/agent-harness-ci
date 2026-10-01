@@ -44,7 +44,18 @@ export const accessMethods = (options: AccessMethodsOptions): Required<Pick<Meth
     "access.pairings.create": (params, { clientSession, commandId, tx }) => {
       const ceiling = pairings.ceilingOf(params.ceiling);
       if (compareModes(ceiling, clientSession.ceiling) > 0) return { aggregate, rejected: aboveOwn(ceiling, clientSession.ceiling, "A pairing at") };
-      return { aggregate, result: pairings.create(tx, { scopes: params.scopes, ceiling }, byClientSession(clientSession.id, commandId)) };
+      const unheld = params.scopes?.find((scope) => !clientSession.scopes.includes(scope));
+      if (unheld !== undefined) {
+        return {
+          aggregate,
+          rejected: {
+            code: "forbidden",
+            message: `A pairing cannot grant ${unheld}; this client session does not hold that scope.`,
+            data: { reason: "scope", scope: unheld },
+          },
+        };
+      }
+      return { aggregate, result: pairings.create(tx, { scopes: params.scopes ?? clientSession.scopes, ceiling }, byClientSession(clientSession.id, commandId)) };
     },
 
     "access.sessions.list": (params) => ({ sessions: clientSessions.list({ live: params.live ?? false }) }),
