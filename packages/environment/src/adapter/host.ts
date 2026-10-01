@@ -103,10 +103,12 @@ import { composeInstructions, instructionsDigest } from "../instructions/compose
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import { createProcessEnvironments, runOverrideOf, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
-import type { ToolGate } from "./contract.js";
+import type { ToolGate, TranscriptEvent } from "./contract.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
-import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
+import { createScopedAppend } from "./scoped-append.js";
+import { createDeltaAppend } from "./delta-scrub.js";
+import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import {
   holdNothing,
   noAutoAnswer,
@@ -204,6 +206,8 @@ const NOTHING_TO_PROJECT: RunDenylist = { paths: [], exempt: [], commandPatterns
 export interface AdapterHostOptions {
   readonly log: EventLog;
   readonly clock: Clock;
+  /** The environment's shared registry, consulted before assistant deltas reach the log. */
+  readonly scrub?: ScrubRegistry;
   /** The run registry the lifecycle reads; preset: a fresh one on `clock`. */
   readonly runs?: MemoryRunRegistry;
   readonly adapters?: readonly Adapter[];
@@ -568,7 +572,8 @@ interface LiveRun {
   readonly descriptor: AdapterDescriptor;
   readonly plan: PlannedRun;
   readonly actor: string;
-  readonly append: ScopedAppend;
+  readonly append: (event: TranscriptEvent) => void;
+  readonly flushDeltas: () => void;
   readonly startedAt: number;
   /** The mode the provider runs it in now: its policy's, until a live change (`setMode`) takes. */
   mode: Mode;
@@ -667,6 +672,7 @@ const safely = (work: () => unknown, onError: (error: unknown) => void): Promise
 
 export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const { log, clock } = options;
+  const scrub = options.scrub ?? createScrubRegistry();
   const adapters = createAdapterRegistry(options.adapters ?? []);
   const registry = options.runs ?? createRunRegistry({ clock });
   const toolServers = options.toolServers ?? noToolServers;
@@ -1097,6 +1103,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     let recorded: EventEnvelope | undefined;
     try {
       try {
+        entry.flushDeltas();
+      } catch (error) {
+        // A failed transcript append must not prevent the run's end from being recorded.
+        console.error(`Flushing assistant deltas for run ${entry.runId} failed:`, error);
+      }
+      try {
         recorded = record();
       } catch (first) {
         console.error(`Appending the end of run ${entry.runId} failed; trying once more:`, first);
@@ -1364,13 +1376,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean): LiveRun => {
     const { descriptor } = plan.account;
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
+    const deltas = createDeltaAppend({
+      scrub, clock, runId: plan.runId,
+      append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
+      onError: (error) => finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, { by: "host", stop: "failed" }),
+    });
     const entry: LiveRun = {
       runId: plan.runId,
       sessionId: plan.sessionId,
       descriptor,
       plan,
       actor,
-      append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
+      append: deltas.append,
+      flushDeltas: deltas.flush,
       startedAt: clock.now().getTime(),
       mode: plan.mode,
       containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
