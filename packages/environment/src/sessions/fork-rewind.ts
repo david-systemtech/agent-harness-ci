@@ -266,6 +266,21 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
   const visibleMessages = (sessionId: string): UserMessage[] =>
     sessionTranscript(log, sessionId).items.filter((item): item is UserMessage => item.kind === "user-message");
 
+  /** Imported user messages share the history append's run id, retained through compaction; their ids are not provider anchors. */
+  const importedMessage = (sessionId: string, message: UserMessage): boolean =>
+    log.read(
+      `SELECT 1 FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.history-imported'
+         AND json_extract(payload, '$.runId') = ? LIMIT 1`,
+      sessionId,
+      message.runId,
+    ).length > 0;
+
+  const importedAnchorRefusal = (sessionId: string, messageId: string) => ({
+    code: "conflict" as const,
+    message: "Imported history cannot be used as a fork or rewind point: start a new session with this message's text instead.",
+    data: { reason: "imported_history", sessionId, messageId },
+  });
+
   /**
    * Whether the provider's conversation holds anything before `messageId`:
    * not when it is the session's first message, unless the session is a fork
@@ -347,6 +362,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     const messages = visibleMessages(id);
     const target = messages.find((message) => message.messageId === messageId && message.heldBy === null);
     if (target === undefined) return { aggregate, rejected: messageNotFound(id, messageId) };
+    if (importedMessage(id, target)) return { aggregate, rejected: importedAnchorRefusal(id, messageId) };
     if (!historyBefore(id, messages, messageId) || storedHistory === false) {
       return {
         aggregate,
@@ -383,6 +399,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       const asked = params.atMessageId.toLowerCase();
       anchor = messages.find((message) => message.messageId === asked && message.heldBy === null) ?? null;
       if (anchor === null) return { aggregate, rejected: messageNotFound(sourceId, asked) };
+      if (importedMessage(sourceId, anchor)) return { aggregate, rejected: importedAnchorRefusal(sourceId, asked) };
     }
     const linked = providerSessionOf(reader, sourceId);
     let atMessageId: string | null;
@@ -462,6 +479,9 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
 
   /** Ask the adapter about the anchor it will actually resume; first-message forks still start fresh. */
   const storedHistoryBefore = (sessionId: string, messageId: string | null): Promise<boolean | null> => {
+    const messages = messageId === null ? [] : visibleMessages(sessionId);
+    const message = messages.find((item) => item.messageId === messageId);
+    if (message !== undefined && importedMessage(sessionId, message)) return Promise.resolve(null);
     const linked = providerSessionOf(reader, sessionId);
     if (linked === null) {
       const inherited = forkRecord(log, sessionId);
@@ -469,7 +489,6 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       return host.hasHistoryBefore(sessionId, inherited.fromProviderSessionId, inherited.atMessageId);
     }
     if (messageId === null) return Promise.resolve(null);
-    const messages = visibleMessages(sessionId);
     if (!messages.some((message) => message.messageId === messageId && message.heldBy === null) || !historyBefore(sessionId, messages, messageId)) return Promise.resolve(null);
     return host.hasHistoryBefore(sessionId, linked, messageId);
   };
