@@ -49,7 +49,8 @@ gl_url=https://github.com/gitleaks/gitleaks/releases/download/v$gl_version/gitle
 # A checked download is kept in the runner's tool cache, keyed by version and
 # pin, for the next run (#1096). Every use copies it into this job's folder
 # and checks that copy, so a damaged or swapped file costs a download, never
-# another binary.
+# another binary. The `relay` runner keeps that folder only once it mounts a
+# volume there (#1098); until then each run downloads.
 gl_kept=${RUNNER_TOOL_CACHE:-$HOME/.cache}/gitleaks/$gl_version/$gl_sum.tar.gz
 if cp "$gl_kept" "$gl/g.tgz" 2>/dev/null && echo "$gl_sum  $gl/g.tgz" | sha256sum -c --status -; then
   echo "gitleaks $gl_version: the copy kept at $gl_kept"
@@ -62,7 +63,8 @@ else
     { echo "::error::Could not download gitleaks $gl_version from $gl_url, so no check ran; run the job again"; exit 1; }
   echo "$gl_sum  $gl/g.tgz" | sha256sum -c --status - ||
     { echo "::error::The download of gitleaks $gl_version from $gl_url is not the pinned build $gl_sum, so no check ran"; exit 1; }
-  # Best effort, and atomic: up to eight relays share the runner.
+  # Kept if the folder takes it (a run that cannot write it only downloads),
+  # under a name of its own and then renamed, as up to eight relays share it.
   part=
   if mkdir -p "${gl_kept%/*}" 2>/dev/null && part=$(mktemp "$gl_kept.XXXXXX" 2>/dev/null) &&
     cp "$gl/g.tgz" "$part" 2>/dev/null && mv -f "$part" "$gl_kept" 2>/dev/null; then :

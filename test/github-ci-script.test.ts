@@ -26,14 +26,14 @@ afterEach(() => {
 });
 
 const VERSION = "8.30.1";
+const ARCH = process.arch === "arm64" ? "arm64" : "x64";
 /** The script's pin for this machine, read from its own table. */
 const PINNED = (() => {
-  const arch = process.arch === "arm64" ? "arm64" : "x64";
-  const pin = new RegExp(`gl_arch=${arch} gl_sum=([0-9a-f]{64})`).exec(readFileSync(script, "utf8"));
-  if (!pin?.[1]) throw new Error(`no gitleaks pin for ${arch} in github-ci.sh`);
+  const pin = new RegExp(`gl_arch=${ARCH} gl_sum=([0-9a-f]{64})`).exec(readFileSync(script, "utf8"));
+  if (!pin?.[1]) throw new Error(`no gitleaks pin for ${ARCH} in github-ci.sh`);
   return pin[1];
 })();
-const URL = `https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_${process.arch === "arm64" ? "arm64" : "x64"}.tar.gz`;
+const RELEASE_URL = `https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_${ARCH}.tar.gz`;
 
 /** FAKE_CURL: `ok` serves the fixture, `bad` serves other bytes, `504` fails as curl does once its retries are spent. */
 const FAKE_CURL = `#!/bin/sh
@@ -55,6 +55,7 @@ exit 1
 interface Fixture {
   readonly log: string;
   readonly cache: string;
+  readonly checkout: string;
   readonly env: NodeJS.ProcessEnv;
 }
 
@@ -76,7 +77,7 @@ const fixture = async (): Promise<Fixture> => {
   writeFileSync(join(bin, "sha256sum"), `#!/bin/sh\nprintf 'sha256sum %s\\n' "$*" >> "$FAKE_LOG"\nsed "s/^${PINNED} /${digest} /" | ${sha256sum} "$@"\n`);
   for (const tool of ["curl", "sha256sum"]) chmodSync(join(bin, tool), 0o755);
 
-  const git = (...args: string[]) => run("git", ["-C", checkout, "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
+  const git = (...args: string[]) => run("git", ["-C", checkout, "-c", "commit.gpgsign=false", "-c", "user.name=Tests", "-c", "user.email=tests@example.invalid", ...args]);
   await git("init", "-q");
   await git("commit", "-q", "--allow-empty", "-m", "a commit");
 
@@ -86,6 +87,7 @@ const fixture = async (): Promise<Fixture> => {
   return {
     log,
     cache,
+    checkout,
     env: {
       PATH: `${bin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`,
       HOME: dir,
@@ -100,9 +102,8 @@ const fixture = async (): Promise<Fixture> => {
 };
 
 const relay = async (f: Fixture, env: NodeJS.ProcessEnv = {}) => {
-  const cwd = join(f.env["HOME"] ?? "", "checkout");
   try {
-    const { stdout, stderr } = await run("bash", [script], { cwd, env: { ...f.env, ...env } });
+    const { stdout, stderr } = await run("bash", [script], { cwd: f.checkout, env: { ...f.env, ...env } });
     return { code: 0, stdout, stderr };
   } catch (error) {
     const failed = error as { code: number; stdout: string; stderr: string };
@@ -148,7 +149,7 @@ describe("the relay's gitleaks", () => {
     expect(value("--retry-max-time")).toBeGreaterThanOrEqual(60);
     expect(value("--connect-timeout")).toBeGreaterThan(0);
     expect(value("--max-time")).toBeGreaterThan(0);
-    expect(flags.at(-1)).toBe(URL);
+    expect(flags.at(-1)).toBe(RELEASE_URL);
   });
 
   it("says in one error line that the download failed, names it, and scans nothing and keeps nothing", async () => {
@@ -156,7 +157,7 @@ describe("the relay's gitleaks", () => {
     const result = await relay(f, { FAKE_CURL: "504" });
     expect(result.code).toBe(1);
     const errors = result.stdout.split("\n").filter((line) => line.startsWith("::error::"));
-    expect(errors).toEqual([expect.stringContaining(`Could not download gitleaks ${VERSION} from ${URL}`)]);
+    expect(errors).toEqual([expect.stringContaining(`Could not download gitleaks ${VERSION} from ${RELEASE_URL}`)]);
     expect(calls(f)).toEqual(["curl"]);
     expect(existsSync(join(f.cache, "gitleaks"))).toBe(false);
   });
@@ -166,7 +167,7 @@ describe("the relay's gitleaks", () => {
     const result = await relay(f, { FAKE_CURL: "bad" });
     expect(result.code).toBe(1);
     const errors = result.stdout.split("\n").filter((line) => line.startsWith("::error::"));
-    expect(errors).toEqual([expect.stringContaining(`gitleaks ${VERSION} from ${URL} is not the pinned build`)]);
+    expect(errors).toEqual([expect.stringContaining(`gitleaks ${VERSION} from ${RELEASE_URL} is not the pinned build`)]);
     expect(calls(f)).toEqual(["curl", "sha256sum"]);
     expect(existsSync(join(f.cache, "gitleaks"))).toBe(false);
   });
