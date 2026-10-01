@@ -43,8 +43,9 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
 import { createBankService } from "../banks/bank-service.js";
-import { banksProjector } from "../banks/bank-store.js";
+import { banksProjector, listBanks } from "../banks/bank-store.js";
 import { bankMethods } from "../banks/methods.js";
+import { banksSection } from "../banks/orientation.js";
 import { bankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
@@ -1153,6 +1154,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accountsSection({ accounts: () => listAccountStandings({ all: (sql, ...params) => log.read(sql, ...params) }) }),
     keyManagersSection({ connections: () => keyManagerConnections.list(), tool: (name) => managedTools.known(name) }),
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
+    banksSection(() => listBanks({ all: (sql, ...params) => log.read(sql, ...params) })),
     otherEnvironmentsSection({ union: () => knownEnvironments.union() }),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
