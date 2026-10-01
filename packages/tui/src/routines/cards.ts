@@ -269,7 +269,8 @@ export const listRows = (view: RoutinesView, now: Date): readonly ListRow[] => {
   return view.groups.flatMap((group): ListRow[] => {
     const heading = { text: headingOf(group), bold: true, ...(group.stale && { color: TERMINAL_ROLES.warning }) };
     if (group.routines.length === 0) {
-      return [{ kind: "empty", panel: { key: `${group.environmentId} none`, cells: [{ text: group.fetchedAt === null ? "Reading its routines…" : "No routines." }], dim: true, heading } }];
+      const words = group.fetchedAt !== null ? "No routines." : group.error === null ? "Reading its routines…" : "Its routines could not be listed.";
+      return [{ kind: "empty", panel: { key: `${group.environmentId} none`, cells: [{ text: words }], dim: true, heading } }];
     }
     return group.routines.map((row, at): ListRow => {
       const { definition, listed } = row;

@@ -120,6 +120,15 @@ describe("/routines: the list", () => {
     await app.waitFor(/laptop · 1 routine · unreachable: as listed at \d\d:\d\d/);
     expect(app.frame()).toContain("Backup check");
   });
+
+  it("says an environment whose routines could not be listed is not being read (PR review)", async () => {
+    const { app, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } });
+    laptopRoutines.answerNext("routines.list", { error: { code: "internal", message: "The routines store could not be read.", data: {} } });
+    await openRoutines(app);
+    await app.waitFor("laptop · 0 routines · not listed: The routines store");
+    expect(app.frame()).toContain("Its routines could not be listed.");
+    expect(app.frame()).not.toContain("Reading its routines…");
+  });
 });
 
 const FIRING_SESSION = "0199ab00-0000-4000-8000-0000000000f1";
@@ -521,6 +530,19 @@ describe("/routines endpoints and /routines test-precheck (David, 2026-09-28)", 
     await app.press("y");
     await app.waitFor("Removed the endpoint matrix-relay from desk.");
     await app.waitUntil(() => !app.frame().includes("https://relay.example.com/hook"), "the endpoint's row gone");
+    expect(deskRoutines.endpoints.map((endpoint) => endpoint.name)).toEqual(["hermes-home"]);
+  });
+
+  it("says why an endpoint another client removed already was not removed (PR review)", async () => {
+    const relay = { name: "matrix-relay", url: "https://relay.example.com/hook", secretKind: "missing", lastResult: null } as const;
+    const { app, deskRoutines } = await launch({ desk: { endpoints: [hermes, relay] } });
+    await openRoutines(app, "/routines endpoints");
+    await app.waitFor("matrix-relay");
+    deskRoutines.endpoints.splice(1, 1);
+    await app.press(KEY.down, "d");
+    await app.waitFor("Remove the endpoint matrix-relay from desk? A routine delivering to it shows it missing. y/n");
+    await app.press("y");
+    await app.waitFor("Not removed: No webhook endpoint matrix-relay is on this environment.");
     expect(deskRoutines.endpoints.map((endpoint) => endpoint.name)).toEqual(["hermes-home"]);
   });
 

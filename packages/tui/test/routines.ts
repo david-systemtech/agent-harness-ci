@@ -178,6 +178,9 @@ export interface ScriptedRoutines {
 let receipts = 1000;
 const accepted = (result: Record<string, unknown>): FakeAnswer => ({ result: { receipt: { status: "accepted", sequence: ++receipts, changed: true }, result } });
 const failed = (code: string, message: string, data: Record<string, unknown> = {}): FakeAnswer => ({ error: { code, message, data } as WireError });
+const rejected = (code: string, message: string, data: Record<string, unknown> = {}): FakeAnswer => ({
+  result: { receipt: { status: "rejected", sequence: ++receipts, changed: false, reason: code, error: { code, message, data } } },
+});
 const freshId = (n: number) => `0199dd00-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
 /** Installs the routine methods on the environment's wire, answering from `script`. */
@@ -277,10 +280,9 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
   });
   answer("routines.endpoints.remove", (params) => {
     const name = String(params["name"]);
-    endpoints.splice(
-      endpoints.findIndex((endpoint) => endpoint.name === name),
-      1,
-    );
+    const held = endpoints.findIndex((endpoint) => endpoint.name === name);
+    if (held === -1) return rejected("not_found", `No webhook endpoint ${name} is on this environment.`, { kind: "endpoint", name });
+    endpoints.splice(held, 1);
     env.notice("routine.endpoint-removed", { name });
     return accepted({ name });
   });
