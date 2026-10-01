@@ -10,8 +10,10 @@ import {
   PROTOCOL_VERSION,
   PairError,
   SCOPES,
+  type Scope,
   formatPairingCode,
   parsePairingLink,
+  registry,
 } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -63,7 +65,7 @@ describe("access.pairings.create", () => {
     expect(pairing.pairingId).toEqual(expect.any(String));
   });
 
-  it("presets every scope and the environment's default ceiling", async () => {
+  it("presets every scope for the bootstrap grant's local minter and the environment's default ceiling", async () => {
     const t = await start();
     const pairing = await t.createPairing();
     expect(pairing).toMatchObject({ scopes: [...SCOPES], ceiling: DEFAULT_CEILING });
@@ -81,6 +83,65 @@ describe("access.pairings.create", () => {
     const reader = await t.client({ token: (await t.pair({ scopes: ["read"] })).token, clientKind: "program" });
     const error = await refusal(reader.request("access.pairings.create", { commandId: randomUUID() }));
     expect(error.toWire()).toMatchObject({ code: "forbidden", data: { scope: "admin" } });
+  });
+
+  it.each<{ held: Scope[]; requested: Scope }>([
+    { held: ["admin"], requested: "runs:drive" },
+    { held: ["admin"], requested: "sessions:write" },
+    { held: ["admin", "read"], requested: "runs:drive" },
+    { held: ["admin", "read"], requested: "sessions:write" },
+  ])("refuses granting $requested when the minter holds $held, without creating a pairing", async ({ held, requested }) => {
+    const t = await start();
+    const minter = await t.client({ token: (await t.pair({ scopes: held })).token, clientKind: "program" });
+    const created = (await minter.request("access.log.list", {})).events.filter((event) => event.type === "pairing.created");
+    const params = { commandId: randomUUID(), scopes: [...held, requested] };
+    const answer = registry["access.pairings.create"].response.parse(await minter.request("access.pairings.create", params));
+    expect(answer.receipt).toMatchObject({
+      status: "rejected",
+      reason: "forbidden",
+      error: { code: "forbidden", data: { reason: "scope", scope: requested } },
+    });
+    expect(answer.result).toBeUndefined();
+    expect(registry["access.pairings.create"].response.parse(await minter.request("access.pairings.create", params)).receipt).toEqual(answer.receipt);
+    expect((await minter.request("access.log.list", {})).events.filter((event) => event.type === "pairing.created")).toEqual(created);
+  });
+
+  it.each<{ held: Scope[] }>([{ held: ["admin"] }, { held: ["admin", "read"] }])(
+    "defaults to the minter's $held scopes, preserved through exchange and hello",
+    async ({ held }) => {
+      const t = await start();
+      const minter = await t.client({ token: (await t.pair({ scopes: held })).token, clientKind: "program" });
+      const pairing = await minter.apply("access.pairings.create", { commandId: randomUUID() });
+      expect(pairing.scopes).toEqual(held);
+      const exchanged = await t.pairExchange(exchangeBody(pairing.code));
+      expect(exchanged.status).toBe(200);
+      const credential = ClientSessionCredential.parse(exchanged.body);
+      expect(credential.scopes).toEqual(held);
+      const client = await t.client({ token: credential.token, clientKind: "program" });
+      expect(client.hello.scopes).toEqual(held);
+      expect(await refusal(client.request("runs.interrupt", { commandId: randomUUID(), runId: randomUUID() }))).toMatchObject({
+        code: "forbidden",
+        data: { scope: "runs:drive" },
+      });
+    },
+  );
+
+  it("grants an explicit subset of the minter's scopes through exchange and hello", async () => {
+    const t = await start();
+    const minter = await t.client({ token: (await t.pair({ scopes: ["admin", "read"] })).token, clientKind: "program" });
+    const pairing = await minter.apply("access.pairings.create", { commandId: randomUUID(), scopes: ["read"] });
+    expect(pairing.scopes).toEqual(["read"]);
+    const exchanged = await t.pairExchange(exchangeBody(pairing.code));
+    expect(exchanged.status).toBe(200);
+    const credential = ClientSessionCredential.parse(exchanged.body);
+    expect(credential.scopes).toEqual(["read"]);
+    const client = await t.client({ token: credential.token, clientKind: "program" });
+    expect(client.hello.scopes).toEqual(["read"]);
+    expect(await client.request("environment.status", {})).toMatchObject({ readiness: "ready" });
+    expect(await refusal(client.request("access.pairings.create", { commandId: randomUUID() }))).toMatchObject({
+      code: "forbidden",
+      data: { scope: "admin" },
+    });
   });
 
   it("refuses scopes that are not a set of scopes", async () => {

@@ -10,6 +10,8 @@ import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platf
 import type { LocalService } from "./platform/services.js";
 import { presentationFile } from "./presentation.js";
 import { createRuntimeHost } from "./runtime-host.js";
+import { colourDepth } from "./theme/colours.js";
+import { askGround } from "./theme/ground.js";
 import { messageOf, type Fault } from "./view.js";
 
 export type { LocalService, ServiceOutcome } from "./platform/services.js";
@@ -42,6 +44,8 @@ export interface TuiOptions {
   readonly stderr?: NodeJS.WriteStream;
   /** Ink's `render`, unless a test hands in another. */
   readonly render?: InkRender;
+  /** The variables the colour depth is read from (`COLORTERM`, `AGENT_HARNESS_TUI_BACKGROUND`); preset the process's. */
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -57,6 +61,8 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     stderr.write(`${PRODUCT_NAME} tui needs a terminal: its standard input and output must be one.\n`);
     return 1;
   }
+  // Truecolour from COLORTERM, and under it the ground: the setting's, else the terminal's answer, asked before Ink reads the keys.
+  const depth = await colourDepth(options.env ?? process.env, () => askGround({ stdin, stdout }));
   const stateDir = options.stateDir ?? stateDirectory();
   ensurePrivateDirectory(stateDir);
   const keybindings = keybindingsFor(options, stateDir);
@@ -95,6 +101,7 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     chrome: terminalChrome({ stdout, env: process.env }),
     // The rail's folds, kept in the state directory (`presentation.json`).
     presentation: presentationFile(stateDir, (error) => report(`Fault: ${messageOf(error)}`)),
+    depth,
   });
   const instance = mountApp(app, { stdin, stdout, stderr }, options.render);
   void host.start().catch((error: unknown) => report(`The runtime did not start: ${messageOf(error)}`));
