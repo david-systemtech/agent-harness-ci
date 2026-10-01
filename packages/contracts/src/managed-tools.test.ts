@@ -120,18 +120,27 @@ describe("a Managed tools row", () => {
     method: "homebrew",
     status: "current",
     action: "update",
+    command: null,
   } as const;
 
   it("carries the tool, where it was found, its version against its minimum and the latest known, its install method, one status and one action", () => {
     expect(ManagedToolRow.parse(row)).toEqual(row);
     const behind = { ...row, latest: "2.101.0", status: "update-available" } as const;
     expect(ManagedToolRow.parse(behind)).toEqual(behind);
-    const missing = { ...row, path: null, realpath: null, version: null, latest: null, method: null, status: "not-installed", action: "install" } as const;
+    const missing = { ...row, path: null, realpath: null, version: null, latest: null, method: null, status: "not-installed", action: "install", command: null } as const;
     expect(ManagedToolRow.parse(missing)).toEqual(missing);
     expect(ManagedToolRow.safeParse({ ...row, status: "outdated" }).success).toBe(false);
     expect(ManagedToolRow.safeParse({ ...row, action: "ignore" }).success).toBe(false);
     expect(ManagedToolRow.safeParse({ ...row, latest: "v2.101.0" }).success).toBe(false);
     expect(ManagedToolRow.safeParse(Object.fromEntries(Object.entries(row).filter(([key]) => key !== "latest"))).success).toBe(false);
+  });
+
+  it("carries, on a Copy row, the vendor's documented command to copy, one line, and none on a row whose action runs (#426)", () => {
+    const copy = { ...row, realpath: "/home/david/.local/share/mise/installs/gh/2.63.2/bin/gh", method: "mise", action: "copy", command: "brew install gh" } as const;
+    expect(ManagedToolRow.parse(copy)).toEqual(copy);
+    expect(ManagedToolRow.safeParse({ ...copy, command: "brew install gh\nbrew install doppler" }).success).toBe(false);
+    expect(ManagedToolRow.safeParse({ ...copy, command: "" }).success).toBe(false);
+    expect(ManagedToolRow.safeParse(Object.fromEntries(Object.entries(row).filter(([key]) => key !== "command"))).success).toBe(false);
   });
 
   it("reads its install method from the path's shape, the system package owner, claude's native versions directory, else manual or unknown", () => {
@@ -143,8 +152,8 @@ describe("a key-manager connection's CLI", () => {
   const row = (tool: "bao" | "vault" | "doppler", version: string | null): ManagedToolRow => {
     const { label, minimum } = managedTool(tool);
     return version === null
-      ? { tool, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install" }
-      : { tool, label, path: `/usr/bin/${tool}`, realpath: `/usr/bin/${tool}`, version, latest: null, minimum, method: "apt", status: "current", action: "update" };
+      ? { tool, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install", command: null }
+      : { tool, label, path: `/usr/bin/${tool}`, realpath: `/usr/bin/${tool}`, version, latest: null, minimum, method: "apt", status: "current", action: "update", command: null };
   };
 
   it("is served by the tools the table requires for its provider: bao or vault for OpenBao, doppler, op and bws for the others", () => {
@@ -193,6 +202,7 @@ describe("tools.detail", () => {
     method: "native",
     status: "update-available",
     action: "update",
+    command: null,
   } as const;
   const read = {
     outcome: "read",
@@ -247,7 +257,7 @@ describe("the tools.updated notice", () => {
     expect(eventTypeEntry("environment", "tools.updated")?.list).toBe(false);
     const notice = {
       type: "tools.updated",
-      payload: { tools: [{ tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, latest: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install" }] },
+      payload: { tools: [{ tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, latest: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install", command: null }] },
     };
     expect(EnvironmentNotice.parse(notice)).toEqual(notice);
     expect(EnvironmentNotice.safeParse({ type: "tools.updated", payload: { tools: [] } }).success).toBe(false);

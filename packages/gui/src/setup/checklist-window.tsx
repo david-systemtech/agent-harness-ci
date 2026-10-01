@@ -1,7 +1,7 @@
 import { homeEnvironment } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSettings } from "../settings/settings-window.js";
+import { useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
@@ -27,11 +27,11 @@ export interface Checklist {
   close(): void;
   /**
    * Leaves it for a row of Settings, on `environmentId` where the row picks
-   * one: a step's link to its home row, or an action that opens one. The
-   * mark stays as it is, so a first launch left this way comes back on the
-   * next.
+   * one, at `part` of its pane when one is named: a step's link to its home
+   * row, or an action that opens one. The mark stays as it is, so a first
+   * launch left this way comes back on the next.
    */
-  leave(row: SettingsRowId, environmentId?: string): void;
+  leave(row: SettingsRowId, environmentId?: string, part?: SettingsPart): void;
 }
 
 const ChecklistContext = createContext<Checklist | null>(null);
@@ -66,10 +66,10 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
     setShown(false);
   }, [mark]);
   const leave = useCallback(
-    (row: SettingsRowId, environmentId?: string) => {
+    (row: SettingsRowId, environmentId?: string, part?: SettingsPart) => {
       setLeft(true);
       setShown(false);
-      openRow(row, environmentId);
+      openRow(row, environmentId, part);
     },
     [openRow],
   );

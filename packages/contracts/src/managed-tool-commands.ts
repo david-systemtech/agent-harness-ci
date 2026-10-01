@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { errorSchema } from "./errors.js";
-import { ManagedToolAction, ManagedToolName, ManagedToolVerification, type ManagedToolInstallMethod } from "./managed-tools.js";
+import { ManagedToolAction, ManagedToolName, ManagedToolVerification, ToolCommandLine, type ManagedToolInstallMethod } from "./managed-tools.js";
 import { TerminalExitCause, TerminalId } from "./terminals.js";
 
 /**
@@ -381,6 +381,31 @@ export const installChoice = (
 };
 
 /**
+ * The vendor's documented command for `tool` on `platform`, for a person to
+ * copy and run where the harness runs nothing (#376, #426): for an
+ * installed tool its vendor script's update (one installed by hand was most
+ * likely installed by it), else the install `installChoice` would run, else
+ * the first install the table has for the platform; null for `vault`, which
+ * is never installed, and where the table has none. A Copy row carries it,
+ * and a refusal of `tools.run` answers it.
+ */
+export const documentedCommand = (
+  tool: ManagedToolName,
+  installed: boolean,
+  platform: ToolCommandPlatform,
+  available: (program: string) => boolean,
+  table: readonly ToolCommandEntry[] = MANAGED_TOOL_COMMANDS,
+): ToolCommand | null => {
+  if (tool === "vault") return null;
+  const script = installed ? toolCommandEntry(tool, "script", platform, table) : null;
+  if (script !== null) return script.update;
+  const install =
+    installChoice(tool, platform, available, table)?.install ??
+    TOOL_INSTALL_ORDER.map((method) => toolCommandEntry(tool, method, platform, table)?.install).find((command) => command !== undefined && command !== null);
+  return install ?? null;
+};
+
+/**
  * The table's method for a tool detection says was installed by `method`:
  * Homebrew, WinGet, apt, dnf and npm by their own; claude's native
  * installer is its vendor script. Null for the Copy-only methods: manual,
@@ -413,14 +438,6 @@ export const RunnableToolAction = ManagedToolAction.exclude(["copy"]).meta({
   description: "What tools.run does: install (a tool not installed) or update (one installed by a method the harness drives); a Copy-only row runs nothing.",
 });
 export type RunnableToolAction = z.infer<typeof RunnableToolAction>;
-
-/** A command line as the login shell runs it, or as a person copies it. */
-export const ToolCommandLine = z
-  .string()
-  .min(1)
-  .max(8192)
-  .regex(/^[^\r\n]+$/)
-  .meta({ description: "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it." });
 
 /**
  * `tools.run` refused a tool it cannot install or update here (#376): a

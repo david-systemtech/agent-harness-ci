@@ -474,12 +474,12 @@ describe("a step's named actions on their targets", () => {
           name: "desk",
           reach: "local",
           setup: {
-            forges: {
+            skills: {
               state: "needs-attention",
-              reason: "gh is older than its minimum.",
-              failing: ["forges.gh"],
-              actions: ["update"],
-              targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }],
+              reason: "The team feed was last pulled two days ago.",
+              failing: ["skills.pulled"],
+              actions: ["pull-now"],
+              targets: [{ action: "pull-now", kind: "skill-source", id: "feed-1", label: "team feed" }],
             },
             "memory-bank": {
               state: "needs-attention",
@@ -494,9 +494,9 @@ describe("a step's named actions on their targets", () => {
     });
     await screen.findByText(NO_SESSION);
 
-    const forges = await cardOf(app, "Forges");
-    await app.user.click(within(forges).getByRole("button", { name: "Update: gh" }));
-    expect(within(settings()).getByRole("region", { name: "Forges" })).toBeDefined();
+    const skills = await cardOf(app, "Skills");
+    await app.user.click(within(skills).getByRole("button", { name: "Pull now: team feed" }));
+    expect(within(settings()).getByRole("region", { name: "Skills" })).toBeDefined();
 
     await app.user.click(within(settings()).getByRole("button", { name: "Set up" }));
     await app.user.click(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));

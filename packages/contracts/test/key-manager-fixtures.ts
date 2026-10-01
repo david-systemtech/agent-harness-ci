@@ -79,8 +79,8 @@ const copy = {
 const doppler = { ...copy, provider: "doppler", address: "https://api.doppler.com", method: null, mount: null, username: null, importedFrom: "secret-manager-1", copiedFrom: null };
 
 /** Each connection with its CLI's Managed tools row, as keyManagers.list answers it (#375). */
-const bao = { tool: "bao", label: "OpenBao CLI", path: "/usr/bin/bao", realpath: "/usr/bin/bao", version: "2.6.3", latest: "2.6.3", minimum: "2.1.1", method: "apt", status: "current", action: "update" };
-const noDoppler = { tool: "doppler", label: "Doppler CLI", path: null, realpath: null, version: null, latest: null, minimum: "3.76.0", method: null, status: "not-installed", action: "install" };
+const bao = { tool: "bao", label: "OpenBao CLI", path: "/usr/bin/bao", realpath: "/usr/bin/bao", version: "2.6.3", latest: "2.6.3", minimum: "2.1.1", method: "apt", status: "current", action: "update", command: null };
+const noDoppler = { tool: "doppler", label: "Doppler CLI", path: null, realpath: null, version: null, latest: null, minimum: "3.76.0", method: null, status: "not-installed", action: "install", command: null };
 const listed = { ...record, cli: bao };
 const listedDoppler = { ...doppler, cli: noDoppler };
 

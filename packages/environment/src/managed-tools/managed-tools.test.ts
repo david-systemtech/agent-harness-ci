@@ -78,6 +78,7 @@ posix("tools.list", () => {
         method: null,
         status: "not-installed",
         action: "install",
+        command: null,
       })),
     );
     expect(rowOf(answer.tools, "claude").label).toBe("claude in your terminal");

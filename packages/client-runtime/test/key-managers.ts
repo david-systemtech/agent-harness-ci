@@ -121,6 +121,7 @@ export const toolRow = (fields: Partial<ManagedToolRow> = {}): ManagedToolRow =>
     method: "homebrew",
     status: "current",
     action: "update",
+    command: null,
     ...fields,
   });
 

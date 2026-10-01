@@ -15,13 +15,14 @@ import { isRegisteredStep } from "./checklist.js";
  * `connections.startService`; `set-up-this-machine` the checklist switched
  * to the environment it names; `sign-in-again` the sign-in of the account it
  * names (a forge account's Forges, a key-manager connection's Key managers);
- * `update` on Your machines `updates.apply`; `move` the Key manager step's
- * Move card, on Key managers. The authoring and import verbs are the step's
- * card's (`card`). Every other verb opens the step's home row, where its
- * card's controls live: `unpair` until the Browser card maps it to
- * `browser.chromes.unpair` (#548, #593), and until the method behind it is
- * on the wire, `pull-now` (`skills.sources.pull`, #499) and `install` and
- * `update` of a tool (`tools.run`, #376).
+ * `update` on Your machines `updates.apply`; `install` and `update` of a
+ * tool About's Managed tools, where `tools.run` runs it in a tool terminal
+ * (#426); `move` the Key manager step's Move card, on Key managers. The
+ * authoring and import verbs are the step's card's (`card`). Every other
+ * verb opens the step's home row, where its card's controls live: `unpair`
+ * until the Browser card maps it to `browser.chromes.unpair` (#548, #593),
+ * and until the method behind it is on the wire, `pull-now`
+ * (`skills.sources.pull`, #499).
  */
 
 /** Each action in words, as a button names it: ADR 0031's names and the step decisions' verbs. */
@@ -80,6 +81,8 @@ export type SetupActionPlan =
   | { readonly kind: "sign-in"; readonly account: NamedItem }
   /** The environment checked updated, under its idle rules (`updateEnvironment`). */
   | { readonly kind: "update" }
+  /** About's Managed tools on the environment checked, where a tool's Install or Update runs in a tool terminal (#426). */
+  | { readonly kind: "managed-tools" }
   /** A verb the step's card carries out on the items named; on a step with no card of its own, its home row. */
   | { readonly kind: "card"; readonly action: CardAction; readonly targets: readonly SetupTarget[]; readonly home: SettingsRowId }
   /** A row of Settings opened on the environment checked. */
@@ -125,9 +128,11 @@ export const planSetupAction = (step: ActingStep, action: SetupAction, given: re
     case "sign-in-again":
       if (first?.kind === "account") return { kind: "sign-in", account: { id: first.id, label: first.label } };
       return { kind: "row", row: (first === undefined ? undefined : SIGN_IN_ROWS[first.kind]) ?? step.home };
+    case "install":
     case "update":
-      // A tool's update is `tools.run`'s (#376), not on the wire yet: its step's row.
-      return step.id === "your-machines" && first?.kind !== "tool" ? { kind: "update" } : { kind: "row", row: step.home };
+      // A tool's Install and Update are About's Managed tools' (`tools.run`, #426); the environment's own update is Your machines'.
+      if (first?.kind === "tool") return { kind: "managed-tools" };
+      return action === "update" && step.id === "your-machines" ? { kind: "update" } : { kind: "row", row: step.home };
     case "move":
       return { kind: "row", row: "access.key-managers" };
     default:

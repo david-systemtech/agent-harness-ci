@@ -4,31 +4,13 @@ import { useId, useState } from "react";
 import { PairingForm } from "../connections/pairing.js";
 import { nameOf } from "../connections/words.js";
 import { ExternalLink } from "../session/external-link.js";
+import { CopyLine } from "../settings/copy-line.js";
 import { useSettingsValues } from "../settings/settings-values.js";
 import { useSettings } from "../settings/settings-window.js";
-import { Button, Field, Input } from "../ui/index.js";
+import { Field, Input } from "../ui/index.js";
 import { useUpdatesStatus } from "../updates/use-updates-status.js";
 import { useObservable, useRuntime, useShell } from "../window-context.js";
 import { Part } from "./machine-card.js";
-
-/** A line to copy: its text to select, and Copy where the shell has a clipboard. */
-const CopyLine = ({ label, text }: { readonly label: string; readonly text: string }) => {
-  const runtime = useRuntime();
-  const shell = useShell();
-  const heading = useId();
-  const clipboard = runtime.capability(LOCAL_PLACEHOLDER_ID, "shell.clipboard").status === "present" ? shell?.clipboard : undefined;
-  return (
-    <section aria-labelledby={heading} className="flex flex-col gap-1">
-      <h5 id={heading} className="text-xs text-ink-muted">
-        {label}
-      </h5>
-      <div className="flex items-start gap-2">
-        <pre className="min-w-0 flex-1 rounded-md bg-inset p-2 font-mono text-xs break-all whitespace-pre-wrap text-ink select-all">{text}</pre>
-        {clipboard !== undefined && <Button onClick={() => void clipboard.writeText(text)}>Copy</Button>}
-      </div>
-    </section>
-  );
-};
 
 /**
  * The lines that install another machine from `view`'s release (the Set
