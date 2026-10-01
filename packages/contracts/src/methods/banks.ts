@@ -7,6 +7,7 @@ import { CredentialUnavailableError } from "../git-credential.js";
 import { KindUnsupportedError, ForgeAccountMissingError, ForgeOwner, ForgeUnreachableError, VerificationFailedError } from "./forge.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
+import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError, ReferenceProviderUnavailableError, KeyManagerReference } from "../key-managers.js";
 import { SecretShapedError } from "../shape-rules.js";
 import { RepositoryIdentity } from "../repository-identity.js";
 
@@ -128,6 +129,26 @@ export const banksVerify = defineMethod({
   params: z.object({ bankId: BankId.optional().meta({ description: "The bank to verify; every enabled one when absent." }) }),
   result: z.object({ banks: z.array(BankRecord) }),
   errors: [],
+});
+
+/** A fallback token sent once, only when no forge account serves the bank's origin. */
+export const banksCredentialSet = defineMethod({
+  name: "banks.credential.set",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ bankId: BankId, token: z.string().min(1).regex(/^[^\r\n\0]+$/).meta({ description: "A token sent directly once, kept in the environment vault and never returned." }) }),
+  result: z.object({}),
+  errors: [],
+});
+
+/** Move swaps the bank's source through this command after verifying the target's value. */
+export const banksCredentialSwap = defineMethod({
+  name: "banks.credential.swap",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ bankId: BankId, reference: KeyManagerReference }),
+  result: z.object({}),
+  errors: [CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError, ReferenceProviderUnavailableError],
 });
 
 /** Pulls one bank now, or every enabled one; records the last successful fetch as system:banks, even when main did not move. */

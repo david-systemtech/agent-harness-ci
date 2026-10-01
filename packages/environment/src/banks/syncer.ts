@@ -18,7 +18,7 @@ export interface BankSyncer {
 }
 
 /** Fetches join per bank, including across runs, Pull now and the idle scheduler. The deadline never cancels a fetch. */
-export const createBankSyncer = (options: { readonly banks: BankService; readonly clock: Clock; readonly git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer> }): BankSyncer => {
+export const createBankSyncer = (options: { readonly banks: BankService; readonly clock: Clock; readonly git: (request: ForgeGitRequest, bankId: string) => Promise<ForgeGitAnswer> }): BankSyncer => {
   const { banks, clock } = options;
   const controller = new AbortController();
   const running = new Map<string, Promise<void>>();
@@ -41,7 +41,7 @@ export const createBankSyncer = (options: { readonly banks: BankService; readonl
       purpose: "sync a memory bank",
       refspecs: [`+refs/heads/main:${MAIN}`],
       signal: controller.signal,
-    });
+    }, bank.id);
     if (controller.signal.aborted) return;
     if (answer.outcome === "refused" || !answer.git.ok || answer.git.timedOut || answer.git.truncated) {
       await banks.recordSync(bank.id, { problem: answer.outcome === "refused" ? answer.error.message : "Fetching the bank's main failed." });

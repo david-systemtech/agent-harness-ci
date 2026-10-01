@@ -7,16 +7,17 @@
       "type": "string",
       "enum": [
         "forge-account",
-        "endpoint"
+        "endpoint",
+        "bank"
       ],
-      "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token) or endpoint (a webhook endpoint's pasted secret)."
+      "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
     },
     "id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
       "pattern": "^[^\\p{Cc}]+$",
-      "description": "The item's id with its owner: a forge account's id or a webhook endpoint's name."
+      "description": "The item's id with its owner: a forge account's or bank's id, or a webhook endpoint's name."
     },
     "name": {
       "type": "string",

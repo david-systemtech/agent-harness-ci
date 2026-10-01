@@ -121,7 +121,7 @@ const VAULT_PREFIX = "key-manager:";
 const newEntry = (connectionId: string): string => `${VAULT_PREFIX}${connectionId}:${randomUUID()}`;
 
 /** How a holder of a reference is named to people. */
-const HOLDER_KINDS: Record<KeyManagerReferenceHolder["kind"], string> = { "forge-account": "forge account", endpoint: "webhook endpoint" };
+const HOLDER_KINDS: Record<KeyManagerReferenceHolder["kind"], string> = { "forge-account": "forge account", endpoint: "webhook endpoint", bank: "bank" };
 
 /** The secrets of a credential, each registered for scrubbing: a role id and a secret id, a password, or a token. */
 const secretsOf = (credential: KeyManagerCredential): string[] => {

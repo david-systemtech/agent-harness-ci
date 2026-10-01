@@ -229,12 +229,12 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ connectionId, basePath: "personal/harness" }],
     invalid: [{ connectionId }, { connectionId, basePath: "personal/harness/" }, { basePath: "personal/harness" }],
   },
-  "key-managers/move-item-kind.json": { valid: ["forge-account"], invalid: ["bank-token", "", 1] },
+  "key-managers/move-item-kind.json": { valid: ["forge-account", "bank"], invalid: ["bank-token", "", 1] },
   "key-managers/move-item-ref.json": { valid: [item], invalid: [{ kind: "forge-account" }, { ...item, id: "" }, { ...item, kind: "session" }] },
   "key-managers/move-target.json": { valid: [target], invalid: [{ connectionId }, { connectionId: "openbao", reference }, { connectionId, reference: { ...reference, key: "" } }] },
   "key-managers/move-item.json": {
-    valid: [movable, { ...movable, targets: [] }],
-    invalid: [{ ...movable, name: "" }, { ...movable, targets: undefined }, { ...movable, kind: "bank" }],
+    valid: [movable, { ...movable, targets: [] }, { ...movable, kind: "bank" }],
+    invalid: [{ ...movable, name: "" }, { ...movable, targets: undefined }, { ...movable, kind: "session" }],
   },
   "key-managers/move-step.json": { valid: ["read", "write", "read-back", "swap"], invalid: ["delete", "", "sign-in"] },
   "key-managers/move-item-result.json": {
@@ -294,7 +294,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...display, provider: "vault" }, { ...display, label: "" }, { ...display, locator: "" }, { provider: "openbao", locator: "personal/harness/forge-github (key token)" }],
   },
   "key-managers/reference-holder.json": {
-    valid: [holder],
+    valid: [holder, { ...holder, kind: "bank" }],
     invalid: [{ ...holder, kind: "session" }, { ...holder, id: "" }, { kind: "forge-account", id: otherId }],
   },
   "key-managers/reference-problem.json": {
