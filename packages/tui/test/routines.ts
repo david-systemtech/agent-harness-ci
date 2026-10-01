@@ -81,6 +81,7 @@ export const listedRoutine = (
     nextDueAt: overrides.nextDueAt === undefined ? (saved.enabled ? "2026-09-25T00:00:00.000Z" : null) : overrides.nextDueAt,
     mode: { requested: saved.mode, effective: saved.mode ?? "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null },
     attention: overrides.attention ?? [],
+    unknownSkills: [],
   });
 };
 
@@ -190,7 +191,7 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
   const heard: Heard[] = [];
   const next = new Map<string, FakeAnswer>();
   const holds = new Map<string, Promise<void>>();
-  let warnings: RoutineImportWarnings = { attention: [], workspace: null };
+  let warnings: RoutineImportWarnings = { attention: [], unknownSkills: [], workspace: null };
   let entries = 0;
   const find = (routineId: unknown) => routines.findIndex((routine) => routine.state.id === String(routineId).toLowerCase());
   const answer = (method: string, respond: (params: Record<string, unknown>) => FakeAnswer) =>
@@ -223,7 +224,7 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
   answer("routines.checkImport", (params) => {
     const documents = read(String(params["yaml"]), (params["routineId"] as string | undefined) ?? null);
     const warned = warnings;
-    warnings = { attention: [], workspace: null };
+    warnings = { attention: [], unknownSkills: [], workspace: null };
     return { result: { documents: documents.map(({ index, definition, issues }) => ({ index, definition, issues, warnings: warned })) } };
   });
   answer("routines.import", (params) => {
@@ -246,7 +247,7 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
       changed(routineId, "created");
       return created;
     });
-    return accepted({ routines: made, warnings: made.map(() => ({ attention: [], workspace: null })) });
+    return accepted({ routines: made, warnings: made.map(() => ({ attention: [], unknownSkills: [], workspace: null })) });
   });
   for (const [method, enabled] of [
     ["routines.enable", true],

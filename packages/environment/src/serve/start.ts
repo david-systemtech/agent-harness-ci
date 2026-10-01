@@ -98,7 +98,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { coveredDirectories, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, coveredPaths, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -160,7 +160,7 @@ import { limitFiringDurations } from "../routines/firing-duration.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
-import { routinesProjector } from "../routines/routine-store.js";
+import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
 import { createRoutineScheduler } from "../routines/scheduler.js";
 import { routineAccount } from "../routines/listing.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
@@ -204,7 +204,7 @@ import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { skillReadinessMethods } from "../skills/readiness.js";
-import { placeSkillSet, runSkillSets } from "../skills/run-skill-set.js";
+import { placeSkillSet, runSkillSets, skillSetReader } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { mintMethods } from "../setup/mint.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
@@ -482,6 +482,15 @@ export interface EnvironmentOptions {
    * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
+  /**
+   * The absolute paths `harnessCommand` reads as it runs, beyond its own
+   * words (#705): the launcher's shim reads the service state and the
+   * versions directory. Only whoever knows the command's layout can name
+   * them, so `serve` passes them beside it. Where an enabled denied path
+   * covers one, an unattended run's sandbox reads it again, as it does the
+   * command's own directories. Preset none.
+   */
+  readonly harnessReads?: readonly string[];
   /**
    * Configuration the harness's git is given after its own on every
    * operation. Only tests give it: an `insteadOf` that sends a forge's
@@ -813,6 +822,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let tailnetName: string | undefined;
   // What the listeners bind beside loopback, for environment.status (#574): nothing until they are bound.
   let boundBeside: Pick<EnvironmentBinding, "tailnet" | "lan"> = { tailnet: null, lan: null };
+  // A Tailscale address the machine holds that the start did not bind (#861): found at the listen step with the tailnet setting
+  // off, or looked for again at each environment.status while no tailnet address is bound, so a Tailscale installed since shows.
+  let tailnetFound: string | null = null;
   // What is found to bind beside loopback: the Tailscale address and name, and the LAN addresses, read as each is asked.
   const interfaces = options.interfaces ?? tailscaleDetector();
 
@@ -1028,8 +1040,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
   // What git's credential helper is run from (#315): the absolute paths of the command git names (the launcher's shim, or
-  // node and the entry it runs).
+  // node and the entry it runs); and what it reads as it runs (#705), the shim's service state and versions directory.
   const helperPaths = (options.harnessCommand ?? []).filter((word) => isAbsolute(word));
+  const helperReads = (options.harnessReads ?? []).filter((path) => isAbsolute(path));
 
   // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
@@ -1191,6 +1204,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
+  // The skill set as it is now, which a routine's skills are checked against: its attention, and its firing's start (#531).
+  const readSkillSet = skillSetReader({ own: ownSkills, sources: skillSources, log });
 
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
@@ -1295,16 +1310,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
+      // A routine's skills for a run the environment starts for it after a restart, as its firing recorded them (#531).
+      routineSkills: (sessionId) => firingSkillsOfSession({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
-      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from, where the denylist
-      // covers them (#315), are exempt too, so the sandbox lets the helper run.
+      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
+      // it reads as it runs (#705), where the denylist covers them, are exempt too, so the sandbox lets the helper run.
       providerDenylist: () => {
         const denylist = readDenylistNow();
-        const helper = coveredDirectories({ ...denylistContext, denylist: () => denylist }, helperPaths);
+        const context = { ...denylistContext, denylist: () => denylist };
+        const helper = [...coveredDirectories(context, helperPaths), ...coveredPaths(context, helperReads)];
         return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...helper] });
       },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
@@ -1432,7 +1450,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    lookAgain: async () => {
+      if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
+    },
     onDraining: () => {
       readiness = "draining";
       // New runs are refused before any process stops, so none starts on a process the drain is stopping.
@@ -1532,6 +1553,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accounts,
     resolver: workspaceResolver,
     preChecks,
+    readSkillSet,
   });
   closers.push(() => firings.close());
   // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
@@ -1703,6 +1725,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
       scripts,
       denylisted: denylistedHost,
+      readSkillSet,
     }),
     ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
@@ -1859,6 +1882,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const boundOn = (which: BoundInterface) => listening.find((entry) => entry.interface === which)?.address.host ?? null;
     const tailnet = boundOn("tailnet");
     boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
+    tailnetFound = tailnet === null ? (tailscaleAddress ?? null) : null;
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
@@ -1977,7 +2001,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // The skill sources' syncs (#499): every unpinned source now, past the gate with the wire open, then staggered every six
-  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again.
+  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again. The
+  // stop stops each sync's git and waits for the sync to end, so nothing it would write under the data directory outlives
+  // the close (#1014), and before the probes' close, so no clone runs into their folder as they go.
   closers.push(skillSync.start());
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
   closers.push(forge.links.start());

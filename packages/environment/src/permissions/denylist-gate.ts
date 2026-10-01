@@ -215,6 +215,18 @@ export const providerDenylist = (denylist: Denylist, context: Pick<DenylistConte
 };
 
 /**
+ * Each of `paths` (absolute) that an enabled path of the denylist covers
+ * outside its exempt directories, each once, in order: what a program the
+ * environment has a contained run execute reads as it runs, git's
+ * credential helper's (#705: the launcher's shim reads the service state
+ * and the versions directory), so an unattended run's sandbox, which reads
+ * the exempt directories again, lets it read them.
+ */
+export const coveredPaths = (context: DenylistContext, paths: readonly string[]): string[] => [
+  ...new Set(paths.filter((path) => readDenylistCall(context, { paths: [path] }, dirname(path)).matches.length > 0)),
+];
+
+/**
  * The directory of each of `paths` (absolute, as a command line names a
  * program and its files) that an enabled path of the denylist covers
  * outside its exempt directories, each once, in order: where a program the
@@ -222,15 +234,7 @@ export const providerDenylist = (denylist: Denylist, context: Pick<DenylistConte
  * helper (#315; forge spec, "Containment"), so an unattended run's sandbox,
  * which reads the exempt directories again, lets it run.
  */
-export const coveredDirectories = (context: DenylistContext, paths: readonly string[]): string[] => {
-  const directories: string[] = [];
-  for (const path of paths) {
-    const directory = dirname(path);
-    if (directories.includes(directory) || readDenylistCall(context, { paths: [path] }, directory).matches.length === 0) continue;
-    directories.push(directory);
-  }
-  return directories;
-};
+export const coveredDirectories = (context: DenylistContext, paths: readonly string[]): string[] => [...new Set(coveredPaths(context, paths).map(dirname))];
 
 /** What the model reads when a person denies a denylisted call and gives no message of their own. */
 export const denylistDenial = (reason: string): string => `Denied: ${reason}, and the person declined it. Continue without it and say what you could not do.`;

@@ -16,10 +16,15 @@ const addresses: Fixtures = {
   invalid: ["0.0.0.0", "::", "0:0:0:0:0:0:0:0", "::0", "0::", "::ffff:0:0", "desk.local", "fe80::1%eth0", "192.168.1.256", "", null],
 };
 
-/** What an environment binds and could bind: the tailnet and a LAN address, the tailnet alone, nothing but loopback. */
+/**
+ * What an environment binds and could bind: the tailnet and a LAN address, the tailnet alone, nothing but loopback, nothing but
+ * loopback with a Tailscale address found since the start (#861), and an environment that predates `tailnetFound`.
+ */
 export const validBindings = [
-  { tailnet: { address: "100.101.102.103", name: "desk.tail1234.ts.net" }, lan: "192.168.1.20", lanAddresses: ["192.168.1.20", "fd00::20"] },
-  { tailnet: { address: "100.101.102.103", name: null }, lan: null, lanAddresses: [] },
+  { tailnet: { address: "100.101.102.103", name: "desk.tail1234.ts.net" }, tailnetFound: null, lan: "192.168.1.20", lanAddresses: ["192.168.1.20", "fd00::20"] },
+  { tailnet: { address: "100.101.102.103", name: null }, tailnetFound: null, lan: null, lanAddresses: [] },
+  { tailnet: null, tailnetFound: null, lan: null, lanAddresses: ["192.168.1.20"] },
+  { tailnet: null, tailnetFound: "100.64.0.9", lan: null, lanAddresses: [] },
   { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] },
 ];
 
@@ -31,6 +36,9 @@ export const invalidBindings = [
   { tailnet: null, lan: "0.0.0.0", lanAddresses: [] },
   { tailnet: null, lan: null, lanAddresses: ["::"] },
   { tailnet: null, lan: false, lanAddresses: [] },
+  { tailnet: null, tailnetFound: "0.0.0.0", lan: null, lanAddresses: [] },
+  { tailnet: null, tailnetFound: "desk.tail1234.ts.net", lan: null, lanAddresses: [] },
+  { tailnet: null, tailnetFound: false, lan: null, lanAddresses: [] },
 ];
 
 export const networkSchemaFixtures: Record<string, Fixtures> = {
