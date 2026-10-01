@@ -190,13 +190,15 @@ describe("suggested instructions (#509)", () => {
     const { params } = registry["instructions.create"];
     expect(params.safeParse({ commandId, id: instructionId, catalogueId: "coding.fresh-checkout" }).success).toBe(true);
     expect(params.safeParse({ commandId, id: instructionId, title: "Mine", body: "" }).success).toBe(true);
-    for (const wrong of [{}, { title: "Mine" }, { catalogueId: "coding.fresh-checkout", title: "Mine" }, { catalogueId: "coding.fresh-checkout", title: "Mine", body: "" }]) {
+    const origin = { catalogueId: "coding.fresh-checkout", version: 1 };
+    expect(params.safeParse({ commandId, id: instructionId, title: "Mine", body: "Edited text.", origin }).success).toBe(true);
+    for (const wrong of [{}, { title: "Mine" }, { catalogueId: "coding.fresh-checkout", title: "Mine" }, { catalogueId: "coding.fresh-checkout", title: "Mine", body: "" }, { catalogueId: "coding.fresh-checkout", origin }, { origin }, { title: "Mine", body: "", origin: { ...origin, version: 0 } }]) {
       expect(params.safeParse({ commandId, id: instructionId, ...wrong }).success, JSON.stringify(wrong)).toBe(false);
     }
     const document = exported(methodPath("instructions.create", "params"));
     expect(document["oneOf"]).toEqual([
       { required: ["title", "body"], properties: { title: true, body: true, catalogueId: false } },
-      { required: ["catalogueId"], properties: { catalogueId: true, title: false, body: false } },
+      { required: ["catalogueId"], properties: { catalogueId: true, title: false, body: false, origin: false } },
     ]);
   });
 

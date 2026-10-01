@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ShellWebView, ShellWebViewState, ShellWebViewKey } from "@agent-harness/client-runtime";
+import type { ShellWebView, ShellWebViewState, ShellWebViewKey, ShellDebuggerMessage } from "@agent-harness/client-runtime";
 import { options } from "./arguments.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronWebView, ViewBounds } from "./electron.js";
 import { isWebLink } from "./schemes.js";
@@ -22,6 +22,8 @@ const pageUrl = (url: string): string => {
 
 /** Native pages beside the renderer, each isolated in its own Chromium profile. */
 export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindow): ShellWebView => {
+  const debugListeners = new Set<(id: string, message: ShellDebuggerMessage) => void>();
+  const detachListeners = new Set<(id: string, reason: string) => void>();
   const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
   const listeners = new Set<(id: string, state: ShellWebViewState) => void>();
   const state = (view: ElectronWebView): ShellWebViewState => ({
@@ -40,6 +42,7 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
     const view = views.get(id);
     if (!view) return;
     views.delete(id);
+    if (view.webContents.debugger.isAttached()) view.webContents.debugger.detach();
     if (!windowClosed) window.removeWebView(view);
     view.webContents.close();
   };
@@ -48,6 +51,19 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
     for (const id of views.keys()) destroy(id);
   });
   return {
+    debugger: {
+      async attach(id) {
+        const debug = get(id).webContents.debugger;
+        if (!debug.isAttached()) debug.attach("1.3");
+      },
+      send: (id, method, params, sessionId) => get(id).webContents.debugger.sendCommand(method, params, sessionId),
+      async detach(id) {
+        const debug = views.get(id)?.webContents.debugger;
+        if (debug?.isAttached()) debug.detach();
+      },
+      onEvent(listener) { debugListeners.add(listener); return () => void debugListeners.delete(listener); },
+      onDetach(listener) { detachListeners.add(listener); return () => void detachListeners.delete(listener); },
+    },
     async create({ url, partition }) {
       pageUrl(url);
       if (partition !== undefined && !/^[a-z0-9-]{1,100}$/.test(partition))
@@ -64,6 +80,13 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
         },
       });
       views.set(id, view);
+      view.webContents.debugger.on("message", (_details, method, params, sessionId) => {
+        const event = { method, params, ...(sessionId && { sessionId }) };
+        for (const listener of debugListeners) listener(id, event);
+      });
+      view.webContents.debugger.on("detach", (_details, reason) => {
+        for (const listener of detachListeners) listener(id, reason);
+      });
       view.setVisible(false);
       window.addWebView(view);
       view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

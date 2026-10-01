@@ -31,6 +31,27 @@
       "type": "string",
       "maxLength": 20000
     },
+    "origin": {
+      "description": "With explicit title and body: the origin remembered by an owned copy, kept at its original version when copying between environments; omitted for Custom.",
+      "type": "object",
+      "properties": {
+        "catalogueId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The catalogue entry it was copied from."
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "description": "The entry's version it holds."
+        }
+      },
+      "required": [
+        "catalogueId",
+        "version"
+      ]
+    },
     "scope": {
       "description": "The accounts it reaches; preset all.",
       "anyOf": [
@@ -86,7 +107,8 @@
       "properties": {
         "catalogueId": true,
         "title": false,
-        "body": false
+        "body": false,
+        "origin": false
       }
     }
   ]

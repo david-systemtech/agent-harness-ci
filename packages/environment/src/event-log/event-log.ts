@@ -9,6 +9,7 @@ import { createProjections, type Projector } from "./projectors.js";
 import { createPairingTable, type PairingTable } from "./pairings.js";
 import { createProviderTranscriptTable, type ProviderTranscriptTable } from "../provider-transcripts/table.js";
 import { createSetupResultTable, type SetupResultTable } from "../setup/result-table.js";
+import { createSkillSourceAttemptTable, type SkillSourceAttemptTable } from "../skills/attempt-table.js";
 import { createReceipts, type StoredError, type StoredReceipt } from "./receipts.js";
 import { createSnapshots, type Compaction, type Snapshot } from "./snapshots.js";
 import { loadSqlite } from "./sqlite.js";
@@ -231,6 +232,8 @@ export interface EventLog {
   readonly providerTranscripts: ProviderTranscriptTable;
   /** Set up's result cache (#569, `setup/result-table.ts`): each step's latest result beside the log, written only in an `atomically`. */
   readonly setupResults: SetupResultTable;
+  /** Skill sources' last attempt times (#936), beside the log and retained by a projection rebuild. */
+  readonly skillSourceAttempts: SkillSourceAttemptTable;
   close(): void;
 }
 
@@ -327,6 +330,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
   const pairings = createPairingTable(sql, requireTx);
   const providerTranscripts = createProviderTranscriptTable(sql, requireTx);
   const setupResults = createSetupResultTable(sql, requireTx);
+  const skillSourceAttempts = createSkillSourceAttemptTable(sql, requireTx);
 
   // The stream's next version: above its last event, and above the last one its snapshot folds, which a compaction may have removed.
   const insertEvent = `
@@ -557,6 +561,7 @@ export const openEventLog = (options: EventLogOptions): EventLog => {
     pairings,
     providerTranscripts,
     setupResults,
+    skillSourceAttempts,
 
     close() {
       if (closed) return;

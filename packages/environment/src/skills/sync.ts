@@ -85,7 +85,7 @@ export const createSkillSync = (options: SkillSyncOptions): SkillSync => {
     log.atomically((tx) => {
       const source = tracked(sourceId);
       if (source === undefined || !sameFollow(source.follow, follow)) return;
-      sources.noteAttempt(sourceId);
+      sources.noteAttempt(tx, sourceId);
       const synced = syncedPayload(source, fetched);
       if (synced === null) return;
       log.append(stream, [{ type: "skills.source-synced", payload: synced }], { tx, actor: SYNC_ACTOR });
@@ -161,7 +161,7 @@ export const createSkillSync = (options: SkillSyncOptions): SkillSync => {
         const synced: SkillsSourceSyncedPayload | null = fetched === null ? null : syncedPayload(source, fetched);
         log.append(stream, [{ type: "skills.source-follow-set", payload: { sourceId, follow } }, ...(synced === null ? [] : [{ type: "skills.source-synced", payload: synced }])], attribution);
         log.append(environmentStream, [UPDATED], attribution);
-        if (fetched !== null) sources.noteAttempt(sourceId);
+        if (fetched !== null) sources.noteAttempt(command.tx, sourceId);
         const after = tracked(sourceId);
         if (after === undefined) throw new Error("A source whose follow was set is tracked.");
         return { aggregate: stream, result: { source: sources.view(after) } };
