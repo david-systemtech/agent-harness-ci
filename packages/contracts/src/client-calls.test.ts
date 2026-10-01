@@ -34,16 +34,65 @@ const call = { callId, clientSessionId: "cs-1", kind: "browser.chrome", payload:
 describe("the client.call notice", () => {
   it("is on the environment stream, never in the session list, addressed to one client session, with a kind and that kind's payload", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toContain("client.call");
-    expect(eventTypeEntry("environment", "client.call")).toMatchObject({ list: false });
-    expect(CLIENT_CALL_KINDS).toEqual(["browser.chrome"]);
+    expect(eventTypeEntry("environment", "client.call")).toMatchObject({
+      list: false,
+    });
+    expect(CLIENT_CALL_KINDS).toEqual(["browser.chrome", "browser.dock"]);
     expect(EnvironmentNotice.parse({ type: "client.call", payload: call })).toEqual({ type: "client.call", payload: call });
-    expect(EnvironmentNotice.safeParse({ type: "client.call", payload: { ...call, clientSessionId: undefined } }).success).toBe(false);
-    expect(EnvironmentNotice.safeParse({ type: "client.call", payload: { ...call, kind: "browser.dock" } }).success).toBe(false);
-    expect(EnvironmentNotice.safeParse({ type: "client.call", payload: { ...call, callId: "call-1" } }).success).toBe(false);
+    expect(
+      EnvironmentNotice.safeParse({
+        type: "client.call",
+        payload: { ...call, clientSessionId: undefined },
+      }).success,
+    ).toBe(false);
+    expect(
+      EnvironmentNotice.safeParse({
+        type: "client.call",
+        payload: { ...call, kind: "browser.unknown" },
+      }).success,
+    ).toBe(false);
+    expect(
+      EnvironmentNotice.safeParse({
+        type: "client.call",
+        payload: { ...call, callId: "call-1" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("carries a dock verb with its page, allowance and deadline, without a Chrome destination", () => {
+    const payload = {
+      pageKey: verb.pageKey,
+      command: verb.command,
+      allowance: { host: "paypal.com" },
+      deadline: verb.deadline,
+    };
+    expect(
+      EnvironmentNotice.parse({
+        type: "client.call",
+        payload: { ...call, kind: "browser.dock", payload },
+      }),
+    ).toEqual({
+      type: "client.call",
+      payload: { ...call, kind: "browser.dock", payload },
+    });
+    expect(
+      EnvironmentNotice.safeParse({
+        type: "client.call",
+        payload: {
+          ...call,
+          kind: "browser.dock",
+          payload: { ...payload, deadline: undefined },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it("carries a browser.chrome verb's Chrome, page key, verb and arguments, allowance and deadline, a null Chrome being the plain My Chrome", () => {
-    const parse = (payload: object) => EnvironmentNotice.safeParse({ type: "client.call", payload: { ...call, payload } });
+    const parse = (payload: object) =>
+      EnvironmentNotice.safeParse({
+        type: "client.call",
+        payload: { ...call, payload },
+      });
     expect(parse({ ...verb, allowance: { host: "www.paypal.com" } }).success).toBe(true);
     expect(parse({ ...verb, chromeId: null }).success).toBe(true);
     expect(parse({ ...verb, environmentId: "desk" }).success).toBe(false);
@@ -56,7 +105,9 @@ describe("the client.call notice", () => {
 describe("client.answer", () => {
   it("is a query at runs:drive answering whether the call took the answer", () => {
     expect(methods.find((method) => method.name === "client.answer")).toMatchObject({ kind: "query", scope: "runs:drive" });
-    expect(registry["client.answer"].result.parse({ taken: true })).toEqual({ taken: true });
+    expect(registry["client.answer"].result.parse({ taken: true })).toEqual({
+      taken: true,
+    });
     expect(registry["client.answer"].result.safeParse({}).success).toBe(false);
   });
 
@@ -68,8 +119,21 @@ describe("client.answer", () => {
     expect(params.parse({ callId, ok: false, error: { code: "unsupported", message: "This client has no handler for browser.chrome." } })).toMatchObject({ ok: false });
     expect(params.safeParse({ callId, ok: true }).success).toBe(false);
     expect(params.safeParse({ callId, ok: false, result: outcome }).success).toBe(false);
-    expect(params.safeParse({ callId, ok: true, result: outcome, error: { code: "handler_failed", message: "No." } }).success).toBe(false);
-    expect(params.safeParse({ callId, ok: false, error: { code: "", message: "No." } }).success).toBe(false);
+    expect(
+      params.safeParse({
+        callId,
+        ok: true,
+        result: outcome,
+        error: { code: "handler_failed", message: "No." },
+      }).success,
+    ).toBe(false);
+    expect(
+      params.safeParse({
+        callId,
+        ok: false,
+        error: { code: "", message: "No." },
+      }).success,
+    ).toBe(false);
     expect(params.safeParse({ callId: "call-1", ok: true, result: null }).success).toBe(false);
   });
 

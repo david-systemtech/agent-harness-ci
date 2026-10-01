@@ -542,8 +542,7 @@ export interface EnvironmentOptions {
   readonly keyManagerTimeoutMs?: number;
   /**
    * The Move sources registered at start (#371): each owning service's
-   * items holding a stored value. Preset: the forge's; banks (#90) and
-   * routine webhook endpoints (#92) join it. Tests script one.
+   * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
    */
   readonly moveSources?: readonly MoveSource[];
   /**
@@ -948,7 +947,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
-      referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId)],
       cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
     });
     closers.push(() => connections.close());
@@ -1092,6 +1091,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
       // The headless browser (#555): one driver for every session, a browser context each.
       headless: () => browser.headless.driver,
+      dock: ({ sessionId, runId }) => relay.driverOf({ kind: "dock", sessionId, runId }),
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
@@ -1608,7 +1608,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
   // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
-  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel });
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel, scrub: (text) => scrub.scrub(text) });
   closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.
@@ -1620,8 +1620,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     name: () => look.read().name,
     vault,
     denylisted: denylistedHost,
+    connectionLabel: (id) => keyManagerConnections.readable(id)?.record.label ?? null,
+    keyManagers,
     scrub,
   });
+  if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({

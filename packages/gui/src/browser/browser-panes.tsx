@@ -1,8 +1,9 @@
-import type { ShellWebView } from "@agent-harness/client-runtime";
-import { createContext, use, useEffect, useMemo, type ReactNode } from "react";
+import { homeEnvironment, uuidv4, type ShellWebView } from "@agent-harness/client-runtime";
+import { createContext, use, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { registerDockDriver } from "./dock-driver.js";
 import { panesOf } from "../grid/layout.js";
 import { sideColumnKey, type PaneSession } from "../presentation.js";
-import { usePresentation, useShell } from "../window-context.js";
+import { useObservable, usePresentation, useRuntime, useShell } from "../window-context.js";
 
 interface Page {
   readonly paneId: string;
@@ -36,7 +37,11 @@ const browserPanes = (views: ShellWebView | undefined): BrowserPanes => {
       const name = key(paneId, session);
       const held = pages.get(name);
       if (held) return held.id;
-      const page: Page = { paneId, id: views.create({ url: "about:blank", partition }), closed: false };
+      const page: Page = {
+        paneId,
+        id: views.create({ url: "about:blank", partition }),
+        closed: false,
+      };
       pages.set(name, page);
       // A failed create can be tried again when the dock is next opened.
       void page.id.catch(() => {
@@ -61,7 +66,24 @@ const BrowserPanesContext = createContext<BrowserPanes | null>(null);
 export const BrowserPanesProvider = ({ children }: { readonly children: ReactNode }) => {
   const views = useShell()?.webView;
   const panes = useMemo(() => browserPanes(views), [views]);
+  const runtime = useRuntime();
+  const home = homeEnvironment(useObservable(runtime.projections.environments));
   const [layout] = usePresentation("paneLayout");
+  const [partitions, setPartitions] = usePresentation("browserPartitions");
+  const held = useRef({ layout, partitions });
+  held.current = { layout, partitions };
+  useEffect(() => {
+    if (!views?.debugger || !home) return;
+    return registerDockDriver(runtime, views, home.environmentId, (session) => {
+      const { layout, partitions } = held.current;
+      const pane = panesOf(layout).find((pane) => pane.session?.environmentId === session.environmentId && pane.session.sessionId === session.sessionId);
+      const paneId = pane?.id ?? layout.focused;
+      const key = `${paneId} ${sideColumnKey(session)}`;
+      const partition = partitions[key] ?? uuidv4();
+      if (!partitions[key]) setPartitions((kept) => ({ ...kept, [key]: partition }));
+      return panes.page(paneId, session, partition);
+    });
+  }, [runtime, views, home?.environmentId, panes, setPartitions]);
   useEffect(() => panes.keep(new Set(panesOf(layout).map((pane) => pane.id))), [panes, layout]);
   useEffect(() => () => panes.dispose(), [panes]);
   return <BrowserPanesContext value={panes}>{children}</BrowserPanesContext>;

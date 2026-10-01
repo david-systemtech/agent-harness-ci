@@ -796,6 +796,55 @@ describe("an update taken across a protocol gap", () => {
     expect(notices(d.effects)).toEqual([]);
   });
 
+  it("ends the wait at 168 hours even if the old environment still answers, offering the update again", () => {
+    const d = blocked();
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT - 1, capabilities: ["self-update"] }) });
+    d.at(100).feed({ type: "update-taken" });
+    expect(armed(d.effects, "update-wait")).toEqual([604_800_000]);
+
+    d.at(604_800_099).feed({ type: "timer", timer: "retry" });
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT - 1, capabilities: ["self-update"] }) });
+    expect(d.state.phase).toBe("updating");
+    expect(armed(d.effects, "update-wait")).toEqual([1]);
+
+    d.at(604_800_100).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", retryAt: null, step: "idle" });
+    expect(actionOf(d.state)).toBe("update-environment");
+    expect(notices(d.effects)).toEqual([]);
+    expect(armed(d.effects, "retry")).toEqual([]);
+  });
+
+  it.each(["unreachable", "starting", "draining", "discovery-hangs", "hello-hangs", "offline"] as const)("ends the same bounded wait while %s, abandoning any late answer", (waitingOn) => {
+    const d = blocked();
+    d.at(100).feed({ type: "update-taken" });
+    if (waitingOn === "offline") {
+      d.feed({ type: "network", network: { online: false, foreground: true } });
+      expect(d.state).toMatchObject({ parked: true, retryAt: null });
+    } else {
+      d.at(100 + BYE_WAIT_MS).feed({ type: "timer", timer: "retry" });
+      if (waitingOn === "unreachable") d.discovered({ kind: "unreachable", message: "nothing answered" });
+      if (waitingOn === "starting" || waitingOn === "draining") {
+        d.discovered({ kind: "document", document: document({ readiness: waitingOn, capabilities: ["self-update"] }) });
+      }
+      if (waitingOn === "hello-hangs") d.discovered({ kind: "document", document: document({ capabilities: ["self-update"] }) });
+    }
+    expect(d.state.phase).toBe("updating");
+    expect(armed(d.effects, "update-wait")).toEqual([604_800_000 - (d.now - 100)]);
+    const attempt = d.state.attempt;
+
+    d.at(604_800_100).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch", step: "idle", retryAt: null, parked: false });
+    expect(actionOf(d.state)).toBe("update-environment");
+    expect(armed(d.effects, "update-wait")).toEqual([]);
+    expect(notices(d.effects)).toEqual([]);
+    if (waitingOn === "hello-hangs") expect(d.effects).toContainEqual({ type: "close-socket", lost: false });
+
+    d.feed({ type: "discovery-result", attempt, answer: { kind: "document", document: document() } });
+    d.feed({ type: "hello", attempt, hello: hello(), expiresAt: null });
+    expect(d.state).toMatchObject({ phase: "blocked", blocked: "protocol-mismatch" });
+    expect(d.effects).toEqual([]);
+  });
+
   it("stays updating through the restart: nothing answering, starting, draining, and a discovery read that hangs", () => {
     const d = blocked();
     d.feed({ type: "update-taken" });
@@ -825,6 +874,10 @@ describe("an update taken across a protocol gap", () => {
     d.feed({ type: "hello", attempt: d.state.attempt, hello: hello(), expiresAt: null });
     expect(d.state).toMatchObject({ phase: "ready", blocked: null, bye: null });
     expect(d.effects).toContainEqual({ type: "attach" });
+    expect(d.effects).toContainEqual({ type: "cancel-timer", timer: "update-wait" });
+    expect(armed(d.effects, "update-wait")).toEqual([]);
+    d.at(604_800_000).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state).toMatchObject({ phase: "ready", blocked: null });
   });
 
   it("is blocked again, with no new notice, when a retry David asks for finds the old protocol still there", () => {
@@ -838,6 +891,23 @@ describe("an update taken across a protocol gap", () => {
     expect(actionOf(d.state)).toBe("update-environment");
   });
 
+  it("cancels the bound on retryNow and starts a fresh bound only if another update is taken", () => {
+    const d = blocked();
+    d.at(100).feed({ type: "update-taken" });
+    d.at(200).feed({ type: "retryNow" });
+    expect(d.effects).toContainEqual({ type: "cancel-timer", timer: "update-wait" });
+    expect(armed(d.effects, "update-wait")).toEqual([]);
+    d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT - 1, capabilities: ["self-update"] }) });
+    d.feed({ type: "update-taken" });
+    expect(armed(d.effects, "update-wait")).toEqual([604_800_000]);
+    d.at(604_800_100).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state.phase).toBe("updating");
+    expect(armed(d.effects, "update-wait")).toEqual([100]);
+    d.at(604_800_200).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state.phase).toBe("blocked");
+    expect(actionOf(d.state)).toBe("update-environment");
+  });
+
   it("is blocked as it was when the restarted environment speaks a protocol the client does not", () => {
     const d = blocked();
     d.feed({ type: "update-taken" });
@@ -845,6 +915,26 @@ describe("an update taken across a protocol gap", () => {
     d.discovered({ kind: "document", document: document({ protocolVersion: CLIENT + 1 }) });
     expect(d.state).toMatchObject({ phase: "blocked", blocked: "unsupported-client" });
     expect(notices(d.effects)).toEqual([expect.objectContaining({ kind: "unsupported-client" })]);
+  });
+
+  it.each(["disable", "release"] as const)("cancels the bound on %s, ignoring a later expiry", (type) => {
+    const d = blocked();
+    d.feed({ type: "update-taken" });
+    d.feed({ type });
+    expect(d.effects).toContainEqual({ type: "cancel-timer", timer: "update-wait" });
+    expect(armed(d.effects, "update-wait")).toEqual([]);
+    const halted = d.state;
+    d.at(604_800_000).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state).toBe(halted);
+    expect(d.effects).toEqual([]);
+  });
+
+  it("does not put the protocol-gap bound on a connection waiting after bye: updating", () => {
+    const d = drive().ready();
+    d.feed({ type: "bye", attempt: d.state.attempt, bye: bye("updating") });
+    expect(armed(d.effects, "update-wait")).toEqual([]);
+    d.at(604_800_000).feed({ type: "timer", timer: "update-wait" });
+    expect(d.state).toMatchObject({ phase: "updating", blocked: null });
   });
 
   it("is taken by no other state: a ready, a disabled or an otherwise blocked connection ignores it", () => {
