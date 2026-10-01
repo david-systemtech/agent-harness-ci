@@ -235,7 +235,7 @@ describe("the denylist", () => {
     expect(sent[1]?.["paths"]?.map((entry) => entry.id)).toEqual(PRESETS.paths.map((entry) => entry.id));
   });
 
-  it("shows another client's change once denylist.updated is heard, with no wait for the cache's five minutes (#811)", async () => {
+  it("shows another client's change once denylist.updated is heard, with no wait for the cache's five minutes", async () => {
     const app = await opened();
     const desk = app.environment("desk");
     const permissions = await openPermissions(app);
@@ -398,7 +398,7 @@ describe("the Unattended review", () => {
     expect(desk.reviewWatermark()).toBe(head.result.head);
   });
 
-  it("shows a run decided since and another client's Mark seen once review.updated is heard, with no wait for the cache's five minutes (#811)", async () => {
+  it("shows a run decided since and another client's Mark seen once review.updated is heard, with no wait for the cache's five minutes", async () => {
     const app = await opened({ desk: { sessions: [{ title: "Receipts" }], review: [{ counts: { toolCalls: 1, autoApproved: 1, denied: 0, answeredByPerson: 0, expired: 0 } }] } });
     const desk = app.environment("desk");
     const permissions = await openPermissions(app);
