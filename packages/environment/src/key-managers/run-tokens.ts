@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import type { SuppliedVariables } from "../adapter/contract.js";
@@ -7,7 +8,7 @@ import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
-import { openBaoBlock } from "./openbao-block.js";
+import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
 /**
@@ -51,10 +52,13 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *   five seconds, on the environment's clock, for a connection still
  *   signing in, then goes on as it stands. A mint that fails is logged,
  *   scrubbed, and the holder gets an empty token too.
- * - **The configuration** both CLIs are pointed at is an empty file under
- *   the data directory's key-manager CLI directory, written again at each
- *   spawn, which the denylist's data-directory preset exempts so a
- *   contained run's CLI can read it.
+ * - **The configuration** both CLIs are pointed at is a file under the data
+ *   directory's key-manager CLI directory naming the harness's token helper
+ *   beside it, which answers no token, so an empty token never falls back to
+ *   `~/.vault-token` (#716). Both are written again at each spawn, each
+ *   through a temporary renamed over it, so a CLI reading one meanwhile
+ *   never finds it cut short; the denylist's data-directory preset exempts
+ *   the directory, so a contained run's CLI can read and run them.
  */
 
 /** The name the key managers' supplier registers under. */
@@ -75,8 +79,11 @@ export const RUN_TOKEN_DISPLAY_NAME = "agent-harness";
 /** The data directory's key-manager CLI directory, which the denylist's data-directory preset exempts. */
 export const KEY_MANAGER_CLI_DIRECTORY = "key-manager-cli";
 
-/** The harness-owned empty configuration `BAO_CONFIG_PATH` and `VAULT_CONFIG_PATH` name, in the key-manager CLI directory. */
+/** The harness-owned configuration `BAO_CONFIG_PATH` and `VAULT_CONFIG_PATH` name, in the key-manager CLI directory. */
 export const OPENBAO_CONFIG_FILE = "openbao.hcl";
+
+/** The harness's token helper the configuration names, beside it (#716). */
+export const OPENBAO_TOKEN_HELPER_FILE = "openbao-token-helper";
 
 /** A connection that injects, as the supplier reads it: its record as it stands, its credential generation, and its login generation (#369). */
 export interface InjectingConnection {
@@ -131,6 +138,17 @@ interface HeldRunToken {
 
 const NOTHING: SuppliedVariables = { variables: {}, release: () => undefined };
 
+/** Writes `text` to `path` through a temporary beside it renamed over it, so a reader meanwhile finds the old text or the new, never a file cut short. */
+const replaceFile = async (path: string, text: string, mode: number): Promise<void> => {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, text, { mode });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+};
+
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const { source, clock, scrub, budgetMs, background } = options;
   const held = new Set<HeldRunToken>();
@@ -146,14 +164,20 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
 
-  /** Writes the harness-owned empty configuration, and answers its path: a CLI reads a missing one as empty too, so a failure is only logged. */
+  /**
+   * Writes the harness-owned configuration, then the token helper it names, and answers the configuration's path; a failure is
+   * logged. The configuration goes first: one naming a helper that is missing has the CLI refuse, where a missing configuration
+   * would have it read `~/.vault-token`.
+   */
   const configuration = async (): Promise<string> => {
     const path = join(options.cliDirectory, OPENBAO_CONFIG_FILE);
+    const helper = join(options.cliDirectory, OPENBAO_TOKEN_HELPER_FILE);
     try {
       await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
-      await writeFile(path, "", { mode: 0o600 });
+      await replaceFile(path, openBaoConfiguration(helper), 0o600);
+      await replaceFile(helper, OPENBAO_TOKEN_HELPER_SCRIPT, 0o700);
     } catch (error) {
-      console.error(`Writing the key-manager CLIs' empty configuration ${path} failed:`, error);
+      console.error(`Writing the key-manager CLIs' configuration ${path} and token helper failed:`, error);
     }
     return path;
   };
