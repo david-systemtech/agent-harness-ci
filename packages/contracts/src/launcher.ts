@@ -289,6 +289,13 @@ export const artefactNode = (platform: string): readonly string[] => (platform =
 export const ARTEFACT_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
 
 /**
+ * Where a release's server artefact, unpacked, declares what it is: its
+ * CLI's `package.json`, whose `version` each release stamps and whose
+ * `launcherProtocol` is the launcher protocol its environment needs.
+ */
+export const ARTEFACT_CLI_PACKAGE: readonly string[] = ["packages", "cli", "package.json"];
+
+/**
  * What a version's `preflight` verb prints on its standard output once it
  * has loaded what it needs (SQLite, `node-pty`, the bundled Claude binary):
  * one JSON document, the version's identity under the release manifest's

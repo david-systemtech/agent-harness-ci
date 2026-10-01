@@ -179,6 +179,7 @@ const runInput = (directory: string): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/elsewhere"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
