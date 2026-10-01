@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { AccountId } from "../accounts.js";
-import { BankAccountScope, BankId, BankRecord, BankRepositoryScope, BankRole } from "../bank-registry.js";
+import { BankAccountScope, BankFolderPointer, BankId, BankRecord, BankRepositoryScope, BankRole, BankUpdatedPayload } from "../bank-registry.js";
 import { BankFinding, BankName, BankRuleId } from "../banks.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
 import { RepositoryIdentity } from "../repository-identity.js";
+import { SessionId } from "../sessions.js";
 
 /**
  * The BankService's methods (banks spec, "The BankService's methods"; ADR
@@ -123,5 +124,35 @@ export const banksVerify = defineMethod({
   kind: "query",
   params: z.object({ bankId: BankId.optional().meta({ description: "The bank to verify; every enabled one when absent." }) }),
   result: z.object({ banks: z.array(BankRecord) }),
+  errors: [],
+});
+
+/** Changes registry settings; omitted fields keep their values. Fixed tiers must still fit every scope. */
+export const banksRegistryUpdate = defineMethod({
+  name: "banks.registry.update",
+  scope: "admin",
+  kind: "command",
+  params: commandParams(BankUpdatedPayload.pick({ bankId: true, role: true, enabled: true, accounts: true, repositories: true, defaultFor: true, pins: true, mergeOverride: true, privateCopy: true }).shape),
+  result: z.object({ bank: BankRecord }),
+  errors: [ValidationFailedError],
+});
+
+/** Records a session's own folder pin, leaving registry pins unchanged. */
+export const banksPin = defineMethod({
+  name: "banks.pin",
+  scope: "runs:drive",
+  kind: "command",
+  params: commandParams({ sessionId: SessionId, pointer: BankFolderPointer, pinned: z.boolean() }),
+  result: z.object({ sessionId: SessionId, pins: z.array(BankFolderPointer) }),
+  errors: [],
+});
+
+/** Unregisters a bank; removing its checkout is opt-in and only for a checkout the BankService owns. */
+export const banksForget = defineMethod({
+  name: "banks.forget",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ bankId: BankId, removeCheckout: z.boolean().optional().meta({ description: "Remove the BankService's checkout too; false when absent. A registered checkout is never removed." }) }),
+  result: z.object({ bankId: BankId, checkoutRemoved: z.boolean() }),
   errors: [],
 });
