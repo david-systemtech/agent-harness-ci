@@ -109,7 +109,7 @@ export const startRunIn = (
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.run.runId });
-  tx.afterCommit(() => host.launch({ ...decision.run, ...(request.slash !== undefined && { slash: request.slash }) }));
+  tx.afterCommit(() => host.launch({ ...decision.run, ...(request.slash === undefined ? { literalPromptId: messageId } : { slash: request.slash }) }));
   return { runId: decision.run.runId, messageId, policy: decision.run.policy };
 };
 
@@ -184,7 +184,7 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       let slash: PreparedSlash | undefined;
       if (typeof text === "string" && text.startsWith("/")) {
         const facts = host.startFacts(sessionId, { kind: "client", ceiling: "acceptEdits", clientSessionId: null });
-        if (facts.account?.signedIn === true && facts.session?.workspaceMissingSince === null) slash = await host.prepareSlash(sessionId);
+        if ((facts.live !== null || facts.account?.signedIn === true) && facts.session?.workspaceMissingSince === null) slash = await host.prepareSlash(sessionId);
       }
       return Object.assign((prepared: Parameters<MethodHandler<N>>[0], context: CommandContext) => handler(prepared, context, slash), {
         isCurrent: () => slash?.isCurrent() !== false,

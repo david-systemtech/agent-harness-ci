@@ -166,6 +166,8 @@ export const originOfActor = (actor: RunActor): RunOrigin => {
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
   readonly slash?: SlashScope | undefined;
+  /** An initial message sent without slash preparation stays literal; queued messages still resolve for this run. */
+  readonly literalPromptId?: string;
   readonly runId: string;
   readonly sessionId: string;
   readonly account: AccountFacts;

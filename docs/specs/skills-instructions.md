@@ -107,7 +107,7 @@ The host resolves a message whose text starts with `/<name>` or `/skill:<name>`,
 3. `/<name>` naming an enabled, user-invocable member, command members included, becomes the adapter's invocation (Claude: `/agent-harness:<name>`, or `/<name>` for a native member) followed by the rest of the text.
 4. Anything else passes as typed.
 
-`message.sent` keeps the typed text and gains `skill {name, origin}` when it resolved; the adapter receives the rewritten text. A client's own verbs, such as the terminal UI's `/new`, win inside that client. Slash-only members stay undescribed to the model through their own frontmatter, which Claude honours.
+`message.sent` keeps the typed text and gains `skill {name, origin}` when the client run command or completions turn resolves it at send time; the adapter receives the rewritten text for that run. A queued message is resolved again against the skill set of the run that later reads it, which may pass it as typed after a member is disabled, or resolve a member enabled since the send. The recorded attribution remains the send-time resolution. Initial prompts from actor starts without slash preparation stay literal. A client's own verbs, such as the terminal UI's `/new`, win inside that client. Slash-only members stay undescribed to the model through their own frontmatter, which Claude honours.
 
 ### Readiness
 

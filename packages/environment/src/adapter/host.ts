@@ -1629,7 +1629,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             denylist: runDenylist(plan.policy.attended),
             processEnvironment: processEnvironmentOf(plan, injection, skillSet),
             skillSet,
-            prompt: prompt.map((message) => ({ ...message, text: resolveSlash(message.text, slash, (member) => adapterOf(plan.account).invocationText(member)).text })),
+            prompt: prompt.map((message) => message.messageId === plan.literalPromptId ? message : ({ ...message, text: resolveSlash(message.text, slash, (member) => adapterOf(plan.account).invocationText(member)).text })),
           },
           contextFor(entry),
         );
@@ -1643,7 +1643,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
       const skillSet = plan.slash?.skillSet ?? await skillSetFor(entry, skillSetScope({ ...plan, trust }));
       if (skillSet === null) { settleSlash(null); return null; }
-      const scope = plan.slash ?? await slashScope(plan.account, plan.workspace, trust, skillSet, prompt.some((message) => message.text.startsWith("/")));
+      const scope = plan.slash ?? await slashScope(plan.account, plan.workspace, trust, skillSet, prompt.some((message) => message.messageId !== plan.literalPromptId && message.text.startsWith("/")));
       slash = scope;
       entry.resolvedSlash = scope;
       settleSlash(scope);

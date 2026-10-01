@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { fakeAdapter, end, gate, say } from "../../test/fake-adapter.js";
+import { fakeAdapter, end, gate, say, signedInAs } from "../../test/fake-adapter.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import { WAIT_MS } from "../../test/wire-client.js";
@@ -105,6 +105,37 @@ describe("slash resolution", () => {
     await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(1), { timeout: WAIT_MS });
     expect(t.adapter.lastRun().input.prompt[0]?.text).toBe("/agent-harness:review branch");
     expect(t.env.log.readStream({ kind: "session", id }).find((event) => event.type === "message.sent")?.payload).toMatchObject({ text: "/review branch", skill: { name: "review", origin: null } });
+  });
+
+  it("attributes a live send against its run's set after the account signs out", async () => {
+    const held = gate();
+    const t = await startTestEnvironment({ adapter: fakeAdapter({ commands: [], script: async function* () { await held.opened; yield end(); } }) });
+    onCleanup(() => t.close());
+    onCleanup(() => held.open());
+    writeOwn(t, "skills/tdd/SKILL.md", skill("tdd"));
+    const client = await t.client();
+    const { id } = await create(client);
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await t.adapter.reached(1);
+    t.adapter.setStatus(() => signedInAs(null));
+    await client.request("accounts.refresh", {});
+    const sent = await client.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "/tdd still live" });
+    await vi.waitFor(() => expect(t.adapter.lastRun().sent[0]?.text).toBe("/agent-harness:tdd still live"), { timeout: WAIT_MS });
+    expect(t.env.log.readStream({ kind: "session", id }).find((event) => event.type === "message.sent" && event.payload["messageId"] === sent.result?.messageId)?.payload["skill"]).toEqual({ name: "tdd", origin: null });
+    held.open();
+  });
+
+  it("keeps an actor's unprepared initial prompt literal", async () => {
+    const t = await startTestEnvironment({ adapter: fakeAdapter({ commands: [] }) });
+    onCleanup(() => t.close());
+    writeOwn(t, "skills/tdd/SKILL.md", skill("tdd"));
+    const client = await t.client();
+    const { id } = await create(client);
+    const started = t.env.startRun({ sessionId: id, text: "/tdd routine text", actor: { kind: "routine", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-for-tests" });
+    await t.adapter.reached(1);
+    expect(t.adapter.lastRun().input.prompt[0]?.text).toBe("/tdd routine text");
+    expect(t.env.log.readStream({ kind: "session", id }).find((event) => event.type === "message.sent" && event.payload["messageId"] === started.messageId)?.payload).not.toHaveProperty("skill");
+    expect(t.adapter.commandListings).toHaveLength(0);
   });
 
   it.each([false, true])("rechecks a run started during the provider listing (ended=%s)", async (ended) => {
