@@ -693,6 +693,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     interactivePrompts: true,
     partialMessages: true,
     providerQueue: true,
+    withdraw: true,
     steering: true,
     resume: true,
     fork: false,

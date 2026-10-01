@@ -500,6 +500,7 @@ const providerOf = (changes: Partial<AdapterCapabilities> = {}): AdapterCapabili
     interactivePrompts: true,
     partialMessages: true,
     providerQueue: false,
+    withdraw: true,
     steering: false,
     resume: true,
     fork: true,

@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
+import { capabilities } from "../test/run-fixtures.js";
 import {
   AdapterCapabilities,
   AttachmentInput,
@@ -157,6 +158,11 @@ describe("the transcript vocabulary", () => {
     const message = { runId, messageId, text: "Now the tests", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "acceptEdits" };
     expect(sent.safeParse(message).success).toBe(true);
     expect(sent.safeParse({ ...message, delivery: "steered" }).success).toBe(false);
+    expect(sent.parse({ ...message, text: "/tdd feature", skill: { name: "tdd", origin: null } })).toMatchObject({
+      text: "/tdd feature", skill: { name: "tdd", origin: null },
+    });
+    expect(sent.parse(message)).not.toHaveProperty("skill");
+    expect(sent.safeParse({ ...message, skill: { name: "tdd" } }).success).toBe(false);
     const delivered = TRANSCRIPT_EVENT_TYPES["message.delivered"].payload;
     expect(delivered.safeParse({ runId, messageId, delivery: "steered" }).success).toBe(true);
     expect(delivered.safeParse({ runId, messageId, delivery: "queued" }).success).toBe(false);
@@ -263,6 +269,11 @@ describe("the per-session snapshot", () => {
 });
 
 describe("the adapter's transport-neutral schemas", () => {
+  it("publishes whether an adapter can withdraw a provider-held message independently of its queue", () => {
+    const descriptor = AdapterCapabilities.parse({ ...capabilities, withdraw: false });
+    expect(descriptor).toMatchObject({ providerQueue: true, withdraw: false });
+  });
+
   it("describe the capabilities descriptor with a flag per optional power, the instruction channel, whether the provider loads a trusted repository's instructions (#500) and which of its skill roots (#495) itself, and the modes", () => {
     for (const name of CAPABILITY_FLAGS) expect(AdapterCapabilities.shape[name], name).toBeDefined();
     expect(Object.keys(AdapterCapabilities.shape)).toEqual(["provider", "displayName", ...CAPABILITY_FLAGS, "instructionChannel", "nativeProjectInstructions", "nativeSkillRoots", "modes"]);

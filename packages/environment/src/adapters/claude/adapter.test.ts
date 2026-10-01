@@ -1837,6 +1837,7 @@ describe("status, models and commands", () => {
       nativeProjectInstructions: true,
       nativeSkillRoots: [".claude/skills", ".claude/commands"],
       providerQueue: true,
+      withdraw: true,
       steering: true,
       planUsage: true,
     });
