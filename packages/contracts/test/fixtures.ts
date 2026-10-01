@@ -9,6 +9,7 @@
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
 import { bankSchemaFixtures } from "./bank-fixtures.js";
+import { bankRegistryMethodFixtures, bankRegistrySchemaFixtures } from "./bank-registry-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
 import { clientCallMethodFixtures, clientCallSchemaFixtures } from "./client-call-fixtures.js";
 import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
@@ -564,6 +565,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...clientCallMethodFixtures,
   ...carryOverMethodFixtures,
   ...stateImportMethodFixtures,
+  ...bankRegistryMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -1023,6 +1025,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...networkSchemaFixtures,
   ...skillSchemaFixtures,
   ...bankSchemaFixtures,
+  ...bankRegistrySchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,

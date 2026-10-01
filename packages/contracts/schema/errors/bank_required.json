@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankRequiredError",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "const": "bank_required"
+    },
+    "message": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "banks": {
+          "minItems": 2,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+          },
+          "description": "The writable banks in scope, by name."
+        }
+      },
+      "required": [
+        "banks"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "data"
+  ],
+  "description": "Several writable banks are in scope and the call named none: data lists them; name one."
+}

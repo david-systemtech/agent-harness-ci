@@ -1,4 +1,5 @@
 import {
+  BANK_EVENT_PAYLOADS,
   FORGE_EVENT_PAYLOADS,
   KEY_MANAGER_EVENT_PAYLOADS,
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
@@ -174,6 +175,9 @@ const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.accoun
 /** Every forge account event: an account added, updated, verified or removed. */
 const FORGE_ACCOUNT_EVENTS: readonly string[] = Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account."));
 
+/** Every bank event that changes a record (#1025): all but a session's pin and a landing awaiting review, which no record holds. */
+const BANK_RECORD_EVENTS: readonly string[] = Object.keys(BANK_EVENT_PAYLOADS).filter((type) => type !== "bank.pinned" && type !== "bank.awaiting-review");
+
 /**
  * What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), an
  * account, which every row carries and the block names, what the block's forges and key managers sections read: a
@@ -286,6 +290,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
+  "banks.list": BANK_RECORD_EVENTS,
+  "banks.get": BANK_RECORD_EVENTS,
   "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed", "denylist.updated"],

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankIndexConflict",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string",
+      "const": "index_too_large"
+    },
+    "bytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The fixed tiers' size, in bytes, under the first scope that is over."
+    },
+    "limitBytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "The limit: 8 KB."
+    },
+    "banks": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 40,
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+      },
+      "description": "The banks whose fixed tiers add up past the limit, by name."
+    },
+    "scopes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+              }
+            ],
+            "description": "The account, or all for every account."
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+              }
+            ],
+            "description": "The repository, or all for every repository."
+          }
+        },
+        "required": [
+          "account",
+          "repository"
+        ]
+      },
+      "description": "The account and repository scopes under which they do."
+    }
+  },
+  "required": [
+    "reason",
+    "bytes",
+    "limitBytes",
+    "banks",
+    "scopes"
+  ],
+  "description": "The data of a conflict with reason index_too_large: the banks and the scopes under which their fixed tiers would pass 8 KB."
+}

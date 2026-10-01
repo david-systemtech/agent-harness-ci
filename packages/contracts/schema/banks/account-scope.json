@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankAccountScope",
+  "anyOf": [
+    {
+      "type": "string",
+      "const": "all"
+    },
+    {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+      }
+    }
+  ],
+  "description": "The accounts whose runs use the bank: all, or the account ids named."
+}

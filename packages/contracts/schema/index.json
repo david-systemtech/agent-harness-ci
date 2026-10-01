@@ -1467,6 +1467,106 @@
       "title": "BankVerdict"
     },
     {
+      "path": "banks/id.json",
+      "title": "BankId"
+    },
+    {
+      "path": "banks/role.json",
+      "title": "BankRole"
+    },
+    {
+      "path": "banks/account-scope.json",
+      "title": "BankAccountScope"
+    },
+    {
+      "path": "banks/repository-scope.json",
+      "title": "BankRepositoryScope"
+    },
+    {
+      "path": "banks/location.json",
+      "title": "BankLocation"
+    },
+    {
+      "path": "banks/merge-override.json",
+      "title": "BankMergeOverride"
+    },
+    {
+      "path": "banks/credential-source.json",
+      "title": "BankCredentialSource"
+    },
+    {
+      "path": "banks/copied-from.json",
+      "title": "BankCopiedFrom"
+    },
+    {
+      "path": "banks/reachability.json",
+      "title": "BankReachability"
+    },
+    {
+      "path": "banks/manifest-status.json",
+      "title": "BankManifestStatus"
+    },
+    {
+      "path": "banks/landing-status.json",
+      "title": "BankLandingStatus"
+    },
+    {
+      "path": "banks/status.json",
+      "title": "BankStatus"
+    },
+    {
+      "path": "banks/entry.json",
+      "title": "BankEntry"
+    },
+    {
+      "path": "banks/record.json",
+      "title": "BankRecord"
+    },
+    {
+      "path": "banks/conflict-reason.json",
+      "title": "BankConflictReason"
+    },
+    {
+      "path": "banks/index-conflict.json",
+      "title": "BankIndexConflict"
+    },
+    {
+      "path": "banks/events/bank.added.json",
+      "title": "BankAddedPayload"
+    },
+    {
+      "path": "banks/events/bank.updated.json",
+      "title": "BankUpdatedPayload"
+    },
+    {
+      "path": "banks/events/bank.pinned.json",
+      "title": "BankPinnedPayload"
+    },
+    {
+      "path": "banks/events/bank.forgotten.json",
+      "title": "BankForgottenPayload"
+    },
+    {
+      "path": "banks/events/bank.synced.json",
+      "title": "BankSyncedPayload"
+    },
+    {
+      "path": "banks/events/bank.verified.json",
+      "title": "BankVerifiedPayload"
+    },
+    {
+      "path": "banks/events/bank.landed.json",
+      "title": "BankLandedPayload"
+    },
+    {
+      "path": "banks/events/bank.landing-failed.json",
+      "title": "BankLandingFailedPayload"
+    },
+    {
+      "path": "banks/events/bank.awaiting-review.json",
+      "title": "BankAwaitingReviewPayload"
+    },
+    {
       "path": "skills/name.json",
       "title": "SkillName"
     },
@@ -3607,6 +3707,18 @@
       "title": "ForgeAccountMissingError"
     },
     {
+      "path": "errors/bank_required.json",
+      "title": "BankRequiredError"
+    },
+    {
+      "path": "errors/bank_read_only.json",
+      "title": "BankReadOnlyError"
+    },
+    {
+      "path": "errors/validation_failed.json",
+      "title": "ValidationFailedError"
+    },
+    {
       "path": "errors/kind_unsupported.json",
       "title": "KindUnsupportedError"
     },
@@ -5145,6 +5257,58 @@
     {
       "path": "methods/forge.pullRequests.refresh/error.json",
       "title": "forge.pullRequests.refresh error"
+    },
+    {
+      "path": "methods/banks.list/params.json",
+      "title": "banks.list params"
+    },
+    {
+      "path": "methods/banks.list/result.json",
+      "title": "banks.list result"
+    },
+    {
+      "path": "methods/banks.list/error.json",
+      "title": "banks.list error"
+    },
+    {
+      "path": "methods/banks.get/params.json",
+      "title": "banks.get params"
+    },
+    {
+      "path": "methods/banks.get/result.json",
+      "title": "banks.get result"
+    },
+    {
+      "path": "methods/banks.get/error.json",
+      "title": "banks.get error"
+    },
+    {
+      "path": "methods/banks.register/params.json",
+      "title": "banks.register params"
+    },
+    {
+      "path": "methods/banks.register/result.json",
+      "title": "banks.register result"
+    },
+    {
+      "path": "methods/banks.register/response.json",
+      "title": "banks.register response"
+    },
+    {
+      "path": "methods/banks.register/error.json",
+      "title": "banks.register error"
+    },
+    {
+      "path": "methods/banks.verify/params.json",
+      "title": "banks.verify params"
+    },
+    {
+      "path": "methods/banks.verify/result.json",
+      "title": "banks.verify result"
+    },
+    {
+      "path": "methods/banks.verify/error.json",
+      "title": "banks.verify error"
     },
     {
       "path": "methods/keyManagers.list/params.json",
@@ -7624,6 +7788,43 @@
       "params": "methods/forge.pullRequests.refresh/params.json",
       "result": "methods/forge.pullRequests.refresh/result.json",
       "error": "methods/forge.pullRequests.refresh/error.json"
+    },
+    {
+      "name": "banks.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.list/params.json",
+      "result": "methods/banks.list/result.json",
+      "error": "methods/banks.list/error.json"
+    },
+    {
+      "name": "banks.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.get/params.json",
+      "result": "methods/banks.get/result.json",
+      "error": "methods/banks.get/error.json"
+    },
+    {
+      "name": "banks.register",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.register/params.json",
+      "result": "methods/banks.register/result.json",
+      "response": "methods/banks.register/response.json",
+      "error": "methods/banks.register/error.json"
+    },
+    {
+      "name": "banks.verify",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.verify/params.json",
+      "result": "methods/banks.verify/result.json",
+      "error": "methods/banks.verify/error.json"
     },
     {
       "name": "keyManagers.list",

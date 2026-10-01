@@ -181,7 +181,7 @@ describe("discovery and health", () => {
       environmentColour: presetColour(env.id),
       harnessVersion: packageVersion,
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: ["forge", "keyManagers", "managedTools", "setup"],
+      capabilities: ["forge", "keyManagers", "managedTools", "banks", "setup"],
       authPolicy: "local-only",
       readiness: "ready",
     });

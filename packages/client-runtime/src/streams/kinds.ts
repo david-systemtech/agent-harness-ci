@@ -334,6 +334,17 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "forge.account.removed":
       case "forge.origin-missing":
         return data;
+      // The BankService's events (#1025) change no status: the request cache refreshes `banks.list` and `banks.get` on them.
+      case "bank.added":
+      case "bank.updated":
+      case "bank.pinned":
+      case "bank.forgotten":
+      case "bank.synced":
+      case "bank.verified":
+      case "bank.landed":
+      case "bank.landing-failed":
+      case "bank.awaiting-review":
+        return data;
       // The key-manager connections' events (#365, #366) and Move's (#371, #372) change no status: the request cache refreshes
       // keyManagers.list and keyManagers.move.list on them, and the notices queue raises a connection's status rows (#384).
       case "key-manager.connection.added":

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "bankId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "personal",
+            "team"
+          ],
+          "description": "A bank's kind as its BANK.md names it: personal or team."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "location": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "remote"
+            },
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The canonical origin of the forge the bank's repository is on: its pull requests and its credential go there."
+            },
+            "repository": {
+              "type": "string",
+              "pattern": "^[^/\\s]+(?:\\/[^/\\s]+)+$",
+              "description": "The repository's path on that forge, owner/name."
+            }
+          },
+          "required": [
+            "kind",
+            "origin",
+            "repository"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "local"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ],
+      "description": "Where the bank's repository lives: remote (its forge's origin and the repository's path there) or local, a repository on this machine alone."
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "read-write",
+        "read-only"
+      ],
+      "description": "Whether runs may draft into the bank (read-write) or only read and search it (read-only)."
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "accounts": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "all"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          }
+        }
+      ],
+      "description": "The accounts whose runs use the bank: all, or the account ids named."
+    },
+    "repositories": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "all"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+            "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+          }
+        }
+      ],
+      "description": "The repositories whose runs use the bank: all, or the repository identities named."
+    },
+    "defaultFor": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+      }
+    },
+    "pins": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "mergeOverride": {
+      "type": "string",
+      "enum": [
+        "none",
+        "review-memories"
+      ],
+      "description": "The teammate's own merge rule on a team bank, the stricter of it and the bank's write.merge applying: none, or review-memories, every memory waiting for review."
+    },
+    "privateCopy": {
+      "type": "boolean"
+    },
+    "credential": {
+      "type": "string",
+      "enum": [
+        "forge",
+        "stored",
+        "reference"
+      ],
+      "description": "Where the bank's credential comes from, never the secret: forge (the forge account the origin matches), stored (a token in the vault) or reference (a key-manager reference)."
+    }
+  },
+  "required": [
+    "bankId"
+  ],
+  "description": "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on."
+}

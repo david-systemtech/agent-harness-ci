@@ -64,12 +64,12 @@ const manifest = perEnabledBank("revise", ({ name, status }) => {
 });
 
 /** Every orientation name it lists names a memory in it. */
-const orientation = perEnabledBank(null, ({ name, status: { missingOrientation: missing } }) =>
+const orientation = perEnabledBank(null, ({ name, status: { orientation: { missing } } }) =>
   missing.length === 0 ? null : `The orientation of ${name} names ${listed(missing)}, which ${missing.length === 1 ? "is" : "are"} no memory in the bank.`,
 );
 
 /** A team bank's owners resolve on its forge. */
-const owners = perEnabledBank(null, ({ name, kind, status: { unresolvedOwners: unresolved } }) => {
+const owners = perEnabledBank(null, ({ name, kind, status: { owners: { unresolved } } }) => {
   if (kind !== "team" || unresolved.length === 0) return null;
   return unresolved.length === 1
     ? `The owner ${unresolved[0]} of the team bank ${name} does not resolve on its forge.`
@@ -77,8 +77,8 @@ const owners = perEnabledBank(null, ({ name, kind, status: { unresolvedOwners: u
 });
 
 /** No landing on it has failed (`check-again`). */
-const landing = perEnabledBank("check-again", ({ name, status: { landingFailed: failed } }) =>
-  failed === null ? null : `The last landing on ${name} failed at its ${failed.step} step: ${sentence(failed.reason)} Check again once a landing passes.`,
+const landing = perEnabledBank("check-again", ({ name, status: { landing: failed } }) =>
+  failed.state === "ok" ? null : `The last landing on ${name} failed at its ${failed.step} step: ${sentence(failed.reason)} Check again once a landing passes.`,
 );
 
 export const memoryBankStateChecks = (banks: BankRecords): { readonly [Id in MemoryBankStateCheckId]: StateChecker } => ({
