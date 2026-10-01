@@ -11,6 +11,7 @@ import {
 import type { InjectionLevel } from "../adapter/process-environment.js";
 import type { InstructionScope } from "../adapter/seams.js";
 import { injectionDenier, utcMinute, type OrientationContent, type OrientationList, type OrientationSection } from "../instructions/orientation.js";
+import { BWS_INVOCATION } from "./bitwarden-block.js";
 import { PROVIDER_NAMES } from "./provider.js";
 
 /**
@@ -29,7 +30,8 @@ import { PROVIDER_NAMES } from "./provider.js";
  *   names them (`injectionDenier`); at `workspace-no-network`, that each
  *   injected key manager is unreachable from the run; otherwise, for each
  *   injecting connection, its status from when it last changed, why runs
- *   get no token from it when they get none, its variables by name, the
+ *   get no token from it when they get none, its variables by name (with,
+ *   for Bitwarden, how bws is given its configuration file, #1123), the
  *   policies ticked for its run tokens and its CLI as the Managed tools
  *   registry last knew it, never whether a newer one exists.
  * - **The standing rule** ends the section (ADR 0011), in its read-only
@@ -144,11 +146,16 @@ const mintLine = (record: KeyManagerConnectionRecord): string | null => {
 const variablesLine = ({ injectedVariables }: KeyManagerConnectionRecord): string =>
   injectedVariables.length === 0 ? "This version gives runs none of its variables yet." : `Its variables, names only: ${injectedVariables.join(", ")}.`;
 
-/** What the run is told of a connection it is given: its status, why it gives no token when it cannot mint, its variables by name, its ticks and its CLI. */
+/** How a run calls a CLI that takes the block's configuration as an option rather than from a variable: bws below 0.5.0 (#1123); null for every other. */
+const invocationLine = ({ provider }: KeyManagerConnectionRecord): string | null =>
+  provider === "bitwarden" ? `Run bws as ${BWS_INVOCATION} <command>: below 0.5.0 bws reads its configuration file from that option alone, else this host's ~/.bws/config.` : null;
+
+/** What the run is told of a connection it is given: its status, why it gives no token when it cannot mint, its variables by name and how to pass them where a variable is not read, its ticks and its CLI. */
 const injectedParagraphs = (record: KeyManagerConnectionRecord, tool: KeyManagersSectionOptions["tool"]): string[] => [
   `${record.label}, injected into this run: ${statusLine(record)}.`,
   mintLine(record) ?? "",
   variablesLine(record),
+  invocationLine(record) ?? "",
   ticksLine(record) ?? "",
   cliLine(record, tool),
 ];
