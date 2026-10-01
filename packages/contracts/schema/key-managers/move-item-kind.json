@@ -3,7 +3,8 @@
   "title": "KeyManagerMoveItemKind",
   "type": "string",
   "enum": [
-    "forge-account"
+    "forge-account",
+    "endpoint"
   ],
-  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token) or endpoint (a webhook endpoint's pasted secret)."
 }
