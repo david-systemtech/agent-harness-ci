@@ -24,11 +24,12 @@ import type { SessionListView } from "./session-list.js";
  * those two drive one for the session); the session environment's
  * headless browser with its availability; and the browser dock where the
  * shell has `webView`. The labels and notes are the picker copy ADR 0024
- * names, with the product name as the placeholder.
+ * names, with the product name as the placeholder. A stored Chrome choice
+ * outside the paired list is retained as a dim row with its reason.
  */
 
-/** Why a row is dimmed: its Chrome (or every Chrome, for the plain My Chrome) is not connected; the operator lets no run use the headless browser; the environment has none; or it has not said. */
-export type BrowserUnavailableReason = "disconnected" | "headless-not-allowed" | "headless-unavailable" | "unknown";
+/** Why a row is dimmed: a Chrome is disconnected, unreachable or cannot be driven here; headless runs are disallowed, unavailable or not yet known. */
+export type BrowserUnavailableReason = "disconnected" | "headless-not-allowed" | "headless-unavailable" | "unknown" | "unreachable" | "not-drivable";
 
 export interface BrowserUnavailable {
   readonly reason: BrowserUnavailableReason;
@@ -49,11 +50,23 @@ export interface BrowserRow {
   readonly selected: boolean;
 }
 
+export interface PairedChromeGroup {
+  readonly environmentId: string;
+  readonly name: string;
+  readonly chromes: readonly PairedChrome[];
+  readonly stale: boolean;
+  readonly error: string | null;
+}
+
 export interface BrowsersView {
   readonly environmentId: string;
   readonly sessionId: string;
   /** The rows, in the picker's order. */
   readonly rows: readonly BrowserRow[];
+  /** Paired Chromes, including last-seen times and whether their cached list is stale. */
+  readonly chromes: readonly PairedChromeGroup[];
+  /** The session environment's headless state and listener details, held by the request cache. */
+  readonly status: CachedAnswer<"browser.status">;
   /** The browser dock: present where the shell has `webView`, its row listed; else absent with `no-shell` and its line, and not listed. */
   readonly dock: CapabilityAnswer;
 }
@@ -84,6 +97,14 @@ const chromeEnvironments = (records: readonly ConnectionRecord[], environmentId:
   const local = localEnvironmentOf(records);
   return local === null || local === environmentId ? [environmentId] : [local, environmentId];
 };
+
+/** Management rows read the same cached lists as the picker, retaining offline answers. */
+const pairedChromes = (sources: BrowserSources, environmentId: string): PairedChromeGroup[] =>
+  chromeEnvironments(sources.records.read(), environmentId).map((id) => {
+    const record = sources.records.read().find((record) => record.environmentId === id);
+    const answer = sources.chromes(id).read();
+    return { environmentId: id, name: record?.descriptor.name ?? id, chromes: answer.result?.chromes ?? [], stale: record?.phase !== "ready" || answer.error !== null, error: answer.error?.message ?? null };
+  });
 
 /** What the rows for a session on `environmentId` follow. */
 export const browserInputs = (sources: BrowserSources, environmentId: string): Observable<unknown>[] => [
@@ -148,6 +169,7 @@ interface ChromeGroup {
   readonly chromes: readonly PairedChrome[];
   /** What a label adds so two environments' Chromes stay apart: ` on <name>` when both list some, else nothing. */
   readonly where: string;
+  readonly unreachable: boolean;
 }
 
 /** The plain My Chrome of the group, where more than one Chrome is paired with its environment: whichever of them is connected. */
@@ -159,7 +181,7 @@ const plainRow = (group: ChromeGroup): Unmarked[] =>
           value: { kind: "chrome", environmentId: group.environmentId, chromeId: null },
           label: `${PLAIN_LABEL}${group.where}`,
           note: PLAIN_NOTE,
-          unavailable: group.chromes.some((chrome) => chrome.connected)
+          unavailable: group.unreachable ? { reason: "unreachable", message: "The Chrome’s environment cannot be reached. This list is cached and stale." } : group.chromes.some((chrome) => chrome.connected)
             ? null
             : { reason: "disconnected", message: `No paired browser is connected. Open Chrome with the ${PRODUCT_NAME} extension enabled.` },
         },
@@ -171,7 +193,7 @@ const chromeRows = (group: ChromeGroup): Unmarked[] => [
     value: { kind: "chrome", environmentId: group.environmentId, chromeId: chrome.id },
     label: `${MY_CHROME}: ${chrome.name}${group.where}`,
     note: NAMED_NOTE,
-    unavailable: chrome.connected ? null : { reason: "disconnected", message: `${chrome.name} is not connected. Open it with the ${PRODUCT_NAME} extension enabled.` },
+    unavailable: group.unreachable ? { reason: "unreachable", message: "The Chrome’s environment cannot be reached. This list is cached and stale." } : chrome.connected ? null : { reason: "disconnected", message: `${chrome.name} is not connected. Open it with the ${PRODUCT_NAME} extension enabled.` },
   })),
 ];
 
@@ -200,11 +222,24 @@ export const browserRows = (sources: BrowserSources, environmentId: string, chos
   const listed = chromeEnvironments(records, environmentId)
     .map((id) => ({ environmentId: id, chromes: sources.chromes(id).read().result?.chromes ?? [] }))
     .filter((group) => group.chromes.length > 0);
-  const groups = listed.map((group): ChromeGroup => ({ ...group, where: listed.length > 1 ? ` on ${nameOf(group.environmentId)}` : "" }));
+  const groups = listed.map((group): ChromeGroup => ({ ...group, unreachable: records.find((record) => record.environmentId === group.environmentId)?.phase !== "ready", where: listed.length > 1 ? ` on ${nameOf(group.environmentId)}` : "" }));
   const headless = headlessUnavailable(sources.status(environmentId).read(), nameOf(environmentId));
   const dock = sources.webView.status === "present" ? [DOCK_ROW] : [];
-  const rows = [defaultRow(headless), ...groups.flatMap(chromeRows), headlessRow(headless, nameOf(environmentId)), ...dock];
+  const rows: Unmarked[] = [defaultRow(headless), ...groups.flatMap(chromeRows), headlessRow(headless, nameOf(environmentId)), { value: { kind: "none" } as const, label: "None", note: "No browser. The run can read the web with web_read alone.", unavailable: null }, ...dock];
   const marked = chosen === undefined ? undefined : markedAs(chosen, groups);
+  // A stored field can outlive its pairing or name a machine this client cannot drive.
+  // Keep that choice visible instead of presenting it as the default.
+  if (chosen?.kind === "chrome" && !rows.some((row) => sameBrowser(row.value, marked ?? null))) {
+    const drivable = chromeEnvironments(records, environmentId).includes(chosen.environmentId);
+    rows.splice(1, 0, {
+      value: chosen,
+      label: `${MY_CHROME} on ${nameOf(chosen.environmentId)}`,
+      note: chosen.chromeId === null ? PLAIN_NOTE : NAMED_NOTE,
+      unavailable: drivable
+        ? { reason: "disconnected", message: "This Chrome is not in the paired list. Pair it again or choose another browser." }
+        : { reason: "not-drivable", message: "This Chrome is on another machine; no local client can drive it here." },
+    });
+  }
   return rows.map((row) => ({ ...row, selected: marked !== undefined && sameBrowser(row.value, marked) }));
 };
 
@@ -215,6 +250,6 @@ export const browsersProjection = (host: BrowsersHost, environmentId: string, se
   const chosen = () => host.sessionList.read().rows.find((row) => row.environmentId === environmentId && row.summary.id === id)?.summary.browser;
   return dynamic(
     () => [host.sessionList, ...browserInputs(host, environmentId)],
-    (): BrowsersView => ({ environmentId, sessionId: id, rows: browserRows(host, environmentId, chosen()), dock: host.webView }),
+    (): BrowsersView => ({ environmentId, sessionId: id, rows: browserRows(host, environmentId, chosen()), chromes: pairedChromes(host, environmentId), status: host.status(environmentId).read(), dock: host.webView }),
   );
 };

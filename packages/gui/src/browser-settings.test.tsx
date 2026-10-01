@@ -1,0 +1,104 @@
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { settingsDeepLink } from "@agent-harness/client-runtime";
+import type { BrowserStatus, PairedChrome } from "@agent-harness/contracts";
+import { describe, expect, it } from "vitest";
+import { renderApp } from "../test/harness.js";
+
+const chrome: PairedChrome = {
+  id: "0199aa00-0000-4000-8000-000000000041", name: "Work Chrome", pairedAt: "2026-09-24T00:00:00.000Z",
+  lastConnectedAt: "2026-09-24T00:00:00.000Z", lastReportedVersion: "0.1.0", connected: true, outdated: false,
+};
+const status: BrowserStatus = {
+  listener: { state: "listening", port: 47615 }, folder: { path: "/test/extension", problem: null }, shippedVersion: "0.1.0", unpairedConnected: false,
+  headless: { allowRuns: false, availability: { available: true, source: { kind: "launched", executable: "/test/chromium" } }, liveContexts: 0 },
+};
+const opened = async () => {
+  const app = await renderApp({ environments: [{ name: "desk", reach: "local", accounts: [{ id: "work", label: "Work" }] }] });
+  const desk = app.environment("desk");
+  let chromes = [chrome];
+  desk.wire.answer("browser.chromes.list", () => ({ result: { chromes } }));
+  desk.wire.answer("browser.status", () => ({ result: status }));
+  await screen.findByText("No session is open. Choose one from the sidebar.");
+  act(() => app.shell.openDeepLink(settingsDeepLink("access.browser")));
+  const pane = await screen.findByRole("region", { name: "Browser" });
+  return { app, desk, pane, list: (next: PairedChrome[]) => { chromes = next; desk.notice("chrome.updated", { chromeId: chrome.id, name: chrome.name, change: "renamed" }); } };
+};
+
+describe("the Browser settings pane", () => {
+  it("keeps the plain My Chrome default when only one Chrome is paired", async () => {
+    const { desk, pane } = await opened();
+    act(() => desk.setSettings({ "browser.reach": { work: { chrome: { environmentId: desk.environmentId, chromeId: null } } } }));
+    const option = await within(pane).findByRole("option", { name: /My Chrome \(agent-harness extension\)/ });
+    await waitFor(() => expect((option as HTMLOptionElement).selected).toBe(true));
+    expect((option as HTMLOptionElement).disabled).toBe(false);
+    expect(within(pane).queryByRole("option", { name: /another machine/ })).toBeNull();
+  });
+
+  it("keeps a remote Chrome default visible and dim with the reason it cannot be driven here", async () => {
+    const { desk, pane } = await opened();
+    act(() => desk.setSettings({ "browser.reach": { work: { chrome: { environmentId: "0199aa00-0000-4000-8000-000000000999", chromeId: chrome.id } } } }));
+    const option = await within(pane).findByRole("option", { name: /My Chrome on another machine.*no local client can drive/ });
+    expect((option as HTMLOptionElement).disabled).toBe(true);
+    expect((option as HTMLOptionElement).selected).toBe(true);
+  });
+
+  it("reports a pairing refusal in one line", async () => {
+    const { app, desk, pane } = await opened();
+    desk.wire.answer("browser.pairing.code", () => ({ error: { code: "forbidden", message: "Pairing is locked.", data: {} } }));
+    await app.user.click(within(pane).getByRole("button", { name: "Pair another Chrome" }));
+    expect(await within(pane).findByText("No pairing code: Pairing is locked.")).toBeDefined();
+    expect(within(pane).getAllByText(/No pairing code:/)).toHaveLength(1);
+  });
+
+  it("shows headless state and changes allowRuns and one account's default without replacing the others", async () => {
+    const { app, desk, pane } = await opened();
+    desk.setSettings({ "browser.reach": { other: "per-session" }, "browser.headless.allowRuns": false });
+    expect(await within(pane).findByText("Available: /test/chromium. 0 live contexts.")).toBeDefined();
+    const allow = await within(pane).findByRole("checkbox", { name: "Allow runs to use the headless browser" });
+    await waitFor(() => expect((allow as HTMLInputElement).checked).toBe(false));
+    await app.user.click(allow);
+    expect(await within(pane).findByText("Headless browser allowed for runs.")).toBeDefined();
+    const defaults = await within(pane).findByRole("combobox", { name: "Default browser for Work" });
+    await app.user.selectOptions(defaults, JSON.stringify({ chrome: { environmentId: desk.environmentId, chromeId: chrome.id } }));
+    expect(await within(pane).findByText("Default browser saved for Work.")).toBeDefined();
+    await waitFor(() => expect(desk.settings()["browser.reach"]).toEqual({ other: "per-session", work: { chrome: { environmentId: desk.environmentId, chromeId: chrome.id } } }));
+    await app.user.keyboard("{Control>},{/Control}");
+    await app.user.keyboard("{Control>}n{/Control}");
+    expect(await screen.findByRole("button", { name: "Browser: My Chrome: Work Chrome" })).toBeDefined();
+  });
+
+  it("starts pairing here and completes when the new Chrome is listed, then unpairs it", async () => {
+    const { app, desk, pane, list } = await opened();
+    desk.wire.answer("browser.pairing.code", () => ({ result: { code: "ABCD2345", expiresAt: new Date(app.clock.now().getTime() + 300_000).toISOString() } }));
+    const pair = await within(pane).findByRole("button", { name: "Pair another Chrome" });
+    act(() => pair.focus());
+    await app.user.keyboard("{Enter}");
+    expect(await within(pane).findByText("ABCD2345")).toBeDefined();
+    const added = { ...chrome, id: "0199aa00-0000-4000-8000-000000000042", name: "Personal Chrome" };
+    act(() => list([chrome, added]));
+    expect(await within(pane).findByText("Personal Chrome")).toBeDefined();
+    await waitFor(() => expect(within(pane).queryByText("ABCD2345")).toBeNull());
+    desk.wire.answer("browser.chromes.unpair", () => {
+      list([chrome]);
+      return { result: { receipt: { status: "accepted", sequence: 2, changed: true } } };
+    });
+    await app.user.click(within(pane).getByRole("button", { name: "Unpair Personal Chrome" }));
+    expect(await within(pane).findByText("Unpaired Personal Chrome.")).toBeDefined();
+    await waitFor(() => expect(within(pane).queryByText("Personal Chrome")).toBeNull());
+  });
+
+  it("lists paired Chromes with last-seen times, follows notices, and marks the retained list stale when offline", async () => {
+    const { app, desk, pane, list } = await opened();
+    expect(await within(pane).findByText("Work Chrome")).toBeDefined();
+    expect(within(pane).getByText(/Last seen/).textContent).toContain("2026-09-24T00:00:00.000Z");
+    act(() => list([{ ...chrome, name: "Renamed Chrome" }]));
+    expect(await within(pane).findByText("Renamed Chrome")).toBeDefined();
+    act(() => { desk.wire.discovery("unreachable"); desk.wire.server.drop(); });
+    expect(await within(pane).findByText(/Cached paired Chromes.*stale/)).toBeDefined();
+    expect(within(pane).getByText("Renamed Chrome")).toBeDefined();
+    expect((within(pane).getByRole("option", { name: /^My Chrome: Renamed Chrome/ }) as HTMLOptionElement).disabled).toBe(true);
+    expect(within(pane).getByRole("option", { name: /^My Chrome: Renamed Chrome/ }).textContent).toContain("cannot be reached");
+    await waitFor(() => expect((within(pane).getByRole("button", { name: "Unpair Renamed Chrome" }) as HTMLButtonElement).disabled).toBe(true));
+    expect(app.platform.reported).toEqual([]);
+  });
+});

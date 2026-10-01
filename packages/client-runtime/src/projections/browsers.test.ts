@@ -195,6 +195,7 @@ describe("projections.browsers: the headless browser and the default", () => {
     expect(laptop.rows.map(({ value, label, note, unavailable }) => ({ value, label, note, unavailable }))).toEqual([
       { value: null, label: "Default", note: "Currently the headless browser.", unavailable: null },
       { value: { kind: "headless" }, label: "Headless browser", note: "A browser on laptop that nobody can see. Signed in to nothing, and the agent can read, click and type in it.", unavailable: null },
+      { value: { kind: "none" }, label: "None", note: "No browser. The run can read the web with web_read alone.", unavailable: null },
     ]);
     const notAllowedLine = "desk lets no run use its headless browser: browser.headless.allowRuns is off.";
     expect([rowOf(desk, "headless")?.unavailable, rowOf(desk, null)?.note]).toEqual([{ reason: "headless-not-allowed", message: notAllowedLine }, `Currently no browser. ${notAllowedLine}`]);
