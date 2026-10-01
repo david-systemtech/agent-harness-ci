@@ -180,8 +180,24 @@ export interface ShellTray {
   onClick(listener: () => void): () => void;
 }
 
+/** The CDP channel of a native page and its flat child targets. Contains only opaque view/target ids and protocol objects. */
+export interface ShellWebViewDebugger {
+  attach(viewId: string): Promise<void>;
+  send(viewId: string, method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, unknown>>;
+  onEvent(listener: (viewId: string, event: ShellDebuggerMessage) => void): () => void;
+  onDetach(listener: (viewId: string, reason: string) => void): () => void;
+  detach(viewId: string): Promise<void>;
+}
+export interface ShellDebuggerMessage {
+  readonly method: string;
+  readonly params: Record<string, unknown>;
+  readonly sessionId?: string;
+}
+
 /** An embedded browser page, named by an opaque id. Partitions are separate from the renderer. An opaque partition key reopens its persistent profile; without one, create uses a fresh in-memory profile. */
 export interface ShellWebView {
+  /** Absent where the dock can display pages but cannot drive them. */
+  readonly debugger?: ShellWebViewDebugger;
   create(options: { readonly url: string; readonly partition?: string }): Promise<string>;
   attach(viewId: string, bounds: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): void;
   /** Hides without closing the page or forgetting its history. */

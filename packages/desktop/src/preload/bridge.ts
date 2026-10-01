@@ -16,10 +16,11 @@ import type {
   ShellUpdate,
   ShellWindow,
   ShellWebView,
+  ShellDebuggerMessage,
   ShellWebViewState,
   ShellWebViewKey,
 } from "@agent-harness/client-runtime";
-import { channelOf, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
+import { channelOf, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
@@ -76,6 +77,14 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
     if (typeof tag === "string") for (const listener of [...activationListeners]) listener(tag);
   });
 
+  const debugListeners = new Set<(id: string, message: ShellDebuggerMessage) => void>();
+  const detachListeners = new Set<(id: string, reason: string) => void>();
+  ipc.on(WEB_VIEW_DEBUG_CHANNEL, (_details, id, event) => {
+    for (const listener of debugListeners) listener(id as string, event as ShellDebuggerMessage);
+  });
+  ipc.on(WEB_VIEW_DETACH_CHANNEL, (_details, id, reason) => {
+    for (const listener of detachListeners) listener(id as string, reason as string);
+  });
   const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
   ipc.on(WEB_VIEW_KEY_CHANNEL, (_details, id, key) => {
     if (typeof id !== "string" || typeof key !== "object" || key === null) return;
@@ -149,6 +158,13 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
     installer: { bundledServer: () => ask("installer.bundledServer") },
     gh: { token: (host) => ask("gh.token", host) },
     webView: {
+      debugger: {
+        attach: (id) => ask("webView.debugger.attach", id),
+        send: (id, method, params, sessionId) => ask("webView.debugger.send", id, method, params, sessionId),
+        detach: (id) => ask("webView.debugger.detach", id),
+        onEvent(listener) { debugListeners.add(listener); return () => void debugListeners.delete(listener); },
+        onDetach(listener) { detachListeners.add(listener); return () => void detachListeners.delete(listener); },
+      },
       create: (options) => ask("webView.create", options),
       attach: (id, bounds) => tell("webView.attach", id, bounds),
       hide: (id) => tell("webView.hide", id),

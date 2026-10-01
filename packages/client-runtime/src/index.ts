@@ -54,6 +54,8 @@ export {
   type ShellTray,
   type ShellUpdate,
   type ShellWebView,
+  type ShellWebViewDebugger,
+  type ShellDebuggerMessage,
   type ShellWebViewState,
   type ShellWebViewKey,
   type ShellWindow,
