@@ -16,16 +16,18 @@ import {
   interruptRun,
   isLive,
   lastReply,
-  liveTasks,
   oneOffMessage,
+  oneLine,
   outsideWorkspace,
   quietFor,
   readQueueNow,
   runOneOff,
   sendMessage,
+  sessionTasks,
   shellLine,
   slashMenuRows,
   stopCall,
+  subagentRows,
   transcriptRows,
   ttlWords,
   typedPath,
@@ -438,8 +440,9 @@ export const App = (props: AppProps) => {
   const update = (change: Partial<Screen>) => setScreen((current) => ({ ...current, ...change }));
   // The keymap in force: the launch map, until `/reload` reads the file again.
   const [keymap, setKeymap] = useState(props.keymap);
-  // What has the keys when no card does: the composer, the rail or the transcript (Tab walks them, `nextFocus`).
+  // What has the keys when no card does: Tab walks the composer, rail, delegated strip, terminal and transcript.
   const [focus, setFocus] = useState<Focus>("composer");
+  const [delegatedCursor, setDelegatedCursor] = useState<string | null>(null);
   const help = useMemo(() => helpLines(keymap, ANSWERED, BUILD_WORDS), [keymap]);
   const say = (line: string) => update({ line });
   const keys = (action: KeyActionId) => keysText(keymap, action);
@@ -493,6 +496,7 @@ export const App = (props: AppProps) => {
     session.open(next);
     setView(FRESH_VIEW);
     setSending([]);
+    setDelegatedCursor(null);
     if (next) setFocus("composer");
   };
   // A send heard back leaves for good, so a message withdrawn since, gone from the transcript, is never drawn as on its way
@@ -520,13 +524,16 @@ export const App = (props: AppProps) => {
     if (terminal.pane !== null && !paneOpen) terminal.close();
   }, [paneOpen, terminal.pane]);
 
-  // The stops Tab walks that come and go: the rail, with nothing to list, and the terminal pane while it is open; the
-  // delegated strip is not drawn by this build. Under 100 columns the rail is not drawn beside the pane: with the focus it
-  // is drawn in the pane's place, the picker that stands in for it. A stop that goes takes the focus back to the composer.
+  const tasks = useMemo(() => (projection ? sessionTasks(projection).live.filter((row) => row.runId === session.liveRunId) : []), [projection, session.liveRunId]);
+  const delegatedAt = Math.max(0, tasks.findIndex((row) => row.task.taskId === delegatedCursor));
+  const delegatedTask = tasks[delegatedAt];
+  // The stops Tab walks that come and go: the rail, the live delegated strip and the terminal pane. Under 100 columns
+  // the rail is not drawn beside the pane: with the focus it is drawn in the pane's place, the picker that stands in for
+  // it. A stop that goes takes the focus back to the composer.
   const railListed = views.length > 0;
   const railDrawn = size.columns >= RAIL_MIN_COLUMNS && railListed;
-  const stops = { sidebar: railListed, delegated: false, terminal: paneOpen };
-  const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) ? "composer" : focus;
+  const stops = { sidebar: railListed, delegated: tasks.length > 0, terminal: paneOpen };
+  const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) || (focus === "delegated" && tasks.length === 0) ? "composer" : focus;
   // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
   // fifths of the frame tall, within the column.
   const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows) };
@@ -534,6 +541,9 @@ export const App = (props: AppProps) => {
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
   }, [focus, focused]);
+  useEffect(() => {
+    if (focused === "delegated" && delegatedTask && delegatedCursor !== delegatedTask.task.taskId) setDelegatedCursor(delegatedTask.task.taskId);
+  }, [focused, delegatedTask, delegatedCursor]);
 
   // `--environment` names the environment the header is about: it becomes the last used once it is known,
   // at launch or when it is paired later; a miss at launch is said once, and the watch goes on.
@@ -688,7 +698,6 @@ export const App = (props: AppProps) => {
 
   const liveRun = session.liveRunId;
   const live = isLive(session.runState) || liveRun !== undefined;
-  const tasks = useMemo(() => (projection ? liveTasks(projection, liveRun) : []), [projection, liveRun]);
 
   // The parked prompts (docs/specs/tui.md, "Cards"): every environment's, from `projections.runs` (the asks card), and the open
   // session's own, whose oldest is its card. One this terminal has answered leaves both at once (`useAnswers`).
@@ -1821,6 +1830,45 @@ export const App = (props: AppProps) => {
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
+      "delegated.enter": () => (tasks.length > 0 ? setFocus("delegated") : false),
+      "delegated.move": (pressed) => {
+        const row = tasks[Math.min(Math.max(delegatedAt + direction(keymap, "delegated.move", pressed), 0), tasks.length - 1)];
+        if (row) setDelegatedCursor(row.task.taskId);
+      },
+      "delegated.leave": () => setFocus("composer"),
+      "delegated.stop": () => {
+        if (!opened || !delegatedTask) return false;
+        void stopCall(runtime, opened.environmentId, delegatedTask.runId, delegatedTask.task.taskId).then((line) => line && say(oneLine(line, 300)));
+      },
+      "delegated.open": () => {
+        if (!opened || !delegatedTask) return false;
+        if (delegatedTask.agentId === null) return say("That task is not an agent: it has no transcript to read.");
+        const target = opened;
+        const reading: Extract<Card, { readonly kind: "page" }> = {
+          kind: "page",
+          title: `${delegatedTask.task.subagentType ?? delegatedTask.task.kind}: ${oneLine(delegatedTask.task.description, 120)}`,
+          lines: [{ row: "reading", spans: [{ text: "Reading…", dim: true }] }],
+          top: 0,
+          query: "",
+          typing: false,
+          back: { kind: "none" },
+        };
+        update({ card: reading, line: undefined });
+        void runtime.requests.call(target.environmentId, "sessions.subagentTranscript", { sessionId: target.sessionId, agentId: delegatedTask.agentId }).then((answer) => {
+          if (quit.signal.aborted || latest.current.opened?.environmentId !== target.environmentId || latest.current.opened.sessionId !== target.sessionId) return;
+          const rows = answer.ok ? subagentRows(answer.result.messages) : [];
+          const lines = transcriptLines(rows, { width: mainWidth, quietMs: () => 0, stopKey: keys("row.stop"), unfoldKey: keys("row.unfold"), expanded: true });
+          // Paging or searching preserves the loading lines; closing the page replaces them, declining a late answer.
+          setScreen((s) => {
+            if (s.card.kind !== "page" || s.card.lines !== reading.lines) return s;
+            if (!answer.ok) return { ...s, card: reading.back, line: `Not read: ${oneLine(answer.error.message, 300)}` };
+            return {
+              ...s,
+              card: { ...s.card, lines: lines.length > 0 ? lines : [{ row: "empty", spans: [{ text: "Nothing is stored for this agent yet.", dim: true }] }] },
+            };
+          });
+        });
+      },
       "row.leave": () => {
         setView((v) => ({ ...v, cursor: null }));
         setFocus("composer");
@@ -2246,9 +2294,11 @@ export const App = (props: AppProps) => {
                 : focused === "sidebar"
                   ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
                     `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
-                  : focused === "transcript"
-                    ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold${fileVerbs} · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
-                    : undefined;
+                  : focused === "delegated"
+                    ? `The delegated strip has the keys · ${keys("delegated.move")} move · ${keys("delegated.open")} open · ${keys("delegated.stop")} stop · ${keys("delegated.leave")} back to the composer`
+                    : focused === "transcript"
+                      ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold${fileVerbs} · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
+                      : undefined;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;
   const marker =
@@ -2426,7 +2476,7 @@ export const App = (props: AppProps) => {
               follow={`${keys("transcript.follow")} follows`}
             />
           )}
-          {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks} />}
+          {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks.map((row) => row.task)} cursor={focused === "delegated" ? delegatedTask?.task.taskId : undefined} />}
           {card.kind === "none" && opened && !railInPane && <QueuedLine queue={queue} steers={steers} verbs={queueVerbs} />}
           {card.kind === "none" && paneOpen && !railInPane && terminal.pane && (
             <TerminalPaneView
