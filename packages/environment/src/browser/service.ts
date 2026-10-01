@@ -1,9 +1,12 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import {
+  ContractError,
   chromeNameOf,
   type BrowserStatus,
   type ChromeChange,
   type ExtensionListenerStatus,
+  type PageCall,
+  type PageDriver,
   type PagePolicy,
   type PairedChrome,
   type PortFile,
@@ -16,6 +19,7 @@ import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { readSettings } from "../settings/settings-store.js";
 import { chromeStream, readChrome, readChromes, type ChromeRecord } from "./chromes.js";
+import { createExtensionDriver } from "./extension-driver.js";
 import { extensionFolder, type FolderState } from "./extension-folder.js";
 import { createExtensionListener, type ChromeDesk, type ExtensionListenerPorts } from "./listener.js";
 import { createPairingCodes } from "./pairing-code.js";
@@ -38,7 +42,10 @@ import { createPairingCodes } from "./pairing-code.js";
  * the vault once it commits and refuses the Chrome's socket. Every change,
  * connection and disconnection raises `chrome.updated`. The page policy is
  * sent on `paired` and `ready`, and again to every proved socket whenever
- * the settings or the denylist change it.
+ * the settings or the denylist change it. The extension driver performs
+ * verbs on a paired Chrome over its proved socket (#552): for this
+ * environment's own runs, and through `browser.chromes.perform` for a local
+ * client session.
  */
 
 /** Who the log says appended what no client asked for: `extension.seen`, a pairing, a connection. */
@@ -77,6 +84,8 @@ export interface BrowserService {
   start(): Promise<void>;
   /** `browser.status`, the folder made again first when it is missing. */
   status(): Promise<BrowserStatus>;
+  /** The page driver of the paired Chrome `chromeId`, or of the plain My Chrome for null: the extension driver. */
+  driverOf(chromeId: string | null): PageDriver;
   readonly handlers: MethodHandlers;
   close(): Promise<void>;
 }
@@ -210,6 +219,13 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
     chromes: desk,
   });
 
+  const driver = createExtensionDriver({
+    chromes: () => readChromes(reader),
+    isConnected: (chromeId) => listener.isConnected(chromeId),
+    call: (chromeId, call, deadlineMs) => listener.call(chromeId, call, deadlineMs),
+    environmentName: options.name,
+  });
+
   let listening: ExtensionListenerStatus | undefined;
   let state: FolderState = { shippedVersion: null, problem: "The environment has not made the extension's folder yet." };
 
@@ -269,10 +285,22 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
       await ensure();
     },
     status,
+    driverOf: (chromeId) => driver.driverOf(chromeId),
     handlers: {
       "browser.status": () => status(),
       "browser.pairing.code": () => codes.live(),
       "browser.chromes.list": () => ({ chromes: readChromes(reader).map(listed) }),
+      // Only a client on this machine drives a Chrome paired with it: the relay's client half, local through the bootstrap grant.
+      "browser.chromes.perform": async ({ chromeId, ...call }, context) => {
+        if (!context.clientSession.local) {
+          throw new ContractError({
+            code: "forbidden",
+            message: "Only a local client session may drive a paired Chrome: a client on the Chrome's own machine.",
+            data: { scope: "runs:drive", reason: "local" },
+          });
+        }
+        return { outcome: await driver.perform(chromeId, call as PageCall) };
+      },
       "browser.chromes.rename": ({ chromeId, name }, context) => {
         const aggregate = chromeStream(chromeId.toLowerCase());
         const chrome = readChrome(reader, chromeId);
