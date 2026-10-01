@@ -363,3 +363,56 @@ describe("the fixed tiers", () => {
     expect(renderTrail([bank]).text).toBe(renderFixedTiers(bank).text + text(HOMELAB, NAS, MEMORY_BANK));
   });
 });
+
+describe("the counts", () => {
+  it("sum from topics to folders, folders to orgs and orgs to the bank, as the trail and the reads print them", async () => {
+    const bank = await bankOf({
+      ...PERSONAL_BANK,
+      "projects/side/ORG.md": markdown({ line: "Side projects" }),
+      "projects/side/garden/PROJECT.md": scopeFile("The garden", { beds: "When planting - the raised beds", compost: "When turning the heap - the compost" }),
+      "projects/side/garden/memories/frost-dates.md": memory("frost-dates"),
+      "projects/side/garden/memories/beds/bed-soil.md": memory("bed-soil"),
+      "projects/side/garden/memories/beds/bed-rotation.md": memory("bed-rotation"),
+      "projects/side/garden/greenhouse/AREA.md": scopeFile("The greenhouse"),
+      "projects/side/garden/greenhouse/memories/heater.md": memory("heater"),
+    });
+    const trail = renderTrail([bank], { registryPins: ["maya-memory:personal/", "maya-memory:side/"] }).text;
+    expect(trail).toContain("## maya-memory (personal, read-write) — 9 memories in 5 folders — ");
+    expect(trail).toContain(
+      text(
+        "### maya-memory:side/ (4) — Side projects",
+        "- maya-memory:side/garden/ (3) — The garden",
+        "  - maya-memory:side/garden/memories/beds/ (2) — When planting - the raised beds",
+        "  - maya-memory:side/garden/memories/compost/ (0) — When turning the heap - the compost",
+        "  - maya-memory:frost-dates — When you need the frost-dates fact - the one place it is written down for runs",
+        "- maya-memory:side/garden/greenhouse/ (1) — The greenhouse",
+        "  - maya-memory:heater — When you need the heater fact - the one place it is written down for runs",
+      ),
+    );
+    // Every parent's count is its children's sum: org headers to the bank line, breadcrumbs to their header, topics and memory lines to their folder.
+    const count = (line: string): number => Number(/ \((\d+)\)/.exec(line)?.[1] ?? /— (\d+) memor/.exec(line)?.[1]);
+    const lines = trail.trimEnd().split("\n");
+    const children = (at: number, isChild: (line: string) => boolean, stop: (line: string) => boolean): string[] => {
+      const after = lines.slice(at + 1);
+      const end = after.findIndex(stop);
+      return (end === -1 ? after : after.slice(0, end)).filter(isChild);
+    };
+    const sumOf = (items: readonly string[]): number => items.reduce((sum, line) => sum + (/ \(\d+\)/.test(line) ? count(line) : 1), 0);
+    lines.forEach((line, at) => {
+      if (line.startsWith("## ")) expect(sumOf(children(at, (each) => each.startsWith("### "), (each) => each.startsWith("## ")))).toBe(count(line));
+      if (line.startsWith("### ")) expect(sumOf(children(at, (each) => each.startsWith("- "), (each) => each.startsWith("#")))).toBe(count(line));
+      if (line.startsWith("- ") && / \(\d+\)/.test(line)) expect(sumOf(children(at, (each) => each.startsWith("  - "), (each) => !each.startsWith("  ")))).toBe(count(line));
+    });
+    const beds = readPointer([bank], "maya-memory:side/garden/memories/beds/");
+    expect(beds).toEqual({
+      found: true,
+      text: text(
+        "- maya-memory:side/garden/memories/beds/ (2) — When planting - the raised beds",
+        "  - maya-memory:bed-rotation — When you need the bed-rotation fact - the one place it is written down for runs",
+        "  - maya-memory:bed-soil — When you need the bed-soil fact - the one place it is written down for runs",
+        "",
+        "In maya-memory:side/garden/ (3) — The garden",
+      ),
+    });
+  });
+});
