@@ -394,6 +394,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       // A paired Chrome's change (#548) changes no status: the request cache reads browser.chromes.list and browser.status again.
       case "chrome.updated":
         return data;
+      // A call addressed to a client session (#554) changes no status: the client-call registry hands it to its handler.
+      case "client.call":
+        return data;
     }
   },
   encode: (data) => data,

@@ -62,6 +62,29 @@ Every case passes:
 Record the date, the machine and its platform, the browser and its version
 (`chromium --version`), and each case's result in the pull request.
 
+## The relay (#554)
+
+What the browser relay adds per verb (the browser spec's "Verify first", item
+5): a run on SYSTEM-SERVER started from the desktop window drives David's
+Chrome, paired with his desktop's environment, through the window's runtime.
+The relay's tests run two in-process environments and the fake extension; only
+David's machines time it. It waits for the extension to drive pages (#553).
+
+With the Chrome paired with the desktop's environment and connected, and one
+fixed page open in it:
+
+1. **Direct**: a session on the desktop's environment whose browser is that
+   Chrome. In one run, ten of each of `browser_open`, `browser_snapshot`,
+   `browser_click`, `browser_read` and `browser_screenshot` on the page.
+2. **Relayed**: the same from a session on SYSTEM-SERVER started from the same
+   desktop window, its browser that Chrome.
+3. For each verb on each path, read each call's time from its `tool.started`
+   to its `tool.ended` in the session's transcript, and note the median and
+   the slowest; what the relay adds is the relayed median less the direct one.
+
+Record the date, both machines, Chrome's version and the table in the pull
+request or issue that asked for it (#922).
+
 ## The extension (#549)
 
 The extension package's tests run its worker and options page against a fake
