@@ -100,7 +100,7 @@ describe("environment.status", () => {
   it("answers a read-only client session with readiness, idle, updates not managed outside, and what it binds beside loopback: nothing, on a machine with no tailnet or LAN address", async () => {
     const t = await start();
     const client = await narrowClient(t, ["read"]);
-    expect(await status(client)).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } });
+    expect(await status(client)).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] } });
   });
 
   it("is busy while a run starts and runs, busy nine minutes after it ended, and idle at eleven", async () => {
@@ -204,7 +204,7 @@ describe("the drain", () => {
     const notice = await watcher.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "environment.draining");
     expect(EnvironmentNotice.parse(notice.event)).toEqual({ type: "environment.draining", payload: { drainingSince, trigger: "command" } });
     expect(notice.event.actor).toEqual({ kind: "client_session", id: client.hello.clientSessionId });
-    expect(await status(client)).toEqual({ readiness: "draining", activity: { state: "draining", drainingSince }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } });
+    expect(await status(client)).toEqual({ readiness: "draining", activity: { state: "draining", drainingSince }, updatesManagedOutside: false, binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] } });
 
     const refused = await client.call("probe.run", { commandId: randomUUID(), run: "r2" });
     expect(refused).toMatchObject({ error: { code: "unavailable", data: { readiness: "draining" } } });

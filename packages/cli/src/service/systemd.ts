@@ -73,6 +73,8 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
   const path = posix.join(configHome, "systemd", "user", unit);
   const wantsDir = posix.join(configHome, "systemd", "user", "default.target.wants");
   const systemctl = (...args: string[]) => commands.run("systemctl", ["--user", ...args]);
+  /** A `systemctl` command that stops the unit and waits while the launcher drains. */
+  const systemctlStopping = (...args: string[]) => commands.stop("systemctl", ["--user", ...args]);
   const isEnabled = async () => {
     const result = await commands.probe("systemctl", ["--user", "is-enabled", unit]);
     return result.code === 0 && result.stdout.trim() === "enabled";
@@ -80,6 +82,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
 
   return {
     kind: "systemd",
+    drainsOnStop: true,
     definitionPath: () => path,
     install: async (spec, { restartRunning }) => {
       const written = writeDefinition(path, renderSystemdUnit(spec));
@@ -96,7 +99,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
         enabled = true;
         // try-restart restarts a running unit onto the new definition and leaves a stopped one stopped. Left running, the
         // unit takes the reloaded definition at its next start.
-        if (restartRunning) await systemctl("try-restart", unit);
+        if (restartRunning) await systemctlStopping("try-restart", unit);
       } catch (error) {
         if (enabled && !wasEnabled) {
           await commands.attempt("systemctl", ["--user", "disable", unit]);
@@ -110,7 +113,7 @@ export const systemdPlatform = (installContext: InstallContext, commands: Servic
       return { createdDirectories: written.createdDirectories };
     },
     uninstall: async () => {
-      await systemctl("disable", "--now", unit);
+      await systemctlStopping("disable", "--now", unit);
       rmSync(path, { force: true });
       // `enable` created the wants directory when it was absent; an empty one goes with the unit.
       removeIfEmpty(wantsDir);

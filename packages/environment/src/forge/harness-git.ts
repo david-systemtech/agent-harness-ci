@@ -66,6 +66,8 @@ export type ForgeGitRequest = ForgeGitCommand & {
   readonly purpose: string;
   /** How long git may take; preset `FORGE_GIT_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
+  /** Stops git when it aborts: a skill source's sync the environment's close cuts. */
+  readonly signal?: AbortSignal;
   /**
    * An ssh or scp repository on a host no forge account covers is reached
    * over ssh as written, with the user's own keys and agent, ssh in batch
@@ -143,6 +145,7 @@ export const createHarnessGit =
       const ran = await runGit(request.cwd, argumentsOf(request, url), {
         maxBytes: OUTPUT_BYTES,
         timeoutMs: request.timeoutMs ?? FORGE_GIT_TIMEOUT_MS,
+        ...(request.signal !== undefined && { signal: request.signal }),
         env: {
           ...UNTRANSLATED,
           ...gitConfigVariables([...entries, ...(options.config ?? [])]),

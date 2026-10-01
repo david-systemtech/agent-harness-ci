@@ -123,7 +123,7 @@ export interface UpdateCoordinatorOptions {
   /** The run registry, whose every change the coordinator hears. */
   readonly runs: Pick<RunRegistry, "onChange">;
   /** Where the continuation of a run an update cut starts, as the settle marks it. */
-  readonly host: Pick<AdapterHost, "startFacts" | "launch">;
+  readonly host: Pick<AdapterHost, "startFacts" | "nextRunBasis" | "launch">;
   /** What looks at the workspace of each run an update cut before the settle marks it, within its bound (#691). */
   readonly availability: Pick<AvailabilityWatcher, "check">;
   /** The environment's activity now: idle, busy with why, or draining. */

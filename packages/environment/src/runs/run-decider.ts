@@ -164,6 +164,15 @@ export const originOfActor = (actor: RunActor): RunOrigin => {
   }
 };
 
+/**
+ * The extra always-on names a run of the queue takes from the run before it
+ * (#507): that run's, but a routine's or a bot's skills ride only its own
+ * runs, so a run for anyone else, such as a person's read-now, takes none
+ * of them (#531).
+ */
+export const carriedAlwaysOn = (before: { readonly actor: RunActor; readonly alwaysOn?: readonly string[] }, actor: RunActor): readonly string[] =>
+  originOfActor(before.actor) === "routine" && originOfActor(actor) !== "routine" ? [] : (before.alwaysOn ?? []);
+
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
   readonly slash?: SlashScope | undefined;
@@ -501,11 +510,12 @@ export interface ReadNowFacts {
   readonly providerHeld: readonly string[];
   /**
    * The run before, whose model and effort the run of the queue takes, and
-   * its own instructions and client tools (a completions request's, #138,
-   * #139), as the queue's run after it would; null before the session's
-   * first run.
+   * its own instructions, client tools and extra always-on names (a
+   * completions request's, #138, #139, #507; never a routine's, #531), as
+   * the queue's run after it would; null before the session's first run.
    */
   readonly basis: {
+    readonly actor: RunActor;
     readonly model: string;
     readonly effort: string | null;
     readonly appendedInstructions: string | null;
@@ -549,7 +559,7 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
     ...(basis !== null && { model: basis.model }),
     ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
     ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
-    ...(basis !== null && { clientTools: basis.clientTools, alwaysOn: basis.alwaysOn ?? [] }),
+    ...(basis !== null && { clientTools: basis.clientTools, alwaysOn: carriedAlwaysOn(basis, start.actor) }),
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };

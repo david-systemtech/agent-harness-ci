@@ -406,9 +406,22 @@ describe("containment", () => {
     expect(projected?.exempt).toEqual([...exemptIn(dataDir), join(dataDir, "bin")]);
   });
 
-  it("leaves the exempt directories as they are for a helper no denied path covers", async () => {
+  it("adds what the helper reads as it runs to an unattended run's exempt directories where a denied path covers it: the shim's service state and versions directory, and nothing else of the data directory", async () => {
     const forge = await fakeForge();
-    const t = await start(forge);
+    const dataDir = join(tempDir(), "data");
+    const shim = join(dataDir, "bin", "agent-harness");
+    const reads = [join(dataDir, "service-state.json"), join(dataDir, "versions")];
+    const t = await start(forge, { dataDir, harnessCommand: [shim], harnessReads: reads });
+    const session = await create(await t.client());
+
+    await routineRun(t, session.id);
+
+    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual([...exemptIn(dataDir), join(dataDir, "bin"), ...reads]);
+  });
+
+  it("leaves the exempt directories as they are for a helper, and what it reads, no denied path covers", async () => {
+    const forge = await fakeForge();
+    const t = await start(forge, { harnessReads: ["/opt/agent-harness/service-state.json", "/opt/agent-harness/versions"] });
     const session = await create(await t.client());
 
     await routineRun(t, session.id);

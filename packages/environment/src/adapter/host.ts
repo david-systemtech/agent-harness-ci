@@ -59,6 +59,7 @@ import {
   type QueuedMessage,
 } from "../runs/run-reads.js";
 import {
+  carriedAlwaysOn,
   decideStart,
   originOfActor,
   policyResolvedEvent,
@@ -282,6 +283,13 @@ export interface AdapterHostOptions {
    * client session is revoked or expired, and such a run is not started.
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
+  /**
+   * The skills a routine's firing made the session with (#531): the extra
+   * always-on names a run the environment starts for the routine takes when
+   * the run before it is known only from the log, after a restart. Preset:
+   * none.
+   */
+  readonly routineSkills?: (sessionId: string) => readonly string[];
   /**
    * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
    * read each time a wait begins. Preset: the setting's preset; the
@@ -666,6 +674,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const trustOf = options.trust ?? undecidedTrust;
   const skillSetOf = options.skillSet ?? noSkillSet;
   const holdGeneration = options.holdGeneration ?? holdNothing;
+  const routineSkills = options.routineSkills ?? (() => []);
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -934,7 +943,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
     pending.started = true;
     // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
-    startFromQueue({ ...entry.plan, actor: pending.actor });
+    startFromQueue({ ...entry.plan, actor: pending.actor, alwaysOn: carriedAlwaysOn(entry.plan, pending.actor) });
   };
 
   /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
@@ -1444,11 +1453,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     nativeRoots: run.account.descriptor.nativeSkillRoots,
   });
 
-  /** What a run's instructions are composed for: its session, account, workspace, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and repository identity, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
+    readonly repositoryIdentity: string | null;
     readonly trust: RunTrust;
     readonly skillSet: RunSkillSet;
     readonly origin: RunActorKind;
@@ -1459,6 +1469,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     sessionId: run.sessionId,
     accountId: run.account.id,
     workspace: run.workspace,
+    repositoryIdentity: run.repositoryIdentity,
     trust: run.trust,
     skillSet: run.skillSet,
     origin: run.origin,
@@ -1605,6 +1616,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: plan.runId,
       accountId: plan.account.id,
       workspace: plan.workspace,
+      repositoryIdentity: plan.repositoryIdentity,
       clientTools: plan.clientTools,
       browser: plan.browser.browser,
     });
@@ -1675,8 +1687,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * last ended it, else as the log records it (after a restart), for the
    * actor its policy names, under the ceiling it was resolved under (the
    * client session behind it is not in the log, so a ceiling lowered since
-   * is not read), in its model with the model's own effort. Null when the
-   * session has never run.
+   * is not read), in its model with the model's own effort, with no extra
+   * always-on names but a routine's skills, which its firing recorded
+   * (#531). Null when the session has never run.
    */
   const basisOf = (sessionId: string): NextRunBasis | null => {
     const held = lastPlans.get(sessionId);
@@ -1684,7 +1697,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, alwaysOn: [], clientTools: [] };
+    const actor = actorOfPolicy(policy);
+    const alwaysOn = actor.kind === "routine" ? routineSkills(sessionId) : [];
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, alwaysOn, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -2233,7 +2248,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     previewScope,
     orientationScope(accountId, workspace, injection) {
       const account = placeAccount({ sessionId: null, accountId, workspace, repositoryIdentity: null, containment: null });
-      return instructionScope({ sessionId: null, account, workspace, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
+      return instructionScope({ sessionId: null, account, workspace, repositoryIdentity: null, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
     },
     async previewInstructions(target) {
       return instructions(await previewScope(target));

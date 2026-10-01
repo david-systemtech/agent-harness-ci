@@ -182,7 +182,7 @@ describe("routines.checkImport", () => {
       index: 0,
       definition: { ...importedDefinition, account: { provider: "fake", email: "nobody@example.com", organisation: null } },
       issues: [],
-      warnings: { attention: ["account_missing"], workspace: null },
+      warnings: { attention: ["account_missing"], unknownSkills: [], workspace: null },
     });
     expect(documents[1]).toMatchObject({ index: 1, definition: null, warnings: { attention: [], workspace: null } });
     expect(documents[1]?.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([["schedule", "minute"], ["colour"]]));
@@ -197,7 +197,7 @@ describe("routines.checkImport", () => {
     const watch = await created(client);
 
     const own = await client.request("routines.checkImport", { yaml: documentYaml({ name: "upstream watch" }), routineId: watch.state.id });
-    expect(own.documents).toEqual([{ index: 0, definition: { ...importedDefinition, name: "upstream watch" }, issues: [], warnings: { attention: [], workspace: null } }]);
+    expect(own.documents).toEqual([{ index: 0, definition: { ...importedDefinition, name: "upstream watch" }, issues: [], warnings: { attention: [], unknownSkills: [], workspace: null } }]);
 
     const two = await client.request("routines.checkImport", { yaml: yamlOf(documentYaml(), documentYaml({ name: "Other" })), routineId: watch.state.id });
     expect(two.documents.map((document) => document.issues.map((issue) => issue.path))).toEqual([[[]], [[]]]);
@@ -276,8 +276,8 @@ describe("routines.import", () => {
     const resolved = { kind: "directory", path: checkout, repositoryIdentity: IDENTITY };
     const movedFrom = { ...original, at: MANUAL_CLOCK_START };
     expect(answer.result?.warnings).toEqual([
-      { attention: [], workspace: resolved },
-      { attention: ["account_missing"], workspace: null },
+      { attention: [], unknownSkills: [], workspace: resolved },
+      { attention: ["account_missing"], unknownSkills: [], workspace: null },
     ]);
     expect(answer.result?.routines.map((routine) => [routine.state.id, routine.definition, routine.state.savedUnderCeiling, routine.state.savedBy, routine.state.movedFrom])).toEqual([
       [first, { ...importedDefinition, name: "First", enabled: true, workspace: resolved }, "acceptEdits", phone.hello.clientSessionId, movedFrom],
@@ -310,7 +310,7 @@ describe("routines.import", () => {
     const yaml = documentYaml({ name: "upstream watch", mode: "acceptEdits", schedule: "{ kind: daily, at: \"06:00\" }" });
     const answer = await routineCommand(phone, "routines.import", { yaml, routineId: watch.state.id, movedFrom: { environmentId: randomUUID(), routineId: randomUUID() } });
     const definition = { ...importedDefinition, name: "upstream watch", mode: "acceptEdits", schedule: { kind: "daily", at: "06:00" } };
-    expect(answer.result).toEqual({ routines: [expect.objectContaining({ definition })], warnings: [{ attention: ["clamped"], workspace: null }] });
+    expect(answer.result).toEqual({ routines: [expect.objectContaining({ definition })], warnings: [{ attention: ["clamped"], unknownSkills: [], workspace: null }] });
     expect(answer.result?.routines[0]?.state).toMatchObject({ id: watch.state.id, savedUnderCeiling: "plan", movedFrom: null, createdAt: watch.state.createdAt, editedAt: t.clock.now().toISOString() });
     expect(routineEvents(t, watch.state.id).at(-1)).toEqual({ type: "routine.edited", payload: { fields: definition, savedUnderCeiling: "plan" }, actor: `client_session:${phone.hello.clientSessionId}` });
 
