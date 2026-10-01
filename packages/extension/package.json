@@ -8,6 +8,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agent-harness/browser": "workspace:*",
     "@agent-harness/contracts": "workspace:*"
   },
   "devDependencies": {

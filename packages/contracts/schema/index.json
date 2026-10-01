@@ -6519,6 +6519,10 @@
     {
       "path": "cases/schedule-due-times.json",
       "title": "Schedule due times"
+    },
+    {
+      "path": "cases/silence.json",
+      "title": "Silence"
     }
   ],
   "data": [

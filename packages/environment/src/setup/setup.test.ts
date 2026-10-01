@@ -45,7 +45,7 @@ const check = async (client: WireClient, step: RegisteredStepId): Promise<StepRe
 };
 
 describe("setup.check", () => {
-  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Carry over, Forges, Key manager and Memory bank, skipped with nothing to carry, no forge account, no connection and no bank, with its line and the environment's clock", async () => {
+  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Carry over, Forges, Key manager, Memory bank and Browser, skipped with nothing to carry, no forge account, no connection, no bank and no paired Chrome, with its line and the environment's clock", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
@@ -57,7 +57,7 @@ describe("setup.check", () => {
       ["key-manager", "skipped", [], []],
       ["memory-bank", "skipped", [], []],
       ["instructions", "done", [], []],
-      ["browser", "done", [], []],
+      ["browser", "skipped", [], []],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],
     ]);

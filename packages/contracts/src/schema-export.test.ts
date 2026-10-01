@@ -64,6 +64,7 @@ describe("the JSON Schema export", () => {
       { path: "cases/bridge-proof.json", title: "Bridge proof" },
       { path: "cases/schedule-validation.json", title: "Schedule validation" },
       { path: "cases/schedule-due-times.json", title: "Schedule due times" },
+      { path: "cases/silence.json", title: "Silence" },
     ]);
     expect(index.data).toEqual([
       { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
@@ -173,6 +174,14 @@ describe("the JSON Schema export", () => {
       expect(contracts.nextDueAt(zoned, new Date(after))?.toISOString() ?? null, note).toBe(next);
       expect(contracts.dueTimesBetween(zoned, new Date(after), new Date(through)).map((due) => due.toISOString()), note).toEqual(zoned.dueTimes);
     }
+  });
+
+  it("publishes the silence rule's cases, which a client reading only the file can run its own rule against", () => {
+    const silence = readJson("cases/silence.json") as { description: string; cases: contracts.SilenceCase[] };
+    expect(silence.description).toContain("isSilent");
+    expect(silence.cases).toEqual(contracts.SILENCE_CASES);
+    expect(silence.cases).toContainEqual({ note: "the marker mid-sentence", text: "The lane said [SILENT] mid-sentence and kept talking", marker: "[SILENT]", silent: false });
+    for (const { note, text, marker, silent } of silence.cases) expect(contracts.isSilent(text, marker), note).toBe(silent);
   });
 
   it("publishes the bridge proof's case, which a client reading only the file can check its HMAC against", () => {

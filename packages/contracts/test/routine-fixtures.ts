@@ -199,7 +199,7 @@ export const routineEventPayloads: Record<string, Record<string, unknown>> = {
   "routine.disabled": { movedTo: { environmentId: otherEnvironment, routineId, at } },
   "routine.deleted": {},
   "routine.skipped": { skipId, trigger: "schedule", dueAt: at, reason: "pre-check-failed", cannotStart: null, count: 1, detail: "The script exited 2.", preCheck: failedPreCheck },
-  "routine.firing-started": { firingId, trigger: "run-now", dueAt: at, count: 1, sessionId, runId, requestedBy: "cs-1", preCheck: null, targets: [clientNotice, webhook] },
+  "routine.firing-started": { firingId, trigger: "run-now", dueAt: at, count: 1, sessionId, runId, requestedBy: "cs-1", preCheck: null, targets: [clientNotice, webhook], silenceMarker: "[SILENT]", maxDurationMinutes: 60 },
   "routine.firing-continued": { firingId, runId: "8d0f7780-8536-41ef-a55c-f18c20a01b8e" },
   "routine.firing-ended": { firingId, outcome: "silent", reason: null, text: "[SILENT]", usage: null, durationMs: 4100, baselineAdvanced: true },
   "routine.delivery-attempted": { entryId: firingId, target: webhook, attempt: 1, result: "retrying", status: 429, error: "Too Many Requests", retryAt: later },

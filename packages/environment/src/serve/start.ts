@@ -154,6 +154,7 @@ import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
+import { limitFiringDurations } from "../routines/firing-duration.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -1505,37 +1506,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     preChecks,
   });
   closers.push(() => firings.close());
-  // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
-  // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
-  // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
-  const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
-  const banks = options.banks ?? NO_BANKS;
-  const setupSteps: SetupSteps = options.setupSteps ?? {
-    steps: STEP_REGISTRY,
-    stateChecks: environmentStateChecks({
-      log,
-      adapters: host.adapters,
-      detectStateImport: () => detectSource(stateImportSource),
-      containment,
-      isRoot,
-      dataDir,
-      releaseChannel: () => channelChecks.releaseChannelHolds(),
-      updates: () => updates.machineHolds(channelChecks.status().newest),
-      hostUpdater: () => hostUpdater.holds(),
-      forge,
-      keyManagerConnections,
-      managedTools,
-      clock,
-      look: () => look.read(),
-      accounts: () => accounts.list(),
-      status: () => lifecycle.status(),
-      banks,
-    }),
-    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
-    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
-  };
-  const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
-  capabilities.push("setup");
+  // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
+  closers.push(limitFiringDurations({ log, clock, host }));
   // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
   // committed, below.
   const browser = createBrowserService({
@@ -1563,6 +1535,38 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       resolve: options.browser?.resolve ?? systemResolver,
     },
   });
+  // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
+  // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
+  // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
+  const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  const banks = options.banks ?? NO_BANKS;
+  const setupSteps: SetupSteps = options.setupSteps ?? {
+    steps: STEP_REGISTRY,
+    stateChecks: environmentStateChecks({
+      log,
+      adapters: host.adapters,
+      detectStateImport: () => detectSource(stateImportSource),
+      containment,
+      isRoot,
+      dataDir,
+      releaseChannel: () => channelChecks.releaseChannelHolds(),
+      updates: () => updates.machineHolds(channelChecks.status().newest),
+      hostUpdater: () => hostUpdater.holds(),
+      forge,
+      keyManagerConnections,
+      managedTools,
+      clock,
+      look: () => look.read(),
+      accounts: () => accounts.list(),
+      status: () => lifecycle.status(),
+      banks,
+      browser,
+    }),
+    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
+  };
+  const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
+  capabilities.push("setup");
   /** A client session's label, which sentences and records name it by; undefined for one never issued. */
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started

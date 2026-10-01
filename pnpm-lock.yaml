@@ -188,6 +188,9 @@ importers:
 
   packages/extension:
     dependencies:
+      '@agent-harness/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
