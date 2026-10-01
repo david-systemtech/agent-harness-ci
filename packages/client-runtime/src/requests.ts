@@ -229,7 +229,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * (`skills.updated`, a command or a read of the own directory, #494) or an
  * account (the view lists the accounts, and a removal drops the choices
  * naming one, #501) `skills.get` and `skills.readiness` (#510: the set
- * checked, and the account's provider); `skills.readiness` also follows trust
+ * checked, and the account's provider); both also follow trust
  * changes, since the session's set can gain or lose repository members (#516).
  * A trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
@@ -292,7 +292,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "permissions.settings.get": ["settings.changed", "denylist.updated"],
   "permissions.denylist.get": ["denylist.updated"],
   "permissions.review.list": ["review.updated"],
-  "skills.get": ["skills.updated", "account.updated"],
+  "skills.get": ["skills.updated", ...TRUST_REFRESH_NOTICES, "account.updated"],
   "skills.readiness": ["skills.updated", ...TRUST_REFRESH_NOTICES, "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,

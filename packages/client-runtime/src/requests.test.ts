@@ -380,7 +380,7 @@ describe("the request cache", () => {
     expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 3, 2]);
   });
 
-  it("fetches skills.get again on skills.updated and on an account changing, and no other query (#494, #501)", async () => {
+  it("fetches a session's skills.get again on skills.updated, account changes, trust.updated and forge aliases, and no other query (#494, #501, #516)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     const accounts = [{ accountId: "claude-max", channel: "system-prompt-append", reason: null }];
@@ -390,7 +390,7 @@ describe("the request cache", () => {
       return { result: view };
     });
     runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
-    const skills = runtime.requests.cached(id, "skills.get", {});
+    const skills = runtime.requests.cached(id, "skills.get", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
     skills.subscribe(() => undefined);
     await flush();
     expect([asked(), reads]).toEqual([1, 1]);
@@ -402,6 +402,14 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
     await flush();
     expect([asked(), reads]).toEqual([1, 3]);
+    // Trust and canonical-host aliases determine the session's repository members.
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
+    environment?.event(noticeEvent(4, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 5]);
+    expect(skills.read()).toMatchObject({ result: view, error: null });
   });
 
   it("fetches skills.readiness again on skills.updated, account changes and trust.updated, and no other query (#510, #516)", async () => {
