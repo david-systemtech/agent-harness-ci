@@ -163,7 +163,7 @@ describe("bank registry settings through the wire", () => {
     const t = await start();
     const client = await t.client();
     const bank = await registered(client, PERSONAL_BANK);
-    const pins = createBankService({ log: t.env.log, clock: t.clock, environmentId: t.env.id, dataDir: t.dataDir, forge: t.env.forge });
+    const pins = createBankService({ log: t.env.log, clock: t.clock, environmentId: t.env.id, dataDir: t.dataDir, forge: t.env.forge, credentials: { git: (_bankId, request) => t.env.forge.git({ ...request, repository: bank.checkout, cwd: request.cwd ?? bank.checkout }) } });
     const sessionId = randomUUID();
     const pointer = "maya-memory:personal/homelab/";
     await update(client, bank, { pins: [pointer] });

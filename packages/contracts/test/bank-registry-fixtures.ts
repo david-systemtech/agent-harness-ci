@@ -177,6 +177,14 @@ export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
 };
 
 export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "banks.credential.set": {
+    params: { valid: [{ commandId, bankId, token: "bank-token-for-tests" }], invalid: [{ commandId, bankId, token: "" }, { bankId, token: "bank-token-for-tests" }, { commandId, token: "bank-token-for-tests" }] },
+    result: { valid: [{}], invalid: [[], null] },
+  },
+  "banks.credential.swap": {
+    params: { valid: [{ commandId, bankId, reference: { provider: "openbao", connectionId: "20000000-0000-4000-8000-000000000001", mount: "personal", path: "harness/bank-maya-memory", key: "token" } }], invalid: [{ commandId, bankId }, { commandId, bankId, reference: {} }] },
+    result: { valid: [{}], invalid: [[], null] },
+  },
   "banks.list": {
     params: { valid: [{}], invalid: [[], "banks"] },
     result: { valid: [{ banks: [] }, { banks: [record, teamRecord] }], invalid: [{}, { banks: [entry] }] },

@@ -29,6 +29,7 @@ import type { CommandContext, CommandRejection, MethodHandler, PreparedCommand, 
 import { readSummary } from "../sessions/session-reads.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { runGit } from "../workspace/git.js";
+import type { BankCredentials } from "./credentials.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank, type BankIndex } from "./bank-index.js";
 import { bankEver, importHolder, listBanks, liveBank, nameHolder, sessionBankPins } from "./bank-store.js";
@@ -202,6 +203,7 @@ export interface BankServiceOptions {
   readonly dataDir: string;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
   readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
+  readonly credentials: Pick<BankCredentials, "git">;
   readonly creation?: {
     readonly dataDir: string;
     readonly localPersonName: string;
@@ -229,6 +231,7 @@ export interface BankService {
   readonly forget: MethodHandler<"banks.forget">;
   /** This session's own pins for the BankLayer and renderer, separate from every entry's registry pins. */
   sessionPins(sessionId: string): readonly string[];
+  readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
 }
 
@@ -545,6 +548,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   return {
+    git: options.credentials.git,
     list: records,
     get: async (bankId) => (await records()).find((bank) => bank.id === bankId) ?? null,
     entries: () => listBanks(reader).map((entry) => ({ entry, index: readings.get(entry.id)?.index ?? null })),

@@ -14,7 +14,7 @@ import type { Address } from "../serve/http.js";
 import { UNTRANSLATED, runGit, type GitAnswer } from "../workspace/git.js";
 import { credentialHelper, gitConfigVariables, helperChain, servedOrigins, servingAccount, type GitConfigEntry } from "./git-helper.js";
 import { forgeAccountMissing } from "./missing-origins.js";
-import type { RunSecrets } from "./run-secrets.js";
+import type { RunSecret, RunSecrets } from "./run-secrets.js";
 
 /**
  * The harness's own git on a forge (forge spec, "The helper and the
@@ -87,6 +87,8 @@ export interface HarnessGitOptions {
   /** The forge accounts the environment holds now. */
   readonly accounts: () => readonly ForgeAccountRecord[];
   readonly secrets: RunSecrets;
+  /** A BankService operation's fallback grant, bound by its owner to this bank's origin alone. */
+  readonly fallback?: { readonly slug: string; readonly mint: () => RunSecret };
   /** The scrub registry git's standard error passes before it is answered. */
   readonly scrub: Pick<ScrubRegistry, "scrubOutput">;
   /** The command line that runs `agent-harness` before its verb, which git names as its helper; undefined when the environment was given none. */
@@ -131,12 +133,12 @@ export const createHarnessGit =
     let entries = helperChain([origin], null);
     let helperVariables: Record<string, string> = {};
     let release = (): void => undefined;
-    if (account !== null) {
+    if (account !== null || options.fallback !== undefined) {
       const address = options.address();
       if (options.command === undefined || address === undefined) throw new Error("The harness's git has no agent-harness command or address to name as git's credential helper.");
-      const secret = options.secrets.mint([account.id], `git: ${request.purpose}`);
+      const secret = account === null ? options.fallback!.mint() : options.secrets.mint([account.id], `git: ${request.purpose}`);
       release = secret.release;
-      entries = helperChain(servedOrigins(account), credentialHelper(options.command, account.slug));
+      entries = helperChain(account === null ? [origin] : servedOrigins(account), credentialHelper(options.command, account?.slug ?? options.fallback!.slug));
       helperVariables = { [ENVIRONMENT_ADDRESS_VARIABLE]: formatHostPort(address.host, address.port), [RUN_SECRET_VARIABLE]: secret.value };
     }
 
@@ -159,7 +161,7 @@ export const createHarnessGit =
     } finally {
       release();
     }
-    if (account === null && !git.ok && PROMPT_REFUSED.test(git.stderr)) {
+    if (account === null && options.fallback === undefined && !git.ok && PROMPT_REFUSED.test(git.stderr)) {
       options.originMissing(origin, request.purpose);
       return { outcome: "refused", error: forgeAccountMissing(origin, "it asked for a credential") };
     }

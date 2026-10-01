@@ -5339,6 +5339,38 @@
       "title": "banks.register error"
     },
     {
+      "path": "methods/banks.credential.set/params.json",
+      "title": "banks.credential.set params"
+    },
+    {
+      "path": "methods/banks.credential.set/result.json",
+      "title": "banks.credential.set result"
+    },
+    {
+      "path": "methods/banks.credential.set/response.json",
+      "title": "banks.credential.set response"
+    },
+    {
+      "path": "methods/banks.credential.set/error.json",
+      "title": "banks.credential.set error"
+    },
+    {
+      "path": "methods/banks.credential.swap/params.json",
+      "title": "banks.credential.swap params"
+    },
+    {
+      "path": "methods/banks.credential.swap/result.json",
+      "title": "banks.credential.swap result"
+    },
+    {
+      "path": "methods/banks.credential.swap/response.json",
+      "title": "banks.credential.swap response"
+    },
+    {
+      "path": "methods/banks.credential.swap/error.json",
+      "title": "banks.credential.swap error"
+    },
+    {
       "path": "methods/banks.create/params.json",
       "title": "banks.create params"
     },
@@ -7941,6 +7973,26 @@
       "result": "methods/banks.register/result.json",
       "response": "methods/banks.register/response.json",
       "error": "methods/banks.register/error.json"
+    },
+    {
+      "name": "banks.credential.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.credential.set/params.json",
+      "result": "methods/banks.credential.set/result.json",
+      "response": "methods/banks.credential.set/response.json",
+      "error": "methods/banks.credential.set/error.json"
+    },
+    {
+      "name": "banks.credential.swap",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.credential.swap/params.json",
+      "result": "methods/banks.credential.swap/result.json",
+      "response": "methods/banks.credential.swap/response.json",
+      "error": "methods/banks.credential.swap/error.json"
     },
     {
       "name": "banks.create",
