@@ -30,6 +30,8 @@ export type ActorRunRequest = {
   readonly mode?: Mode;
   /** The reasoning effort the run takes, one its model takes; the default's (`accounts.defaultEffort`) when absent. */
   readonly effort?: string;
+  /** Extra always-on names from the enabled skill set, after the account’s choices. */
+  readonly alwaysOn?: readonly string[];
 } & (
   | { readonly actor: Omit<ActorOfRun<"routine" | "bot">, "injection">; readonly actorId: string; readonly injection?: RoutineInjection }
   | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined; readonly injection?: undefined }
@@ -65,5 +67,6 @@ export const startActorRunIn = (log: EventLog, host: AdapterHost, tx: Tx, reques
     text: request.text,
     mode: request.mode,
     effort: request.effort,
+    alwaysOn: request.alwaysOn,
   });
 };

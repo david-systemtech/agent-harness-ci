@@ -165,6 +165,24 @@
           "alwaysOn": {
             "type": "boolean",
             "description": "Whether the run's account made it always-on, so its body rides the run's standing instructions."
+          },
+          "file": {
+            "description": "The member’s Markdown file, through its generation when linked, else its native file; used to read always-on bodies.",
+            "type": "string",
+            "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)"
+          },
+          "commit": {
+            "description": "The source snapshot commit; null for members linked live.",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+                "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
