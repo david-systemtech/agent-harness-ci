@@ -63,6 +63,8 @@ export interface SkillProbesOptions {
 const AUTHENTICATION = /Authentication failed|could not read (?:Username|Password)|terminal prompts disabled|Permission denied|Host key verification failed|returned error: 40[13]\b|Access denied/i;
 /** What git says when there is no such repository or branch. */
 const NOT_FOUND = /not found|does not exist|does not appear to be a git repository|couldn't find remote ref|returned error: 404\b/i;
+/** The shell's line when git could not run ssh at all (dash's `ssh: not found`, bash's `ssh: command not found`), which would otherwise read as not found. */
+const NO_SSH = /^.*\bssh: (?:command )?not found$/m;
 /** What git says when the host could not be reached. */
 const NETWORK = /Could not resolve (?:host|hostname|proxy)|Failed to connect|Connection (?:refused|reset|timed out|closed)|Network is unreachable|No route to host|Operation timed out|timed out after|SSL|TLS/i;
 
@@ -141,7 +143,11 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
         sshAsWritten: true,
       });
       if (cloned.outcome === "refused") throw unreachable("authentication", cloned.error.message, cloned.error.data.origin);
-      if (!cloned.git.ok) throw unreachable(problemOf(cloned.git.stderr, cloned.git.timedOut), gitComplaint(cloned.git.stderr), remote.origin);
+      if (!cloned.git.ok) {
+        const noSsh = NO_SSH.exec(cloned.git.stderr);
+        if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), remote.origin);
+        throw unreachable(problemOf(cloned.git.stderr, cloned.git.timedOut), gitComplaint(cloned.git.stderr), remote.origin);
+      }
 
       const commit = GitCommit.safeParse(await ask(path, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]));
       if (!commit.success) throw unreachable("not_found", "The repository has no commit on that branch.", remote.origin);

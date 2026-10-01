@@ -344,4 +344,18 @@ process.stdin.on("end", async () => {
     expect(asked).toContain("-o BatchMode=yes");
     expect(asked).toContain("git@ssh.skills.test git-upload-pack 'david/skills.git'");
   });
+
+  it("is git_failed with the shell's line, not not_found, when there is no ssh to clone an ssh URL with", async () => {
+    const { client } = await start(repositories());
+    // A PATH that holds git and nothing else, so the shell git runs ssh through says it is not found.
+    const bin = tempDir("agent-harness-no-ssh-");
+    symlinkSync(execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(), join(bin, "git"));
+    const path = process.env["PATH"];
+    process.env["PATH"] = bin;
+    onCleanup(() => void (path === undefined ? delete process.env["PATH"] : (process.env["PATH"] = path)));
+
+    const answer = await refused(client, "git@ssh.skills.test:david/skills.git");
+    expect(answer.data).toMatchObject({ reason: "unreachable", problem: "git_failed", line: expect.stringMatching(/\bssh: (?:command )?not found$/) });
+    expect(answer.message).toContain("git could not clone the repository.");
+  });
 });
