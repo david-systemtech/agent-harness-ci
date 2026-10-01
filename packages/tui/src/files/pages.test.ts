@@ -67,6 +67,21 @@ describe("a diff in the pager", () => {
       [{ text: " same" }],
     ]);
   });
+
+  it("puts each addition and removal, every line it wraps onto, on its band, and nothing else on one", () => {
+    const lines = diffPage("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+a line too long for one\n same", 10);
+    expect(lines.map((line) => [line.spans.map((span) => span.text).join(""), line.band])).toEqual([
+      ["--- a/x", undefined],
+      ["+++ b/x", undefined],
+      ["@@ -1 +1 @", undefined],
+      ["@", undefined],
+      ["-old", "removed"],
+      ["+a line to", "added"],
+      ["o long for", "added"],
+      [" one", "added"],
+      [" same", undefined],
+    ]);
+  });
 });
 
 describe("a diff tool's answer in the pager", () => {

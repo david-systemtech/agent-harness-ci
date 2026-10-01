@@ -41,6 +41,7 @@ import {
   type Mode,
   type SettingsKey,
 } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { LinesCard } from "../screens/transcript.js";
 import type { Opened } from "../session/use-session.js";
 import { useFollow } from "../session/use-session.js";
@@ -663,7 +664,7 @@ export const usePickers = (host: PickersHost): Pickers => {
               cursor={cursor}
               height={size.height}
               empty={loaded?.error ? `The accounts could not be read: ${loaded.error.message}` : "Reading the accounts…"}
-              footer={recommended ? [[{ text: recommended.message, color: "yellow" }]] : []}
+              footer={recommended ? [[{ text: recommended.message, color: TERMINAL_ROLES.warning }]] : []}
             />
           );
         }
@@ -674,20 +675,20 @@ export const usePickers = (host: PickersHost): Pickers => {
           const lines: (readonly Span[])[] = [];
           if (card.accountId === null && card.sending === null) {
             return (
-              <LinesPanel title={`Add an account on ${name}`} hint={hint} lines={[[{ text: "The email it signs in as makes a good label.", dim: true }], ...(card.error ? [[{ text: card.error, color: "red" }]] : [])]}>
+              <LinesPanel title={`Add an account on ${name}`} hint={hint} lines={[[{ text: "The email it signs in as makes a good label.", dim: true }], ...(card.error ? [[{ text: card.error, color: TERMINAL_ROLES.danger }]] : [])]}>
                 <TypedLine prompt="Label for the new account:" text={card.text} />
               </LinesPanel>
             );
           }
           // The page stays in sight while a code is checked, so another code can follow a refused one.
           if (held?.url != null && (held.state === "awaiting-code" || held.state === "submitting" || card.sending === "code")) {
-            lines.push([{ text: "Open this page and sign in:" }], [{ text: held.url, color: "cyan" }], []);
+            lines.push([{ text: "Open this page and sign in:" }], [{ text: held.url, color: TERMINAL_ROLES.machine }], []);
           }
           if (card.sending === "code" || held?.state === "submitting") lines.push([{ text: "Checking the code…", dim: true }]);
           else if (!held || held.state === "starting" || card.sending !== null) lines.push([{ text: "Starting the sign-in…", dim: true }]);
           const typing = held?.state === "awaiting-code" && card.sending === null;
           const after: (readonly Span[])[] = [
-            ...(card.error ? [[{ text: card.error, color: "red" }]] : []),
+            ...(card.error ? [[{ text: card.error, color: TERMINAL_ROLES.danger }]] : []),
             ...(held ? [[], [{ text: `Or run this in a terminal on ${name}'s machine:`, dim: true }], [{ text: fallbackOf(held, directory) }]] : []),
           ];
           return (
@@ -714,7 +715,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "modes": {
           const sentence = modeFooter(MODES[cursor]);
           return (
-            <ListCard width={size.width} title={`Mode of ${sessionName()}`} hint={hint} rows={rows} cursor={cursor} height={size.height} footer={sentence !== undefined ? [[{ text: sentence, color: "red" }]] : []} />
+            <ListCard width={size.width} title={`Mode of ${sessionName()}`} hint={hint} rows={rows} cursor={cursor} height={size.height} footer={sentence !== undefined ? [[{ text: sentence, color: TERMINAL_ROLES.danger }]] : []} />
           );
         }
         case "containment": {
@@ -727,7 +728,7 @@ export const usePickers = (host: PickersHost): Pickers => {
               rows={rows}
               cursor={cursor}
               height={size.height}
-              footer={read?.error ? [[{ text: `What ${nameFor(card.environmentId)} can enforce could not be read: ${read.error.message}`, color: "yellow" }]] : []}
+              footer={read?.error ? [[{ text: `What ${nameFor(card.environmentId)} can enforce could not be read: ${read.error.message}`, color: TERMINAL_ROLES.warning }]] : []}
             />
           );
         }
@@ -750,7 +751,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           const typedPrompt = key === undefined ? "" : `New value for ${key} (now ${valueWords(card.values?.[key])}), as JSON or a bare word:`;
           const footer: (readonly Span[])[] =
             card.edit?.kind === "text"
-              ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: "red" }]] : [])]
+              ? [...(card.edit.error !== null ? [[{ text: card.edit.error, color: TERMINAL_ROLES.danger }]] : [])]
               : card.values !== null && card.edit === null && key !== undefined
                 ? [[{ text: describeKey(key), dim: true }]]
                 : [];
@@ -758,7 +759,7 @@ export const usePickers = (host: PickersHost): Pickers => {
             <ListCard
               width={size.width}
               title={card.edit?.kind === "choice" ? `${key}:` : `Settings on ${nameFor(card.environmentId)}`}
-              {...(absent !== undefined && card.edit === null && { lead: [{ text: `read-only: ${absent}`, color: "yellow" }] })}
+              {...(absent !== undefined && card.edit === null && { lead: [{ text: `read-only: ${absent}`, color: TERMINAL_ROLES.warning }] })}
               hint={hint}
               rows={card.edit?.kind === "text" ? rows.filter((_, at) => at === card.cursor) : rows}
               cursor={card.edit?.kind === "text" ? 0 : cursor}

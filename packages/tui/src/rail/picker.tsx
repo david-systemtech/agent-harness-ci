@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { useEffect, useRef } from "react";
 import type { Observable } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Badge } from "./badge.js";
 
 /**
@@ -136,7 +137,7 @@ export const PickerCard = (props: { readonly picker: Picker; readonly hint: stri
       )}
       {picker.typed && (
         <Text wrap="truncate-start">
-          <Text color="cyan">› </Text>
+          <Text color={TERMINAL_ROLES.machine}>› </Text>
           {picker.query === "" ? <Text dimColor>{picker.placeholder ?? "type to filter"}</Text> : picker.query}
         </Text>
       )}

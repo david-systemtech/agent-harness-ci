@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { actionWords, type ClientSessionRow, type EnvironmentAction } from "../commands/environment.js";
 import type { MintedLines } from "../commands/pair.js";
 import type { HelpLine } from "../help.js";
@@ -140,7 +141,7 @@ export const HelpCard = (props: { readonly lines: readonly HelpLine[]; readonly 
         const keys = line.condition === undefined ? line.keys : `${line.keys} (${line.condition})`;
         return (
           <Text key={index} wrap="truncate-end">
-            <Text color="cyan" dimColor={dim}>
+            <Text color={TERMINAL_ROLES.machine} dimColor={dim}>
               {keys.length > HELP_KEY_WIDTH ? `${keys}  ` : keys.padEnd(HELP_KEY_WIDTH + 2)}
             </Text>
             <Text dimColor={dim}>
