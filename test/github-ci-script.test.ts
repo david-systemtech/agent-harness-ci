@@ -134,4 +134,60 @@ describe("the relay's gitleaks", () => {
     expect(calls(f)).toEqual(["sha256sum", "gitleaks"]);
     expect(readdirSync(join(f.cache, "gitleaks", VERSION))).toEqual([`${PINNED}.tar.gz`]);
   });
+
+  // GitHub's release downloads answered 504 for about two minutes on 2026-10-01
+  // and curl's default backoff (1, 2, 4 s) failed every run that started in it.
+  it("keeps trying the download for a minute and more, 5xx and timeouts included, with a time limit on each try", async () => {
+    const f = await fixture();
+    await relay(f);
+    const curl = readFileSync(f.log, "utf8").split("\n").find((line) => line.startsWith("curl "));
+    const flags = curl?.split(" ") ?? [];
+    const value = (flag: string) => Number(flags[flags.indexOf(flag) + 1]);
+    expect(flags).toContain("--retry-all-errors");
+    expect(value("--retry") * value("--retry-delay")).toBeGreaterThanOrEqual(60);
+    expect(value("--retry-max-time")).toBeGreaterThanOrEqual(60);
+    expect(value("--connect-timeout")).toBeGreaterThan(0);
+    expect(value("--max-time")).toBeGreaterThan(0);
+    expect(flags.at(-1)).toBe(URL);
+  });
+
+  it("says in one error line that the download failed, names it, and scans nothing and keeps nothing", async () => {
+    const f = await fixture();
+    const result = await relay(f, { FAKE_CURL: "504" });
+    expect(result.code).toBe(1);
+    const errors = result.stdout.split("\n").filter((line) => line.startsWith("::error::"));
+    expect(errors).toEqual([expect.stringContaining(`Could not download gitleaks ${VERSION} from ${URL}`)]);
+    expect(calls(f)).toEqual(["curl"]);
+    expect(existsSync(join(f.cache, "gitleaks"))).toBe(false);
+  });
+
+  it("refuses a download that is not the pinned build in one error line, and keeps nothing", async () => {
+    const f = await fixture();
+    const result = await relay(f, { FAKE_CURL: "bad" });
+    expect(result.code).toBe(1);
+    const errors = result.stdout.split("\n").filter((line) => line.startsWith("::error::"));
+    expect(errors).toEqual([expect.stringContaining(`gitleaks ${VERSION} from ${URL} is not the pinned build`)]);
+    expect(calls(f)).toEqual(["curl", "sha256sum"]);
+    expect(existsSync(join(f.cache, "gitleaks"))).toBe(false);
+  });
+
+  it("downloads again over a kept copy that fails the check, and keeps the good one", async () => {
+    const f = await fixture();
+    mkdirSync(join(f.cache, "gitleaks", VERSION), { recursive: true });
+    writeFileSync(kept(f), "a damaged copy");
+
+    const result = await relay(f);
+    expect(result.stdout).toContain("::error::gitleaks found a secret; nothing was pushed to GitHub");
+    expect(calls(f)).toEqual(["sha256sum", "curl", "sha256sum", "gitleaks"]);
+    expect(readFileSync(kept(f))).toEqual(readFileSync(f.env["FAKE_TARBALL"] ?? ""));
+  });
+
+  it("still scans when the tool cache cannot be written", async () => {
+    const f = await fixture();
+    writeFileSync(f.cache, "a file where the cache folder would be");
+
+    const result = await relay(f);
+    expect(result.stdout).toContain("::error::gitleaks found a secret; nothing was pushed to GitHub");
+    expect(calls(f)).toEqual(["curl", "sha256sum", "gitleaks"]);
+  });
 });
