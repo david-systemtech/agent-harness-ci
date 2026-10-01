@@ -41,6 +41,7 @@ import {
   type SkillsCarryOverReport as SkillsCarryOverReportType,
   type SkillsProbeResult as SkillsProbeResultType,
   type SkillsView as SkillsViewType,
+  type SkillSourceAddConflict as SkillSourceAddConflictType,
   type SkillsViewSource as SkillsViewSourceType,
 } from "./index.js";
 
@@ -528,13 +529,14 @@ describe("skill sources", () => {
 
   it("are refused, beyond the probe's unreachable, as no_skills with the folders found, source_limit, or duplicate naming the source held", () => {
     const validate = published("skills/source-add-conflict.json");
-    for (const data of [
+    const conflicts: SkillSourceAddConflictType[] = [
       { reason: "unreachable", problem: "not_found", line: "fatal: repository not found", origin: "https://github.com" },
       { reason: "no_skills", folders: [".", "skills/engineering"] },
       { reason: "no_skills", folders: [] },
       { reason: "source_limit", limit: 20 },
       { reason: "duplicate", sourceId },
-    ]) {
+    ];
+    for (const data of conflicts) {
       expect(roundTrip(SkillSourceAddConflict, data)).toEqual(data);
       expect(validate(data), JSON.stringify(data)).toBe(true);
     }
