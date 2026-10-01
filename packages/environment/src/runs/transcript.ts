@@ -15,6 +15,7 @@ import {
   type RunStartedPayload,
   type RunSummary,
   type SessionHistoryImportedPayload,
+  type SessionForkedPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type StandingRewind,
@@ -26,7 +27,7 @@ import {
   type UsageReportedPayload,
 } from "@agent-harness/contracts";
 import { decodeEvent, type EventRow } from "../event-log/database.js";
-import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
+import type { EventEnvelope, EventLog, Snapshot } from "../event-log/event-log.js";
 import { sessionStream } from "../sessions/streams.js";
 
 /**
@@ -176,7 +177,19 @@ export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: str
 export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, sessionId: string): TranscriptParts => {
   const snapshot = log.readSnapshot(sessionStream(sessionId));
   const events = readTranscriptEvents(log, sessionId, snapshot?.sequence ?? 0);
-  return snapshot === null ? foldTranscript(events) : foldTranscript(events, storedTranscriptParts(snapshot.payload));
+  return snapshot === null ? foldTranscript(events) : foldTranscript(events, readCompactedTranscript(log, snapshot));
+};
+
+/** A stored fold from before #632 omitted the fork's row; its retained session.forked restores it without rebuilding the removed transcript. */
+export const readCompactedTranscript = (log: Pick<EventLog, "read">, snapshot: Snapshot): TranscriptParts => {
+  const parts = storedTranscriptParts(snapshot.payload);
+  if (parts.items.some((item) => item.kind === "forked")) return parts;
+  const [row] = log.read<EventRow>(
+    `SELECT * FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.forked' AND sequence <= ? ORDER BY sequence LIMIT 1`,
+    snapshot.stream.id,
+    snapshot.sequence,
+  );
+  return row === undefined ? parts : { ...parts, items: [...foldTranscript([decodeEvent(row)]).items, ...parts.items].sort(bySequence) };
 };
 
 /**
@@ -424,6 +437,11 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         const item = prompts.get(answer.promptId);
         if (item !== undefined) item.answer = answer;
         prompts.delete(answer.promptId);
+        break;
+      }
+      case "session.forked": {
+        const { fromSessionId, atMessageId } = event.payload as SessionForkedPayload;
+        push<ItemOf<"forked">>({ kind: "forked", sequence, fromSessionId, atMessageId });
         break;
       }
       case "session.history-imported": {
