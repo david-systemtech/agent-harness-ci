@@ -85,6 +85,11 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Chromium skips unless `AGENT_HARNESS_CHROMIUM` names one; running it is the
   manual checklist in `docs/agents/browser-checklist.md`. Never launch a
   browser on the shared agent box.
+- Code copied from another project, rather than taken as a dependency, lives
+  in a `vendor/` folder beside what uses it, with that project's licence and
+  notice files; each copied file keeps its own notice and names the
+  repository, the commit and what was changed (Playwright's aria snapshot,
+  `packages/browser/src/snapshot/vendor/`, #544).
 - The extension's tests run under Node: the service worker against the fake
   `chrome` API (`packages/extension/test/fake-chrome.ts`, whose tabs and
   debugger are the scripted CDP peer's) and a scripted environment speaking

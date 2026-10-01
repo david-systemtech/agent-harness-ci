@@ -615,6 +615,7 @@ describe("the tools on the headless path", () => {
   it("takes every tool, browser_open to browser_close, through the scripted CDP peer, the deep verbs on every site", async () => {
     const { t, peer, client } = await withEndpoint();
     peer.document("https://shop.example/", { title: "Shop", cookies: [{ name: "cart", value: "cookie-for-tests" }] });
+    peer.inPage("snapshotFrame", () => ({ nodes: [{ role: "heading", name: "Shop", level: 1, ref: "e1" }], lastRef: 1 }));
     peer.inPage("locateElement", () => ({ kind: "found", x: 320, y: 240, editable: true }));
     peer.inPage("selectFieldContents", () => "selected");
     peer.inPage("showsText", () => true);
@@ -646,9 +647,9 @@ describe("the tools on the headless path", () => {
 
     const names = ["open", "navigate", "snapshot", "click", "type", "read", "screenshot", "clickAt", "scroll", "waitFor", "console", "network", "cookies", "storage", "evaluate", "close"];
     const failed = names.filter((_, index) => answers[index]?.isError === true);
-    // The snapshot and the reader are #544's and #545's: until then the driver answers each with its sentence.
-    expect(failed).toEqual(["snapshot", "read"]);
-    expect(answers[2]?.text).toBe("This browser cannot take a snapshot yet. Take a screenshot to see the page.");
+    // The reader is #545's: until then the driver answers it with its sentence.
+    expect(failed).toEqual(["read"]);
+    expect(answers[2]?.text).toContain('- heading "Shop" [level=1] [ref=e1]');
     expect(answers[6]?.images).toHaveLength(1);
     expect(answers[12]?.text).toContain('"value":"cookie-for-tests"');
     expect(answers[13]?.text).toContain("dark");

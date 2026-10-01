@@ -118,8 +118,44 @@ export interface ElectronContents {
 
 /** The window the renderer loads in: `BrowserWindow`. */
 export interface ElectronBrowserWindow extends ElectronWindow {
+  addWebView(view: ElectronWebView): void;
+  removeWebView(view: ElectronWebView): void;
+  on(name: "closed", listener: () => void): unknown;
   readonly webContents: ElectronContents;
   loadURL(url: string): Promise<void>;
+}
+
+/** A dock page's rectangle in the window's content coordinates. */
+export interface ViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A sandboxed page beside the renderer, with no preload. */
+export interface ViewOptions {
+  webPreferences: {
+    partition: string;
+    sandbox: boolean;
+    contextIsolation: boolean;
+    nodeIntegration: boolean;
+    webSecurity: boolean;
+    allowRunningInsecureContent: boolean;
+  };
+}
+export interface ElectronWebView {
+  readonly webContents: ElectronContents & {
+    loadURL(url: string): Promise<void>;
+    close(): void;
+    getURL(): string;
+    reload(): void;
+    navigationHistory: { canGoBack(): boolean; canGoForward(): boolean; goBack(): void; goForward(): void };
+    on(name: "before-input-event", listener: (details: Refusable, input: { readonly type: string; readonly key: string; readonly code: string; readonly control: boolean; readonly meta: boolean; readonly shift: boolean; readonly alt: boolean }) => void): unknown;
+    on(name: "did-navigate" | "did-navigate-in-page" | "did-stop-loading", listener: () => void): unknown;
+  };
+  setBounds(bounds: ViewBounds): void;
+  setVisible(visible: boolean): void;
 }
 
 /** The `BrowserWindow` options the desktop sets. */
@@ -153,7 +189,10 @@ export interface ElectronDialog {
     window: ElectronWindow,
     options: { title?: string; filters?: DialogFilter[]; properties: ("openFile" | "openDirectory" | "multiSelections" | "createDirectory")[] },
   ): Promise<{ canceled: boolean; filePaths: string[] }>;
-  showSaveDialog(window: ElectronWindow, options: { title?: string; defaultPath?: string; filters?: DialogFilter[] }): Promise<{ canceled: boolean; filePath?: string }>;
+  showSaveDialog(
+    window: ElectronWindow,
+    options: { title?: string; defaultPath?: string; filters?: DialogFilter[] },
+  ): Promise<{ canceled: boolean; filePath?: string }>;
 }
 
 /** One item on the clipboard: the media types it offers, and each one's content. */
@@ -223,4 +262,5 @@ export interface DesktopElectron {
   readonly notification: ElectronNotifications;
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
+  openWebView(options: ViewOptions): ElectronWebView;
 }
