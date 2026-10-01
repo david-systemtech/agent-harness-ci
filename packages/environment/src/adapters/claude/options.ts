@@ -77,6 +77,8 @@ export interface RunOptionsInput {
   readonly hostEnv: HostEnvironment;
   /** What the run's process environment supplied this spawn (#307), layered over the scrubbed environment. */
   readonly supplied: Readonly<Record<string, string>>;
+  /** The directories it supplied as the holder's own to write (#1119), which a contained run's commands may write beside its writable set. */
+  readonly suppliedWritable: readonly string[];
   /** The account's config directory, resolved: the ambient default for an account with none. */
   readonly configDirectory: string;
   /** The SDK's bundled binary; null leaves the SDK to find it itself. */
@@ -159,9 +161,11 @@ const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Pa
  * (`allowUnsandboxedCommands`) and no approval for being sandboxed
  * (`autoAllowBashIfSandboxed`: containment changes where a command may
  * reach, never whether it asks). A command may write in the run's writable
- * set (the workspace is the CLI's working directory already), less what the
- * run may not write inside it (`denyWrite`, which the sandbox puts above
- * `allowWrite`: the repository git directory's hooks and config, #791). The
+ * set (the workspace is the CLI's working directory already) and in the
+ * directories the spawn was supplied as its holder's own (a key-manager
+ * CLI's configuration directory, #1119), less what the run may not write
+ * inside them (`denyWrite`, which the sandbox puts above `allowWrite`: the
+ * repository git directory's hooks and config, #791). The
  * network is open at `workspace`, local binding included; the pinned
  * sandbox cannot name "any domain", so it asks the host about each new
  * host, which the adapter answers itself once the gate lets the host
@@ -171,7 +175,7 @@ const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Pa
  * the denylist's paths are unreadable to a command, the directories the
  * denylist leaves out read again.
  */
-export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): SandboxSettings | null => {
+export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">, suppliedWritable: readonly string[]): SandboxSettings | null => {
   const { containment, denylist } = run;
   if (containment.level === "off") return null;
   const denyRead = denylist?.paths ?? [];
@@ -185,7 +189,7 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
       ? { allowLocalBinding: true }
       : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: {
-      allowWrite: [...containment.writable],
+      allowWrite: [...containment.writable, ...suppliedWritable],
       ...(containment.readOnly.length > 0 && { denyWrite: [...containment.readOnly] }),
       ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
       ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
@@ -265,7 +269,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const servers = mcpServers(run);
   const allowed = allowedTools(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
-  const sandbox = sandboxOf(run);
+  const sandbox = sandboxOf(run, input.suppliedWritable);
   const disallowedTools = disallowedShell(run.denylist);
   const plugins = skillPlugins(run.skillSet);
   const settings = flagSettings(input.autoMemoryDirectory, run.skillSet);

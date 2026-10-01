@@ -394,9 +394,14 @@ export interface RunDenylist {
  * supplied (#307): the variables to put into its environment, and their
  * release, which its stop calls (a secret minted for it disposed, a token
  * revoked). Neither is ever written to disk, to the log or into argv.
+ * Beside them, the directories made for the holder alone that the tools
+ * it is given write in (a key-manager CLI's configuration directory,
+ * #1119): a contained run's commands may write them beside its writable
+ * set, since the holder's release deletes them. None when absent.
  */
 export interface SuppliedVariables {
   readonly variables: Readonly<Record<string, string>>;
+  readonly writable?: readonly string[];
   release(): void;
 }
 
