@@ -157,6 +157,7 @@ describe("keys and steps on rows", () => {
       ["forges", "access.forges"],
       ["key-manager", "access.key-managers"],
       ["memory-bank", "knowledge.banks"],
+      ["skills", "knowledge.skills"],
       ["instructions", "knowledge.instructions"],
       ["browser", "access.browser"],
       ["permissions", "access.permissions"],
@@ -230,7 +231,7 @@ describe("keys and steps on rows", () => {
   it("fails a row home to a step another row homes, a step no row homes, a row naming a step outside the milestone-1 order, and a row registered twice", () => {
     const withHome = (id: string, homeOf: LooseRow["homeOf"]) => rows.map((row) => (row.id === id ? { ...row, homeOf } : row));
     expect(rowProblems(withHome("accounts.default-model", ["account"]), steps, settings)).toEqual(["account: home rows accounts.accounts, accounts.default-model"]);
-    expect(rowProblems(withHome("knowledge.skills", []), steps, settings)).toEqual(["skills: no row is home to it"]);
+    expect(rowProblems(withHome("knowledge.skills", []), steps, settings)).toEqual(["skills: no row is home to it", "skills: lives on knowledge.skills, which is not home to it"]);
     expect(rowProblems(withHome("routines.routines", ["routines"]), steps, settings)).toEqual(["routines.routines: home to routines, which is not a step of the milestone-1 order"]);
     expect(rowProblems(withHome("about.about", "everything"), steps, settings)).toEqual(["about.about: home to everything, which is not the checklist"]);
     expect(rowProblems([...rows, { id: "about.about", homeOf: [] }], steps, settings)).toEqual(["about.about: registered twice"]);

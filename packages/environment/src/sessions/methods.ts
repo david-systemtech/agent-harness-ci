@@ -44,7 +44,7 @@ import { createDeletion, type Deletion } from "./deletion.js";
 import { groupExists, listGroups } from "./group-reads.js";
 import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
 import { listDeleted, listSummaries, readDeletion, readSessionState, readSummary, type Reader } from "./session-reads.js";
-import { sessionTranscript, storedTranscriptParts } from "../runs/transcript.js";
+import { readCompactedTranscript, sessionTranscript } from "../runs/transcript.js";
 import { readSessionInstructions } from "../instructions/session-instructions.js";
 import { sessionStream } from "./streams.js";
 import type { LogSource } from "../wire/subscriptions.js";
@@ -431,7 +431,7 @@ export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers =
         snapshot: () => ({ sequence: log.head(), summary: summaryOf(), ...sessionTranscript(log, id), instructions: readSessionInstructions(reader, id) }),
         // A cursor older than the session's compaction (#123) gets its fold, at the compaction's sequence, then the events after it.
         // The summary and the session's instructions (#506) are read at the head: what is replayed after it sets what it set again.
-        compacted: (snapshot) => ({ sequence: snapshot.sequence, summary: summaryOf(), ...storedTranscriptParts(snapshot.payload), instructions: readSessionInstructions(reader, id) }),
+        compacted: (snapshot) => ({ sequence: snapshot.sequence, summary: summaryOf(), ...readCompactedTranscript(log, snapshot), instructions: readSessionInstructions(reader, id) }),
         endOn: (event) =>
           event.type === "session.purged" || (event.type === "session.deleted" && holdsNow(event)) ? "deleted" : undefined,
       };

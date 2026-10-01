@@ -11,7 +11,7 @@ import {
   type NamedItem,
   type SetupActionPlan,
 } from "@agent-harness/client-runtime";
-import { settingsRow } from "@agent-harness/contracts";
+import { settingsRow, type SetupAction } from "@agent-harness/contracts";
 import { useState } from "react";
 import { SignInCard } from "../accounts/sign-in-card.js";
 import { useLocalService } from "../connections/local-service.js";
@@ -82,6 +82,8 @@ const useSetupActions = (environmentId: string, say: (line: string) => void, sig
 interface StepStatusProps extends StepCardProps {
   /** The card's own restore, in place of the client runtime's. */
   readonly restore?: CardRestore;
+  /** Actions drawn and carried out by the card itself, beside the inventory they act on. */
+  readonly handledActions?: readonly SetupAction[];
 }
 
 /**
@@ -94,14 +96,14 @@ interface StepStatusProps extends StepCardProps {
  * calls, whose line the card says. Sign in again opens the sign-in card over
  * it. It is the whole of the fallback card, and the head of a registered one.
  */
-export const StepStatus = ({ environmentId, step, restore }: StepStatusProps) => {
+export const StepStatus = ({ environmentId, step, restore, handledActions = [] }: StepStatusProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const [line, say] = useState<string | undefined>(undefined);
   const [signingIn, signIn] = useState<NamedItem | null>(null);
   const act = useSetupActions(environmentId, say, signIn, restore);
   const { result } = step;
-  const offered = result === null ? [] : setupActions(step, result);
+  const offered = result === null ? [] : setupActions(step, result).filter((offered) => !handledActions.includes(offered.action));
   /** Whether the connection may carry out a plan: a restore needs the method it calls. */
   const may = (plan: SetupActionPlan): boolean => plan.kind !== "restore" || runtime.capability(environmentId, RESTORE_METHODS[plan.step]).status === "present";
   return (

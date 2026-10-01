@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
+  EMPTY_RUN_SKILL_SET,
   RunInstructionsComposedPayload,
   SESSION_STREAM_KIND,
   lowerMode,
@@ -369,10 +370,11 @@ export interface AdapterHost {
   previewInstructions(target: InstructionTarget): Promise<ComposedInstructions>;
   /**
    * The scope `previewInstructions` composes for `target`, refused as it is,
-   * with the skill set a run would have resolved (#496): what the
-   * Orientation row renders the block for (#505).
+   * with the skill set a run would have resolved (#496).
    */
   previewScope(target: InstructionTarget): Promise<InstructionScope>;
+  /** The Orientation row and health check's local scope: no skill materialisation or provider process decision. */
+  orientationScope(accountId: string, workspace: Workspace, injection: InjectionDecision): InstructionScope;
   /**
    * Stages on disk the attachments of a message about to be queued, inside
    * the command that queues it and before it answers, so its receipt means
@@ -2176,6 +2178,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
     previewScope,
+    orientationScope(accountId, workspace, injection) {
+      const account = placeAccount({ sessionId: null, accountId, workspace, repositoryIdentity: null, containment: null });
+      return instructionScope({ sessionId: null, account, workspace, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
+    },
     async previewInstructions(target) {
       return instructions(await previewScope(target));
     },

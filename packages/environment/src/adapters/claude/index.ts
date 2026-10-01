@@ -360,7 +360,8 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
      * The CLI's own transcript of the session: every run names its project
      * directory after the harness session, so under each account's directory
      * it is `projects/<session id>` (the first run's file, and anything a kept
-     * process wrote there). A store-backed resume leaves nothing there, the
+     * process wrote there), including every provider session's nested
+     * `tool-results` image copies (#622). A store-backed resume leaves nothing there, the
      * SDK deleting its temporary directory; the store's rows go with every
      * purge anyway. Synchronous and idempotent, as the purge needs.
      */
