@@ -236,7 +236,14 @@ describe("1Password references", () => {
       message: "No vault the service account can see is titled missing, or has that id.",
     });
     await expect(browse(client, { connectionId, mount: "harness" })).rejects.toMatchObject({ code: "invalid_params" });
-    await expect(browse(client, { connectionId, item: "forge-github" })).rejects.toMatchObject({ code: "invalid_params" });
+    await expect(browse(client, { connectionId, path: "forge-github" })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { issues: [expect.objectContaining({ path: ["path"], message: "1Password lists by vault and item: its connection takes no path." })] },
+    });
+    await expect(browse(client, { connectionId, item: "forge-github" })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { issues: [expect.objectContaining({ path: ["item"], message: "An item's fields are listed in its vault: name the vault too." })] },
+    });
   });
 });
 

@@ -138,8 +138,6 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
       const invalid = (param: string, message: string): never => {
         throw new ContractError(invalidParams([{ code: "custom", path: [param], message }], message));
       };
-      if (path !== undefined && mount === undefined) invalid("path", "A path is listed under a mount: name the mount too.");
-      if (item !== undefined && vault === undefined) invalid("item", "An item's fields are listed in its vault: name the vault too.");
       const held = connections.readable(id);
       if (held === null) {
         throw new ContractError({ code: "not_found", message: `No key-manager connection ${id} is on this environment.`, data: { kind: "key_manager_connection", connectionId: id } });
@@ -148,7 +146,10 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
       // 1Password lists by vault and item where OpenBao lists by mount and path (`provider.ts`); a connection takes only its own.
       const onePassword = provider === "onepassword";
       const stray = Object.entries(onePassword ? { mount, path } : { vault, item }).find(([, given]) => given !== undefined)?.[0];
-      if (stray !== undefined) invalid(stray, `A ${PROVIDER_NAMES[provider]} connection takes no ${stray} to list by.`);
+      if (stray !== undefined) invalid(stray, `${PROVIDER_NAMES[provider]} lists by ${onePassword ? "vault and item" : "mount and path"}: its connection takes no ${stray}.`);
+      // Paired only after the stray check, so the hint names the pair this connection takes.
+      if (path !== undefined && mount === undefined) invalid("path", "A path is listed under a mount: name the mount too.");
+      if (item !== undefined && vault === undefined) invalid("item", "An item's fields are listed in its vault: name the vault too.");
       const ready = loginOf(held, provider);
       const location = onePassword ? { mount: vault ?? null, path: item ?? null } : { mount: mount ?? null, path: path ?? null };
       const answer = ready.outcome === "unavailable" ? ready : await withinBudget(ready.named, "list", (signal) => ready.login.provider.list(ready.login.target, ready.login.token, location, signal));

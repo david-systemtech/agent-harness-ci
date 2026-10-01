@@ -542,6 +542,8 @@ describe("a connection without a credential", () => {
 
     const refused = await add(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com", credential: token() });
     expect(rejection(refused.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "doppler" } });
+    const notToken = await add(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com", credential: userpass() });
+    expect(rejection(notToken.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "bitwarden" } });
     expect(await keyManagerEvents(client, from)).toEqual([]);
     expect(await saidBack(t, [PERSON_TOKEN])).toEqual([PERSON_TOKEN]);
 
