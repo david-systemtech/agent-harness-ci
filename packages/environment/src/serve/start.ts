@@ -43,7 +43,7 @@ import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
-import { browserToolServer } from "../browser/tool-server.js";
+import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
 import {
@@ -541,11 +541,14 @@ export interface EnvironmentOptions {
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
    * at each run's start (#550); preset: none here, until #555's manager.
+   * And the page drivers the browser tools reach, by kind (#551); preset:
+   * none, each kind answering that it cannot be driven here yet.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
     readonly headless?: HeadlessAvailabilitySeam;
+    readonly drivers?: PageDrivers;
   };
 }
 
@@ -979,10 +982,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const passthrough = createPassthrough({ log, clock });
   closers.push(() => passthrough.close());
   // The browser tool server on every run (#546): web_read, reading the internal hosts and the denylist as they are at each
-  // call, so the one server serves every run and a kept provider process the next. A redirect's address meets the
-  // denylist's hosts section here, as the gate met the address the call named.
-  const browserTools = browserToolServer(
-    createWebReader({
+  // call, so the one tool serves every run and a kept provider process the next. A redirect's address meets the
+  // denylist's hosts section here, as the gate met the address the call named. Beside it the browser's verbs where a run's
+  // resolved browser is not none (#551), each call driving the browser of its session's live run as the host holds it then.
+  const browserTools = createBrowserToolServers({
+    reader: createWebReader({
       clock,
       harnessVersion,
       rules: () => ({
@@ -996,7 +1000,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       dial: options.webRead?.dial ?? systemDialer,
       ...(options.webRead?.hooks !== undefined && { hooks: options.webRead.hooks }),
     }),
-  );
+    environmentId: record.id,
+    live: (sessionId) => host.live(sessionId),
+    drivers: options.browser?.drivers ?? {},
+  });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
   // The environment's own notices: environment.subscribe's stream, whose snapshot is the status and the look.
@@ -1187,7 +1194,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...hostSeams,
       instructions,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
-      toolServers: (scope) => [browserTools, ...seamServers(scope), ...passthrough.toolServers(scope)],
+      toolServers: (scope) => [browserTools(scope), ...seamServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has

@@ -75,8 +75,8 @@ const requestOf = (input: JsonObject): ReadRequest | string => {
   return { url, offset, pages: { from, to } };
 };
 
-/** A challenge as a sentence names it. */
-const CHALLENGE_NAMES: { readonly [K in ChallengeKind]: string } = {
+/** A challenge as a sentence names it: web_read's answers and the browser tools' instruction. */
+export const CHALLENGE_NAMES: { readonly [K in ChallengeKind]: string } = {
   recaptcha: "a reCAPTCHA",
   hcaptcha: "an hCaptcha",
   turnstile: "a Cloudflare Turnstile check",
