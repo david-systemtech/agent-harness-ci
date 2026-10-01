@@ -29,6 +29,8 @@
     { "path": "packages/environment" },
     { "path": "packages/client-runtime" },
     { "path": "packages/theme" },
+    // The environment's headless browser tests drive the scripted CDP peer, the browser package's testing export.
+    { "path": "packages/browser/tsconfig.testing.json" },
     { "path": "packages/tui" },
     { "path": "packages/desktop" },
     { "path": "packages/extension" },

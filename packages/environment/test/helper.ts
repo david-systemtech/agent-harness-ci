@@ -187,10 +187,18 @@ export interface TestEnvironmentOptions {
   /**
    * The extension's folder and listener (#547), each part over the helper's
    * preset: `TEST_EXTENSION` as the built extension carried, and the
-   * listener's preferred port 0, so a test never takes 47615.
+   * listener's preferred port 0, so a test never takes 47615. And the
+   * headless browser's (#555): no file is an executable it can run, a launch
+   * throws, and no name resolves, so no test finds, launches or reaches a
+   * browser unless it gives its own (the scripted CDP peer).
    */
   readonly browser?: EnvironmentOptions["browser"];
 }
+
+/** The launcher a test environment's headless browser has unless a test gives its own: none, since no test may launch a browser. */
+const refusingLaunch = (): never => {
+  throw new Error("A test environment launches no browser.");
+};
 
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
 export const NO_RELEASE_SOURCE = { origin: "http://127.0.0.1:1", kind: "forgejo", repository: "david/agent-harness" } as const;
@@ -399,7 +407,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
     webRead: { resolve: noResolver, dial: loopbackDialer, ...options.webRead },
-    browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, ...options.browser },
+    browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, isExecutable: () => false, launch: refusingLaunch, resolve: noResolver, ...options.browser },
   };
   let env: EnvironmentHandle;
   try {
