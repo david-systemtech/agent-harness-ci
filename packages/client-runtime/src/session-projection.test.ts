@@ -40,6 +40,7 @@ describe("a run the fake adapter plays", () => {
       yield end();
     };
     const t = await harness.environment({ name: "desk" });
+    t.scrub.register("kept-back-by-the-test", { owner: "test" });
     t.adapter.nextScripts.push(script);
     const shell = fakeShell();
     const runtime = harness.runtime(inMemoryPlatform({ shell }));
