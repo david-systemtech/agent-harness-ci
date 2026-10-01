@@ -37,6 +37,11 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-24.04
+    # The image and the user the Forgejo `ci` runners use (node:24-bookworm, as
+    # root), so the same tests run and skip as they did there. Some cli tests
+    # run only as an ordinary user; run on the bare runner and they run too
+    # (agent-harness issue: non-root tests never ran in CI).
+    container: node:24-bookworm
     timeout-minutes: 25
     env:
       SHA: ${{ github.event.client_payload.sha }}
@@ -66,9 +71,6 @@ jobs:
           tar -xzf "$w/g.tgz" -C "$w" gitleaks
           "$w/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" .
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -105,4 +107,6 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
+        run: |
+          curl -sS -o /dev/null -w 'delete %{http_code}\n' -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
