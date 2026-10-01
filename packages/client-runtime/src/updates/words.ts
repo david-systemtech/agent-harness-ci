@@ -10,8 +10,16 @@ import { whenWords } from "../transcript/format.js";
  * its local environment"; ADR 0025, ADR 0026; #424): an environment's
  * pending update and what it waits on, the Claude Code it bundles, a pin,
  * the desktop's own build, the server the desktop carries, and the offer
- * of a client newer than the environment.
+ * of a client newer than the environment. The window draws an
+ * environment's on About and Your machines' cards, the terminal UI on its
+ * card in `/environment` (#827).
  */
+
+/** The version an environment runs, which heads its update controls (`updates.status`'s, else the descriptor's). */
+export const environmentVersionWords = (version: string): string => `Version ${version}`;
+
+/** Why an environment's updates could not be read: `updates.status` failed, with its message. */
+export const updatesUnreadWords = (message: string): string => `Its updates could not be read: ${message}`;
 
 /**
  * A pending update in one line, with what it waits on and when busy work
@@ -105,6 +113,9 @@ export const offersClientVersion = (client: string, environment: string, pending
 /** The offer of a newer client, in one line. */
 export const clientOfferWords = (client: string, environment: string, environmentVersion: string): string =>
   `This client runs ${client}, newer than ${environment}'s ${environmentVersion}.`;
+
+/** What the offer of a newer client asks, as the control that sends it says it. */
+export const clientOfferAskWords = (client: string, environment: string): string => `Update ${environment} to ${client}`;
 
 /** What asking the environment to update to this client's version came to, in one line. */
 export const clientUpdateWords = (outcome: UpdateEnvironmentOutcome, environment: string): string =>
