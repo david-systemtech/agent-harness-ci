@@ -25,7 +25,7 @@ import { ClientSessionId } from "./primitives.js";
 /** What holds a stored value Move can take: a forge account's pasted token, a bank's fallback token or an endpoint's pasted secret. */
 export const KEY_MANAGER_MOVE_ITEM_KINDS = ["forge-account", "endpoint", "bank"] as const;
 export const KeyManagerMoveItemKind = z.enum(KEY_MANAGER_MOVE_ITEM_KINDS).meta({
-  description: "What holds a stored value Move can take: forge-account (a forge account's pasted token) endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token).",
+  description: "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token).",
 });
 export type KeyManagerMoveItemKind = z.infer<typeof KeyManagerMoveItemKind>;
 

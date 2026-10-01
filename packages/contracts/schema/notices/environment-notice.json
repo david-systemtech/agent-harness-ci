@@ -5261,7 +5261,7 @@
                     "endpoint",
                     "bank"
                   ],
-                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token) endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
+                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
                 },
                 "id": {
                   "type": "string",
@@ -5497,7 +5497,7 @@
                     "endpoint",
                     "bank"
                   ],
-                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token) endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
+                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
                 },
                 "id": {
                   "type": "string",
@@ -5560,7 +5560,7 @@
                     "endpoint",
                     "bank"
                   ],
-                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token) endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
+                  "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
                 },
                 "id": {
                   "type": "string",
