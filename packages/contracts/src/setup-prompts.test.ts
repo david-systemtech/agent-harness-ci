@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { stringify } from "yaml";
 import { z } from "zod";
+import { validateBank } from "./bank-validator.js";
 import { BANK_VALIDATOR, ORIENTATION_CAPS, PROMPT_VARIANTS, STEP_PROMPTS, STEP_REGISTRY, stepPrompt, type Step, type StepPrompt } from "./index.js";
 
 /**
@@ -80,6 +82,47 @@ const personal = {
 /** A team bank with no entity yet and one scope folder. */
 const team = { name: "brandsolidate", kind: "team", entities: [], scopes: ["projects/brandsolidate/cool-jams/"] };
 
+/**
+ * The BANK.md a model writes from nothing to what a describe prompt's `text`
+ * asks for (#1078): the name and kind it gives, the keys its YAML block shows
+ * exactly as shown, and the purpose, entities, orientation and a team's owners
+ * filled in as its list asks.
+ */
+const writtenTo = (text: string, orientation: readonly string[] = []): string => {
+  const name = /^- name: ([^,\s]+),/m.exec(text)?.[1];
+  const kind = /^- kind: ([a-z]+)\./m.exec(text)?.[1];
+  const shown = /^```yaml\n([\s\S]*?)\n```$/m.exec(text)?.[1];
+  expect({ name, kind, shown }, "the prompt gives the name and kind and shows the shared keys").toEqual({ name: expect.any(String), kind: expect.any(String), shown: expect.any(String) });
+  const asked = {
+    name,
+    kind,
+    purpose: "What the bank is for, in one line.",
+    entities: [{ name: "Homelab", aliases: ["home lab"] }],
+    orientation,
+    ...(kind === "team" && { owners: ["david"] }),
+  };
+  return `---\n${stringify(asked)}${shown}\n---\n\n# How agents use this bank\n`;
+};
+
+/**
+ * The orientation memory `name` and the folder files a model writes beside
+ * that BANK.md to what a describe prompt's `text` asks for (#1106): the
+ * memory at the path the prompt gives, with the frontmatter it names, and
+ * the home folder's and its org's folder files at the paths it gives.
+ */
+const homeWrittenTo = (text: string, name: string): Record<string, string> => {
+  const memories = /(\S+\/memories\/)<name>\.md/.exec(text)?.[1];
+  const org = /(\S+\/)ORG\.md/.exec(text)?.[1];
+  const project = /(\S+\/)PROJECT\.md/.exec(text)?.[1];
+  expect({ memories, org, project }, "the prompt gives where the memory and the folder files go").toEqual({ memories: expect.any(String), org: expect.any(String), project: expect.any(String) });
+  const file = (frontmatter: Record<string, unknown>, body = ""): string => `---\n${stringify(frontmatter)}---\n${body}`;
+  return {
+    [`${memories}${name}.md`]: file({ name, description: "When a run needs to know where the bank keeps its secrets - the paths, never the values", metadata: { type: "reference" } }, "The keys live in the key manager, by path.\n"),
+    [`${org}ORG.md`]: file({ line: "The org's own work" }),
+    [`${project}PROJECT.md`]: file({ line: "This bank's own facts", topics: {}, repos: [] }),
+  };
+};
+
 describe("the Memory bank step's describe prompt (#586)", () => {
   it("is the bank validator's, at version 1, whose orientation caps are ADR 0013's five names, 600 bytes each and 1,500 in all", () => {
     expect(describeBank.validator).toEqual({ name: "bank-validator", version: 1 });
@@ -126,6 +169,66 @@ describe("the Memory bank step's describe prompt (#586)", () => {
     const { text } = describeBank.render("revise", personal);
     expect(text).toContain("If main has no BANK.md, ask me what the bank is for and what it holds facts about, then write BANK.md at the root of this worktree.");
     expect(text).not.toContain("Keep BANK.md");
+  });
+
+  it("states, in both variants, the name rule and the keys every bank shares, with the classes that always wait for review (#1078)", () => {
+    for (const variant of PROMPT_VARIANTS) {
+      const { text } = describeBank.render(variant, personal);
+      for (const part of [
+        "- name: david-memory,",
+        "a lower-case slug of 1 to 40 characters",
+        "folder: naming the scope folder a match expands, relative to projects/",
+        "projects/**/memories/**/*.md",
+        "projects/{org}/{project}[/{area}]/",
+        "projects/{org}/{project}[/{area}]/memories/[{topic}/]{name}.md",
+        "reference/**/*.md",
+        "pull-request",
+        "commit",
+        "orientation, decisions, status and manifest",
+        "the bank validator, version 1",
+      ]) {
+        expect(text, `${variant}: ${part}`).toContain(part);
+      }
+    }
+  });
+
+  it("asks, in both variants and for both kinds, for a BANK.md that passes the validator with no finding when written from nothing (#1078)", () => {
+    for (const facts of [personal, team]) {
+      for (const variant of PROMPT_VARIANTS) {
+        const { text } = describeBank.render(variant, facts);
+        expect(validateBank({ files: { "BANK.md": writtenTo(text) } }), `${facts.kind}, ${variant}`).toEqual({ validator: { name: "bank-validator", version: 1 }, valid: true, findings: [] });
+      }
+    }
+  });
+
+  it("says, in both variants, what an orientation memory and its home folder hold (#1106)", () => {
+    for (const variant of PROMPT_VARIANTS) {
+      const { text } = describeBank.render(variant, team);
+      for (const part of [
+        "projects/brandsolidate/bank/memories/<name>.md",
+        "a lower-case slug of at most 60 characters",
+        "60 to 160 characters",
+        "Before, When, After, While, If, Where, How, What, Which or Why",
+        "one of user, feedback, project or reference",
+        "projects/brandsolidate/ORG.md with line:",
+        "projects/brandsolidate/bank/PROJECT.md with line:",
+        "at most 100 characters",
+        "topics: ({} for none)",
+        "a folder that has its folder file",
+      ]) {
+        expect(text, `${variant}: ${part}`).toContain(part);
+      }
+    }
+  });
+
+  it("asks, in both variants and for both kinds, for an orientation memory and a home folder that pass the validator with no finding beside that BANK.md (#1106)", () => {
+    for (const facts of [personal, team]) {
+      for (const variant of PROMPT_VARIANTS) {
+        const { text } = describeBank.render(variant, facts);
+        const files = { "BANK.md": writtenTo(text, ["secrets-layout"]), ...homeWrittenTo(text, "secrets-layout") };
+        expect(validateBank({ files }), `${facts.kind}, ${variant}`).toEqual({ validator: { name: "bank-validator", version: 1 }, valid: true, findings: [] });
+      }
+    }
   });
 
   it("refuses facts without the bank's kind, or of a kind no bank has", () => {

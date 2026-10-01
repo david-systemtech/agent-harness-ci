@@ -21,6 +21,7 @@ import {
   preCheckWords,
   type AddingEndpoint,
   type ListRow,
+  type MoveTarget,
   type RoutineListCard,
   type RoutineRef,
   type RoutinesCard,
@@ -191,8 +192,31 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     editYaml: host.editYaml,
   });
 
+  const prepareMove = async (routine: RoutineRef, back: RoutineListCard, target: MoveTarget, name?: string) => {
+    host.open({ kind: "move-confirm", routine, back, target, move: null, text: null, busy: true, error: null, cursor: 0 });
+    const move = await runtime.commands.moveRoutine(routine.environmentId, routine.routineId, target.environmentId, name);
+    host.change(shown => {
+      if (shown.kind !== "move-confirm" || shown.routine !== routine || shown.target !== target) return shown;
+      if (!move.ok) return { ...shown, busy: false, error: move.error.message };
+      const taken = move.documents.some(d => d.issues.some(i => i.path[0] === "name"));
+      return { ...shown, move, busy: false, text: taken ? "" : null };
+    });
+  };
+
+  const confirmMove = async (shown: Extract<RoutinesCard, { kind: "move-confirm" }>) => {
+    if (shown.busy || shown.move === null) return;
+    if (shown.text !== null) {
+      if (shown.text.trim() !== "") void prepareMove(shown.routine, shown.back, shown.target, shown.text.trim());
+      return;
+    }
+    host.change(held => held.kind === "move-confirm" && held.move === shown.move ? { ...held, busy: true } : held);
+    const answer = await shown.move.confirm();
+    host.change(held => held.kind === "move-confirm" && held.move === shown.move ? answer.ok ? shown.back : { ...held, busy: false, error: answer.error.message } : held);
+    if (answer.ok) host.say(`Moved ${shown.routine.name} to ${shown.target.name}.`);
+  };
+
   /** A routines card being typed into: the list's export, or the endpoint being added. */
-  const typing = (shown: RoutinesCard): boolean => (shown.kind === "list" && shown.exporting !== null) || (shown.kind === "endpoints" && shown.adding !== null);
+  const typing = (shown: RoutinesCard): boolean => (shown.kind === "move-confirm" && shown.text !== null && !shown.busy) || (shown.kind === "list" && shown.exporting !== null) || (shown.kind === "endpoints" && shown.adding !== null);
 
   const changeAdding = (update: (adding: AddingEndpoint) => AddingEndpoint | null) =>
     host.change((shown) => (shown.kind === "endpoints" && shown.adding !== null ? { ...shown, adding: update(shown.adding) } : shown));
@@ -313,6 +337,10 @@ export const useRoutines = (host: RoutinesHost): Routines => {
 
   const rowsOf = (shown: RoutinesCard): number => {
     switch (shown.kind) {
+      case "move":
+        return shown.targets.length;
+      case "move-confirm":
+        return 0;
       case "list":
         return list().length;
       case "history":
@@ -353,6 +381,13 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     move: (shown, step) => moved(shown, clamp(shown.cursor + step, rowsOf(shown))),
     choose(shown) {
       switch (shown.kind) {
+        case "move": {
+          const target = shown.targets[clamp(shown.cursor, shown.targets.length)];
+          if (target) void prepareMove(shown.routine, shown.back, target);
+          return;
+        }
+        case "move-confirm":
+          return void confirmMove(shown);
         case "list": {
           if (shown.exporting !== null) {
             if (shown.exporting.text.trim() !== "") void exportTo(shown.exporting.routine, shown.exporting.text);
@@ -377,7 +412,7 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       }
     },
     back(shown) {
-      if (shown.kind === "history") return shown.back;
+      if (shown.kind === "history" || shown.kind === "move" || shown.kind === "move-confirm") return shown.back;
       if (shown.kind === "list" && shown.exporting !== null) return { ...shown, exporting: null };
       if (shown.kind === "endpoints" && shown.adding !== null) return { ...shown, adding: null };
       return null;
@@ -385,17 +420,27 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     takesText: typing,
     typed(shown, text) {
       const clean = text.replace(/[\r\n]/g, "");
+      if (shown.kind === "move-confirm" && shown.text !== null && !shown.busy) return { ...shown, text: shown.text + clean, error: null };
       if (shown.kind === "list" && shown.exporting !== null) return { ...shown, exporting: { ...shown.exporting, text: shown.exporting.text + clean, error: null } };
       if (shown.kind === "endpoints" && shown.adding !== null) return { ...shown, adding: { ...shown.adding, text: shown.adding.text + clean, error: null } };
       return shown;
     },
     erased(shown) {
       const drop = (text: string) => [...text].slice(0, -1).join("");
+      if (shown.kind === "move-confirm" && shown.text !== null && !shown.busy) return { ...shown, text: drop(shown.text), error: null };
       if (shown.kind === "list" && shown.exporting !== null) return { ...shown, exporting: { ...shown.exporting, text: drop(shown.exporting.text) } };
       if (shown.kind === "endpoints" && shown.adding !== null) return { ...shown, adding: { ...shown.adding, text: drop(shown.adding.text) } };
       return shown;
     },
     handlers: {
+      "routines.move": () => {
+        const row = verbOn();
+        if (!row || card?.kind !== "list") return false;
+        const available = runtime.commands.routineMoveCapability(row.environmentId, row.routineId);
+        if (available.status === "absent") { host.say(`Not moved: ${available.message}`); return; }
+        const targets = host.views.filter(v => v.enabled && v.environmentId !== row.environmentId && runtime.capability(v.environmentId, "routines.import").status === "present").map(v => ({ environmentId: v.environmentId, name: nameOf(v) }));
+        host.open({ kind: "move", routine: refOf(row), targets, back: card, cursor: 0 });
+      },
       "routines.runNow": () => {
         const row = verbOn();
         if (!row) return false;
@@ -439,6 +484,8 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     },
     hint(shown) {
       const k = host.keys;
+      if (shown.kind === "move") return `${k("picker.choose")} picks the target · ${k("picker.leave")} back`;
+      if (shown.kind === "move-confirm") return `${k("picker.choose")} ${shown.text !== null ? "checks the name" : "confirms the move"} · ${k("picker.leave")} back`;
       if (shown.kind === "history") return `${k("picker.move")} move · ${k("picker.choose")} opens its firing · ${k("picker.leave")} back`;
       if (shown.kind === "import" || shown.kind === "precheck") return `${k("picker.leave")} close`;
       if (shown.kind === "endpoints") return shown.adding !== null ? `${k("picker.choose")} ${shown.adding.step === "secret" ? "saves it" : "next"} · ${k("picker.leave")} leaves it` : `${k("picker.move")} move · ${k("picker.leave")} close`;
@@ -446,6 +493,14 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       return `${k("picker.move")} move · ${k("picker.choose")} opens its latest firing · ${k("picker.leave")} close`;
     },
     render(shown, size) {
+      if (shown.kind === "move") return <ListCard title={`Move ${shown.routine.name} to`} hint={routines.hint(shown)} rows={shown.targets.map(t => ({ key: t.environmentId, cells: [{ text: t.name }], dim: false }))} cursor={shown.cursor} height={size.height} width={size.width} empty="No other environment is ready to import a routine." />;
+      if (shown.kind === "move-confirm") return <LinesPanel title={`Confirm move to ${shown.target.name}`} hint={routines.hint(shown)} lines={[
+        ...(shown.move ? importLines(shown.move.documents) : []),
+        [{ text: "History stays on each environment. The original's disable waits if it is down.", dim: true }],
+        ...(shown.busy ? [[{ text: shown.move ? "Moving…" : "Checking the target…", dim: true }]] : []),
+        ...(shown.error ? [[{ text: shown.error, color: TERMINAL_ROLES.danger }]] : []),
+        ...(shown.text !== null ? [[{ text: `Another name: ${shown.text}` }]] : []),
+      ]} />;
       if (shown.kind === "precheck") {
         const { record, routine } = shown;
         const lines = shown.failed
@@ -521,7 +576,10 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       const { exporting } = shown;
       const prompt = exporting === null ? "" : `Export ${exporting.routine.name} to:`;
       const k = host.keys;
-      const verbs = `${k("routines.runNow")} run now · ${k("routines.enable")} enable or disable · ${k("routines.history")} history · ${k("routines.edit")} edit · ${k("routines.export")} export`;
+      const selected = routineAt(shown);
+      const moveCapability = selected ? runtime.commands.routineMoveCapability(selected.environmentId, selected.routineId) : null;
+      const moveVerb = moveCapability?.status === "present" ? `${k("routines.move")} move · ` : "";
+      const verbs = `${k("routines.runNow")} run now · ${k("routines.enable")} enable or disable · ${moveVerb}${k("routines.history")} history · ${k("routines.edit")} edit · ${k("routines.export")} export`;
       return (
         <ListCard
           width={size.width}
@@ -534,6 +592,7 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           footer={[
             [],
             [{ text: `${verbs} · /routines new · /routines import <path> · /routines endpoints`, dim: true }],
+            ...(moveCapability?.status === "absent" ? [[{ text: `Move unavailable: ${moveCapability.message}`, dim: true }]] : []),
             ...(exporting?.error ? [[{ text: exporting.error, color: TERMINAL_ROLES.danger }]] : []),
           ]}
           childRows={exporting === null ? 0 : wrappedRows(`${prompt} ${exporting.text} `, size.width)}
