@@ -1,8 +1,8 @@
+import { workspaceLabel } from "@agent-harness/client-runtime";
 import type { Workspace } from "@agent-harness/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 import { EnvironmentDot } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
-import { workspaceLabel } from "../new-session/words.js";
 import type { PaneSession } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { PullRequestLinks } from "../session/pull-requests.js";

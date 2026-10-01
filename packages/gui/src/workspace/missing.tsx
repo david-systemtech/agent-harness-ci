@@ -1,8 +1,7 @@
-import { derived, workspaceGoneLine, type DispatchFailure } from "@agent-harness/client-runtime";
+import { derived, resolverRefusal, workspaceGoneLine, type DispatchFailure, type RefusalPlace } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { nameOf } from "../connections/words.js";
-import { resolverRefusal, type RefusalPlace } from "../new-session/words.js";
 import { Button, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "./picker.js";
