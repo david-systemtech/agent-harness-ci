@@ -11,6 +11,7 @@ import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } fro
 import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
 import { createAttention } from "./projections/attention.js";
+import { BROWSER_CHROME_CALL, browserChromeHandler } from "./projections/browser-chrome.js";
 import { createClientCalls } from "./projections/client-calls.js";
 import { documentsProjection, type SessionDocument } from "./projections/documents.js";
 import { environmentsProjection } from "./projections/environments.js";
@@ -236,6 +237,16 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const terminals = createTerminalSubscriptions({ clock: platform.clock, random: platform.random ?? Math.random, report, seams: registry.seams, records: registry.list });
   const clientCalls = createClientCalls({ seams: registry.seams, record: (environmentId) => registry.record(environmentId), report });
   registry.seams.onForget((environmentId) => clientCalls.forget(environmentId));
+  // Every client drives a Chrome paired with its own local environment for a run elsewhere that it started: the browser
+  // relay's client half (#554).
+  clientCalls.register(
+    BROWSER_CHROME_CALL,
+    browserChromeHandler({
+      record: (environmentId) => registry.record(environmentId),
+      request: (environmentId, method, params) => registry.seams.request(environmentId, method, params),
+      now: (environmentId) => made.now(environmentId),
+    }),
+  );
   /** One observable per environment (and session), so a renderer reading one twice follows one. */
   const memo = <T>(make: (key: string) => T) => {
     const held = new Map<string, T>();
