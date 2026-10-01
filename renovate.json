@@ -1,4 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>david/ci//renovate/default"]
+  "extends": [
+    "local>david/ci//renovate/default"
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "docker-compose"
+      ],
+      "matchPackageNames": [
+        "docker.io/linuxserver/chromium"
+      ],
+      "pinDigests": true
+    }
+  ]
 }

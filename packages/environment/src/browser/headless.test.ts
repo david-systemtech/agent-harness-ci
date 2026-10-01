@@ -5,8 +5,9 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { registry, type JsonObject, type ParamsOf, type ResponseOf, type RunBrowserResolvedPayload, type SessionBrowser } from "@agent-harness/contracts";
-import { scriptedCdpPeer, type ScriptedCdpPeer } from "@agent-harness/browser/testing";
+import { CdpFailure, scriptedCdpPeer, type ScriptedCdpPeer } from "@agent-harness/browser/testing";
 import { describe, expect, it, vi } from "vitest";
+import { manualClock } from "../../test/clock.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { callHostTool, end, fakeAdapter, type FakeAdapter, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -182,8 +183,8 @@ describe("an endpoint", () => {
 });
 
 describe("the sources", () => {
-  it("reads an http endpoint's DevTools address from its /json/version, as an operator's browser publishes it", async () => {
-    const { t, peer, client, endpoint } = await withEndpoint();
+  it("reaches the compose browser service from a declared container through its configured http endpoint and /json/version", async () => {
+    const { t, peer, client, endpoint } = await withEndpoint({ containerDetector: { inContainer: () => true, declared: () => true } });
     await setting(client, { "browser.headless.endpoint": endpoint.replace(/^ws:/, "http:").replace(/\/devtools\/.*$/, "") });
     const id = await sessionWith(client, HEADLESS);
     const { answers } = await run(t, client, id, ["browser_open", { address: "https://news.example/", snapshot: false }]);
@@ -332,6 +333,161 @@ describe("no headless browser", () => {
 });
 
 describe("contexts", () => {
+  it("refuses a third context until browser_close gives one back, and reads the live context limit", async () => {
+    const { t, peer, client } = await withEndpoint();
+    const first = await sessionWith(client, HEADLESS);
+    const second = await sessionWith(client, HEADLESS);
+    const third = await sessionWith(client, HEADLESS);
+    const open: Call = ["browser_open", { address: "https://news.example/", snapshot: false }];
+    await run(t, client, first, open);
+    await run(t, client, second, open);
+    const refused = await run(t, client, third, open);
+    expect(refused.answers[0]).toMatchObject({ isError: true });
+    expect(refused.answers[0]?.text).toMatch(/Other sessions hold the browser.*browser_close.*person/);
+    expect(peer.sentOf("Target.createBrowserContext")).toHaveLength(2);
+    await run(t, client, first, ["browser_close"]);
+    expect((await run(t, client, third, open)).answers[0]).toMatchObject({ isError: false });
+    await setting(client, { "browser.headless.limits": { maxContexts: 3, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 5 } });
+    expect((await run(t, client, first, open)).answers[0]).toMatchObject({ isError: false });
+    expect((await status(client)).headless.liveContexts).toBe(3);
+  });
+
+  it("closes a context after ten idle minutes, warns before reopening, and counts every tool call as activity", async () => {
+    const { t, peer, client } = await withEndpoint();
+    const id = await sessionWith(client, HEADLESS);
+    const open: Call = ["browser_open", { address: "https://news.example/", snapshot: false }];
+    await run(t, client, id, open);
+    t.clock.advance(9 * 60_000);
+    await run(t, client, id, ["browser_screenshot"]);
+    t.clock.advance(9 * 60_000);
+    expect((await status(client)).headless.liveContexts).toBe(1);
+    t.clock.advance(60_000);
+    await vi.waitFor(async () => expect((await status(client)).headless.liveContexts).toBe(0), { timeout: WAIT_MS });
+    expect(peer.targets()).toHaveLength(0);
+    const next = await run(t, client, id, open, open);
+    expect(next.answers[0]).toMatchObject({ isError: true });
+    expect(next.answers[0]?.text).toMatch(/idle.*browser_open/);
+    expect(next.answers[1]).toMatchObject({ isError: false });
+    expect(peer.sentOf("Target.createBrowserContext")).toHaveLength(2);
+    await setting(client, { "browser.headless.limits": { maxContexts: 2, idleMinutes: 1, tabHeapMb: 500, exitMinutes: 5 } });
+    t.clock.advance(60_000);
+    await vi.waitFor(async () => expect((await status(client)).headless.liveContexts).toBe(0), { timeout: WAIT_MS });
+  });
+
+  it.each(["endpoint", "launched"] as const)("ends an empty %s after five minutes, reading a changed exit limit live", async (source) => {
+    const fixture = source === "endpoint" ? await withEndpoint() : await launching();
+    const { t, peer, client } = fixture;
+    const id = await sessionWith(client, HEADLESS);
+    await run(t, client, id, ["browser_open", { address: "https://news.example/", snapshot: false }], ["browser_close"]);
+    t.clock.advance(4 * 60_000);
+    expect(peer.sentOf("Browser.close")).toHaveLength(0);
+    if ("launches" in fixture) expect(fixture.launches[0]?.killed).toBe(false);
+    t.clock.advance(60_000);
+    await vi.waitFor(() => {
+      if ("launches" in fixture) expect(fixture.launches[0]?.killed).toBe(true);
+      else expect(peer.sentOf("Browser.close")).toHaveLength(1);
+    }, { timeout: WAIT_MS });
+    expect((await run(t, client, id, ["browser_open", { address: "https://news.example/", snapshot: false }], ["browser_close"])).answers[0]).toMatchObject({ isError: false });
+    await setting(client, { "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 500, exitMinutes: 1 } });
+    t.clock.advance(60_000);
+    await vi.waitFor(() => {
+      if ("launches" in fixture) expect(fixture.launches[1]?.killed).toBe(true);
+      else expect(peer.sentOf("Browser.close")).toHaveLength(2);
+    }, { timeout: WAIT_MS });
+  });
+
+  it.each([true, false])("retries an endpoint twelve times one second apart after empty exit (recovers: %s)", async (recovers) => {
+    const clock = manualClock();
+    let retryWaits = 0;
+    const { t, peer, client } = await withEndpoint({ clock: { ...clock, setTimeout(callback, ms) {
+      if (ms === 1_000) retryWaits++;
+      return clock.setTimeout(callback, ms);
+    } } });
+    const id = await sessionWith(client, HEADLESS);
+    const open: Call = ["browser_open", { address: "https://news.example/", snapshot: false }];
+    await run(t, client, id, open, ["browser_close"]);
+    t.clock.advance(5 * 60_000);
+    await vi.waitFor(() => expect(peer.sentOf("Browser.close")).toHaveLength(1), { timeout: WAIT_MS });
+    let attempts = 0;
+    peer.answer("Browser.getVersion", (call) => {
+      attempts++;
+      if (!recovers || attempts < 12) throw new CdpFailure("The browser is restarting");
+      return call.fallback();
+    });
+    const waitsBefore = retryWaits;
+    const opening = run(t, client, id, open);
+    for (let attempt = 1; attempt < 12; attempt++) {
+      await vi.waitFor(() => expect(attempts).toBe(attempt), { timeout: WAIT_MS });
+      // The failed connection closes asynchronously; its retry timer must be armed before time moves.
+      await vi.waitFor(() => expect(retryWaits).toBe(waitsBefore + attempt), { timeout: WAIT_MS });
+      t.clock.advance(999);
+      expect(attempts).toBe(attempt);
+      t.clock.advance(1);
+    }
+    const result = await opening;
+    expect(attempts).toBe(12);
+    expect(result.answers[0]).toMatchObject({ isError: !recovers });
+    if (!recovers) expect(result.answers[0]?.text).toMatch(/twelve.*one.second.*person/);
+  });
+
+  it("checks heap every thirty seconds, closes oversized tabs least recently used first, and warns their sessions", async () => {
+    const { t, peer, client } = await withEndpoint();
+    const first = await sessionWith(client, HEADLESS);
+    const second = await sessionWith(client, HEADLESS);
+    const open: Call = ["browser_open", { address: "https://news.example/", snapshot: false }];
+    await run(t, client, first, open);
+    await run(t, client, second, open);
+    t.clock.advance(1_000);
+    await run(t, client, first, ["browser_screenshot"]);
+    const contexts = peer.sentOf("Target.createTarget").map((call) => call.params["browserContextId"]);
+    const targets = peer.targets().map((target) => target.targetId);
+    peer.answer("Runtime.getHeapUsage", ({ target }) => ({ usedSize: (target?.targetId === targets[0] ? 501 : 500) * 1024 * 1024 }));
+    t.clock.advance(28_999);
+    expect(peer.sentOf("Runtime.getHeapUsage")).toHaveLength(0);
+    t.clock.advance(1);
+    await vi.waitFor(() => expect(peer.sentOf("Target.disposeBrowserContext")).toHaveLength(1), { timeout: WAIT_MS });
+    expect(peer.sentOf("Target.disposeBrowserContext")[0]?.params["browserContextId"]).toBe(contexts[0]);
+    expect((await run(t, client, first, open, open)).answers.map((answer) => answer.isError)).toEqual([true, false]);
+    const newerContext = peer.sentOf("Target.createTarget").at(-1)?.params["browserContextId"];
+    expect((await status(client)).headless.liveContexts).toBe(2);
+    await setting(client, { "browser.headless.limits": { maxContexts: 2, idleMinutes: 10, tabHeapMb: 1, exitMinutes: 5 } });
+    peer.answer("Runtime.getHeapUsage", { usedSize: 2 * 1024 * 1024 });
+    t.clock.advance(30_000);
+    await vi.waitFor(() => expect(peer.sentOf("Target.disposeBrowserContext")).toHaveLength(3), { timeout: WAIT_MS });
+    expect(peer.sentOf("Target.disposeBrowserContext").slice(1).map((call) => call.params["browserContextId"])).toEqual([contexts[1], newerContext]);
+    const warned = await run(t, client, second, open);
+    expect(warned.answers[0]?.text).toMatch(/heap.*browser_open/);
+    expect(warned.answers[0]?.isError).toBe(true);
+  });
+
+  it("clears every foreign target and context on connection before making the session's context", async () => {
+    const { t, peer, client } = await withEndpoint();
+    const foreign = peer.createPage("https://forgotten.example/");
+    peer.answer("Target.getBrowserContexts", { browserContextIds: ["FOREIGN-CONTEXT"] });
+    const id = await sessionWith(client, HEADLESS);
+    const opened = await run(t, client, id, ["browser_open", { address: "https://news.example/", snapshot: false }]);
+    expect(opened.answers[0]).toMatchObject({ isError: false });
+    expect(peer.sentOf("Target.closeTarget")[0]?.params).toEqual({ targetId: foreign.targetId });
+    expect(peer.sentOf("Target.disposeBrowserContext")[0]?.params).toEqual({ browserContextId: "FOREIGN-CONTEXT" });
+    expect(peer.targets().map((target) => target.url)).toEqual(["https://news.example/"]);
+    const methods = peer.sent.map((command) => command.method);
+    expect(methods.indexOf("Target.disposeBrowserContext")).toBeLessThan(methods.indexOf("Target.createBrowserContext"));
+  });
+
+  it("gives back a deleted session's context so another session can open immediately", async () => {
+    const { t, peer, client } = await withEndpoint();
+    const first = await sessionWith(client, HEADLESS);
+    const second = await sessionWith(client, HEADLESS);
+    const third = await sessionWith(client, HEADLESS);
+    const open: Call = ["browser_open", { address: "https://news.example/", snapshot: false }];
+    await run(t, client, first, open);
+    await run(t, client, second, open);
+    await client.apply("sessions.delete", { commandId: randomUUID(), sessionId: first });
+    await vi.waitFor(async () => expect((await status(client)).headless.liveContexts).toBe(1), { timeout: WAIT_MS });
+    expect(peer.sentOf("Target.disposeBrowserContext")).toHaveLength(1);
+    expect((await run(t, client, third, open)).answers[0]).toMatchObject({ isError: false });
+  });
+
   it("gives each session a browser context of its own, sharing no cookies, counted in browser.status until browser_close disposes it", async () => {
     const { t, peer, client } = await withEndpoint();
     peer.document("https://shop.example/login", { cookies: [{ name: "session", value: "cookie-for-tests" }] });
@@ -464,6 +620,7 @@ describe("the tools on the headless path", () => {
     peer.inPage("selectFieldContents", () => "selected");
     peer.inPage("showsText", () => true);
     peer.inPage("readStorage", () => ({ origin: "https://shop.example", local: { theme: "dark" }, session: {} }));
+    peer.inPage("readPage", () => ({ article: "# Shop\n\nEverything for the garden, delivered on Thursdays." }));
     peer.answer("Runtime.evaluate", () => ({ result: { type: "number", value: 2 } }));
     const id = await sessionWith(client, HEADLESS);
 
@@ -491,9 +648,9 @@ describe("the tools on the headless path", () => {
 
     const names = ["open", "navigate", "snapshot", "click", "type", "read", "screenshot", "clickAt", "scroll", "waitFor", "console", "network", "cookies", "storage", "evaluate", "close"];
     const failed = names.filter((_, index) => answers[index]?.isError === true);
-    // The reader is #545's: until then the driver answers it with its sentence.
-    expect(failed).toEqual(["read"]);
+    expect(failed).toEqual([]);
     expect(answers[2]?.text).toContain('- heading "Shop" [level=1] [ref=e1]');
+    expect(answers[5]?.text).toContain("Everything for the garden, delivered on Thursdays.");
     expect(answers[6]?.images).toHaveLength(1);
     expect(answers[12]?.text).toContain('"value":"cookie-for-tests"');
     expect(answers[13]?.text).toContain("dark");

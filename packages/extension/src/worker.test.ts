@@ -258,7 +258,12 @@ describe("a worker that holds a credential", () => {
 
     socket.refuse(reload);
 
-    expect(await statusOnce(setup.chrome, (status) => status.state === "refused")).toEqual({ state: "refused", port: setup.environment.port, reason: reload });
+    // The worker says it was refused before its socket's close sets the retry, so the clock moves only once the retry waits.
+    expect(await statusOnce(setup.chrome, (status) => status.state === "refused" && setup.clock.pending() > 0)).toEqual({
+      state: "refused",
+      port: setup.environment.port,
+      reason: reload,
+    });
     expect(setup.chrome.storage.local.peek("pairing")).toEqual(pairingWith(setup.environment));
     setup.clock.advance(1_000);
     expect(await (await setup.environment.nextSocket()).next()).toMatchObject({ type: "hello" });

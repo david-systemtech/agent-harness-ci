@@ -213,7 +213,7 @@ describe("environment.subscribe's snapshot", () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
-    expect(results.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "instructions", "browser", "permissions", "appearance"]);
+    expect(results.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
     expect((await snapshot(t, client)).setup).toEqual(results);
   });
 

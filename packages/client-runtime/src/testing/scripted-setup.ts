@@ -1,4 +1,4 @@
-import { REGISTERED_STEP_IDS, STEP_ORDER, STEP_REGISTRY, StepResult, type StepId } from "@agent-harness/contracts";
+import { REGISTERED_STEP_IDS, STEP_ORDER, STEP_REGISTRY, StepResult, type StepId, type Step } from "@agent-harness/contracts";
 import type { FakeAnswer, FakeWire } from "./fake-wire.js";
 import type { ManualClock } from "./in-memory-platform.js";
 
@@ -47,7 +47,7 @@ export interface SetupHost {
 
 /** The environment's line for a step done: what its state checks hold, or its settings' (`environment/src/setup/check.ts`). */
 const doneReason = (id: StepId): string => {
-  const entry = STEP_REGISTRY.find((step) => step.id === id);
+  const entry: Step | undefined = STEP_REGISTRY.find((step) => step.id === id);
   return entry === undefined || entry.stateChecks.length === 0 ? "Every setting it writes holds a valid value." : entry.stateChecks.map((check) => check.holds).join(" ");
 };
 

@@ -18,6 +18,9 @@ const withField = (peer: Driven["peer"], editable = true): void => {
 
 const mouse = (peer: Driven["peer"]) => peer.sentOf("Input.dispatchMouseEvent").map(({ params }) => params);
 
+/** An in-page function's name, from the declaration the driver sent. */
+const nameOf = (declaration: unknown): string | undefined => /^function (\w+)/.exec(String(declaration))?.[1];
+
 describe.each(["web-socket", "pipe"] as const)("the page driver over %s", (wire) => {
   it("enables only Page at attach: open, navigate, screenshot, click and type send no Runtime.enable, Log.enable or Network.enable", async () => {
     const { peer, perform } = await driven({ wire });
@@ -111,9 +114,18 @@ describe("isolated worlds", () => {
     const worlds = peer.sentOf("Page.createIsolatedWorld");
     expect(worlds.map(({ params }) => params.worldName)).toEqual(["agent-harness", "agent-harness"]);
     const calls = peer.sentOf("Runtime.callFunctionOn");
-    expect(calls).toHaveLength(3);
+    // Each verb's own functions, and after each the check for a challenge on the page it left.
+    expect(calls.map(({ params }) => nameOf(params.functionDeclaration))).toEqual([
+      "pageChallenge",
+      "locateElement",
+      "pageChallenge",
+      "pageChallenge",
+      "locateElement",
+      "selectFieldContents",
+      "pageChallenge",
+    ]);
     // The world is made again for the new document: the first one went with the page it was made in.
-    expect(calls.map(({ params }) => params.executionContextId)).toEqual([1, 2, 2]);
+    expect(calls.map(({ params }) => params.executionContextId)).toEqual([1, 1, 1, 2, 2, 2, 2]);
     expect(calls.every(({ params }) => params.returnByValue === true && typeof params.functionDeclaration === "string")).toBe(true);
     expect(peer.sentOf("Runtime.evaluate")).toEqual([]);
   });
@@ -130,7 +142,8 @@ describe("isolated worlds", () => {
     });
     expect(await perform("click", { target: { selector: "#go" } })).toMatchObject({ ok: true });
     expect(peer.sentOf("Page.createIsolatedWorld")).toHaveLength(2);
-    expect(calls).toBe(2);
+    // The element located in the world made again, then the page the click left checked for a challenge.
+    expect(calls).toBe(3);
   });
 
   it("answers a sentence when the world is gone a second time, never throwing", async () => {
@@ -250,8 +263,8 @@ describe("click and type by selector", () => {
     withField(peer, false);
     await perform("open", { url: "https://example.com/" });
     expect(await perform("click", { target: { selector: "button.buy" } })).toEqual({ ok: true, value: { url: "https://example.com/", title: "" } });
-    expect(peer.sentOf("Runtime.callFunctionOn")[0]?.params.arguments).toEqual([{ value: { selector: "button.buy" } }]);
-    expect(String(peer.sentOf("Runtime.callFunctionOn")[0]?.params.functionDeclaration)).toMatch(/^function locateElement\(/);
+    const [located] = peer.sentOf("Runtime.callFunctionOn").filter(({ params }) => nameOf(params.functionDeclaration) === "locateElement");
+    expect(located?.params.arguments).toEqual([{ value: { selector: "button.buy" } }]);
     expect(mouse(peer)).toEqual([
       { type: "mouseMoved", x: 320, y: 240 },
       { type: "mousePressed", x: 320, y: 240, button: "left", buttons: 1, clickCount: 1 },
@@ -276,11 +289,11 @@ describe("click and type by selector", () => {
     withField(peer);
     await perform("open", { url: "https://example.com/" });
     expect(await perform("type", { target: { selector: "#email" }, text: "ada@example.com" })).toMatchObject({ ok: true });
-    const calls = peer.sentOf("Runtime.callFunctionOn").map(({ params }) => String(params.functionDeclaration).match(/^function (\w+)/)?.[1]);
-    expect(calls).toEqual(["locateElement", "selectFieldContents"]);
+    const calls = peer.sentOf("Runtime.callFunctionOn").map(({ params }) => nameOf(params.functionDeclaration));
+    expect(calls).toEqual(["pageChallenge", "locateElement", "selectFieldContents", "pageChallenge"]);
     expect(mouse(peer).map((event) => event.type)).toEqual(["mouseMoved", "mousePressed", "mouseReleased"]);
-    const order = peer.sent.map((command) => command.method);
-    expect(order.lastIndexOf("Runtime.callFunctionOn")).toBeLessThan(order.indexOf("Input.insertText"));
+    const order = peer.sent.map((command) => (command.method === "Runtime.callFunctionOn" ? nameOf(command.params.functionDeclaration) : command.method));
+    expect(order.indexOf("selectFieldContents")).toBeLessThan(order.indexOf("Input.insertText"));
     expect(peer.sentOf("Input.insertText")[0]?.params).toEqual({ text: "ada@example.com" });
   });
 
@@ -320,12 +333,6 @@ describe("click and type by selector", () => {
     });
     expect(await perform("type", { target: { selector: "#label" }, text: "x" })).toEqual({ ok: false, reason: "The element matching #label does not take typed text." });
     expect(mouse(peer)).toEqual([]);
-  });
-
-  it("says it cannot read a page as text yet", async () => {
-    const { perform } = await driven();
-    await perform("open", {});
-    expect(await perform("read", {})).toEqual({ ok: false, reason: "This browser cannot read a page as text yet. Take a screenshot to see the page." });
   });
 });
 
@@ -393,7 +400,7 @@ describe("click at a point, scroll and wait", () => {
     shown = true;
     clock.advance(250);
     expect(await answer).toEqual({ ok: true, value: { url: "about:blank", title: "" } });
-    expect(peer.sentOf("Runtime.callFunctionOn")).toHaveLength(2);
+    expect(peer.sentOf("Runtime.callFunctionOn").filter(({ params }) => nameOf(params.functionDeclaration) === "showsText")).toHaveLength(2);
   });
 
   it("finds text only a cross-site frame shows, reading every frame of the page", async () => {
