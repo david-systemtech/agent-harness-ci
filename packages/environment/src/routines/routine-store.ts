@@ -388,6 +388,7 @@ interface RoutineRow {
   saved_by: string;
   created_at: string;
   edited_at: string | null;
+  definition_sequence: number;
   moved_from: string | null;
   moved_to: string | null;
   last_outcome: string | null;
@@ -406,7 +407,9 @@ export interface StoredRoutine {
 
 /** A routine's row with its live firing's entry beside it. */
 const SELECT_ROUTINES = `SELECT r.id, r.definition, r.saved_under_ceiling, r.saved_by, r.created_at, r.edited_at, r.moved_from, r.moved_to,
-  r.last_outcome, r.failure_streak, r.baseline, r.handled_through, e.entry AS live_entry
+  r.last_outcome, r.failure_streak, r.baseline, r.handled_through, e.entry AS live_entry,
+  (SELECT sequence FROM events WHERE stream_kind = '${ROUTINE_STREAM_KIND}' AND stream_id = r.id
+    AND type IN ('routine.created', 'routine.edited', 'routine.enabled', 'routine.disabled') ORDER BY sequence DESC LIMIT 1) AS definition_sequence
   FROM routines r LEFT JOIN routine_entries e ON e.id = r.live_firing`;
 
 /** A live firing as the state names it, from its entry. */
@@ -433,6 +436,7 @@ const storedOf = (row: RoutineRow): StoredRoutine => ({
     savedBy: row.saved_by,
     createdAt: row.created_at,
     editedAt: row.edited_at,
+    definitionSequence: row.definition_sequence,
     movedFrom: parsed<RoutineMoveLink>(row.moved_from),
     movedTo: parsed<RoutineMoveLink>(row.moved_to),
     baseline: baselineOf(row.baseline),

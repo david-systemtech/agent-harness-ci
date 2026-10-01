@@ -311,6 +311,7 @@ export type {
   TasksEntry,
   ToolCallEntry,
   TranscriptEntry,
+  UpdateInterruptedEntry,
   UserMessageEntry,
 } from "./projections/session.js";
 export {
@@ -368,6 +369,7 @@ export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
 export {
   callsRowId,
+  environmentMessage,
   folded,
   forkedFrom,
   lastReply,
@@ -377,6 +379,7 @@ export {
   rewoundRowId,
   transcriptRows,
   undoableFold,
+  updateInterruptedText,
   type ForkedFrom,
   type TranscriptRow,
 } from "./transcript/rows.js";
@@ -488,7 +491,6 @@ export {
   oneOffMessage,
   reusableTerminal,
   runOneOff,
-  shownEnv,
   type OneOffDeps,
   type OneOffResult,
   type OneOffTarget,
@@ -665,3 +667,6 @@ export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/action
 export type { ToolRunsView } from "./managed-tools/tool-runs.js";
 
 export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
+
+export { terminalAnswers } from "./terminals/answers.js";
+export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";

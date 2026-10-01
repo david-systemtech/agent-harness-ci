@@ -110,7 +110,7 @@ export interface VerifyOptions {
 /** What a read of a reference answered: its value, or why there is none. */
 export type ReadAnswer = { readonly outcome: "read"; readonly value: string } | ProviderFailure;
 
-/** Where a list looks: a KV mount and a path under it, null for the mount's top; no mount lists the mounts. */
+/** Where a list looks: an OpenBao KV mount and path, or a Doppler project and config; null omits each. */
 export interface ListLocation {
   readonly mount: string | null;
   readonly path: string | null;
@@ -119,7 +119,7 @@ export interface ListLocation {
 /** What a list answered: the names under the location, a folder's or a mount's ending in `/`; never a value. */
 export type ListAnswer = { readonly outcome: "listed"; readonly names: readonly string[] } | ProviderFailure;
 
-/** Where a secret sits for a write or a write check (#371): a KV mount and a path under it. */
+/** Where a secret sits for a write check: an OpenBao KV mount and path, or a Doppler project and config (empty omits either). */
 export interface SecretLocation {
   readonly mount: string;
   readonly path: string;

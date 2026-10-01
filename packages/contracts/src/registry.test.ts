@@ -136,6 +136,7 @@ describe("the method registry", () => {
     const terminalMethods = methods.filter((m) => /^(terminals|files|diffs)\./.test(m.name));
     expect(Object.fromEntries(terminalMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "terminals.open": ["command", "terminal"],
+      "terminals.run": ["command", "terminal"],
       "terminals.write": ["command", "terminal"],
       "terminals.resize": ["command", "terminal"],
       "terminals.close": ["command", "terminal"],
@@ -273,6 +274,7 @@ describe("the method registry", () => {
       "carryOver.assignMemory",
       "stateImport.run",
       "terminals.open",
+      "terminals.run",
       "terminals.write",
       "terminals.resize",
       "terminals.close",
@@ -517,6 +519,7 @@ describe("the method registry", () => {
       | "stateImport.detect"
       | "stateImport.run"
       | "terminals.open"
+      | "terminals.run"
       | "terminals.write"
       | "terminals.resize"
       | "terminals.close"

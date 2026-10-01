@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScopeFile",
+  "type": "object",
+  "properties": {
+    "line": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "The folder's breadcrumb one-liner, at most 100 characters."
+    },
+    "topics": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "description": "A topic's name: a lower-case slug, the folder under memories/ its memories nest in."
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "pattern": "^[^\\r\\n]*$"
+      },
+      "description": "The folder's declared topics, each a lower-case slug mapped to its one-liner of at most 100 characters; {} for none."
+    },
+    "repos": {
+      "description": "The repository identities whose sessions open with this folder expanded.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+        "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+      }
+    }
+  },
+  "required": [
+    "line",
+    "topics"
+  ],
+  "description": "A project's PROJECT.md or an area's AREA.md frontmatter: line, topics and repos."
+}

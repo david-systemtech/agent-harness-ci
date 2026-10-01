@@ -289,6 +289,17 @@ describe("a routine's state", () => {
     for (const field of Object.keys(state)) expect(RoutineState.safeParse(without(state, field)).success, field).toBe(false);
   });
 
+  it("carries a saved definition sequence and a move's source snapshot, while accepting older states without them", () => {
+    const linked = { ...state, definitionSequence: 12, movedFrom: { environmentId: otherEnvironment, routineId, at, definitionSequence: 7 } };
+    expect(RoutineState.parse(linked)).toEqual(linked);
+    expect(RoutineState.parse(state)).toEqual(state);
+    for (const invalid of [0, -1, 1.5]) {
+      expect(RoutineState.safeParse({ ...state, definitionSequence: invalid }).success).toBe(false);
+      expect(RoutineState.safeParse({ ...linked, movedFrom: { ...linked.movedFrom, definitionSequence: invalid } }).success).toBe(false);
+    }
+    expect(registry["routines.import"].params.parse({ commandId: firingId, yaml: "routine", movedFrom: { environmentId: otherEnvironment, routineId, definitionSequence: 7 } })).toMatchObject({ movedFrom: { definitionSequence: 7 } });
+  });
+
   it("holds the pre-check baseline's hash and time, handledThrough, the live firing, the last outcome and the failure streak", () => {
     const fresh = { ...state, baseline: null, handledThrough: null, liveFiring: null, lastOutcome: null, failureStreak: 0 };
     expect(RoutineState.safeParse(fresh).success).toBe(true);

@@ -21,6 +21,8 @@ import { modesProjection, type ModePicker } from "./projections/modes.js";
 import { PRESET_SETTING_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
+import { createRoutineSettlement } from "./routine-settlement.js";
+import { createRoutineMoves } from "./routine-moves.js";
 import { createSkillsCopies } from "./skills-copy.js";
 import { createKeyManagers } from "./key-managers.js";
 import { reportKnownEnvironments } from "./known-environments.js";
@@ -321,6 +323,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     askedAt: (environmentId) => requestCache.askedAt(environmentId, "routines.list", {}),
   });
   registry.seams.onForget((environmentId) => routines.forget(environmentId));
+  const routineSettlement = createRoutineSettlement({ routines: routines.view, call, dispatch: outbox.dispatch, admits: outbox.admits, report });
   const routineHistories = memo((key): RoutineHistory => {
     const [environmentId, routineId] = key.split(" ") as [string, string];
     const host = {
@@ -392,7 +395,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
       toolRuns: (environmentId) => toolRuns.view(environmentId),
-      routines: routines.view,
+      routines: routineSettlement.view,
       routineHistory: (environmentId, routineId) => routineHistories(`${environmentId} ${routineId.toLowerCase()}`),
       browsers: (environmentId, sessionId) => browsers(`${environmentId} ${sessionId.toLowerCase()}`),
     },
@@ -403,6 +406,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
     },
     commands: {
+      ...createRoutineMoves({
+        capability, admits: outbox.admits, reserve: routineSettlement.reserve, call, dispatch: outbox.dispatch,
+        cached: (environmentId, routineId) => requestCache.peek(environmentId, "routines.list", {})?.routines.find(r => r.state.id === routineId) ?? null,
+        pendingMove: (environmentId, routineId) => outbox.view.read().get(environmentId)?.entries.some(entry => entry.method === "routines.disable" && String(entry.params["routineId"]).toLowerCase() === routineId && entry.params["movedTo"] !== undefined) ?? false,
+      }),
       ...createSkillsCopies({ clock: platform.clock, call, capability, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null, targetIds: (environmentId) => copyTargetsOf(registry.list.read(), environmentId).map((target) => target.environmentId) }),
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
@@ -426,6 +434,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     capability,
     close() {
       closing ??= (async () => {
+        routineSettlement.close();
         desktopUpdate.close();
         registry.close();
         terminals.close();

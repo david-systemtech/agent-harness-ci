@@ -24,6 +24,7 @@ export type RoutinesCommand =
 export const ROUTINE_KEYS = [
   "routines.runNow",
   "routines.enable",
+  "routines.move",
   "routines.history",
   "routines.export",
   "routines.edit",
