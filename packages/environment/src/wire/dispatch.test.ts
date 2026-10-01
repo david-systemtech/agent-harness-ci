@@ -236,6 +236,30 @@ describe("dispatch", () => {
     quiet.mockRestore();
   });
 
+  it("prepares again when its facts changed before the transaction and discards the stale preparation", async () => {
+    const log = memoryLog();
+    const stream = { kind: "environment", id: "e" };
+    const order: string[] = [];
+    let current = false;
+    const dispatch = createDispatch(createMethodTable({
+      "environment.drain": {
+        prepare: (_params, context) => {
+          const fresh = current;
+          order.push(fresh ? "prepare current" : "prepare stale");
+          context.onUndo(() => { order.push("undo stale"); current = true; });
+          return Object.assign(() => {
+            order.push(fresh ? "apply current" : "apply stale");
+            return { aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" as const } };
+          }, { isCurrent: () => fresh });
+        },
+      },
+    }), log);
+    const answers: Answer[] = [];
+    await dispatch(request("environment.drain", { commandId: crypto.randomUUID() }), caller(["admin"]), (given) => void answers.push(given), vi.fn());
+    expect(order).toEqual(["prepare stale", "undo stale", "prepare current", "apply current"]);
+    expect(answers[0]).toMatchObject({ result: { receipt: { status: "accepted" } } });
+  });
+
   it("runs what a prepare registered to undo when its command is not accepted, newest first, and never once a receipt under its key says accepted", async () => {
     const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const log = memoryLog();
