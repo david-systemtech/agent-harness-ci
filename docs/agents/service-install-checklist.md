@@ -215,6 +215,7 @@ with `read:repository`, set in the session first:
 7. From a PowerShell run as administrator: it refuses before any download, naming the elevated shell.
 8. With a name holding an `&` and no space (`-Name "R&D"`), the environment's name reads `R&D`: no argument passed through `cmd.exe`.
 9. `agent-harness service uninstall` leaves no task behind.
+10. A name with double quotes and a data directory with a space and a trailing backslash (#839), run in the session as the card's line runs it, since a `powershell -File` line typed in PowerShell mangles the name on its way to the new process before the script runs: `& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Name 'The "big" box' -DataDir 'D:\agent data\'` (any drive). The environment's name reads `The "big" box`, the version is unpacked in `D:\agent data\versions` beside its `service-state.json`, no folder named `agent data"` appears, and the run ends with a pairing. Under `pwsh`, run it again after `$PSNativeCommandArgumentPassing = 'Legacy'`, with the same result. Then stop the service (`service stop --data-dir 'D:\agent data'`), and in `pwsh` with `$PSNativeCommandUseErrorActionPreference = $true` set first run the line with `-Version 9.9.9` added: it ends with `could not read release v9.9.9 from …`, `$LASTEXITCODE` is 1, and PowerShell prints no `ended with non-zero exit code` error. Uninstall it as step 9 does, with `--data-dir 'D:\agent data'`.
 
 ## Container (the image and `scripts/compose.yaml`)
 
