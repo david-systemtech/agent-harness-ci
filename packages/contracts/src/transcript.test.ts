@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
+import { capabilities } from "../test/run-fixtures.js";
 import {
   AdapterCapabilities,
   AttachmentInput,
@@ -268,6 +269,11 @@ describe("the per-session snapshot", () => {
 });
 
 describe("the adapter's transport-neutral schemas", () => {
+  it("publishes whether an adapter can withdraw a provider-held message independently of its queue", () => {
+    const descriptor = AdapterCapabilities.parse({ ...capabilities, withdraw: false });
+    expect(descriptor).toMatchObject({ providerQueue: true, withdraw: false });
+  });
+
   it("describe the capabilities descriptor with a flag per optional power, the instruction channel, whether the provider loads a trusted repository's instructions (#500) and which of its skill roots (#495) itself, and the modes", () => {
     for (const name of CAPABILITY_FLAGS) expect(AdapterCapabilities.shape[name], name).toBeDefined();
     expect(Object.keys(AdapterCapabilities.shape)).toEqual(["provider", "displayName", ...CAPABILITY_FLAGS, "instructionChannel", "nativeProjectInstructions", "nativeSkillRoots", "modes"]);

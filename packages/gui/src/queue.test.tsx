@@ -302,7 +302,7 @@ describe("a refusal from the environment", () => {
     const { app, env, transcript } = await withQueue(
       {
         receipts: {
-          "runs.withdraw": { rejected: "invalid_params", message: reason, data: { reason: "unsupported", capability: "providerQueue", provider: "claude" } },
+          "runs.withdraw": { rejected: "invalid_params", message: reason, data: { reason: "unsupported", capability: "withdraw", provider: "claude" } },
           "runs.readNow": { rejected: "conflict", message: "The run has already ended." },
         },
       },

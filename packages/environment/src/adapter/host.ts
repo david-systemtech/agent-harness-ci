@@ -2138,7 +2138,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /** Asks `run`, the live run `entry` as `withdraw` found it, to take message `messageId` back (#228). */
   const withdrawThrough = async (entry: LiveRun, run: AdapterRun, messageId: string): Promise<{ readonly withdrawn: boolean }> => {
-    const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
+    const withdraw = capability(entry.descriptor, "withdraw", run.withdraw, "withdraw a queued message", "withdraw");
     const interruption = entry.interruption;
     // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
     // starts from the queue once the message is back in it, or the run of a read-now whose interrupt took it.
@@ -2149,7 +2149,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     } catch (error) {
       withdrawing.delete(messageId);
       if (error instanceof WithdrawUnsupported) {
-        throw unsupported(entry.descriptor, "providerQueue", ["messageId"], "withdraw a queued message", error.message);
+        throw unsupported(entry.descriptor, "withdraw", ["messageId"], "withdraw a queued message", error.message);
       }
       console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
       throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });

@@ -134,7 +134,7 @@ export interface ScriptedCdpPeer {
   sentOf(method: string): SentCommand[];
   /** Answers `method` from now on as given, in place of the stock answer. */
   answer(method: string, answer: CommandAnswer): void;
-  /** Answers the in-page function called `name` from now on (stock: undefined). */
+  /** Answers the in-page function called `name` from now on (stock: undefined); what `answer` throws comes back as Chrome sends a page's exception, described by its stack. */
   inPage(name: string, answer: (call: InPageCall) => unknown): void;
   /** Describes what an address serves: its title, a redirect, where it is served from, its frames. */
   document(url: string, document: ScriptedDocument): void;
@@ -684,7 +684,9 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
           });
           return { result: remoteValue(value) };
         } catch (error) {
-          const description = `Error: ${error instanceof Error ? error.message : String(error)}`;
+          // V8 describes an error by its stack, its name and message first; an error made in a jsdom window is not this realm's `Error`.
+          const stack = (error as { stack?: unknown } | null)?.stack;
+          const description = typeof stack === "string" ? stack : `Error: ${String(error)}`;
           return {
             result: { type: "object", subtype: "error", className: "Error", description },
             exceptionDetails: { exceptionId: 1, text: "Uncaught", lineNumber: 0, columnNumber: 0, exception: { type: "object", subtype: "error", className: "Error", description } },
