@@ -75,7 +75,7 @@ describe("a queued message", () => {
     expect(kindOf(holding.transcript, "use the other parser")).toBe("Queued message");
   });
 
-  it("names its attachments", async () => {
+  it("names its attachments as the transcript does, each with its size", async () => {
     const { env, transcript, session, runId } = await withQueue({});
     env.emit(session, "message.sent", {
       runId,
@@ -87,7 +87,7 @@ describe("a queued message", () => {
       ceiling: "bypassPermissions",
     });
     await waitFor(() => expect(kindOf(transcript, "look at this")).toBe("Queued message"));
-    expect(within(articleOf(transcript, "look at this") as HTMLElement).getByText("shot.png")).toBeTruthy();
+    expect(within(articleOf(transcript, "look at this") as HTMLElement).getByText("shot.png · 2 KB")).toBeTruthy();
   });
 
   it("keeps its place when an interrupt re-owns it, and stays after its turn once the run has ended", async () => {

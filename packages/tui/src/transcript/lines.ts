@@ -1,5 +1,6 @@
 import {
   TOOL_QUIET_MS,
+  attachmentChip,
   classifyTool,
   describeActivity,
   endWords,
@@ -18,7 +19,7 @@ import {
   type TranscriptRow as Row,
   type VerbAvailability,
 } from "@agent-harness/client-runtime";
-import type { RunSummary } from "@agent-harness/contracts";
+import type { AttachmentRecord, RunSummary } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { DiffBand } from "../theme/colours.js";
 
@@ -359,12 +360,20 @@ const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext
   return block(row.id, { text: "⑂", color: TERMINAL_ROLES.machine }, [head], context.width, true);
 };
 
+/**
+ * An attachment sent with a message as the terminal draws it, in the
+ * transcript and on the queued line alike: its kind and its chip
+ * (`[image screen.png · 1 KB]`), never the picture, whose bytes the log
+ * does not hold (#473).
+ */
+export const terminalChip = (attachment: AttachmentRecord): string => `[${attachment.kind} ${attachmentChip(attachment)}]`;
+
 /** The lines of one row. */
 export const rowLines = (row: Row, context: LineContext): Line[] => {
   const { width } = context;
   switch (row.kind) {
     case "user": {
-      const chips = row.entry.attachments.map((a): Span[] => [{ text: `[${a.kind} ${a.name} · ${Math.max(1, Math.round(a.size / 1024))} KB]`, dim: true }]);
+      const chips = row.entry.attachments.map((a): Span[] => [{ text: terminalChip(a), dim: true }]);
       return block(row.id, { text: "▌", color: TERMINAL_ROLES.machine }, [...paragraphs(row.entry.text, { bold: true }), ...chips], width, true);
     }
     case "assistant": {
