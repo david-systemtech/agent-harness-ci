@@ -125,6 +125,7 @@ import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto
 import { badgesOf } from "./rail/badge.js";
 import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
+import { sessionBrowserPicker } from "./rail/browser.js";
 import { useRail } from "./rail/use-rail.js";
 import { isFullPath } from "./rail/workspace-step.js";
 import type { RoutinesCard } from "./routines/cards.js";
@@ -1324,6 +1325,10 @@ export const App = (props: AppProps) => {
         return true;
       case "resume":
         update({ card: { kind: "sessions", cursor: 0, filter: "" } });
+        return true;
+      case "browser":
+        if (opened === null) noSession();
+        else update({ card: { kind: "picker", picker: sessionBrowserPicker(runtime, opened.environmentId, opened.sessionId, say) } });
         return true;
       case "new":
         newSession();

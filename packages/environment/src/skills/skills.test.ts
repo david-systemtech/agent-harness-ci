@@ -102,6 +102,7 @@ describe("the reader", () => {
       problems: [],
       warnings: [],
       shadowedBy: null,
+      native: false,
       enabled: true,
       alwaysOn: false,
       choices: [],
@@ -302,7 +303,7 @@ describe("skills.own.create", () => {
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { member } });
     expect(readFileSync(join(own, "skills", "tdd", "SKILL.md"), "utf8")).toBe('---\nname: "tdd"\ndescription: "Test-driven development: red, then green."\n---\n\n# tdd\n');
     expect(notices(t)).toEqual([expect.objectContaining({ commandId, actor: `client_session:${client.hello.clientSessionId}` })]);
-    expect((await get(client)).members).toEqual([{ ...member, shadowedBy: null, enabled: true, alwaysOn: false, choices: [] }]);
+    expect((await get(client)).members).toEqual([{ ...member, shadowedBy: null, native: false, enabled: true, alwaysOn: false, choices: [] }]);
     // The create's own notice stands for the change: the read after it finds nothing new.
     expect(notices(t)).toHaveLength(1);
   });
@@ -362,7 +363,7 @@ describe("skills.own.remove", () => {
     const commandId = randomUUID();
 
     const answer = await removeSkill(client, "tdd", commandId);
-    expect(answer.result?.member).toEqual({ ...created, shadowedBy: undefined, enabled: undefined, alwaysOn: undefined, choices: undefined });
+    expect(answer.result?.member).toEqual({ ...created, native: undefined, shadowedBy: undefined, enabled: undefined, alwaysOn: undefined, choices: undefined });
     expect(existsSync(join(own, "skills", "tdd"))).toBe(false);
     expect(trashed(t)).toEqual([expect.stringMatching(/^\d+-[0-9a-f-]+\/tdd$/)]);
     const [entry] = trashed(t);
