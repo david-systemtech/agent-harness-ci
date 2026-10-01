@@ -44,7 +44,6 @@ import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
-import { describeRepositoryAt } from "../banks/describe-repository.js";
 import { createBankCredentials } from "../banks/credentials.js";
 import { createBankService, type BankService } from "../banks/bank-service.js";
 import { PROVIDER_NAMES as KEY_MANAGER_NAMES } from "../key-managers/provider.js";
@@ -1042,8 +1041,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (options.moveSources === undefined) moves.register(createBankMoveSource(log, vault, bankCredentials));
   closers.push(() => bankCredentials.close());
   const bankService = createBankService({
-    describeRepository: (checkout) => describeRepositoryAt(dataDir, checkout),
-    log, clock, environmentId: record.id, forge, credentials: bankCredentials,
+    log, clock, environmentId: record.id, forge, dataDir, scrub, credentials: bankCredentials,
     creation: {
       dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
       keyManager: () => {
