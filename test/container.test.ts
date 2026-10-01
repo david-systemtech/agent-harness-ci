@@ -119,6 +119,13 @@ describe("the container image", () => {
     expect(header).toContain("linux/amd64");
   });
 
+  it("installs openssh-client in its last stage, so an ssh or scp URL no forge account covers is probed over ssh as written (#874)", () => {
+    const installed = finalStage()
+      .filter((line) => /^RUN .*\bapt-get install\b/.test(line))
+      .flatMap((line) => line.split(/\s+/));
+    expect(installed).toContain("openssh-client");
+  });
+
   it("starts the environment with serve on /data, as that user", () => {
     const stage = finalStage();
     expect(stage.at(-2)).toBe('ENTRYPOINT ["agent-harness"]');
