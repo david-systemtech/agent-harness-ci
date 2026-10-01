@@ -100,7 +100,7 @@ const MINUTE_MS = 60_000;
 export const STOP_WAIT_MS = 5 * MINUTE_MS;
 
 /** Who the coordinator's own notices name: the environment's updates, never a client. */
-const UPDATES_ACTOR = formatActor({ kind: "system", id: "updates" });
+export const UPDATES_ACTOR = formatActor({ kind: "system", id: "updates" });
 
 export interface UpdateCoordinatorOptions {
   readonly log: EventLog;

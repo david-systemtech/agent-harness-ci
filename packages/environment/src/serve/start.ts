@@ -34,6 +34,7 @@ import {
   type EnvironmentStatus,
   type HealthDocument,
   type MintedPairing,
+  type ReleaseChannel,
   type ReleaseSource,
   type ToolCommandEntry,
 } from "@agent-harness/contracts";
@@ -110,6 +111,7 @@ import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { createHostUpdaterPolls } from "../updates/host-updater.js";
 import { updateMethods } from "../updates/methods.js";
+import { writeStartingChannel } from "../updates/starting-channel.js";
 import { createUpdateRoute } from "../updates/route.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
@@ -196,7 +198,7 @@ import { systemClock, type Clock } from "./clock.js";
 import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
-import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
+import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
 import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
@@ -292,6 +294,8 @@ export interface EnvironmentOptions {
   readonly port?: number;
   /** The name a new environment is created with; preset: the hostname's first label. An existing environment keeps its own. */
   readonly name?: string;
+  /** The release channel a new environment starts on, its `updates.channel` written at the start that creates it (#846); preset: the setting's. An existing environment keeps its own. */
+  readonly channel?: ReleaseChannel;
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
   /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
@@ -847,7 +851,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const { record, vault, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
-    const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
+    const { record: loaded, created } = loadOrCreateRecord(dataDir, name, now);
+    // The channel a new environment starts on (#846), at the start that creates it alone: a later start keeps the one set since.
+    if (created && options.channel !== undefined) writeStartingChannel(log, loaded.id, options.channel);
     const { vault: chosen, reason } =
       options.vault === undefined
         ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding: loadKeychainBinding })
