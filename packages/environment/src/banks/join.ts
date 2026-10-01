@@ -23,16 +23,17 @@ interface BankJoinOptions {
 /** A validated temporary clone, shallow and within the git budget for preview, full for joining. */
 const withBankClone = async <Value>(options: Pick<BankJoinOptions, "forge" | "scrub">, url: string, shallow: boolean, use: (checkout: string, preview: BankJoinPreview) => Promise<Value>, signal?: AbortSignal): Promise<Value> => {
   const { forge, scrub } = options;
+  const purpose = shallow ? "preview a memory bank" : "join a memory bank";
   const remote = normaliseRemote(url);
   if (remote?.path == null) throw new ContractError(invalidParams([], "The join URL must name a repository on a forge."));
-  const capabilities = await forge.repositories.capabilities({ origin: url, repository: remote.path, purpose: "preview a memory bank", ...(signal !== undefined && { signal }) });
+  const capabilities = await forge.repositories.capabilities({ origin: url, repository: remote.path, purpose, ...(signal !== undefined && { signal }) });
   if (capabilities.outcome === "refused") throw new ContractError(capabilities.error);
   if (capabilities.outcome === "unreachable") throw new ContractError({ code: "unreachable", message: capabilities.message, data: { origin: remote.origin } });
   if (capabilities.outcome === "done" && !capabilities.value.canRead) throw new ContractError({ code: "not_found", message: "This forge account cannot read the bank repository.", data: {} });
   if (capabilities.outcome === "failed") throw new ContractError({ code: "not_found", message: `The bank repository could not be read (HTTP ${capabilities.status}).`, data: {} });
   const directory = await mkdtemp(join(tmpdir(), "agent-harness-bank-preview-"));
   try {
-    const cloned = await forge.git({ operation: "clone", repository: url, cwd: directory, directory: "bank", ...(shallow && { depth: 1, timeoutMs: CHECK_BUDGET_SECONDS.git * 1000 }), ...(signal !== undefined && { signal }), purpose: "preview a memory bank" });
+    const cloned = await forge.git({ operation: "clone", repository: url, cwd: directory, directory: "bank", ...(shallow && { depth: 1, timeoutMs: CHECK_BUDGET_SECONDS.git * 1000 }), ...(signal !== undefined && { signal }), purpose });
     if (cloned.outcome === "refused") throw new ContractError(cloned.error);
     if (!cloned.git.ok) throw new ContractError({ code: "unreachable", message: "The bank's temporary clone could not be read.", data: { origin: remote.origin } });
     const files = await readBankFiles(join(directory, "bank"), "HEAD", signal === undefined ? {} : { signal });

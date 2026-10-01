@@ -5,8 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import { changed, markdown, memory, PERSONAL_BANK, personalManifest, scopeFile, TEAM_BANK, teamManifest } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge } from "../../test/fake-forge.js";
-import { DAVID, TOKEN, added } from "../../test/forge.js";
+import { DAVID, TOKEN, added, update } from "../../test/forge.js";
 import { startTestEnvironment } from "../../test/helper.js";
+import { scriptedKeyManagers } from "../../test/key-managers.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -23,15 +24,30 @@ const setup = async (push = true, files: Readonly<Record<string, string>> = TEAM
   writeFileSync(helper, `#!/bin/sh\ncat > /dev/null\nprintf 'username=${username}\\npassword=token-for-tests\\n'\n`);
   chmodSync(helper, 0o755);
   const signals = new Map<string, AbortSignal | null | undefined>();
+  const keyManagers = scriptedKeyManagers();
+  const reference = { provider: "openbao" as const, connectionId: randomUUID(), mount: "personal", path: "harness/forge-work", key: "token" };
+  keyManagers.answer(reference, TOKEN);
   const t = await startTestEnvironment({ forgeFetch: (url, init) => {
     signals.set(new URL(url).pathname, init.signal);
     return forge.fetch(url, init);
-  }, harnessCommand: [helper] });
+  }, harnessCommand: [helper], keyManagers: keyManagers.registry });
   onCleanup(() => t.close());
   const client = await t.client();
-  await added(client, { url: forge.origin, kind, slug: "team" });
-  return { t, client, forge, signals, url: `${forge.origin}/acme/memory.git` };
+  const account = await added(client, { url: forge.origin, kind, slug: "team" });
+  return { t, client, forge, signals, keyManagers, reference, account, url: `${forge.origin}/acme/memory.git` };
 };
+
+it("names preview and join credential reads for the operation the caller requested", async () => {
+  const { client, keyManagers, reference, account, url } = await setup();
+  await update(client, { forgeAccountId: account.id, credential: { kind: "reference", reference } });
+  const before = keyManagers.requests.length;
+  await client.request("banks.join.preview", { url });
+  const answer = await client.request("banks.join", { commandId: randomUUID(), bankId: randomUUID(), url, accounts: [], repositories: "all" });
+  expect(answer.receipt.status).toBe("accepted");
+  expect(keyManagers.requests.slice(before).filter((request) => request.purpose !== "verify a memory bank").map((request) => request.purpose)).toEqual([
+    "preview a memory bank", "join a memory bank",
+  ]);
+});
 
 describe("banks.join.preview", () => {
   it("shows the bank and this origin's read/push access without registering or attaching anything", async () => {
