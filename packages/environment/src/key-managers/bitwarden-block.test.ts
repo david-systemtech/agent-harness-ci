@@ -1,18 +1,20 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { BITWARDEN_TEST_TOKEN } from "../../test/fake-bitwarden.js";
-import { installFakeBws } from "../../test/fake-bws.js";
-import { BWS_INVOCATION, bitwardenBlock } from "./bitwarden-block.js";
+import { type FakeBwsVersion, installFakeBws } from "../../test/fake-bws.js";
+import { composeRunEnvironment } from "../adapters/claude/credentials.js";
+import { BWS_INVOCATION, bitwardenHolderBlock } from "./bitwarden-block.js";
 
 /**
- * The Bitwarden block against bws's own option parsing (#1123): the fake bws
- * resolves its configuration file and profile as bws 0.3.0, the floor, does,
- * so what it records is where the real CLI would read and write. A host with
- * its own `~/.bws/config` and `BWS_PROFILE` stands beside the block, run
- * through a shell as a run's commands are.
+ * The Bitwarden block against bws's own option parsing (#1123) and state
+ * file (#1141): the fake bws resolves its configuration file, profile, server
+ * and state file as each release does, so what it records is where the real
+ * CLI would read and write. A host with its own `~/.bws/config` and stray
+ * `BWS_` variables stands beside the block, laid over it as a Claude
+ * process's environment is, and run through a shell as a run's commands are.
  */
 
 const { tempDir } = useCleanups();
@@ -21,49 +23,81 @@ const { tempDir } = useCleanups();
 const posix = describe.runIf(process.platform !== "win32");
 
 const SECRET_ID = "00000000-0000-4000-8000-000000000000";
+const ADDRESS = "https://bitwarden.test";
+/** The host's own configuration, with a `default` profile, the one bws falls back to when no profile is named. */
+const HOST_CONFIG = '[profiles.default]\nserver_base = "https://stray.test"\n\n[profiles.stray-profile-for-tests]\nserver_base = "https://stray.test"\n';
+/** Every release the fake models, from the 0.3 floor. */
+const RELEASES: FakeBwsVersion[] = ["0.3.0", "0.4.0", "0.5.0", "1.0.0", "2.0.0", "2.1.0"];
+/** The access token id the fake names a state file after for the suites' plain token. */
+const TOKEN_ID = "access-token-id-for-tests";
 
-/** A host with its own bws configuration and profile, the block laid over its environment as the process environment lays it. */
-const hostWithBlock = () => {
-  const cli = installFakeBws(join(tempDir(), "bin"));
+/** A host with its own bws configuration and stray variables, and a holder's folder with the block the supplier gives it. */
+const hostWithBlock = async (version: FakeBwsVersion) => {
+  const cli = installFakeBws(join(tempDir(), "bin"), version);
   const home = tempDir();
   mkdirSync(join(home, ".bws"));
-  writeFileSync(join(home, ".bws", "config"), '[profiles.stray-profile-for-tests]\nserver_base = "https://stray.test"\n');
-  const configPath = join(tempDir(), "bitwarden.config");
-  writeFileSync(configPath, "", { mode: 0o600 });
-  const env = {
+  writeFileSync(join(home, ".bws", "config"), HOST_CONFIG);
+  const holder = tempDir();
+  const block = await bitwardenHolderBlock(holder, ADDRESS, BITWARDEN_TEST_TOKEN);
+  const host = {
     PATH: `${cli.directory}${delimiter}${process.env.PATH ?? ""}`,
     HOME: home,
     BWS_PROFILE: "stray-profile-for-tests",
-    ...bitwardenBlock("https://bitwarden.test", BITWARDEN_TEST_TOKEN, configPath),
+    BWS_SERVER_URL: "https://stray.test",
+    BWS_CONFIG_FILE: join(home, ".bws", "config"),
   };
-  const shell = (line: string) => execFileSync("/bin/sh", ["-c", line], { env, encoding: "utf8" });
-  return { cli, home, configPath, shell };
+  const env = composeRunEnvironment(host, tempDir(), {}, block);
+  const shell = (line: string, overrides: Record<string, string> = {}) => execFileSync("/bin/sh", ["-c", line], { env: { ...env, ...overrides }, encoding: "utf8" });
+  return { cli, home, holder, block, shell };
 };
 
 posix("the documented bws invocation", () => {
-  it("reads the block's empty configuration and profile for each command shape, never the host's, the token in the environment alone", () => {
-    const { cli, configPath, shell } = hostWithBlock();
+  it.each(RELEASES)(
+    "at bws %s reads the holder's configuration and profile for each command shape, reaches the connection's server, and keeps its state, if any, in the holder's folder, never under the host's ~/.bws",
+    async (version) => {
+      const { cli, home, holder, block, shell } = await hostWithBlock(version);
 
-    for (const words of ["project list", "secret list", `secret get ${SECRET_ID}`]) shell(`${BWS_INVOCATION} ${words}`);
+      for (const words of ["project list", "secret list", `secret get ${SECRET_ID}`]) shell(`${BWS_INVOCATION} ${words}`);
 
-    expect(cli.calls()).toMatchObject(
-      [["project", "list"], ["secret", "list"], ["secret", "get", SECRET_ID]].map((command) => ({
-        command,
-        configFile: configPath,
-        config: "",
-        mode: 0o600,
-        profile: "",
-        serverUrl: "https://bitwarden.test",
-      })),
-    );
-    for (const call of cli.calls()) expect(call.argv.join(" ")).not.toContain(BITWARDEN_TEST_TOKEN);
+      // bws keeps no state at 0.3, and before 1.0.0 only where the profile names a state_file_dir.
+      const stateFile = version === "0.3.0" ? null : join(holder, "state", TOKEN_ID);
+      expect(cli.calls()).toMatchObject(
+        [["project", "list"], ["secret", "list"], ["secret", "get", SECRET_ID]].map((command) => ({
+          command,
+          configFile: join(holder, "config"),
+          mode: 0o600,
+          profile: "agent-harness",
+          serverUrl: null,
+          server: ADDRESS,
+          stateFile,
+        })),
+      );
+      expect(block).toEqual({ BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN, BWS_CONFIG_FILE: join(holder, "config"), BWS_PROFILE: "agent-harness" });
+      for (const call of cli.calls()) expect(call.argv.join(" ")).not.toContain(BITWARDEN_TEST_TOKEN);
+      expect(existsSync(join(home, ".bws", "state"))).toBe(false);
+      expect(readFileSync(join(home, ".bws", "config"), "utf8")).toBe(HOST_CONFIG);
+    },
+  );
+
+  it("is needed: below 0.5.0 bws binds no variable to its configuration file, so without the option it reads the host's ~/.bws/config, and refuses the block's profile it lacks rather than take the host's default one", async () => {
+    for (const version of ["0.3.0", "0.4.0"] as const) {
+      const { cli, home, shell } = await hostWithBlock(version);
+
+      expect(() => shell("bws project list")).toThrow(/The specified profile does not exist/);
+
+      expect(cli.calls()).toMatchObject([{ command: ["project", "list"], configFile: join(home, ".bws", "config"), config: HOST_CONFIG, profile: "agent-harness", server: null, stateFile: null }]);
+    }
   });
 
-  it("is needed: bws 0.3.0 binds no variable to its configuration file, so without the option it reads the host's ~/.bws/config", () => {
-    const { cli, home, shell } = hostWithBlock();
+  it("is needed: from 1.0.0 a server URL makes the profile from itself alone, reading no configuration, so bws keeps its state under the host's ~/.bws/state", async () => {
+    for (const version of ["0.5.0", "1.0.0", "2.1.0"] as const) {
+      const { cli, home, shell } = await hostWithBlock(version);
 
-    shell("bws project list");
+      shell(`${BWS_INVOCATION} project list`, { BWS_SERVER_URL: ADDRESS });
 
-    expect(cli.calls()).toMatchObject([{ command: ["project", "list"], configFile: join(home, ".bws", "config"), config: expect.stringContaining("stray-profile-for-tests"), profile: "" }]);
+      const [call] = cli.calls();
+      expect(call).toMatchObject({ serverUrl: ADDRESS, server: ADDRESS, stateFile: version === "0.5.0" ? null : join(home, ".bws", "state", TOKEN_ID) });
+      expect(existsSync(join(home, ".bws", "state", TOKEN_ID))).toBe(version !== "0.5.0");
+    }
   });
 });

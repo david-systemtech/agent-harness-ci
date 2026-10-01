@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { expect, it, vi } from "vitest";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { expect, it } from "vitest";
+import { basename, dirname, join } from "node:path";
 import { installFakeBws } from "../../test/fake-bws.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment } from "../../test/helper.js";
@@ -10,6 +11,9 @@ import { DAVID, TOKEN, added as forgeAdded, verify as forgeVerify } from "../../
 import { startFakeForge } from "../../test/fake-forge.js";
 import { move, moveList, setBasePath, copyValue } from "../../test/key-manager-connections.js";
 import { BITWARDEN_TEST_TOKEN, scriptedBitwarden } from "../../test/fake-bitwarden.js";
+import { end, runCommand } from "../../test/fake-adapter.js";
+import { create } from "../../test/sessions.js";
+import { BWS_INVOCATION } from "./bitwarden-block.js";
 const { onCleanup, tempDir } = useCleanups();
 
 it("signs in with an access token, proves it by listing projects, and checks and browses references without values", async () => {
@@ -29,24 +33,60 @@ it("signs in with an access token, proves it by listing projects, and checks and
   expect(sdk.calls.slice(beforeBrowse).map((call) => call.operation)).not.toContain("get");
 });
 
-it.runIf(process.platform !== "win32")("tools.verify runs bws project list with the access token and server in its environment and the empty configuration through --config-file, shadowing the host's profile and configuration", async () => {
-  vi.stubEnv("BWS_PROFILE", "stray-profile-for-tests");
-  vi.stubEnv("BWS_CONFIG_FILE", join(tempDir(), "stray-config-for-tests"));
-  onCleanup(() => { vi.unstubAllEnvs(); });
-  const cli = installFakeBws(join(tempDir(), "bin"));
+it.runIf(process.platform !== "win32")("tools.verify runs bws project list with the token in its environment and its own configuration through --config-file, whose profile names the server and keeps bws's state in its own folder, deleted after, never the host's", async () => {
+  const home = tempDir();
+  const hostEnv = { ...process.env, HOME: home, BWS_PROFILE: "stray-profile-for-tests", BWS_CONFIG_FILE: join(home, "stray-config-for-tests"), BWS_SERVER_URL: "https://stray.test" };
+  const cli = installFakeBws(join(tempDir(), "bin"), "2.1.0");
   const sdk = scriptedBitwarden();
-  const t = await startTestEnvironment({ bitwardenSdk: sdk.load, managedTools: { readPath: async () => cli.directory } });
+  const t = await startTestEnvironment({ bitwardenSdk: sdk.load, managedTools: { readPath: async () => cli.directory, hostEnv } });
   onCleanup(() => t.close());
   const client = await t.client();
   const connection = await added(client, { provider: "bitwarden", address: "https://bitwarden.test", credential: token(BITWARDEN_TEST_TOKEN) });
   expect(await client.request("tools.verify", { tool: "bws" })).toMatchObject({ outcome: "passed" });
-  const calls = cli.calls();
-  expect(calls).toMatchObject([{ command: ["project", "list"], profile: "", serverUrl: "https://bitwarden.test", config: "", mode: 0o600, saw: { BWS_PROFILE: "", BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN, BWS_SERVER_URL: "https://bitwarden.test" } }]);
-  // bws 0.3.0 binds no variable to its configuration file: the block's file reaches it as the option alone, and the token never does.
-  expect(calls[0]?.configFile).toBe(calls[0]?.saw.BWS_CONFIG_FILE);
-  expect(calls[0]?.configFile.startsWith(join(t.dataDir, "key-manager-cli"))).toBe(true);
-  expect(calls[0]?.argv.join(" ")).not.toContain(BITWARDEN_TEST_TOKEN);
-  expect(connection.injectedVariables).toEqual(["BWS_ACCESS_TOKEN", "BWS_SERVER_URL", "BWS_CONFIG_FILE", "BWS_PROFILE"]);
+  const [call, ...more] = cli.calls();
+  expect(more).toEqual([]);
+  expect(call).toMatchObject({ command: ["project", "list"], profile: "agent-harness", serverUrl: null, server: "https://bitwarden.test", mode: 0o600, saw: { BWS_PROFILE: "agent-harness", BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN } });
+  expect(Object.keys(call?.saw ?? {}).sort()).toEqual(["BWS_ACCESS_TOKEN", "BWS_CONFIG_FILE", "BWS_PROFILE"]);
+  // The verify command's own folder under the CLI directory: its configuration, read through the option bws 0.3.0 needs, and the state bws 1.0.0 and later keep.
+  const folder = dirname(call?.configFile ?? "");
+  expect(basename(folder).startsWith("bitwarden-")).toBe(true);
+  expect(dirname(folder)).toBe(join(t.dataDir, "key-manager-cli"));
+  expect(call?.configFile).toBe(call?.saw.BWS_CONFIG_FILE);
+  expect(call?.argv).toEqual(["--config-file", call?.configFile, "project", "list"]);
+  expect(call?.stateFile).toBe(join(folder, "state", "access-token-id-for-tests"));
+  expect(existsSync(join(home, ".bws"))).toBe(false);
+  await t.env.keyManagerConnections.settled();
+  expect(existsSync(folder)).toBe(false);
+  expect(connection.injectedVariables).toEqual(["BWS_ACCESS_TOKEN", "BWS_CONFIG_FILE", "BWS_PROFILE"]);
+});
+
+it.runIf(process.platform !== "win32")("a session's provider process runs the documented bws command in a folder of its own to write, where bws keeps its state until the process stops, never under the host's ~/.bws (#1141)", async () => {
+  const cli = installFakeBws(join(tempDir(), "bin"), "2.1.0");
+  const home = tempDir();
+  const sdk = scriptedBitwarden();
+  const t = await startTestEnvironment({ bitwardenSdk: sdk.load });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { provider: "bitwarden", address: "https://bitwarden.test", credential: token(BITWARDEN_TEST_TOKEN) });
+  let commandEnded: (code: number | null) => void = () => {};
+  const executed = new Promise<number | null>((resolve) => { commandEnded = resolve; });
+  t.adapter.nextScripts.push(async function* (controls) {
+    const answer = yield* runCommand(controls, `${BWS_INVOCATION} secret list`, { env: { PATH: `${cli.directory}:/usr/bin:/bin`, HOME: home } });
+    commandEnded(answer.code);
+    yield end();
+  });
+  const session = await create(client);
+  await client.request("runs.start", { commandId: randomUUID(), sessionId: session.id, text: "List the secret names" });
+  expect(await executed).toBe(0);
+  const [spawned] = t.adapter.processesOf(session.id);
+  const folder = dirname((await spawned?.supplied)?.["BWS_CONFIG_FILE"] ?? "");
+  expect(dirname(folder)).toBe(join(t.dataDir, "key-manager-cli"));
+  expect(await spawned?.writable).toEqual([folder]);
+  expect(cli.calls()).toMatchObject([{ command: ["secret", "list"], profile: "agent-harness", server: "https://bitwarden.test", stateFile: join(folder, "state", "access-token-id-for-tests") }]);
+  expect(existsSync(join(home, ".bws"))).toBe(false);
+  await t.close();
+  await t.env.keyManagerConnections.settled();
+  expect(existsSync(folder)).toBe(false);
 });
 
 it("moves into the base project, reads the assigned secret id back, and verifies the forge through its new reference", async () => {

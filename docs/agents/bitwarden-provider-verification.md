@@ -7,6 +7,7 @@ contacted; provider behavior is tested with a scripted SDK and a fake `bws`.
 | --- | --- |
 | CLI floor | [`bws` 0.3.0](https://github.com/bitwarden/sdk-sm/blob/bws-v0.3.0/crates/bws/src/main.rs) accepts `project list`, `BWS_ACCESS_TOKEN`, `BWS_SERVER_URL` and `BWS_PROFILE`. |
 | Configuration | The same source accepts `--config-file` (`-f`), but **does not read `BWS_CONFIG_FILE`**, which is bound from [`bws` 0.5.0](https://github.com/bitwarden/sdk-sm/blob/bws-v0.5.0/crates/bws/src/main.rs) on. At the 0.3 floor, the server override bypasses profile configuration. So the harness passes the block's empty file through `--config-file` on every `bws` command it runs or documents (#1123, below). |
+| State file | From [`bws` 1.0.0](https://github.com/bitwarden/sdk-sm/blob/bws-v1.0.0/crates/bws/src/state.rs) to [2.1.0](https://github.com/bitwarden/sdk-sm/blob/bws-v2.1.0/crates/bws/src/state.rs), `bws` writes `<state dir>/<access token id>`, the profile's `state_dir` else `~/.bws/state` (`HOME` on Linux and macOS, the known-folder profile on Windows), unless the profile sets `state_opt_out`. A server URL builds the profile from itself and reads no configuration ([`get_config_profile`](https://github.com/bitwarden/sdk-sm/blob/bws-v2.1.0/crates/bws/src/main.rs)), so `BWS_SERVER_URL` put the state under the host's home. At [0.4.0](https://github.com/bitwarden/sdk-sm/blob/bws-v0.4.0/crates/bws/src/state.rs) and 0.5.0 state is kept only where the profile names `state_file_dir`; 0.3 keeps none. [`main`](https://github.com/bitwarden/sdk-sm/blob/main/crates/bws/src/main.rs) reads the configuration first but takes only `state_opt_out` from it while a server URL is set. So the block gives no server URL (#1141, below). |
 | SDK licence | The [`SDK licence`](https://github.com/bitwarden/sdk-sm/blob/main/LICENSE) is Bitwarden's Software Development Kit License Agreement, version 1, dated 17 March 2023. It is a custom licence for compatible applications, not an MIT dependency. |
 | Native platforms | The official [Node build workflow](https://github.com/bitwarden/sdk-sm/blob/main/.github/workflows/build-napi.yml) builds Linux x64, macOS x64/arm64 and Windows x64. The published [`@bitwarden/sdk-napi` 1.0.0 metadata](https://registry.npmjs.org/@bitwarden/sdk-napi/1.0.0) declares optional native packages for each. Its constructor loads on this Linux x64 host with Node 24.21.0; macOS and Windows were verified from upstream build definitions and published packages, not locally executed. |
 | Server address | The [SDK settings](https://github.com/bitwarden/sdk-sm/blob/main/crates/bitwarden-napi/src-ts/bitwarden_client/index.ts) take API and identity URLs. US/EU vault addresses map to their separate API/identity hosts; self-hosted addresses use `/api` and `/identity`, matching the [CLI configuration](https://github.com/bitwarden/sdk-sm/blob/main/crates/bws/src/config.rs). |
@@ -24,6 +25,15 @@ The CLI configuration discrepancy was settled in [#1123](https://git.systemtech.
 tells a run to call `bws --config-file "$BWS_CONFIG_FILE" <command>`, and the
 fake `bws` parses its options as 0.3.0 does, so a test proves the block's file
 and profile are what `bws` reads, never the host's.
+The state file was settled in [#1141](https://git.systemtech.dev:5526/david/agent-harness/issues/1141):
+each holder gets its own folder, `key-manager-cli/bitwarden-<random>`, whose
+`config` holds one profile, `agent-harness`, naming the connection's server and the
+folder's `state` under both `state_dir` (1.0.0 on) and `state_file_dir` (0.4
+and 0.5). The block names that file and profile and no server URL, and a
+Claude process inherits no `BWS_*`. The fake `bws` now resolves the profile,
+server and state file as each release from 0.3.0 to 2.1.0 does, and tests
+prove the state lands in the holder's folder at every release, deleted when
+the holder stops, never under the host's `~/.bws`.
 
 A Move target names a project and key before creation. A stored reference
 always carries the actual secret id returned by the SDK. The base suggestion

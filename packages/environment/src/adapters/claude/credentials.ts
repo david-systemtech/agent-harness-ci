@@ -112,7 +112,12 @@ export const CLAUDE_STRIPPED_VARIABLES = [
  * - every `FORGE_*`: a run's forge variables are the harness's injection's
  *   alone (forge spec, "Runs: the injection"; #315), set again from what the
  *   spawn is supplied, so an inherited `FORGE_URL` never names a forge the
- *   harness does not serve.
+ *   harness does not serve;
+ * - every `BWS_*`: a run's bws variables are the key managers' Bitwarden
+ *   block's alone (key-managers spec, "Injection"; #1141), which names no
+ *   server URL, so an inherited `BWS_SERVER_URL` never makes bws through
+ *   2.1.0 skip the block's configuration and keep its state under the
+ *   host's `~/.bws/state`.
  *
  * What the SDK itself sets (`CLAUDE_CODE_ENTRYPOINT`) or the harness sets
  * (`CLAUDE_AGENT_SDK_CLIENT_APP`) is layered on after the scrub.
@@ -134,6 +139,9 @@ const SCRUBBED_PATTERNS: readonly RegExp[] = [/^ANTHROPIC_/, /^CLAUDE_CODE_USE_/
 /** The forge's variables, which only the harness's injection sets (ADR 0020, #315): an inherited one would name a forge the harness does not serve. */
 const FORGE_VARIABLES = /^FORGE_/;
 
+/** bws's variables, which only the key managers' Bitwarden block sets (#1141): an inherited server URL would bypass the block's profile and its state folder. */
+const BWS_VARIABLES = /^BWS_/;
+
 /** Names that hold the word token and no credential: limits and thresholds the CLI reads as tuning. */
 const TOKEN_TUNING: readonly RegExp[] = [
   /_TOKENS$/,
@@ -145,8 +153,8 @@ const TOKEN_TUNING: readonly RegExp[] = [
 /** Whether a host variable is kept out of every Claude process. */
 export const isScrubbed = (name: string): boolean => {
   if (CLAUDE_SCRUBBED_VARIABLES.includes(name)) return true;
-  // The credential families go whatever else they say, and so do the forge's variables.
-  if (/^ANTHROPIC_|^CLAUDE_CODE_USE_|^CLAUDE_CODE_OAUTH_/.test(name) || FORGE_VARIABLES.test(name)) return true;
+  // The credential families go whatever else they say, and so do the forge's and bws's variables.
+  if (/^ANTHROPIC_|^CLAUDE_CODE_USE_|^CLAUDE_CODE_OAUTH_/.test(name) || FORGE_VARIABLES.test(name) || BWS_VARIABLES.test(name)) return true;
   if (!SCRUBBED_PATTERNS.some((pattern) => pattern.test(name))) return false;
   return !TOKEN_TUNING.some((pattern) => pattern.test(name));
 };

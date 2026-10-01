@@ -146,9 +146,14 @@ const mintLine = (record: KeyManagerConnectionRecord): string | null => {
 const variablesLine = ({ injectedVariables }: KeyManagerConnectionRecord): string =>
   injectedVariables.length === 0 ? "This version gives runs none of its variables yet." : `Its variables, names only: ${injectedVariables.join(", ")}.`;
 
-/** How a run calls a CLI that takes the block's configuration as an option rather than from a variable: bws below 0.5.0 (#1123); null for every other. */
+/**
+ * How a run calls a CLI that takes the block's configuration as an option rather than from a variable: bws below 0.5.0 (#1123), with no server
+ * URL, which through 2.1.0 bypasses the file's profile and from 1.0.0 keeps bws's state in the host's home (#1141); null for every other.
+ */
 const invocationLine = ({ provider }: KeyManagerConnectionRecord): string | null =>
-  provider === "bitwarden" ? `Run bws as ${BWS_INVOCATION} <command>: below 0.5.0 bws reads its configuration file from that option alone, else this host's ~/.bws/config.` : null;
+  provider === "bitwarden"
+    ? `Run bws as ${BWS_INVOCATION} <command>, never with --server-url: below 0.5.0 bws reads its configuration file from that option alone, else this host's ~/.bws/config, and that file's profile names the server and keeps bws's state in this run's own folder, where a server URL would keep it in this host's ~/.bws/state.`
+    : null;
 
 /** What the run is told of a connection it is given: its status, why it gives no token when it cannot mint, its variables by name and how to pass them where a variable is not read, its ticks and its CLI. */
 const injectedParagraphs = (record: KeyManagerConnectionRecord, tool: KeyManagersSectionOptions["tool"]): string[] => [
