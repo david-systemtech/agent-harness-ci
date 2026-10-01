@@ -26,6 +26,9 @@ import {
   SkillProbeUnreachable,
   SkillsProbeResult,
   SKILL_PROBE_PROBLEMS,
+  SKILL_SOURCE_LIMIT,
+  SkillSourceAddConflict,
+  SkillsViewSource,
   approximateTokens,
   eventTypeEntry,
   isListEvent,
@@ -38,6 +41,7 @@ import {
   type SkillsCarryOverReport as SkillsCarryOverReportType,
   type SkillsProbeResult as SkillsProbeResultType,
   type SkillsView as SkillsViewType,
+  type SkillsViewSource as SkillsViewSourceType,
 } from "./index.js";
 
 /**
@@ -217,9 +221,21 @@ describe("the skills methods and notice", () => {
   const alwaysOn = { kind: "always-on", name: "tdd", accountId: "claude-max", on: true } as const;
   const inert = { kind: "enabled", name: "unslop", accountId: null, enabled: false } as const;
   const choices = { enabled: true, alwaysOn: true, choices: [offForLocal, alwaysOn] };
+  const unslop: SkillsViewSourceType = {
+    id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    url: "https://github.com/theclaymethod/unslop",
+    identity: "https://github.com/theclaymethod/unslop",
+    folder: ".",
+    follow: { kind: "branch", branch: null },
+    position: 1,
+    addedBy: { kind: "client_session", id: "cs-1" },
+    addedAt: "2026-10-01T06:30:00.000Z",
+    commit,
+    skillCount: 1,
+  };
   const view: SkillsViewType = {
     ownDirectory: "/home/david/.local/state/agent-harness/skills/own",
-    sources: [],
+    sources: [unslop],
     choices: [offForLocal, alwaysOn, inert],
     accountId: "claude-max",
     accounts: [
@@ -245,7 +261,7 @@ describe("the skills methods and notice", () => {
     ],
   };
 
-  it("are skills.get and skills.readiness at read, skills.probe as an admin query, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
+  it("are skills.get and skills.readiness at read, skills.probe as an admin query, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn, skills.setEnabled and skills.sources.add and .remove as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("skills."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "skills.get": ["query", "read"],
@@ -256,6 +272,8 @@ describe("the skills methods and notice", () => {
       "skills.carryOver": ["command", "admin"],
       "skills.setAlwaysOn": ["command", "admin"],
       "skills.setEnabled": ["command", "admin"],
+      "skills.sources.add": ["command", "admin"],
+      "skills.sources.remove": ["command", "admin"],
     });
   });
 
@@ -271,6 +289,9 @@ describe("the skills methods and notice", () => {
     expect(SkillsView.safeParse({ ...view, accountId: null }).success).toBe(true);
     expect(validate({ ...view, members: [{ ...view.members[0], choices: undefined }] })).toBe(false);
     expect(validate({ ...view, accounts: [{ accountId: "local", channel: "none" }] })).toBe(false);
+    expect(validate({ ...view, sources: [{ ...unslop, commit: undefined }] })).toBe(false);
+    expect(validate({ ...view, sources: [{ ...unslop, skillCount: -1 }] })).toBe(false);
+    expect(SkillsViewSource.parse(unslop)).toEqual(unslop);
   });
 
   it("list a choice by name: enabled for an account or the whole environment, or always-on for an account", () => {
@@ -314,7 +335,7 @@ describe("the skills methods and notice", () => {
 
   it("record each choice on the skills stream, skills.enabled-set and skills.always-on-set, neither of which changes the session list, in the table and the published schema", () => {
     expect(SKILLS_STREAM_KIND).toBe("skills");
-    expect(Object.keys(EVENT_TYPES.skills)).toEqual(["skills.enabled-set", "skills.always-on-set"]);
+    expect(Object.keys(EVENT_TYPES.skills)).toEqual(["skills.enabled-set", "skills.always-on-set", "skills.source-added", "skills.source-synced", "skills.source-removed"]);
     for (const type of Object.keys(EVENT_TYPES.skills)) expect(isListEvent("skills", type), type).toBe(false);
     const enabled = { name: "tdd", accountId: null, enabled: false };
     const on = { name: "unslop", accountId: "claude-max", on: true };
@@ -444,5 +465,98 @@ describe("skills.probe", () => {
     expect(roundTrip(SkillProbeUnreachable, data)).toEqual(data);
     expect(published("skills/probe-unreachable.json")(data)).toBe(true);
     expect(SkillProbeUnreachable.safeParse({ ...data, problem: "timeout" }).success).toBe(false);
+  });
+});
+
+describe("skill sources", () => {
+  const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const sourceId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const source: SkillsViewSourceType = {
+    id: sourceId,
+    url: "git@github.com:mattpocock/skills.git",
+    identity: "https://github.com/mattpocock/skills",
+    folder: "skills/engineering",
+    follow: { kind: "branch", branch: null },
+    position: 3,
+    addedBy: { kind: "client_session", id: "cs-1" },
+    addedAt: "2026-10-01T06:30:00.000Z",
+    commit,
+    skillCount: 2,
+  };
+  const added = { id: sourceId, url: source.url, identity: source.identity, folder: source.folder, follow: source.follow, position: source.position };
+  const synced = {
+    sourceId,
+    outcome: "ok",
+    commit,
+    members: [
+      { name: "tdd", path: "tdd", description: "Test-driven development.", invocation: "model+slash", problems: [] },
+      { name: null, path: "Bad_Name", description: "No name passes.", invocation: "model+slash", problems: [{ kind: "name", message: "No name passes." }] },
+    ],
+  } as const;
+
+  it("are at most twenty on an environment", () => {
+    expect(SKILL_SOURCE_LIMIT).toBe(20);
+  });
+
+  it("are added by skills.sources.add with a URL and a folder by their rules, what to follow and an optional probe, answering the source with its commit and skill count", () => {
+    const add = registry["skills.sources.add"];
+    expect([add.kind, add.scope]).toEqual(["command", "admin"]);
+    const params = { commandId, url: "https://github.com/theclaymethod/unslop", folder: ".", follow: { kind: "branch", branch: null } };
+    expect(add.params.safeParse(params).success).toBe(true);
+    expect(add.params.safeParse({ ...params, probeId: "9b2e6f1c-3a4d-4e5f-8a7b-1c2d3e4f5a6b", follow: { kind: "pinned", commit } }).success).toBe(true);
+    expect(add.params.safeParse({ ...params, url: "https://token-for-tests@github.com/theclaymethod/unslop" }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["url"], params: { rule: "source-url", reason: "credential" } }),
+    ]);
+    expect(add.params.safeParse({ ...params, folder: "../skills" }).error?.issues).toEqual([expect.objectContaining({ path: ["folder"], params: { rule: "source-folder", reason: "parent" } })]);
+    expect(add.params.safeParse({ ...params, follow: undefined }).success).toBe(false);
+    expect(add.params.safeParse({ ...params, probeId: "p-1" }).success).toBe(false);
+    const response = { receipt: { status: "accepted", sequence: 7, changed: true }, result: { source } } as const;
+    expect(roundTrip(add.response, response)).toEqual(response);
+    const validate = published("methods/skills.sources.add/response.json");
+    expect(validate(JSON.parse(JSON.stringify(response))), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("are removed by skills.sources.remove naming the source, answering it as it was", () => {
+    const remove = registry["skills.sources.remove"];
+    expect([remove.kind, remove.scope]).toEqual(["command", "admin"]);
+    expect(remove.params.safeParse({ commandId, sourceId }).success).toBe(true);
+    expect(remove.params.safeParse({ commandId, sourceId: "s-1" }).success).toBe(false);
+    const response = { receipt: { status: "accepted", sequence: 9, changed: true }, result: { source } } as const;
+    expect(roundTrip(remove.response, response)).toEqual(response);
+    expect(published("methods/skills.sources.remove/response.json")(JSON.parse(JSON.stringify(response)))).toBe(true);
+  });
+
+  it("are refused, beyond the probe's unreachable, as no_skills with the folders found, source_limit, or duplicate naming the source held", () => {
+    const validate = published("skills/source-add-conflict.json");
+    for (const data of [
+      { reason: "unreachable", problem: "not_found", line: "fatal: repository not found", origin: "https://github.com" },
+      { reason: "no_skills", folders: [".", "skills/engineering"] },
+      { reason: "no_skills", folders: [] },
+      { reason: "source_limit", limit: 20 },
+      { reason: "duplicate", sourceId },
+    ]) {
+      expect(roundTrip(SkillSourceAddConflict, data)).toEqual(data);
+      expect(validate(data), JSON.stringify(data)).toBe(true);
+    }
+    expect(validate({ reason: "no_skills", folders: ["../skills"] })).toBe(false);
+    expect(validate({ reason: "duplicate" })).toBe(false);
+  });
+
+  it("are recorded on the skills stream as skills.source-added (the record), skills.source-synced (the commit, the members and the outcome) and skills.source-removed, none of which changes the session list, in the table and the published schema", () => {
+    const removed = { sourceId };
+    for (const [type, payload] of [
+      ["skills.source-added", added],
+      ["skills.source-synced", synced],
+      ["skills.source-removed", removed],
+    ] as const) {
+      expect(isListEvent("skills", type), type).toBe(false);
+      expect(eventTypeEntry("skills", type)?.payload.parse(JSON.parse(JSON.stringify(payload)))).toEqual(payload);
+      expect(published(`skills/events/${type}.json`)(JSON.parse(JSON.stringify(payload))), type).toBe(true);
+      expect(published("skills/event-type.json")(type)).toBe(true);
+    }
+    expect(published("skills/events/skills.source-added.json")({ ...added, follow: { kind: "pinned", commit } })).toBe(true);
+    expect(published("skills/events/skills.source-added.json")({ ...added, position: 0 })).toBe(false);
+    expect(published("skills/events/skills.source-synced.json")({ ...synced, outcome: "failed" })).toBe(false);
+    expect(published("skills/events/skills.source-synced.json")({ ...synced, commit: "main" })).toBe(false);
   });
 });

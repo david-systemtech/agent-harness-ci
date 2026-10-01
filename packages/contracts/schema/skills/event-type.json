@@ -4,7 +4,10 @@
   "type": "string",
   "enum": [
     "skills.enabled-set",
-    "skills.always-on-set"
+    "skills.always-on-set",
+    "skills.source-added",
+    "skills.source-synced",
+    "skills.source-removed"
   ],
-  "description": "The event types of the skills stream: skills.enabled-set and skills.always-on-set."
+  "description": "The event types of the skills stream: skills.enabled-set and skills.always-on-set, the choices; skills.source-added, skills.source-synced and skills.source-removed, the sources."
 }
