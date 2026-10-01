@@ -13,6 +13,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { composeInstructions } from "../instructions/composer.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import { end, fakeAdapter, gate, say, signedInAs, type FakeAdapter, type FakeAdapterOptions, type Gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -528,18 +529,36 @@ describe("runs.send", () => {
 
   it("queues a message in the environment when the adapter has no queue of its own, and starts the next run with it when the turn ends", async () => {
     const held = gate();
+    const preparing = gate();
+    const preparation = gate();
+    const entered = gate();
+    const compose = composeInstructions();
     const t = await start({ capabilities: { providerQueue: false, steering: false }, script: async function* ({ input }) {
-      if (input.prompt[0]?.text === "First") await held.opened;
+      if (input.prompt[0]?.text === "First") {
+        entered.open();
+        await held.opened;
+      }
       yield say(`Read: ${input.prompt.map((message) => message.text).join(" + ")}`);
       yield end();
-    } });
+    } }, { adapterSeams: { instructions: async (scope) => {
+      preparing.open();
+      await preparation.opened;
+      return compose(scope);
+    } } });
+    onCleanup(() => { preparation.open(); held.open(); });
     const client = await t.client();
     const { id } = await create(client);
     const session = await watch(client, id, t.env.log.head());
     const first = await startRun(client, id, "First");
+    await preparing.opened;
     const one = await run(client, "runs.send", { sessionId: id, text: "Second" });
     const two = await run(client, "runs.send", { sessionId: id, text: "Third" });
     expect(one.result).toMatchObject({ runId: first.runId, delivery: "queued", heldBy: "environment" });
+    expect(two.result).toMatchObject({ runId: first.runId, delivery: "queued", heldBy: "environment" });
+    // Command responses do not wait for instruction preparation or adapter startup.
+    expect(t.adapter.runs).toHaveLength(0);
+    preparation.open();
+    await entered.opened;
     expect(t.adapter.runs).toHaveLength(1);
     held.open();
 
@@ -551,6 +570,7 @@ describe("runs.send", () => {
     expect(started?.payload).toMatchObject({ origin: "client", promptMessageId: null, queuedMessageIds: [one.result?.messageId, two.result?.messageId] });
     expect(next.map((event) => event.type)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.delivered", "message.delivered", "run.instructions.composed", "assistant.text", "run.ended"]);
     expect(next[3]?.payload).toEqual({ runId: second, messageId: one.result?.messageId, delivery: "prompt" });
+    expect(next[4]?.payload).toEqual({ runId: second, messageId: two.result?.messageId, delivery: "prompt" });
     expect(next[6]?.payload).toMatchObject({ text: "Read: Second + Third" });
   });
 
