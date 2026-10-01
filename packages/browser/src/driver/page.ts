@@ -385,12 +385,15 @@ export class CdpPage {
    * world, through the parent's own target: the protocol names the owner,
    * resolves it into that world, and the object is let go of after. Answers
    * undefined for the page's top frame, which no element holds, and throws
-   * when the owner cannot be found or the call fails.
+   * when the frame or its parent has left the page, the owner cannot be
+   * found or the call fails.
    */
   async callOnFrameOwner<R>(frame: PageFrame, fn: (this: Element) => R): Promise<Awaited<R> | undefined> {
     const tracked = this.frames.get(frame.id);
-    const parent = tracked?.parentId === undefined ? undefined : this.frames.get(tracked.parentId);
-    if (!tracked || !parent) return undefined;
+    if (tracked === undefined) throw new Error(`The frame at ${frame.url} has left the page.`);
+    if (tracked.parentId === undefined) return undefined;
+    const parent = this.frames.get(tracked.parentId);
+    if (parent === undefined) throw new Error(`The frame that held the one at ${frame.url} has left the page.`);
     const { backendNodeId } = await this.session.send("DOM.getFrameOwner", { frameId: tracked.id }, parent.sessionId);
     const executionContextId = await this.world(parent);
     const { object } = await this.session.send("DOM.resolveNode", { backendNodeId, executionContextId }, parent.sessionId);

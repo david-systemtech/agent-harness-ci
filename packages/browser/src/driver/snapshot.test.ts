@@ -222,6 +222,24 @@ describe("acting by ref", () => {
     expect(mouse(peer)).toEqual([]);
   });
 
+  it("refuses a ref whose frame, or a frame holding it, leaves the page while the click is placed, rather than clicking where the frame was", async () => {
+    const { peer, perform } = await atCheckout();
+    await perform("snapshot", {});
+    const sessionId = peer.sentOf("Page.enable")[0]?.sessionId;
+    const leaves = (frameId: string) => peer.emit("Page.frameDetached", { frameId, reason: "remove" }, sessionId);
+    peer.inPage("locateElement", ({ frame }) => {
+      if (frame.url === REVIEWS) leaves(frame.id);
+      return { kind: "found", x: 30, y: 10, editable: false };
+    });
+    peer.inPage("frameOwnerOrigin", ({ frame, owner }) => {
+      if (owner?.url === CARD) leaves(frame.id);
+      return { x: 8, y: 40 };
+    });
+    expect(await perform("click", { target: { ref: "f1e1" } })).toEqual({ ok: false, reason: stale("f1e1") });
+    expect(await perform("click", { target: { ref: "f3e1" } })).toEqual({ ok: false, reason: stale("f3e1") });
+    expect(mouse(peer)).toEqual([]);
+  });
+
   it("scrolls to an element by its ref, and refuses a ref whose element has left the page", async () => {
     const { peer, perform } = await atCheckout();
     await perform("snapshot", {});

@@ -175,15 +175,20 @@ const snapshotOf = async (page: CdpPage, args: PageArgs<"snapshot">): Promise<{ 
   return { snapshot: { text, totalChars, truncated }, notice: joined([...unread, nothing]) };
 };
 
-/** Where a frame's viewport starts in the page's: the sum of where each frame's owner iframe holds it, up to the top frame. */
+/**
+ * Where a frame's viewport starts in the page's: the sum of where each frame's owner iframe holds it, up to the top frame.
+ * Throws when the frame or one holding it leaves the page during the walk, which a partial sum would hide.
+ */
 const frameOffset = async (page: CdpPage, frame: PageFrame): Promise<{ readonly x: number; readonly y: number }> => {
   let x = 0;
   let y = 0;
-  for (let at: PageFrame | undefined = frame; at?.parentId !== undefined; at = page.frame(at.parentId)) {
+  for (let at = frame; at.parentId !== undefined; ) {
     const origin = await page.callOnFrameOwner(at, frameOwnerOrigin);
-    if (origin === undefined) break;
+    const parent = page.frame(at.parentId);
+    if (origin === undefined || parent === undefined) throw new Error(`A frame holding the one at ${frame.url} has left the page.`);
     x += origin.x;
     y += origin.y;
+    at = parent;
   }
   return { x, y };
 };
