@@ -487,7 +487,6 @@ export {
   oneOffMessage,
   reusableTerminal,
   runOneOff,
-  shownEnv,
   type OneOffDeps,
   type OneOffResult,
   type OneOffTarget,
@@ -664,3 +663,5 @@ export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/action
 export type { ToolRunsView } from "./managed-tools/tool-runs.js";
 
 export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
+
+export { terminalAnswers } from "./terminals/answers.js";

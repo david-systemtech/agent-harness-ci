@@ -3,33 +3,21 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ONE_OFF_LINE, oneOffEnv, oneOffOutput } from "@agent-harness/contracts";
+import { NO_PAGERS } from "@agent-harness/contracts";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment } from "../../test/helper.js";
-import { follow, openTerminal, sessionIn, typeInto } from "../../test/terminals.js";
+import { follow, sessionIn } from "../../test/terminals.js";
 
-/**
- * The terminal UI's one-off command (`!!`, docs/specs/tui.md, "The
- * composer"; #148) run in a real terminal: the command rides
- * `terminals.open`'s variables behind a marker line, the line typed hands
- * the shell over to `/bin/sh` running it, and what came after the marker,
- * read as a terminal shows it, is the command's output and the terminal's
- * exit its status. The shell here is an interactive `/bin/sh`, whose
- * prompt and echo of the typed line come before the marker, as a login
- * shell's would.
- */
+/** One-offs through terminals.run over real pipe processes and the typed WebSocket. */
 
 const { onCleanup, tempDir } = useCleanups();
 
 const SH = { file: "/bin/sh", args: [] } as const;
 
-/**
- * What came after the marker as plain lines: the pseudo-terminal ends each with `\r\n`, and these commands print no
- * other control. The terminal UI reads it through its emulator (`shownText`), tested there.
- */
+/** Read the terminal stream's carriage returns as plain lines. */
 const lines = (text: string): string => text.replace(/\r\n/g, "\n").trimEnd();
 
-/** Runs `command` as `!!` does in a directory of its own; resolves with the terminal's text, what came after the marker, and the exit. */
+/** Runs `command` as `!!` does in a directory of its own; resolves with the terminal's text, its output and exit. */
 const oneOff = async (command: string, prepare: (dir: string) => void = () => undefined) => {
   const t = await startTestEnvironment({ terminals: { shell: () => SH } });
   onCleanup(() => t.close());
@@ -38,21 +26,17 @@ const oneOff = async (command: string, prepare: (dir: string) => void = () => un
   prepare(dir);
   const sessionId = await sessionIn(client, dir);
   const id = randomUUID();
-  const marker = `agent-harness-one-off-${id}`;
-  await openTerminal(client, sessionId, { id, cols: 120, rows: 40, env: oneOffEnv(command, marker) });
+  await client.request("terminals.run", { commandId: randomUUID(), id, sessionId, command, cols: 120, rows: 40, env: { ...NO_PAGERS } });
   const view = await follow(client, id);
-  await typeInto(client, id, ONE_OFF_LINE);
   await view.until((v) => v.exited !== undefined, `${command} to exit`);
-  const heard = oneOffOutput(marker);
-  heard.take(view.text);
-  const said = heard.said();
-  return { raw: view.text, said: said === null ? null : lines(said.text), exitCode: view.exited?.exitCode };
+  return { raw: view.text, said: lines(view.text), exitCode: view.exited?.exitCode };
+
 };
 
-describe("a one-off command in a real terminal", () => {
-  it("is read from after the marker: the prompt and the echo of the typed line before it are not the command's, and its status is the exit", async () => {
+describe("a one-off command over real pipes", () => {
+  it("has only the command output, and its status is the exit", async () => {
     const ran = await oneOff("printf 'one\\ntwo\\n'; exit 3");
-    expect(ran.raw).toContain("exec /bin/sh -c");
+    expect(ran.raw).toBe("one\r\ntwo\r\n");
     expect(ran.said).toBe("one\ntwo");
     expect(ran.exitCode).toBe(3);
   });

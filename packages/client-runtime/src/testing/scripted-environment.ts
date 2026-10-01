@@ -211,12 +211,12 @@ export interface ScriptedEnvironment {
   /** Terminals open on the environment before the first frame, each for the session the script lists at `session` (preset 0). */
   readonly terminals?: readonly ScriptedTerminal[];
   /**
-   * What a one-off command (`!`'s or `!!`'s) prints and how it exits, once its line is typed: preset nothing, and 0. With no
+   * What a one-off command (`!`'s or `!!`'s) prints and how it exits, when terminals.run starts it: preset nothing, and 0. With no
    * exit code it runs on until `exitTerminal`.
    */
   readonly oneOff?: (command: string) => { readonly output: string; readonly exitCode?: number };
-  /** Whether the login shell runs a one-off's line: preset true; false is a shell that is not POSIX, which refuses the line and exits 127. */
-  readonly posixShell?: boolean;
+  /** A newly opened login shell's startup output, retained before its first subscription. */
+  readonly terminalStartup?: string;
   /** What the update methods answer (#354): preset a current environment of discovery's version under a launcher, before any check, with no desktop build published. */
   readonly updates?: ScriptedUpdates;
   /**
@@ -1237,36 +1237,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   const unknownTerminal = (id: string): FakeAnswer => ({
     result: { receipt: { status: "rejected", sequence, changed: false, reason: "not_found", error: { code: "not_found", message: `No terminal ${id} is open.`, data: { kind: "terminal" } } } },
   });
-  /**
-   * A one-off's line typed (`typed`), as a login shell and then `sh` would take it: the shell's prompt and its echo of the
-   * line, then (a POSIX shell) the script run: each `printf '%s\n' '…'` line it prints (`!!`'s marker), the harness's own
-   * lines (no input, no pager) passed over, and the rest the command, which the script's `oneOff` answers; then the exit.
-   */
-  const runOneOff = (t: HeldTerminal, typed: string) => {
-    const script = t.env["AGENT_HARNESS_ONE_OFF"] ?? "";
-    const printed: string[] = [];
-    const command: string[] = [];
-    for (const line of script.split("\n")) {
-      const said = /^printf '%s\\n' '(.*)'$/.exec(line);
-      if (said) printed.push(`${said[1] as string}\r\n`);
-      else if (line !== "exec </dev/null" && !/^PAGER=cat .*; export /.test(line)) command.push(line);
-    }
-    later(() => {
-      terminalOutput(t.id, `$ ${typed.replace(/\r$/, "")}\r\n`);
-      if (spec.posixShell === false) {
-        terminalOutput(t.id, "nu: unknown command: exec\r\n");
-        exitTerminal(t.id, 127);
-        return;
-      }
-      const ran = spec.oneOff?.(command.join("\n")) ?? { output: "", exitCode: 0 };
-      terminalOutput(t.id, `${printed.join("")}${ran.output.replace(/\r?\n/g, "\r\n")}`);
-      if (ran.exitCode !== undefined) exitTerminal(t.id, ran.exitCode);
-    });
-  };
   let heldOpens: (() => void)[] | null = null;
-  wire.answer("terminals.open", (params) => (heldOpens === null ? openTerminal(params) : new Promise<FakeAnswer>((resolve) => heldOpens?.push(() => resolve(openTerminal(params))))));
-  const openTerminal = (params: Record<string, unknown>): FakeAnswer => {
-    const refused = rejection("terminals.open", false);
+  for (const method of ["terminals.open", "terminals.run"] as const) {
+    wire.answer(method, (params) => (heldOpens === null ? openTerminal(params, method) : new Promise<FakeAnswer>((resolve) => heldOpens?.push(() => resolve(openTerminal(params, method))))));
+  }
+  const openTerminal = (params: Record<string, unknown>, method: string): FakeAnswer => {
+    const refused = rejection(method, false);
     if (refused) return refused;
     const id = String(params["id"]).toLowerCase();
     if (terminals.has(id)) return conflict("exists", `A terminal ${id} was opened on this environment already.`);
@@ -1276,7 +1252,13 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       env: params["env"] as Record<string, string> | undefined,
     });
     // The login shell's prompt, a moment after it starts.
-    if (t.env["AGENT_HARNESS_ONE_OFF"] === undefined) later(() => t.exit === null && t.chunks.length === 0 && terminalOutput(id, "$ "));
+    if (method === "terminals.open" && spec.terminalStartup !== undefined) terminalOutput(id, spec.terminalStartup);
+    if (method === "terminals.open") later(() => t.exit === null && t.chunks.length === 0 && terminalOutput(id, "$ "));
+    else later(() => {
+      const ran = spec.oneOff?.(String(params["command"])) ?? { output: "", exitCode: 0 };
+      terminalOutput(id, ran.output.replace(/\r?\n/g, "\r\n"));
+      if (ran.exitCode !== undefined) exitTerminal(id, ran.exitCode);
+    });
     return terminalReceipt({ terminal: infoOf(t) });
   };
   wire.answer("terminals.list", (params) => ({
@@ -1292,7 +1274,6 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const data = String(params["data"]);
     t.writes.push(data);
     t.tool?.typed(data);
-    if (t.env["AGENT_HARNESS_ONE_OFF"] !== undefined && data.includes("AGENT_HARNESS_ONE_OFF")) runOneOff(t, data);
     return terminalReceipt({ id });
   });
   wire.answer("terminals.resize", (params) => {
@@ -1915,6 +1896,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     "permissions.containment.set",
     "permissions.prompts.answer",
     "terminals.open",
+    "terminals.run",
     "terminals.write",
     "terminals.resize",
     "terminals.close",
