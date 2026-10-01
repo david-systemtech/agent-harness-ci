@@ -408,7 +408,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return verifyingAll;
   };
 
-  const prepareRegister = async (params: ParamsOf<"banks.register">, personalDefaults = false): Promise<PreparedMethodHandler<"banks.register">> => {
+  const prepareRegister = async (params: ParamsOf<"banks.register">, personalDefaults = false, checkoutOwnership: BankEntry["checkoutOwnership"] = "registered"): Promise<PreparedMethodHandler<"banks.register">> => {
     const rejecting =
       (rejected: CommandRejection<ErrorOf<"banks.register">["code"]>): PreparedMethodHandler<"banks.register"> =>
       () => ({ aggregate: stream, rejected });
@@ -428,7 +428,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     const location = await locationOf(params.path);
     const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
     const { status, reading } = await inspect(draft);
-    const preparedEntry: BankEntry = { ...draft, defaultFor: [...new Set(draft.defaultFor)], status };
+    const preparedEntry: BankEntry = { ...draft, defaultFor: [...new Set(draft.defaultFor)], checkoutOwnership, status };
     const held = await readAll();
     const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
     return (_params, command) => {
@@ -454,7 +454,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     prepare: () => { throw new ContractError({ code: "not_found", message: "Bank creation is unavailable on this service.", data: {} }); },
   } : createBankCommand({
     ...options.creation,
-    register: prepareRegister,
+    register: (params, personalDefaults) => prepareRegister(params, personalDefaults, "managed"),
     async admit(bankId, name, files) {
       await readAll();
       if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: `A bank ${bankId} was registered already.`, data: { reason: "exists", bankId } });

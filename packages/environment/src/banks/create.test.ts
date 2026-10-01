@@ -23,6 +23,19 @@ beforeAll(async () => {
 const personal = () => ({ commandId: randomUUID(), bankId: randomUUID(), name: "maya-memory", creation: { kind: "personal" as const, localOnly: true, personName: "Maya Reyes", org: "personal", project: "homelab" } });
 
 describe("banks.create", () => {
+  it("forgets a created bank and removes its owned checkout only when requested", async () => {
+    const t = await startTestEnvironment();
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const bank = (await client.request("banks.create", personal())).result!.bank;
+    expect(await client.request("banks.forget", { commandId: randomUUID(), bankId: bank.id, removeCheckout: true })).toMatchObject({
+      receipt: { status: "accepted" },
+      result: { bankId: bank.id, checkoutRemoved: true },
+    });
+    expect((await client.request("banks.list", {})).banks).toEqual([]);
+    expect(existsSync(bank.checkout)).toBe(false);
+  });
+
   it("creates a local-only bank's first commit, registers its defaults, and replays without another commit", async () => {
     const t = await startTestEnvironment();
     onCleanup(() => t.close());
