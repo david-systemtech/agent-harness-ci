@@ -8,6 +8,7 @@ import {
   type CompletionsActivity,
   type CompletionsAnswerExtension,
   type CompletionsErrorDetail,
+  type MessageRequeuedPayload,
   type ModelUsage,
   type PromptAnsweredPayload,
   type PromptOpenedPayload,
@@ -135,7 +136,7 @@ export interface AnswerEnd {
   readonly error: CompletionsErrorDetail | null;
   /** The run's usage, when the answer ended with the run; null for one a stop sequence or the budget cut, before the run's spend is known. */
   readonly usage: CompletionUsage | null;
-  /** The turn's queued message, still waiting in the session's queue. */
+  /** The turn's message, still waiting in the session's queue: a queued one no run read, or a prompt its run never had (#833). */
   readonly waiting: string | null;
 }
 
@@ -201,6 +202,8 @@ export const createRenderer = (options: RendererOptions) => {
   const returned: ParkedCall[] = [];
   let usage: readonly ModelUsage[] | null = null;
   let lastEnded: { payload: RunEndedPayload; seq: number } | null = null;
+  /** A new run's prompt, once that run took it back unread (its adapter never had it, #833): the run's end names it waiting. */
+  let takenBack: string | null = null;
   const gate = new TextGate(options.stops, options.maxCharacters);
   /** The text sent for each item, and the item text was last sent for. */
   const sent = new Map<string, string>();
@@ -260,7 +263,7 @@ export const createRenderer = (options: RendererOptions) => {
   /** The followed run has ended: the answer ends with it, unless it never read the queued message, when the run that does is waited for. */
   const runEnded = (payload: RunEndedPayload, seq: number): void => {
     lastEnded = { payload, seq };
-    if (readBy === followed) return endWith(payload, seq);
+    if (readBy === followed) return endWith(payload, seq, takenBack);
     const endedRun = followed;
     const queued = options.queuedMessage;
     options.later(() => {
@@ -405,6 +408,14 @@ export const createRenderer = (options: RendererOptions) => {
         case "usage.reported":
           usage = (event.payload as UsageReportedPayload).models;
           return;
+        case "message.requeued": {
+          // The run a prompt turn started ends before its adapter had the prompt (interrupted while it composed its
+          // instructions): the host takes the prompt back into the environment's queue just before the end, and the
+          // next run reads it, so the answer ends naming it waiting rather than following that run (#833).
+          const { messageId } = event.payload as MessageRequeuedPayload;
+          if (queued === null && messageId === options.head.messageId) takenBack = messageId;
+          return;
+        }
         case "run.ended":
           return runEnded(event.payload as RunEndedPayload, seq);
         default:
