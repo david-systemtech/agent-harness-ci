@@ -12,10 +12,10 @@
 # .github/workflows/ci.yml; change them there. They were this job's steps
 # until then, copied from david/ci templates/ci.yml.
 #
-# `relay` jobs only wait, like a review, so they run on the review runner's
-# slots in the Dokploy VM, not the `ci` runners. GH_CI_TOKEN is a fine-grained
-# GitHub token for agent-harness-ci alone (OpenBao
-# systemtechdev/github-agent-harness-ci).
+# `relay` jobs only wait, so they run on vm-relay-1 in the Dokploy VM, a
+# runner and Docker daemon of their own (david/ci docs/runners.md), not on the
+# `ci` runners. GH_CI_TOKEN is a fine-grained GitHub token for
+# agent-harness-ci alone (OpenBao systemtechdev/github-agent-harness-ci).
 
 name: ci
 
