@@ -83,7 +83,7 @@ const start = (options: { readonly place?: () => Promise<PlacedSet>; readonly ov
   const keyManagers = heldKeyManagers();
   const workspace = tempDir();
   const readiness = createSkillReadiness({
-    scopeOf: async () => ({ sessionId: null, accountId: "claude-max", workspace: { kind: "directory", path: workspace }, trust: { key: null, decision: "undecided" } }),
+    scopeOf: async () => ({ sessionId: null, accountId: "claude-max", workspace: { kind: "directory", path: workspace }, repositoryIdentity: null, trust: { key: null, decision: "undecided" } }),
     account: () => ({ descriptor: fakeAdapter().descriptor }),
     place: options.place ?? (async () => set),
     hostEnv: { PATH: "/nonexistent/agent-harness-test-path" },
