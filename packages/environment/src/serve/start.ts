@@ -552,8 +552,10 @@ export interface EnvironmentOptions {
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
    * at each run's start (#550); preset: none here, until #555's manager.
-   * And the page drivers the browser tools reach, by kind (#551); preset:
-   * none, each kind answering that it cannot be driven here yet.
+   * And the page drivers the browser tools reach, by kind (#551), each over
+   * its preset: a Chrome paired with this environment is driven by its
+   * extension driver (#552), and every other kind answers that it cannot be
+   * driven here yet.
    */
   readonly browser?: {
     readonly extensionSource?: string;
@@ -1015,7 +1017,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     environmentId: record.id,
     live: (sessionId) => host.live(sessionId),
-    drivers: options.browser?.drivers ?? {},
+    drivers: {
+      // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
+      // browser when its client closes (#552); another environment's goes through the browser relay (#554).
+      chrome: ({ browser: chrome }) =>
+        chrome.environmentId.toLowerCase() === record.id.toLowerCase()
+          ? browser.driverOf(chrome.chromeId)
+          : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
+      ...options.browser?.drivers,
+    },
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();

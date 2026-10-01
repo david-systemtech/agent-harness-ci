@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { SCOPES, type BridgeCall, type ParamsOf, type ResultOf } from "@agent-harness/contracts";
+import { SCOPES, registry, type BridgeCall, type JsonObject, type ParamsOf, type ResultOf, type SessionBrowser } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { fakeAdapter } from "../../test/fake-adapter.js";
+import { callHostTool, end, fakeAdapter, type FakeAdapter, type Script } from "../../test/fake-adapter.js";
 import { answeringFrom, fakeChrome, type ExtensionScript, type FakeChrome, type FakeExtension } from "../../test/fake-extension.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { scriptedPageDriver, type ScriptedPageDriver } from "../../test/scripted-page-driver.js";
-import { refusal } from "../../test/sessions.js";
+import { create, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import type { HostToolResult } from "../adapter/contract.js";
+import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 
 /**
  * Driving a paired Chrome (browser spec, "The browser relay", "The browser
@@ -233,5 +235,133 @@ describe("a named Chrome", () => {
       ok: false,
       reason: `The Chrome this session names is no longer paired with ${t.env.name}. Ask the person to choose another browser for this session, or to pair that Chrome again.`,
     });
+  });
+});
+
+// The direct path: the fake adapter calling the `browser` server's tools ---------------------------------------------
+
+const adapterOf = (t: TestEnvironment): FakeAdapter => t.adapter as FakeAdapter;
+
+/** A call a run makes: a tool of the `browser` server and its input. */
+type Call = readonly [name: string, input?: JsonObject];
+
+const eventsOf = (t: TestEnvironment, sessionId: string): LogEvent[] => t.env.log.readStream({ kind: "session", id: sessionId });
+
+const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
+  vi.waitFor(() => expect(eventsOf(t, sessionId).some((event) => event.type === "run.ended" && event.payload["runId"] === runId)).toBe(true), { timeout: WAIT_MS });
+
+/**
+ * A run that links its provider session and calls each tool in turn, collecting what the model read; before a call it
+ * waits for what `before` gives for that call's index, when it gives anything.
+ */
+const calling = (calls: readonly Call[], answers: HostToolResult[], before: (index: number) => Promise<void> | undefined = () => undefined): Script =>
+  async function* (controls) {
+    yield { type: "session.provider-linked", payload: { providerSessionId: `provider-${controls.input.sessionId}` } };
+    for (const [index, [name, input]] of calls.entries()) {
+      await before(index);
+      answers.push(yield* callHostTool(controls, { server: "browser", name, input: input ?? {} }));
+    }
+    yield end();
+  };
+
+/** Starts an attended run in the session making `script`'s calls, as a client starts one; answers its id. */
+const startRun = async (t: TestEnvironment, client: WireClient, sessionId: string, script: Script): Promise<string> => {
+  adapterOf(t).nextScripts.push(script);
+  const answer = await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Use the browser" });
+  const result = registry["runs.start"].response.parse(answer).result;
+  if (result === undefined) throw new Error(`runs.start was not applied: ${JSON.stringify(answer)}`);
+  return result.runId;
+};
+
+/** Runs `calls` in the session, attended, to the run's end; answers what the model read of each. */
+const run = async (t: TestEnvironment, client: WireClient, sessionId: string, ...calls: Call[]): Promise<HostToolResult[]> => {
+  const answers: HostToolResult[] = [];
+  await untilEnded(t, sessionId, await startRun(t, client, sessionId, calling(calls, answers)));
+  return answers;
+};
+
+/** A session whose browser a person chose. */
+const sessionWith = async (client: WireClient, browser: SessionBrowser): Promise<string> => (await create(client, { browser: { value: browser, chosenBy: "person" } })).id;
+
+const chromeOf = (t: TestEnvironment, chromeId: string | null): SessionBrowser => ({ kind: "chrome", environmentId: t.env.id, chromeId });
+
+/** Whether a result carries page content in a frame. */
+const isFramed = (text: string): boolean => /^\[page content [0-9a-f]+\] /m.test(text) && /^\[end of page content [0-9a-f]+\]$/m.test(text);
+
+describe("the direct path", () => {
+  it("takes every tool, browser_open to browser_close, to the extension of the Chrome the session names, with its arguments, and the model reads the framed answers", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const client = await clientOf(t);
+    const id = await sessionWith(client, chromeOf(t, work.id));
+
+    const answers = await run(
+      t,
+      client,
+      id,
+      ["browser_open", { address: "example.com", snapshot: false }],
+      ["browser_navigate", { address: "https://example.com/next" }],
+      ["browser_snapshot", { filter: "all" }],
+      ["browser_click", { ref: "e2", snapshot: false }],
+      ["browser_type", { selector: "input[name=q]", text: "hello", snapshot: false }],
+      ["browser_read", { offset: 0, links: true }],
+      ["browser_screenshot"],
+      ["browser_click_at", { x: 10, y: 20, snapshot: false }],
+      ["browser_scroll", { direction: "down", amount: 2 }],
+      ["browser_wait_for", { text: "Loaded", timeoutMs: 2_000 }],
+      ["browser_console"],
+      ["browser_network", { failedOnly: true }],
+      ["browser_cookies"],
+      ["browser_storage"],
+      ["browser_evaluate", { expression: "1 + 1" }],
+      ["browser_close"],
+    );
+
+    const pageKey = `${t.env.id}/${id}`;
+    expect(work.extension.calls.map(asked)).toEqual(
+      [
+        { verb: "open", args: { url: "example.com" } },
+        { verb: "navigate", args: { url: "https://example.com/next", snapshot: { filter: "interactive", maxChars: 12_000 } } },
+        { verb: "snapshot", args: { filter: "all" } },
+        { verb: "click", args: { target: { ref: "e2" } } },
+        { verb: "type", args: { target: { selector: "input[name=q]" }, text: "hello" } },
+        { verb: "read", args: { offset: 0, links: true } },
+        { verb: "screenshot", args: {} },
+        { verb: "clickAt", args: { x: 10, y: 20 } },
+        { verb: "scroll", args: { to: { direction: "down", amount: 2 } } },
+        { verb: "waitFor", args: { until: { text: "Loaded", timeoutMs: 2_000 } } },
+        { verb: "console", args: {} },
+        { verb: "network", args: { failedOnly: true } },
+        { verb: "cookies", args: {} },
+        { verb: "storage", args: {} },
+        { verb: "evaluate", args: { expression: "1 + 1" } },
+        { verb: "close", args: {} },
+      ].map((command) => ({ pageKey, command })),
+    );
+    expect(answers.map((answer) => answer.isError)).toEqual(answers.map(() => false));
+    expect(answers[0]?.text.split("\n")[0]).toBe("Opened example.com. The page is at https://example.com.");
+    for (const index of [1, 2, 5, 14]) expect(isFramed(answers[index]?.text ?? ""), String(index)).toBe(true);
+    expect(answers[6]?.images).toHaveLength(1);
+    expect(answers[15]?.text).toBe("Let go of this session's page. The tab stays open in the person's Chrome for them.");
+    expect(work.driver.tabs).toEqual(new Set([pageKey]));
+  });
+
+  it("keeps the run's browser when the client that started it disconnects: the next tool still reaches the extension", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const starter = await t.client();
+    const id = await sessionWith(starter, chromeOf(t, work.id));
+    let gone: () => void = () => undefined;
+    const starterGone = new Promise<void>((resolve) => (gone = resolve));
+    const answers: HostToolResult[] = [];
+
+    const runId = await startRun(t, starter, id, calling([["browser_open", { address: "example.com", snapshot: false }], ["browser_snapshot"]], answers, (index) => (index === 1 ? starterGone : undefined)));
+    await vi.waitFor(() => expect(work.extension.calls).toHaveLength(1), { timeout: WAIT_MS });
+    await starter.close();
+    gone();
+    await untilEnded(t, id, runId);
+
+    expect(work.extension.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot"]);
+    expect(answers.map((answer) => answer.isError)).toEqual([false, false]);
   });
 });
