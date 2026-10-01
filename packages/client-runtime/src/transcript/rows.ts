@@ -11,8 +11,8 @@ import type {
   SubagentEntry,
   ToolCallEntry,
   TranscriptEntry,
-  UserMessageEntry,
   UpdateInterruptedEntry,
+  UserMessageEntry,
 } from "../projections/session.js";
 import { isLiveTask } from "./tasks.js";
 

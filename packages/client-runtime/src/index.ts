@@ -310,8 +310,8 @@ export type {
   TasksEntry,
   ToolCallEntry,
   TranscriptEntry,
-  UserMessageEntry,
   UpdateInterruptedEntry,
+  UserMessageEntry,
 } from "./projections/session.js";
 export {
   DOCUMENT_KIND_WORDS,
@@ -368,6 +368,7 @@ export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
 export {
   callsRowId,
+  environmentMessage,
   folded,
   forkedFrom,
   lastReply,
@@ -376,9 +377,8 @@ export {
   promptsIn,
   rewoundRowId,
   transcriptRows,
-  environmentMessage,
-  updateInterruptedText,
   undoableFold,
+  updateInterruptedText,
   type ForkedFrom,
   type TranscriptRow,
 } from "./transcript/rows.js";

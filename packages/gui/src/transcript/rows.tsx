@@ -1,10 +1,10 @@
 import {
   endWords,
   environmentMessage,
-  updateInterruptedText,
   oneLine,
   promptsIn,
   turnFacts,
+  updateInterruptedText,
   type AssistantEntry,
   type PromptEntry,
   type SubagentEntry,

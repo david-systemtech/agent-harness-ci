@@ -1,11 +1,11 @@
 import { SessionSnapshot, UPDATE_INTERRUPT_REASONS, type EventEnvelope, type RunUpdateInterruptedPayload } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { freshSummary } from "../../../contracts/test/session-fixtures.js";
-import { foldTranscript } from "../../../environment/src/runs/transcript.js";
 import { formatActor } from "../../../environment/src/event-log/envelope.js";
+import { foldTranscript } from "../../../environment/src/runs/transcript.js";
 import { FIXTURE_MESSAGE, FIXTURE_OTHER_MESSAGE, FIXTURE_RUN, occurredAt, recorded, sessionStreamEvent } from "../../test/transcript.js";
-import { reduceSession } from "./session.js";
 import { environmentMessage } from "../transcript/rows.js";
+import { reduceSession } from "./session.js";
 
 const EMPTY = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 const CONTINUATION = "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
