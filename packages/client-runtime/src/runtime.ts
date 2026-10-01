@@ -6,6 +6,7 @@ import type { ClientPreferences } from "./connections/records.js";
 import type { Connections } from "./connections/registry.js";
 import type { Notice } from "./notices.js";
 import type { Commands } from "./outbox/outbox.js";
+import type { SkillsCopies } from "./skills-copy.js";
 import type { Drafts } from "./outbox/drafts.js";
 import type { CopyTarget } from "./copies.js";
 import type { Forges } from "./forges.js";
@@ -201,8 +202,8 @@ export interface Runtime {
      */
     hide(environmentId: string, path: string): Promise<void>;
   };
-  /** The `sessions:write` and `runs:drive` commands, through the outbox. */
-  readonly commands: Commands;
+  /** The `sessions:write` and `runs:drive` commands through the outbox, and copies through direct admin requests. */
+  readonly commands: Commands & SkillsCopies;
   /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */
   readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */
