@@ -63,6 +63,10 @@ jobs:
           # The secret scan reads every commit.
           fetch-depth: 0
           persist-credentials: false
+      # The workspace belongs to the runner's user and the job runs as root, so
+      # git refuses the checkout as dubious ownership until it is marked safe;
+      # tests that run git in it need this.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # The same pin as david/ci scripts/secret-scan.sh; only HEAD's history.
       - name: Scan every commit for secrets
