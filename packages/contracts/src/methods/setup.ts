@@ -42,8 +42,11 @@ export const setupCheck = defineMethod({
  * mode; when no account or model resolves, the prompt is the session's
  * draft and no run starts. A subject the step does not have is
  * `not_found`; a step that names no prompt is `conflict` (reason
- * `no_llm_step`). A prepared command: the workspace is made first, outside
- * the transaction. Every run end of the session checks the step again.
+ * `no_llm_step`). The Memory bank step's session works in a worktree of
+ * its bank on a branch `setup/describe-<date>`; a call naming no bank, or a
+ * bank whose checkout is not there, is `conflict` (reason `bank_missing`,
+ * #586). A prepared command: the workspace is made first, outside the
+ * transaction. Every run end of the session checks the step again.
  */
 export const setupMint = defineMethod({
   name: "setup.mint",

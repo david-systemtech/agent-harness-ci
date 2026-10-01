@@ -345,7 +345,7 @@ describe("which ended entries are delivered", () => {
     detail: null,
   });
 
-  // What the wire cannot make yet (a silent firing, #524; the pre-check's and the scheduler's skips, #526 and #527) is read here.
+  // Every kind of end, read here; a silent firing through the wire is firing-end.test.ts's (#524).
   it.each([
     ["a succeeded firing", firingEnded("succeeded"), "succeeded"],
     ["a failed firing", firingEnded("failed", "timed_out"), "failed"],

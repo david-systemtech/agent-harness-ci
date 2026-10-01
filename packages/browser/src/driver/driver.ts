@@ -14,13 +14,30 @@ import {
   type PageLocation,
   type PageRefusal,
   type PageResult,
+  type PageSnapshot,
   type PageValue,
   type PageVerb,
   type OneTimeAllowance,
 } from "@agent-harness/contracts";
 import type { CdpSession } from "../cdp/session.js";
-import { locateElement, readStorage, selectFieldContents, showsText } from "./in-page.js";
-import { CdpPage, NAVIGATION_SETTLE_MS, RECORD_LIMIT, VIEWPORT, systemDriverClock, type CdpCookie, type DriverClock, type LoadOutcome, type PageJudging } from "./page.js";
+import { frameOwnerKey, installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
+import { refGone } from "../snapshot/refs.js";
+import { serialiseSnapshot } from "../snapshot/serialiser.js";
+import { stitchFrames, type FrameTree } from "../snapshot/stitch.js";
+import type { FrameSnapshot, FrameSnapshotOptions } from "../snapshot/world.js";
+import { elementShows, frameOwnerOrigin, locateElement, readStorage, scrollToElement, selectFieldContents, showsText, type ElementTarget } from "./in-page.js";
+import {
+  CdpPage,
+  NAVIGATION_SETTLE_MS,
+  RECORD_LIMIT,
+  VIEWPORT,
+  systemDriverClock,
+  type CdpCookie,
+  type DriverClock,
+  type LoadOutcome,
+  type PageFrame,
+  type PageJudging,
+} from "./page.js";
 
 /**
  * The CDP page driver (browser spec, "One page driver for three browsers"):
@@ -79,8 +96,10 @@ const seconds = (ms: number): string => {
   return `${Number.isInteger(value) ? value : value.toFixed(1)} second${value === 1 ? "" : "s"}`;
 };
 
-/** What refs need until snapshots are built: the selector. */
-const NO_REFS = "Refs come from snapshots, which this browser cannot take yet: name the element by a CSS selector instead.";
+/** A ref no element has now: what an action by it answers. */
+const staleRef = (ref: string): string => `${refGone(ref)} Take a new snapshot and act on the refs it gives.`;
+/** What an interactive snapshot with nothing in it answers beside its empty text. */
+const NOTHING_TO_ACT_ON = "Nothing on the page can be acted on. Take a snapshot with filter all to read every element.";
 const SLOW = `The page had not finished loading after ${seconds(NAVIGATION_SETTLE_MS)}; this is how it was then.`;
 /** How many console lines or requests the browser keeps between two reads, as a sentence writes it. */
 const KEPT = RECORD_LIMIT.toLocaleString("en-GB");
@@ -92,6 +111,87 @@ const urlOf = (address: string): string => {
 };
 
 const siteOf = (url: string): string => hostOf(url) ?? url;
+
+/** An element an action names, as its sentences name it. */
+const elementNamed = (target: ElementTarget): string => ("ref" in target ? `The element ${target.ref}` : `The element matching ${target.selector}`);
+
+/** A snapshot's text, its full length and whether it was cut. */
+type SnapshotText = Pick<PageSnapshot, "text" | "totalChars" | "truncated">;
+
+/** The frame a ref is from, while the page has it. */
+const refFrame = (page: CdpPage, ref: string): PageFrame | undefined => {
+  const frameId = page.refs.frameOf(ref);
+  return frameId === undefined ? undefined : page.frame(frameId);
+};
+
+/** One frame's snapshot, the vendored snapshot sent to its world first when the world has none. */
+const frameSnapshot = async (page: CdpPage, frame: PageFrame, options: FrameSnapshotOptions): Promise<FrameSnapshot> => {
+  const taken = await page.callInFrame(frame, snapshotFrame, options);
+  if (taken !== null) return taken;
+  await page.callInFrame(frame, installSnapshot);
+  const installed = await page.callInFrame(frame, snapshotFrame, options);
+  if (installed === null) throw new Error("The snapshot could not be set up in the frame.");
+  return installed;
+};
+
+/**
+ * The page as a snapshot reads it: every frame in its own isolated world,
+ * each numbering its refs past those it gave before, stitched under the
+ * iframe that holds it, then serialised as `args` asks. A frame that could
+ * not be read is left out and named; a page whose top frame could not be
+ * read is refused.
+ */
+const snapshotOf = async (page: CdpPage, args: PageArgs<"snapshot">): Promise<{ readonly snapshot: SnapshotText; readonly notice: string | undefined } | PageRefusal> => {
+  const main = page.mainFrame();
+  const outcomes = await page.inEveryFrame((frame) =>
+    frameSnapshot(page, frame, { prefix: page.refs.prefixOf(frame.id, frame.id === main.id), firstRef: page.refs.firstRefOf(frame.id) }),
+  );
+  const top = outcomes.get(main.id);
+  if (!top?.ok) return refused(`The browser could not read the page: ${top ? top.error : "its document is gone"}.`);
+  const unread: string[] = [];
+  const trees = await Promise.all(
+    [...outcomes.values()].map(async (outcome): Promise<FrameTree | undefined> => {
+      if (!outcome.ok) {
+        unread.push(`A frame of the page could not be read (${outcome.frame.url}): ${outcome.error}.`);
+        return undefined;
+      }
+      page.refs.gave(outcome.frame.id, outcome.value.lastRef);
+      // A frame whose owner cannot be found (it left the page meanwhile) is left out, as a hidden one is.
+      const ownerKey = outcome.frame.id === main.id ? undefined : await page.callOnFrameOwner(outcome.frame, frameOwnerKey).catch(() => undefined);
+      const { id, parentId } = outcome.frame;
+      return { frameId: id, ...(parentId !== undefined && { parentId }), ...(typeof ownerKey === "number" && { ownerKey }), nodes: outcome.value.nodes };
+    }),
+  );
+  const serialised = serialiseSnapshot(
+    stitchFrames(
+      main.id,
+      trees.filter((tree): tree is FrameTree => tree !== undefined),
+    ),
+    args,
+  );
+  if (!serialised.ok) return refused(serialised.reason);
+  const { text, totalChars, truncated } = serialised;
+  const nothing = text === "" && !truncated && args.filter !== "all" ? NOTHING_TO_ACT_ON : undefined;
+  return { snapshot: { text, totalChars, truncated }, notice: joined([...unread, nothing]) };
+};
+
+/**
+ * Where a frame's viewport starts in the page's: the sum of where each frame's owner iframe holds it, up to the top frame.
+ * Throws when the frame or one holding it leaves the page during the walk, which a partial sum would hide.
+ */
+const frameOffset = async (page: CdpPage, frame: PageFrame): Promise<{ readonly x: number; readonly y: number }> => {
+  let x = 0;
+  let y = 0;
+  for (let at = frame; at.parentId !== undefined; ) {
+    const origin = await page.callOnFrameOwner(at, frameOwnerOrigin);
+    const parent = page.frame(at.parentId);
+    if (origin === undefined || parent === undefined) throw new Error(`A frame holding the one at ${frame.url} has left the page.`);
+    x += origin.x;
+    y += origin.y;
+    at = parent;
+  }
+  return { x, y };
+};
 
 export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
   const { kind, host } = options;
@@ -144,32 +244,67 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     }
   };
 
-  /** Where the page is, as an action answers, with what the call asked for and could not have. */
-  const arrival = async (page: CdpPage, args: { readonly snapshot?: object | undefined }, load?: LoadOutcome): Promise<PageResult<"open">> => {
+  /** Where the page is, as an action answers, with the snapshot the call asked for. */
+  const arrival = async (page: CdpPage, args: { readonly snapshot?: PageArgs<"snapshot"> | undefined }, load?: LoadOutcome): Promise<PageResult<"open">> => {
     if (load?.kind === "failed") return refused(`The browser could not load the page: ${load.errorText}.`);
-    const value: PageArrival = await page.location();
-    const notice = joined([load?.kind === "slow" ? SLOW : undefined, args.snapshot === undefined ? undefined : "No snapshot came with this answer: this browser cannot take one yet."]);
+    const location = await page.location();
+    const taken = args.snapshot === undefined ? undefined : await snapshotOf(page, args.snapshot);
+    const snapshot = taken === undefined || "ok" in taken ? undefined : taken.snapshot;
+    const value: PageArrival = { ...location, ...(snapshot !== undefined && { snapshot }) };
+    const snapshotNotice = taken === undefined ? undefined : "ok" in taken ? `No snapshot came with this answer: ${taken.reason}` : taken.notice;
+    const notice = joined([load?.kind === "slow" ? SLOW : undefined, snapshotNotice]);
     return { ok: true, value, ...(notice !== undefined && { notice }) };
   };
 
-  const located = async (page: CdpPage, selector: string): Promise<{ readonly x: number; readonly y: number; readonly editable: boolean } | PageRefusal> => {
-    const found = await page.callInFrame(page.mainFrame(), locateElement, selector);
+  /**
+   * Where an action's element is: the centre of its visible part, scrolled
+   * into view in its frame, in the page's viewport (a child frame's offset by
+   * where its frames sit), and whether it takes typed text; or the sentence
+   * that says why it cannot be acted on.
+   */
+  const located = async (
+    page: CdpPage,
+    target: ElementTarget,
+  ): Promise<{ readonly frame: PageFrame; readonly x: number; readonly y: number; readonly editable: boolean } | PageRefusal> => {
+    const frame = "ref" in target ? refFrame(page, target.ref) : page.mainFrame();
+    const what = "ref" in target ? target.ref : target.selector;
+    if (frame === undefined) return refused(staleRef(what));
+    const found = await page.callInFrame(frame, locateElement, target);
     switch (found.kind) {
       case "invalid":
-        return refused(`The CSS selector ${selector} is not valid: ${found.message}`);
+        return refused(`The CSS selector ${what} is not valid: ${found.message}`);
       case "none":
-        return refused(`No element on the page matches the CSS selector ${selector}.`);
+        return refused(`No element on the page matches the CSS selector ${what}.`);
+      case "stale":
+        return refused(staleRef(what));
       case "hidden":
-        return refused(`The element matching ${selector} has no visible part on the page to act on.`);
+        return refused(`${elementNamed(target)} has no visible part on the page to act on.`);
       case "covered":
-        return refused(`The element matching ${selector} is covered at its centre by ${found.by}, which would take the click. Deal with that first, or click at a point.`);
-      case "found":
-        return found;
+        return refused(`${elementNamed(target)} is covered at its centre by ${found.by}, which would take the click. Deal with that first, or click at a point.`);
+      case "found": {
+        // A frame whose owner left the page took the element with it.
+        const offset = await frameOffset(page, frame).catch(() => undefined);
+        if (offset === undefined) return refused(staleRef(what));
+        return { frame, x: found.x + offset.x, y: found.y + offset.y, editable: found.editable };
+      }
     }
   };
 
+  /** Whether the element a ref names shows: true, false while it does not yet, or the sentence for a ref no element has. */
+  const refShows = async (page: CdpPage, ref: string): Promise<boolean | PageRefusal> => {
+    const frame = refFrame(page, ref);
+    const shows = frame === undefined ? "stale" : await page.callInFrame(frame, elementShows, ref);
+    return shows === "stale" ? refused(staleRef(ref)) : shows === "shown";
+  };
+
+  /** Whether any frame of the page shows the text. */
+  const textShows = async (page: CdpPage, text: string): Promise<boolean> => {
+    const frames = await page.callInEveryFrame(showsText, text);
+    return [...frames.values()].some((frame) => frame.ok && frame.value);
+  };
+
   /** A named address opened in the top frame, once the policy has read it. */
-  const goTo = async (page: CdpPage, address: string, args: { readonly snapshot?: object | undefined }, allowance: OneTimeAllowance | undefined): Promise<PageResult<"open">> => {
+  const goTo = async (page: CdpPage, address: string, args: { readonly snapshot?: PageArgs<"snapshot"> | undefined }, allowance: OneTimeAllowance | undefined): Promise<PageResult<"open">> => {
     const url = urlOf(address);
     const standing = page.standing(url, allowance);
     if (standing.kind === "unsupported") return refused(`The browser opens http and https addresses only, and ${address} is neither.`);
@@ -190,11 +325,14 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
   const verbs: { readonly [V in Exclude<PageVerb, "close">]: Handler<V> } = {
     open: (page, args, allowance) => (args.url === undefined ? arrival(page, args) : goTo(page, args.url, args, allowance)),
     navigate: (page, args, allowance) => goTo(page, args.url, args, allowance),
-    snapshot: async () => refused("This browser cannot take a snapshot yet. Take a screenshot to see the page."),
+    snapshot: async (page, args) => {
+      const taken = await snapshotOf(page, args);
+      if ("ok" in taken) return taken;
+      return { ok: true, value: { ...(await page.location()), ...taken.snapshot }, ...(taken.notice !== undefined && { notice: taken.notice }) };
+    },
     read: async () => refused("This browser cannot read a page as text yet. Take a screenshot to see the page."),
     click: async (page, args) => {
-      if ("ref" in args.target) return refused(NO_REFS);
-      const element = await located(page, args.target.selector);
+      const element = await located(page, args.target);
       if ("ok" in element) return element;
       return arrival(page, args, await page.clickAt(element.x, element.y));
     },
@@ -205,15 +343,14 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       return arrival(page, args, await page.clickAt(args.x, args.y));
     },
     type: async (page, args) => {
-      if ("ref" in args.target) return refused(NO_REFS);
-      const { selector } = args.target;
-      const element = await located(page, selector);
+      const { target } = args;
+      const element = await located(page, target);
       if ("ok" in element) return element;
-      const notTyped = refused(`The element matching ${selector} does not take typed text.`);
+      const notTyped = refused(`${elementNamed(target)} does not take typed text.`);
       if (!element.editable) return notTyped;
       const load = await page.clickAt(element.x, element.y);
-      const selected = await page.callInFrame(page.mainFrame(), selectFieldContents, selector);
-      if (selected === "gone") return refused(`The element matching ${selector} left the page before it could be typed into.`);
+      const selected = await page.callInFrame(element.frame, selectFieldContents, target);
+      if (selected === "gone") return refused("ref" in target ? staleRef(target.ref) : `${elementNamed(target)} left the page before it could be typed into.`);
       if (selected === "not-editable") return notTyped;
       if (args.text === "") await page.pressDelete();
       else await page.insertText(args.text);
@@ -221,7 +358,12 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     },
     screenshot: async (page) => ({ ok: true, value: { mimeType: "image/jpeg", data: await page.screenshot() } }),
     scroll: async (page, args) => {
-      if ("ref" in args.to) return refused(NO_REFS);
+      if ("ref" in args.to) {
+        const { ref } = args.to;
+        const frame = refFrame(page, ref);
+        const scrolled = frame === undefined ? "stale" : await page.callInFrame(frame, scrollToElement, ref);
+        return scrolled === "stale" ? refused(staleRef(ref)) : { ok: true, value: await page.location() };
+      }
       const amount = args.to.amount ?? 1;
       const across = args.to.direction === "left" ? -1 : args.to.direction === "right" ? 1 : 0;
       const down = args.to.direction === "up" ? -1 : args.to.direction === "down" ? 1 : 0;
@@ -230,7 +372,6 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     },
     waitFor: async (page, args) => {
       const { until } = args;
-      if ("ref" in until) return refused(NO_REFS);
       const bound = waitBoundMs(until);
       const asked = "ms" in until ? until.ms : (until.timeoutMs ?? WAIT_FOR_MS.preset);
       const clamped = asked > WAIT_FOR_MS.max ? `A wait is at most ${seconds(WAIT_FOR_MS.max)}: the ${seconds(asked)} asked for were cut to ${seconds(WAIT_FOR_MS.max)}.` : undefined;
@@ -239,12 +380,15 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
         await page.pause(bound);
         return waited(await page.location());
       }
+      const missed =
+        "ref" in until ? `The element ${until.ref} did not show on the page within ${seconds(bound)}.` : `"${until.text}" did not appear on the page within ${seconds(bound)}.`;
       const deadline = clock.now().getTime() + bound;
       for (;;) {
-        const frames = await page.callInEveryFrame(showsText, until.text);
-        if ([...frames.values()].some((frame) => frame.ok && frame.value)) return waited(await page.location());
+        const seen = "ref" in until ? await refShows(page, until.ref) : await textShows(page, until.text);
+        if (seen === true) return waited(await page.location());
+        if (seen !== false) return seen;
         const left = deadline - clock.now().getTime();
-        if (left <= 0) return refused(`"${until.text}" did not appear on the page within ${seconds(bound)}.${clamped === undefined ? "" : ` ${clamped}`}`);
+        if (left <= 0) return refused(`${missed}${clamped === undefined ? "" : ` ${clamped}`}`);
         await page.pause(Math.min(WAIT_POLL_MS, left));
       }
     },
@@ -305,6 +449,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     if (typeof page === "string") return refused(page);
     page.beginVerb(allowance);
     try {
+      page.judgeStanding();
       const held = page.takeHeld();
       if (held) return held;
       await page.settleLoading();

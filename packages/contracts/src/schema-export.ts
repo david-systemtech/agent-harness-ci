@@ -646,6 +646,7 @@ import {
 import { RoutineDocument } from "./routine-document.js";
 import { RoutineDay, RoutineSchedule, RoutineTime, RoutineTimeZone, ScheduleIssueParams, WrittenTimeZone } from "./schedule.js";
 import { SCHEDULE_DUE_TIME_CASES, SCHEDULE_VALIDATION_CASES } from "./schedule-cases.js";
+import { SILENCE_CASES } from "./silence-cases.js";
 import {
   CommandsListEntry,
   GitCommit,
@@ -677,7 +678,11 @@ import {
   SkillProbeProblem,
   SkillProbeUnreachable,
   SkillSourceAddConflict,
+  SkillSourceFollowConflict,
   SkillSourceMember,
+  SkillSourceNoSkills,
+  SkillSourcePullConflict,
+  SkillSourceSync,
   SkillsProbeResult,
   SkillsEventType,
   SkillsUpdatedPayload,
@@ -1072,6 +1077,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/probe-problem.json", title: "SkillProbeProblem", schema: SkillProbeProblem },
   { path: "skills/probe-unreachable.json", title: "SkillProbeUnreachable", schema: SkillProbeUnreachable },
   { path: "skills/source-add-conflict.json", title: "SkillSourceAddConflict", schema: SkillSourceAddConflict },
+  { path: "skills/source-no-skills.json", title: "SkillSourceNoSkills", schema: SkillSourceNoSkills },
+  { path: "skills/source-pull-conflict.json", title: "SkillSourcePullConflict", schema: SkillSourcePullConflict },
+  { path: "skills/source-follow-conflict.json", title: "SkillSourceFollowConflict", schema: SkillSourceFollowConflict },
+  { path: "skills/source-sync.json", title: "SkillSourceSync", schema: SkillSourceSync },
   { path: "skills/readiness/fix.json", title: "ReadinessFix", schema: ReadinessFix },
   { path: "skills/readiness/check.json", title: "ReadinessCheck", schema: ReadinessCheck },
   { path: "skills/readiness/declaration.json", title: "ReadinessDeclaration", schema: ReadinessDeclaration },
@@ -1637,6 +1646,19 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
       "A wall-clock minute a clock change skips is due at the first minute after the gap, which is the change's own instant, and minutes inside one gap are one due time; a minute a clock change repeats is due once, at its first occurrence.",
     ].join(" "),
     cases: SCHEDULE_DUE_TIME_CASES,
+  },
+  {
+    path: "cases/silence.json",
+    title: "Silence",
+    description: [
+      "The silence rule, isSilent in the contracts package (routines spec, \"Silence\"): whether a firing's final text is its routine's silence marker, so the firing delivers nothing.",
+      "Each case gives a final text, the routine's marker ([SILENT] unless the routine names its own) and whether the text is silent.",
+      "Folding a text trims it, upper-cases it by Unicode's default case mapping and makes each run of white space one space; its bare form has the punctuation at either edge removed (any character of Unicode's general category P but [ and ], so a malformed [SILENT never reads as SILENT) and is trimmed again.",
+      "Empty text, or white space alone, is not silent. Otherwise a text is silent when the marker is bracketed (it begins with [ and ends with ] once trimmed) and the folded text begins with the folded marker; or when its whole text, its first non-blank line or its last non-blank line (lines split at \\r\\n, \\r and \\n) is the marker.",
+      "A line or the whole text is the marker when, trimmed, it is 1 to 64 characters (Unicode code points) and it folded, or its bare form folded, equals the marker folded or the marker's bare form folded, an empty form equalling nothing.",
+      "So a marker mid-sentence or on a middle line is delivered.",
+    ].join(" "),
+    cases: SILENCE_CASES,
   },
 ];
 

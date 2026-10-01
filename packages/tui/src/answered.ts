@@ -14,6 +14,11 @@ import { ROUTINE_KEYS } from "./routines/commands.js";
  */
 export const SCREEN_KEYS = [
   "app.focus.next",
+  "delegated.enter",
+  "delegated.move",
+  "delegated.leave",
+  "delegated.stop",
+  "delegated.open",
   "app.mode.step",
   "app.handoff",
   "app.interrupt",
@@ -108,7 +113,7 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
  * the list's words.
  */
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
-  "app.focus.next": "Round the composer, the rail, the pane and the transcript",
+  "app.focus.next": "Round the composer, rail, delegated strip, pane and transcript",
   "terminal.leave": "Leave the pane for the transcript, where Tab would go; twice sends the key to the shell",
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",

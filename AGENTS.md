@@ -85,16 +85,23 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Chromium skips unless `AGENT_HARNESS_CHROMIUM` names one; running it is the
   manual checklist in `docs/agents/browser-checklist.md`. Never launch a
   browser on the shared agent box.
+- Code copied from another project, rather than taken as a dependency, lives
+  in a `vendor/` folder beside what uses it, with that project's licence and
+  notice files; each copied file keeps its own notice and names the
+  repository, the commit and what was changed (Playwright's aria snapshot,
+  `packages/browser/src/snapshot/vendor/`, #544).
 - The extension's tests run under Node: the service worker against the fake
-  `chrome` API (`packages/extension/test/fake-chrome.ts`) and a scripted
-  environment speaking the bridge protocol on a loopback WebSocket
-  (`test/scripted-environment.ts`), on a manual clock, and the options page in
-  a jsdom window over its markup, type-checked by
-  `packages/extension/tsconfig.test.json`. `pnpm --filter
+  `chrome` API (`packages/extension/test/fake-chrome.ts`, whose tabs and
+  debugger are the scripted CDP peer's) and a scripted environment speaking
+  the bridge protocol on a loopback WebSocket (`test/scripted-environment.ts`),
+  on a manual clock, and the options page in a jsdom window over its markup,
+  type-checked by `packages/extension/tsconfig.test.json`. `pnpm --filter
   @agent-harness/extension build`, a step of `pnpm build`, bundles it into
   `packages/extension/dist`; the build's test bundles it into a scratch folder
-  and runs the built worker on a thread with the fake `chrome`, and the
-  environment's extension tests build `dist` and unpack it. Never load it in a
+  and runs the built worker on a thread with the fake `chrome`
+  (`test/built-worker-thread.ts`), the environment's extension tests build
+  `dist` and unpack it, and its end to end (`extension-pages.test.ts`) builds
+  one of its own and runs the unpacked worker on such a thread. Never load it in a
   browser on the shared agent box: what only a real Chrome proves is the
   extension section of `docs/agents/browser-checklist.md`.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { GENERATIONS_DIRECTORY, GENERATION_SWEEP_INTERVAL_MS, createGenerations, type GenerationsOptions, type PlacedMember } from "./generations.js";
+import { createSnapshots, snapshotPath } from "./snapshots.js";
 
 /**
  * The materialiser at its own seam, against a temporary data directory
@@ -303,6 +304,54 @@ describe("the sweep", () => {
     clock.advance(1);
     await swept();
     expect(listed(root)).not.toContain(stale.fingerprint);
+  });
+
+  it("starts nothing after a sweep that ends once stopped, so the snapshots' sweep never reads a log the close has shut", async () => {
+    const { generations } = fixture();
+    const after = vi.fn(() => Promise.resolve());
+    await generations.start(after)();
+    // A sweep queued after the start's answers once the start's has ended.
+    await generations.sweep();
+    expect(after).not.toHaveBeenCalled();
+  });
+
+  it("answers the stop once what follows the sweep in flight has ended", async () => {
+    const { generations } = fixture();
+    let release = (): void => undefined;
+    const after = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    const stop = generations.start(after);
+    await generations.sweep();
+    expect(after).toHaveBeenCalledTimes(1);
+    let stopped = false;
+    const stopping = stop().then(() => (stopped = true));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+});
+
+/** The snapshot store's sweep, which runs after the generations' one: when a resolution's touch lands within it, which the wire cannot time. */
+describe("the snapshots' sweep", () => {
+  it("keeps a snapshot a resolution touched while the sweep read the generations' links, and deletes it at the next sweep when nothing else keeps it", async () => {
+    const dataDir = tempDir();
+    const snapshot = snapshotPath(dataDir, "source-1", "0".repeat(40));
+    mkdirSync(snapshot, { recursive: true });
+    let touching = true;
+    const snapshots = createSnapshots({
+      dataDir,
+      // The touch is queued as the sweep begins, so it lands while the sweep awaits the links.
+      current: () => {
+        if (touching) queueMicrotask(() => snapshots.touch(snapshot));
+        return [];
+      },
+    });
+    await snapshots.sweep();
+    expect(existsSync(snapshot)).toBe(true);
+    touching = false;
+    await snapshots.sweep();
+    expect(existsSync(snapshot)).toBe(false);
   });
 });
 
