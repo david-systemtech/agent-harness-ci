@@ -981,20 +981,25 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The browser tool server on every run (#546): web_read, reading the internal hosts and the denylist as they are at each
   // call, so the one tool serves every run and a kept provider process the next. A redirect's address meets the
   // denylist's hosts section here, as the gate met the address the call named. Beside it the browser's verbs where a run's
-  // resolved browser is not none (#551), each call driving the browser of the session's live run, read from the host.
-  const webReader = createWebReader({
-    clock,
-    harnessVersion,
-    rules: () => ({
-      internalHosts: readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["browser.internalHosts"],
-      resolve: options.webRead?.resolve ?? systemResolver,
+  // resolved browser is not none (#551), each call driving the browser of its session's live run as the host holds it then.
+  const browserTools = createBrowserToolServers({
+    reader: createWebReader({
+      clock,
+      harnessVersion,
+      rules: () => ({
+        internalHosts: readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["browser.internalHosts"],
+        resolve: options.webRead?.resolve ?? systemResolver,
+      }),
+      denylisted: (url) => {
+        const [match] = readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches;
+        return match === undefined ? null : describeDenylistMatch(match);
+      },
+      dial: options.webRead?.dial ?? systemDialer,
+      ...(options.webRead?.hooks !== undefined && { hooks: options.webRead.hooks }),
     }),
-    denylisted: (url) => {
-      const [match] = readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches;
-      return match === undefined ? null : describeDenylistMatch(match);
-    },
-    dial: options.webRead?.dial ?? systemDialer,
-    ...(options.webRead?.hooks !== undefined && { hooks: options.webRead.hooks }),
+    environmentId: record.id,
+    live: (sessionId) => host.live(sessionId),
+    drivers: options.browser?.drivers ?? {},
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
@@ -1132,8 +1137,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => store.close());
     await store.start();
-    // Each call of a browser verb drives the browser of its session's live run, as the host holds it then.
-    const browserTools = createBrowserToolServers({ reader: webReader, environmentId: record.id, live: (sessionId) => created.live(sessionId), drivers: options.browser?.drivers ?? {} });
     const created = createAdapterHost({
       log,
       clock,
