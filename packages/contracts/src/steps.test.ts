@@ -759,6 +759,7 @@ describe("the step registry", () => {
     ]);
     expect(matched("bank.*")).toEqual([
       "bank.added",
+      "bank.draft-queued",
       "bank.updated",
       "bank.pinned",
       "bank.forgotten",
