@@ -57,13 +57,25 @@ const CLEAR_TEXT_CLASSES: ReadonlySet<AddressClass> = new Set(["loopback", "priv
 /** The suffix of a name on a tailnet, which MagicDNS answers with a tailnet address. */
 const TAILNET_SUFFIX = ".ts.net";
 
-/** Userinfo in a URL's authority, empty included (`https://@host`); a backslash ends the authority as the URL parser reads it. */
-const USERINFO = /^https?:\/\/[^/?#\\]*@/i;
+/** What the URL parser drops before it reads: the C0 controls and spaces at either end, and every tab and line break. */
+// eslint-disable-next-line no-control-regex -- the C0 controls the parser trims are what is being removed.
+const PARSER_DROPS = /^[\u0000-\u0020]+|[\u0000-\u0020]+$|[\t\n\r]/g;
+
+/**
+ * Userinfo in a URL's authority, empty included (`https://@host`), read as
+ * the URL parser reads an http or https URL: any run of slashes and
+ * backslashes after the colon (`https:////user@host`, `https://\user@host`),
+ * then the authority up to a slash, backslash, `?` or `#`.
+ */
+const USERINFO = /^https?:[/\\]*[^/\\?#]*@/i;
 
 /** Why `url` cannot be an endpoint's; null when it can. */
 const urlProblem = (url: string): string | null => {
-  if (USERINFO.test(url)) return "An endpoint's URL carries no user name or password: the endpoint's secret signs each POST.";
-  if (new URL(url).protocol === "https:") return null;
+  const parsed = new URL(url);
+  if (parsed.username !== "" || parsed.password !== "" || USERINFO.test(url.replace(PARSER_DROPS, ""))) {
+    return "An endpoint's URL carries no user name or password: the endpoint's secret signs each POST.";
+  }
+  if (parsed.protocol === "https:") return null;
   const host = hostOf(url) ?? url;
   const addressClass = addressClassOf(host);
   if ((addressClass !== null && CLEAR_TEXT_CLASSES.has(addressClass)) || host.endsWith(TAILNET_SUFFIX)) return null;

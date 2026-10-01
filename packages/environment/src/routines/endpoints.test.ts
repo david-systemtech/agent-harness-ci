@@ -203,6 +203,7 @@ describe("the URL rule", () => {
     ["http to a tailnet address", "http://100.101.102.103:8644/hook"],
     ["http to a tailnet IPv6 address", "http://[fd7a:115c:a1e0::1]:8644/hook"],
     ["http to a .ts.net name", "http://mnl.tail1234.ts.net:8644/webhooks/harness"],
+    ["https with an at-sign in its path and query", "https://hermes.example.com/hooks/a@b?from=c@d"],
   ] as const;
 
   /** URLs an endpoint may not have, each with what it is. */
@@ -216,6 +217,11 @@ describe("the URL rule", () => {
     ["userinfo on https", "https://david:pass@hermes.example.com/hook"],
     ["userinfo on loopback http", "http://david@127.0.0.1:8644/hook"],
     ["an empty userinfo", "https://@hermes.example.com/hook"],
+    ["userinfo after extra slashes", "https:////david:pass@hermes.example.com/hook"],
+    ["userinfo after a backslash", "https://\\david:pass@hermes.example.com/hook"],
+    ["userinfo after a tab the parser drops", "https://\t/david:pass@hermes.example.com/hook"],
+    ["userinfo after extra slashes on loopback http", "http:///david@127.0.0.1:8644/hook"],
+    ["an empty userinfo after a backslash", "https://\\@hermes.example.com/hook"],
   ] as const;
 
   it("accepts https, and http to loopback, localhost, a private or tailnet address or a .ts.net name", async () => {
