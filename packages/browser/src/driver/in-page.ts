@@ -4,14 +4,24 @@
  * neither see nor change them (browser spec, "One page driver for three
  * browsers"). Each is sent as its own source text (`Runtime.callFunctionOn`),
  * so each is a plain function declaration that reaches nothing outside
- * itself: no import, no module-scope name, only the page's DOM and its
- * arguments. Their values come back by value, so each answers plain JSON.
+ * itself: no import, no module-scope name, only the page's DOM, its
+ * arguments, and the snapshot's state in the world, which finds an element
+ * by the ref the latest snapshot gave it (../snapshot/world.ts). Their
+ * values come back by value, so each answers plain JSON.
  */
+
+import type { PageArgs } from "@agent-harness/contracts";
+import type { SnapshotGlobal } from "../snapshot/world.js";
+
+/** An element an action names: by the ref a snapshot gave it, or by a CSS selector. */
+export type ElementTarget = PageArgs<"click">["target"];
 
 /** Where an element a selector names is, as `locateElement` answers it. */
 export type LocatedElement =
   | { readonly kind: "invalid"; readonly message: string }
   | { readonly kind: "none" }
+  /** A ref no element has now: the world's latest snapshot did not give it, or its element left the page. */
+  | { readonly kind: "stale" }
   | { readonly kind: "hidden" }
   /** Another element takes a click at its centre: an overlay, a banner; `by` names it as a selector would (`div#banner.cookie`). */
   | { readonly kind: "covered"; readonly by: string }
@@ -25,21 +35,28 @@ export type LocatedElement =
     };
 
 /**
- * The first element `selector` matches in the frame's document, scrolled
+ * The element the target names in the frame's document (the first a
+ * selector matches, or the one the latest snapshot gave a ref), scrolled
  * into the middle of the viewport, with the centre of its visible part: where
- * a real click lands on it. An element with no visible part (no size,
- * clipped wholly out of the viewport, or reported not visible) is `hidden`;
- * one another element sits over at that centre, which would take the click,
- * is `covered`.
+ * a real click lands on it, in the frame's own viewport. An element with no
+ * visible part (no size, clipped wholly out of the viewport, or reported not
+ * visible) is `hidden`; one another element sits over at that centre, which
+ * would take the click, is `covered`, read in the element's own tree, so a
+ * shadow root's content is not taken to be covered by its host.
  */
-export function locateElement(selector: string): LocatedElement {
+export function locateElement(target: ElementTarget): LocatedElement {
   let element: Element | null;
-  try {
-    element = document.querySelector(selector);
-  } catch (error) {
-    return { kind: "invalid", message: error instanceof Error ? error.message : String(error) };
+  if ("ref" in target) {
+    element = (globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(target.ref) ?? null;
+    if (element === null) return { kind: "stale" };
+  } else {
+    try {
+      element = document.querySelector(target.selector);
+    } catch (error) {
+      return { kind: "invalid", message: error instanceof Error ? error.message : String(error) };
+    }
+    if (element === null) return { kind: "none" };
   }
-  if (element === null) return { kind: "none" };
   element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
   const box = element.getBoundingClientRect();
   const left = Math.max(box.left, 0);
@@ -50,8 +67,9 @@ export function locateElement(selector: string): LocatedElement {
   if (typeof element.checkVisibility === "function" && !element.checkVisibility({ visibilityProperty: true })) return { kind: "hidden" };
   const x = (left + right) / 2;
   const y = (top + bottom) / 2;
-  // What a click at the centre reaches: the element, or something inside it (a shadow tree's content answers as its host).
-  const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(x, y) : null;
+  // What a click at the centre reaches, read in the element's own tree: the element, or something inside it (a shadow tree's content answers as its host).
+  const scope = element.getRootNode() as Document | ShadowRoot;
+  const hit = typeof scope.elementFromPoint === "function" ? scope.elementFromPoint(x, y) : null;
   if (hit !== null && hit !== element && !element.contains(hit)) {
     const classes = Array.from(hit.classList, (name) => `.${name}`).join("");
     return { kind: "covered", by: `${hit.localName}${hit.id === "" ? "" : `#${hit.id}`}${classes}` };
@@ -67,12 +85,13 @@ export function locateElement(selector: string): LocatedElement {
 }
 
 /**
- * Focuses the field `selector` names and selects all it holds, so what is
+ * Focuses the field the target names and selects all it holds, so what is
  * typed next replaces it: an input's or a textarea's value, an editable
- * element's contents. `gone` when nothing matches it any more.
+ * element's contents. `gone` when nothing matches it any more, or its ref
+ * names no element now.
  */
-export function selectFieldContents(selector: string): "selected" | "gone" | "not-editable" {
-  const element = document.querySelector(selector);
+export function selectFieldContents(target: ElementTarget): "selected" | "gone" | "not-editable" {
+  const element = "ref" in target ? ((globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(target.ref) ?? null) : document.querySelector(target.selector);
   if (element === null) return "gone";
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     element.focus();
@@ -89,6 +108,39 @@ export function selectFieldContents(selector: string): "selected" | "gone" | "no
     return "selected";
   }
   return "not-editable";
+}
+
+/** Scrolls the element the latest snapshot gave `ref` into the middle of the viewport; `stale` when no element has the ref now. */
+export function scrollToElement(ref: string): "scrolled" | "stale" {
+  const element = (globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(ref);
+  if (element === undefined) return "stale";
+  element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  return "scrolled";
+}
+
+/**
+ * Whether the element the latest snapshot gave `ref` shows: it has a box,
+ * and the browser does not report it hidden; `stale` when no element has the
+ * ref now, which it never will again.
+ */
+export function elementShows(ref: string): "shown" | "hidden" | "stale" {
+  const element = (globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(ref);
+  if (element === undefined) return "stale";
+  const box = element.getBoundingClientRect();
+  if (box.width <= 0 || box.height <= 0) return "hidden";
+  if (typeof element.checkVisibility === "function" && !element.checkVisibility({ visibilityProperty: true })) return "hidden";
+  return "shown";
+}
+
+/**
+ * Called on an iframe element (`this`): where its frame's viewport starts in
+ * the viewport of the document holding it, inside its border and padding, so
+ * a point in the frame plus this is the point in its parent.
+ */
+export function frameOwnerOrigin(this: Element): { x: number; y: number } {
+  const box = this.getBoundingClientRect();
+  const style = window.getComputedStyle(this);
+  return { x: box.left + this.clientLeft + (parseFloat(style.paddingLeft) || 0), y: box.top + this.clientTop + (parseFloat(style.paddingTop) || 0) };
 }
 
 /**
