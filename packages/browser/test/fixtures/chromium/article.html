@@ -2,12 +2,25 @@
 <html lang="en">
 <head><meta charset="utf-8"><title>A long article</title><style>p { margin: 0 0 16px; line-height: 24px; }</style></head>
 <body>
+  <nav><a href="/">Main page</a> <a href="/random">Random article</a></nav>
   <article id="article"><h1>A long article</h1></article>
+  <footer>Text is available under a licence for these tests.</footer>
   <script>
+    // Wikipedia-length: 300 paragraphs in twelve parts, some 55,000 characters as Markdown, three of a reader's
+    // pages, written by the page's own script as an app renders its content.
     const article = document.getElementById("article");
     for (let n = 1; n <= 300; n++) {
+      if (n % 25 === 1) {
+        const heading = document.createElement("h2");
+        heading.textContent = `Part ${(n - 1) / 25 + 1}`;
+        article.append(heading);
+      }
       const p = document.createElement("p");
-      p.textContent = `Paragraph ${n} of the article, which runs far past the first screen.`;
+      p.textContent = `Paragraph ${n} of the article, which runs far past the first screen and past the 24,000 characters of a reader's page, so that it is read to its end over several pages.`;
+      const link = document.createElement("a");
+      link.href = `/notes/${n}`;
+      link.textContent = "See its note.";
+      p.append(" ", link);
       article.append(p);
     }
     const last = document.createElement("p");

@@ -106,7 +106,7 @@ describe("sessions.fork", () => {
   it("forks onto another account of the environment: its first run continues the source's conversation as a fork under that account, and its next resumes its own", async () => {
     const t = await start();
     const client = await t.client();
-    const source = await create(client);
+    const source = await create(client, { browser: { value: { kind: "headless" }, chosenBy: "reach" } });
     await runTo(t, client, source.id, "Fix the receipt sweep");
     // What the source's runs mirrored into the store, under its id.
     const store = storeOf(t);
@@ -114,6 +114,8 @@ describe("sessions.fork", () => {
     const id = randomUUID();
 
     await fork(client, { sessionId: source.id, id, account: WORK });
+    expect(await get(client, id)).toMatchObject({ browser: { kind: "headless" } });
+    expect(events(t, id).filter((event) => event.type === "session.browser.set").map((event) => event.payload)).toEqual([{ browser: { kind: "headless" }, chosenBy: "reach" }]);
     // The fork holds its own copy of the conversation it continues, whatever becomes of the source's.
     expect(await store.load({ projectKey: id, sessionId: "provider-1" })).toEqual([{ type: "user", uuid: "u1", message: { role: "user", content: "Fix the receipt sweep" } }]);
 
@@ -131,13 +133,14 @@ describe("sessions.fork", () => {
   it("forks before a message: the fork holds the conversation up to it, and its text becomes the fork's draft", async () => {
     const t = await start();
     const client = await t.client();
-    const source = await create(client);
+    const source = await create(client, { browser: { value: { kind: "dock" }, chosenBy: "person" } });
     await runTo(t, client, source.id, "First");
     const second = await runTo(t, client, source.id, "Second, differently");
     const id = randomUUID();
 
     const answer = await fork(client, { sessionId: source.id, id, atMessageId: second.messageId, title: "The other approach" });
-    expect(answer.result?.summary).toMatchObject({ title: "The other approach", titleSource: "user", draft: "Second, differently" });
+    expect(answer.result?.summary).toMatchObject({ title: "The other approach", titleSource: "user", draft: "Second, differently", browser: { kind: "dock" } });
+    expect(events(t, id).filter((event) => event.type === "session.browser.set").map((event) => event.payload)).toEqual([{ browser: { kind: "dock" }, chosenBy: "person" }]);
     expect(events(t, id).at(-1)?.payload).toEqual({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
     await runTo(t, client, id, "Third");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });

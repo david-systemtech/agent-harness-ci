@@ -4,7 +4,7 @@ import {
 } from "@agent-harness/contracts";
 import type { Reader } from "../sessions/session-reads.js";
 import type { EventLog } from "../event-log/event-log.js";
-import type { ScrubRegistry } from "../scrub/registry.js";
+import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { deliveredOutcome, deliveredResult, endedEntryOf, takes } from "./delivery.js";
 import { appendRoutineRecord, routineActor } from "./records.js";
@@ -13,7 +13,7 @@ import { postWebhook, networkReason } from "./webhook-post.js";
 
 /** A resolved endpoint, or why it cannot be used. References that cannot be resolved retry (#536). */
 export type DeliveryEndpoint =
-  | { readonly url: string; readonly secret: string }
+  | { readonly url: string; readonly secret: string; readonly release?: ScrubRelease }
   | { readonly error: string; readonly retryable: boolean };
 
 export interface WebhookDeliveriesOptions {
@@ -83,36 +83,40 @@ export const createWebhookDeliveries = (options: WebhookDeliveriesOptions) => {
     } catch (caught) {
       endpoint = { error: `The endpoint's secret could not be resolved: ${networkReason(caught)}.`, retryable: true };
     }
-    if (closed) return;
-    if ("error" in endpoint) {
-      error = endpoint.error;
-      retryable = endpoint.retryable;
-    } else {
-      try {
-        const posted = await postWebhook({ ...endpoint, id: keyOf(entryId, target), body: JSON.stringify(payload), clock, signal: abort.signal });
-        status = posted.status;
-        error = posted.error;
-        retryable = status === null || status === 408 || status === 429 || status >= 500;
-      } catch (caught) {
-        error = `The webhook POST could not be prepared: ${networkReason(caught)}.`;
-        retryable = false;
+    try {
+      if (closed) return;
+      if ("error" in endpoint) {
+        error = endpoint.error;
+        retryable = endpoint.retryable;
+      } else {
+        try {
+          const posted = await postWebhook({ ...endpoint, id: keyOf(entryId, target), body: JSON.stringify(payload), clock, signal: abort.signal });
+          status = posted.status;
+          error = posted.error;
+          retryable = status === null || status === 408 || status === 429 || status >= 500;
+        } catch (caught) {
+          error = `The webhook POST could not be prepared: ${networkReason(caught)}.`;
+          retryable = false;
+        }
       }
+      if (closed) return;
+      error = error === null ? null : options.scrub.scrubOutput(error);
+      const at = clock.now().toISOString();
+      const delay = error !== null && retryable ? RETRY_DELAYS[number - 1] : undefined;
+      const retryAt = delay === undefined ? null : new Date(clock.now().getTime() + delay).toISOString();
+      const result = error === null ? "delivered" : retryAt === null ? "failed" : "retrying";
+      log.atomically((tx) => {
+        const attribution = { tx, actor: routineActor(routineId), correlationId: entryId };
+        const made: RoutineDeliveryAttemptedPayload = { entryId, target, attempt: number, result, status, error, retryAt };
+        const record = appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.delivery-attempted", payload: made, occurredAt: at }, change: result === "delivered" ? "delivery-attempted" : null }, attribution);
+        if (result === "failed") {
+          const failed: RoutineDeliveryFailedPayload = { routineId, name: held.name, entryId, endpoint: target.target, error: error! };
+          log.append({ kind: ENVIRONMENT_STREAM_KIND, id: environmentId }, [{ type: "routine.delivery-failed", payload: failed, occurredAt: at }], { ...attribution, causationId: record.eventId });
+        }
+      });
+    } finally {
+      if (!("error" in endpoint)) endpoint.release?.();
     }
-    if (closed) return;
-    error = error === null ? null : options.scrub.scrubOutput(error);
-    const at = clock.now().toISOString();
-    const delay = error !== null && retryable ? RETRY_DELAYS[number - 1] : undefined;
-    const retryAt = delay === undefined ? null : new Date(clock.now().getTime() + delay).toISOString();
-    const result = error === null ? "delivered" : retryAt === null ? "failed" : "retrying";
-    log.atomically((tx) => {
-      const attribution = { tx, actor: routineActor(routineId), correlationId: entryId };
-      const made: RoutineDeliveryAttemptedPayload = { entryId, target, attempt: number, result, status, error, retryAt };
-      const record = appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.delivery-attempted", payload: made, occurredAt: at }, change: result === "delivered" ? "delivery-attempted" : null }, attribution);
-      if (result === "failed") {
-        const failed: RoutineDeliveryFailedPayload = { routineId, name: held.name, entryId, endpoint: target.target, error: error! };
-        log.append({ kind: ENVIRONMENT_STREAM_KIND, id: environmentId }, [{ type: "routine.delivery-failed", payload: failed, occurredAt: at }], { ...attribution, causationId: record.eventId });
-      }
-    });
   };
 
   const launch = (routineId: string, entryId: string, target: WebhookTarget): void => {

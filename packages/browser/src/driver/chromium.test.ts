@@ -18,8 +18,10 @@ import { cdpPageDriver } from "./driver.js";
  * The fixture-page suite (browser spec, "Testing Decisions"): the driver and
  * its in-page functions against a real Chromium, launched headless over a
  * pipe, on pages served from loopback: open shadow roots, same-site and
- * cross-site frames, password and card fields, a long article and a canvas,
- * each read through the vendored aria snapshot and acted on by its refs;
+ * cross-site frames, password and card fields, a long article, a canvas and
+ * a challenge page, each read through the vendored aria snapshot and acted on
+ * by its refs, the article through the reader to its end, the challenge
+ * named;
  * one case drives a second Chromium over a WebSocket to its DevTools address
  * instead. It runs only where a browser may run, named by
  * AGENT_HARNESS_CHROMIUM (docs/agents/browser-checklist.md), and skips with
@@ -260,6 +262,58 @@ describe("the page driver in a real Chromium", () => {
     expect(await perform("click", { target: { ref: ref("Buy") } })).toMatchObject({ ok: true });
     expect(await perform("type", { target: { ref: ref("Password") }, text: "typed-by-ref-for-tests" })).toMatchObject({ ok: true });
     expect(await perform("evaluate", { expression: "[window.clicks, password.value]" })).toEqual({ ok: true, value: { result: [1, "typed-by-ref-for-tests"] } });
+  });
+
+  it("reads a Wikipedia-length article through the reader as Markdown to its last sentence over successive offsets, the live page untouched", async () => {
+    const perform = drive();
+    await perform("open", { url: at("article.html") });
+    sent.length = 0;
+
+    const pages: string[] = [];
+    for (let offset: number | null = 0; offset !== null; ) {
+      const read: PageResult<"read"> = await perform("read", { offset });
+      if (!read.ok) throw new Error(read.reason);
+      expect(read.value).toMatchObject({ source: "article", offset });
+      expect(read.value.text.length).toBeLessThanOrEqual(24_000);
+      pages.push(read.value.text);
+      offset = read.value.nextOffset;
+    }
+
+    expect(pages.length).toBeGreaterThanOrEqual(3);
+    const whole = pages.join("");
+    expect(whole.startsWith("# A long article\n\n## Part 1\n\nParagraph 1 of the article")).toBe(true);
+    expect(whole).toContain("## Part 12");
+    expect(whole.endsWith("The end of the article.")).toBe(true);
+    // Link targets are dropped unless asked for; the page's navigation and footer are no part of the article.
+    expect(whole).not.toContain("/notes/");
+    for (const boilerplate of ["Random article", "licence for these tests"]) expect(whole).not.toContain(boilerplate);
+    // The reader runs in an isolated world, which needs no Runtime domain.
+    expect(sent).not.toContain("Runtime.enable");
+    const page = "[document.documentElement.outerHTML, document.querySelectorAll('p').length, document.querySelectorAll('nav, footer').length]";
+    const before = await perform("evaluate", { expression: page });
+    expect(before).toMatchObject({ ok: true, value: { result: [expect.any(String), 301, 2] } });
+    const linked = await perform("read", { offset: 0, links: true });
+    expect(linked.ok && linked.value.text).toContain(`[See its note.](${at("notes/1")})`);
+    expect(await perform("evaluate", { expression: page })).toEqual(before);
+  });
+
+  it("reads a page that is no article as its snapshot's text, every element, and says so", async () => {
+    const perform = drive();
+    await perform("open", { url: at("frames.html") });
+    const read = await perform("read", {});
+    if (!read.ok) throw new Error(read.reason);
+    expect(read.value.source).toBe("snapshot");
+    expect(read.value.text).toMatch(/- heading "Checkout" \[level=1\] \[ref=e\d+\]/);
+    expect(read.value.text).toContain("Your basket holds two items.");
+  });
+
+  it("names a challenge the page shows on the load's result, a snapshot and a reading, and none on a page without one", async () => {
+    const perform = drive();
+    expect(await perform("open", { url: at("challenge.html") })).toMatchObject({ ok: true, value: { challenge: "cloudflare" } });
+    expect(await perform("snapshot", {})).toMatchObject({ ok: true, value: { challenge: "cloudflare" } });
+    expect(await perform("read", {})).toMatchObject({ ok: true, value: { challenge: "cloudflare" } });
+    const plain = await perform("navigate", { url: at("article.html") });
+    expect(plain.ok && plain.value).not.toHaveProperty("challenge");
   });
 
   it("refuses a page whose cross-site frame the denylist lists, and leaves it at about:blank", async () => {

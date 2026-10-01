@@ -203,6 +203,16 @@ describe("the per-session snapshot", () => {
     expect(SessionSnapshot.safeParse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [], rewinds: [] }).success).toBe(true);
   });
 
+  it("carries a fork's source and nullable anchor as a known item, while an older snapshot still has only its original items", () => {
+    const forked = { kind: "forked", sequence: 2, fromSessionId: summary.id, atMessageId: messageId };
+    const snapshot = { sequence: 9, summary, runs: [], items: [forked, item], parkedPrompts: [] };
+    expect(SessionSnapshot.parse(snapshot).items).toEqual([forked, item]);
+    expect(TranscriptItem.parse({ ...forked, atMessageId: null })).toEqual({ ...forked, atMessageId: null });
+    expect(TranscriptItem.safeParse({ ...forked, fromSessionId: "missing-session" }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ kind: "forked", sequence: 2, fromSessionId: summary.id }).success).toBe(false);
+    expect(SessionSnapshot.parse({ ...snapshot, items: [item] }).items).toEqual([item]);
+  });
+
   it("reads a snapshot without rewinds, an environment's from before #260, as one with no rewind standing, and one without instructions as none", () => {
     expect(SessionSnapshot.parse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [] }).rewinds).toEqual([]);
     // An environment from before #506 sends no instructions: the session has none.
