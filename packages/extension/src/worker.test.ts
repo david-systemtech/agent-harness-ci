@@ -45,7 +45,7 @@ describe("a worker that holds no credential", () => {
     expect([...setup.chrome.alarmsCreated]).toEqual([["connect", 0.5]]);
 
     // The environment stops; the worker would retry in a second, and the alarm comes first.
-    setup.environment.close();
+    await setup.environment.close();
     await statusOnce(setup.chrome, (status) => status.state !== "unpaired");
     const restarted = await environmentOf({ name: "Laptop" });
     setup.folder.writePortFile(restarted.portFile);

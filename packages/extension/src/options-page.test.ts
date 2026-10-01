@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
-import { WAIT_MS } from "../test/scripted-environment.js";
+import { WAIT_MS, type PeerSocket } from "../test/scripted-environment.js";
 import { workerHarness, type Setup } from "../test/worker-harness.js";
 import { startOptionsPage } from "./options-page.js";
 
@@ -23,8 +23,10 @@ interface Page {
   type(id: string, value: string): void;
   submit(id: string): void;
   click(id: string): void;
-  /** Waits until the element `id` says what `predicate` takes. */
+  /** Waits until the element `id` says what `predicate` takes: the page draws again on each change, a moment after it. */
   says(id: string, predicate: (text: string) => boolean): Promise<string>;
+  /** Waits until the element `id` says `text`, and fails saying what it says instead. */
+  saysExactly(id: string, text: string): Promise<void>;
 }
 
 const openPage = async (setup: Setup): Promise<Page> => {
@@ -37,6 +39,14 @@ const openPage = async (setup: Setup): Promise<Page> => {
     return found;
   };
   const text = (id: string) => element(id).textContent;
+  const says = async (id: string, predicate: (text: string) => boolean): Promise<string> => {
+    const until = Date.now() + WAIT_MS;
+    while (!predicate(text(id))) {
+      if (Date.now() > until) throw new Error(`#${id} never said it; it says ${JSON.stringify(text(id))}.`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return text(id);
+  };
   return {
     document,
     text,
@@ -46,13 +56,9 @@ const openPage = async (setup: Setup): Promise<Page> => {
     },
     submit: (id) => (element(id) as HTMLFormElement).requestSubmit(),
     click: (id) => element(id).click(),
-    async says(id, predicate) {
-      const until = Date.now() + WAIT_MS;
-      while (!predicate(text(id))) {
-        if (Date.now() > until) throw new Error(`#${id} never said it; it says ${JSON.stringify(text(id))}.`);
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      return text(id);
+    says,
+    async saysExactly(id, expected) {
+      expect(await says(id, (said) => said === expected).catch(() => text(id))).toBe(expected);
     },
   };
 };
@@ -64,7 +70,7 @@ describe("the options page", () => {
 
     const page = await openPage(setup);
 
-    expect(page.text("status")).toBe("Connected to Laptop, and not paired. Type the code Laptop shows to pair this Chrome.");
+    await page.saysExactly("status", "Connected to Laptop, and not paired. Type the code Laptop shows to pair this Chrome.");
     expect(page.document.getElementById("pair-form")?.hidden).toBe(false);
   });
 
@@ -73,8 +79,8 @@ describe("the options page", () => {
     const fromFile = await setup.environment.nextSocket();
     await announced(setup, fromFile);
     const page = await openPage(setup);
-    expect(page.text("port-file")).toBe(`The port file names port ${setup.environment.port}, where Laptop listens.`);
-    expect(page.text("override-line")).toBe("No override is set, so the port file's port is used.");
+    await page.saysExactly("port-file", `The port file names port ${setup.environment.port}, where Laptop listens.`);
+    await page.saysExactly("override-line", "No override is set, so the port file's port is used.");
     const elsewhere = await environmentOf({ name: "Desktop" });
 
     page.type("override", String(elsewhere.port));
@@ -83,7 +89,7 @@ describe("the options page", () => {
     await page.says("override-line", (text) => text === `The override, port ${elsewhere.port}, is used while it is set, whatever the port file names.`);
     await announced({ chrome: setup.chrome, environment: elsewhere }, await elsewhere.nextSocket());
     await page.says("status", (text) => text.startsWith("Connected to Desktop"));
-    expect(page.text("port-file")).toBe(`The port file names port ${setup.environment.port}, where Laptop listens.`);
+    await page.saysExactly("port-file", `The port file names port ${setup.environment.port}, where Laptop listens.`);
 
     page.click("override-clear");
 
@@ -101,9 +107,9 @@ describe("the options page", () => {
     page.type("override", "");
     page.submit("override-form");
 
-    expect(page.text("override-problem")).toBe("A port is a whole number from 1 to 65535.");
+    await page.saysExactly("override-problem", "A port is a whole number from 1 to 65535.");
     expect(setup.chrome.storage.local.peek("portOverride")).toBeUndefined();
-    expect(page.text("override-line")).toBe("No override is set, so the port file's port is used.");
+    await page.saysExactly("override-line", "No override is set, so the port file's port is used.");
   });
 
   it("sends a typed code as pair on the announced socket, keeps the credential it gets, and says it is paired", async () => {
@@ -157,14 +163,21 @@ describe("the options page", () => {
 
   it("says another environment holds the port when the one there is not the one this Chrome paired with", async () => {
     const setup = await setUpPaired();
-    const socket = await setup.environment.nextSocket();
-    expect(await socket.next()).toMatchObject({ type: "hello" });
-    socket.send({ type: "challenge", environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", nonce: "b".repeat(64) });
-    await statusOnce(setup.chrome, (status) => status.state === "other-environment");
+    /** Answers a hello as another environment on the port does: with a challenge naming itself. */
+    const answerAsAnother = async (socket: PeerSocket) => {
+      expect(await socket.next()).toMatchObject({ type: "hello" });
+      socket.send({ type: "challenge", environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e", nonce: "b".repeat(64) });
+      await socket.closed;
+    };
+    await answerAsAnother(await setup.environment.nextSocket());
+    await statusOnce(setup.chrome, (status) => status.state === "other-environment" && setup.clock.pending() > 0);
 
     const page = await openPage(setup);
+    // Opening the page woke the worker, which dialled again at once.
+    await answerAsAnother(await setup.environment.nextSocket());
 
-    expect(page.text("status")).toBe(
+    await page.saysExactly(
+      "status",
       `Another environment holds port ${setup.environment.port}. This Chrome is paired with Laptop, so it does not prove itself to this one. Start Laptop, or set the port it listens on below.`,
     );
     expect(page.document.getElementById("pair-form")?.hidden).toBe(true);

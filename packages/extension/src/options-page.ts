@@ -52,13 +52,17 @@ export const startOptionsPage = async (document: Document, { chrome, readOwnFile
   const overrideLine = element("override-line");
   const ask = (request: PageRequest): Promise<unknown> => chrome.runtime.sendMessage(request);
 
+  /** How many draws began: a draw that a later one overtook leaves the page to it. */
+  let draws = 0;
   const draw = async (): Promise<void> => {
+    const drawing = ++draws;
     const [stored, pairing, overridden, reading] = await Promise.all([
       chrome.storage.session.get(STATUS_KEY),
       readPairing(chrome),
       readPortOverride(chrome),
       readPortFile(readOwnFile),
     ]);
+    if (drawing !== draws) return;
     status.textContent = describeStatus((stored[STATUS_KEY] as WorkerStatus | undefined) ?? { state: "starting" });
     pairForm.hidden = pairing !== undefined;
     portFile.textContent = reading.ok ? `The port file names port ${reading.file.port}, where ${reading.file.environmentName} listens.` : reading.problem;

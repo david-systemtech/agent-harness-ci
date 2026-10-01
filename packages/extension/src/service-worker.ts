@@ -88,7 +88,9 @@ interface Connection {
 }
 
 export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): RunningWorker => {
-  const extensionVersion = ((manifest) => manifest.version_name ?? manifest.version)(chrome.runtime.getManifest());
+  const manifest = chrome.runtime.getManifest();
+  // What the environment compares with its folder's: the version name, the harness version.
+  const extensionVersion = manifest.version_name ?? manifest.version;
   let connection: Connection | undefined;
   /** An attempt reading its port and pairing, before it has a socket. */
   let preparing = false;
@@ -113,8 +115,8 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
     settledWaiters.clear();
   };
 
-  const send = (connection: Connection, message: BridgeFromExtension): void => {
-    if (connection.socket.readyState === WebSocket.OPEN) connection.socket.send(encodeBridgeMessage(message));
+  const send = (to: Connection, message: BridgeFromExtension): void => {
+    if (to.socket.readyState === WebSocket.OPEN) to.socket.send(encodeBridgeMessage(message));
   };
 
   const retryLater = (): void => {
@@ -133,9 +135,12 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
     cancelRetry?.();
     cancelRetry = undefined;
     preparing = true;
-    void open().finally(() => {
-      preparing = false;
-    });
+    void open()
+      // Chrome's storage failing to answer: the next attempt reads it again.
+      .catch(() => retryLater())
+      .finally(() => {
+        preparing = false;
+      });
   };
 
   const open = async (): Promise<void> => {
