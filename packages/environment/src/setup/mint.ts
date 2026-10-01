@@ -31,13 +31,16 @@ import { SETUP_TAG } from "./minted.js";
  * every other way, and every run end of it checks the step again
  * (`scheduler.ts`).
  *
- * A prepared command: the facts are read and the workspace made first,
- * outside the transaction, and what the resolver made goes again when the
- * command is not accepted. A step that names no prompt is `conflict`
- * (reason `no_llm_step`); a subject the step does not have is `not_found`
- * (kind `subject`). A run the session cannot start (the environment
- * draining, no mode under the ceiling, an effort the model does not take)
- * refuses the whole command, so no minted session is left without its run.
+ * A prepared command: outside the transaction, the step names the
+ * workspace, the facts are read and the workspace is made, and what the
+ * resolver made goes again when the command is not accepted. A step that
+ * names no prompt is `conflict` (reason `no_llm_step`); a subject the step
+ * does not have is `not_found` (kind `subject`); a step may refuse the
+ * subject a workspace, as the Memory bank step refuses a bank whose
+ * checkout is not there (`conflict`, reason `bank_missing`, #586). A run
+ * the session cannot start (the environment draining, no mode under the
+ * ceiling, an effort the model does not take) refuses the whole command,
+ * so no minted session is left without its run.
  */
 
 /** What an LLM step authors an artefact for, as a result's action targets it: a bank for the Memory bank step. */
@@ -47,12 +50,15 @@ export interface StepSubject {
   readonly label: string;
 }
 
+/** Where a step's minted session works, or why the step gives none for the subject. */
+export type StepWorkspace = WorkspaceRequest | { readonly refused: CommandRejection<"conflict"> };
+
 /** The environment's side of an LLM step: its subjects, the workspace its sessions work in, and the facts its prompt renders from. */
 export interface LlmStep {
   /** Every subject the step has now: what `setup.mint`'s subject names one of, and what a done step's Revise targets. */
   subjects(): readonly StepSubject[];
-  /** Where a minted session works; a scratch workspace of its own when absent. */
-  workspace?(subject: StepSubject | null): WorkspaceRequest;
+  /** Where a minted session works, at once or with a promise, or why none can be had; a scratch workspace of its own when absent. */
+  workspace?(subject: StepSubject | null): StepWorkspace | Promise<StepWorkspace>;
   /** The live facts the step's prompt renders from, for the subject the call names (null for none), at once or with a promise. */
   facts(subject: StepSubject | null): unknown;
 }
@@ -118,8 +124,10 @@ export const mintMethods = (options: MintOptions): Required<Pick<MethodHandlers,
             return refused({ code: "not_found", message: `The step ${step.id} has no subject ${params.subject}.`, data: { kind: "subject", step: step.id, subject: params.subject } });
           }
         }
+        const workspace = (await llmStep.workspace?.(subject)) ?? SCRATCH;
+        if ("refused" in workspace) return refused(workspace.refused);
         const rendered = prompt.render(params.variant, await llmStep.facts(subject));
-        const resolved = await resolver.resolve(llmStep.workspace?.(subject) ?? SCRATCH, sessionId);
+        const resolved = await resolver.resolve(workspace, sessionId);
         if (resolved.refused !== undefined) return refused(resolved.refused);
         if (resolved.undo !== undefined) context.onUndo(resolved.undo);
 

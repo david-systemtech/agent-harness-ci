@@ -199,14 +199,14 @@ describe("the scheduler", () => {
     const runs = heldRuns();
     const t = await start({ adapter: fakeAdapter({ script: runs.script }) });
     const client = await t.client();
-    const byHand = await created(client, routine({ name: "By hand", schedule: { kind: "manual" } }));
+    const byHand = await created(client, routine({ name: "By hand", schedule: { kind: "manual" }, maxDurationMinutes: 120 }));
     const ids: string[] = [];
     for (const name of ["First", "Second", "Third", "Fourth", "Fifth"]) ids.push((await created(client, routine({ name, schedule: { kind: "daily", at: "09:00" } }))).state.id);
     const [first, second, third, fourth, fifth] = ids as [string, string, string, string, string];
     const byHandFiring = await untilStarted(t, byHand.state.id, await ranNow(client, byHand.state.id));
     await client.close();
 
-    // At 09:00 the run now holds one slot: three of the five start, and the fourth and the fifth wait, the fifth disabled meanwhile.
+    // At 09:00 the run now, its limit two hours, holds one slot: three of the five start, and the fourth and the fifth wait, the fifth disabled meanwhile.
     walk(t, 60);
     const started = await Promise.all([first, second, third].map((id) => untilDue(t, id, "2026-09-24T01:00:00.000Z")));
     walk(t, 3);

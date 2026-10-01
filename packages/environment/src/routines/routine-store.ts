@@ -1,4 +1,5 @@
 import {
+  ROUTINE_PRESETS,
   ROUTINE_STREAM_KIND,
   type Ceiling,
   type DeliveryTarget,
@@ -59,7 +60,9 @@ import type { Reader } from "../sessions/session-tables.js";
  * `routine.firing-started` recorded, so an edit during it changes nothing
  * for it; a skip its routine's at its record, none once the routine is
  * deleted. Each `routine.delivery-attempted` joins its target's delivery on
- * the entry, which the history lists in the targets' order.
+ * the entry, which the history lists in the targets' order. A firing keeps
+ * the silence marker and the maximum duration it finishes under (#524),
+ * the presets for one recorded before they were.
  */
 
 export const ROUTINES_PROJECTOR = "routines";
@@ -90,6 +93,8 @@ export const ROUTINES_TABLES = {
     position INTEGER NOT NULL,
     run_id TEXT,
     targets TEXT NOT NULL,
+    silence_marker TEXT,
+    max_duration_minutes INTEGER,
     entry TEXT NOT NULL
   ) STRICT;
   CREATE INDEX routine_entries_by_routine ON routine_entries (routine_id, position);
@@ -197,6 +202,8 @@ const settle = (db: ProjectionDb, routineId: string, outcome: RoutineLastOutcome
 
 const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringStartedPayload): void => {
   const { firingId, trigger, count, preCheck, dueAt, sessionId, runId, requestedBy, targets } = payload;
+  // A firing recorded before #524 names neither.
+  const { silenceMarker = null, maxDurationMinutes = null } = payload as Partial<RoutineFiringStartedPayload>;
   const entry: FiringEntry = {
     kind: "firing",
     id: firingId,
@@ -219,12 +226,14 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
     baselineAdvanced: null,
   };
   db.run(
-    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, entry) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, silence_marker, max_duration_minutes, entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     firingId,
     event.streamId,
     event.sequence,
     runId,
     json(targets),
+    silenceMarker,
+    maxDurationMinutes,
     json(entry),
   );
   db.run("UPDATE routines SET live_firing = ? WHERE id = ?", firingId, event.streamId);
@@ -417,15 +426,25 @@ export const routineNamed = (reader: Reader, name: string): { readonly id: strin
 export interface LiveFiringRecord {
   readonly routineId: string;
   readonly entry: FiringEntry;
+  /** The marker its final text is read against (#524). */
+  readonly silenceMarker: string;
+  /** How long after its start its live run is interrupted (#524). */
+  readonly maxDurationMinutes: number;
 }
 
 /** The live firing whose `column` is `value`; null when none is. */
 const liveFiringWhere = (reader: Reader, column: "e.run_id" | "e.routine_id", value: string): LiveFiringRecord | null => {
-  const [row] = reader.all<{ routine_id: string; entry: string }>(
-    `SELECT e.routine_id, e.entry FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE ${column} = ?`,
+  const [row] = reader.all<{ routine_id: string; entry: string; silence_marker: string | null; max_duration_minutes: number | null }>(
+    `SELECT e.routine_id, e.entry, e.silence_marker, e.max_duration_minutes FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE ${column} = ?`,
     value,
   );
-  return row === undefined ? null : { routineId: row.routine_id, entry: JSON.parse(row.entry) as FiringEntry };
+  if (row === undefined) return null;
+  return {
+    routineId: row.routine_id,
+    entry: JSON.parse(row.entry) as FiringEntry,
+    silenceMarker: row.silence_marker ?? ROUTINE_PRESETS.silenceMarker,
+    maxDurationMinutes: row.max_duration_minutes ?? ROUTINE_PRESETS.maxDurationMinutes,
+  };
 };
 
 /** The live firing whose run `runId` is; null when no live firing's is. */
