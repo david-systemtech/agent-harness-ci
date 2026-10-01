@@ -76,9 +76,10 @@ describe("the list", () => {
       "A yes or no offer",
       "The routines",
       "Slash commands",
+      "Instructions controls",
     ]);
-    // A header row per table, then one row per action.
-    expect(within(pane).getAllByRole("row")).toHaveLength(ACTIONS.length + 16);
+    // A header per table, each shared action, and twelve native Instructions controls.
+    expect(within(pane).getAllByRole("row")).toHaveLength(ACTIONS.length + 29);
     expect(within(pane).getByText(/keybindings\.json/).textContent).toBe(
       "The terminal UI's column is its defaults, read-only here: the terminal UI remaps its keys in keybindings.json in its state directory, or the file its --keybindings names, which this pane never writes.",
     );

@@ -336,6 +336,54 @@ describe("the deadline", () => {
   });
 });
 
+describe("the dock relay", () => {
+  it("addresses the dock verb to the client that started the run", async () => {
+    const t = await start();
+    const starter = await clientNamed(t, "The desktop");
+    const calls = await hearing(t, starter);
+    const id = await sessionWith(starter, { kind: "dock" });
+    const { runId, answers } = await startRun(t, starter, id, [
+      "browser_navigate",
+      { address: "https://example.com/next", snapshot: false },
+    ]);
+    const call = await calls.next();
+    expect(call).toMatchObject({
+      clientSessionId: starter.hello.clientSessionId,
+      kind: "browser.dock",
+      payload: { pageKey: `${t.env.id}/${id}`, command: { verb: "navigate" } },
+    });
+    expect(call.payload).not.toHaveProperty("chromeId");
+    await answerWith(starter, {
+      callId: call.callId,
+      ok: true,
+      result: NAVIGATED,
+    });
+    await untilEnded(t, id, runId);
+    expect(answers[0]).toMatchObject({ isError: false });
+  });
+
+  it("refuses a dock verb holding a registered secret before appending a client call", async () => {
+    const t = await start();
+    const starter = await clientNamed(t, "David's desktop");
+    const id = await sessionWith(starter, { kind: "dock" });
+    const secret = "token-for-tests";
+    t.scrub.register(secret, { owner: "test:key-manager" });
+    const before = t.env.log.head();
+
+    const { runId, answers } = await startRun(t, starter, id, ["browser_type", { ref: "e1", text: `Signed in with ${secret}`, snapshot: false }]);
+    await untilEnded(t, id, runId);
+
+    expect(answers).toEqual([
+      {
+        text: `What this call would send to the browser dock holds a secret this environment keeps, such as a key manager's or a forge's credential or a run's token. A verb for this browser dock goes to the client "David's desktop" through the environment's log, which never holds such a secret, so nothing was sent and the page is unchanged. Ask the person to enter it on the desktop themselves.`,
+        isError: true,
+      },
+    ]);
+    const appended = t.env.log.read<{ type: string; payload: string }>("SELECT type, payload FROM events WHERE sequence > ?", before);
+    expect(appended.filter((event) => event.type === "client.call")).toEqual([]);
+    expect(appended.filter((event) => event.payload.includes(secret))).toEqual([]);
+  });
+});
 
 describe("the two denylists of a relayed Chrome", () => {
   it("asks about an entry only the Chrome's environment lists, names that environment and relays the person's allowance", async () => {

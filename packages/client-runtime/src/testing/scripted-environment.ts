@@ -1029,6 +1029,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     }
     let atMessageId: string | null;
     let fromProviderSessionId: string | null;
+    let inheritedDraft: string | null = null;
     if (linked(source.id)) {
       atMessageId = anchor?.messageId ?? pendingRewind(source.id)?.toMessageId ?? null;
       fromProviderSessionId = atMessageId === null || historyBefore(source.id, prompts, atMessageId) ? `provider-${source.id}` : null;
@@ -1036,7 +1037,13 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       // A source no run of which has linked a provider session continues what its own fork named.
       const inherited = forkRecordOf(source.id);
       fromProviderSessionId = inherited?.fromProviderSessionId ?? null;
-      atMessageId = inherited !== null && fromProviderSessionId !== null ? inherited.atMessageId : (anchor?.messageId ?? null);
+      atMessageId = fromProviderSessionId !== null ? (inherited?.atMessageId ?? null) : (anchor?.messageId ?? inherited?.atMessageId ?? null);
+      if (anchor === undefined && atMessageId !== null && inherited !== null) {
+        const forked = eventsOf(source.id).find((event) => event.type === "session.forked");
+        const saved = eventsOf(source.id).find((event) => event.type === "session.draft-set" && forked !== undefined && event.sequence < forked.sequence);
+        const text = saved === undefined ? null : payloadOf(saved)["draft"];
+        inheritedDraft = typeof text === "string" ? text : null;
+      }
     }
     if (fromProviderSessionId !== null && !adapter().fork) return unsupported("fork", params["account"] === undefined ? ["sessionId"] : ["account"], "fork a session");
     // On the account named, else the source's (sessions.fork).
@@ -1046,7 +1053,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     // or settle; the anchored text as the draft.
     const titled = typeof params["title"] === "string" ? params["title"] : null;
     const carriedTitle = titled === null ? generatedTitle(source.title) : null;
-    const draft = (anchor?.text ?? "").slice(0, MAX_DRAFT_LENGTH);
+    const draft = (anchor?.text ?? inheritedDraft ?? "").slice(0, MAX_DRAFT_LENGTH);
     const summary = summaryOf(
       clock,
       {
