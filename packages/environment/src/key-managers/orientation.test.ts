@@ -245,7 +245,7 @@ posix("the key managers section", () => {
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([before]);
   });
 
-  it("tells a run given Bitwarden to pass bws the block's configuration file through --config-file, which bws below 0.5.0 reads from no variable", async () => {
+  it("tells a run given Bitwarden to pass bws the block's configuration file through --config-file, which bws below 0.5.0 reads from no variable, and no server URL, which would bypass its profile and state folder", async () => {
     const { t, client } = await withOpenBao();
     const bitwarden = await added(client, { provider: "bitwarden", label: "Bitwarden", address: "https://bitwarden.example.test" });
     expect((await setInjected(client, bitwarden.id)).receipt).toMatchObject({ status: "accepted" });
@@ -254,8 +254,8 @@ posix("the key managers section", () => {
     const text = await runTo(t, client, session.id);
 
     expect(keyManagersOf(text).slice(2, 5)).toEqual([
-      "Its variables, names only: BWS_ACCESS_TOKEN, BWS_SERVER_URL, BWS_CONFIG_FILE, BWS_PROFILE.",
-      'Run bws as bws --config-file "$BWS_CONFIG_FILE" <command>: below 0.5.0 bws reads its configuration file from that option alone, else this host\'s ~/.bws/config.',
+      "Its variables, names only: BWS_ACCESS_TOKEN, BWS_CONFIG_FILE, BWS_PROFILE.",
+      'Run bws as bws --config-file "$BWS_CONFIG_FILE" <command>, never with --server-url: below 0.5.0 bws reads its configuration file from that option alone, else this host\'s ~/.bws/config, and that file\'s profile names the server and keeps bws\'s state in this run\'s own folder, where a server URL would keep it in this host\'s ~/.bws/state.',
       "Its CLI: bws is not installed.",
     ]);
   });
