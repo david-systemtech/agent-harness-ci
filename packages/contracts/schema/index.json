@@ -1547,6 +1547,10 @@
       "title": "BankRecord"
     },
     {
+      "path": "banks/join-preview.json",
+      "title": "BankJoinPreview"
+    },
+    {
       "path": "banks/conflict-reason.json",
       "title": "BankConflictReason"
     },
@@ -5295,6 +5299,34 @@
       "title": "banks.list error"
     },
     {
+      "path": "methods/banks.join.preview/params.json",
+      "title": "banks.join.preview params"
+    },
+    {
+      "path": "methods/banks.join.preview/result.json",
+      "title": "banks.join.preview result"
+    },
+    {
+      "path": "methods/banks.join.preview/error.json",
+      "title": "banks.join.preview error"
+    },
+    {
+      "path": "methods/banks.join/params.json",
+      "title": "banks.join params"
+    },
+    {
+      "path": "methods/banks.join/result.json",
+      "title": "banks.join result"
+    },
+    {
+      "path": "methods/banks.join/response.json",
+      "title": "banks.join response"
+    },
+    {
+      "path": "methods/banks.join/error.json",
+      "title": "banks.join error"
+    },
+    {
       "path": "methods/banks.drafts.list/params.json",
       "title": "banks.drafts.list params"
     },
@@ -7893,6 +7925,25 @@
       "params": "methods/banks.list/params.json",
       "result": "methods/banks.list/result.json",
       "error": "methods/banks.list/error.json"
+    },
+    {
+      "name": "banks.join.preview",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.join.preview/params.json",
+      "result": "methods/banks.join.preview/result.json",
+      "error": "methods/banks.join.preview/error.json"
+    },
+    {
+      "name": "banks.join",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.join/params.json",
+      "result": "methods/banks.join/result.json",
+      "response": "methods/banks.join/response.json",
+      "error": "methods/banks.join/error.json"
     },
     {
       "name": "banks.drafts.list",

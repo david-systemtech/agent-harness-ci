@@ -66,6 +66,8 @@ export interface FakeGitRequest {
   readonly path: string;
   /** The basic-auth username git sent; null for none. */
   readonly username: string | null;
+  /** A shallow clone's requested depth, from its upload-pack request; absent for a full clone. */
+  readonly depth?: number;
   /** The answer: 401 for a credential missing or refused. */
   readonly status: number;
 }
@@ -245,7 +247,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
     const pushing = query.includes("service=git-receive-pack") || path.endsWith("/git-receive-pack");
     const given = basicCredential(request.headers.authorization);
     const accepted = given !== null && gitCredentials.has(keyOf(given.username, given.password));
-    const record = (status: number) => gitRequests.push({ method, path, username: given?.username ?? null, status });
+    const record = (status: number, depth?: number) => gitRequests.push({ method, path, username: given?.username ?? null, status, ...(depth !== undefined && { depth }) });
     if (held === undefined) {
       record(404);
       request.resume();
@@ -258,11 +260,19 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       response.writeHead(401, { "content-type": "text/plain", "www-authenticate": 'Basic realm="fake forge"' });
       return void response.end("Unauthorized\n");
     }
-    record(200);
     const body: Buffer[] = [];
     request.on("data", (chunk: Buffer) => body.push(chunk));
     request.on("end", () => {
       const input = Buffer.concat(body);
+      let depth: number | undefined;
+      for (let at = 0; at + 4 <= input.length;) {
+        const size = Number.parseInt(input.subarray(at, at + 4).toString("ascii"), 16);
+        if (!Number.isFinite(size)) break;
+        const deepen = /^deepen ([1-9][0-9]*)\n?$/.exec(input.subarray(at + 4, at + size).toString("utf8"))?.[1];
+        if (deepen !== undefined) depth = Number(deepen);
+        at += Math.max(size, 4);
+      }
+      record(200, depth);
       const backend = spawn("git", ["http-backend"], {
         env: {
           ...OWN_GIT,
@@ -427,7 +437,10 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       const work = mkdtempSync(join(tmpdir(), "agent-harness-fake-forge-work-"));
       try {
         ownGit(work, "init", "--quiet", "--initial-branch=main");
-        for (const [name, content] of Object.entries(options.files ?? { "README.md": `# ${path}\n` })) writeFileSync(join(work, name), content);
+        for (const [name, content] of Object.entries(options.files ?? { "README.md": `# ${path}\n` })) {
+          mkdirSync(dirname(join(work, name)), { recursive: true });
+          writeFileSync(join(work, name), content);
+        }
         ownGit(work, "add", ".");
         ownGit(work, "commit", "--quiet", "-m", "first");
         ownGit(work, "push", "--quiet", bare, "main");
