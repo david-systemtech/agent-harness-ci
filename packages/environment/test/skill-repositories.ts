@@ -48,8 +48,8 @@ export interface SkillRepositories {
   /**
    * Makes the bare repository `path` (`owner/name`) holding one commit of
    * `files` on `branch`, a link where a file's text starts `link:`; answers
-   * the commit. Again on the same path adds a commit on that branch, holding
-   * only `files`.
+   * the commit. Again on the same path and branch adds a commit after the
+   * branch's last, holding only `files`.
    */
   commit(path: string, files: Readonly<Record<string, string>>, branch?: string): string;
 }
@@ -66,7 +66,11 @@ export const skillRepositories = (tempDir: (prefix?: string) => string): SkillRe
       }
       const work = mkdtempSync(join(tmpdir(), "agent-harness-skill-work-"));
       try {
-        testGit(work, "init", "--quiet", `--initial-branch=${branch}`);
+        if (testGit(bare, "branch", "--list", branch).trim() === "") testGit(work, "init", "--quiet", `--initial-branch=${branch}`);
+        else {
+          testGit(work, "clone", "--quiet", "--branch", branch, bare, ".");
+          testGit(work, "rm", "-r", "--quiet", "--ignore-unmatch", ".");
+        }
         for (const [name, text] of Object.entries(files)) {
           if (text.startsWith("link:")) {
             mkdirSync(dirname(join(work, name)), { recursive: true });

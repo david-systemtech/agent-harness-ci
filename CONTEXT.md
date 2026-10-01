@@ -324,6 +324,10 @@ _Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue 
 A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
 _Avoid_: mirror, skills repo, marketplace
 
+**Snapshot**:
+A skill source's folder exported at one commit into an immutable, read-only copy under the data directory, with any provenance manifest one level up; the source's members are read from its current snapshot and a generation links into it, so a later sync, which makes a new snapshot, never changes a running process's files. Distinct from the database snapshot, the launcher's copy of the database.
+_Avoid_: checkout (the probe's or a sync's working copy), mirror, cache
+
 **Catalogue**:
 The suggestions list for skills and instructions that ships with the harness, versioned with the build: skills entries, each a repository folder a person may tick to track as a skill source, with its licence, members and any always-on hint; and suggested instructions in the groups Setup, Coding, Working with me and Custom, each versioned with every earlier text, which a person ticks to own a copy of. Whether an entry is tracked is derived from the environment's sources, never stored, and nothing in it is ticked or always-on until a person acts. An account's list of models is its model catalogue, never this.
 _Avoid_: marketplace, registry, library, suggestions JSON
