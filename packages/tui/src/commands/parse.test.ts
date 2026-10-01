@@ -112,3 +112,22 @@ describe("the terminal's commands (#148)", () => {
     expect(parseCommand("/documents notes.md")).toEqual({ kind: "usage", line: "Usage: /documents" });
   });
 });
+
+describe("/routines (#533)", () => {
+  it("reads the list, a new routine, an import from a path, the webhook endpoints and a pre-check's test", () => {
+    expect(parseCommand("/routines")).toEqual({ kind: "routines", command: { name: "list" } });
+    expect(parseCommand("/routines new")).toEqual({ kind: "routines", command: { name: "new" } });
+    expect(parseCommand("/routines import ~/routines/nightly watch.yaml")).toEqual({ kind: "routines", command: { name: "import", path: "~/routines/nightly watch.yaml" } });
+    expect(parseCommand("/routines endpoints")).toEqual({ kind: "routines", command: { name: "endpoints" } });
+    expect(parseCommand("/routines test-precheck Upstream  watch")).toEqual({ kind: "routines", command: { name: "test-precheck", routine: "Upstream  watch" } });
+  });
+
+  it("says its usage for a form it does not have, or one missing what it needs", () => {
+    const usage = { kind: "usage", line: "Usage: /routines [new | import <path> | endpoints | test-precheck <name>]" };
+    expect(parseCommand("/routines import")).toEqual(usage);
+    expect(parseCommand("/routines test-precheck")).toEqual(usage);
+    expect(parseCommand("/routines new nightly")).toEqual(usage);
+    expect(parseCommand("/routines endpoints hermes")).toEqual(usage);
+    expect(parseCommand("/routines delete nightly")).toEqual(usage);
+  });
+});

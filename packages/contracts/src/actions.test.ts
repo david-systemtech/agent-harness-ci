@@ -77,6 +77,15 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "confirm.no": ["n", "Esc"],
   // A file or document read in the pager is copied whole (#427): the pager has the keys, so a typed `/copy` would be its search.
   "pager.copy": ["y"],
+  // The routines card's row verbs (#533), and its webhook endpoints' (David, 2026-09-28): Enter, the moves and Esc are the picker's.
+  "routines.runNow": ["r"],
+  "routines.enable": ["Space"],
+  "routines.history": ["h"],
+  "routines.export": ["x"],
+  "routines.edit": ["e"],
+  "routines.endpoint.add": ["a"],
+  "routines.endpoint.test": ["t"],
+  "routines.endpoint.remove": ["d"],
 };
 
 /** The slash commands the harness adds (the tui spec's "The composer"), and the one rename. */
@@ -102,6 +111,7 @@ const ADDED_COMMANDS = [
   "reload",
   "fork",
   "rewind",
+  "routines",
 ];
 
 describe("the fixture rule", () => {
@@ -176,9 +186,9 @@ describe("the action list's shape", () => {
     for (const entry of refused) expect(Action.safeParse(entry).success, JSON.stringify(entry)).toBe(false);
   });
 
-  it("has eleven contexts: the reference keymap's eight, the terminal pane, the parked asks and the yes or no offers", () => {
+  it("has twelve contexts: the reference keymap's eight, the terminal pane, the parked asks, the yes or no offers and the routines card", () => {
     expect([...ACTION_CONTEXTS].sort()).toEqual(
-      ["anywhere", "composer", "transcript", "sidebar", "delegated", "picker", "permission", "pager", "terminal", "asks", "confirm"].sort(),
+      ["anywhere", "composer", "transcript", "sidebar", "delegated", "picker", "permission", "pager", "terminal", "asks", "confirm", "routines"].sort(),
     );
     expect(new Set(ACTIONS.map((a) => a.context))).toEqual(new Set(ACTION_CONTEXTS));
   });
