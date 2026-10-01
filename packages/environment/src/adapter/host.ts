@@ -31,6 +31,7 @@ import type { HostAccounts } from "../accounts/account-service.js";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
 import { runContainment, temporaryContainmentDirectories, type ContainmentDirectories } from "../permissions/containment-directories.js";
 import { createToolGate, type GatedRun } from "../permissions/gate.js";
+import { bankContainment, bankWriteRule } from "../banks/attachments.js";
 import {
   DUPLICATE_PROMPT_MESSAGE,
   RUN_ENDED_MESSAGE,
@@ -253,6 +254,8 @@ export interface AdapterHostOptions {
   readonly autoAnswer?: PromptAutoAnswer;
   /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
   readonly gateRules?: readonly ToolGateRule[];
+  /** Enabled bank checkouts in the run's account and repository scope, attached for reading. Preset: none. */
+  readonly bankCheckouts?: (scope: { readonly accountId: string; readonly repositoryIdentity: string | null }) => readonly string[];
   /**
    * The denylist as a provider projects it onto its own deny rules, read as
    * each unattended run starts (#140; an attended run is handed none).
@@ -589,6 +592,7 @@ interface LiveRun {
   mode: Mode;
   /** Its containment, as its adapter was handed it and the gate rules under it: its policy's, fixed for the run. */
   readonly containment: RunContainment;
+  readonly bankCheckouts: readonly string[];
   run: AdapterRun | undefined;
   /** Set from its launch until its adapter is asked for it: its instructions are being composed, and no provider process is begun for it. */
   composing: boolean;
@@ -700,10 +704,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * never blocked by a rule. A read that fails projects nothing, logged:
    * the gate still asks about every call.
    */
-  const runDenylist = (attended: boolean): RunDenylist | null => {
+  const runDenylist = (attended: boolean, readableDirectories: readonly string[]): RunDenylist | null => {
     if (attended) return null;
     try {
-      return options.providerDenylist?.() ?? NOTHING_TO_PROJECT;
+      const denylist = options.providerDenylist?.() ?? NOTHING_TO_PROJECT;
+      return readableDirectories.length === 0 ? denylist : { ...denylist, exempt: [...new Set([...denylist.exempt, ...readableDirectories])] };
     } catch (error) {
       console.error("Reading the denylist for a run's provider rules failed; the run projects none, and the gate still asks about every call:", error);
       return NOTHING_TO_PROJECT;
@@ -1341,7 +1346,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const brokerFor = (sessionId: string): PermissionBroker => ({ request: async (request) => (await requestPrompt(sessionId, "adapter", request)).decision });
 
   /** A live run as the tool gate rules under it. */
-  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment });
+  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment, readableDirectories: entry.bankCheckouts });
   /**
    * The gate a run is handed (`permissions/gate.ts`): containment's rule, then
    * the environment's (the denylist's, #132), under the session's run live
@@ -1351,7 +1356,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const gateFor = createToolGate({
     log,
-    rules: gateRules,
+    rules: [bankWriteRule((run) => live.get(run.sessionId)?.bankCheckouts ?? []), ...gateRules],
     ask: (run, kind, detail, signal) =>
       requestPrompt(run.sessionId, "gate", { sessionId: run.sessionId, runId: run.runId, kind, detail, ...(signal !== undefined && { signal }) }),
     liveRunOf: (sessionId) => {
@@ -1395,6 +1400,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean, admission?: RunAdmission): LiveRun => {
     const { descriptor } = plan.account;
+    const bankCheckouts = options.bankCheckouts?.({ accountId: plan.account.id, repositoryIdentity: plan.repositoryIdentity }) ?? [];
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
     const deltas = createDeltaAppend({
       scrub, clock, runId: plan.runId,
@@ -1411,7 +1417,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       flushDeltas: deltas.flush,
       startedAt: clock.now().getTime(),
       mode: plan.mode,
-      containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
+      containment: bankContainment(runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)), bankCheckouts, plan.workspace.path),
+      bankCheckouts,
       run: undefined,
       composing,
       slash: Promise.resolve(plan.slash ?? null),
@@ -1673,6 +1680,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             runId: plan.runId,
             account: { id: plan.account.id, directory: plan.account.directory, ...(plan.account.label !== undefined && { label: plan.account.label }) },
             workspace: plan.workspace,
+            additionalDirectories: entry.bankCheckouts,
             repositoryIdentity: plan.repositoryIdentity,
             model: plan.model,
             effort: plan.effort,
@@ -1685,7 +1693,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             // Read once as it launched, as its instructions were composed: a decision since reaches the session's next run.
             trusted: trust.decision === "trusted",
             containment: entry.containment,
-            denylist: runDenylist(plan.policy.attended),
+            denylist: runDenylist(plan.policy.attended, entry.bankCheckouts),
             processEnvironment: processEnvironmentOf(plan, injection, skillSet),
             skillSet,
             prompt: prompt.map((message) => message.messageId === plan.literalPromptId ? message : ({ ...message, text: resolveSlash(message.text, slash, (member) => adapterOf(plan.account).invocationText(member)).text })),
@@ -1811,6 +1819,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       return refuse(
         `it runs at containment ${levelOf(followedContainment)} and the policy now resolves ${levelOf(policy.containment)}, which its process cannot take on, so a run from the queue reads its messages at the new level.`,
       );
+    }
+    const bankCheckouts = options.bankCheckouts?.({ accountId: previous.account.id, repositoryIdentity: previous.repositoryIdentity }) ?? [];
+    if (JSON.stringify(bankCheckouts) !== JSON.stringify(followed.bankCheckouts)) {
+      return refuse("its bank attachments have changed, which its process cannot take on, so a run from the queue reads its messages with the current banks.");
     }
     const mode = policy.mode.effective;
     // The turn is a run of its own: its browser is resolved afresh, as its policy is.

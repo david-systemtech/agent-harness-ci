@@ -314,6 +314,7 @@ const confinementOf = (input: RunInput): string => {
     containment.network,
     containment.writable,
     containment.readOnly,
+    input.additionalDirectories ?? [],
     denylist === null ? null : [denylist.paths, denylist.exempt, denylist.commandPatterns],
   ]);
 };

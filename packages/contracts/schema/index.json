@@ -5299,6 +5299,22 @@
       "title": "banks.register error"
     },
     {
+      "path": "methods/banks.create/params.json",
+      "title": "banks.create params"
+    },
+    {
+      "path": "methods/banks.create/result.json",
+      "title": "banks.create result"
+    },
+    {
+      "path": "methods/banks.create/response.json",
+      "title": "banks.create response"
+    },
+    {
+      "path": "methods/banks.create/error.json",
+      "title": "banks.create error"
+    },
+    {
       "path": "methods/banks.verify/params.json",
       "title": "banks.verify params"
     },
@@ -7828,6 +7844,16 @@
       "result": "methods/banks.register/result.json",
       "response": "methods/banks.register/response.json",
       "error": "methods/banks.register/error.json"
+    },
+    {
+      "name": "banks.create",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.create/params.json",
+      "result": "methods/banks.create/result.json",
+      "response": "methods/banks.create/response.json",
+      "error": "methods/banks.create/error.json"
     },
     {
       "name": "banks.verify",

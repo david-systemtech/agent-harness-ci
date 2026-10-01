@@ -159,7 +159,7 @@ describe("what containment closes inside the writable set (#791)", () => {
     const workspace = realpathSync(tempDir());
     const containment = closing(workspace, [join(workspace, ".git", "hooks"), join(workspace, ".git", "config")]);
     const shouted = join(workspace, ".git", "HOOKS", "pre-commit");
-    expect(containmentDenial(containment, workspace, writeTo(shouted), true)).toContain(`${shouted} is in the repository's git hooks or config`);
+    expect(containmentDenial(containment, workspace, writeTo(shouted), true)).toContain(`${shouted} is in a read-only directory`);
     expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".GIT", "Config")), true)).not.toBeNull();
     expect(containmentDenial(containment, workspace, writeTo(shouted), false)).toBeNull();
   });
@@ -173,7 +173,7 @@ describe("what containment closes inside the writable set (#791)", () => {
     const containment = closing(workspace, [join(workspace, ".git", "hooks")]);
     expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".githooks", "pre-commit")), false)).not.toBeNull();
     expect(containmentDenial(containment, workspace, writeTo(join(workspace, "README.md"), "git-link/hooks/pre-push"), false)).toContain(
-      "git-link/hooks/pre-push is in the repository's git hooks or config",
+      "git-link/hooks/pre-push is in a read-only directory",
     );
     expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".git", "hooks.old", "pre-commit"), join(workspace, ".git", "HEAD")), false)).toBeNull();
   });
