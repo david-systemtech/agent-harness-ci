@@ -223,7 +223,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
   "bank.added": "A bank was registered, created or joined; a client refreshes what it caches of the banks.",
-  "bank.updated": "A bank's registry settings or what its BANK.md names changed; a client refreshes what it caches of the banks.",
+  "bank.updated": "A bank's registry settings, sync status or what its BANK.md names changed; a client refreshes what it caches of the banks.",
   "bank.pinned": "A session pinned or unpinned a folder of a bank.",
   "bank.forgotten": "A bank left the registry; a client refreshes what it caches of the banks.",
   "bank.synced": "A sync moved a bank's checkout to a new head; a client refreshes what it caches of the banks.",
@@ -414,7 +414,7 @@ const ForgeAccountGitRejected = describedNotice("forge.account.git-rejected", Fo
 const ForgeAccountRemoved = describedNotice("forge.account.removed", ForgeAccountRemovedPayload, "A forge account was removed.");
 const ForgeOriginMissing = describedNotice("forge.origin-missing", ForgeOriginMissingPayload, "A harness operation was refused on an origin no forge account covers.");
 const BankAdded = describedNotice("bank.added", BankAddedPayload, "A bank was registered, created or joined: its registry entry, whole.");
-const BankUpdated = describedNotice("bank.updated", BankUpdatedPayload, "A bank's registry settings or what its BANK.md names changed: the fields that changed.");
+const BankUpdated = describedNotice("bank.updated", BankUpdatedPayload, "A bank's registry settings, sync status or what its BANK.md names changed: the fields that changed.");
 const BankPinned = describedNotice("bank.pinned", BankPinnedPayload, "A session pinned or unpinned a folder of a bank.");
 const BankForgotten = describedNotice("bank.forgotten", BankForgottenPayload, "A bank left the registry, its checkout removed or kept.");
 const BankSynced = describedNotice("bank.synced", BankSyncedPayload, "A sync moved a bank's checkout to a new head of main.");
