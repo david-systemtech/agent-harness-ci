@@ -87,6 +87,7 @@ describe("banks.register and banks.list", () => {
       kind: "personal",
       location: { kind: "local" },
       checkout,
+      checkoutOwnership: "registered",
       role: "read-write",
       enabled: true,
       accounts: "all",
