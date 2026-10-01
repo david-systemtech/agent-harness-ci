@@ -92,12 +92,13 @@ const ENTER = "\r";
 const UP = "\u001B[A";
 
 /**
- * A value the scripts' first delta, `Look`, ends on the start of. The
- * environment holds back a streamed tail that could begin a registered value
- * (`delta-scrub.ts`), so with this registered it holds the `k`: what its own
- * signing key, random base64 and registered from its vault, does in about one
- * run in 64 when it begins with `k` (#1133). Registered by the tests that wait
- * on `Look` so every run takes that path, which `replyShown` must see through.
+ * A value beginning with the last letter of `Look`, the scripts' first delta.
+ * The environment holds back a streamed tail that could begin a registered
+ * value (`delta-scrub.ts`), so with this registered it holds the `k`, as it
+ * does in about one run in 64 for its own signing key, random base64 and
+ * registered from its vault, when that begins with `k` (#1133). Registered by
+ * the tests that wait on `Look`, so every run takes the path `replyShown` must
+ * see through.
  */
 const HELD_FROM_LOOK = "kept-back-by-the-smoke-test";
 
