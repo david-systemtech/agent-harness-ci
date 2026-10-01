@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -131,6 +131,36 @@ describe("bank attachments", () => {
       expect(t.adapter.lastRun().gated[2]?.decision).toMatchObject({ decision: "deny", message: expect.stringContaining("read-only bank") });
       expect(t.adapter.lastRun().input.denylist?.exempt).toContain(join(t.dataDir, "banks"));
       expect(t.adapter.lastRun().input.denylist?.exempt).toContain(imported);
+    }
+  });
+
+  it("preserves unrelated workspace writes when an attached checkout becomes a symlink loop", async () => {
+    const t = await startTestEnvironment({ containment: bubblewrapProbe() });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const checkout = bankRepository(PERSONAL_BANK, join(tempDir(), "bank"));
+    await register(client, checkout);
+    const team = bankRepository(TEAM_BANK);
+    await register(client, team);
+    renameSync(checkout, `${checkout}-saved`);
+    symlinkSync(checkout, checkout, "dir");
+    const workspace = tempDir();
+    const { id } = await create(client, { workspace: { kind: "directory", path: workspace }, mode: "bypassPermissions" });
+    for (const level of ["off", "workspace"] as const) {
+      await client.request("permissions.containment.set", { commandId: randomUUID(), sessionId: id, level });
+      t.adapter.nextScripts.push(async function* (controls) {
+        yield* toolCall(controls, { tool: "Write", summary: "Write an unrelated workspace file", access: { kind: "write", paths: ["README.md"] } });
+        yield* toolCall(controls, { tool: "Write", summary: "Write beneath the broken bank", access: { kind: "write", paths: [join(checkout, "BANK.md")] } });
+        yield* toolCall(controls, { tool: "Write", summary: "Write beneath the reachable bank", access: { kind: "write", paths: [join(team, "BANK.md")] } });
+        yield end();
+      });
+      await runIn(t, id);
+      const run = t.adapter.lastRun();
+      expect(run.gated.map(({ decision }) => decision.decision), level).toEqual(["allow", "deny", "deny"]);
+      if (level === "workspace") {
+        expect(run.input.containment.writable).toContain(workspace);
+        expect(run.input.containment.readOnly).toEqual([checkout, team]);
+      }
     }
   });
 

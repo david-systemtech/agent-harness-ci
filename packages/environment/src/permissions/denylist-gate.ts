@@ -256,7 +256,9 @@ export const denylistRule = (context: DenylistContext): ToolGateRule => ({
   decider: "denylist",
   check: async (call, run, signal) => {
     if (!(context.readsCall ?? denylistReadsCall)(call)) return null;
-    const { matches, unresolvable } = readDenylistCall({ ...context, exempt: [...context.exempt, ...(run.readableDirectories ?? [])] }, denylistCall(call), run.workspace);
+    // A broken attachment grants no read exemption and must not make unrelated calls unresolvable.
+    const readable = (run.readableDirectories ?? []).filter((path) => resolvePath(path, run.workspace) !== null);
+    const { matches, unresolvable } = readDenylistCall({ ...context, exempt: [...context.exempt, ...readable] }, denylistCall(call), run.workspace);
     if (call.access.kind === "browse" && call.access.match !== undefined) {
       const browserMatch = call.access.match;
       // The browser's list is authoritative too, even when this environment lists no such entry.
