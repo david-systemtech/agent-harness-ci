@@ -139,14 +139,15 @@ describe("the Memory bank step's checks", () => {
     const client = await (await start()).client();
     const forge = await forgeFor(client);
     const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
-    git(checkout, "switch", "--quiet", "--create", `setup/describe-${TODAY}`);
-    writeFileSync(join(checkout, "BANK.md"), TEAM_BANK["BANK.md"] ?? "");
-    git(checkout, "add", "BANK.md");
-    git(checkout, "commit", "--quiet", "-m", "Describe the bank.");
-    git(checkout, "switch", "--quiet", "main");
-    forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, state: "open" });
     const bank = await register(client, checkout);
-    expect(bank.status.manifest).toEqual({ state: "awaiting-review", pullRequest: `${forge.origin}/acme/bank/pulls/7`, since: MANUAL_CLOCK_START });
+    const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    const { path } = (await get(client, sessionId)).workspace;
+    writeFileSync(join(path, "BANK.md"), TEAM_BANK["BANK.md"] ?? "");
+    git(path, "add", "BANK.md");
+    git(path, "commit", "--quiet", "-m", "Describe the bank.");
+    forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, state: "open" });
+    const verified = await client.request("banks.verify", { bankId: bank.id });
+    expect(verified.banks[0]?.status.manifest).toEqual({ state: "awaiting-review", pullRequest: `${forge.origin}/acme/bank/pulls/7`, since: MANUAL_CLOCK_START });
     expect(await checkMemoryBank(client)).toMatchObject({ state: "done", reason: ALL_HOLD, failing: [] });
   });
 
@@ -399,7 +400,7 @@ describe("the describe session", () => {
     expect(summary).toMatchObject({
       title: "Set up: Memory bank (david-memory)",
       tags: ["memory-bank", "setup"],
-      workspace: { kind: "worktree", repository: checkout, branch: `setup/describe-${TODAY}` },
+      workspace: { kind: "worktree", branch: `setup/describe-${TODAY}` },
     });
     const { path } = summary.workspace;
     expect(path).not.toBe(checkout);
@@ -420,9 +421,42 @@ describe("the describe session", () => {
     const again = await minted(client, { step: "memory-bank", subject: bank.id, variant: "revise" });
     expect((await get(client, first)).workspace).toMatchObject({ branch: `setup/describe-${TODAY}` });
     expect((await get(client, again)).workspace).toMatchObject({ branch: `setup/describe-${TODAY}-2` });
-    expect(branchesOf(checkout)).toEqual(["main", `setup/describe-${TODAY}`, `setup/describe-${TODAY}-2`]);
+    expect(branchesOf(checkout)).toEqual(["main"]);
+    const repository = (await get(client, first)).workspace;
+    if (repository.kind !== "worktree") throw new Error("The describe session needs a worktree.");
+    expect(branchesOf(repository.repository)).toEqual(["main", `setup/describe-${TODAY}`, `setup/describe-${TODAY}-2`]);
     await runEnded(client, again);
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)[0]).toMatch(/^Revise BANK\.md of the memory bank david-memory, a personal bank\./);
+  });
+
+  it("starts a later describe session from the checkout's fresh main while preserving the first worktree", async () => {
+    const { checkout } = bankRepository();
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    const first = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    const firstWorkspace = (await get(client, first)).workspace;
+    writeFileSync(join(firstWorkspace.path, "draft.md"), "The first conversation's unfinished draft.");
+    writeFileSync(join(checkout, "README.md"), "The bank's refreshed main.\n");
+    git(checkout, "add", "README.md");
+    git(checkout, "commit", "--quiet", "-m", "Refresh the bank.");
+    const second = await minted(client, { step: "memory-bank", subject: bank.id, variant: "revise" });
+    const secondWorkspace = (await get(client, second)).workspace;
+    expect(readFileSync(join(secondWorkspace.path, "README.md"), "utf8")).toBe("The bank's refreshed main.\n");
+    expect(readFileSync(join(firstWorkspace.path, "README.md"), "utf8")).toBe("# david-memory\n");
+    expect(readFileSync(join(firstWorkspace.path, "draft.md"), "utf8")).toBe("The first conversation's unfinished draft.");
+    expect(secondWorkspace).toMatchObject({ branch: `setup/describe-${TODAY}-2` });
+  });
+
+  it("keeps describe branches already in a registered checkout when naming a new session", async () => {
+    const { checkout } = bankRepository();
+    git(checkout, "branch", `setup/describe-${TODAY}`);
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "revise" });
+    expect((await get(client, sessionId)).workspace).toMatchObject({ branch: `setup/describe-${TODAY}-2` });
+    expect(branchesOf(checkout)).toEqual(["main", `setup/describe-${TODAY}`]);
   });
 
   it("refuses a bank whose checkout is not there, and a call naming no bank, conflict bank_missing; a bank not registered is not_found; nothing is minted", async () => {

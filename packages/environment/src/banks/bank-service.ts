@@ -196,6 +196,8 @@ export interface BankServiceOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   readonly environmentId: string;
+  /** The separate repository holding this checkout's describe branches, when sessions use one. */
+  readonly describeRepository?: (checkout: string) => string;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
   readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
   readonly creation?: {
@@ -277,16 +279,19 @@ export const createBankService = (options: BankServiceOptions): BankService => {
    */
   const manifestAwaitingReview = async (checkout: string, location: BankLocation): Promise<{ readonly pullRequest: string | null; readonly answered: boolean }> => {
     if (location.kind !== "remote") return { pullRequest: null, answered: true };
-    const listing = await runGit(checkout, ["for-each-ref", "--sort=-refname", "--format=%(refname:short)", DESCRIBE_BRANCHES], { maxBytes: 64 * 1024 });
-    const branches = listing.ok ? listing.stdout.toString("utf8").split("\n").filter((branch) => branch !== "") : [];
     let answered = true;
-    for (const branch of branches) {
-      const holds = await runGit(checkout, ["cat-file", "-e", `${branch}:BANK.md`], { maxBytes: 1024 });
-      if (!holds.ok) continue;
-      const answer = await forge.pullRequests.listByHead({ origin: location.origin, repository: location.repository, branch, limit: 5, purpose: VERIFY_PURPOSE });
-      if (answer.outcome !== "done") answered = false;
-      const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open") : undefined;
-      if (open !== undefined) return { pullRequest: open.url, answered };
+    const describe = options.describeRepository?.(checkout);
+    for (const repository of [checkout, ...(describe === undefined ? [] : [describe])]) {
+      const listing = await runGit(repository, ["for-each-ref", "--sort=-refname", "--format=%(refname:short)", DESCRIBE_BRANCHES], { maxBytes: 64 * 1024 });
+      const branches = listing.ok ? listing.stdout.toString("utf8").split("\n").filter((branch) => branch !== "") : [];
+      for (const branch of branches) {
+        const holds = await runGit(repository, ["cat-file", "-e", `${branch}:BANK.md`], { maxBytes: 1024 });
+        if (!holds.ok) continue;
+        const answer = await forge.pullRequests.listByHead({ origin: location.origin, repository: location.repository, branch, limit: 5, purpose: VERIFY_PURPOSE });
+        if (answer.outcome !== "done") answered = false;
+        const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open") : undefined;
+        if (open !== undefined) return { pullRequest: open.url, answered };
+      }
     }
     return { pullRequest: null, answered };
   };

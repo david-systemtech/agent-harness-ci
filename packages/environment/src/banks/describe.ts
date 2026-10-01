@@ -3,15 +3,17 @@ import type { Clock } from "../serve/clock.js";
 import type { LlmStep, StepSubject, StepWorkspace } from "../setup/mint.js";
 import { runGit } from "../workspace/git.js";
 import type { BankRecord, BankRecords } from "./records.js";
+import { prepareDescribeRepository } from "./describe-repository.js";
 
 /**
  * The Memory bank step's describe conversation, its LLM step (ADR 0019,
  * ADR 0035, ADR 0037; setup spec, "The LLM step and minted sessions";
  * banks spec, "The Memory bank step and the orientation block"; #586). Its
  * subjects are the enabled banks. A session `setup.mint` mints for one
- * works in a writable worktree of the bank's checkout on a new branch
+ * works in a writable worktree of a separate copy of the bank on a new branch
  * `setup/describe-<date>` (the environment's day, in UTC), `-2`, `-3` and on
- * when that day's is taken, made from the checkout's main by the resolver,
+ * when that day's is taken, made from the checkout's main by the resolver.
+ * The copy's git metadata is outside the attached checkout and writable,
  * so nothing touches the checkout, which runs see read-only, until the
  * change is reviewed and landed. A bank whose checkout is not there, and a
  * call naming no bank, are `conflict`, reason `bank_missing`. Its prompt
@@ -56,11 +58,12 @@ const freeBranch = async (checkout: string, day: string): Promise<string> => {
 
 export interface DescribeBankOptions {
   readonly banks: BankRecords;
+  readonly dataDir: string;
   /** The environment's clock, whose day names a session's branch. */
   readonly clock: Clock;
 }
 
-export const describeBankStep = ({ banks, clock }: DescribeBankOptions): LlmStep => {
+export const describeBankStep = ({ banks, clock, dataDir }: DescribeBankOptions): LlmStep => {
   const bankOf = (subject: StepSubject | null): BankRecord | undefined => (subject === null ? undefined : banks.list().find((bank) => bank.id === subject.id));
   return {
     subjects: () => banks.list().filter((bank) => bank.enabled).map(subjectOf),
@@ -75,7 +78,12 @@ export const describeBankStep = ({ banks, clock }: DescribeBankOptions): LlmStep
         return bankMissing(`The bank ${bank.name} has no checkout at ${bank.checkout} on this environment.`, { bankId: bank.id, path: bank.checkout });
       }
       const day = clock.now().toISOString().slice(0, 10);
-      return { kind: "worktree", repository: bank.checkout, newBranch: { name: await freeBranch(bank.checkout, day) } };
+      try {
+        const repository = await prepareDescribeRepository(dataDir, bank.checkout);
+        return { kind: "worktree", repository, newBranch: { name: await freeBranch(repository, day), base: "refs/heads/main" } };
+      } catch {
+        return { refused: { code: "conflict", message: `The bank ${bank.name}'s describe repository could not be prepared.`, data: { reason: "git_failed", bankId: bank.id } } };
+      }
     },
     facts: (subject) => {
       const bank = bankOf(subject);
