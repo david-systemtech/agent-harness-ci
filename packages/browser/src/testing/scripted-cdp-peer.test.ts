@@ -108,4 +108,28 @@ describe("the scripted CDP peer", () => {
     expect(await ownedUrl(pay.targetId)).toBe("https://pay.example/embed in https://shop.example/");
     await expect(session.send("DOM.getFrameOwner", { frameId: page.targetId })).rejects.toThrow("Frame with the given id was not found.");
   });
+
+  it("keeps the cookies a document sets in the browser context of the page that loaded it, so another context reads none of them", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    peer.document("https://shop.example/login", { cookies: [{ name: "session", value: "cookie-for-tests" }] });
+    const pageIn = async () => {
+      const { browserContextId } = await connection.send("Target.createBrowserContext");
+      const { targetId } = await connection.send("Target.createTarget", { url: "about:blank", browserContextId });
+      return { browserContextId, session: await connection.attach(targetId as string), target: peer.target(targetId as string) };
+    };
+    const signedIn = await pageIn();
+    const other = await pageIn();
+    expect(signedIn.browserContextId).not.toBe(other.browserContextId);
+    signedIn.target.navigate("https://shop.example/login");
+    other.target.navigate("https://shop.example/");
+    const cookies = async (session: typeof signedIn.session) => ((await session.send("Network.getCookies", { urls: ["https://shop.example/"] })).cookies as { name: string; value: string; domain: string }[]);
+    expect(await cookies(signedIn.session)).toMatchObject([{ name: "session", value: "cookie-for-tests", domain: "shop.example" }]);
+    expect(await cookies(other.session)).toEqual([]);
+    expect((await signedIn.session.send("Network.getCookies", { urls: ["https://elsewhere.example/"] })).cookies).toEqual([]);
+    await connection.send("Target.disposeBrowserContext", { browserContextId: signedIn.browserContextId });
+    const again = await pageIn();
+    expect(await cookies(again.session)).toEqual([]);
+  });
 });

@@ -3,6 +3,7 @@ import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./
 import { ChromeUpdatedPayload } from "./browser-chromes.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
 import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carry-over.js";
+import { ClientCallPayload } from "./client-calls.js";
 import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
@@ -33,6 +34,8 @@ import { DrainStarted } from "./lifecycle.js";
 import { ToolRunFinishedPayload, ToolRunStartedPayload } from "./managed-tool-commands.js";
 import { ToolsUpdatedPayload } from "./managed-tools.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
+import { DenylistUpdatedPayload } from "./denylist.js";
+import { ReviewUpdatedPayload } from "./permissions.js";
 import { RunId } from "./adapter.js";
 import {
   RoutineDeliveredPayload,
@@ -97,6 +100,10 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "prompt.parked",
   "prompt.resolved",
   "usage.updated",
+  // The denylist changed, and the Unattended review did: each on a stream no client follows whole (the access log, a
+  // session's, the settings stream), so a client's cached answers of them wait on these (#811).
+  "denylist.updated",
+  "review.updated",
   // The ForgeService's own events, which its store is kept from (#310).
   "forge.account.added",
   "forge.account.updated",
@@ -152,6 +159,9 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // A paired Chrome paired, renamed or unpaired, connected or disconnected, or reporting another
   // extension version (#548).
   "chrome.updated",
+  // A call addressed to the client session that started a run: a verb on a Chrome paired with another
+  // environment, relayed through that client (#554).
+  "client.call",
 ] as const;
 
 /**
@@ -180,6 +190,8 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "prompt.parked": "A run waits for a person's answer.",
   "prompt.resolved": "A parked prompt was answered.",
   "usage.updated": "An account's plan-usage reading changed; a client refreshes what it caches of the readings.",
+  "denylist.updated": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again.",
+  "review.updated": "The Unattended review changed; a client reads permissions.review.list again.",
   "forge.account.added": "A forge account was added; a client refreshes what it caches of the forge accounts.",
   "forge.account.updated": "A forge account's slug, aliases or credential changed; a client refreshes what it caches of the forge accounts.",
   "forge.account.primary-set": "A forge account became the primary forge; a client refreshes what it caches of the forge accounts.",
@@ -219,6 +231,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "state-import.finished": "A state import ended, with its report and what failed; a client reads stateImport.detect again.",
   "workspace.kept": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why.",
   "chrome.updated": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again.",
+  "client.call": "A call addressed to one client session, which answers it with client.answer before its deadline; every other client leaves it alone.",
 };
 
 /**
@@ -346,6 +359,17 @@ const UsageUpdated = z
 const describedNotice = <const T extends string, P extends z.ZodType>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
+const DenylistUpdated = describedNotice(
+  "denylist.updated",
+  DenylistUpdatedPayload,
+  "The denylist changed through permissions.denylist.set or restorePresets, in the transaction of the access log's denylist.changed events: the sections that changed, whose entries and counts a client reads again.",
+);
+const ReviewUpdated = describedNotice(
+  "review.updated",
+  ReviewUpdatedPayload,
+  "The Unattended review changed once something committed: a run it lists was decided in, it was seen, or a session holding runs it lists was deleted or restored; a client reads permissions.review.list again.",
+);
+
 const ForgeAccountAdded = describedNotice("forge.account.added", ForgeAccountAddedPayload, "A forge account was added: its origin, kind, slug, identity, credential source, primary flag and problem.");
 const ForgeAccountUpdated = describedNotice("forge.account.updated", ForgeAccountUpdatedPayload, "A forge account's slug, aliases or credential changed.");
 const ForgeAccountPrimarySet = describedNotice("forge.account.primary-set", ForgeAccountPrimarySetPayload, "A forge account became the primary forge, and the one that was is cleared.");
@@ -465,6 +489,12 @@ const ChromeUpdated = describedNotice(
   "A paired Chrome was paired, renamed or unpaired, connected or disconnected, or reported another extension version: which, its name and what changed.",
 );
 
+const ClientCall = describedNotice(
+  "client.call",
+  ClientCallPayload,
+  "A call addressed to the client session that started a run: a verb on a Chrome paired with another environment, its arguments and its deadline, never its answer.",
+);
+
 const WorkspaceKept = describedNotice(
   "workspace.kept",
   WorkspaceKeptPayload,
@@ -495,6 +525,8 @@ export const EnvironmentNotice = z
     PromptParked,
     PromptResolved,
     UsageUpdated,
+    DenylistUpdated,
+    ReviewUpdated,
     ForgeAccountAdded,
     ForgeAccountUpdated,
     ForgeAccountPrimarySet,
@@ -534,6 +566,7 @@ export const EnvironmentNotice = z
     StateImportFinished,
     WorkspaceKept,
     ChromeUpdated,
+    ClientCall,
   ])
   .meta({
     description:

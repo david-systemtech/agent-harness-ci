@@ -6,6 +6,7 @@ import { choicesFor, readSkillChoices } from "./choices.js";
 import type { Generations, PlacedMember, PlacedSet } from "./generations.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
+import type { SkillSources } from "./sources.js";
 
 /**
  * The run's skill set, resolved at each run's start and each commands
@@ -16,14 +17,16 @@ import { resolveSkillSet } from "./precedence.js";
  * for the account (#501), marks each the account made always-on, places
  * each member in the set where its files lie, and has the materialiser give
  * the set its fingerprint and generation, current for the scope it was
- * resolved for (the account, the workspace and the trust). The own
- * directory is the one layer so far: sources (#498) and a trusted
- * repository's members, which may be native and are then hidden when
- * switched off (#502), join as they land.
+ * resolved for (the account, the workspace and the trust). Its layers so
+ * far are the own directory, whose members are linked live, and the
+ * sources, whose members are linked into their current snapshots (#498); a
+ * trusted repository's members, which may be native and are then hidden
+ * when switched off (#502), join as they land.
  */
 
 export interface RunSkillSetsOptions {
   readonly own: Pick<OwnDirectory, "path" | "read">;
+  readonly sources: Pick<SkillSources, "read">;
   /** The log the choices are read from. */
   readonly log: Pick<EventLog, "read">;
   readonly generations: Pick<Generations, "materialise">;
@@ -43,29 +46,31 @@ const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.account
  * (`readiness.ts`) without making a generation.
  */
 export const placeSkillSet =
-  (options: Pick<RunSkillSetsOptions, "own" | "log">) =>
+  (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">) =>
   async (scope: SkillSetScope): Promise<PlacedSet> => {
     const { own } = options;
     const choices = choicesFor(readSkillChoices(options.log), scope.accountId);
-    const members = resolveSkillSet(await own.read(), [])
+    const [ownMembers, sources] = await Promise.all([own.read(), options.sources.read()]);
+    const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources)
       .filter(inTheSet)
       .filter((member) => choices.enabled(member.name));
-    // An own directory's member is linked live, from its folder or command file there.
-    const placed = members.map(
-      (member): PlacedMember => ({
+    // An own directory's member is linked live, from its folder or command file there; a source's into its current snapshot.
+    const placed = members.map((member): PlacedMember => {
+      const { target, commit } = member.layer.kind === "source" ? sources.place(member) : { target: join(own.path, ...member.path.split("/")), commit: null };
+      return {
         name: member.name,
         description: member.description,
         kind: member.kind,
-        target: join(own.path, ...member.path.split("/")),
+        target,
         origin: member.origin,
-        commit: null,
+        commit,
         invocation: member.invocation,
         userInvocable: member.userInvocable,
         argumentHint: member.argumentHint,
         native: false,
         alwaysOn: choices.alwaysOn(member.name),
-      }),
-    );
+      };
+    });
     return { members: placed, hiddenNativeNames: [] };
   };
 

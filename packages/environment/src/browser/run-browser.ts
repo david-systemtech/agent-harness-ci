@@ -14,12 +14,14 @@ export type HeadlessAvailability = { readonly available: true } | { readonly ava
 
 /**
  * Whether the environment has a headless browser now, asked at each run's
- * start: #555's manager answers it; preset `noHeadlessBrowser`.
+ * start: the environment's headless browser answers it (#555, `headless.ts`).
+ * The reason is a clause, which the resolution's sentence follows a colon
+ * with.
  */
 export type HeadlessAvailabilitySeam = () => HeadlessAvailability;
 
-/** The seam's preset until the headless browser's manager (#555) plugs in: none here. */
-export const noHeadlessBrowser: HeadlessAvailabilitySeam = () => ({ available: false, reason: "it runs none yet" });
+/** The answer of an adapter host given no environment's seam: no headless browser. */
+export const noHeadlessBrowser: HeadlessAvailabilitySeam = () => ({ available: false, reason: "this host has none" });
 
 /** What a run's browser is resolved from, beside the settings: the session's field, and whether a person started the run. */
 export interface BrowserRequest {

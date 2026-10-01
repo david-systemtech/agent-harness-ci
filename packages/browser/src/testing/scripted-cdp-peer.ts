@@ -25,6 +25,8 @@ import type { CdpParams } from "../cdp/session.js";
  * name, and a world whose document has gone answers as Chromium does. A
  * frame's owner element (its iframe) is a node it numbers, which resolves
  * into its parent frame's world as an object a function can be called on.
+ * Each browser context keeps the cookies its pages' documents set, so a
+ * page in one context reads none of another's.
  */
 
 /** A command the peer was sent. */
@@ -94,6 +96,8 @@ export interface ScriptedDocument {
   readonly servedFrom?: string;
   /** The frames it holds, in document order: a same-site frame in the page's own process, a cross-site one as a child target. */
   readonly frames?: readonly { readonly url: string; readonly crossSite?: boolean }[];
+  /** The cookies its response sets for its host, kept in the browser context of the page that loads it. */
+  readonly cookies?: readonly { readonly name: string; readonly value: string }[];
 }
 
 /** A target of the peer's model: a page, or a cross-site frame's own process. */
@@ -237,6 +241,8 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
   const owners = new Map<number, OwnerModel>();
   /** Owner elements resolved into a world, by object id. */
   const objects = new Map<string, { readonly contextId: number; readonly owner: OwnerModel }>();
+  /** Each browser context's cookies, by host and name. */
+  const jars = new Map<string, Map<string, { readonly name: string; readonly value: string; readonly domain: string }>>();
   let holding = false;
   let counter = 0;
   const next = (prefix: string): string => `${prefix}-${++counter}`;
@@ -457,6 +463,9 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
     for (const child of target.children.filter((candidate) => candidate.parentFrameId === frameId)) closeTarget(child);
     frame.url = final;
     frame.loaderId = loaderId;
+    const jar = jars.get(target.browserContextId) ?? new Map();
+    jars.set(target.browserContextId, jar);
+    for (const cookie of documents.get(final)?.cookies ?? []) jar.set(`${hostOf(final)} ${cookie.name}`, { ...cookie, domain: hostOf(final) });
     if (main) target.title = documents.get(final)?.title ?? "";
     for (const session of sessionsOn(target)) {
       if (session.domains.has("Page")) emitOn(session, "Page.frameNavigated", { frame: frameParams(frame), type: "Navigation" });
@@ -506,6 +515,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
           return { browserContextId: next("CONTEXT").toUpperCase() };
         case "Target.disposeBrowserContext":
           for (const target of [...targets.values()]) if (target.browserContextId === params.browserContextId) closeTarget(target);
+          jars.delete(params.browserContextId as string);
           return {};
         case "Target.createTarget": {
           const target = newTarget("page", typeof params.browserContextId === "string" ? params.browserContextId : "DEFAULT");
@@ -671,8 +681,13 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
       }
       case "Runtime.evaluate":
         return { result: { type: "undefined" } };
-      case "Network.getCookies":
-        return { cookies: [] };
+      case "Network.getCookies": {
+        const hosts = new Set((Array.isArray(params.urls) ? (params.urls as string[]) : [target.frames[0]?.url ?? ""]).map(hostOf));
+        const kept = [...(jars.get(target.browserContextId)?.values() ?? [])].filter((cookie) => hosts.has(cookie.domain));
+        return {
+          cookies: kept.map((cookie) => ({ ...cookie, path: "/", expires: -1, size: cookie.name.length + cookie.value.length, httpOnly: false, secure: true, session: true })),
+        };
+      }
     }
     throw new CdpFailure(`'${method}' wasn't found`, -32601);
   };

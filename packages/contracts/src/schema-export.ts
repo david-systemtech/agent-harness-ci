@@ -291,7 +291,8 @@ import {
   ChromeUpdatedPayload,
   PairedChrome,
 } from "./browser-chromes.js";
-import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
+import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
+import { BrowserChromeCall, ClientCallId, ClientCallPayload } from "./client-calls.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -541,6 +542,7 @@ import {
   ReviewCounts,
   ReviewDenial,
   ReviewRun,
+  ReviewUpdatedPayload,
   RunActorKind,
   RunPolicy,
   ToolDecider,
@@ -549,7 +551,7 @@ import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
-import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
   DecidedBy,
@@ -674,12 +676,15 @@ import {
   SkillProbeMember,
   SkillProbeProblem,
   SkillProbeUnreachable,
+  SkillSourceAddConflict,
+  SkillSourceMember,
   SkillsProbeResult,
   SkillsEventType,
   SkillsUpdatedPayload,
   SkillsView,
   SkillsViewAccount,
   SkillsViewMember,
+  SkillsViewSource,
 } from "./skills.js";
 import {
   TRUST_EVENT_TYPES,
@@ -1038,6 +1043,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/event-type.json", title: "SkillsEventType", schema: SkillsEventType },
   ...Object.entries(SKILLS_EVENT_TYPES).map(([type, entry]) => ({ path: `skills/events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
   { path: "skills/view-member.json", title: "SkillsViewMember", schema: SkillsViewMember },
+  { path: "skills/view-source.json", title: "SkillsViewSource", schema: SkillsViewSource },
   { path: "skills/view-account.json", title: "SkillsViewAccount", schema: SkillsViewAccount },
   { path: "skills/view.json", title: "SkillsView", schema: SkillsView },
   { path: "skills/skills-updated.json", title: "SkillsUpdatedPayload", schema: SkillsUpdatedPayload },
@@ -1053,6 +1059,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
   { path: "skills/follow.json", title: "SkillSourceFollow", schema: SkillSourceFollow },
   { path: "skills/source.json", title: "SkillSource", schema: SkillSource },
+  { path: "skills/source-member.json", title: "SkillSourceMember", schema: SkillSourceMember },
   { path: "skills/carried-item.json", title: "SkillCarriedItem", schema: SkillCarriedItem },
   { path: "skills/carry-over-offer.json", title: "SkillCarryOverOffer", schema: SkillCarryOverOffer },
   { path: "skills/carry-over-invalid.json", title: "SkillCarryOverInvalid", schema: SkillCarryOverInvalid },
@@ -1064,6 +1071,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/probe-result.json", title: "SkillsProbeResult", schema: SkillsProbeResult },
   { path: "skills/probe-problem.json", title: "SkillProbeProblem", schema: SkillProbeProblem },
   { path: "skills/probe-unreachable.json", title: "SkillProbeUnreachable", schema: SkillProbeUnreachable },
+  { path: "skills/source-add-conflict.json", title: "SkillSourceAddConflict", schema: SkillSourceAddConflict },
   { path: "skills/readiness/fix.json", title: "ReadinessFix", schema: ReadinessFix },
   { path: "skills/readiness/check.json", title: "ReadinessCheck", schema: ReadinessCheck },
   { path: "skills/readiness/declaration.json", title: "ReadinessDeclaration", schema: ReadinessDeclaration },
@@ -1196,11 +1204,13 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/denylist-input.json", title: "DenylistInput", schema: DenylistInput },
   { path: "permissions/denylist-match.json", title: "DenylistMatch", schema: DenylistMatch },
   { path: "permissions/denylist-test-kind.json", title: "DenylistTestKind", schema: DenylistTestKind },
+  { path: "permissions/notices/denylist.updated.json", title: "DenylistUpdatedPayload", schema: DenylistUpdatedPayload },
   { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
   { path: "permissions/review-actor.json", title: "ReviewActor", schema: ReviewActor },
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },
   { path: "permissions/review-denial.json", title: "ReviewDenial", schema: ReviewDenial },
   { path: "permissions/review-run.json", title: "ReviewRun", schema: ReviewRun },
+  { path: "permissions/notices/review.updated.json", title: "ReviewUpdatedPayload", schema: ReviewUpdatedPayload },
   { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
   { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
   { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
@@ -1454,6 +1464,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
   { path: "browser/status/listener.json", title: "ExtensionListenerStatus", schema: ExtensionListenerStatus },
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
+  { path: "browser/status/headless-source.json", title: "HeadlessSource", schema: HeadlessSource },
+  { path: "browser/status/headless.json", title: "HeadlessBrowserStatus", schema: HeadlessBrowserStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
   { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
@@ -1463,6 +1475,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   ...Object.entries(CHROME_EVENT_TYPES).map(([type, entry]) => ({ path: `browser/chrome-events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
   { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
   { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
+  { path: "client-calls/call-id.json", title: "ClientCallId", schema: ClientCallId },
+  { path: "client-calls/browser-chrome.json", title: "BrowserChromeCall", schema: BrowserChromeCall },
+  { path: "client-calls/call.json", title: "ClientCallPayload", schema: ClientCallPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,

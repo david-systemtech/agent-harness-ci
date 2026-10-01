@@ -49,11 +49,13 @@ const OUTPUT_BYTES = 1024 * 1024;
 /**
  * What git does: clone a repository into `directory` under the working
  * directory, of `depth` commits (all when absent) of `branch` (the remote's
- * default when absent), or fetch or push `refspecs` in the repository there.
+ * default when absent), or fetch (of `depth` commits, all when absent) or
+ * push `refspecs` in the repository there.
  */
 export type ForgeGitCommand =
   | { readonly operation: "clone"; readonly directory: string; readonly depth?: number; readonly branch?: string }
-  | { readonly operation: "fetch" | "push"; readonly refspecs: readonly string[] };
+  | { readonly operation: "fetch"; readonly refspecs: readonly string[]; readonly depth?: number }
+  | { readonly operation: "push"; readonly refspecs: readonly string[] };
 
 export type ForgeGitRequest = ForgeGitCommand & {
   /** The repository, as any remote git takes (https, http, ssh, scp-like): only its origin and path are kept. */
@@ -103,8 +105,9 @@ const PROMPT_REFUSED = /terminal prompts disabled/;
 
 /** git's arguments for `command` against `url`, which `--` keeps from being read as an option. */
 const argumentsOf = (command: ForgeGitCommand, url: string): string[] => {
-  if (command.operation !== "clone") return [command.operation, "--", url, ...command.refspecs];
+  if (command.operation === "push") return ["push", "--", url, ...command.refspecs];
   const depth = command.depth === undefined ? [] : [`--depth=${command.depth}`];
+  if (command.operation === "fetch") return ["fetch", ...depth, "--", url, ...command.refspecs];
   const branch = command.branch === undefined ? [] : [`--branch=${command.branch}`];
   return ["clone", ...depth, ...branch, "--", url, command.directory];
 };

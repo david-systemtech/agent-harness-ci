@@ -102,6 +102,9 @@ export const SkillSource = z
   });
 export type SkillSource = z.infer<typeof SkillSource>;
 
+/** The most skill sources one environment tracks (ADR 0029): a twenty-first add is refused `conflict`, reason `source_limit`. */
+export const SKILL_SOURCE_LIMIT = 20;
+
 // Members ------------------------------------------------------------------------
 
 /** A commit as a provenance manifest names it: full, or abbreviated. */
@@ -247,6 +250,55 @@ export const SkillSetMember = SkillMember.extend({
 });
 export type SkillSetMember = z.infer<typeof SkillSetMember>;
 
+// A source's events ---------------------------------------------------------------
+
+/**
+ * A member as the reader reads it in a repository's folder (skills spec,
+ * "Skill sources"): its name, its folder from the folder read (`.` when that
+ * folder is itself the skill), its description, its invocation and its
+ * problems, any of which leaves it out of the set. What a source's snapshot
+ * yields, and what the probe lists of a folder.
+ */
+export const SkillSourceMember = SkillMember.pick({ name: true, path: true, description: true, invocation: true, problems: true }).meta({
+  description:
+    "A member as the reader reads it in a repository's folder: its name, its folder from the folder read (. when that folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of the set.",
+});
+export type SkillSourceMember = z.infer<typeof SkillSourceMember>;
+
+/**
+ * `skills.source-added`: a source the environment now tracks, its record
+ * (skills spec, "Skill sources"); who added it and when are the event's
+ * actor and time. A `skills.source-synced` with its first snapshot follows
+ * it in the same command.
+ */
+export const SkillsSourceAddedPayload = SkillSource.omit({ addedBy: true, addedAt: true }).meta({
+  description:
+    "skills.source-added: a skill source the environment now tracks: its id, the URL as entered, its repository identity, the folder, what it follows and its position. Who added it and when are the event's actor and time; a skills.source-synced with its first snapshot follows.",
+});
+export type SkillsSourceAddedPayload = z.infer<typeof SkillsSourceAddedPayload>;
+
+/**
+ * `skills.source-synced`: a source's folder was exported at a commit into
+ * its snapshot (an immutable, read-only copy under the data directory), and
+ * these are the members the snapshot yields; the source's members in the
+ * set are read from it from now on.
+ */
+export const SkillsSourceSyncedPayload = z
+  .object({
+    sourceId: SkillSourceId,
+    outcome: z.literal("ok").meta({ description: "ok: the folder was exported at the commit into the source's snapshot, which is now current." }),
+    commit: GitCommit.meta({ description: "The commit the folder was exported at: the current snapshot's." }),
+    members: z.array(SkillSourceMember).meta({ description: "The members the snapshot yields as the reader reads them, invalid ones with their problems, in name order." }),
+  })
+  .meta({ description: "skills.source-synced: a source's folder was exported at a commit into its snapshot, now current, with the members it yields." });
+export type SkillsSourceSyncedPayload = z.infer<typeof SkillsSourceSyncedPayload>;
+
+/** `skills.source-removed`: the environment no longer tracks the source, whose members leave every account's set. */
+export const SkillsSourceRemovedPayload = z
+  .object({ sourceId: SkillSourceId })
+  .meta({ description: "skills.source-removed: the environment no longer tracks the source; its members leave every account's set from each run's next start." });
+export type SkillsSourceRemovedPayload = z.infer<typeof SkillsSourceRemovedPayload>;
+
 // Choices --------------------------------------------------------------------------
 
 /**
@@ -308,12 +360,17 @@ export type SkillsAlwaysOnSetPayload = z.infer<typeof SkillsAlwaysOnSetPayload>;
 export const SKILLS_EVENT_TYPES = {
   "skills.enabled-set": { list: false, payload: SkillsEnabledSetPayload },
   "skills.always-on-set": { list: false, payload: SkillsAlwaysOnSetPayload },
+  "skills.source-added": { list: false, payload: SkillsSourceAddedPayload },
+  "skills.source-synced": { list: false, payload: SkillsSourceSyncedPayload },
+  "skills.source-removed": { list: false, payload: SkillsSourceRemovedPayload },
 } as const satisfies Record<string, EventTypeEntry>;
 
 export type SkillsEventType = keyof typeof SKILLS_EVENT_TYPES;
 export const SkillsEventType = z
   .enum(Object.keys(SKILLS_EVENT_TYPES) as [SkillsEventType, ...SkillsEventType[]])
-  .meta({ description: "The event types of the skills stream: skills.enabled-set and skills.always-on-set." });
+  .meta({
+    description: "The event types of the skills stream: skills.enabled-set and skills.always-on-set, the choices; skills.source-added, skills.source-synced and skills.source-removed, the sources.",
+  });
 
 // The view ---------------------------------------------------------------------------
 
@@ -334,6 +391,19 @@ export const SkillsViewMember = SkillSetMember.extend({
     "A member as skills.get lists it: the member, what shadows it, whether it is on and always-on for the view's account, and every choice naming it. In the set when it has no problem, nothing shadows it and it is on.",
 });
 export type SkillsViewMember = z.infer<typeof SkillsViewMember>;
+
+/**
+ * A source as `skills.get` lists it (skills spec, "Wire summary"): its
+ * record, and the commit of its current snapshot with how many valid
+ * members that snapshot yields.
+ */
+export const SkillsViewSource = SkillSource.extend({
+  commit: GitCommit.meta({ description: "The commit of its current snapshot, whose members are the ones in the set." }),
+  skillCount: z.int().nonnegative().meta({ description: "How many valid members its current snapshot yields." }),
+}).meta({
+  description: "A skill source as skills.get lists it: its URL, identity, folder, what it follows, its position and who added it when, the commit of its current snapshot and how many skills that snapshot yields.",
+});
+export type SkillsViewSource = z.infer<typeof SkillsViewSource>;
 
 /**
  * An account as `skills.get` lists it (ADR 0030): its adapter's
@@ -361,7 +431,7 @@ export const SkillsView = z
     ownDirectory: z.string().min(1).meta({
       description: "The own directory's absolute path on the environment's machine, holding skills/ and commands/, for a terminal pane or an editor to open.",
     }),
-    sources: z.array(SkillSource).meta({ description: "The skill sources the environment tracks, earliest added first." }),
+    sources: z.array(SkillsViewSource).meta({ description: "The skill sources the environment tracks, earliest added first, each with its current snapshot's commit and skill count." }),
     choices: z.array(SkillChoice).meta({
       description: "Every choice made on the environment, an inert one among them: by name, then enabled before always-on, then the whole environment's before the accounts', by id.",
     }),
@@ -405,7 +475,7 @@ export const SKILL_PROBE_SKIPPED = [".git", "node_modules"] as const;
 export const SKILL_PROBE_KEPT_MS = 30 * 60_000;
 
 /** A member as the probe lists it: what the reader reads of it, and where it lies. */
-export const SkillProbeMember = SkillMember.pick({ name: true, path: true, description: true, invocation: true, problems: true }).meta({
+export const SkillProbeMember = SkillSourceMember.meta({
   description:
     "A member the probe found: its name, its folder from the probed folder (. when the folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of a source.",
 });
@@ -482,6 +552,38 @@ export const SkillProbeUnreachable = z
   })
   .meta({ description: "The data of skills.probe's conflict, reason unreachable: the problem, what git said, and the origin." });
 export type SkillProbeUnreachable = z.infer<typeof SkillProbeUnreachable>;
+
+/**
+ * `conflict`'s data when `skills.sources.add` is refused (skills spec,
+ * "Skill sources"): the repository could not be reached, as the probe says
+ * (`unreachable`); the folder yields no valid member at the commit
+ * (`no_skills`, with the folders that would, as the probe finds them); the
+ * environment already tracks twenty sources (`source_limit`); or it tracks
+ * a source with the same identity and folder (`duplicate`, naming it).
+ */
+export const SkillSourceAddConflict = z
+  .discriminatedUnion("reason", [
+    SkillProbeUnreachable,
+    z
+      .object({
+        reason: z.literal("no_skills"),
+        folders: z.array(SkillSourceFolder).meta({
+          description: "The folders at the commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none.",
+        }),
+      })
+      .meta({ description: "The folder yields no valid member at the commit; the folders that would." }),
+    z
+      .object({ reason: z.literal("source_limit"), limit: z.int().positive().meta({ description: "The most sources an environment tracks: twenty." }) })
+      .meta({ description: "The environment already tracks the most sources it may." }),
+    z.object({ reason: z.literal("duplicate"), sourceId: SkillSourceId.meta({ description: "The source already tracking that identity and folder." }) }).meta({
+      description: "The environment already tracks a source with the same repository identity and folder.",
+    }),
+  ])
+  .meta({
+    description:
+      "The data of skills.sources.add's conflict: unreachable (the repository could not be reached, as the probe says), no_skills (the folder yields no skill; the folders that would), source_limit (twenty sources already) or duplicate (a source with the same identity and folder, named).",
+  });
+export type SkillSourceAddConflict = z.infer<typeof SkillSourceAddConflict>;
 
 // Carry over ------------------------------------------------------------------------
 

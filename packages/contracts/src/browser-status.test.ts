@@ -4,6 +4,7 @@ import {
   BrowserStatus,
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
+  HeadlessBrowserStatus,
   bridgeUrl,
   eventTypeEntry,
   registry,
@@ -13,12 +14,14 @@ import {
  * The environment's side of the extension (browser spec, "The extension,
  * its folder and its listener" and "Settings, methods, events and
  * notices"; #547): `browser.status`, the `extension.seen` notice, and where
- * the extension dials.
+ * the extension dials; and the headless browser's part of `browser.status`
+ * (#555).
  */
 
 const listening = { state: "listening", port: 47615 };
 const folder = { path: "/home/david/.local/state/agent-harness/extension/current", problem: null };
-const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: false };
+const headless = { allowRuns: true, availability: { available: true, source: { kind: "launched", executable: "/usr/bin/chromium" } }, liveContexts: 0 };
+const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: false, headless };
 
 describe("browser.status", () => {
   it("is a query at read, the one scope every browser reading has, taking no params", () => {
@@ -46,6 +49,32 @@ describe("browser.status", () => {
     expect(BrowserStatus.parse(none)).toEqual(none);
     expect(BrowserStatus.safeParse({ ...status, folder: { path: "" , problem: null } }).success).toBe(false);
     expect(BrowserStatus.safeParse({ ...status, shippedVersion: "" }).success).toBe(false);
+  });
+});
+
+describe("browser.status's headless part", () => {
+  it("answers the permission, the source of an available headless browser and its live contexts", () => {
+    const endpoint = { ...headless, availability: { available: true, source: { kind: "endpoint", endpoint: "http://127.0.0.1:9222" } }, liveContexts: 2 };
+    expect(BrowserStatus.parse({ ...status, headless: endpoint })).toEqual({ ...status, headless: endpoint });
+    expect(HeadlessBrowserStatus.parse(headless)).toEqual(headless);
+  });
+
+  it("answers why there is none in the source's place, and the permission off beside either", () => {
+    const absent = { allowRuns: false, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 };
+    expect(HeadlessBrowserStatus.parse(absent)).toEqual(absent);
+    expect(HeadlessBrowserStatus.safeParse({ ...absent, availability: { available: false, reason: "" } }).success).toBe(false);
+    expect(HeadlessBrowserStatus.safeParse({ ...absent, availability: { available: false } }).success).toBe(false);
+    expect(HeadlessBrowserStatus.safeParse({ ...headless, availability: { available: true } }).success).toBe(false);
+  });
+
+  it("names an endpoint by its CDP address and a launched browser by its executable, and counts live contexts from 0", () => {
+    const sourced = (source: unknown) => HeadlessBrowserStatus.safeParse({ ...headless, availability: { available: true, source } }).success;
+    expect(sourced({ kind: "endpoint", endpoint: "ws://127.0.0.1:9222/devtools/browser/abc" })).toBe(true);
+    expect(sourced({ kind: "endpoint", endpoint: "ftp://127.0.0.1:9222" })).toBe(false);
+    expect(sourced({ kind: "launched", executable: "" })).toBe(false);
+    expect(sourced({ kind: "container" })).toBe(false);
+    expect(HeadlessBrowserStatus.safeParse({ ...headless, liveContexts: -1 }).success).toBe(false);
+    expect(BrowserStatus.safeParse({ ...status, headless: undefined }).success).toBe(false);
   });
 });
 

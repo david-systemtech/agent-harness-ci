@@ -34,6 +34,7 @@ import {
   type EnvironmentStatus,
   type HealthDocument,
   type MintedPairing,
+  type ReleaseChannel,
   type ReleaseSource,
   type ToolCommandEntry,
 } from "@agent-harness/contracts";
@@ -42,7 +43,9 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
-import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
+import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
+import { spawnBrowser, type BrowserLauncher } from "../browser/headless-launch.js";
+import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { chooseChrome } from "../browser/chrome-choice.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
@@ -98,6 +101,7 @@ import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
+import { startReviewNotices } from "../permissions/review-notices.js";
 import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
@@ -110,6 +114,7 @@ import { createChannelChecks } from "../updates/checks.js";
 import { createUpdateCoordinator } from "../updates/coordinator.js";
 import { createHostUpdaterPolls } from "../updates/host-updater.js";
 import { updateMethods } from "../updates/methods.js";
+import { writeStartingChannel } from "../updates/starting-channel.js";
 import { createUpdateRoute } from "../updates/route.js";
 import { runsProjector } from "../runs/runs-projector.js";
 import { scrubDiagnosticOutput } from "../scrub/diagnostic-output.js";
@@ -150,16 +155,21 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { preCheckMethods } from "../routines/pre-check-methods.js";
+import { createPreCheckRunner } from "../routines/pre-check.js";
+import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities } from "../sessions/session-tables.js";
+import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
+import { createBrowserRelay } from "../browser/relay.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
@@ -176,6 +186,7 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
+import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -197,7 +208,7 @@ import { systemClock, type Clock } from "./clock.js";
 import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
-import { ensureSigningKey, loadOrCreateRecord, type EnvironmentRecord } from "./identity.js";
+import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
 import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
@@ -293,9 +304,15 @@ export interface EnvironmentOptions {
   readonly port?: number;
   /** The name a new environment is created with; preset: the hostname's first label. An existing environment keeps its own. */
   readonly name?: string;
+  /** The release channel a new environment starts on, its `updates.channel` written at the start that creates it (#846); preset: the setting's. An existing environment keeps its own. */
+  readonly channel?: ReleaseChannel;
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
-  /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
+  /**
+   * The operating system the preset icon follows, outside a container (#323), the rule the scripts directory judges a
+   * pre-check's script executable by, Windows's by its extension (#526), and where the headless browser's executable is
+   * looked for (#555). Preset: `process.platform`; tests script it.
+   */
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
@@ -554,17 +571,25 @@ export interface EnvironmentOptions {
    * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
-   * at each run's start (#550); preset: none here, until #555's manager.
-   * And the page drivers the browser tools reach, by kind (#551), each over
-   * its preset: a Chrome paired with this environment is driven by its
-   * extension driver (#552), and every other kind answers that it cannot be
-   * driven here yet.
+   * at each run's start (#550); preset: the headless browser's own answer
+   * (#555). And the page drivers the browser tools reach, by kind (#551),
+   * each over its preset: a Chrome paired with this environment is driven by
+   * its extension driver (#552), the headless browser by its driver (#555),
+   * and the dock answers that it cannot be driven here yet.
+   * And how the headless browser is found and started (#555): whether a path
+   * is a file it can run (preset: one this process may execute), how a found
+   * Chromium is launched (preset: a child process over a pipe), and how its
+   * navigation policy resolves a name before navigating (preset: the system's
+   * resolver). Tests launch the scripted CDP peer and resolve from a table.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
     readonly headless?: HeadlessAvailabilitySeam;
     readonly drivers?: PageDrivers;
+    readonly isExecutable?: (path: string) => boolean;
+    readonly launch?: BrowserLauncher;
+    readonly resolve?: Resolver;
   };
 }
 
@@ -791,10 +816,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }
   };
 
-  // The data directory, and the own skills directory in it (#494), made before anything reads them.
-  const ownSkillsPath = await step("data-directory", () => {
+  // The data directory, and the own skills directory (#494) and the routines' scripts directory (#526) in it, made before
+  // anything reads them.
+  const { ownSkillsPath, scriptsPath } = await step("data-directory", () => {
     prepareDataDirectory(dataDir);
-    return prepareOwnDirectory(dataDir);
+    return { ownSkillsPath: prepareOwnDirectory(dataDir), scriptsPath: prepareScriptsDirectory(dataDir) };
   });
 
   const log: EventLog = await step("database", () => {
@@ -819,6 +845,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trustProjector,
       instructionsProjector,
       skillChoicesProjector,
+      skillSourcesProjector,
       chromesProjector,
       ...(options.projectors ?? []),
     ]) {
@@ -848,7 +875,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const { record, vault, clientSessions, pairings, accessLog, forge, keyManagerConnections, keyManagers, references, moves, managedTools } = await step("identity", async () => {
     const name = (options.name ?? nameOfHostname(options.hostname ?? hostname())).trim();
     if (!name) throw new Error("An environment's name cannot be empty.");
-    const loaded: EnvironmentRecord = loadOrCreateRecord(dataDir, name, now);
+    const { record: loaded, created } = loadOrCreateRecord(dataDir, name, now);
+    // The channel a new environment starts on (#846), at the start that creates it alone: a later start keeps the one set since.
+    if (created && options.channel !== undefined) writeStartingChannel(log, loaded.id, options.channel);
     const { vault: chosen, reason } =
       options.vault === undefined
         ? await chooseVault({ platform: process.platform, asService: launcher.present(), dataDir, environmentId: loaded.id, loadBinding: loadKeychainBinding })
@@ -914,7 +943,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clientSessionLabel: (id) => loadedClientSessions.list({ live: false }).find((session) => session.id === id)?.label,
       ...(options.forgeFetch !== undefined && { fetch: options.forgeFetch }),
       ...(options.forgeTimeoutMs !== undefined && { callTimeoutMs: options.forgeTimeoutMs }),
-      knownRepositories: () => knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }),
+      // The sessions' repositories, most recently used first, then the skill sources' (#498).
+      knownRepositories: () => [...new Set([...knownRepositoryIdentities({ all: (sql, ...params) => log.read(sql, ...params) }), ...readSkillSourceIdentities(log)])],
       gh: managedGh({ row: () => tools.row("gh"), ...(options.managedTools?.hostEnv !== undefined && { hostEnv: options.managedTools.hostEnv }) }),
       keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
@@ -1025,10 +1055,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     drivers: {
       // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
       // browser when its client closes (#552); another environment's goes through the browser relay (#554).
-      chrome: ({ browser: chrome }) =>
+      chrome: ({ browser: chrome, sessionId, runId }) =>
         chrome.environmentId.toLowerCase() === record.id.toLowerCase()
           ? browser.driverOf(chrome.chromeId)
-          : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
+          : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
+      // The headless browser (#555): one driver for every session, a browser context each.
+      headless: () => browser.headless.driver,
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
@@ -1113,6 +1145,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // kept thirty minutes for an add to reuse.
   const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
   closers.push(() => skillProbes.close());
+  // The skill sources (#498): a folder added from a probe's checkout, or a fetch, exported at its commit into a snapshot.
+  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1206,9 +1240,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       // Each run's browser (#550): the session's field by whether a person is present, the operator's switch as it is at the
-      // run's start, and whether a headless browser is here.
+      // run's start, and whether a headless browser is here, as the headless browser answers it (#555).
       resolveBrowser: (request) =>
-        resolveRunBrowser(request, { allowRuns: settings()["browser.headless.allowRuns"], headless: (options.browser?.headless ?? noHeadlessBrowser)() }),
+        resolveRunBrowser(request, {
+          allowRuns: settings()["browser.headless.allowRuns"],
+          headless: options.browser?.headless?.() ?? browser.headless.availability(),
+        }),
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
@@ -1230,7 +1267,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       trust: (place) => trustStore.of(place),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
-      skillSet: runSkillSets({ own: ownSkills, log, generations }),
+      skillSet: runSkillSets({ own: ownSkills, sources: skillSources, log, generations }),
       holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
@@ -1287,8 +1324,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
-  // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
+  // A prompt that parks, and its answer, are told to every client there (#130), as is a change to the Unattended review (#811);
+  // stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
+  closers.push(startReviewNotices({ log, stream: environmentStream }));
   // The reaper (#330): a purged session's workspace inside a workspace root goes once the purge commits, off the log's path,
   // when no other session names it; a worktree with work in it stays, noticed. Closed before the log, letting its work end.
   const reaper = createReaper({
@@ -1421,7 +1460,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
   const checkoutIndex = createCheckoutIndex({ log, availability });
-  const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
+  // The scripts routines' pre-checks run (#526), which the OS user places, and what runs a pre-check: a script there, run
+  // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
+  const scripts = scriptsDirectory(scriptsPath, { platform: options.platform ?? process.platform, env: process.env });
+  const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
+  const preChecks = createPreCheckRunner({ scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub, baseEnvironment: () => baseEnvironment() });
+  const firings = createFiringStarter({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    host,
+    accounts,
+    resolver: workspaceResolver,
+    preChecks,
+  });
   closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
@@ -1463,7 +1516,26 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
+    // The headless browser (#555): an endpoint, else a Chromium it launches, never in a container the install declared.
+    headless: {
+      declaredContainer: detector.declared?.() ?? false,
+      find: (named) =>
+        findHeadlessExecutable(named, {
+          platform: options.platform ?? process.platform,
+          env: process.env,
+          home: homedir(),
+          isExecutable: options.browser?.isExecutable ?? isExecutableFile,
+        }),
+      launch: options.browser?.launch ?? spawnBrowser,
+      resolve: options.browser?.resolve ?? systemResolver,
+    },
   });
+  /** A client session's label, which sentences and records name it by; undefined for one never issued. */
+  const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
+  // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
+  // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel });
+  closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.
   const endpoints = createRoutineEndpoints({
@@ -1473,7 +1545,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environmentId: record.id,
     name: () => look.read().name,
     vault,
-    denylisted: (url) => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0,
+    denylisted: denylistedHost,
     scrub,
   });
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
@@ -1519,7 +1591,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
-    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    ...denylistMethods({ log, accessLog, environmentId: record.id, dataDir, context: denylistContext }),
     ...setupMethods(setup),
     // An LLM step's minted session (#584): created and started as sessions.create and runs.start would, in process.
     ...mintMethods({ log, host, resolver: workspaceResolver, steps: setupSteps, ceilingOf: (id) => clientSessions.ceiling(id) }),
@@ -1554,7 +1626,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+      scripts,
+      denylisted: denylistedHost,
     }),
+    ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
@@ -1577,13 +1652,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accounts: listedAccounts,
       carryOver: carrySkills,
       probe: skillProbes.probe,
+      sources: skillSources,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
     ...skillReadinessMethods({
       scopeOf: (target) => host.previewScope(target),
       account: (id) => host.account(id),
-      place: placeSkillSet({ own: ownSkills, log }),
+      place: placeSkillSet({ own: ownSkills, sources: skillSources, log }),
       hostEnv: options.managedTools?.hostEnv ?? process.env,
       clock,
       keyManagers,
@@ -1592,12 +1668,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
+    // The browser relay's answers (#554): client.answer.
+    ...relay.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
       log,
       environmentId: record.id,
       store: trustStore,
-      clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+      clientSessionLabel,
     }),
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied

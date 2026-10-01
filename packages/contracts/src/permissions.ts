@@ -304,6 +304,20 @@ export const ReviewSeenPayload = z
   .meta({ description: "review.seen: the Unattended review was seen through a log position; the environment-wide watermark (#131)." });
 export type ReviewSeenPayload = z.infer<typeof ReviewSeenPayload>;
 
+/**
+ * The `review.updated` notice on the environment's own stream (#811): what
+ * `permissions.review.list` answers changed once something committed. A
+ * decision in a run the review then lists, a `review.seen` moving the
+ * watermark, and a session holding listed runs deleted or restored: each is
+ * on a stream a client does not follow whole (a session's, the settings
+ * stream), so this says to every connected client that its cached list is
+ * stale. Nothing more: the list is read again.
+ */
+export const ReviewUpdatedPayload = z
+  .object({})
+  .meta({ description: "review.updated: the Unattended review changed and has committed; a client reads permissions.review.list again." });
+export type ReviewUpdatedPayload = z.infer<typeof ReviewUpdatedPayload>;
+
 /** Who started a reviewed run: the kind, and a routine's or bot's name. */
 export const ReviewActor = z
   .object({

@@ -24,6 +24,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, say, toolCall, type FakeAdapter, type FakeAdapterOptions, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
+import { noticesOf } from "../../test/notices.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall, ToolGate } from "../adapter/contract.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, UNRECORDED_MESSAGE } from "./broker.js";
@@ -368,6 +369,31 @@ describe("permissions.denylist.restorePresets", () => {
   });
 });
 
+describe("the denylist.updated notice (#811)", () => {
+  it("says on the environment's own stream that a set or a restore changed the denylist, naming the sections it changed, in its transaction; nothing for one that changes nothing, nor for the seeding", async () => {
+    const t = await start();
+    const client = await t.client();
+    // Seeded before any client could hold a denylist: nothing to read again.
+    expect(await noticesOf(client, "denylist.updated", 0)).toEqual([]);
+    const held = await getDenylist(client);
+    const from = t.env.log.head();
+
+    const set = await send(client, "permissions.denylist.set", {
+      sections: { paths: held.paths.slice(1), commandPatterns: held.commandPatterns, hosts: [{ pattern: "169.254.169.254" }] },
+    });
+    const same = await send(client, "permissions.denylist.set", { sections: { commandPatterns: held.commandPatterns } });
+    const restored = await send(client, "permissions.denylist.restorePresets", {});
+    const again = await send(client, "permissions.denylist.restorePresets", {});
+    expect([same.receipt, again.receipt]).toEqual([expect.objectContaining({ changed: false }), expect.objectContaining({ changed: false })]);
+
+    const notices = await noticesOf(client, "denylist.updated", from);
+    expect(notices.map((event) => event.payload)).toEqual([{ sections: ["paths", "hosts"] }, { sections: ["paths"] }]);
+    // The last event each command appended, by the client session that sent it.
+    expect(notices.map((event) => event.sequence)).toEqual([set.receipt.sequence, restored.receipt.sequence]);
+    expect(notices.map((event) => event.actor)).toEqual([expect.objectContaining({ kind: "client_session" }), expect.objectContaining({ kind: "client_session" })]);
+  });
+});
+
 describe("permissions.denylist.test", () => {
   it("answers the entries a kind and a value match, on this environment's home directory and links", async () => {
     const t = await start();
@@ -702,6 +728,31 @@ describe("the workspace roots", () => {
     const { runId } = startAsRoutine(t, id);
     await untilEnded(t, id, runId);
     expect(decisions(t, id).map((decision) => [decision.decision, decision.decidedBy])).toEqual([["allowed", "mode"]]);
+  });
+});
+
+describe("the routines' scripts directory (#526)", () => {
+  it("stays under the data directory's preset, unlike the workspace roots: an attended run's write there opens a denylist prompt, and an unattended run's is denied", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const script = join(t.env.dataDir, "scripts", "watch.sh");
+    const write: Omit<GatedToolCall, "toolCallId"> = { tool: "Write", summary: "Write watch.sh", access: { kind: "write", paths: [script] }, input: { file_path: script } };
+
+    t.adapter.nextScripts.push(calls(write));
+    const attended = await startRun(client, id, "bypassPermissions");
+    const [prompt] = await untilOpened(t, id);
+    expect(prompt).toMatchObject({ runId: attended.runId, kind: "denylist", denylist: [{ section: "paths", entry: expect.objectContaining({ id: DATA_DIRECTORY_PRESET_ID }), matched: script }] });
+    await answer(client, prompt!.promptId, "deny");
+    await untilEnded(t, id, attended.runId);
+
+    t.adapter.nextScripts.push(calls(write));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
+      ["Write", "denied", "person"],
+      ["Write", "denied", "denylist"],
+    ]);
   });
 });
 

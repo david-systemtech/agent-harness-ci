@@ -179,7 +179,7 @@ const hunkText = (hunk: PatchHunk): string =>
   `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@\n${hunk.lines.map((line) => `${line}\n`).join("")}`;
 
 /** `text` as lines, a final newline not making an empty last line. */
-const linesOf = (text: string): string[] => {
+export const linesOf = (text: string): string[] => {
   if (text === "") return [];
   const lines = text.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
@@ -190,7 +190,7 @@ const linesOf = (text: string): string[] => {
 const MAX_DIFF_CELLS = 4_000_000;
 
 /** A line diff of `before` to `after` by longest common subsequence: each line kept (` `), removed (`-`) or added (`+`). */
-const lineDiff = (before: readonly string[], after: readonly string[]): string[] => {
+export const lineDiff = (before: readonly string[], after: readonly string[]): string[] => {
   const n = before.length;
   const m = after.length;
   if (n * m > MAX_DIFF_CELLS) return [...before.map((line) => `-${line}`), ...after.map((line) => `+${line}`)];

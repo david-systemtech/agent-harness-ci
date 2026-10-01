@@ -1,14 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { chmodSync, existsSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { ContractError, registry, type SkillsProbeResult } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, unreachableOrigin, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added } from "../../test/forge.js";
 import { hostileMachineGit } from "../../test/hostile-git.js";
+import { SKILLS_HOST, skill, skillRepositories, skillsInsteadOf, write, type SkillRepositories } from "../../test/skill-repositories.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -25,81 +24,8 @@ import type { WireClient } from "../../test/wire-client.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-/** The host the test's `https` URLs name, which the harness git's `insteadOf` sends to the test's bare repositories. */
-const SKILLS_HOST = "https://skills.test/";
-
-/** git in the test's own name, outside the machine's configuration. */
-const git = (cwd: string, ...args: string[]): string =>
-  execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    env: {
-      PATH: process.env["PATH"],
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_AUTHOR_NAME: "test",
-      GIT_AUTHOR_EMAIL: "test@example.com",
-      GIT_COMMITTER_NAME: "test",
-      GIT_COMMITTER_EMAIL: "test@example.com",
-    },
-  });
-
-/** Writes `text` at `path`, making its folders. */
-const write = (path: string, text: string): void => {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, text);
-};
-
-/** A `SKILL.md` naming `name` and describing it, or with the frontmatter given. */
-const skill = (name: string | null, description = `The ${name ?? "unnamed"} skill.`, extra = ""): string =>
-  `---\n${name === null ? "" : `name: ${name}\n`}description: ${description}\n${extra}---\n\nDo the thing.\n`;
-
-/** The test's forge of bare repositories under one root, which the harness git reaches through `insteadOf`. */
-interface Repositories {
-  readonly root: string;
-  /**
-   * Makes the bare repository `path` (`owner/name`) holding one commit of
-   * `files` on `branch`, a link where a file's text starts `link:`; answers
-   * the commit. Again on the same path adds a commit on that branch.
-   */
-  commit(path: string, files: Readonly<Record<string, string>>, branch?: string): string;
-}
-
-const repositories = (): Repositories => {
-  const root = tempDir("agent-harness-probe-forge-");
-  return {
-    root,
-    commit(path, files, branch = "main") {
-      const bare = join(root, `${path}.git`);
-      if (!existsSync(bare)) {
-        mkdirSync(bare, { recursive: true });
-        git(bare, "init", "--quiet", "--bare", "--initial-branch=main");
-      }
-      const work = mkdtempSync(join(tmpdir(), "agent-harness-probe-work-"));
-      try {
-        git(work, "init", "--quiet", `--initial-branch=${branch}`);
-        for (const [name, text] of Object.entries(files)) {
-          if (text.startsWith("link:")) {
-            mkdirSync(dirname(join(work, name)), { recursive: true });
-            symlinkSync(text.slice("link:".length), join(work, name));
-          } else write(join(work, name), text);
-        }
-        git(work, "add", "--all");
-        git(work, "commit", "--quiet", "--allow-empty", "-m", "skills");
-        git(work, "push", "--quiet", "--force", bare, `${branch}:${branch}`);
-        return git(work, "rev-parse", "HEAD").trim();
-      } finally {
-        rmSync(work, { recursive: true, force: true });
-      }
-    },
-  };
-};
-
-/** The harness git's `insteadOf`: every `https://skills.test/` URL to the repositories' root. */
-const insteadOf = (forge: Repositories) => [[`url.${pathToFileURL(forge.root).href}/.insteadOf`, SKILLS_HOST] as const];
-
-const start = async (forge: Repositories, options: TestEnvironmentOptions = {}): Promise<{ t: TestEnvironment; client: WireClient }> => {
-  const t = await startTestEnvironment({ harnessGitConfig: insteadOf(forge), ...options });
+const start = async (forge: SkillRepositories, options: TestEnvironmentOptions = {}): Promise<{ t: TestEnvironment; client: WireClient }> => {
+  const t = await startTestEnvironment({ harnessGitConfig: skillsInsteadOf(forge), ...options });
   onCleanup(() => t.close());
   return { t, client: await t.client() };
 };
@@ -126,7 +52,7 @@ const checkouts = (t: TestEnvironment): string[] => {
 
 describe("skills.probe on a repository", () => {
   it("answers a repository whose root holds SKILL.md as one member named after the repository, with its licence file, the branch and the commit", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     const commit = forge.commit("theclaymethod/unslop", { "SKILL.md": skill(null, "Remove AI writing patterns."), LICENSE: "MIT\n", "references/patterns.md": "# patterns\n" });
     const { client } = await start(forge);
 
@@ -145,7 +71,7 @@ describe("skills.probe on a repository", () => {
 
 describe("skills.probe's folders", () => {
   it("lists every folder up to four levels down whose children hold SKILL.md, with members, counts and licence files, skipping .git and node_modules, never following a link out of the checkout", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     const outside = tempDir("agent-harness-probe-outside-");
     write(join(outside, "stolen", "SKILL.md"), skill("stolen"));
     const commit = forge.commit("mattpocock/skills", {
@@ -181,7 +107,7 @@ describe("skills.probe's folders", () => {
   });
 
   it("clones the branch named, and answers none for a repository with no skill folder", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     forge.commit("david/notes", { "README.md": "# notes\n" });
     const release = forge.commit("david/notes", { "skills/tdd/SKILL.md": skill("tdd") }, "release/2");
     const { client } = await start(forge);
@@ -192,7 +118,7 @@ describe("skills.probe's folders", () => {
   });
 
   it("reads at most 2,000 directories, and says it stopped", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     const files: Record<string, string> = { "zz/tdd/SKILL.md": skill("tdd") };
     for (let index = 0; index < 2000; index += 1) files[`d${String(index).padStart(4, "0")}/.keep`] = "";
     forge.commit("david/many", files);
@@ -204,7 +130,7 @@ describe("skills.probe's folders", () => {
 
 describe("skills.probe's refusals", () => {
   it("refuses a URL failing the source URL rule as invalid_params, cloning nothing", async () => {
-    const { t, client } = await start(repositories());
+    const { t, client } = await start(skillRepositories(tempDir));
     for (const [url, reason] of [
       ["http://skills.test/david/notes", "scheme"],
       ["https://token-for-tests@skills.test/david/notes", "credential"],
@@ -218,13 +144,13 @@ describe("skills.probe's refusals", () => {
   });
 
   it("is unreachable not_found for a repository or branch that is not there, network for a host it cannot reach, and git_failed with git's fatal: line otherwise, keeping no checkout", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     forge.commit("david/notes", { "skills/tdd/SKILL.md": skill("tdd") });
     forge.commit("david/broken", { "skills/tdd/SKILL.md": skill("tdd") });
     const objects = join(forge.root, "david", "broken.git", "objects");
     for (const entry of readdirSync(objects)) if (/^[0-9a-f]{2}$/.test(entry)) rmSync(join(objects, entry), { recursive: true });
     const nowhere = await unreachableOrigin();
-    const { t, client } = await start(forge, { harnessGitConfig: [...insteadOf(forge), [`url.${nowhere}/.insteadOf`, "https://down.test/"]] });
+    const { t, client } = await start(forge, { harnessGitConfig: [...skillsInsteadOf(forge), [`url.${nowhere}/.insteadOf`, "https://down.test/"]] });
 
     expect((await refused(client, `${SKILLS_HOST}david/missing`)).data).toMatchObject({ reason: "unreachable", problem: "not_found", origin: "https://skills.test" });
     expect((await refused(client, `${SKILLS_HOST}david/notes`, "no-such-branch")).data).toMatchObject({ reason: "unreachable", problem: "not_found" });
@@ -239,7 +165,7 @@ describe("skills.probe's refusals", () => {
 
 describe("skills.probe's checkout", () => {
   it("lies under the data directory and is kept thirty minutes for an add to reuse, then removed", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     forge.commit("david/notes", { "skills/tdd/SKILL.md": skill("tdd") });
     const { t, client } = await start(forge);
 
@@ -297,7 +223,7 @@ process.stdin.on("end", async () => {
     forge.gitRepository("david/private-skills", { private: true, files: { "SKILL.md": skill(null, "A private skill.") } });
     forge.user(TOKEN, DAVID);
     forge.gitCredential(DAVID.login, TOKEN);
-    const { client } = await start(repositories(), { forgeFetch: aliasFetch(forge), harnessCommand: routeHelper() });
+    const { client } = await start(skillRepositories(tempDir), { forgeFetch: aliasFetch(forge), harnessCommand: routeHelper() });
     await added(client, { url: forge.origin, kind: "forgejo", aliases: [FORGE_ALIAS] });
 
     const answer = await probe(client, `${FORGE_ALIAS}/david/private-skills`);
@@ -316,7 +242,7 @@ process.stdin.on("end", async () => {
     onCleanup(() => forge.close());
     forge.gitRepository("david/private-skills", { private: true, files: { "SKILL.md": skill(null, "A private skill.") } });
     forge.gitRepository("david/public-skills", { files: { "SKILL.md": skill(null, "A public skill.") } });
-    const { t, client } = await start(repositories(), { forgeFetch: aliasFetch(forge), harnessGitConfig: [[`url.${forge.origin}/.insteadOf`, `${FORGE_ALIAS}/`]] });
+    const { t, client } = await start(skillRepositories(tempDir), { forgeFetch: aliasFetch(forge), harnessGitConfig: [[`url.${forge.origin}/.insteadOf`, `${FORGE_ALIAS}/`]] });
 
     expect(await probe(client, `${FORGE_ALIAS}/david/public-skills`)).toMatchObject({ root: { members: [{ name: "public-skills" }] } });
     const answer = await refused(client, `${FORGE_ALIAS}/david/private-skills`);
@@ -327,7 +253,7 @@ process.stdin.on("end", async () => {
   });
 
   it("reads an ssh URL on a host no forge account covers over ssh, with the user's own keys and ssh in batch mode", async () => {
-    const forge = repositories();
+    const forge = skillRepositories(tempDir);
     const commit = forge.commit("david/skills", { "skills/tdd/SKILL.md": skill("tdd") });
     // An ssh on the PATH that records how it was asked, then serves the command it was given from the test's repositories.
     const bin = tempDir("agent-harness-fake-ssh-");
@@ -346,7 +272,7 @@ process.stdin.on("end", async () => {
   });
 
   it("is git_failed with the shell's line, not not_found, when there is no ssh to clone an ssh URL with", async () => {
-    const { client } = await start(repositories());
+    const { client } = await start(skillRepositories(tempDir));
     // A PATH that holds git and nothing else, so the shell git runs ssh through says it is not found.
     const bin = tempDir("agent-harness-no-ssh-");
     symlinkSync(execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(), join(bin, "git"));

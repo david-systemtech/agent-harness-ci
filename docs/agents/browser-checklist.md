@@ -74,6 +74,29 @@ Every case passes:
 Record the date, the machine and its platform, the browser and its version
 (`chromium --version`), and each case's result in the pull request.
 
+## The relay (#554)
+
+What the browser relay adds per verb (the browser spec's "Verify first", item
+5): a run on SYSTEM-SERVER started from the desktop window drives David's
+Chrome, paired with his desktop's environment, through the window's runtime.
+The relay's tests run two in-process environments and the fake extension; only
+David's machines time it. It waits for the extension to drive pages (#553).
+
+With the Chrome paired with the desktop's environment and connected, and one
+fixed page open in it:
+
+1. **Direct**: a session on the desktop's environment whose browser is that
+   Chrome. In one run, ten of each of `browser_open`, `browser_snapshot`,
+   `browser_click`, `browser_read` and `browser_screenshot` on the page.
+2. **Relayed**: the same from a session on SYSTEM-SERVER started from the same
+   desktop window, its browser that Chrome.
+3. For each verb on each path, read each call's time from its `tool.started`
+   to its `tool.ended` in the session's transcript, and note the median and
+   the slowest; what the relay adds is the relayed median less the direct one.
+
+Record the date, both machines, Chrome's version and the table in the pull
+request or issue that asked for it (#922).
+
 ## The extension (#549)
 
 The extension package's tests run its worker and options page against a fake
@@ -111,3 +134,36 @@ click Load unpacked and choose the folder the environment made,
    throughout, its socket's pings keeping it; if it ever shows STOPPED, it is
    RUNNING again within the 30 seconds its alarm takes. Do not open the
    worker's DevTools for this: an open inspector keeps any worker alive.
+
+## The headless browser's launch (#555)
+
+The environment's headless browser tests (`packages/environment/src/browser/headless.test.ts`)
+launch the scripted CDP peer through the launch seam and record the arguments; the
+preset launcher's own test runs a few lines of Node in a browser's place. Whether a real
+Chromium or Chrome starts the way the environment launches it (new headless, a pipe rather
+than a port, a throwaway profile under the data directory, Chromium's own sandbox on, no
+`--no-sandbox`) only a real one answers (the browser spec's "Verify first", item 6). Run the
+suite's real-Chromium case, which skips unless `AGENT_HARNESS_CHROMIUM` names one, on each
+platform, as an ordinary user:
+
+```bash
+AGENT_HARNESS_CHROMIUM=/usr/bin/chromium \
+  pnpm --filter @agent-harness/environment exec vitest run src/browser/headless.test.ts -t "a real Chromium"
+```
+
+1. **macOS**, with Google Chrome
+   (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`).
+2. **Windows**, with Google Chrome
+   (`C:\Program Files\Google\Chrome\Application\chrome.exe`).
+3. **Ubuntu 24.04**, whose AppArmor profile limits unprivileged user namespaces
+   (`kernel.apparmor_restrict_unprivileged_userns=1`), with a Chromium or Chrome
+   from a `.deb` and, if one is at hand, the snap's `/snap/bin/chromium`, whose
+   confinement may not let it write a profile under a hidden folder of the home
+   directory (`~/.local/state`).
+
+The case passes where the browser starts, opens a page served from loopback and
+takes a screenshot. Where it fails, the model's sentence names how the browser
+ended and the last line it wrote (`No usable sandbox!` is the sandbox refused).
+Record the date, the platform, the browser and its version, and each result in
+the pull request that changes the launch; a platform where the sandbox is
+refused is a finding for David, never a reason to turn the sandbox off.
