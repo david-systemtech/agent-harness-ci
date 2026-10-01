@@ -1,4 +1,4 @@
-import { pendingUpdateWords, pinnedWords, updateEnvironment, uuidv7, type ActionOutcome, type EnvironmentView } from "@agent-harness/client-runtime";
+import { environmentVersionWords, pendingUpdateWords, pinnedWords, updateEnvironment, updatesUnreadWords, uuidv7, type ActionOutcome, type EnvironmentView } from "@agent-harness/client-runtime";
 import { RELEASE_CHANNELS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import { nameOf } from "../connections/words.js";
@@ -50,8 +50,8 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
 
   return (
     <div className="flex flex-col gap-2 text-sm">
-      {version !== null && <p className="text-ink">Version {version}</p>}
-      {ready && status.error !== null && <p className="text-signal">Its updates could not be read: {status.error.message}</p>}
+      {version !== null && <p className="text-ink">{environmentVersionWords(version)}</p>}
+      {ready && status.error !== null && <p className="text-signal">{updatesUnreadWords(status.error.message)}</p>}
       {values !== null && (
         <div className="flex flex-wrap items-center gap-4">
           <span className="flex items-center gap-2">
