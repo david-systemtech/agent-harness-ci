@@ -47,8 +47,9 @@ const InstallLinesOf = ({ view }: { readonly view: EnvironmentView }) => {
       <CopyLine label="Windows (PowerShell)" text={lines.windows} />
       <CopyLine label="A container (Docker or Podman), from the folder to keep its compose file in" text={lines.compose.join("\n")} />
       <p className="text-sm text-ink-muted">
-        Until a client first pairs with it, the container prints its pairing link, QR and code to its log at each start, which the last line shows. Its name and channel are set on
-        its card once paired. It never updates itself: the host-side updater does, from the host.
+        Until a client first pairs with it, the container prints its pairing link, QR and code to its log at each start, which the last line shows. Its first start takes the
+        channel and the name from the line that starts it; a later start keeps them, and its card changes either once paired. It never updates itself: the host-side updater
+        does, from the host.
       </p>
       <p className="text-sm">
         <ExternalLink url={lines.updaterDocs}>The host-side updater's documentation</ExternalLink>

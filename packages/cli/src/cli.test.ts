@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BOOTSTRAP_GRANT_FILE,
@@ -16,6 +16,7 @@ import { HARNESS_VERSION, NO_LAUNCHER, createRunRegistry, systemClock, type Cont
 import { renderUnicodeCompact } from "uqr";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runCli, type CliContext } from "./cli.js";
+import { withLocalSession } from "./local-session.js";
 
 /** How long a spawned serve may take to print or drain under a loaded runner: vi.waitFor presets one second, which the full suite exceeds. */
 const SERVE_WAIT = { timeout: 15_000 };
@@ -150,6 +151,42 @@ describe("agent-harness serve", () => {
     expect(await exit).toBe(0);
     expect(cli.close).toHaveBeenCalledOnce();
     expect(cli.err()).toBe("");
+  });
+
+  /** Serves `dataDir` with `args` and the variables `env` until ready; the name its discovery reports and the channel its settings hold, then stopped. */
+  const servedWith = async (args: readonly string[], env: Readonly<Record<string, string>>) => {
+    const cli = harness();
+    const dataDir = join(tempDir(), "data");
+    const exit = runCli(["serve", "--data-dir", dataDir, "--port", "0", ...args], { ...cli.context, env });
+    await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/), SERVE_WAIT);
+    const { environmentName } = (await (await fetch(cli.out().trim())).json()) as { environmentName: string };
+    const net = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
+    const { values } = await withLocalSession({ dataDir }, net, "a test", (call) => call("settings.get", {}));
+    cli.stop();
+    expect(await exit).toBe(0);
+    return { name: environmentName, channel: values["updates.channel"] };
+  };
+
+  it("names a new environment and sets its channel from AGENT_HARNESS_NAME and AGENT_HARNESS_CHANNEL, as the compose file passes them (#846)", async () => {
+    expect(await servedWith([], { AGENT_HARNESS_NAME: "Build box", AGENT_HARNESS_CHANNEL: "beta" })).toEqual({ name: "Build box", channel: "beta" });
+  });
+
+  it("reads each variable blank, as the compose file passes one unset, as not given: the hostname's first label and the preset channel", async () => {
+    const { name, channel } = await servedWith([], { AGENT_HARNESS_NAME: "", AGENT_HARNESS_CHANNEL: " " });
+    expect(hostname().startsWith(name)).toBe(true);
+    expect(channel).toBe("stable");
+  });
+
+  it("takes --name over AGENT_HARNESS_NAME", async () => {
+    expect(await servedWith(["--name", "cli"], { AGENT_HARNESS_NAME: "Build box" })).toMatchObject({ name: "cli" });
+  });
+
+  it("prints its usage and exits 2 on a channel variable that is neither stable nor beta, before starting anything", async () => {
+    const cli = harness();
+    expect(await runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], { ...cli.context, env: { AGENT_HARNESS_CHANNEL: "nightly" } })).toBe(2);
+    expect(cli.err()).toContain("AGENT_HARNESS_CHANNEL takes stable or beta; got nightly.");
+    expect(cli.err()).toContain("agent-harness serve [--data-dir <path>] [--port <n>] [--name <name>]");
+    expect(cli.prepared).not.toHaveBeenCalled();
   });
 
   it("prints its usage and exits 2 on arguments it cannot parse, as an ordinary user", async () => {

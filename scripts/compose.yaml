@@ -12,6 +12,16 @@
 #   docker compose up -d
 #   docker compose logs environment
 #
+# The first start, which creates the environment on fresh volumes, names it
+# AGENT_HARNESS_NAME (else the host's name) and puts it on the release
+# channel AGENT_HARNESS_CHANNEL, stable or beta (else stable), as Add a
+# machine's snippet sets them (#846):
+#
+#   AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=build-box docker compose up -d
+#
+# A later start keeps the name and channel the environment has, whatever the
+# two say: change either on the machine's card once paired.
+#
 # Until a client first pairs with it, the environment prints a pairing link,
 # QR and code to its log at each start: pair from there, or mint another with
 #
@@ -59,6 +69,11 @@ services:
       # outer boundary, updates are managed outside it, and it prints its
       # pairing to its log until a client first pairs (#349).
       AGENT_HARNESS_CONTAINER: "1"
+      # A new environment's name and release channel, which only its first
+      # start reads (#846); `serve` reads a blank one, as one left unset
+      # here, as not given.
+      AGENT_HARNESS_NAME: ${AGENT_HARNESS_NAME:-}
+      AGENT_HARNESS_CHANNEL: ${AGENT_HARNESS_CHANNEL:-}
     volumes:
       - data:/data
       - work:/work
