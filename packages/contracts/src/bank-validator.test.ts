@@ -97,6 +97,27 @@ describe("the bank validator", () => {
     expect(JSON.stringify(held)).not.toContain(registered);
   });
 
+  it("says what a secret quoted in another rule's message is, never its value", () => {
+    const project = "projects/personal/homelab/PROJECT.md";
+    const memoryPath = "projects/personal/homelab/memories/backup-schedule.md";
+    const registered = "correct-horse-battery-staple";
+    const files = changed(PERSONAL_BANK, {
+      [project]: scopeFile("Maya's homelab", { deploys: "Before a deploy or rollback - the pipeline and its traps" }, [FAKE_GITHUB_TOKEN]),
+      [memoryPath]: memory("backup-schedule", { description: "When a backup is missing - the nightly schedule and its logs", appliesTo: [registered] }),
+    });
+    const held = validateBank({ files, registeredValues: [registered] });
+    expect(held.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule: "secret_shaped", path: project }),
+        expect.objectContaining({ rule: "repository_identity", path: project, message: expect.stringMatching(/^projects\/personal\/homelab\/PROJECT\.md's repos\.0 holds \[.+\], which is no repository identity/) }),
+        expect.objectContaining({ rule: "secret_shaped", path: memoryPath }),
+        expect.objectContaining({ rule: "repository_identity", path: memoryPath, message: expect.stringContaining("holds [a secret this environment holds], which is no repository identity") }),
+      ]),
+    );
+    expect(JSON.stringify(held)).not.toContain(FAKE_GITHUB_TOKEN);
+    expect(JSON.stringify(held)).not.toContain(registered);
+  });
+
   it("judges a write by what it touches and what it breaks, not by what was wrong elsewhere before it", () => {
     const broken = { ...PERSONAL_BANK, "projects/personal/homelab/nas/AREA.md": markdown({ line: "The NAS" }) };
     const draft = "projects/personal/homelab/memories/disk-alerts.md";
