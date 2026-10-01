@@ -170,7 +170,7 @@ describe("projections.routines", () => {
     expect(names()).toEqual(["Upstream watch, weekly", "Morning digest", "Backup check"]);
   });
 
-  it("refreshes final delivery failure attention, history and the endpoint result from the failure notice", async () => {
+  it("refreshes delivery failure and recovery attention, history and the endpoint result from their notices", async () => {
     const { runtime, desk, lists, asked } = await twoEnvironments();
     const deskId = desk.wire.environmentId;
     let histories = 0;
@@ -188,6 +188,13 @@ describe("projections.routines", () => {
     expect(histories).toBe(2);
     expect(endpoints).toBe(2);
     expect(runtime.projections.routines.read().groups[0]?.routines[0]?.listed?.attention).toEqual(["delivery_failing"]);
+    lists.set(deskId, [listedRoutine(ids.watch, "Upstream watch")]);
+    desk.notices.event(noticeEvent(2, deskId, "routine.updated", { routineId: ids.watch, change: "delivery-attempted" }));
+    await flush();
+    expect(asked.get(deskId)).toBe(3);
+    expect(histories).toBe(3);
+    expect(endpoints).toBe(3);
+    expect(runtime.projections.routines.read().groups[0]?.routines[0]?.listed?.attention).toEqual([]);
   });
 
   it("keeps the list of an environment that cannot be reached, marked stale with when it was fetched, and its routines still counted", async () => {

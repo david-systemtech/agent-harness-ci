@@ -52,8 +52,9 @@ const payloadOf = (routineId: string, { entry, name }: DeliverableEntry, options
 /**
  * Follows committed entry ends without delaying the firing. The projected attempts are the queue:
  * a start also finds results whose end committed before a crash, and resumes pending retries at
- * retryAt (or immediately if overdue). No retry emits routine.updated. An interrupted POST is
- * left owed and may be sent again with the same webhook-id, for the receiver to deduplicate.
+ * retryAt (or immediately if overdue). Retrying attempts emit no routine.updated; a delivered
+ * result refreshes clients. An interrupted POST is left owed and may be sent again with the
+ * same webhook-id, for the receiver to deduplicate.
  */
 export const createWebhookDeliveries = (options: WebhookDeliveriesOptions) => {
   const { log, clock, environmentId } = options;
@@ -106,7 +107,7 @@ export const createWebhookDeliveries = (options: WebhookDeliveriesOptions) => {
     log.atomically((tx) => {
       const attribution = { tx, actor: routineActor(routineId), correlationId: entryId };
       const made: RoutineDeliveryAttemptedPayload = { entryId, target, attempt: number, result, status, error, retryAt };
-      const record = appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.delivery-attempted", payload: made, occurredAt: at }, change: null }, attribution);
+      const record = appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.delivery-attempted", payload: made, occurredAt: at }, change: result === "delivered" ? "delivery-attempted" : null }, attribution);
       if (result === "failed") {
         const failed: RoutineDeliveryFailedPayload = { routineId, name: held.name, entryId, endpoint: target.target, error: error! };
         log.append({ kind: ENVIRONMENT_STREAM_KIND, id: environmentId }, [{ type: "routine.delivery-failed", payload: failed, occurredAt: at }], { ...attribution, causationId: record.eventId });

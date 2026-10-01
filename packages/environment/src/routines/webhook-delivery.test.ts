@@ -50,11 +50,13 @@ describe("signed result delivery", () => {
     expect(entry.deliveries).toEqual([{ target: { kind: "webhook", target: "hermes", on: "both" }, result: "delivered", attempts: [{ attempt: 1, at: t.clock.now().toISOString(), result: "delivered", status: 204, error: null, retryAt: null }] }]);
     expect(t.env.log.readStream({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }).filter((e) => e.type === "routine.delivery-failed")).toEqual([]);
   });
-  it("retries a 503 after one minute with the same id, refreshed signature and no routine.updated", async () => {
+  it("retries a 503 silently after one minute with the same id, refreshed signature and a delivered refresh", async () => {
     const { t, client, receiver, routine, fire, attempted } = await setup();
     receiver.answer({ status: 503 });
+    const before = t.env.log.head();
     const entryId = await fire();
     expect((await attempted(1)).payload).toMatchObject({ result: "retrying", status: 503, retryAt: "2026-09-24T00:01:00.000Z" });
+    expect((await routineUpdates(client, before)).filter((event) => event.payload["change"] === "delivery-attempted")).toEqual([]);
     const head = t.env.log.head();
     receiver.answer({ status: 200 });
     t.clock.advance(59_999);
@@ -64,7 +66,7 @@ describe("signed result delivery", () => {
     expect(receiver.received.map((r) => r.headers["webhook-id"])).toEqual([`${entryId}:hermes:both`, `${entryId}:hermes:both`]);
     expect(verifyStandardWebhook(secret, receiver.received[1]!, t.clock.now())).toBe(true);
     expect(receiver.received[1]!.headers["webhook-timestamp"]).not.toBe(receiver.received[0]!.headers["webhook-timestamp"]);
-    expect(await routineUpdates(client, head)).toEqual([]);
+    expect((await routineUpdates(client, head)).map((event) => event.payload)).toEqual([{ routineId: routine.state.id, change: "delivery-attempted" }]);
     expect((await history(client, routine.state.id))[0]?.deliveries[0]?.attempts.map((a) => a.result)).toEqual(["retrying", "delivered"]);
   });
 
