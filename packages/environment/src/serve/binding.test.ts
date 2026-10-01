@@ -129,6 +129,25 @@ describe("binding", () => {
     expect(snapshot.payload).toMatchObject({ status: { binding: { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] } } });
   });
 
+  it("says on environment.status a Tailscale address found since its start, which it binds only at its next start, looking again at each status (#861)", async () => {
+    let tailscale: string | undefined;
+    const t = await start({ interfaces: { ...detector(undefined), tailscaleAddress: async () => tailscale } });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] });
+    // Tailscale installed since the start: found, not bound.
+    tailscale = "100.64.0.9";
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: "100.64.0.9", lan: null, lanAddresses: [] });
+    expect(t.env.addresses).toEqual([{ host: "127.0.0.1", port: t.address.port }]);
+    expect(t.env.authPolicy).toBe("local-only");
+    // Stopped again: found no more.
+    tailscale = undefined;
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] });
+  });
+
+  it("says on environment.status the Tailscale address it found at its start with network.bindTailnet off, which it does not bind", async () => {
+    const t = await start({ interfaces: detector("100.64.0.9", "desk.tail1234.ts.net"), bindTailnet: false });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: "100.64.0.9", lan: null, lanAddresses: [] });
+  });
+
   it("fails no check of the Your machines step with no tailnet address found: binding none is a notice on its card", async () => {
     const t = await start({ interfaces: detector(undefined, undefined, ["192.168.1.20"]) });
     const client = await t.client();
