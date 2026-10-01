@@ -490,17 +490,13 @@ describe("the routines methods", () => {
     });
   });
 
-  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history)", () => {
+  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history, the endpoints, #522, theirs)", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
       "routines.testPreCheck": "#526",
       "routines.scripts.list": "#526",
       "routines.export": "#528",
       "routines.checkImport": "#528",
       "routines.import": "#528",
-      "routines.endpoints.set": "#522",
-      "routines.endpoints.remove": "#522",
-      "routines.endpoints.list": "#522",
-      "routines.endpoints.test": "#522",
     });
   });
 

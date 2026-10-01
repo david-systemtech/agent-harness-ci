@@ -397,16 +397,12 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  */
 export const OWED_HANDLERS = {
   // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and
-  // commands, and run now (#523) routines.runNow and routines.history.
+  // commands, run now (#523) routines.runNow and routines.history, and the endpoints (#522) routines.endpoints.*.
   "routines.testPreCheck": "#526",
   "routines.scripts.list": "#526",
   "routines.export": "#528",
   "routines.checkImport": "#528",
   "routines.import": "#528",
-  "routines.endpoints.set": "#522",
-  "routines.endpoints.remove": "#522",
-  "routines.endpoints.list": "#522",
-  "routines.endpoints.test": "#522",
   // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
   "stateImport.run": "#94",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };
