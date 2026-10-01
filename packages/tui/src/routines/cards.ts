@@ -35,18 +35,18 @@ export interface RoutineRef {
 }
 
 /** `/routines`: every environment's routines; `exporting`, the path an export is typed into. */
-export interface ListCard {
+export interface RoutineListCard {
   readonly kind: "list";
   readonly cursor: number;
   readonly exporting: (Typed & { readonly routine: RoutineRef }) | null;
 }
 
 export type RoutinesCard =
-  | ListCard
+  | RoutineListCard
   /** `h`: a routine's firings and skips, newest first, over the list it goes back to. */
-  | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: ListCard }
+  | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: RoutineListCard }
   /** `/routines import <path>`: the file read, what `routines.checkImport` says of each document, until it is imported or left. */
-  | { readonly kind: "import"; readonly environmentId: string; readonly path: string; readonly yaml: string; readonly documents: readonly RoutineImportCheck[]; readonly cursor: number }
+  | { readonly kind: "import"; readonly environmentId: string; readonly path: string; readonly documents: readonly RoutineImportCheck[]; readonly cursor: number }
   /** `/routines endpoints`: the webhook endpoints of an environment; `adding`, the endpoint being typed in, a step at a time. */
   | { readonly kind: "endpoints"; readonly environmentId: string; readonly cursor: number; readonly adding: AddingEndpoint | null }
   /**
