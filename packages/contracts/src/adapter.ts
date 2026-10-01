@@ -265,7 +265,7 @@ export type DelegatedWorkRow = z.infer<typeof DelegatedWorkRow>;
 export const RunSuggestion = z
   .object({
     runId: RunId,
-    suggestion: z.string().min(1).meta({ description: "The predicted next message, verbatim; a client offers it as editable text and never sends it itself." }),
+    suggestion: z.string().min(1).meta({ description: "The predicted next message, verbatim; a client offers it and sends it only on an explicit user action." }),
   })
   .meta({ description: "A provider's prediction of the user's next message after a run, for the composer." });
 export type RunSuggestion = z.infer<typeof RunSuggestion>;

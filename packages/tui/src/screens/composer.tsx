@@ -31,6 +31,8 @@ export interface ComposerViewProps {
   readonly search: { readonly query: string; readonly scope: string; readonly found: boolean } | undefined;
   /** A dim line under the box, when there is something to say. */
   readonly note: string | undefined;
+  readonly suggestion?: string | undefined;
+  readonly suggestionKey?: string | undefined;
 }
 
 const cellAt = (line: string, col: number): string => {
@@ -161,6 +163,11 @@ export const ComposerView = (props: ComposerViewProps) => {
       {window.top + window.size < all.length && (
         <Text dimColor wrap="truncate-end">
           {"  "}↓ {all.length - window.top - window.size} more line{all.length - window.top - window.size === 1 ? "" : "s"}
+        </Text>
+      )}
+      {props.suggestion !== undefined && (
+        <Text color={TERMINAL_ROLES.accent} wrap="truncate-end">
+          {"  "}[{props.suggestionKey ?? "1"}] {props.suggestion.replace(/\s+/g, " ")}
         </Text>
       )}
       {props.locked !== undefined && (

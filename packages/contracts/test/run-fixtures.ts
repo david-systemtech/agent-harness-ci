@@ -123,6 +123,7 @@ const payloads: Record<string, Fixtures> = {
     ],
     invalid: [{ ...runStarted, runId: v1 }, { ...runStarted, origin: "phone" }, { ...runStarted, mode: "plan" }, { ...runStarted, queuedMessageIds: ["m-1"] }],
   },
+  "run.suggested": { valid: [{ runId, suggestion: "Add a regression test" }], invalid: [{ runId, suggestion: "" }, { suggestion: "Offer" }] },
   "run.ended": {
     valid: [
       runEnded,
@@ -441,9 +442,10 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   },
   "transcript/session-snapshot.json": {
     // The last valid one is an environment's from before #260, with no rewinds or instructions: read as none standing, and none.
-    valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
+    valid: [snapshot, { ...snapshot, suggestion: { runId, suggestion: "Run the tests" } }, { ...snapshot, suggestion: null }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
     invalid: [
       { sequence: 13, summary: freshSummary, transcript: {} },
+      { ...snapshot, suggestion: { runId, suggestion: "" } },
       { ...snapshot, runs: [{}] },
       { ...snapshot, items: [{ sequence: 1 }] },
       { ...snapshot, instructions: "t".repeat(20001) },

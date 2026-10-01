@@ -52,19 +52,21 @@ export interface Keymap {
   readonly holders: ReadonlyMap<string, readonly KeyActionId[]>;
 }
 
+const expandedKeys = (keys: readonly string[]): readonly string[] => keys.flatMap((name) => name === "1–4" ? ["1", "2", "3", "4"] : [name]);
+
 const holderKey = (context: string, name: string) => `${context} ${name}`;
 
 /** Who holds each key in each context, and each clash the contracts' rule (`keyClashes`) finds, in words. */
 const holdersOf = (keys: Readonly<Record<KeyActionId, readonly string[]>>) => {
   const holders = new Map<string, KeyActionId[]>();
   for (const id of KEY_ACTION_IDS) {
-    for (const name of new Set(keys[id])) {
+    for (const name of new Set(expandedKeys(keys[id]))) {
       const slot = holderKey(contextOf(id), name);
       const held = holders.get(slot) ?? [];
       holders.set(slot, conditionOf(id) === undefined ? [...held, id] : [id, ...held]);
     }
   }
-  const clashes = keyClashes(KEY_ACTION_IDS.map((id) => ({ id, context: contextOf(id), keys: keys[id], when: conditionOf(id) }))).map(
+  const clashes = keyClashes(KEY_ACTION_IDS.map((id) => ({ id, context: contextOf(id), keys: expandedKeys(keys[id]), when: conditionOf(id) }))).map(
     (clash) => `${clash.key} is both ${clash.ids[0]} and ${clash.ids[1]} in ${clash.context}`,
   );
   return { holders, clashes };

@@ -51,6 +51,7 @@
     "session.rewound",
     "session.rewind-undone",
     "session.history-imported",
+    "run.suggested",
     "run.ended",
     "run.update-interrupted",
     "run.policy.resolved",
