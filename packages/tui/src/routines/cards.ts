@@ -197,9 +197,17 @@ export const historyRows = (view: RoutineHistoryView, now: Date): readonly Panel
 const KEPT_LINES = 6;
 const OUTPUT_LINES = 4;
 
-export const firstLines = (text: string, most: number): (readonly Span[])[] => {
+/**
+ * The first `most` lines of `text`, and a line counting the rest; `keptIn`
+ * names where the rest can be read, for a text kept whole elsewhere (a
+ * firing's text, in its session). A skip's detail and a pre-check's output
+ * are kept nowhere else.
+ */
+export const firstLines = (text: string, most: number, keptIn?: string): (readonly Span[])[] => {
   const lines = text.replace(/\s+$/, "").split("\n");
-  return [...lines.slice(0, most).map((line) => [{ text: line }]), ...(lines.length > most ? [[{ text: `… ${lines.length - most} more lines in its session`, dim: true }]] : [])];
+  const rest = lines.length - most;
+  const counted = `… ${rest} more ${rest === 1 ? "line" : "lines"}${keptIn === undefined ? "" : ` in ${keptIn}`}`;
+  return [...lines.slice(0, most).map((line) => [{ text: line }]), ...(rest > 0 ? [[{ text: counted, dim: true }]] : [])];
 };
 
 /** A pre-check's run, in words: how it ended, how long it took, its output's size, and whether it differed from the baseline. */
@@ -236,7 +244,7 @@ export const entryLines = (entry: RoutineEntry): readonly (readonly Span[])[] =>
         ? [[{ text: "Still firing: its text is kept when it ends.", dim: true }]]
         : entry.text.trim() === ""
           ? [[{ text: "Its run gave no final text.", dim: true }]]
-          : firstLines(entry.text, KEPT_LINES);
+          : firstLines(entry.text, KEPT_LINES, "its session");
   const preCheck = entry.preCheck;
   return [
     [],
