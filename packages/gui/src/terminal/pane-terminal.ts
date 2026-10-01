@@ -54,6 +54,12 @@ import { openStyled } from "./xterm-styles.js";
  *   runs goes on unseen and is closed when it exits.
  * - **An ending**: a shell that exits is closed, so it is not reopened, and
  *   the pane says how it ended, with a new terminal a button away.
+ * - **A tool terminal** (#426), which `tools.run` opened for an install or
+ *   an update, is drawn in place of a shell: attached at once at the size
+ *   the environment opened it at, never opened, reopened or closed by the
+ *   pane on its own. Once its command exits the environment keeps it, and
+ *   the pane keeps showing it with how it ended, until the close button
+ *   closes it or it is gone from the environment, which the pane is told.
  */
 
 /** What the pane says about the terminal it draws. */
@@ -66,14 +72,19 @@ export interface PaneView {
   readonly line: string | null;
 }
 
+/** What a pane draws: a session's shell and `!` commands, or one tool terminal (#426). */
+export type PaneSource =
+  /** The session's shell, and the one-offs this window started, which the pane never reopens as the shell and adds its `!` commands to. */
+  | { readonly kind: "session"; readonly sessionId: string; readonly oneOffs: Set<string> }
+  /** A tool terminal `tools.run` opened, by its id, at the size the environment opened it at; `gone` hears that the environment no longer holds it. */
+  | { readonly kind: "tool"; readonly terminal: { readonly id: string; readonly cols: number; readonly rows: number }; readonly gone: () => void };
+
 export interface PaneTerminalOptions {
   readonly runtime: Runtime;
   readonly environmentId: string;
-  readonly sessionId: string;
+  readonly source: PaneSource;
   /** The element xterm.js opens in. */
   readonly host: HTMLElement;
-  /** The ids of the one-offs this window started, which the pane never reopens as the shell and adds its `!` commands to. */
-  readonly oneOffs: Set<string>;
   readonly theme: ITheme;
   readonly onScreen: boolean;
   /** The environment's name now, for the lines said. */
@@ -85,7 +96,7 @@ export interface PaneTerminalOptions {
 export interface PaneTerminal {
   /** An ask from the window: the shell, a `!` command, the keys, or the close button. */
   ask(ask: TerminalAsk): void;
-  /** Shows the session's shell unless an ask already showed something. */
+  /** Shows the session's shell, or draws the tool terminal, unless an ask already showed something. */
   start(): void;
   theme(theme: ITheme): void;
   /** Whether the pane is on screen: shown, in a column not hidden. It fits, and takes the keys it was asked to, only then. */
@@ -117,6 +128,8 @@ interface Drawn {
   line: string | null;
   /** No terminal can be opened now (the capability is absent): one is looked for again once it can. */
   refused: boolean;
+  /** The environment still holds its terminal, so the close button closes it there. */
+  held: boolean;
   /** Another took its place, or the pane went. */
   gone: boolean;
   readonly stops: (() => void)[];
@@ -150,7 +163,7 @@ const sameSize = (a: Size | null, b: Size) => a !== null && a.cols === b.cols &&
 const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
 export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal => {
-  const { runtime, environmentId, sessionId, host, oneOffs, nameOf } = options;
+  const { runtime, environmentId, source, host, nameOf } = options;
   const term = new Terminal({ theme: options.theme, scrollback: TERMINAL_SCROLLBACK.lines, fontFamily: FONT_FAMILY, fontSize: 13 });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -260,10 +273,13 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     }
     if (output.kind === "output") return take(output.data, output.live);
     const { cause } = output.exit;
-    // An exited terminal stays listed until it is closed: closed now, so it is not reopened.
-    if (d.terminalId !== null && (cause === "exited" || cause === "failed")) closeTerminal(runtime, environmentId, d.terminalId, uuidv4);
+    const ended = cause === "exited" || cause === "failed";
+    // An exited terminal stays listed until it is closed: closed now, so it is not reopened. A tool terminal the environment keeps.
+    if (d.terminalId !== null && ended && source.kind === "session") closeTerminal(runtime, environmentId, d.terminalId, uuidv4);
+    d.held = ended && source.kind === "tool";
     d.ended = endingMark(output.exit);
     say(d, d.command === null ? endingSentence(output.exit, nameOf()) : null);
+    if (!d.held && source.kind === "tool") source.gone();
   };
 
   const followState = (d: Drawn, view: TerminalStreamView) => {
@@ -271,7 +287,10 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     // Not there any more (closed from elsewhere, gone with a restart): said, with a new terminal a button away.
     if (view.status === "ended" && view.exit === null) {
       d.ended = "gone";
-      return say(d, `The terminal on ${nameOf()} is gone${view.fault === null ? "." : `: ${view.fault}`}`);
+      d.held = false;
+      say(d, `The terminal on ${nameOf()} is gone${view.fault === null ? "." : `: ${view.fault}`}`);
+      if (source.kind === "tool") source.gone();
+      return;
     }
     say(d, view.status === "unreachable" ? `${nameOf()} cannot be reached: the terminal runs on there, and what it prints meanwhile shows once it is back.` : null);
   };
@@ -279,6 +298,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   /** Draws terminal `id`, which the environment has at `has`. */
   const attach = (d: Drawn, id: string, has: Size) => {
     d.terminalId = id;
+    d.held = true;
     d.sized = has;
     d.handle = runtime.subscriptions.terminal(environmentId, id, (output) => hear(d, output));
     const handle = d.handle;
@@ -309,6 +329,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       ended: null,
       line: null,
       refused: false,
+      held: false,
       gone: false,
       stops: [],
     };
@@ -352,8 +373,12 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
 
   const size = (): Size => ({ cols: term.cols, rows: term.rows });
 
+  /** The session whose shell and `!` commands the pane draws; null for a tool terminal's pane, which opens none. */
+  const session = source.kind === "session" ? source : null;
+
   const findShell = (d: Drawn) => {
-    if (d.gone) return;
+    if (d.gone || session === null) return;
+    const { sessionId, oneOffs } = session;
     d.refused = refusal(d, "No terminal");
     if (d.refused) {
       // Looked for again once the connection can open one.
@@ -386,6 +411,8 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   };
 
   const run = (command: string) => {
+    if (session === null) return;
+    const { sessionId, oneOffs } = session;
     const d = begin(command);
     if (refusal(d, "Not run")) {
       d.ended = "not run";
@@ -445,7 +472,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
         case "close": {
           const d = drawn;
           if (d === null) return;
-          if (d.terminalId !== null && d.ended === null) closeTerminal(runtime, environmentId, d.terminalId, uuidv4);
+          if (d.terminalId !== null && d.held) closeTerminal(runtime, environmentId, d.terminalId, uuidv4);
           // Ended, so letting it go leaves nothing heard: the pane goes with it.
           d.ended = "closed";
           return letGo(d);
@@ -453,7 +480,10 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       }
     },
     start() {
-      if (drawn === null) shell();
+      if (drawn !== null) return;
+      if (source.kind === "session") return shell();
+      const { id, cols, rows } = source.terminal;
+      attach(begin(null), id, { cols, rows });
     },
     theme(theme) {
       term.options.theme = theme;
