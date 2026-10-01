@@ -12,6 +12,7 @@ import { KEY_MANAGER_AUTH_METHODS, KEY_MANAGER_PROVIDERS, type KeyManagerAuthMet
 import { useState, type FormEvent } from "react";
 import { Button, Dialog, DialogContent, Field, Input, Select } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
+import { CaChoice } from "./certificate-check.js";
 
 /** No credential typed. */
 export const NO_CREDENTIAL: TypedCredential = { roleId: "", secretId: "", password: "", token: "" };
@@ -50,29 +51,38 @@ export const CredentialFields = ({
   );
 };
 
-export interface AddConnectionProps {
+export interface SignInFormProps {
   readonly environmentId: string;
-  readonly environmentName: string;
+  /** The providers it adds: every one in Add's dialog, which offers a choice of them; a provider's own on its tile. */
+  readonly providers: readonly [KeyManagerProvider, ...KeyManagerProvider[]];
+  /** What the form is called. */
+  readonly name: string;
+  /** What its send button says: Add, or Sign in. */
+  readonly send: string;
+  /** Lets the form go: Cancel, and an add. */
   readonly close: () => void;
-  /** Says one line in the pane: where the connection added stands. */
+  /** Says one line where the form was opened: where the connection added stands. */
   readonly say: (line: string) => void;
 }
 
 /**
- * Add a key manager (key-managers spec, "Wire methods"; ADR 0028; #425):
- * the provider, a label, the address (preset for Doppler and Bitwarden),
- * and for OpenBao how it signs in, the mount (preset the method's name,
- * following it until typed at), the username for userpass and an optional
- * token role; then the credential. Add sends `keyManagers.connections.add`
- * directly; a refusal stays in the form in one line with the secret
- * emptied, and an add closes it, saying where the connection stands.
+ * A key manager's sign-in form (key-managers spec, "Wire methods"; ADR 0028;
+ * #425, #590): the provider where it offers more than one, a label, the
+ * address (preset for Doppler and Bitwarden), and for OpenBao the CA it is
+ * to pin, read from the certificate the address presents (`CaChoice`), how
+ * it signs in, the mount (preset the method's name, following it until
+ * typed at), the username for userpass and an optional token role; then the
+ * credential. Its send button sends `keyManagers.connections.add` directly;
+ * a refusal stays in the form in one line with the secret emptied, and an
+ * add lets it go, saying where the connection stands.
  */
-export const AddConnection = ({ environmentId, environmentName, close, say }: AddConnectionProps) => {
+export const SignInForm = ({ environmentId, providers, name, send, close, say }: SignInFormProps) => {
   const runtime = useRuntime();
   const clock = useClock();
-  const [provider, setProvider] = useState<KeyManagerProvider>("openbao");
-  const [label, setLabel] = useState(KEY_MANAGER_LABEL_PRESETS.openbao);
-  const [address, setAddress] = useState("");
+  const [provider, setProvider] = useState<KeyManagerProvider>(providers[0]);
+  const [label, setLabel] = useState(KEY_MANAGER_LABEL_PRESETS[providers[0]]);
+  const [address, setAddress] = useState(KEY_MANAGER_ADDRESS_PRESETS[providers[0]]);
+  const [ca, setCa] = useState<string | null>(null);
   const [method, setMethod] = useState<KeyManagerAuthMethod>("approle");
   const [mount, setMount] = useState<string | null>(null);
   const [username, setUsername] = useState("");
@@ -92,7 +102,7 @@ export const AddConnection = ({ environmentId, environmentName, close, say }: Ad
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const credential = credentialOf(provider, method, typed);
-    const form = { provider, label, address, method, mount: mount ?? method, username, tokenRole };
+    const form = { provider, label, address, method, mount: mount ?? method, username, tokenRole, ca: openBao ? ca : null };
     const problem = formProblem(form, credential);
     if (problem !== undefined) return setLine(problem);
     setLine(undefined);
@@ -108,59 +118,75 @@ export const AddConnection = ({ environmentId, environmentName, close, say }: Ad
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && close()}>
-      <DialogContent title={`Add a key manager on ${environmentName}`} className="max-w-lg">
-        <form aria-label="Add a key manager" className="flex flex-col gap-3" onSubmit={submit}>
-          <Field label="Provider">
-            <Select value={provider} onChange={(event) => choose(event.target.value as KeyManagerProvider)}>
-              {KEY_MANAGER_PROVIDERS.map((each) => (
+    <form aria-label={name} className="flex flex-col gap-3" onSubmit={submit}>
+      {providers.length > 1 && (
+        <Field label="Provider">
+          <Select value={provider} onChange={(event) => choose(event.target.value as KeyManagerProvider)}>
+            {providers.map((each) => (
+              <option key={each} value={each}>
+                {KEY_MANAGER_PROVIDER_WORDS[each]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      <Field label="Label">
+        <Input value={label} onChange={(event) => setLabel(event.target.value)} />
+      </Field>
+      <Field label="Address">
+        <Input value={address} placeholder={openBao ? "https://bao.example.com:8200" : undefined} onChange={(event) => setAddress(event.target.value)} />
+      </Field>
+      {openBao && (
+        <>
+          <CaChoice environmentId={environmentId} address={address} ca={ca} choose={setCa} />
+          <Field label="Signs in by">
+            <Select value={method} onChange={(event) => setMethod(event.target.value as KeyManagerAuthMethod)}>
+              {KEY_MANAGER_AUTH_METHODS.map((each) => (
                 <option key={each} value={each}>
-                  {KEY_MANAGER_PROVIDER_WORDS[each]}
+                  {KEY_MANAGER_METHOD_WORDS[each]}
                 </option>
               ))}
             </Select>
           </Field>
-          <Field label="Label">
-            <Input value={label} onChange={(event) => setLabel(event.target.value)} />
+          <Field label="Mount">
+            <Input value={mount ?? method} onChange={(event) => setMount(event.target.value)} />
           </Field>
-          <Field label="Address">
-            <Input value={address} placeholder={openBao ? "https://bao.example.com:8200" : undefined} onChange={(event) => setAddress(event.target.value)} />
-          </Field>
-          {openBao && (
-            <>
-              <Field label="Signs in by">
-                <Select value={method} onChange={(event) => setMethod(event.target.value as KeyManagerAuthMethod)}>
-                  {KEY_MANAGER_AUTH_METHODS.map((each) => (
-                    <option key={each} value={each}>
-                      {KEY_MANAGER_METHOD_WORDS[each]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Mount">
-                <Input value={mount ?? method} onChange={(event) => setMount(event.target.value)} />
-              </Field>
-              {method === "userpass" && (
-                <Field label="Username">
-                  <Input value={username} onChange={(event) => setUsername(event.target.value)} />
-                </Field>
-              )}
-              <Field label="Token role (optional)">
-                <Input value={tokenRole} onChange={(event) => setTokenRole(event.target.value)} />
-              </Field>
-            </>
+          {method === "userpass" && (
+            <Field label="Username">
+              <Input value={username} onChange={(event) => setUsername(event.target.value)} />
+            </Field>
           )}
-          <CredentialFields provider={provider} method={method} typed={typed} type={setTyped} />
-          {!openBao && <p className="text-xs text-ink-muted">Create a read-only token for it: runs receive this token as it is.</p>}
-          {line !== undefined && <p className="text-sm text-signal">{line}</p>}
-          <div className="flex justify-end gap-2">
-            <Button onClick={close}>Cancel</Button>
-            <Button tone="primary" type="submit" disabled={sending}>
-              Add
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+          <Field label="Token role (optional)">
+            <Input value={tokenRole} onChange={(event) => setTokenRole(event.target.value)} />
+          </Field>
+        </>
+      )}
+      <CredentialFields provider={provider} method={method} typed={typed} type={setTyped} />
+      {!openBao && <p className="text-xs text-ink-muted">Create a read-only token for it: runs receive this token as it is.</p>}
+      {line !== undefined && <p className="text-sm text-signal">{line}</p>}
+      <div className="flex justify-end gap-2">
+        <Button onClick={close}>Cancel</Button>
+        <Button tone="primary" type="submit" disabled={sending}>
+          {send}
+        </Button>
+      </div>
+    </form>
   );
 };
+
+export interface AddConnectionProps {
+  readonly environmentId: string;
+  readonly environmentName: string;
+  readonly close: () => void;
+  /** Says one line in the pane: where the connection added stands. */
+  readonly say: (line: string) => void;
+}
+
+/** Add a key manager (#425): the sign-in form in a dialog, offering every provider, OpenBao first. */
+export const AddConnection = ({ environmentId, environmentName, close, say }: AddConnectionProps) => (
+  <Dialog open onOpenChange={(open) => !open && close()}>
+    <DialogContent title={`Add a key manager on ${environmentName}`} className="max-w-lg">
+      <SignInForm environmentId={environmentId} providers={KEY_MANAGER_PROVIDERS} name="Add a key manager" send="Add" close={close} say={say} />
+    </DialogContent>
+  </Dialog>
+);
