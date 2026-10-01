@@ -258,6 +258,18 @@ describe("bank registry settings through the wire", () => {
     expect(await client.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "bank.forgotten")).toMatchObject({ event: { payload: { bankId: bank.id, checkoutRemoved: false } } });
   });
 
+  it("refuses staging a managed checkout inside another bank's registered path", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await managedBank(t, client);
+    const path = gitBank(TEAM_BANK, join(t.dataDir, "bank-checkout-removals"));
+    expect(await client.request("banks.register", { commandId: randomUUID(), bankId: randomUUID(), path, role: "read-write", accounts: "all", repositories: "all", defaultFor: [] })).toMatchObject({ receipt: { status: "accepted" } });
+    expect(await client.request("banks.forget", { commandId: randomUUID(), bankId: bank.id, removeCheckout: true })).toMatchObject({ receipt: { status: "rejected", error: { code: "conflict", data: { reason: "registered_path" } } } });
+    expect(existsSync(join(bank.checkout, "BANK.md"))).toBe(true);
+    expect(existsSync(join(path, bank.id))).toBe(false);
+    expect((await client.request("banks.get", { bankId: bank.id })).bank).toMatchObject({ id: bank.id });
+  });
+
   it("removes an explicitly requested checkout owned by the BankService and never an overlapping registered checkout", async () => {
     const t = await start();
     const client = await t.client();
