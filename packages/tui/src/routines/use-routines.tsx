@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import type { Clock, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
 import { ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
@@ -11,7 +11,7 @@ import type { Handler } from "../keys.js";
 import { ListCard, TypedLine, wrappedRows } from "../pickers/cards.js";
 import { useFollow, type Opened } from "../session/use-session.js";
 import { messageOf, nameOf, type Question } from "../view.js";
-import { listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
+import { entryLines, historyRows, listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
 import type { RoutineKey, RoutinesCommand } from "./commands.js";
 
 /**
@@ -83,6 +83,14 @@ export const useRoutines = (host: RoutinesHost): Routines => {
   const { runtime, request, card } = host;
   useFollow(card !== undefined ? runtime.projections.routines : undefined, request);
   const now = host.clock.now();
+  // The history shown, followed while its card is open: its newest page from the request cache, each older one as the cursor reaches it.
+  const shownRoutine = card?.kind === "history" ? card.routine : undefined;
+  const history = useMemo(
+    () => (shownRoutine ? runtime.projections.routineHistory(shownRoutine.environmentId, shownRoutine.routineId) : undefined),
+    [runtime, shownRoutine?.environmentId, shownRoutine?.routineId],
+  );
+  useFollow(history, request);
+  const entries = () => history?.read().entries ?? [];
   const list = (): readonly ListRow[] => listRows(runtime.projections.routines.read(), now);
 
   /** The routine under the list's cursor; none on an environment that lists none. */
@@ -155,7 +163,15 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     switch (shown.kind) {
       case "list":
         return list().length;
+      case "history":
+        return entries().length;
     }
+  };
+
+  /** The cursor moved to the history's last entry reads the page before it. */
+  const moved = (shown: RoutinesCard, cursor: number): RoutinesCard => {
+    if (shown.kind === "history" && cursor >= entries().length - 1) void history?.more();
+    return { ...shown, cursor };
   };
 
   const routines: Routines = {
@@ -168,7 +184,7 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       }
     },
     rows: rowsOf,
-    move: (shown, step) => ({ ...shown, cursor: clamp(shown.cursor + step, rowsOf(shown)) }),
+    move: (shown, step) => moved(shown, clamp(shown.cursor + step, rowsOf(shown))),
     choose(shown) {
       switch (shown.kind) {
         case "list": {
@@ -180,9 +196,15 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           if (row) void openLatest(refOf(row), row);
           return;
         }
+        case "history": {
+          const entry = entries()[clamp(shown.cursor, entries().length)];
+          if (entry?.kind === "firing") return openFiring(shown.routine.environmentId, entry.sessionId);
+          if (entry) host.say("A skip has no session: the due time was skipped before one started.");
+          return;
+        }
       }
     },
-    back: (shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: null } : null),
+    back: (shown) => (shown.kind === "history" ? shown.back : shown.exporting !== null ? { ...shown, exporting: null } : null),
     takesText: (shown) => shown.kind === "list" && shown.exporting !== null,
     typed: (shown, text) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: shown.exporting.text + text.replace(/[\r\n]/g, ""), error: null } } : shown),
     erased: (shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: [...shown.exporting.text].slice(0, -1).join("") } } : shown),
@@ -198,7 +220,11 @@ export const useRoutines = (host: RoutinesHost): Routines => {
         if (row.definition.enabled) send(refOf(row), "routines.disable", "disabled");
         else send(refOf(row), "routines.enable", "enabled");
       },
-      "routines.history": () => false,
+      "routines.history": () => {
+        const row = verbOn();
+        if (!row || card?.kind !== "list") return false;
+        host.open({ kind: "history", routine: refOf(row), cursor: 0, back: card });
+      },
       "routines.export": () => {
         const row = verbOn();
         if (!row || card?.kind !== "list") return false;
@@ -209,11 +235,36 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       "routines.endpoint.test": () => false,
       "routines.endpoint.remove": () => false,
     },
-    hint: () => `${host.keys("picker.move")} move · ${host.keys("picker.leave")} close`,
+    hint(shown) {
+      const k = host.keys;
+      if (shown.kind === "history") return `${k("picker.move")} move · ${k("picker.choose")} opens its firing · ${k("picker.leave")} back`;
+      if (shown.exporting !== null) return `${k("picker.choose")} exports it · ${k("picker.leave")} leaves it`;
+      return `${k("picker.move")} move · ${k("picker.choose")} opens its latest firing · ${k("picker.leave")} close`;
+    },
     render(shown, size) {
+      if (shown.kind === "history") {
+        const read = history?.read();
+        const all = read?.entries ?? [];
+        const cursor = clamp(shown.cursor, all.length);
+        const at = all[cursor];
+        return (
+          <ListCard
+            width={size.width}
+            title={`History of ${shown.routine.name} on ${environmentName(shown.routine.environmentId)}`}
+            hint={routines.hint(shown)}
+            rows={read ? historyRows(read, now) : []}
+            cursor={cursor}
+            height={size.height}
+            empty={read?.error ? `Not read: ${read.error.message}` : read?.fetchedAt == null ? "Reading its history…" : "It has not fired or skipped a due time yet."}
+            footer={[...(at ? entryLines(at) : []), ...(read?.loading && all.length > 0 ? [[{ text: "Reading older entries…", dim: true }]] : [])]}
+          />
+        );
+      }
       const rows = list();
       const { exporting } = shown;
       const prompt = exporting === null ? "" : `Export ${exporting.routine.name} to:`;
+      const k = host.keys;
+      const verbs = `${k("routines.runNow")} run now · ${k("routines.enable")} enable or disable · ${k("routines.history")} history · ${k("routines.edit")} edit · ${k("routines.export")} export`;
       return (
         <ListCard
           width={size.width}
@@ -223,7 +274,11 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           cursor={clamp(shown.cursor, rows.length)}
           height={size.height}
           empty="No environment is enabled: /environment lists them."
-          footer={exporting?.error ? [[{ text: exporting.error, color: TERMINAL_ROLES.danger }]] : []}
+          footer={[
+            [],
+            [{ text: `${verbs} · /routines new · /routines import <path> · /routines endpoints`, dim: true }],
+            ...(exporting?.error ? [[{ text: exporting.error, color: TERMINAL_ROLES.danger }]] : []),
+          ]}
           childRows={exporting === null ? 0 : wrappedRows(`${prompt} ${exporting.text} `, size.width)}
         >
           {exporting !== null && <TypedLine prompt={prompt} text={exporting.text} />}

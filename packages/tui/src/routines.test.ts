@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
-import { ZONE, firingEntry, listedRoutine, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
+import { ZONE, firingEntry, listedRoutine, preCheckRecord, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
 
 /**
  * `/routines` in the terminal UI (docs/specs/routines.md, "Clients";
@@ -203,5 +203,71 @@ describe("/routines: the row verbs", () => {
     const written = await readFile(path, "utf8");
     expect(written).toContain("# Routines exported from desk at 2026-10-01T08:00:00.000Z.");
     expect(readRoutineYaml(written, ZONE).map((document) => document.definition)).toEqual([deskRoutines.definitionOf(WATCH)]);
+  });
+});
+
+describe("/routines: a routine's history", () => {
+  const history = () => [
+    firingEntry("0199dd00-0000-4000-8000-0000000000e7", FIRING_SESSION, {
+      trigger: "run-now",
+      startedAt: "2026-09-23T10:00:00.000Z",
+      text: "Two sources moved: see the digest.",
+      preCheck: preCheckRecord("v1.2.3\nv1.2.4\n"),
+      targets: [
+        { kind: "client-notice", on: "both" },
+        { kind: "webhook", target: "hermes-home", on: "success" },
+      ],
+      deliveries: [
+        { target: { kind: "client-notice", on: "both" }, result: "delivered", attempts: [{ attempt: 1, at: "2026-09-23T10:04:00.000Z", result: "delivered", status: null, error: null, retryAt: null }] },
+        {
+          target: { kind: "webhook", target: "hermes-home", on: "success" },
+          result: "failed",
+          attempts: [{ attempt: 1, at: "2026-09-23T10:04:00.000Z", result: "failed", status: 400, error: "Bad Request", retryAt: null }],
+        },
+      ],
+    }),
+    skipEntry("0199dd00-0000-4000-8000-0000000000e6", { at: "2026-09-22T19:00:00.000Z", reason: "pre-check-failed", detail: "The script exited 2." }),
+    firingEntry("0199dd00-0000-4000-8000-0000000000e5", LIVE_SESSION, { startedAt: "2026-09-21T19:00:00.000Z", outcome: "failed", reason: "timed_out", text: "Ran out of time reading the sources." }),
+  ];
+
+  it("lists its firings and skips newest first, the one at the cursor with its kept text, its pre-check's output and its deliveries", async () => {
+    const { app } = await launch({ desk: { routines: [listedRoutine(WATCH)], history: { [WATCH]: history() } } });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("h");
+    await app.waitFor("History of Upstream watch on desk");
+    await app.waitFor("run now");
+    expect(rowWith(app, "succeeded")).toBeLessThan(rowWith(app, "skipped: the pre-check failed"));
+    expect(rowWith(app, "skipped: the pre-check failed")).toBeLessThan(rowWith(app, "failed: timed out"));
+    expect(app.frame()).toContain("Two sources moved: see the digest.");
+    expect(app.frame()).toContain("Pre-check: exited 0 in 1.2s, 14 bytes, changed");
+    expect(app.frame()).toContain("v1.2.4");
+    expect(app.frame()).toContain("client notice: delivered");
+    expect(app.frame()).toContain("hermes-home: failed, 400 Bad Request");
+
+    await app.press(KEY.down);
+    await app.waitFor("The script exited 2.");
+    await app.press(KEY.down);
+    await app.waitFor("Ran out of time reading the sources.");
+  });
+
+  it("opens an entry's firing with Enter, says a skip has none, and goes back to the list with Esc", async () => {
+    const { app } = await launch(
+      { desk: { routines: [listedRoutine(WATCH)], history: { [WATCH]: history() } } },
+      { deskSessions: [{ id: FIRING_SESSION, title: "Watch firing" }, { id: LIVE_SESSION, title: "Timed out firing" }] },
+    );
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("h");
+    await app.waitFor("run now");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("A skip has no session: the due time was skipped before one started.");
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("History of"), "the history closed");
+    expect(app.frame()).toContain("desk · 1 routine");
+    await app.press("h");
+    await app.waitFor("run now");
+    await app.press(KEY.down, KEY.down, KEY.enter);
+    await app.waitFor("Timed out firing · ");
   });
 });

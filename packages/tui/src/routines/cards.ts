@@ -1,7 +1,19 @@
-import { wakeWords, type RoutineGroup, type RoutineRow, type RoutinesView } from "@agent-harness/client-runtime";
-import { describeSchedule, type FiringFailureReason, type RoutineAttention, type RoutineLastOutcome, type SkipReason } from "@agent-harness/contracts";
+import { formatDuration, wakeWords, type RoutineGroup, type RoutineHistoryView, type RoutineRow, type RoutinesView } from "@agent-harness/client-runtime";
+import {
+  describeSchedule,
+  type DeliveryTarget,
+  type FiringFailureReason,
+  type PreCheckRecord,
+  type RoutineAttention,
+  type RoutineDelivery,
+  type RoutineEntry,
+  type RoutineLastOutcome,
+  type RoutineTrigger,
+  type SkipReason,
+} from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { PanelRow, Typed } from "../pickers/panel.js";
+import type { Span } from "../transcript/lines.js";
 import { clockTime } from "../view.js";
 
 /**
@@ -18,9 +30,17 @@ export interface RoutineRef {
   readonly name: string;
 }
 
+/** `/routines`: every environment's routines; `exporting`, the path an export is typed into. */
+export interface ListCard {
+  readonly kind: "list";
+  readonly cursor: number;
+  readonly exporting: (Typed & { readonly routine: RoutineRef }) | null;
+}
+
 export type RoutinesCard =
-  /** `/routines`: every environment's routines; `exporting`, the path an export is typed into. */
-  { readonly kind: "list"; readonly cursor: number; readonly exporting: (Typed & { readonly routine: RoutineRef }) | null };
+  | ListCard
+  /** `h`: a routine's firings and skips, newest first, over the list it goes back to. */
+  | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: ListCard };
 
 /** One row of the list: a routine, or an environment that lists none, which nothing can be done to. */
 export type ListRow = { readonly kind: "routine"; readonly row: RoutineRow; readonly panel: PanelRow } | { readonly kind: "empty"; readonly panel: PanelRow };
@@ -73,6 +93,90 @@ const stateWords = (row: RoutineRow, now: Date): readonly string[] => {
 };
 
 const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - [...text].length));
+
+// A routine's history ---------------------------------------------------------------------------
+
+const TRIGGER_WORDS: Readonly<Record<RoutineTrigger, string>> = { schedule: "on schedule", "catch-up": "caught up", "run-now": "run now" };
+
+/** How an entry ended: a firing's outcome and why it failed, a skip's reason. */
+const entryWords = (entry: RoutineEntry): string => {
+  if (entry.kind === "skip") return `skipped: ${SKIP_WORDS[entry.reason]}`;
+  if (entry.outcome === null) return "firing now";
+  return entry.reason === null ? entry.outcome : `${entry.outcome}: ${FAILURE_WORDS[entry.reason]}`;
+};
+
+/** The history's rows, newest first: when, how it ended, then how it was triggered, the due times it stands for and how long it ran. */
+export const historyRows = (view: RoutineHistoryView, now: Date): readonly PanelRow[] =>
+  view.entries.map((entry) => {
+    const when = wakeWords(new Date(entry.kind === "firing" ? entry.startedAt : entry.at), now);
+    const failed = entry.kind === "skip" ? entry.reason === "pre-check-failed" || entry.reason === "cannot-start" : entry.outcome === "failed";
+    return {
+      key: entry.id,
+      cells: [{ text: pad(when, 14), dim: true }, { text: entryWords(entry), ...(failed && { color: TERMINAL_ROLES.danger }) }],
+      dim: false,
+      note: {
+        text: [
+          TRIGGER_WORDS[entry.trigger],
+          ...(entry.count > 1 ? [`for ${entry.count} due times`] : []),
+          ...(entry.kind === "firing" && entry.durationMs !== null ? [formatDuration(entry.durationMs)] : []),
+        ].join(" · "),
+        dim: true,
+      },
+    };
+  });
+
+/** At most this many lines of an entry's kept text, and of its pre-check's output, under the history. */
+const KEPT_LINES = 6;
+const OUTPUT_LINES = 4;
+
+const firstLines = (text: string, most: number): (readonly Span[])[] => {
+  const lines = text.replace(/\s+$/, "").split("\n");
+  return [...lines.slice(0, most).map((line) => [{ text: line }]), ...(lines.length > most ? [[{ text: `… ${lines.length - most} more lines in its session`, dim: true }]] : [])];
+};
+
+/** A pre-check's run, in words: how it ended, how long it took, its output's size, and whether it differed from the baseline. */
+const preCheckWords = (record: PreCheckRecord): string => {
+  const ended =
+    record.failure !== null
+      ? `failed: ${record.failure.detail}`
+      : record.kind === "script"
+        ? `exited ${record.exitStatus ?? "?"}`
+        : `answered ${record.httpStatus ?? "?"}`;
+  const differs = record.differs === null ? "no baseline yet" : record.differs ? "changed" : "unchanged";
+  return `${ended} in ${formatDuration(record.durationMs)}, ${record.bytes} bytes, ${differs}`;
+};
+
+const targetWords = (target: DeliveryTarget): string => (target.kind === "client-notice" ? "client notice" : target.target);
+
+/** Where one delivery stands, the last attempt's status and error when it failed. */
+const deliveryWords = (delivery: RoutineDelivery): string => {
+  const last = delivery.attempts.at(-1);
+  const attempts = delivery.attempts.length > 1 ? ` after ${delivery.attempts.length} attempts` : "";
+  if (delivery.result !== "failed" || last === undefined) return `${targetWords(delivery.target)}: ${delivery.result}${attempts}`;
+  const why = [last.status === null ? null : String(last.status), last.error].filter((part) => part !== null).join(" ");
+  return `${targetWords(delivery.target)}: failed${why === "" ? "" : `, ${why}`}${attempts}`;
+};
+
+/** The entry at the history's cursor, under the list: its kept text (a skip's detail), its pre-check and its output, its deliveries. */
+export const entryLines = (entry: RoutineEntry): readonly (readonly Span[])[] => {
+  const kept =
+    entry.kind === "skip"
+      ? entry.detail === null
+        ? []
+        : firstLines(entry.detail, KEPT_LINES)
+      : entry.text === null
+        ? [[{ text: "Still firing: its text is kept when it ends.", dim: true }]]
+        : entry.text.trim() === ""
+          ? [[{ text: "Its run gave no final text.", dim: true }]]
+          : firstLines(entry.text, KEPT_LINES);
+  const preCheck = entry.preCheck;
+  return [
+    [],
+    ...kept,
+    ...(preCheck === null ? [] : [[{ text: `Pre-check: ${preCheckWords(preCheck)}`, dim: true }], ...(preCheck.output === null ? [] : firstLines(preCheck.output, OUTPUT_LINES).map((line) => line.map((span) => ({ ...span, dim: true }))))]),
+    ...entry.deliveries.map((delivery) => [{ text: `Delivery to ${deliveryWords(delivery)}`, dim: delivery.result !== "failed", ...(delivery.result === "failed" && { color: TERMINAL_ROLES.danger }) }]),
+  ];
+};
 
 /** An environment's heading: its name, how many routines it lists, and when its list is stale, when it was listed. */
 const headingOf = (group: RoutineGroup): string => {
