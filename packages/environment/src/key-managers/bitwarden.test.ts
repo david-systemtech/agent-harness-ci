@@ -11,6 +11,9 @@ import { DAVID, TOKEN, added as forgeAdded, verify as forgeVerify } from "../../
 import { startFakeForge } from "../../test/fake-forge.js";
 import { move, moveList, setBasePath, copyValue } from "../../test/key-manager-connections.js";
 import { BITWARDEN_TEST_TOKEN, scriptedBitwarden } from "../../test/fake-bitwarden.js";
+import { end, runCommand } from "../../test/fake-adapter.js";
+import { create } from "../../test/sessions.js";
+import { BWS_INVOCATION } from "./bitwarden-block.js";
 const { onCleanup, tempDir } = useCleanups();
 
 it("signs in with an access token, proves it by listing projects, and checks and browses references without values", async () => {
@@ -55,6 +58,35 @@ it.runIf(process.platform !== "win32")("tools.verify runs bws project list with 
   await t.env.keyManagerConnections.settled();
   expect(existsSync(folder)).toBe(false);
   expect(connection.injectedVariables).toEqual(["BWS_ACCESS_TOKEN", "BWS_CONFIG_FILE", "BWS_PROFILE"]);
+});
+
+it.runIf(process.platform !== "win32")("a session's provider process runs the documented bws command in a folder of its own to write, where bws keeps its state until the process stops, never under the host's ~/.bws (#1141)", async () => {
+  const cli = installFakeBws(join(tempDir(), "bin"), "2.1.0");
+  const home = tempDir();
+  const sdk = scriptedBitwarden();
+  const t = await startTestEnvironment({ bitwardenSdk: sdk.load });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await added(client, { provider: "bitwarden", address: "https://bitwarden.test", credential: token(BITWARDEN_TEST_TOKEN) });
+  let commandEnded: (code: number | null) => void = () => {};
+  const executed = new Promise<number | null>((resolve) => { commandEnded = resolve; });
+  t.adapter.nextScripts.push(async function* (controls) {
+    const answer = yield* runCommand(controls, `${BWS_INVOCATION} secret list`, { env: { PATH: `${cli.directory}:/usr/bin:/bin`, HOME: home } });
+    commandEnded(answer.code);
+    yield end();
+  });
+  const session = await create(client);
+  await client.request("runs.start", { commandId: randomUUID(), sessionId: session.id, text: "List the secret names" });
+  expect(await executed).toBe(0);
+  const [spawned] = t.adapter.processesOf(session.id);
+  const folder = dirname((await spawned?.supplied)?.["BWS_CONFIG_FILE"] ?? "");
+  expect(dirname(folder)).toBe(join(t.dataDir, "key-manager-cli"));
+  expect(await spawned?.writable).toEqual([folder]);
+  expect(cli.calls()).toMatchObject([{ command: ["secret", "list"], profile: "default", server: "https://bitwarden.test", stateFile: join(folder, "state", "access-token-id-for-tests") }]);
+  expect(existsSync(join(home, ".bws"))).toBe(false);
+  await t.close();
+  await t.env.keyManagerConnections.settled();
+  expect(existsSync(folder)).toBe(false);
 });
 
 it("moves into the base project, reads the assigned secret id back, and verifies the forge through its new reference", async () => {
