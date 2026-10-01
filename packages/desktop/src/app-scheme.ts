@@ -59,7 +59,7 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
 };
 
 const answer = (status: number, body: Uint8Array | null, mediaType = "text/plain; charset=utf-8"): Response =>
-  new Response(body, {
+  new Response(body === null ? null : new Uint8Array(body), {
     status,
     headers: { "content-type": mediaType, "content-security-policy": CONTENT_POLICY, "x-content-type-options": "nosniff" },
   });
