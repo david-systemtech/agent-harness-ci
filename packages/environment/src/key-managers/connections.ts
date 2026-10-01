@@ -31,6 +31,7 @@ import { createBackgroundWork } from "./background.js";
 import { basePathProblem, suggestBasePath } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
+import { createDopplerProvider } from "./doppler.js";
 import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createRunTokens } from "./run-tokens.js";
@@ -244,7 +245,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; the rest arrive with their tickets (#377 to #379). */
-  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: createOpenBaoProvider() };
+  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: createOpenBaoProvider(), doppler: createDopplerProvider() };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -462,6 +463,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none. */
   const settingsOf = (params: ParamsOf<"keyManagers.connections.add">, address: string) => {
     if (params.provider !== "openbao") {
+      if (params.provider === "doppler" && params.credential !== undefined && params.credential.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with a token.`);
       for (const field of ["ca", "method", "mount", "username", "tokenRole"] as const) {
         if (params[field] !== undefined) invalid([field], `${field} is OpenBao's: a ${PROVIDER_NAMES[params.provider]} connection takes none.`);
       }
@@ -480,9 +482,12 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     };
   };
 
-  /** Where a connection signs in, at `address` with `ca`; null for one with no auth method, another provider's than OpenBao. */
-  const targetOf = (record: KeyManagerConnectionRecord, address = record.address, ca = record.ca): SignInTarget | null =>
-    record.method === null || record.mount === null ? null : { address, ca, method: record.method, mount: record.mount, username: record.username };
+  /** Where a connection signs in: Doppler uses a token; OpenBao uses its stored method and mount. */
+  const targetOf = (record: KeyManagerConnectionRecord, address = record.address, ca = record.ca): SignInTarget | null => {
+    if (record.provider === "doppler") return { address, ca: null, method: "token", mount: "token", username: null };
+    if (record.method === null || record.mount === null) return null;
+    return { address, ca, method: record.method, mount: record.mount, username: record.username };
+  };
 
   /** The fields a first sign-in sets beside its outcome: the ticks preset to the login's policies, and whether it now injects. */
   const firstSignIn = (record: KeyManagerConnectionRecord, information: KeyManagerTokenInformation): Pick<KeyManagerConnectionSignedInPayload, "ticks" | "injects"> => ({
@@ -513,8 +518,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       let status = awaitingSignIn();
       let signed: Extract<SignInResult, { outcome: "signed-in" }> | null = null;
       let entry: string | null = null;
-      if (given !== undefined && provider !== undefined && settings.method !== null && settings.mount !== null) {
-        const target: SignInTarget = { address, ca: settings.ca, method: settings.method, mount: settings.mount, username: settings.username };
+      if (given !== undefined && provider !== undefined) {
+        const target: SignInTarget = { address, ca: settings.ca, method: settings.method ?? "token", mount: settings.mount ?? "token", username: settings.username };
         const result = await signInWith(connectionId, provider, target, given);
         if (result.outcome === "refused") return rejecting<"keyManagers.connections.add">(verificationFailed(connectionId, result, "Nothing was stored."));
         if (result.outcome === "signed-in") {
@@ -570,6 +575,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const { record } = held;
       const provider = providers[record.provider];
       if (provider === undefined) return rejecting<"keyManagers.connections.signIn">(providerUnavailable(record.provider));
+      if (record.provider !== "openbao") {
+        if (given.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[record.provider]} signs in with a token.`);
+        for (const field of ["mount", "username"] as const) if (params[field] !== undefined) invalid([field], `${field} is OpenBao's.`);
+      }
       const method = given.method;
       const mount = mountFor(method, params.mount ?? (method === record.method ? (record.mount ?? undefined) : undefined));
       const username = usernameFor(method, params.username, record.username);
@@ -590,9 +599,9 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           status: signedInStatus(now.provider, result.information),
           tokenInformation: result.information,
           credential: entry,
-          ...(method !== now.method && { method }),
-          ...(mount !== now.mount && { mount }),
-          ...(username !== now.username && { username }),
+          ...(now.provider === "openbao" && method !== now.method && { method }),
+          ...(now.provider === "openbao" && mount !== now.mount && { mount }),
+          ...(now.provider === "openbao" && username !== now.username && { username }),
           ...firstSignIn(now, result.information),
         };
         log.append(stream, [{ type: "key-manager.connection.signed-in", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
@@ -880,10 +889,11 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       let taken = false;
       try {
         // Asked before anything is recorded, so the verification is seen whole: a client reading the records on its event reads the suggestion too (#689). On the wall clock, never the environment's, which a test may hold still.
-        const suggested =
-          !closed && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null
-            ? await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs))
-            : undefined;
+        let suggested: string | null | undefined;
+        if (!closed && checked.outcome === "verified" && held.record.basePath === null) {
+          if (held.record.provider === "doppler") suggested = "harness";
+          else if (held.record.provider === "openbao") suggested = await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs));
+        }
         // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
         taken = !closed && recordFound(connectionId, subject, checked);
         if (taken) verifiedTimes.set(connectionId, verifiedAt);

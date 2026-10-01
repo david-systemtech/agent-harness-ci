@@ -105,7 +105,7 @@ const flaggedPolicy = (record: KeyManagerConnectionRecord, name: string): string
 
 /** The policies ticked for the connection's run tokens, each with whether it writes, and `default` beside them when it is not ticked; null for a connection with no ticks. */
 const ticksLine = (record: KeyManagerConnectionRecord): string | null => {
-  if (record.ticks === null) return null;
+  if (record.provider !== "openbao" || record.ticks === null) return null;
   const ticked = record.ticks.length === 0 ? "none" : listed(record.ticks.map((tick) => flaggedPolicy(record, tick)));
   const beside = record.ticks.includes(DEFAULT_POLICY) ? "" : `, beside ${flaggedPolicy(record, DEFAULT_POLICY)}, which every run token holds`;
   return `Policies ticked for its run tokens: ${ticked}${beside}.`;
