@@ -111,9 +111,22 @@ describe("serialiseSnapshot", () => {
     expect(result.text.endsWith(`[ref=e${result.text.split("\n").length}]`)).toBe(true);
   });
 
-  it("gives no text, cut at a line boundary, when the first line alone is longer than maxChars", () => {
+  it("cuts mid-line at maxChars, and says so, when the first line alone is longer", () => {
     const long: AriaNodeJSON[] = [{ role: "paragraph", text: "word ".repeat(40).trim() }, { role: "button", name: "Next", ref: "e2" }];
-    expect(serialiseSnapshot(long, { filter: "all", maxChars: 50 })).toEqual({ ok: true, text: "", totalChars: 237, truncated: true });
+    expect(serialiseSnapshot(long, { filter: "all", maxChars: 50 })).toEqual({ ok: true, text: "- paragraph: word word word word word word word wo", totalChars: 237, truncated: true, midLine: true });
+  });
+
+  it("cuts mid-line one short of maxChars where the last would open a character written as two code units", () => {
+    const wide: AriaNodeJSON[] = [{ role: "paragraph", text: "ab😀 and a tail of words longer than the budget" }];
+    expect(serialiseSnapshot(wide, { filter: "all", maxChars: 16 })).toMatchObject({ ok: true, text: "- paragraph: ab", truncated: true, midLine: true });
+    expect(serialiseSnapshot(wide, { filter: "all", maxChars: 17 })).toMatchObject({ ok: true, text: "- paragraph: ab😀", truncated: true, midLine: true });
+  });
+
+  it("cuts mid-line short of a ref the cut would split, so no cut ref names another element", () => {
+    const link: AriaNodeJSON[] = [{ role: "link", name: "A long name for a link", ref: "e12" }];
+    for (const maxChars of [39, 35, 33]) {
+      expect(serialiseSnapshot(link, { filter: "all", maxChars })).toEqual({ ok: true, text: `- link "A long name for a link" `, totalChars: 41, truncated: true, midLine: true });
+    }
   });
 
   it("writes the marker for a password, card or one-time-code field's value, whatever the page reported", () => {
