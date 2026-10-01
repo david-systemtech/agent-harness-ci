@@ -138,6 +138,7 @@ describe("its entries", () => {
       "/handoffMove this conversation to another account, or start it fresh there",
       "/accountSwitch the account this session's next run uses, or add one",
       "/containmentSet how contained this session's runs are",
+      "/settingsEvery environment setting under its row, in a generic editor; a row's id opens that row",
       "/terminalOpen a terminal on the session's environment, in a pane",
       "/filesBrowse the workspace's files, and read one in the pager",
       "/documentsThe pages, SVGs and markdown this session wrote, newest first",

@@ -23,6 +23,7 @@ const member = {
   description: "Test-driven development.",
   invocation: "model+slash",
   userInvocable: true,
+  argumentHint: null,
   whileActive: [],
   origin,
   layer: { kind: "source", sourceId },
@@ -58,11 +59,22 @@ const ownMember = { ...member, path: "skills/tdd", origin: manifestOrigin, layer
 const commandMember = { ...member, kind: "command", path: "commands/tdd.md", origin: null, layer: own, whileActive: ["allowed-tools"] };
 const setMember = { ...ownMember, shadowedBy: null };
 const shadowed = { ...commandMember, shadowedBy: { layer: own, path: "skills/tdd" } };
-const runMember = { name: "tdd", origin: manifestOrigin, invocation: "model+slash", native: false, alwaysOn: true };
+const runMember = {
+  name: "tdd",
+  description: "Test-driven development.",
+  origin: manifestOrigin,
+  invocation: "model+slash",
+  userInvocable: true,
+  argumentHint: "<feature>",
+  native: false,
+  alwaysOn: true,
+};
+const nativeRunMember = { ...runMember, name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", argumentHint: null, native: true, alwaysOn: false };
+const skillEntry = { kind: "skill", name: "tdd", description: "Test-driven development.", invocation: "model+slash", origin: manifestOrigin, alwaysOn: true, argumentHint: "<feature>" };
 const runSkillSet = {
   generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
   fingerprint: "3f9a",
-  members: [runMember, { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false }],
+  members: [runMember, nativeRunMember],
   hiddenNativeNames: ["triage"],
 };
 const choices = [
@@ -293,8 +305,25 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
   "skills/native-root.json": { valid: [".claude/skills", ".agents/skills", ".claude/commands"], invalid: [".claude/agents", ".codex/skills", ""] },
   "skills/set-fingerprint.json": { valid: ["3f9a", "c".repeat(64)], invalid: ["", 7, null] },
   "skills/run-skill-set-member.json": {
-    valid: [runMember, { ...runMember, origin: null, invocation: "slash-only", native: true, alwaysOn: false }],
-    invalid: [{ ...runMember, name: "Tdd" }, { ...runMember, native: undefined }, { ...runMember, alwaysOn: undefined }, { ...runMember, invocation: "model" }],
+    valid: [runMember, nativeRunMember, { ...runMember, userInvocable: false }],
+    invalid: [
+      { ...runMember, name: "Tdd" },
+      { ...runMember, native: undefined },
+      { ...runMember, alwaysOn: undefined },
+      { ...runMember, invocation: "model" },
+      { ...runMember, description: "" },
+      { ...runMember, userInvocable: undefined },
+      { ...runMember, argumentHint: "" },
+    ],
+  },
+  "skills/argument-hint.json": { valid: ["<feature>", "[branch]", null], invalid: ["", 42, ["branch"]] },
+  "skills/entry.json": {
+    valid: [skillEntry, { ...skillEntry, invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: null }],
+    invalid: [{ ...skillEntry, kind: "command" }, { ...skillEntry, description: "" }, { ...skillEntry, argumentHint: undefined }, { ...skillEntry, name: "agent-harness:tdd" }],
+  },
+  "skills/commands-list-entry.json": {
+    valid: [skillEntry, { kind: "command", name: "compact", description: "Compact the conversation.", builtin: true }],
+    invalid: [{ ...skillEntry, kind: "member" }, { kind: "command", name: "compact", description: "Compact the conversation." }, { ...skillEntry, kind: "command" }],
   },
   "skills/run-skill-set.json": {
     valid: [runSkillSet, { generation: null, fingerprint: null, members: [], hiddenNativeNames: [] }],
@@ -310,11 +339,13 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
       member,
       invalidMember,
       { ...member, invocation: "slash-only", userInvocable: false, origin: manifestOrigin, layer: { kind: "own" }, path: "skills/tdd", size: 0, tokens: 0 },
-      { ...member, kind: "command", path: "commands/review.md", whileActive: ["hooks", "allowed-tools"], origin: null, layer: { kind: "own" } },
+      { ...member, kind: "command", path: "commands/review.md", whileActive: ["hooks", "allowed-tools"], argumentHint: "[branch]", origin: null, layer: { kind: "own" } },
       { ...member, path: "." },
     ],
     invalid: [
       { ...member, name: "Test Driven" },
+      { ...member, argumentHint: "" },
+      { ...member, argumentHint: undefined },
       { ...member, kind: "plugin" },
       { ...member, path: "../tdd" },
       { ...member, path: "/skills/tdd" },

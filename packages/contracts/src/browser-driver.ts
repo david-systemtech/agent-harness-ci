@@ -369,6 +369,31 @@ export const PageCommand = z
   .meta({ description: "A verb and its arguments." });
 export type PageCommand = { readonly [V in PageVerb]: { readonly verb: V; readonly args: PageArgs<V> } }[PageVerb];
 
+/**
+ * How long a browser that drives through another process (the extension, a
+ * relayed client) has to answer a verb before the caller gives up (ported,
+ * per verb): 20 seconds to open, navigate, click and click at a point, 18
+ * for a screenshot, 5 to let go of a page, a wait's own bound and 5 more,
+ * and 12 for the rest. A late answer is dropped.
+ */
+export const pageCallDeadlineMs = (command: PageCommand): number => {
+  switch (command.verb) {
+    case "open":
+    case "navigate":
+    case "click":
+    case "clickAt":
+      return 20_000;
+    case "screenshot":
+      return 18_000;
+    case "close":
+      return 5_000;
+    case "waitFor":
+      return waitBoundMs(command.args.until) + 5_000;
+    default:
+      return 12_000;
+  }
+};
+
 /** A verb for a session's page: the page key, the command, and a one-time allowance a person gave for this call. */
 export const PageCall = z
   .object({

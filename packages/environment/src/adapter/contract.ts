@@ -98,20 +98,26 @@ export interface UsageReading {
 }
 
 /**
- * What a commands listing is resolved under, as a run would be: whether
- * the workspace's repository passed the trust gate (its project settings,
- * and its own commands, load), and the skill set resolved for the account
- * and workspace, which the adapter loads as a run would.
+ * What a commands listing is resolved under, as its session's next run
+ * would be (#503): whether the session's repository passed the trust gate
+ * (its project settings, and its own commands, load), and the skill set
+ * resolved for the session, which the adapter loads as a run would.
  */
 export interface CommandsScope {
   readonly trusted: boolean;
   readonly skillSet: RunSkillSet;
 }
 
-/** A slash command the provider offers an account in a workspace (`commands`). */
+/**
+ * A slash command the provider offers an account in a workspace
+ * (`commands`): its own, or its listing of a member of the skill set it was
+ * handed, which the host folds into that member's skill entry (#503).
+ */
 export interface ProviderCommand {
   readonly name: string;
   readonly description: string;
+  /** Whether it is the provider's own built-in, which a member's `/name` never shadows (skills spec, "Slash resolution"). */
+  readonly builtin: boolean;
 }
 
 /**
@@ -934,7 +940,8 @@ export interface Adapter {
   /**
    * The slash commands for an account and workspace, spending no tokens
    * (`commands`): what a run there would offer, under the scope the host
-   * resolved for it.
+   * resolved for it, the provider's listing of each member of the set
+   * among them, under its invocation text.
    */
   commands?(account: AccountRef, workspace: Workspace, scope: CommandsScope): Promise<readonly ProviderCommand[]>;
   /**
@@ -960,6 +967,12 @@ export interface Adapter {
    * never creates, links or deletes anything there.
    */
   readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
+  /**
+   * Whether a fork or rewind can continue stored history before this
+   * message. Read before the command's transaction; absent for adapters
+   * whose history is decided from the session's visible messages alone.
+   */
+  hasHistoryBefore?(account: AccountRef, sessionId: string, providerSessionId: string, messageId: string): Promise<boolean>;
   /**
    * The title the provider generated for a session (`titleRead`), or null for
    * none yet: its own summary, never the title field `writeTitle` mirrors a

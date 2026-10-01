@@ -1519,6 +1519,18 @@
       "title": "RunSkillSet"
     },
     {
+      "path": "skills/argument-hint.json",
+      "title": "SkillArgumentHint"
+    },
+    {
+      "path": "skills/entry.json",
+      "title": "SkillEntry"
+    },
+    {
+      "path": "skills/commands-list-entry.json",
+      "title": "CommandsListEntry"
+    },
+    {
       "path": "skills/source-id.json",
       "title": "SkillSourceId"
     },
@@ -3009,6 +3021,10 @@
     {
       "path": "routines/import-check.json",
       "title": "RoutineImportCheck"
+    },
+    {
+      "path": "routines/document.json",
+      "title": "RoutineDocument"
     },
     {
       "path": "errors/denylisted.json",
@@ -6309,6 +6325,18 @@
     {
       "path": "methods/browser.chromes.unpair/error.json",
       "title": "browser.chromes.unpair error"
+    },
+    {
+      "path": "methods/browser.chromes.perform/params.json",
+      "title": "browser.chromes.perform params"
+    },
+    {
+      "path": "methods/browser.chromes.perform/result.json",
+      "title": "browser.chromes.perform result"
+    },
+    {
+      "path": "methods/browser.chromes.perform/error.json",
+      "title": "browser.chromes.perform error"
     }
   ],
   "cases": [
@@ -8246,6 +8274,15 @@
       "result": "methods/browser.chromes.unpair/result.json",
       "response": "methods/browser.chromes.unpair/response.json",
       "error": "methods/browser.chromes.unpair/error.json"
+    },
+    {
+      "name": "browser.chromes.perform",
+      "scope": "runs:drive",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/browser.chromes.perform/params.json",
+      "result": "methods/browser.chromes.perform/result.json",
+      "error": "methods/browser.chromes.perform/error.json"
     }
   ]
 }

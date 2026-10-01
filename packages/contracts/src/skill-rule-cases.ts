@@ -184,6 +184,7 @@ export interface SkillMemberCase {
   readonly description: string | null;
   readonly invocation: SkillInvocation;
   readonly userInvocable: boolean;
+  readonly argumentHint: string | null;
   readonly whileActive: readonly SkillWhileActiveKey[];
   readonly problems: readonly SkillMemberProblemKind[];
   readonly warnings: readonly SkillMemberWarningKind[];
@@ -198,6 +199,7 @@ const member = (note: string, frontmatter: Readonly<Record<string, unknown>> | n
   description: "Test-driven development.",
   invocation: "model+slash",
   userInvocable: true,
+  argumentHint: null,
   whileActive: [],
   problems: [],
   warnings: [],
@@ -210,8 +212,8 @@ const review: SkillMemberFolder = { kind: "file", name: "review" };
 /**
  * The cases of reading a member, published as `cases/skill-member.json`:
  * its name by the member-naming rule, its description, its invocation,
- * whether it is user-invocable and the keys it declares that act while it
- * is active.
+ * whether it is user-invocable, its argument hint and the keys it declares
+ * that act while it is active.
  */
 export const SKILL_MEMBER_CASES: readonly SkillMemberCase[] = [
   // The frontmatter name, else the folder's, else invalid.
@@ -254,8 +256,18 @@ export const SKILL_MEMBER_CASES: readonly SkillMemberCase[] = [
   member("a command, named by its file", described, review, { name: "review" }),
   member("a command's frontmatter name passed over", { name: "code-review", ...described }, review, { name: "review" }),
   member("a command file whose name fails: invalid", { name: "review", ...described }, { kind: "file", name: "Review_Notes" }, { problems: ["name"] }),
-  member("a command without a description: invalid", { "argument-hint": "[branch]" }, review, { name: "review", description: null, problems: ["description"] }),
+  member("a command without a description: invalid", { "argument-hint": "[branch]" }, review, { name: "review", description: null, argumentHint: "[branch]", problems: ["description"] }),
   member("a slash-only command", { ...described, "disable-model-invocation": true }, review, { name: "review", invocation: "slash-only" }),
+  // The argument hint.
+  member("an argument hint, trimmed", { ...described, "argument-hint": "  <feature> " }, tdd, { name: "tdd", argumentHint: "<feature>" }),
+  member("a command's argument hint", { ...described, "argument-hint": "[branch]" }, review, { name: "review", argumentHint: "[branch]" }),
+  member("an argument hint YAML reads as a list, as typed", { ...described, "argument-hint": ["branch"] }, tdd, { name: "tdd", argumentHint: "[branch]" }),
+  member("a list of several, as typed", { ...described, "argument-hint": ["pr-number", 2] }, tdd, { name: "tdd", argumentHint: "[pr-number, 2]" }),
+  member("an argument hint YAML reads as a number", { ...described, "argument-hint": 42 }, tdd, { name: "tdd", argumentHint: "42" }),
+  member("a blank argument hint: none", { ...described, "argument-hint": "  " }, tdd, { name: "tdd" }),
+  member("an empty list: none", { ...described, "argument-hint": [] }, tdd, { name: "tdd" }),
+  member("a mapping: none", { ...described, "argument-hint": { file: "path" } }, tdd, { name: "tdd" }),
+  member("a list holding a mapping: none", { ...described, "argument-hint": [{ file: "path" }] }, tdd, { name: "tdd" }),
   // The keys that act while the skill is active.
   member("hooks", { ...described, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./check.sh" }] }] } }, tdd, { name: "tdd", whileActive: ["hooks"] }),
   member("allowed-tools as a list", { ...described, "allowed-tools": ["Bash(git status:*)", "Read"] }, tdd, { name: "tdd", whileActive: ["allowed-tools"] }),

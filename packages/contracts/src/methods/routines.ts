@@ -228,8 +228,11 @@ export const routinesDelete = defineMethod({
 /**
  * Imports routine documents, all or nothing: each becomes a routine under
  * the ids given (the environment's own when none are), or, with
- * `routineId`, one document replaces that routine's definition. Answered
- * with the routines and `routines.checkImport`'s warnings.
+ * `routineId`, one document replaces that routine's definition. A document
+ * with an issue is `invalid_params` at `yaml`, its place and its path; a
+ * name another routine or an earlier document holds, `conflict`
+ * `name_taken` naming the document. Answered with the routines and
+ * `routines.checkImport`'s warnings.
  */
 export const routinesImport = defineMethod({
   name: "routines.import",
@@ -239,7 +242,9 @@ export const routinesImport = defineMethod({
     yaml: Yaml,
     routineIds: setOf(RoutineId).min(1).optional().meta({ description: "The ids the documents' routines are made under, one per document in order, each once; the environment mints them when absent." }),
     routineId: RoutineId.optional().meta({ description: "The routine whose definition the one document replaces; never with routineIds." }),
-    movedFrom: MoveTarget.optional().meta({ description: "The routine a move copies, which the copies link to; absent for an import that is no move." }),
+    movedFrom: MoveTarget.optional().meta({
+      description: "The routine a move copies, which the routines made link to; absent for an import that is no move. With routineId it records nothing: the replaced routine keeps its own links.",
+    }),
   })
     .refine((params) => params.routineIds === undefined || params.routineId === undefined, {
       message: "Name the ids of routines to make, or the routine to replace, not both.",

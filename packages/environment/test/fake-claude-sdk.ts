@@ -32,7 +32,16 @@ export interface FakeControls {
   /** The usage method: its name on the query, and its answer, given the query asked (its options, its environment). */
   usage?: { readonly name: string; readonly answer: (query: FakeQuery) => Promise<unknown> };
   supportedModels?: () => Promise<unknown[]>;
-  supportedCommands?: () => Promise<{ name: string; description: string; argumentHint: string }[]>;
+  supportedCommands?: () => Promise<SlashCommand[]>;
+}
+
+/** A row of `supportedCommands()` as the pinned SDK declares it: Claude Code's own marked `builtin`, the rest unmarked. */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  argumentHint: string;
+  aliases?: string[];
+  builtin?: boolean;
 }
 
 export class FakeQuery {
@@ -241,7 +250,7 @@ export class FakeQuery {
     return this.controls.supportedModels?.() ?? [];
   }
 
-  async supportedCommands(): Promise<{ name: string; description: string; argumentHint: string }[]> {
+  async supportedCommands(): Promise<SlashCommand[]> {
     return this.controls.supportedCommands?.() ?? [];
   }
 
