@@ -105,3 +105,80 @@ describe("a runtime with no local connection to the Chrome's environment", () =>
     expect(extension.calls).toEqual([]);
   });
 });
+
+
+/** Two fake extensions at the desk, and a plain My Chrome session on the server. */
+const relayedPlainChrome = async (secondName = "Personal") => {
+  const { desk, extension: work } = await deskWithChrome();
+  const personalChrome = fakeChrome(join(desk.dataDir, "extension", "current"), { script: answeringFrom(scriptedPageDriver("chrome")) });
+  const asking = await desk.client();
+  const { code } = await asking.apply("browser.pairing.code", {});
+  await asking.close();
+  const { extension: personal, answer: paired } = await personalChrome.pair(code, secondName);
+  harness.onCleanup(() => personal.close());
+  if (paired.type !== "paired") throw new Error("Personal was not paired");
+  const server = await harness.environment({ name: "server", adapter: fakeAdapter() });
+  const { runtime, seams } = harness.withSeams(inMemoryPlatform({ kind: "tui", grant: grantReader(desk) }));
+  await runtime.start();
+  await runtime.connections.add({ link: (await server.createPairing()).link });
+  await holds(runtime.connections.list, (records) => records.length === 2 && records.every((record) => record.phase === "ready"));
+  const sessionId = randomUUID();
+  await send(seams, server.env.id, "sessions.create", { commandId: randomUUID(), id: sessionId, workspace, browser: { value: { kind: "chrome", environmentId: desk.env.id, chromeId: null }, chosenBy: "person" } });
+  return { desk, work, personal, paired, server, seams, sessionId };
+};
+
+describe("the several-Chromes answer for a relayed plain My Chrome", () => {
+  it("records the named desk Chrome chosen by the agent and drives it in this run and the next", async () => {
+    const { desk, work, personal, paired, server, seams, sessionId } = await relayedPlainChrome();
+    const answers: HostToolResult[] = [];
+    (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_snapshot", input: {} }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { browser: " personal ", address: "https://example.com", snapshot: false } }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { browser: "Work", snapshot: false } }));
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_snapshot", input: {} }));
+      yield end();
+    });
+    await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Use Personal" });
+    await vi.waitFor(() => expect(answers).toHaveLength(4), { timeout: WAIT_MS });
+    expect(answers[0]).toMatchObject({ isError: true, text: expect.stringContaining("Work, Personal") });
+    expect(answers[1]).toMatchObject({ isError: false, text: expect.stringContaining("This session uses the Chrome Personal from now on.") });
+    expect(answers[2]).toMatchObject({ isError: true, text: expect.stringContaining("This session uses the Chrome Personal, which only the person can change") });
+    expect(answers[3]?.isError).toBe(false);
+    expect(work.calls).toEqual([]);
+    expect(personal.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot"]);
+    const events = server.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "session.browser.set");
+    expect(events.map((event) => event.payload)).toEqual([
+      { browser: { kind: "chrome", environmentId: desk.env.id, chromeId: null }, chosenBy: "person" },
+      { browser: { kind: "chrome", environmentId: desk.env.id, chromeId: paired.chromeId }, chosenBy: "agent" },
+    ]);
+    await vi.waitFor(() => expect(server.env.log.readStream({ kind: "session", id: sessionId }).some((event) => event.type === "run.ended")).toBe(true), { timeout: WAIT_MS });
+    (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_navigate", input: { address: "https://example.com/next", snapshot: false } }));
+      yield end();
+    });
+    await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Next page" });
+    await vi.waitFor(() => expect(answers).toHaveLength(5), { timeout: WAIT_MS });
+    expect(answers[4]?.isError).toBe(false);
+    expect(personal.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot", "navigate"]);
+    expect(work.calls).toEqual([]);
+  });
+
+  it.each([
+    { name: "Home", secondName: "Personal", reason: "No Chrome paired with desk is named Home: the paired Chromes are Work, Personal." },
+    { name: "work", secondName: "WORK", reason: "Several Chromes paired with desk are named Work." },
+  ])("refuses $name when the desk's names cannot identify one Chrome", async ({ name, secondName, reason }) => {
+    const { work, personal, server, seams, sessionId } = await relayedPlainChrome(secondName);
+    const answers: HostToolResult[] = [];
+    (server.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
+      answers.push(yield* callHostTool(controls, { server: "browser", name: "browser_open", input: { browser: name } }));
+      yield end();
+    });
+    await send(seams, server.env.id, "runs.start", { commandId: randomUUID(), sessionId, text: "Choose a Chrome" });
+    await vi.waitFor(() => expect(answers).toHaveLength(1), { timeout: WAIT_MS });
+    expect(answers[0]).toMatchObject({ isError: true, text: expect.stringContaining(reason) });
+    expect(work.calls).toEqual([]);
+    expect(personal.calls).toEqual([]);
+    expect(server.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "session.browser.set")).toHaveLength(1);
+  });
+
+});

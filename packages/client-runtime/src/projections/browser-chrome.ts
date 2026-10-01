@@ -1,4 +1,4 @@
-import { BrowserChromeCall, PageOutcome, type ResponseFrame } from "@agent-harness/contracts";
+import { BrowserChromeCall, BrowserChromeListCall, BrowserChromeListResult, PageOutcome, type ResponseFrame } from "@agent-harness/contracts";
 import type { ConnectionRecord } from "../connections/records.js";
 import type { ClientCallHandler } from "./client-calls.js";
 
@@ -33,9 +33,10 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 export const browserChromeHandler =
   (host: BrowserChromeHost): ClientCallHandler =>
   async (call) => {
-    const asked = BrowserChromeCall.safeParse(call.payload);
+    const listed = BrowserChromeListCall.safeParse(call.payload);
+    const asked = listed.success ? listed : BrowserChromeCall.safeParse(call.payload);
     if (!asked.success) throw new Error("The call does not name a Chrome, a page and a verb this client can read.");
-    const { environmentId, chromeId, deadline, ...verb } = asked.data;
+    const { environmentId, deadline } = asked.data;
     if (host.now(call.environmentId).getTime() >= Date.parse(deadline)) throw new Error("The call came after its deadline, so this client did not perform it.");
     const local = host.record(environmentId);
     if (local?.kind !== "local") {
@@ -44,11 +45,20 @@ export const browserChromeHandler =
     const name = local.descriptor.name;
     let response: ResponseFrame;
     try {
-      response = await host.request(environmentId, "browser.chromes.perform", { chromeId, ...verb });
+      if ("operation" in asked.data) response = await host.request(environmentId, "browser.chromes.list", {});
+      else {
+        const { chromeId, pageKey, command, allowance } = asked.data;
+        response = await host.request(environmentId, "browser.chromes.perform", { chromeId, pageKey, command, ...(allowance !== undefined && { allowance }) });
+      }
     } catch (error) {
       throw new Error(`This client could not reach ${name}, the environment the Chrome is paired with: ${messageOf(error)}`, { cause: error });
     }
     if (response.error) throw new Error(`${name}, the environment the Chrome is paired with, refused the verb: ${response.error.message}`);
+    if (listed.success) {
+      const result = BrowserChromeListResult.safeParse({ ok: true, environmentName: name, chromes: response.result?.["chromes"] });
+      if (!result.success) throw new Error(`${name}, the environment the Chrome is paired with, answered something that is not a Chrome list.`);
+      return result.data;
+    }
     const outcome = PageOutcome.safeParse(response.result?.["outcome"]);
     if (!outcome.success) throw new Error(`${name}, the environment the Chrome is paired with, answered something that is not a browser's answer.`);
     return outcome.data;

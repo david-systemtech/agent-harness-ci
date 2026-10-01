@@ -597,7 +597,7 @@ export interface PageToolsOptions {
    * why not. Given only where the run's browser is the plain My Chrome, and
    * `browser_open` takes `browser` only then.
    */
-  readonly choose?: (name: string) => ChosenBrowser | LiveBrowser;
+  readonly choose?: (name: string) => ChosenBrowser | LiveBrowser | Promise<ChosenBrowser | LiveBrowser>;
 }
 
 const KIND_NAMES: { readonly [K in PageDriverKind]: string } = { chrome: "The person's Chrome", headless: "The headless browser", dock: "The browser dock" };
@@ -663,7 +663,7 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
         // Only browser_open of the plain My Chrome takes browser: no other tool's input fits with it.
         const chromeName = input["browser"];
         if (typeof chromeName !== "string" || choose === undefined) return drive(input, args, options.live(), call);
-        const browser = choose(chromeName);
+        const browser = await choose(chromeName);
         const answer = await drive(input, args, browser, call);
         return "chosen" in browser ? { ...answer, text: `This session uses the Chrome ${browser.chosen} from now on.\n${answer.text}` } : answer;
       },

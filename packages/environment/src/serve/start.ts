@@ -153,11 +153,11 @@ import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
-import { followDeliveries } from "../routines/delivery.js";
+import { followDeliveries, resumeDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
 import { limitFiringDurations } from "../routines/firing-duration.js";
-import { followFiringEnds } from "../routines/firing-end.js";
+import { followFiringEnds, settleFirings } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
@@ -1108,11 +1108,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
-    chooseChrome: (ask) =>
-      chooseChrome(
-        { log, environmentId: record.id, environmentName: () => look.read().name },
-        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
-      ),
+    chooseChrome: async (ask) => {
+      const remote = ask.environmentId.toLowerCase() !== record.id.toLowerCase()
+        ? await relay.chromesOf({ ...ask, chromeId: null })
+        : undefined;
+      if (remote !== undefined && !remote.ok) return remote;
+      const live = host.live(ask.sessionId);
+      if (live?.runId !== ask.runId) return { ok: false, reason: "This session's run changed before its Chrome could be chosen." };
+      return chooseChrome(
+        { log, environmentId: record.id, environmentName: () => remote?.environmentName ?? look.read().name, ...(remote !== undefined && { paired: remote.chromes }) },
+        { ...ask, actor: formatActor({ kind: "adapter", id: live.descriptor.provider }) },
+      );
+    },
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
@@ -1918,6 +1925,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  settleFirings({ log, clock: now, environmentId: record.id });
+  resumeDeliveries({ log, clock: now, environmentId: record.id });
   webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {

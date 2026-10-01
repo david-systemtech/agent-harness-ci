@@ -71,7 +71,7 @@ export interface BrowserToolServerOptions {
   /** Finds the person's allow on the live run's prompt by the call id. */
   readonly allowance?: (sessionId: string, call: HostToolCall) => OneTimeAllowance | undefined;
   /** Chooses the Chrome `browser_open`'s `browser` names for the session, recording it as chosen by the agent. */
-  readonly chooseChrome: (ask: ChromeChoiceAsk) => ChromeChoice;
+  readonly chooseChrome: (ask: ChromeChoiceAsk) => ChromeChoice | Promise<ChromeChoice>;
 }
 
 /** What a run's `browser` server is built for: its session, and the browser the run resolved at its start. */
@@ -141,13 +141,14 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
   };
 
   /** The agent's answer to the several-Chromes question: the Chrome it named, recorded on the session, and its driver; or why not. */
-  const choose = (sessionId: string, name: string): ChosenBrowser | LiveBrowser => {
+  const choose = async (sessionId: string, name: string): Promise<ChosenBrowser | LiveBrowser> => {
     const live = options.live(sessionId);
     if (live === null) return NO_RUN;
     const { browser } = live.browser;
     if (browser.kind !== "chrome" || browser.chromeId !== null) return { kind: "refused", reason: "This run's browser is not My Chrome, so browser_open takes no browser." };
-    const choice = options.chooseChrome({ sessionId, runId: live.runId, environmentId: browser.environmentId, name });
+    const choice = await options.chooseChrome({ sessionId, runId: live.runId, environmentId: browser.environmentId, name });
     if (!choice.ok) return { kind: "refused", reason: choice.reason };
+    if (options.live(sessionId)?.runId !== live.runId) return NO_RUN;
     chosen.delete(sessionId);
     chosen.set(sessionId, { runId: live.runId, chromeId: choice.chrome.id });
     const oldest = chosen.keys().next();
@@ -168,7 +169,15 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
       ...(options.allowance !== undefined && { allowance: (call: HostToolCall) => options.allowance?.(sessionId, call) }),
       live: () => reaching(() => liveBrowser(sessionId)),
       // Only the plain My Chrome is a choice among Chromes: a session that names one is never moved by the model.
-      ...(browser.kind === "chrome" && browser.chromeId === null && { choose: (name: string) => reaching(() => choose(sessionId, name)) }),
+      ...(browser.kind === "chrome" && browser.chromeId === null && {
+        choose: async (name: string) => {
+          try {
+            return await choose(sessionId, name);
+          } catch (error) {
+            return { kind: "refused" as const, reason: `The browser could not be reached: ${error instanceof Error ? error.message : String(error)}.` };
+          }
+        },
+      }),
     });
     return { name: BROWSER_TOOL_SERVER, external: false, tools: [webRead, ...tools] };
   };
