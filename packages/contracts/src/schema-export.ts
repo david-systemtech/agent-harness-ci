@@ -505,6 +505,7 @@ import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
 import {
   INSTRUCTION_SESSION_EVENT_TYPES,
   INSTRUCTIONS_EVENT_TYPES,
+  AlwaysOnChooser,
   InstructionAccount,
   InstructionAlwaysOnSkill,
   InstructionBody,
@@ -1234,6 +1235,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
   { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
   { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
+  { path: "instructions/always-on-chooser.json", title: "AlwaysOnChooser", schema: AlwaysOnChooser },
   { path: "instructions/always-on-skill.json", title: "InstructionAlwaysOnSkill", schema: InstructionAlwaysOnSkill },
   { path: "instructions/left-out-reason.json", title: "InstructionLeftOutReason", schema: InstructionLeftOutReason },
   { path: "instructions/left-out.json", title: "InstructionLeftOut", schema: InstructionLeftOut },

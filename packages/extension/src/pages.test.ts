@@ -169,7 +169,7 @@ describe("the debugger's domains and child targets", () => {
     expect(worlds[0]?.sessionId).toEqual(expect.any(String));
     expect(enabledOn(peer, tab)).toEqual(["tab Page.enable", "frame Page.enable"]);
 
-    expect(await perform({ verb: "console", args: {} })).toEqual({ ok: true, value: [] });
+    expect(await perform({ verb: "console", args: {} })).toEqual({ ok: true, value: { url: "https://shop.example/", entries: [] } });
     expect(enabledOn(peer, tab)).toEqual([
       "tab Page.enable",
       "frame Page.enable",
@@ -247,7 +247,7 @@ describe("the page policy in the browser", () => {
     peer.document("https://example.com/", { cookies: [{ name: "sid", value: "token-for-tests" }] });
 
     await perform({ verb: "open", args: { url: "http://192.168.1.20/" } });
-    expect(await perform({ verb: "evaluate", args: { expression: "1 + 1" } })).toEqual({ ok: true, value: { result: 2 } });
+    expect(await perform({ verb: "evaluate", args: { expression: "1 + 1" } })).toEqual({ ok: true, value: { url: "http://192.168.1.20/", result: 2 } });
     expect(await perform({ verb: "storage", args: {} })).toEqual({ ok: true, value: { origin: "http://192.168.1.20", local: { theme: "dark" }, session: {} } });
 
     await perform({ verb: "navigate", args: { url: "https://example.com/" } });
@@ -262,7 +262,7 @@ describe("the page policy in the browser", () => {
     const cookies = await perform({ verb: "cookies", args: {} });
     expect(cookies).toMatchObject({
       ok: true,
-      value: [{ name: "sid", domain: "example.com" }],
+      value: { url: "https://example.com/", entries: [{ name: "sid", domain: "example.com" }] },
       notice: "Cookie values are left out: example.com is not a dev site. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read them.",
     });
     expect(JSON.stringify(cookies)).not.toContain("token-for-tests");
