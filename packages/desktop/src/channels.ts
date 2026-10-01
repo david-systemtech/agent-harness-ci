@@ -66,11 +66,13 @@ export const channelOf = (member: Answered | Told): string => `shell:${member}`;
 /** The channel the main process sends each deep link on, once the renderer listens. */
 export const DEEP_LINK_CHANNEL = "shell:deepLinks.opened";
 
-/** The channel the main process sends a clicked notification's tag on. */
+/** The channel the main process sends a dock page's native key presses on. */
 export const WEB_VIEW_KEY_CHANNEL = "shell:webView.key";
 
+/** The channel the main process sends a dock page's navigation state on. */
 export const WEB_VIEW_CHANNEL = "shell:webView.changed";
 
+/** The channel the main process sends a clicked notification's tag on. */
 export const NOTIFICATION_CHANNEL = "shell:notifications.activated";
 
 /** What the main process answers an `http` call with; the preload gives the renderer its `json()`. */

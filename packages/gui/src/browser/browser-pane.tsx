@@ -106,7 +106,10 @@ export const BrowserPane = ({
   const navigate = () => {
     if (!views || !id) return;
     setError(undefined);
-    const url = address.includes(":") ? address : `https://${address}`;
+    // A bare host with a numeric port looks like a scheme (notably localhost:3000).
+    const hostWithPort = /^[^/?#]+:\d+(?:[/?#]|$)/.test(address);
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) && !hostWithPort;
+    const url = hasScheme ? address : `https://${address}`;
     void views.navigate(id, url).catch((error: unknown) => setError(String(error)));
   };
   return (

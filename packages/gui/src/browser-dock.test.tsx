@@ -14,6 +14,26 @@ const opened = async (shell?: FakeShell) => {
 };
 
 describe("the browser dock", () => {
+  it.each([
+    ["localhost:3000/path", "https://localhost:3000/path"],
+    ["example.org:8443/path", "https://example.org:8443/path"],
+    ["example.org/path", "https://example.org/path"],
+    ["http://localhost:3000/path", "http://localhost:3000/path"],
+    ["https://example.org/path", "https://example.org/path"],
+    ["about:blank", "about:blank"],
+    ["ftp://example.org/path", "ftp://example.org/path"],
+  ])("navigates address %s as %s", async (input, url) => {
+    const app = await opened();
+    await app.user.click(screen.getByRole("button", { name: "Browser" }));
+    const dock = await screen.findByRole("region", { name: "Browser" });
+    await waitFor(() => expect(app.shell.calls.some(([name]) => name === "webView.attach")).toBe(true));
+    const address = within(dock).getByRole("textbox", { name: "Address" });
+    await app.user.clear(address);
+    act(() => address.focus());
+    await app.user.keyboard(`${input}{Enter}`);
+    await waitFor(() => expect(app.shell.calls).toContainEqual(["webView.navigate", "view-1", url]));
+  });
+
   it("opens from the header, navigates with its address line and hides and restores the same page with Mod+Shift+B", async () => {
     const app = await opened();
     await app.user.click(screen.getByRole("button", { name: "Browser" }));
