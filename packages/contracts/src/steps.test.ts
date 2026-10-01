@@ -237,7 +237,7 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "skills", "instructions", "browser", "permissions", "appearance"]);
   });
 
   it("registers the Carry over entry second, after Account, at home on accounts.accounts beside it, writing no settings key and its state through carryOver.run, skills.carryOver and stateImport.run (ADR 0021, ADR 0036; #581)", () => {
@@ -276,10 +276,25 @@ describe("the step registry", () => {
     }
   });
 
-  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its state check and triggers left to #514 and #588", () => {
+  it("registers Skills in milestone-1 order with local state checks, its pane and state-derived skip", () => {
+    const skills = stepOf("skills");
+    expect(skills).toMatchObject({ home: "knowledge.skills", writes: [], skippable: true, skip: "skills.present", budget: "local", links: [] });
+    expect(skills.stateChecks.map((check) => [check.id, check.actions])).toEqual([
+      ["skills.present", []],
+      ["skills.sources-synced", ["pull-now"]],
+      ["skills.sources-yield", ["pull-now"]],
+      ["skills.source-limit", []],
+      ["skills.own-directory", []],
+    ]);
+    expect(skills.writesState?.map((write) => write.method)).toEqual([
+      "skills.sources.add", "skills.sources.remove", "skills.sources.setFollow", "skills.sources.pull", "skills.setAlwaysOn", "trust.decide", "trust.revoke",
+    ]);
+  });
+
+  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its orientation state check and triggers left to #588", () => {
     const instructions = stepOf("instructions");
     expect((STEP_ORDER as readonly string[]).indexOf("instructions")).toBe(7);
-    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [], links: [], skippable: false, budget: "local", triggers: [] });
+    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [{ id: "instructions.orientation-renders", actions: [] }], links: [], skippable: false, budget: "local", triggers: [] });
     expect(instructions).not.toHaveProperty("skip");
     expect(instructions.writesState?.map((write) => write.method)).toEqual([
       "instructions.create",
@@ -599,6 +614,7 @@ describe("the step registry", () => {
       ["your-machines", "network", 60],
       ["forges", "network", 15],
       ["key-manager", "network", 15],
+      ["skills", "local", 60],
       ["instructions", "local", 60],
       ["browser", "local", 60],
       ["permissions", "local", 60],
@@ -632,6 +648,7 @@ describe("the step registry", () => {
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
       ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
+      ["skills", []],
       ["instructions", []],
       ["browser", []],
       ["permissions", ["settings.updated", "denylist.changed"]],

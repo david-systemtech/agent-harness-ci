@@ -188,7 +188,7 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
-import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
@@ -1500,10 +1500,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  // One local preview for the Instructions row and its health check, even when the orientation switch is off.
+  const readOrientation = async () => {
+    const accountId = accounts.defaultId();
+    return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
+  };
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
       log,
+      orientation: readOrientation,
+      skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
       containment,
@@ -1626,10 +1633,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       orientationOn,
       catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
-      orientation: async () => {
-        const accountId = accounts.defaultId();
-        return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
-      },
+      orientation: readOrientation,
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
