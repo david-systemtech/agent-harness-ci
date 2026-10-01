@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { BankRecord, ParamsOf, ResponseOf } from "@agent-harness/contracts";
+import type { BankRecord, EventEnvelope, EventFrame, ParamsOf, ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { PERSONAL_BANK } from "../../../contracts/test/fixture-banks.js";
+import { changed, PERSONAL_BANK, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
+import { startFakeForge } from "../../test/fake-forge.js";
+import { DAVID, TOKEN, added } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
@@ -56,6 +58,17 @@ const registered = async (client: WireClient, params: RegisterParams): Promise<B
 
 const list = async (client: WireClient): Promise<BankRecord[]> => (await client.request("banks.list", {})).banks;
 
+/** The bank events a client reads on `environment.subscribe` after `afterSequence`, up to where it is synchronized. */
+const bankEvents = async (client: WireClient, afterSequence: number): Promise<EventEnvelope[]> => {
+  const { subscription } = await client.subscribe("environment.subscribe", { afterSequence });
+  const events: EventEnvelope[] = [];
+  for (;;) {
+    const frame = await client.next((f) => "subscription" in f && f.subscription === subscription && (f.type === "event" || f.type === "synchronized"));
+    if (frame.type === "synchronized") return events.filter((event) => event.type.startsWith("bank."));
+    events.push((frame as EventFrame).event);
+  }
+};
+
 const PERSONAL_LINE = "## maya-memory (personal, read-write) — 5 memories in 3 folders — Maya Reyes's private memory: her machines, projects and companies. Team facts go to the team's own bank.";
 
 describe("banks.register and banks.list", () => {
@@ -99,5 +112,96 @@ describe("banks.register and banks.list", () => {
       line: PERSONAL_LINE,
     });
     expect(await list(client)).toEqual([bank]);
+  });
+
+  it("answers a repeated importedFrom with the bank registered from it, appending nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const first = await registered(client, { path: gitBank(PERSONAL_BANK), importedFrom: "cortex" });
+    const from = t.env.log.head();
+    const again = await registered(client, { path: gitBank(PERSONAL_BANK), importedFrom: "cortex" });
+    expect(again).toEqual(first);
+    expect(await bankEvents(client, from)).toEqual([]);
+    expect(await list(client)).toEqual([first]);
+  });
+
+  it("refuses a second bank of a name another holds, conflict name_taken, registering nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    await registered(client, { path: gitBank(PERSONAL_BANK) });
+    const answer = await register(client, { path: gitBank(PERSONAL_BANK) });
+    expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "name_taken", name: "maya-memory" } } });
+    expect(await list(client)).toHaveLength(1);
+  });
+
+  it("refuses a path that holds no git repository, invalid_params", async () => {
+    const client = await (await start()).client();
+    const answer = await register(client, { path: tempDir("agent-harness-not-a-bank-") });
+    expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "invalid_params" } });
+    expect(await list(client)).toEqual([]);
+  });
+});
+
+describe("banks.get", () => {
+  it("answers one bank, and not_found for one not registered", async () => {
+    const client = await (await start()).client();
+    const bank = await registered(client, { path: gitBank(PERSONAL_BANK) });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank).toEqual(bank);
+    await expect(client.request("banks.get", { bankId: randomUUID() })).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("banks.verify", () => {
+  it("records bank.verified as system:banks only when a status changed, each unchanged part keeping its since", async () => {
+    const t = await start();
+    const client = await t.client();
+    const checkout = gitBank(PERSONAL_BANK);
+    const bank = await registered(client, { path: checkout });
+    const from = t.env.log.head();
+
+    t.clock.advance(60_000);
+    expect((await client.request("banks.verify", {})).banks).toEqual([bank]);
+    expect(await bankEvents(client, from)).toEqual([]);
+
+    git(checkout, "rm", "--quiet", "BANK.md");
+    git(checkout, "commit", "--quiet", "-m", "No manifest.");
+    t.clock.advance(60_000);
+    const later = new Date(Date.parse(MANUAL_CLOCK_START) + 120_000).toISOString();
+    const [after] = (await client.request("banks.verify", { bankId: bank.id })).banks;
+    const status = { ...bank.status, manifest: { state: "missing", since: later } };
+    expect(after?.status).toEqual(status);
+    const events = await bankEvents(client, from);
+    expect(events.map(({ type, actor, payload }) => ({ type, actor, payload }))).toEqual([{ type: "bank.verified", actor: { kind: "system", id: "banks" }, payload: { bankId: bank.id, status } }]);
+    expect((await client.request("banks.verify", {})).banks.map((each) => each.status)).toEqual([status]);
+    expect(await bankEvents(client, from)).toHaveLength(1);
+  });
+
+  it("joins a verification of every bank running rather than starting a second: the forge is asked once", async () => {
+    const t = await start();
+    const client = await t.client();
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    const checkout = gitBank(changed(TEAM_BANK, { "BANK.md": null }));
+    git(checkout, "remote", "add", "origin", `${forge.origin}/acme/bank.git`);
+    forge.repository(TOKEN, "acme/bank");
+    await registered(client, { path: checkout });
+    const reads = () => forge.requests.filter((request) => request.path === "/api/v1/repos/acme/bank").length;
+    const before = reads();
+    let release!: () => void;
+    let asked!: () => void;
+    const held = new Promise<void>((resolve) => (asked = resolve));
+    const body = { full_name: "acme/bank", private: true, default_branch: "main", html_url: `${forge.origin}/acme/bank` };
+    forge.answer(TOKEN, "GET /api/v1/repos/acme/bank", () => {
+      asked();
+      return { status: 200, body, after: new Promise<void>((resolve) => (release = resolve)) };
+    });
+    const first = client.request("banks.verify", {});
+    await held;
+    const second = client.request("banks.verify", {});
+    release();
+    expect(await second).toEqual(await first);
+    expect(reads()).toBe(before + 1);
   });
 });
