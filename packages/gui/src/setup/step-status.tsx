@@ -151,10 +151,11 @@ export const StepStatus = ({ environmentId, step, restore, actions, cardAction, 
     const capability = capabilityOf(plan);
     return capability?.status === "absent" ? [capability.message] : [];
   }))];
+  const now = runtime.environmentNow(environmentId);
   return (
     <>
-      <p className="text-sm text-ink">{stepLine(step)}</p>
-      {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, runtime.environmentNow(environmentId))}</p>}
+      <p className="text-sm text-ink">{stepLine(step, now)}</p>
+      {result?.lastGood !== undefined && <p className="text-sm text-ink-muted">{lastGoodWords(result.lastGood, now)}</p>}
       <div className="flex flex-wrap gap-2">
         {offered.map((action) => (
           <Button

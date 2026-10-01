@@ -104,7 +104,7 @@ const MAX_TEXT = 65_536;
 const Address = z.string().min(1).max(MAX_ADDRESS).meta({ description: "An address to open: an http or https URL, or a bare host with an optional port and path." });
 const Ref = z.string().min(1).max(MAX_REF).meta({ description: "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)." });
 
-/** How long a snapshot may be, in characters: preset 30,000, at most 200,000, cut at a line boundary. */
+/** How long a snapshot may be, in characters: preset 30,000, at most 200,000, cut at a line boundary, or mid-line when no line ends within them. */
 export const SNAPSHOT_MAX_CHARS = { preset: 30_000, max: 200_000 } as const;
 
 /** What a snapshot reads: `interactive` elements (preset) or `all`, how deep, from which ref, and how long. */
@@ -118,7 +118,7 @@ const SnapshotArgs = z
       .min(1)
       .max(SNAPSHOT_MAX_CHARS.max)
       .optional()
-      .meta({ description: `The most characters to answer, cut at a line boundary; preset ${SNAPSHOT_MAX_CHARS.preset}, at most ${SNAPSHOT_MAX_CHARS.max}.` }),
+      .meta({ description: `The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset ${SNAPSHOT_MAX_CHARS.preset}, at most ${SNAPSHOT_MAX_CHARS.max}.` }),
   })
   .meta({ description: "What a snapshot reads: its filter, depth, focus and length." });
 
@@ -188,11 +188,15 @@ export type PageLocation = z.infer<typeof PageLocation>;
 const snapshotTextShape = {
   text: z.string().meta({ description: "The accessibility tree, one element per line with its role, name, state and value, and a ref on each element that can be acted on." }),
   totalChars: z.int().min(0).meta({ description: "How long the whole snapshot is, in characters." }),
-  truncated: z.boolean().meta({ description: "Whether the text was cut at maxChars, at a line boundary." }),
+  truncated: z.boolean().meta({ description: "Whether the text was cut at maxChars: at the last line boundary within them, or mid-line when no line ends within them." }),
+  midLine: z
+    .literal(true)
+    .optional()
+    .meta({ description: "Present when the text was cut mid-line, as no line ends within maxChars: at maxChars, or short of a character written as two code units or a ref the cut would split." }),
 };
 
 /** A snapshot's text, as an action answers it. */
-const SnapshotText = z.object(snapshotTextShape).meta({ description: "A snapshot's text, its full length and whether it was cut." });
+const SnapshotText = z.object(snapshotTextShape).meta({ description: "A snapshot's text, its full length, and whether and how it was cut." });
 
 /** Where an action left the page: its address and title, its snapshot when the call asked for one, and a challenge it shows. */
 const PageArrival = z

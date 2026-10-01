@@ -40,6 +40,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import type { StartupStep } from "../serve/start.js";
 import type { Address } from "../serve/http.js";
 import { accountSlug } from "./models.js";
+import { WAIT_MS } from "../../test/wire-client.js";
 import { create, workspace } from "../../test/sessions.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 import { isInProcess, type AdapterEvent, type HostToolResult } from "../adapter/contract.js";
@@ -1065,6 +1066,56 @@ describe("session continuity", () => {
     expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
   });
 
+  it("names a prompt turn's message waiting when its run is interrupted before its adapter had the prompt, by an interrupt or a read-now (#833)", async () => {
+    /** Instructions held until `held` opens, and `composing` open once the first run began composing them. */
+    const holding = () => {
+      const held = gate();
+      const composing = gate();
+      const instructions = composeInstructions({
+        orientation: async () => {
+          composing.open();
+          await held.opened;
+          return { text: "COMPOSED", unreadRegistries: [] };
+        },
+      });
+      return { held, composing, instructions };
+    };
+    // An interrupt: the message waits in the environment's queue for the session's next run.
+    const interrupted = holding();
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: interrupted.instructions } });
+    const { token } = await program(t);
+    const client = await t.client();
+    const first = await stream(t, token, turn("First"));
+    const opening = await first.chunk();
+    await interrupted.composing.opened;
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
+    const last = chunksOf(await first.rest()).at(-1);
+    expect(last?.choices[0]?.finish_reason).toBe("error");
+    expect(last?.["agent-harness"]).toMatchObject({ waiting: opening["agent-harness"].messageId, ended: { reason: "interrupted", cause: "user" } });
+    expect(t.adapter.runs).toHaveLength(0);
+    interrupted.held.open();
+
+    // A read-now: its run reads the message with the queued turn's, and that turn's answer carries the reply.
+    const readNow = holding();
+    const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: readNow.instructions } });
+    const { token: readNowToken } = await program(u);
+    const second = await stream(u, readNowToken, turn("First"));
+    const head = await second.chunk();
+    const sessionId = head["agent-harness"].sessionId as string;
+    const queued = await stream(u, readNowToken, turn("Then this", { "agent-harness": { sessionId } }));
+    await queued.chunk();
+    await readNow.composing.opened;
+    await (await u.client()).request("runs.readNow", { commandId: randomUUID(), sessionId });
+    const ended = chunksOf(await second.rest()).at(-1);
+    expect(ended?.choices[0]?.finish_reason).toBe("error");
+    expect(ended?.["agent-harness"]).toMatchObject({ waiting: head["agent-harness"].messageId, ended: { reason: "interrupted", cause: "read-now" } });
+    readNow.held.open();
+    const chunks = chunksOf(await queued.rest());
+    expect(contentOf(chunks)).toBe("Done: First / Then this");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
+  });
+
   it("ends a queued turn's answer when its message is withdrawn, which no run will read: an error chunk, withdrawn, and 409 for a whole answer", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     const { token } = await program(t);
@@ -1969,4 +2020,92 @@ describe("client-tool passthrough (#139)", () => {
     const differing = await stream(t, token, turn("Then this", { tools: [TIME], "agent-harness": { sessionId: otherSession } }));
     expect((await differing.chunk())["agent-harness"].ignored).toEqual(["tools"]);
   });
+});
+
+// The completions surface shares the host's provider-neutral slash invocation.
+describe("completions slash resolution", () => {
+  it("uses the run started during its provider listing for attribution and provider text", async () => {
+    const listing = gate();
+    const listed = gate();
+    const running = gate();
+    const adapter = fakeAdapter({ commands: [] });
+    vi.spyOn(adapter, "commands").mockImplementationOnce(async () => {
+      listed.open();
+      await listing.opened;
+      return [];
+    });
+    const t = await start(adapter);
+    onCleanup(() => { listing.open(); running.open(); });
+    const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: tdd\ndescription: Test first.\n---\nTest first.\n");
+    const client = await t.client();
+    const { id } = await create(client);
+    const { token } = await program(t);
+    const answer = complete(t, token, turn("/tdd pending", { "agent-harness": { sessionId: id, alwaysOnSkills: ["tdd"] } }));
+    await listed.opened;
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "tdd", accountId: null, enabled: false });
+    adapter.nextScripts.push(async function* ({ nextSent }) {
+      await running.opened;
+      yield say((await nextSent()).text);
+      yield end();
+    });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await adapter.reached(1);
+    listing.open();
+    try {
+      await vi.waitFor(() => expect(adapter.lastRun().sent[0]?.text).toBe("/tdd pending"), { timeout: WAIT_MS });
+      expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "message.sent").at(-1)?.payload).not.toHaveProperty("skill");
+    } finally {
+      running.open();
+    }
+    expect((await answer)["agent-harness"].ignored).toContain("agent-harness.alwaysOnSkills.0");
+  });
+
+  it("rewrites a skill on a fresh turn and records its typed text and origin", async () => {
+    const t = await start({ commands: [] });
+    const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: tdd\ndescription: Test first.\n---\nTest first.\n");
+    const { token } = await program(t);
+    const answer = await complete(t, token, turn("/tdd the feature", { "agent-harness": { alwaysOnSkills: ["tdd"] } }));
+    expect(t.adapter.lastRun().input.prompt[0]?.text).toBe("/agent-harness:tdd the feature");
+    expect(t.adapter.lastRun().input.instructions).toContain("# Always-on skill: tdd");
+    expect(answer["agent-harness"].ignored).toEqual([]);
+    const sessionId = answer["agent-harness"].sessionId;
+    if (sessionId === undefined) throw new Error("The completion did not name its session.");
+    expect(t.env.log.readStream({ kind: "session", id: sessionId }).find((event) => event.type === "message.sent")?.payload).toMatchObject({
+      text: "/tdd the feature", skill: { name: "tdd", origin: null },
+    });
+  });
+  it("resolves a completions message queued on a live run using its set", async () => {
+    const held = gate();
+    const t = await start({ commands: [] });
+    const file = join(t.dataDir, "skills", "own", "skills", "compact", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: compact\ndescription: Test skill.\n---\nFollow this skill.\n");
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      yield say("Working");
+      await held.opened;
+      const sent = await nextSent();
+      yield say(sent.text);
+      yield end();
+    });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(1), { timeout: WAIT_MS });
+    const { token } = await program(t);
+    const answer = complete(t, token, turn("/skill:compact more", { "agent-harness": { sessionId: id, alwaysOnSkills: ["compact"] } }));
+    try {
+      await vi.waitFor(() => expect(t.adapter.lastRun().sent[0]?.text).toBe("/agent-harness:compact more"), { timeout: WAIT_MS });
+      expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "message.sent").at(-1)?.payload).toMatchObject({
+        text: "/skill:compact more", skill: { name: "compact", origin: null },
+      });
+    } finally {
+      held.open();
+    }
+    expect((await answer)["agent-harness"].ignored).toContain("agent-harness.alwaysOnSkills.0");
+  });
+
 });

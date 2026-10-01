@@ -19,6 +19,7 @@ import { readDenylist, readDenylistChangedBy } from "../permissions/denylist-sto
 import { readPermissionsReport } from "../permissions/methods.js";
 import { containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock } from "../serve/clock.js";
+import { lanAddressHeld } from "../serve/interfaces.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
 import { skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
@@ -31,7 +32,8 @@ import type { StateCheckers } from "./check.js";
  * channel (#346),
  * whether the machine is behind (#347) and, managed outside, the host-side
  * updater's poll (#348), that the environment is named (#323) and ready,
- * not draining past its cap (#574), the Forges step's seven (#319), the Key
+ * not draining past its cap (#574), and that its LAN address is one the
+ * machine holds (#773), the Forges step's seven (#319), the Key
  * manager step's skip check (#367) and four others (#383), the Memory bank
  * step's six (#586), the Browser step's three (#559), the Permissions
  * step's three checks, the Skills step's local reads and state-derived skip
@@ -40,7 +42,8 @@ import type { StateCheckers } from "./check.js";
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
  * accounts from the account store (`accounts/step-checks.ts`), readiness
- * from the lifecycle's status document on the environment's clock, the
+ * from the lifecycle's status document on the environment's clock, the LAN
+ * address from the settings beside the machine's interfaces now, the
  * denylist from its read model beside the presets for this environment's
  * data directory, the adopted accounts' directories, their listings, the
  * imports the log records and the state import's detection
@@ -85,6 +88,8 @@ export interface StateChecksOptions {
   readonly accounts: () => readonly AccountRecord[];
   /** The environment's status document now: its readiness, and since when it drains (`lifecycle.ts`). */
   readonly status: () => EnvironmentStatus;
+  /** The LAN addresses the machine holds now, the interface detector's: what `network.bindLan` may name (#574). */
+  readonly lanAddresses: () => readonly string[];
   /** The ForgeService, whose forge accounts the Forges step checks. */
   readonly forge: ForgeService;
   /** The key-manager connections, which the Key manager step checks, verifying every one. */
@@ -130,6 +135,12 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     // Named from the first start (ADR 0025's "named"): the record's name, the preset icon and colour stand until set.
     "your-machines.named": () => (options.look().name.trim() !== "" ? true : { reason: "The environment has no name: rename it." }),
     "your-machines.ready": () => readyWithinCap(options.status(), options.clock.now()),
+    // A start skips a LAN address the machine does not hold (#773): the step names it, read against the interfaces now.
+    "your-machines.lan": () => {
+      const lan = readSettings(reader)["network.bindLan"];
+      const held = lan === null || lanAddressHeld(lan, options.lanAddresses());
+      return held === true || { reason: `${held}: pick one it holds, or turn LAN binding off.` };
+    },
     ...forgesStateChecks({ forge: options.forge, clock: options.clock }),
     ...keyManagerStateChecks({
       connections: () => options.keyManagerConnections.list(),

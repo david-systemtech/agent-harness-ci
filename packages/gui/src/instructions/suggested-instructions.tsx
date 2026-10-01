@@ -12,10 +12,12 @@ export const SuggestedInstructions = ({
   environmentId,
   rows,
   dismissed,
+  custom,
 }: {
   readonly environmentId: string;
   readonly rows: readonly OwnedInstructionRow[];
   readonly dismissed: readonly string[];
+  readonly custom?: () => void;
 }) => {
   const runtime = useRuntime();
   const { send, sending, line } = useInstructionCommand(environmentId);
@@ -25,7 +27,14 @@ export const SuggestedInstructions = ({
     <Part title="Suggested instructions">
       {CATALOGUE.instructions.groups.map((group) => (
         <Part key={group.id} title={group.title}>
-          {group.id === "custom" && <p className="text-sm text-ink-muted">Write your own with New instruction above.</p>}
+          {group.id === "custom" &&
+            (custom === undefined ? (
+              <p className="text-sm text-ink-muted">Write your own with New instruction above.</p>
+            ) : (
+              <InstructionButton environmentId={environmentId} method="instructions.create" run={custom}>
+                Write a custom instruction
+              </InstructionButton>
+            ))}
           {CATALOGUE.instructions.entries
             .filter((entry) => entry.group === group.id && !dismissed.includes(entry.id))
             .map((entry) => {

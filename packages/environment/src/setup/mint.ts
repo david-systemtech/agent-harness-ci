@@ -150,6 +150,7 @@ export const mintMethods = (options: MintOptions): Required<Pick<MethodHandlers,
             { validateRunParameters: host.validateSessionInput, clampMode: (mode) => mode },
           );
           if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };
+          log.append(aggregate, [{ type: "setup.minted", payload: { step: step.id, subject, variant: params.variant } }], attribution);
           if (account === null) {
             log.append(aggregate, [{ type: "session.draft-set", payload: { draft: rendered.text } }], attribution);
             return { aggregate, result: { sessionId } };

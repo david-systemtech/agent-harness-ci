@@ -35,7 +35,10 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   snapshot: {
     args: { valid: [{}, { filter: "all", depth: 2, ref: "f1e4", maxChars: 200_000 }], invalid: [{ filter: "visible" }, { maxChars: 200_001 }, { depth: 0 }] },
-    value: { valid: [{ ...location, ...snapshotText }, { ...location, ...snapshotText, truncated: true, challenge: "hcaptcha" }], invalid: [location, { ...location, ...snapshotText, totalChars: -1 }] },
+    value: {
+      valid: [{ ...location, ...snapshotText }, { ...location, ...snapshotText, truncated: true, challenge: "hcaptcha" }, { ...location, ...snapshotText, truncated: true, midLine: true }],
+      invalid: [location, { ...location, ...snapshotText, totalChars: -1 }, { ...location, ...snapshotText, truncated: true, midLine: false }],
+    },
   },
   click: {
     args: { valid: [{ target: { ref: "e12" } }, { target: { selector: "button.buy" }, snapshot: {} }], invalid: [{ target: { ref: "e12", selector: "a" } }, { target: {} }, {}] },

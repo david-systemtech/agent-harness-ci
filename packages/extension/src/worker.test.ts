@@ -280,6 +280,12 @@ describe("a worker that holds a credential", () => {
 
     const again = await setup.environment.nextSocket();
     await challenged(setup, again);
+    again.send({ type: "ready", policy: POLICY });
+    expect(await statusOnce(setup.chrome, (status) => status.state === "connected")).toMatchObject({
+      state: "connected",
+      environmentName: "Laptop",
+      name: "Work",
+    });
     expect(setup.chrome.storage.local.peek("pairing")).toEqual(pairingWith(setup.environment));
   });
 

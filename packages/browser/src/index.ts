@@ -17,4 +17,5 @@ export { cdpConnection, type CdpConnection } from "./cdp/connection.js";
 export { webSocketTransport } from "./cdp/web-socket.js";
 export { pipeTransport, type CdpPipe } from "./cdp/pipe.js";
 export { cdpPageDriver, type CdpPageDriverOptions, type PageHost } from "./driver/driver.js";
+export { withinMaxChars, type SnapshotText } from "./snapshot/serialiser.js";
 export { VIEWPORT, systemDriverClock, type DriverClock, type FrameArrival } from "./driver/page.js";

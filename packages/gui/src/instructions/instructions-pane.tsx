@@ -8,6 +8,8 @@ import { InstructionEditor } from "./instruction-editor.js";
 import { InstructionButton } from "./instruction-button.js";
 import { OwnedInstructionCard } from "./owned-instruction.js";
 import { SuggestedInstructions } from "./suggested-instructions.js";
+import { SetupOrientation } from "./setup-orientation.js";
+import { SetupSeed } from "./setup-seed.js";
 import { Orientation } from "./orientation.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { StepLinks } from "../settings/step-links.js";
@@ -18,7 +20,7 @@ export const InstructionsPane = () => {
   return picked === undefined ? null : <InstructionsContent key={picked.environmentId} view={picked} />;
 };
 
-export const InstructionsContent = ({ view }: { readonly view: EnvironmentView }) => {
+export const InstructionsContent = ({ view, setup = false }: { readonly view: EnvironmentView; readonly setup?: boolean }) => {
   const runtime = useRuntime();
   const listed = useObservable(useMemo(() => runtime.requests.cached(view.environmentId, "instructions.list", {}), [runtime, view.environmentId]));
   const result = listed.result;
@@ -27,14 +29,15 @@ export const InstructionsContent = ({ view }: { readonly view: EnvironmentView }
   return (
     <>
       <p className="text-sm text-ink-muted">{settingsRow("knowledge.instructions").hint}</p>
-      <StepLinks steps={["instructions"]} />
+      {!setup && <StepLinks steps={["instructions"]} />}
+      {setup && <SetupSeed view={view} listed={listed} />}
       {view.phase !== "ready" && (
         <p className="text-sm text-amber">
           {result === null ? "No cached instructions." : "Cached instructions, stale."} {reachWords(runtime, view)}: read-only.
         </p>
       )}
       {listed.error !== null && result !== null && <p className="text-sm text-amber">Cached instructions, stale. {listed.error.message}</p>}
-      {result !== null && <Orientation view={view} row={result.orientation} />}
+      {result !== null && (setup ? <SetupOrientation view={view} row={result.orientation} /> : <Orientation view={view} row={result.orientation} />)}
       <Part title="Owned instructions">
         <InstructionButton environmentId={view.environmentId} method="instructions.create" run={() => edit("new")}>
           New instruction
@@ -47,7 +50,7 @@ export const InstructionsContent = ({ view }: { readonly view: EnvironmentView }
           result.instructions.map((row) => <OwnedInstructionCard key={row.id} environmentId={view.environmentId} row={row} rows={result.instructions} edit={() => edit(row.id)} />)
         )}
       </Part>
-      {result !== null && <SuggestedInstructions environmentId={view.environmentId} rows={result.instructions} dismissed={result.dismissed} />}
+      {result !== null && <SuggestedInstructions environmentId={view.environmentId} rows={result.instructions} dismissed={result.dismissed} {...(setup && { custom: () => edit("new") })} />}
       {(editing === "new" || editingRow !== undefined) && (
         <InstructionEditor environmentId={view.environmentId} {...(editingRow !== undefined && { row: editingRow })} close={() => edit(null)} />
       )}

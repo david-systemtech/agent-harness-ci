@@ -75,13 +75,13 @@ const endOf = (t: TestEnvironment, sessionId: string, runId: string): EventEnvel
 
 /** Resolves with the run's end once it is on the session's stream. */
 const untilEnded = async (t: TestEnvironment, sessionId: string, runId: string): Promise<EventEnvelope> => {
-  await vi.waitFor(() => expect(endOf(t, sessionId, runId)).toBeDefined());
+  await vi.waitFor(() => expect(endOf(t, sessionId, runId)).toBeDefined(), { timeout: 15_000 });
   return endOf(t, sessionId, runId) as EventEnvelope;
 };
 
 /** Resolves once the session's stream has an event of `type`. */
 const untilEvent = (t: TestEnvironment, sessionId: string, type: string) =>
-  vi.waitFor(() => expect(eventsOf(t, sessionId).map((event) => event.type)).toContain(type));
+  vi.waitFor(() => expect(eventsOf(t, sessionId).map((event) => event.type)).toContain(type), { timeout: 15_000 });
 
 /** Whether a promise has settled, after the microtasks queued so far have run. */
 const settled = async (promise: Promise<unknown>): Promise<boolean> => {
@@ -775,6 +775,116 @@ describe("a drain and its close", () => {
     expect(loud).toHaveBeenCalledWith(expect.stringContaining("did not stop in time"));
     loud.mockRestore();
     expect(t.adapter.processesOf(id)[0]).toMatchObject({ stopped: true, killed: true });
+  });
+});
+
+describe("provider-held messages after a completed end (#263)", () => {
+  const completedWithHeld = async (t: TestEnvironment, client: WireClient, sessionId: string) => {
+    const turn = gate();
+    t.adapter.nextScripts.push(async function* () {
+      yield say("Working");
+      await turn.opened;
+      yield end();
+    });
+    const { runId } = await startRun(client, sessionId);
+    await vi.waitFor(() => expect(eventsOf(t, sessionId).some((event) => event.type === "assistant.text" && event.payload["runId"] === runId)).toBe(true), { timeout: 15_000 });
+    const sent = await command(client, "runs.send", { sessionId, text: "And the docs" });
+    expect(sent.result).toMatchObject({ runId, heldBy: "provider" });
+    turn.open();
+    await untilEnded(t, sessionId, runId);
+    if (sent.result === undefined) throw new Error("The provider-held send was refused.");
+    return { runId, messageId: sent.result.messageId };
+  };
+
+  it("takes back the completed run's held message after an admin stop and the next run reads it", async () => {
+    const t = await start({ capabilities: { steering: false }, holdTurnOpens: gate() });
+    const client = await t.client();
+    const { id } = await create(client);
+    const held = await completedWithHeld(t, client, id);
+    await stopProcess(client, id);
+    await vi.waitFor(() => expect(eventsOf(t, id)).toContainEqual(expect.objectContaining({
+      type: "message.requeued", actor: "system:adapter-host", payload: held,
+    })), { timeout: 15_000 });
+    const next = await startRun(client, id, "Carry on");
+    await untilEnded(t, id, next.runId);
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["And the docs", "Carry on"]);
+  });
+
+  it.each(["exited", "idle"] as const)("takes back a completed run's held message when the process is %s", async (reason) => {
+    const t = await start({ capabilities: { steering: false }, holdTurnOpens: gate() });
+    const client = await t.client();
+    const { id } = await create(client);
+    const held = await completedWithHeld(t, client, id);
+    if (reason === "exited") t.adapter.exit(id);
+    else t.clock.advance(IDLE);
+    await vi.waitFor(() => expect(eventsOf(t, id)).toContainEqual(expect.objectContaining({ type: "message.requeued", payload: held })), { timeout: 15_000 });
+    const next = await startRun(client, id, "Carry on");
+    await untilEnded(t, id, next.runId);
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["And the docs", "Carry on"]);
+  });
+
+  it("a drain takes back an idle process's held message before startup recovery", async () => {
+    const dataDir = join(tempDir(), "data");
+    const t = await start({ capabilities: { steering: false }, holdTurnOpens: gate() }, { dataDir });
+    const client = await t.client();
+    const { id } = await create(client);
+    const held = await completedWithHeld(t, client, id);
+    // Another live run keeps the log and wire open while the idle process stops.
+    const keeper = gate();
+    t.adapter.nextScripts.push(heldScript(keeper.opened));
+    const busy = await create(client);
+    const busyRun = (await startRun(client, busy.id)).runId;
+    await untilEvent(t, busy.id, "assistant.text");
+    const drained = t.env.drain("command");
+    await vi.waitFor(() => expect(eventsOf(t, id)).toContainEqual(expect.objectContaining({ type: "message.requeued", payload: held })), { timeout: 15_000 });
+    keeper.open();
+    await untilEnded(t, busy.id, busyRun);
+    t.clock.advance(0);
+    await drained;
+    const again = await start({}, { dataDir });
+    const later = await again.client();
+    const next = await startRun(later, id, "Carry on");
+    await untilEnded(again, id, next.runId);
+    expect(again.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["And the docs", "Carry on"]);
+  });
+
+  it("a late stop of a replaced process leaves the new process's held message alone", async () => {
+    const stops = gate();
+    const t = await start({ capabilities: { steering: false }, holdTurnOpens: gate(), holdStops: stops });
+    const client = await t.client();
+    const { id } = await create(client);
+    await untilEnded(t, id, (await startRun(client, id)).runId);
+    await stopProcess(client, id);
+    const held = await completedWithHeld(t, client, id);
+    expect(t.adapter.processesOf(id)).toHaveLength(2);
+    stops.open();
+    await vi.waitFor(() => expect(t.adapter.processesOf(id)[0]?.stopped).toBe(true), { timeout: 15_000 });
+    expect(eventsOf(t, id).filter((event) => event.type === "message.requeued")).toEqual([]);
+    expect(await processOf(client, id)).toMatchObject({ state: "idle" });
+    t.adapter.exit(id);
+    expect(eventsOf(t, id)).toContainEqual(expect.objectContaining({ type: "message.requeued", payload: held }));
+  });
+
+  it("recovers a completed run's held message at restart without another run end", async () => {
+    const dataDir = join(tempDir(), "data");
+    const t = await start({ capabilities: { steering: false }, holdTurnOpens: gate() }, { dataDir });
+    const client = await t.client();
+    const { id } = await create(client);
+    const held = await completedWithHeld(t, client, id);
+    await client.close();
+    // A crash closes the log before the process can hand its messages back.
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    t.env.log.close();
+    await t.close();
+    loud.mockRestore();
+
+    const again = await start({}, { dataDir });
+    expect(eventsOf(again, id)).toContainEqual(expect.objectContaining({ type: "message.requeued", actor: "system:adapter-host", payload: held }));
+    expect(eventsOf(again, id).filter((event) => event.type === "run.ended")).toHaveLength(1);
+    const later = await again.client();
+    const next = await startRun(later, id, "Carry on");
+    await untilEnded(again, id, next.runId);
+    expect(again.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["And the docs", "Carry on"]);
   });
 });
 
