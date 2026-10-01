@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { BankRecord, ParamsOf } from "@agent-harness/contracts";
@@ -144,6 +144,31 @@ describe("banks.sync", () => {
     await pull(client, bank);
     expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(git(remote, "rev-parse", "HEAD").trim());
     expect(git(checkout, "status", "--porcelain")).toBe("");
+  });
+
+  it.each([false, true])("discards tracked, untracked and ignored edits on Pull now when remote main moved: %s", async (remoteMoved) => {
+    const { t, client, bank, remote, checkout } = await start();
+    writeFileSync(join(checkout, ".git", "info", "exclude"), "ignored/\n");
+    writeFileSync(join(checkout, "BANK.md"), "An edit made outside the bank's write path.");
+    writeFileSync(join(checkout, "untracked.md"), "An untracked edit.");
+    mkdirSync(join(checkout, "ignored"));
+    writeFileSync(join(checkout, "ignored", "memory.md"), "An ignored edit.");
+    if (remoteMoved) {
+      writeFileSync(join(remote, "remote.md"), "An unrelated remote change.");
+      git(remote, "add", "remote.md");
+      git(remote, "commit", "--quiet", "-m", "A remote change.");
+    }
+    const from = t.env.log.head();
+
+    const synced = await pull(client, bank);
+
+    expect(synced?.status.lastSync).toBe(t.clock.now().toISOString());
+    expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(git(remote, "rev-parse", "HEAD").trim());
+    expect(readFileSync(join(checkout, "BANK.md"), "utf8")).toBe(PERSONAL_BANK["BANK.md"]);
+    expect(git(checkout, "status", "--porcelain", "--ignored")).toBe("");
+    expect(existsSync(join(checkout, "untracked.md"))).toBe(false);
+    expect(existsSync(join(checkout, "ignored"))).toBe(false);
+    expect(events(t, from).filter((event) => event.type === "bank.synced")).toHaveLength(remoteMoved ? 1 : 0);
   });
 
   it("pulls main through the canonical origin, refreshes the record, and records only a moved head as bank.synced", async () => {

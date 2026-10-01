@@ -49,9 +49,12 @@ export const createBankSyncer = (options: { readonly banks: BankService; readonl
     }
     // An owned checkout has no authored changes: divergence or a dirty worktree is reset, never merged.
     const ancestor = await local(["merge-base", "--is-ancestor", "HEAD", MAIN]);
-    const forward = ancestor.ok ? await local(["merge", "--ff-only", MAIN]) : null;
+    const status = await local(["status", "--porcelain"]);
+    const forward = ancestor.ok && status.ok && status.stdout.length === 0 ? await local(["merge", "--ff-only", MAIN]) : null;
     const moved = forward?.ok === true ? forward : await local(["reset", "--hard", MAIN]);
-    const head = moved.ok ? await local(["rev-parse", "HEAD"]) : null;
+    // Untracked and ignored writes also belong outside this owned checkout.
+    const cleaned = moved.ok ? await local(["clean", "-fdx"]) : null;
+    const head = cleaned?.ok === true ? await local(["rev-parse", "HEAD"]) : null;
     if (controller.signal.aborted) return;
     if (head === null || !head.ok) {
       await banks.recordSync(bank.id, { problem: "Refreshing the bank's owned checkout failed." });
