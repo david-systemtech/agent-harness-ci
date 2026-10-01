@@ -1,0 +1,34 @@
+# Deletes ci/<id> refs that a run left behind (a relay cancelled before its
+# run started, or a run that never got to its last step). A run deletes its
+# own ref when it finishes, so this normally finds nothing.
+
+name: sweep
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Delete ci/ refs older than a day
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d '1 day ago' +%s)
+          gh api --paginate "repos/$REPO/git/matching-refs/heads/ci/" --jq '.[] | "\(.ref) \(.object.sha)"' |
+          while read -r ref sha; do
+            when=$(gh api "repos/$REPO/git/commits/$sha" --jq .committer.date)
+            if [ "$(date -u -d "$when" +%s)" -lt "$cutoff" ]; then
+              echo "deleting $ref"
+              gh api -X DELETE "repos/$REPO/${ref#refs/}" || true
+            fi
+          done

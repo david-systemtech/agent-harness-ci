@@ -1,0 +1,108 @@
+# CI for david/agent-harness, run on GitHub's free public-repository runners
+# instead of the homelab's.
+#
+# The code lives on Forgejo (git.systemtech.dev). Its `ci` job is a relay
+# (.forgejo/scripts/github-ci.sh in that repository): it pushes the commit
+# under test here as refs/heads/ci/<id>, sends a repository_dispatch, waits
+# for this run and passes or fails with it. The bots and the pull request page
+# keep reading the `ci / ci` status on Forgejo, so nothing downstream changed.
+#
+# Why here and not on the homelab runners: on 2026-09-30 agent-harness was 97%
+# of all `ci` minutes and SYSTEM-MNL ran at load 20-45. Public repositories get
+# 4-vCPU, 16 GB runners free, up to 20 jobs at once on the Free plan.
+#
+# repository_dispatch always runs the workflow on the default branch
+# (`workflows`), so a pull request opened before this existed is tested the
+# same way, and its caches are shared by every run. The steps mirror
+# .forgejo/workflows/ci.yml's original job; keep them in step when that job's
+# checks change.
+
+name: ci
+run-name: ci ${{ github.event.client_payload.sha }} ${{ github.event.client_payload.id }}
+
+on:
+  repository_dispatch:
+    types: [ci]
+
+# A newer push to the same pull request (or ref) cancels the run in flight,
+# as on Forgejo.
+concurrency:
+  group: ci-${{ github.event.client_payload.group }}
+  cancel-in-progress: true
+
+permissions:
+  # Only to delete this run's ci/<id> ref at the end.
+  contents: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SHA: ${{ github.event.client_payload.sha }}
+      RUN_REF: ci/${{ github.event.client_payload.id }}
+    steps:
+      - name: Check the payload
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha: $SHA"; exit 1; }
+          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id: $RUN_REF"; exit 1; }
+          echo "Forgejo run: ${{ github.event.client_payload.forgejo_run }}"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          # The secret scan reads every commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The same pin as david/ci scripts/secret-scan.sh; only HEAD's history.
+      - name: Scan every commit for secrets
+        run: |
+          set -euo pipefail
+          v=8.30.1 sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          w=$(mktemp -d)
+          curl -sSfL -o "$w/g.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v$v/gitleaks_${v}_linux_x64.tar.gz"
+          echo "$sum  $w/g.tgz" | sha256sum -c - >/dev/null
+          tar -xzf "$w/g.tgz" -C "$w" gitleaks
+          "$w/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" .
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/agent-harness-pwsh
+          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
+      - name: PowerShell 7 for the install.ps1 tests
+        run: bash .forgejo/scripts/pwsh.sh
+      # Four workers for four vCPUs.
+      - run: pnpm test --maxWorkers=4
+
+      - name: The JSON Schema export is current
+        run: |
+          set -euo pipefail
+          pnpm --filter @agent-harness/contracts export-schemas
+          if [ -n "$(git status --porcelain -- packages/contracts/schema)" ]; then
+            git status --short -- packages/contracts/schema
+            echo "::error::packages/contracts/schema is stale - run: pnpm --filter @agent-harness/contracts export-schemas, and commit the result"
+            exit 1
+          fi
+
+      # The relay pushed this ref only so the commit could be checked out.
+      - name: Delete this run's ref
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
