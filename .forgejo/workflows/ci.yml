@@ -39,7 +39,10 @@ on:
 # and with merges every two to three minutes against a run of about four and a
 # half, main went untested for a whole afternoon (David, 2026-10-01). A shared
 # group without cancelling would queue main's runs one at a time behind each
-# other instead. GROUP below gives GitHub's run the same group.
+# other instead. GROUP below gives GitHub's run the same group. The relay
+# waits out each run in a slot on vm-relay-1, whose 8 slots no other
+# repository's jobs use. The david/ci template still queues main pushes in one
+# group, so copy a template fix over this block by hand.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
