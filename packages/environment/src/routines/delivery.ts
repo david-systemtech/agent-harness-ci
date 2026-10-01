@@ -72,7 +72,7 @@ export const deliveredOutcome = (entry: RoutineEntry): DeliveredOutcome | null =
 };
 
 /** Whether a target on `on` takes a result delivered as `outcome`. */
-const takes = (on: DeliveryOn, outcome: DeliveredOutcome): boolean => {
+export const takes = (on: DeliveryOn, outcome: DeliveredOutcome): boolean => {
   switch (on) {
     case "both":
       return true;
@@ -96,7 +96,7 @@ const firstLine = (text: string): string | null =>
  * each cut to its bound. A succeeded firing that said nothing says
  * `NO_FINAL_MESSAGE`; a failed firing that said nothing, its reason.
  */
-const deliveredResult = (entry: RoutineEntry, outcome: DeliveredOutcome): { readonly summary: string; readonly body: string } => {
+export const deliveredResult = (entry: RoutineEntry, outcome: DeliveredOutcome): { readonly summary: string; readonly body: string } => {
   const cut = (summary: string, body: string) => ({ summary: summary.slice(0, MAX_DELIVERY_SUMMARY), body: body.slice(0, MAX_DELIVERY_BODY) });
   if (entry.kind === "skip") {
     const lead = SKIP_FAILED[entry.reason] ?? entry.reason;
@@ -112,7 +112,7 @@ const deliveredResult = (entry: RoutineEntry, outcome: DeliveredOutcome): { read
 };
 
 /** The ended entry an event records: a firing's end, or a skip; null for any other event. */
-const endedEntryOf = (event: EventEnvelope): string | null => {
+export const endedEntryOf = (event: EventEnvelope): string | null => {
   if (event.streamKind !== ROUTINE_STREAM_KIND) return null;
   if (event.type === "routine.firing-ended") return (event.payload as RoutineFiringEndedPayload).firingId;
   if (event.type === "routine.skipped") return (event.payload as RoutineSkippedPayload).skipId;

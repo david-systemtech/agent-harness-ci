@@ -170,6 +170,26 @@ describe("projections.routines", () => {
     expect(names()).toEqual(["Upstream watch, weekly", "Morning digest", "Backup check"]);
   });
 
+  it("refreshes final delivery failure attention, history and the endpoint result from the failure notice", async () => {
+    const { runtime, desk, lists, asked } = await twoEnvironments();
+    const deskId = desk.wire.environmentId;
+    let histories = 0;
+    let endpoints = 0;
+    desk.wire.answer("routines.history", () => { histories++; return { result: { entries: [], before: null } }; });
+    desk.wire.answer("routines.endpoints.list", () => { endpoints++; return { result: { endpoints: [] } }; });
+    onTestFinished(runtime.projections.routines.subscribe(() => undefined));
+    onTestFinished(runtime.requests.cached(deskId, "routines.history", { routineId: ids.watch }).subscribe(() => undefined));
+    onTestFinished(runtime.requests.cached(deskId, "routines.endpoints.list", {}).subscribe(() => undefined));
+    await flush();
+    lists.set(deskId, [listedRoutine(ids.watch, "Upstream watch", ["delivery_failing"])]);
+    desk.notices.event(noticeEvent(1, deskId, "routine.delivery-failed", { routineId: ids.watch, name: "Upstream watch", entryId: ids.digest, endpoint: "hermes", error: "The endpoint answered 400." }));
+    await flush();
+    expect(asked.get(deskId)).toBe(2);
+    expect(histories).toBe(2);
+    expect(endpoints).toBe(2);
+    expect(runtime.projections.routines.read().groups[0]?.routines[0]?.listed?.attention).toEqual(["delivery_failing"]);
+  });
+
   it("keeps the list of an environment that cannot be reached, marked stale with when it was fetched, and its routines still counted", async () => {
     const { runtime, clock, laptop, lists } = await twoEnvironments();
     onTestFinished(runtime.projections.routines.subscribe(() => undefined));

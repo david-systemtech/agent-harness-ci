@@ -149,6 +149,7 @@ import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
@@ -1174,6 +1175,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
   closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
+  const webhookDeliveries = createWebhookDeliveries({
+    log, clock, environmentId: record.id, name: () => look.read().name, scrub,
+    endpoint: (name) => endpoints.resolve(name),
+  });
+  closers.push(() => webhookDeliveries.close());
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
@@ -1835,6 +1841,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());

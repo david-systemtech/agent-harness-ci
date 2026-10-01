@@ -199,6 +199,7 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  */
 const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
   "routine.updated",
+  "routine.delivery-failed",
   "routine.endpoint-set",
   "routine.endpoint-removed",
   "account.updated",
@@ -264,8 +265,8 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * `routines.list`, as does what its listing's mode and attention are read
  * from (`ROUTINE_LIST_REFRESH_NOTICES`); a webhook endpoint made,
  * replaced or removed (`routine.endpoint-set`, `routine.endpoint-removed`)
- * or a delivery attempted (`routine.updated`, whose attempt is an
- * endpoint's last result) `routines.endpoints.list`; the denylist changing
+ * or a delivery failed finally (`routine.delivery-failed`, which also refreshes
+ * routines and history) `routines.endpoints.list`; the denylist changing
  * (`denylist.updated`, #811) `permissions.denylist.get` and
  * `permissions.settings.get`, which counts each section's entries; and the
  * Unattended review changing (`review.updated`, #811: a decision in a run
@@ -304,8 +305,8 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "stateImport.detect": ["state-import.finished"],
   "environment.status": ["environment.draining"],
   "routines.list": ROUTINE_LIST_REFRESH_NOTICES,
-  "routines.history": ["routine.updated"],
-  "routines.endpoints.list": ["routine.endpoint-set", "routine.endpoint-removed", "routine.updated"],
+  "routines.history": ["routine.updated", "routine.delivery-failed"],
+  "routines.endpoints.list": ["routine.endpoint-set", "routine.endpoint-removed", "routine.updated", "routine.delivery-failed"],
 };
 
 export interface RequestCache {
