@@ -1495,7 +1495,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
-    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    ...denylistMethods({ log, accessLog, environmentId: record.id, dataDir, context: denylistContext }),
     ...setupMethods(setup),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),

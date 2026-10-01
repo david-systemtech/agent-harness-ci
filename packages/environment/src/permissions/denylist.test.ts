@@ -24,6 +24,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, say, toolCall, type FakeAdapter, type FakeAdapterOptions, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
+import { noticesOf } from "../../test/notices.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall, ToolGate } from "../adapter/contract.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, UNRECORDED_MESSAGE } from "./broker.js";
@@ -365,6 +366,31 @@ describe("permissions.denylist.restorePresets", () => {
     const after = await getDenylist(client);
     expect(after.paths).toEqual([...held.paths.slice(1), held.paths[0]]);
     expect(after.browserDomains).toEqual([]);
+  });
+});
+
+describe("the denylist.updated notice (#811)", () => {
+  it("says on the environment's own stream that a set or a restore changed the denylist, naming the sections it changed, in its transaction; nothing for one that changes nothing, nor for the seeding", async () => {
+    const t = await start();
+    const client = await t.client();
+    // Seeded before any client could hold a denylist: nothing to read again.
+    expect(await noticesOf(client, "denylist.updated", 0)).toEqual([]);
+    const held = await getDenylist(client);
+    const from = t.env.log.head();
+
+    const set = await send(client, "permissions.denylist.set", {
+      sections: { paths: held.paths.slice(1), commandPatterns: held.commandPatterns, hosts: [{ pattern: "169.254.169.254" }] },
+    });
+    const same = await send(client, "permissions.denylist.set", { sections: { commandPatterns: held.commandPatterns } });
+    const restored = await send(client, "permissions.denylist.restorePresets", {});
+    const again = await send(client, "permissions.denylist.restorePresets", {});
+    expect([same.receipt, again.receipt]).toEqual([expect.objectContaining({ changed: false }), expect.objectContaining({ changed: false })]);
+
+    const notices = await noticesOf(client, "denylist.updated", from);
+    expect(notices.map((event) => event.payload)).toEqual([{ sections: ["paths", "hosts"] }, { sections: ["paths"] }]);
+    // The last event each command appended, by the client session that sent it.
+    expect(notices.map((event) => event.sequence)).toEqual([set.receipt.sequence, restored.receipt.sequence]);
+    expect(notices.map((event) => event.actor)).toEqual([expect.objectContaining({ kind: "client_session" }), expect.objectContaining({ kind: "client_session" })]);
   });
 });
 

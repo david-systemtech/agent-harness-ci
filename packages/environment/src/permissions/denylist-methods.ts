@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   ContractError,
   DENYLIST_SECTIONS,
+  ENVIRONMENT_STREAM_KIND,
   denylistPresets,
   denylistTestCall,
   invalidParams,
@@ -9,11 +10,12 @@ import {
   type DenylistEntry,
   type DenylistInput,
   type DenylistSection,
+  type DenylistUpdatedPayload,
   type IssueInput,
 } from "@agent-harness/contracts";
 import type { AccessLog } from "../auth/access-log.js";
-import type { EventInput, EventLog } from "../event-log/event-log.js";
-import type { MethodHandlers } from "../serve/methods.js";
+import type { EventLog } from "../event-log/event-log.js";
+import type { CommandAnswer, CommandContext, MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readDenylistCall, type DenylistContext } from "./denylist-gate.js";
 import { readDenylist, sectionChange } from "./denylist-store.js";
@@ -22,15 +24,20 @@ import { readDenylist, sectionChange } from "./denylist-store.js";
  * The denylist's methods (#132; permissions spec, "Methods on the wire"):
  * `permissions.denylist.get` and `test` (`read`), `set` and
  * `restorePresets` (`admin`). A change is one `denylist.changed` per
- * section it touched, on the access stream (the command's aggregate), in
- * the command's transaction, attributed to the client session; the gate
- * reads the list as it is when each call is made, so a change applies to
- * the next call of every run.
+ * section it touched, on the access stream (the command's aggregate), then
+ * `denylist.updated` naming those sections on the environment's own stream
+ * (#811), which every connected client hears and reads its cached denylist
+ * and permission settings again on, all in the command's transaction,
+ * attributed to the client session; a command that changes nothing appends
+ * neither. The gate reads the list as it is when each call is made, so a
+ * change applies to the next call of every run.
  */
 
 export interface DenylistMethodsOptions {
   readonly log: EventLog;
   readonly accessLog: Pick<AccessLog, "stream">;
+  /** The environment's id: the id of its own stream, which the notice goes on. */
+  readonly environmentId: string;
   /** The environment's data directory: its preset's path. */
   readonly dataDir: string;
   /** Where `test` reads paths from: the home directory, the exemption, the file system's links. */
@@ -57,12 +64,23 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const presets = (): Denylist => denylistPresets(options.dataDir);
 
-  /** The events that take the denylist from `held` to `next`, one per section that changed. */
-  const changes = (held: Denylist, next: Denylist): EventInput[] =>
-    DENYLIST_SECTIONS.flatMap((section) => {
+  /**
+   * Appends what takes the denylist from `held` to `next`, as the command's client session: one `denylist.changed`
+   * per section that changed, then the notice naming them; nothing when none did. Answers `result`.
+   */
+  const changed = <R>(context: CommandContext, held: Denylist, next: Denylist, result: R): CommandAnswer<R, never> => {
+    const changes = DENYLIST_SECTIONS.flatMap((section) => {
       const change = sectionChange(section, held[section], next[section]);
-      return change === null ? [] : [{ type: "denylist.changed", payload: change }];
+      return change === null ? [] : [change];
     });
+    if (changes.length > 0) {
+      const attribution = { tx: context.tx, actor: context.actor, commandId: context.commandId };
+      const notice: DenylistUpdatedPayload = { sections: changes.map((change) => change.section) };
+      log.append(accessLog.stream, changes.map((payload) => ({ type: "denylist.changed", payload })), attribution);
+      log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [{ type: "denylist.updated", payload: notice }], attribution);
+    }
+    return { aggregate: accessLog.stream, result };
+  };
 
   return {
     "permissions.denylist.get": () => ({ denylist: readDenylist(reader) }),
@@ -72,7 +90,7 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
      * entries of one section under one id are `invalid_params`; a call naming
      * no section, and each section's grammar, are the params' schema's.
      */
-    "permissions.denylist.set": (params) => {
+    "permissions.denylist.set": (params, context) => {
       const given = params.sections;
       const sections = DENYLIST_SECTIONS.filter((section) => given[section] !== undefined);
       const issues: IssueInput[] = [];
@@ -90,14 +108,14 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
       const presetIds = presets();
       const next: Denylist = { ...held };
       for (const section of sections) next[section] = entriesOf(given[section] ?? [], new Set(presetIds[section].map((entry) => entry.id)));
-      return { aggregate: accessLog.stream, result: { denylist: next }, events: changes(held, next) };
+      return changed(context, held, next, { denylist: next });
     },
 
     /**
      * Every preset the denylist no longer holds, by id, at the end of its section, in the sections named or every one;
      * an edited or disabled preset is left as it is.
      */
-    "permissions.denylist.restorePresets": (params) => {
+    "permissions.denylist.restorePresets": (params, context) => {
       const held = readDenylist(reader);
       const restored: { section: DenylistSection; entry: DenylistEntry }[] = [];
       const next: Denylist = { ...held };
@@ -108,7 +126,7 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
         next[section] = [...held[section], ...missing];
         restored.push(...missing.map((entry) => ({ section, entry })));
       }
-      return { aggregate: accessLog.stream, result: { restored, denylist: next }, events: changes(held, next) };
+      return changed(context, held, next, { restored, denylist: next });
     },
 
     /**
