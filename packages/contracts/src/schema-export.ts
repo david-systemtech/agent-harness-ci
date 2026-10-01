@@ -292,7 +292,7 @@ import {
   PairedChrome,
 } from "./browser-chromes.js";
 import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
-import { BrowserChromeCall, ClientCallId, ClientCallPayload } from "./client-calls.js";
+import { BrowserDockCall, BrowserChromeCall, ClientCallId, ClientCallPayload } from "./client-calls.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -1485,6 +1485,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
   { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
   { path: "client-calls/call-id.json", title: "ClientCallId", schema: ClientCallId },
+  { path: "client-calls/browser-dock.json", title: "BrowserDockCall", schema: BrowserDockCall },
   { path: "client-calls/browser-chrome.json", title: "BrowserChromeCall", schema: BrowserChromeCall },
   { path: "client-calls/call.json", title: "ClientCallPayload", schema: ClientCallPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({

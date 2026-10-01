@@ -43,6 +43,9 @@ export const ANSWERED = [
   "webView.create",
   "webView.navigate",
   "webView.state",
+  "webView.debugger.attach",
+  "webView.debugger.send",
+  "webView.debugger.detach",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 
@@ -70,6 +73,8 @@ export const DEEP_LINK_CHANNEL = "shell:deepLinks.opened";
 export const WEB_VIEW_KEY_CHANNEL = "shell:webView.key";
 
 /** The channel the main process sends a dock page's navigation state on. */
+export const WEB_VIEW_DEBUG_CHANNEL = "shell:webView.debugger.event";
+export const WEB_VIEW_DETACH_CHANNEL = "shell:webView.debugger.detached";
 export const WEB_VIEW_CHANNEL = "shell:webView.changed";
 
 /** The channel the main process sends a clicked notification's tag on. */

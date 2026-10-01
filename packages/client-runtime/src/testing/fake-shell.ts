@@ -46,6 +46,11 @@ export interface ShellFunctions {
   "tray.setTooltip": ShellTray["setTooltip"];
   "tray.onClick": ShellTray["onClick"];
   "deepLinks.onOpen": NonNullable<ShellDeepLinks["onOpen"]>;
+  "webView.debugger.attach": NonNullable<ShellWebView["debugger"]>["attach"];
+  "webView.debugger.send": NonNullable<ShellWebView["debugger"]>["send"];
+  "webView.debugger.detach": NonNullable<ShellWebView["debugger"]>["detach"];
+  "webView.debugger.onEvent": NonNullable<ShellWebView["debugger"]>["onEvent"];
+  "webView.debugger.onDetach": NonNullable<ShellWebView["debugger"]>["onDetach"];
   "webView.create": ShellWebView["create"];
   "webView.attach": ShellWebView["attach"];
   "webView.hide": ShellWebView["hide"];
@@ -140,6 +145,11 @@ export const fakeShell = (): FakeShell => {
       viewStates.set(id, { url, canGoBack: false, canGoForward: false });
       return id;
     },
+    "webView.debugger.attach": async () => undefined,
+    "webView.debugger.send": async () => ({}),
+    "webView.debugger.detach": async () => undefined,
+    "webView.debugger.onEvent": () => () => undefined,
+    "webView.debugger.onDetach": () => () => undefined,
     "webView.attach": () => undefined,
     "webView.hide": () => undefined,
     "webView.navigate": async (id, url) => {
@@ -210,6 +220,13 @@ export const fakeShell = (): FakeShell => {
     tray: { setTooltip: recorded("tray.setTooltip"), onClick: recorded("tray.onClick") },
     deepLinks: { onOpen: recorded("deepLinks.onOpen") },
     webView: {
+      debugger: {
+        attach: recorded("webView.debugger.attach"),
+        send: recorded("webView.debugger.send"),
+        detach: recorded("webView.debugger.detach"),
+        onEvent: recorded("webView.debugger.onEvent"),
+        onDetach: recorded("webView.debugger.onDetach"),
+      },
       create: recorded("webView.create"),
       attach: recorded("webView.attach"),
       hide: recorded("webView.hide"),
@@ -249,9 +266,7 @@ export const fakeShell = (): FakeShell => {
       for (const listener of [...heard.links]) listener(url);
     },
     activateNotification(tag) {
-      const shown = calls.some(
-        ([member, notification]) => member === "notifications.show" && (notification as { readonly tag?: string } | undefined)?.tag === tag,
-      );
+      const shown = calls.some(([member, notification]) => member === "notifications.show" && (notification as { readonly tag?: string } | undefined)?.tag === tag);
       if (!shown) throw new Error(`No notification tagged ${JSON.stringify(tag)} was shown, so none can be clicked.`);
       for (const listener of [...heard.activations]) listener(tag);
     },

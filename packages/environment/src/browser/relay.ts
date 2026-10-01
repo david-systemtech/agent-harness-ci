@@ -62,6 +62,15 @@ export interface RelayedChrome {
   readonly runId: string;
 }
 
+/** The dock and the session run whose client owns it. */
+export interface RelayedDock {
+  readonly kind: "dock";
+  readonly sessionId: string;
+  readonly runId: string;
+}
+type RelayedBrowser = RelayedChrome | RelayedDock;
+const isDock = (browser: RelayedBrowser): browser is RelayedDock => "kind" in browser && browser.kind === "dock";
+
 export interface BrowserRelayOptions {
   readonly log: EventLog;
   readonly clock: Clock;
@@ -75,7 +84,7 @@ export interface BrowserRelayOptions {
 
 export interface BrowserRelay {
   /** The page driver of a Chrome paired with another environment, for one session's run: every verb relayed through its client. */
-  driverOf(chrome: RelayedChrome): PageDriver;
+  driverOf(chrome: RelayedBrowser): PageDriver;
   /** `client.answer`. */
   readonly handlers: MethodHandlers;
   /** Ends every verb still waiting with a sentence. */
@@ -87,6 +96,7 @@ interface Waiting {
   readonly clientSessionId: string;
   /** How the sentences name the client. */
   readonly client: string;
+  readonly dock: boolean;
   readonly timer: Timer;
   readonly settle: (outcome: PageOutcome) => void;
 }
@@ -125,21 +135,21 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
   };
 
   /** What the model reads of a client's answer. */
-  const outcomeOf = (client: string, answer: ClientAnswer): PageOutcome => {
+  const outcomeOf = (client: string, answer: ClientAnswer, dock: boolean): PageOutcome => {
     if (!answer.ok) {
       const message = answer.error?.message.trim() || "it gave no reason.";
       if (answer.error?.code === "unsupported") {
         return refusal(
-          `${capitalised(client)} cannot drive a browser for a run: ${message} Ask the person to start this session's runs from the desktop window or the terminal UI on the Chrome's machine.`,
+          `${capitalised(client)} cannot drive ${dock ? "the browser dock" : "a browser"} for a run: ${message} ${dock ? "Ask the person to start this session's runs from a desktop window that can drive its dock." : "Ask the person to start this session's runs from the desktop window or the terminal UI on the Chrome's machine."}`,
         );
       }
-      return refusal(`${capitalised(client)} could not drive the Chrome: ${message}`);
+      return refusal(`${capitalised(client)} could not drive ${dock ? "the browser dock" : "the Chrome"}: ${message}`);
     }
     const outcome = PageOutcome.safeParse(answer.result);
     return outcome.success ? outcome.data : refusal(`${capitalised(client)} answered with something that is not a browser's answer.`);
   };
 
-  const perform = async (chrome: RelayedChrome, call: PageCall): Promise<PageOutcome> => {
+  const perform = async (chrome: RelayedBrowser, call: PageCall): Promise<PageOutcome> => {
     if (closed) return refusal("The environment is stopping.");
     let addressee: string | null;
     try {
@@ -147,32 +157,59 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
     } catch (error) {
       return refusal(`The environment could not read which client started this session's runs: ${messageOf(error)}.`);
     }
-    if (addressee === null) return refusal(NO_CLIENT);
+    if (addressee === null)
+      return refusal(
+        isDock(chrome)
+          ? "No client started a run of this session, so there is no desktop to drive its browser dock. Ask the person to start this session's run from the desktop window."
+          : NO_CLIENT,
+      );
     const client = clientNamed(addressee);
     if (!options.connected(addressee)) {
-      return refusal(`${capitalised(client)} is not connected, so the Chrome on its machine cannot be driven. Ask the person to open it, then try again.`);
+      return refusal(
+        `${capitalised(client)} is not connected, so ${isDock(chrome) ? "its browser dock" : "the Chrome on its machine"} cannot be driven. Ask the person to open it, then try again.`,
+      );
     }
     const deadlineMs = pageCallDeadlineMs(call.command);
     const callId = randomUUID();
-    const payload: ClientCallPayload = {
-      callId,
-      clientSessionId: addressee,
-      kind: "browser.chrome",
-      payload: {
-        environmentId: chrome.environmentId,
-        chromeId: chrome.chromeId,
-        pageKey: call.pageKey,
-        command: call.command,
-        ...(call.allowance !== undefined && { allowance: call.allowance }),
-        deadline: new Date(clock.now().getTime() + deadlineMs).toISOString(),
-      },
+    const verb = {
+      pageKey: call.pageKey,
+      command: call.command,
+      ...(call.allowance !== undefined && { allowance: call.allowance }),
+      deadline: new Date(clock.now().getTime() + deadlineMs).toISOString(),
     };
+    const payload: ClientCallPayload = isDock(chrome)
+      ? {
+          callId,
+          clientSessionId: addressee,
+          kind: "browser.dock",
+          payload: verb,
+        }
+      : {
+          callId,
+          clientSessionId: addressee,
+          kind: "browser.chrome",
+          payload: {
+            ...verb,
+            environmentId: chrome.environmentId,
+            chromeId: chrome.chromeId,
+          },
+        };
     return new Promise<PageOutcome>((resolve) => {
       const timer = clock.setTimeout(
-        () => settle(callId, refusal(`${capitalised(client)} did not answer within ${deadlineMs / 1_000} seconds. Try again; if it still does not answer, ask the person to look at that client.`)),
+        () =>
+          settle(
+            callId,
+            refusal(`${capitalised(client)} did not answer within ${deadlineMs / 1_000} seconds. Try again; if it still does not answer, ask the person to look at that client.`),
+          ),
         deadlineMs,
       );
-      waiting.set(callId, { clientSessionId: addressee, client, timer, settle: resolve });
+      waiting.set(callId, {
+        clientSessionId: addressee,
+        client,
+        dock: isDock(chrome),
+        timer,
+        settle: resolve,
+      });
       try {
         log.append(options.stream, [{ type: "client.call", payload }], { actor: BROWSER_ACTOR, correlationId: chrome.runId });
       } catch (error) {
@@ -183,7 +220,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
 
   return {
     driverOf: (chrome) => ({
-      kind: "chrome",
+      kind: isDock(chrome) ? "dock" : "chrome",
       // A call of one verb is a call; the client's answer is JSON off the wire, which the tools check against the verb.
       perform: async <V extends PageVerb>(call: PageCallOf<V>) => (await perform(chrome, call as PageCall)) as PageResult<V>,
     }),
@@ -191,7 +228,11 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
       "client.answer": (answer, context) => {
         const call = waiting.get(answer.callId);
         if (call !== undefined && call.clientSessionId !== context.clientSession.id) {
-          throw new ContractError({ code: "forbidden", message: "Only the client session a call is addressed to may answer it.", data: { scope: "runs:drive", reason: "addressed" } });
+          throw new ContractError({
+            code: "forbidden",
+            message: "Only the client session a call is addressed to may answer it.",
+            data: { scope: "runs:drive", reason: "addressed" },
+          });
         }
         const carried = answer.ok ? answer.result : answer.error;
         if (Buffer.byteLength(JSON.stringify(carried ?? null), "utf8") > CLIENT_ANSWER_MAX_BYTES) {
@@ -200,7 +241,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
           throw new ContractError(invalidParams([{ code: "too_big", path: [answer.ok ? "result" : "error"], message }], message));
         }
         if (call === undefined) return { taken: false };
-        settle(answer.callId, outcomeOf(call.client, answer));
+        settle(answer.callId, outcomeOf(call.client, answer, call.dock));
         return { taken: true };
       },
     },

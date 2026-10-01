@@ -13,5 +13,5 @@
   "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "test"],
   "exclude": [],
   // The tooling project holds the lint rules, whose presentation list a test reads.
-  "references": [{ "path": "." }, { "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }, { "path": "../../tsconfig.tooling.json" }]
+  "references": [{ "path": "../browser" }, { "path": "../browser/tsconfig.testing.json" }, { "path": "." }, { "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }, { "path": "../../tsconfig.tooling.json" }]
 }

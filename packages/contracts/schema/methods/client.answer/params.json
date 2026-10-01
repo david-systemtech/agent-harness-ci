@@ -14,7 +14,7 @@
       "description": "true with result: the client did what the call asked; false with error: it could not."
     },
     "result": {
-      "description": "With ok: what the client's handler answered (null for nothing); for browser.chrome, the verb's outcome.",
+      "description": "With ok: what the client's handler answered (null for nothing); for browser.chrome and browser.dock, the verb's outcome.",
       "$ref": "#/$defs/__schema0"
     },
     "error": {

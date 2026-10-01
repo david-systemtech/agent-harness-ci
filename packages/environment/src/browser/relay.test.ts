@@ -313,3 +313,30 @@ describe("the deadline", () => {
     expect(await answerWith(starter, { callId: call.callId, ok: true, result: NAVIGATED })).toEqual({ taken: false });
   });
 });
+
+describe("the dock relay", () => {
+  it("addresses the dock verb to the client that started the run", async () => {
+    const t = await start();
+    const starter = await clientNamed(t, "The desktop");
+    const calls = await hearing(t, starter);
+    const id = await sessionWith(starter, { kind: "dock" });
+    const { runId, answers } = await startRun(t, starter, id, [
+      "browser_navigate",
+      { address: "https://example.com/next", snapshot: false },
+    ]);
+    const call = await calls.next();
+    expect(call).toMatchObject({
+      clientSessionId: starter.hello.clientSessionId,
+      kind: "browser.dock",
+      payload: { pageKey: `${t.env.id}/${id}`, command: { verb: "navigate" } },
+    });
+    expect(call.payload).not.toHaveProperty("chromeId");
+    await answerWith(starter, {
+      callId: call.callId,
+      ok: true,
+      result: NAVIGATED,
+    });
+    await untilEnded(t, id, runId);
+    expect(answers[0]).toMatchObject({ isError: false });
+  });
+});
