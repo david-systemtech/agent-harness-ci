@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>agent-harness</title>
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <h1>agent-harness</h1>
+    <p id="status" role="status">Starting.</p>
+
+    <form id="pair-form" hidden>
+      <h2>Pair this Chrome</h2>
+      <p>Type the code your environment shows. The name tells this Chrome apart from your others there.</p>
+      <p><label>Name <input id="pair-name" autocomplete="off" placeholder="Work, Personal" maxlength="80" /></label></p>
+      <p><label>Code <input id="pair-code" autocomplete="off" spellcheck="false" required /></label></p>
+      <p><button type="submit">Pair</button></p>
+      <p id="pair-result" role="status"></p>
+    </form>
+
+    <h2>Port</h2>
+    <p id="port-file"></p>
+    <form id="override-form">
+      <p>
+        <label>Port override <input id="override" type="number" min="1" max="65535" /></label>
+        <button type="submit">Use this port</button>
+        <button type="button" id="override-clear">Clear</button>
+      </p>
+      <p id="override-problem" role="alert"></p>
+      <p id="override-line" role="status"></p>
+    </form>
+  </body>
+</html>
