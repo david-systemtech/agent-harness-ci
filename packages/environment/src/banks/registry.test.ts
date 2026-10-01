@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BankRecord, EventEnvelope, EventFrame, ParamsOf, ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { changed, PERSONAL_BANK, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
+import { changed, markdown, memory, PERSONAL_BANK, personalManifest, scopeFile, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge } from "../../test/fake-forge.js";
@@ -139,6 +139,52 @@ describe("banks.register and banks.list", () => {
     const answer = await register(client, { path: tempDir("agent-harness-not-a-bank-") });
     expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "invalid_params" } });
     expect(await list(client)).toEqual([]);
+  });
+});
+
+/**
+ * A personal bank named `name` holding one memory in each of `projects` projects, each with a long line: about 160 bytes
+ * of root breadcrumbs a project, so three of 20 come past 8 KB of fixed tiers together and two do not.
+ */
+const wideBank = (name: string, projects: number): Record<string, string> => {
+  const files: Record<string, string> = {
+    "BANK.md": markdown(personalManifest({ name, orientation: [] }), "\n# How agents use this bank\n"),
+    "projects/personal/ORG.md": markdown({ line: "The org every project of this bank is in" }),
+  };
+  for (let n = 1; n <= projects; n += 1) {
+    files[`projects/personal/project-${n}/PROJECT.md`] = scopeFile(`Project ${n}: ${"a long one-line summary of what the project holds, ".repeat(2).trim()}`);
+    files[`projects/personal/project-${n}/memories/fact-${n}.md`] = memory(`fact-${n}`, { description: `When project ${n} needs its one fact - the fact this bank holds about it` });
+  }
+  return files;
+};
+
+describe("the 8 KB rule", () => {
+  it("refuses a register under which an account and repository would carry over 8 KB of fixed tiers, conflict index_too_large naming the banks and scopes", async () => {
+    const t = await start();
+    const client = await t.client();
+    await registered(client, { path: gitBank(wideBank("bank-one", 20)) });
+    await registered(client, { path: gitBank(wideBank("bank-two", 20)) });
+    const from = t.env.log.head();
+
+    const answer = await register(client, { path: gitBank(wideBank("bank-three", 20)) });
+    expect(answer.receipt).toMatchObject({
+      status: "rejected",
+      error: {
+        code: "conflict",
+        message: expect.stringMatching(/^The fixed tiers of bank-one, bank-two and bank-three would come to \d+ bytes for every account in every repository, over the 8192-byte limit\.$/),
+        data: { reason: "index_too_large", limitBytes: 8192, banks: ["bank-one", "bank-two", "bank-three"], scopes: [{ account: "all", repository: "all" }] },
+      },
+    });
+    expect(await bankEvents(client, from)).toEqual([]);
+  });
+
+  it("admits a bank whose scope no other bank of its size shares", async () => {
+    const client = await (await start()).client();
+    const account = randomUUID();
+    await registered(client, { path: gitBank(wideBank("bank-one", 20)), accounts: [randomUUID()] });
+    await registered(client, { path: gitBank(wideBank("bank-two", 20)), repositories: ["https://git.example/acme/web"] });
+    const third = await registered(client, { path: gitBank(wideBank("bank-three", 20)), accounts: [account], repositories: ["https://git.example/acme/api"] });
+    expect(third.name).toBe("bank-three");
   });
 });
 

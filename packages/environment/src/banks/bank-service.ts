@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import {
+  BANK_INDEX_BUDGET,
   BankName,
   ENVIRONMENT_STREAM_KIND,
   normaliseRemote,
   type BankEntry,
+  type BankIndexConflict,
   type BankLocation,
   type BankManifestStatus,
   type BankRecord,
@@ -109,6 +111,52 @@ const keepSince = (held: BankStatus, found: BankStatus): BankStatus => {
   };
 };
 
+
+/** A bank as the 8 KB rule weighs it: its scopes and its fixed tiers' bytes. */
+interface Weighed {
+  readonly name: string;
+  readonly accounts: BankEntry["accounts"];
+  readonly repositories: BankEntry["repositories"];
+  readonly bytes: number;
+}
+
+/** Whether `scope` (an account or `all`, a list or `all`) is in the bank's: `all` stands for every one no bank names. */
+const covers = (held: "all" | readonly string[], one: string): boolean => held === "all" || (one !== "all" && held.includes(one));
+
+/**
+ * The 8 KB rule (banks spec, "The registry"; ADR 0013): where, with `added`
+ * among `banks`, an account and a repository would carry more than 8 KB of
+ * fixed tiers, the banks that would and the scopes; null where none would.
+ * Every account and repository a bank names is weighed, and `all` for those
+ * none names.
+ */
+const overLimit = (banks: readonly Weighed[], added: Weighed): Omit<BankIndexConflict, "reason"> | null => {
+  const all = [...banks, added];
+  const named = (pick: (bank: Weighed) => "all" | readonly string[]): string[] => ["all", ...new Set(all.flatMap((bank) => (pick(bank) === "all" ? [] : (pick(bank) as readonly string[]))))];
+  const scopes: BankIndexConflict["scopes"] = [];
+  const over = new Set<string>();
+  let bytes = 0;
+  for (const account of named((bank) => bank.accounts)) {
+    for (const repository of named((bank) => bank.repositories)) {
+      if (!covers(added.accounts, account) || !covers(added.repositories, repository)) continue;
+      const inScope = all.filter((bank) => covers(bank.accounts, account) && covers(bank.repositories, repository));
+      const total = inScope.reduce((sum, bank) => sum + bank.bytes, 0);
+      if (total <= BANK_INDEX_BUDGET.fixedBytes) continue;
+      if (scopes.length === 0) bytes = total;
+      scopes.push({ account, repository });
+      for (const bank of inScope) over.add(bank.name);
+    }
+  }
+  if (scopes.length === 0) return null;
+  return { bytes, limitBytes: BANK_INDEX_BUDGET.fixedBytes, banks: all.map((bank) => bank.name).filter((name) => over.has(name)), scopes };
+};
+
+/** Where the fixed tiers come past the limit, as a sentence names it. */
+const scopeWords = ({ account, repository }: BankIndexConflict["scopes"][number]): string =>
+  `${account === "all" ? "every account" : `the account ${account}`} in ${repository === "all" ? "every repository" : repository}`;
+
+/** "a", "a and b", "a, b and c". */
+const listed = (items: readonly string[]): string => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
 export interface BankServiceOptions {
   readonly log: EventLog;
@@ -276,9 +324,17 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
       const { status, reading } = await inspect(draft);
       const entry: BankEntry = { ...draft, status };
+      const enabled = listBanks(reader).filter((bank) => bank.enabled);
+      const weighed = await Promise.all(enabled.map(async (bank): Promise<Weighed> => ({ ...bank, bytes: fixedBytes(await readingOf(bank)) })));
+      const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
       return (_params, command) => {
         if (nameHolder(reader, entry.name) !== null) {
           return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
+        }
+        if (conflict !== null) {
+          const [first] = conflict.scopes;
+          const message = `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`;
+          return { aggregate: stream, rejected: { code: "conflict", message, data: { reason: "index_too_large", ...conflict } } };
         }
         command.tx.afterCommit(() => readings.set(entry.id, reading));
         log.append(stream, [{ type: "bank.added", payload: { bank: entry } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
@@ -303,6 +359,9 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     register,
   };
 };
+
+/** The bytes of a bank's fixed tiers (T0 to T2), which the 8 KB rule adds up; none for a bank whose BANK.md names no kind. */
+const fixedBytes = (reading: Reading | null): number => (reading?.index == null ? 0 : renderFixedTiers(reading.index).bytes);
 
 /** The entry a register makes, before its verification: the defaults a registered bank takes (ADR 0035). */
 const entryOf = (params: ParamsOf<"banks.register">, name: string, manifest: Manifest, location: BankLocation, now: string): BankEntry => ({
