@@ -2021,8 +2021,50 @@
             "properties": {
               "kind": {
                 "type": "string",
-                "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable)$).+$",
-                "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable), which must match their own schema."
+                "const": "forked"
+              },
+              "sequence": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991,
+                "description": "The sequence of the event that opened the item."
+              },
+              "fromSessionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+              },
+              "atMessageId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                    "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The user message the fork was taken before, or null for a fork of the whole session, except in two cases. A source no run of which had linked a provider session but which carried one in as a fork itself: what its own session.forked named (a message, or null), whichever message the fork was taken before, since nothing the source was sent reached the provider; the text of the message it was taken before is still the fork's draft. A fork of the whole of a source that had linked one and holds a rewind not yet continued from: the rewind's message, since that provider session still holds what the rewind hid."
+              }
+            },
+            "required": [
+              "kind",
+              "sequence",
+              "fromSessionId",
+              "atMessageId"
+            ],
+            "description": "A fork's first row: the source and anchor its session.forked named, at that event's sequence."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable|forked)$).+$",
+                "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable, forked), which must match their own schema."
               },
               "sequence": {
                 "type": "integer",
@@ -2039,7 +2081,7 @@
             "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
           }
         ],
-        "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, or an item of a kind the reader does not know, kept opaque."
+        "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, or an item of a kind the reader does not know, kept opaque."
       },
       "description": "The settled items of the transcript, in order; items a rewind hid are left out, carried by that rewind in rewinds until it is undone."
     },
@@ -3539,8 +3581,50 @@
                 "properties": {
                   "kind": {
                     "type": "string",
-                    "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable)$).+$",
-                    "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable), which must match their own schema."
+                    "const": "forked"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991,
+                    "description": "The sequence of the event that opened the item."
+                  },
+                  "fromSessionId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                    "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+                  },
+                  "atMessageId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The user message the fork was taken before, or null for a fork of the whole session, except in two cases. A source no run of which had linked a provider session but which carried one in as a fork itself: what its own session.forked named (a message, or null), whichever message the fork was taken before, since nothing the source was sent reached the provider; the text of the message it was taken before is still the fork's draft. A fork of the whole of a source that had linked one and holds a rewind not yet continued from: the rewind's message, since that provider session still holds what the rewind hid."
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sequence",
+                  "fromSessionId",
+                  "atMessageId"
+                ],
+                "description": "A fork's first row: the source and anchor its session.forked named, at that event's sequence."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable|forked)$).+$",
+                    "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable, forked), which must match their own schema."
                   },
                   "sequence": {
                     "type": "integer",
@@ -3557,7 +3641,7 @@
                 "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
               }
             ],
-            "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, or an item of a kind the reader does not know, kept opaque."
+            "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, or an item of a kind the reader does not know, kept opaque."
           },
           "description": "The settled items it hid, in order, as they stand now; those a rewind nested in it hid are that rewind's."
         },

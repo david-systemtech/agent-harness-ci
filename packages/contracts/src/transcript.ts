@@ -560,8 +560,17 @@ const HistoryUnreadableItem = z
   })
   .meta({ description: "The line an imported session shows where its history could not be read from the account's directory (session.history-imported, outcome unreadable)." });
 
+const ForkedItem = z
+  .object({
+    kind: z.literal("forked"),
+    ...itemPart,
+    fromSessionId: SessionForkedPayload.shape.fromSessionId,
+    atMessageId: SessionForkedPayload.shape.atMessageId,
+  })
+  .meta({ description: "A fork's first row: the source and anchor its session.forked named, at that event's sequence." });
+
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
-export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt", "history-unreadable"] as const;
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt", "history-unreadable", "forked"] as const;
 
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
@@ -590,11 +599,12 @@ export const TranscriptItem = z
     TasksItem,
     PromptItem,
     HistoryUnreadableItem,
+    ForkedItem,
     OpaqueItem,
   ])
   .meta({
     description:
-      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, or an item of a kind the reader does not know, kept opaque.",
+      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, or an item of a kind the reader does not know, kept opaque.",
   });
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
 

@@ -56,9 +56,6 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@mozilla/readability':
-        specifier: ^0.6.0
-        version: 0.6.0
     devDependencies:
       '@types/ws':
         specifier: ^8.18.1
@@ -851,10 +848,6 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
-
-  '@mozilla/readability@0.6.0':
-    resolution: {integrity: sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ==}
-    engines: {node: '>=14.0.0'}
 
   '@napi-rs/keyring-darwin-arm64@2.1.0':
     resolution: {integrity: sha512-j6ATTOhmPW+N5EKwi8Yzn6P4Bz/uqnxzyYvqOL73/dgzDSYG5pS5eprqpVmOLse68WUTf79ZMqz97HnfvirJ9g==}
@@ -4760,8 +4753,6 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.6.5)
     transitivePeerDependencies:
       - supports-color
-
-  '@mozilla/readability@0.6.0': {}
 
   '@napi-rs/keyring-darwin-arm64@2.1.0':
     optional: true

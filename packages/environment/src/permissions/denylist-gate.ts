@@ -141,6 +141,8 @@ export interface DenylistContext {
   readonly denylist: () => Denylist;
   /** The home directory `~` stands for. */
   readonly home: string;
+  /** The environment whose list is being read, named in browser refusals. */
+  readonly environmentId?: string;
   /** The directories the data directory's preset leaves out: where runs work, the containment directories (#133) and the scratch workspaces (#140). */
   readonly exempt: readonly string[];
   /** Follows symbolic links, null where it cannot say; preset: the file system's (`resolvePath`, the walk containment's rule shares). */
@@ -252,11 +254,19 @@ export const denylistRule = (context: DenylistContext): ToolGateRule => ({
   check: async (call, run, signal) => {
     if (!(context.readsCall ?? denylistReadsCall)(call)) return null;
     const { matches, unresolvable } = readDenylistCall(context, denylistCall(call), run.workspace);
+    if (call.access.kind === "browse" && call.access.match !== undefined) {
+      const browserMatch = call.access.match;
+      // The browser's list is authoritative too, even when this environment lists no such entry.
+      const others = matches.filter((match) => match.section !== browserMatch.section || match.entry.id !== browserMatch.entry.id || match.matched !== browserMatch.matched);
+      matches.splice(0, matches.length, browserMatch, ...others);
+      if (call.access.frame === "sub-frame") return { decision: "deny", message: call.summary };
+    }
     const [lost] = unresolvable;
     if (lost !== undefined) return { decision: "deny", message: unresolvableDenial(lost) };
     const [first] = matches;
     if (first === undefined) return null;
-    const named = describeDenylistMatch(first);
+    const environmentId = call.access.kind === "browse" ? (call.access.environmentId ?? context.environmentId) : undefined;
+    const named = `${describeDenylistMatch(first)}${environmentId === undefined ? "" : ` in environment ${environmentId}`}`;
     const reason = matches.length === 1 ? named : `${named}, and ${matches.length - 1} more`;
     const decision = await run.ask(
       "denylist",

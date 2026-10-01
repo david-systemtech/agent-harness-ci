@@ -309,6 +309,8 @@ repository_of() {
 # compose would take now.
 abandon() {
   compose up -d --no-recreate "$SERVICE" >&2 || :
+  # A completed snapshot or staging folder is of no use after an abandon.
+  in_container update discard --update-id "$update_id" >&2 || :
   outcome abandoned "Update $update_id to $to_version was not carried out: $1. $running_version was started again as it was."
   exit 1
 }

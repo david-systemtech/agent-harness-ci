@@ -85,6 +85,18 @@ const summary = {
 };
 
 describe("the transcript fold", () => {
+  it("keeps a fork's source and anchor through a stored fold and later events, without duplicating the row", () => {
+    sequence = 0;
+    const forked = event("session.forked", { fromSessionId: sessionId, atMessageId: first, fromProviderSessionId: "provider-for-tests" });
+    const folded = foldTranscript([forked]);
+    const entry = { kind: "forked", sequence: 1, fromSessionId: sessionId, atMessageId: first };
+    expect(folded.items).toEqual([entry]);
+    const stored = storedTranscriptParts(JSON.parse(JSON.stringify(folded)));
+    const later = [started(runId)];
+    expect(foldTranscript(later, stored)).toEqual(foldTranscript([forked, ...later]));
+    expect(stored.items).toEqual([entry]);
+  });
+
   it("folds a streamed run into its run and settled items: a delta read only for where its item opened, tool updates folded, a queued message delivered", () => {
     sequence = 0;
     const events = [
