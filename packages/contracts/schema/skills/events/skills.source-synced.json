@@ -1,114 +1,194 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SkillsSourceSyncedPayload",
-  "type": "object",
-  "properties": {
-    "sourceId": {
-      "type": "string",
-      "format": "uuid",
-      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
-    },
-    "outcome": {
-      "type": "string",
-      "const": "ok",
-      "description": "ok: the folder was exported at the commit into the source's snapshot, which is now current."
-    },
-    "commit": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
-      "description": "The commit the folder was exported at: the current snapshot's."
-    },
-    "members": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
-                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-                "maxLength": 64
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+        },
+        "outcome": {
+          "type": "string",
+          "const": "ok",
+          "description": "ok: the folder was exported at the commit into the source's snapshot, which is now current."
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+          "description": "The commit the folder was exported at: the current snapshot's."
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "maxLength": 64
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
               },
-              {
-                "type": "null"
+              "path": {
+                "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                "type": "string"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The member's description, trimmed; null when it has none, a description problem saying so."
+              },
+              "invocation": {
+                "type": "string",
+                "enum": [
+                  "model+slash",
+                  "slash-only"
+                ],
+                "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
+              },
+              "problems": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "frontmatter",
+                        "name",
+                        "description"
+                      ],
+                      "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What is wrong, for people: the names tried and why each fails."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "message"
+                  ],
+                  "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
+                },
+                "description": "Empty for a valid member; any problem leaves it invalid and out of the set."
               }
+            },
+            "required": [
+              "name",
+              "path",
+              "description",
+              "invocation",
+              "problems"
             ],
-            "description": "The member's name by the member-naming rule; null when none passes, a name problem saying why."
+            "description": "A member as the reader reads it in a repository's folder: its name, its folder from the folder read (. when that folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of the set."
           },
-          "path": {
-            "description": "Where the member lies, from its layer's folder: in the own directory, skills/<folder> or commands/<file>; in a source's snapshot, its folder from the source's folder (. when that folder is itself the skill); in a trusted repository, its folder under the root.",
+          "description": "The members the snapshot yields as the reader reads them, invalid ones with their problems, in name order."
+        }
+      },
+      "required": [
+        "sourceId",
+        "outcome",
+        "commit",
+        "members"
+      ],
+      "description": "The folder was exported at the commit into the source's snapshot, now current, with the members it yields."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+        },
+        "outcome": {
+          "type": "string",
+          "const": "failed",
+          "description": "failed: the fetch could not reach the repository; the last good snapshot stays current."
+        },
+        "problem": {
+          "type": "string",
+          "enum": [
+            "authentication",
+            "not_found",
+            "network",
+            "git_failed"
+          ],
+          "description": "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line)."
+        },
+        "line": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What git said when the outcome began, its fatal: line where it wrote one, scrubbed of every secret."
+        }
+      },
+      "required": [
+        "sourceId",
+        "outcome",
+        "problem",
+        "line"
+      ],
+      "description": "The fetch could not reach the repository, for the probe's problem; the last good snapshot stays current."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+        },
+        "outcome": {
+          "type": "string",
+          "const": "layout_moved",
+          "description": "layout_moved: the folder yields no valid member at the commit fetched; the last good snapshot stays current."
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+          "description": "The commit fetched, at which the folder yields no valid member."
+        },
+        "folders": {
+          "type": "array",
+          "items": {
+            "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
             "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
             "type": "string"
           },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The member's description, trimmed; null when it has none, a description problem saying so."
-          },
-          "invocation": {
-            "type": "string",
-            "enum": [
-              "model+slash",
-              "slash-only"
-            ],
-            "description": "How a member is invoked: model+slash (the model may choose it, and a person may type /name), or slash-only (its frontmatter sets disable-model-invocation: true, so only /name invokes it)."
-          },
-          "problems": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "kind": {
-                  "type": "string",
-                  "enum": [
-                    "frontmatter",
-                    "name",
-                    "description"
-                  ],
-                  "description": "What is wrong: frontmatter (its frontmatter does not read as a YAML mapping, so nothing in it is taken), name (neither its frontmatter name nor its folder's or file's name passes the skill-name rule) or description (its frontmatter has no description, which the Agent Skills spec requires)."
-                },
-                "message": {
-                  "type": "string",
-                  "minLength": 1,
-                  "description": "What is wrong, for people: the names tried and why each fails."
-                }
-              },
-              "required": [
-                "kind",
-                "message"
-              ],
-              "description": "A problem that leaves a member invalid: it is listed with the problem and left out of the skill set."
-            },
-            "description": "Empty for a valid member; any problem leaves it invalid and out of the set."
-          }
-        },
-        "required": [
-          "name",
-          "path",
-          "description",
-          "invocation",
-          "problems"
-        ],
-        "description": "A member as the reader reads it in a repository's folder: its name, its folder from the folder read (. when that folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of the set."
+          "description": "The folders at that commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none."
+        }
       },
-      "description": "The members the snapshot yields as the reader reads them, invalid ones with their problems, in name order."
+      "required": [
+        "sourceId",
+        "outcome",
+        "commit",
+        "folders"
+      ],
+      "description": "The folder yields no valid member at the commit fetched, with the folders that would; the last good snapshot stays current."
     }
-  },
-  "required": [
-    "sourceId",
-    "outcome",
-    "commit",
-    "members"
   ],
-  "description": "skills.source-synced: a source's folder was exported at a commit into its snapshot, now current, with the members it yields."
+  "description": "skills.source-synced: what a sync of a source came to, appended only when the commit, the members or the outcome change: ok (the folder exported at a commit into its snapshot, now current, with its members), failed (the fetch could not reach the repository, the probe's problem) or layout_moved (no valid member at the commit fetched; the folders that would). Failed and layout_moved leave the last good snapshot current."
 }

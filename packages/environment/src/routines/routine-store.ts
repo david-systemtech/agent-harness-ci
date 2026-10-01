@@ -1,4 +1,5 @@
 import {
+  ROUTINE_PRESETS,
   ROUTINE_STREAM_KIND,
   type Ceiling,
   type DeliveryTarget,
@@ -19,6 +20,7 @@ import {
   type RoutineMoveLink,
   type RoutineSkippedPayload,
   type RoutineState,
+  type RoutineTrigger,
   type SkipEntry,
   type SkipReason,
 } from "@agent-harness/contracts";
@@ -44,14 +46,23 @@ import type { Reader } from "../sessions/session-tables.js";
  * `silent` and `no-change`, and left as it was by `cancelled`, `missed` and
  * `overlap`. The baseline (#526) is the pre-check of the latest firing that
  * ended with `baselineAdvanced`: its hash, when it ran, and its kept output,
- * which the next firing's diff reads. `handledThrough` is the scheduler's
- * (#527); until then it is null.
+ * which the next firing's diff reads.
+ *
+ * `handledThrough` (#527) is the latest due time handled: a firing's or a
+ * skip's from the schedule or a catch-up raises it to its due time, never
+ * lowers it; a run now's leaves it. It moves to the save time when the
+ * routine is created, when a disabled routine is enabled (by `enable` or by
+ * an edit of `enabled`), and when an edit changes its schedule or zone, so
+ * no earlier due time is owed. Instants are ISO strings, which compare as
+ * text.
  *
  * Each entry keeps the targets it delivers to (#525): a firing the ones its
  * `routine.firing-started` recorded, so an edit during it changes nothing
  * for it; a skip its routine's at its record, none once the routine is
  * deleted. Each `routine.delivery-attempted` joins its target's delivery on
- * the entry, which the history lists in the targets' order.
+ * the entry, which the history lists in the targets' order. A firing keeps
+ * the silence marker and the maximum duration it finishes under (#524),
+ * the presets for one recorded before they were.
  */
 
 export const ROUTINES_PROJECTOR = "routines";
@@ -72,7 +83,8 @@ export const ROUTINES_TABLES = {
     live_firing TEXT,
     last_outcome TEXT,
     failure_streak INTEGER NOT NULL DEFAULT 0,
-    baseline TEXT
+    baseline TEXT,
+    handled_through TEXT
   ) STRICT;
   CREATE UNIQUE INDEX routines_live_name ON routines (name_key) WHERE deleted_at IS NULL`,
   routine_entries: `CREATE TABLE routine_entries (
@@ -81,6 +93,8 @@ export const ROUTINES_TABLES = {
     position INTEGER NOT NULL,
     run_id TEXT,
     targets TEXT NOT NULL,
+    silence_marker TEXT,
+    max_duration_minutes INTEGER,
     entry TEXT NOT NULL
   ) STRICT;
   CREATE INDEX routine_entries_by_routine ON routine_entries (routine_id, position);
@@ -110,8 +124,8 @@ const save = (db: ProjectionDb, event: EventEnvelope, definition: RoutineDefinit
 
 const created = (db: ProjectionDb, event: EventEnvelope, payload: RoutineCreatedPayload): void => {
   db.run(
-    `INSERT INTO routines (id, position, name_key, definition, saved_under_ceiling, saved_by, created_at, moved_from)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO routines (id, position, name_key, definition, saved_under_ceiling, saved_by, created_at, moved_from, handled_through)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     event.streamId,
     event.sequence,
     routineNameKey(payload.definition.name),
@@ -120,21 +134,41 @@ const created = (db: ProjectionDb, event: EventEnvelope, payload: RoutineCreated
     savedBy(event),
     event.occurredAt,
     jsonOrNull(payload.movedFrom),
+    event.occurredAt,
   );
+};
+
+/** Whether a save from `before` to `after` owes nothing before it: the routine was enabled, or its schedule or zone changed. */
+const owesNothingBefore = (before: RoutineDefinition, after: RoutineDefinition): boolean =>
+  (!before.enabled && after.enabled) || json(before.schedule) !== json(after.schedule) || before.timezone !== after.timezone;
+
+/** Moves the routine's `handledThrough` to the save time when the save from `before` to `after` owes nothing before it. */
+const resetHandled = (db: ProjectionDb, event: EventEnvelope, before: RoutineDefinition, after: RoutineDefinition): void => {
+  if (owesNothingBefore(before, after)) db.run("UPDATE routines SET handled_through = ? WHERE id = ?", event.occurredAt, event.streamId);
+};
+
+/** Raises the routine's `handledThrough` to an entry's due time when the schedule or a catch-up made the entry; a run now's handles none. */
+const handled = (db: ProjectionDb, routineId: string, trigger: RoutineTrigger, dueAt: string): void => {
+  if (trigger === "run-now") return;
+  db.run("UPDATE routines SET handled_through = ? WHERE id = ? AND (handled_through IS NULL OR handled_through < ?)", dueAt, routineId, dueAt);
 };
 
 /** Some fields changed, the rest as they were: the fields read back from the log's JSON, where no field is undefined. */
 const edited = (db: ProjectionDb, event: EventEnvelope, payload: RoutineEditedPayload): void => {
   const definition = definitionOf(db, event.streamId);
   if (definition === null) return;
-  save(db, event, { ...definition, ...(payload.fields as Partial<RoutineDefinition>) }, payload.savedUnderCeiling);
+  const after: RoutineDefinition = { ...definition, ...(payload.fields as Partial<RoutineDefinition>) };
+  save(db, event, after, payload.savedUnderCeiling);
+  resetHandled(db, event, definition, after);
   db.run("UPDATE routines SET edited_at = ? WHERE id = ?", event.occurredAt, event.streamId);
 };
 
 const enabled = (db: ProjectionDb, event: EventEnvelope, payload: RoutineEnabledPayload): void => {
   const definition = definitionOf(db, event.streamId);
   if (definition === null) return;
-  save(db, event, { ...definition, enabled: true }, payload.savedUnderCeiling);
+  const after: RoutineDefinition = { ...definition, enabled: true };
+  save(db, event, after, payload.savedUnderCeiling);
+  resetHandled(db, event, definition, after);
   db.run("UPDATE routines SET moved_to = NULL WHERE id = ?", event.streamId);
 };
 
@@ -168,6 +202,8 @@ const settle = (db: ProjectionDb, routineId: string, outcome: RoutineLastOutcome
 
 const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringStartedPayload): void => {
   const { firingId, trigger, count, preCheck, dueAt, sessionId, runId, requestedBy, targets } = payload;
+  // A firing recorded before #524 names neither.
+  const { silenceMarker = null, maxDurationMinutes = null } = payload as Partial<RoutineFiringStartedPayload>;
   const entry: FiringEntry = {
     kind: "firing",
     id: firingId,
@@ -190,15 +226,18 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
     baselineAdvanced: null,
   };
   db.run(
-    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, entry) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, silence_marker, max_duration_minutes, entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     firingId,
     event.streamId,
     event.sequence,
     runId,
     json(targets),
+    silenceMarker,
+    maxDurationMinutes,
     json(entry),
   );
   db.run("UPDATE routines SET live_firing = ? WHERE id = ?", firingId, event.streamId);
+  handled(db, event.streamId, trigger, dueAt);
 };
 
 const firingEnded = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringEndedPayload): void => {
@@ -230,6 +269,7 @@ const skipped = (db: ProjectionDb, event: EventEnvelope, payload: RoutineSkipped
     json(delivery),
     json(entry),
   );
+  handled(db, event.streamId, trigger, dueAt);
   settle(db, event.streamId, { kind: "skip", entryId: skipId, reason, at: event.occurredAt }, reason);
 };
 
@@ -313,6 +353,7 @@ interface RoutineRow {
   last_outcome: string | null;
   failure_streak: number;
   baseline: string | null;
+  handled_through: string | null;
   /** The live firing's entry, joined from `routine_entries`. */
   live_entry: string | null;
 }
@@ -325,7 +366,7 @@ export interface StoredRoutine {
 
 /** A routine's row with its live firing's entry beside it. */
 const SELECT_ROUTINES = `SELECT r.id, r.definition, r.saved_under_ceiling, r.saved_by, r.created_at, r.edited_at, r.moved_from, r.moved_to,
-  r.last_outcome, r.failure_streak, r.baseline, e.entry AS live_entry
+  r.last_outcome, r.failure_streak, r.baseline, r.handled_through, e.entry AS live_entry
   FROM routines r LEFT JOIN routine_entries e ON e.id = r.live_firing`;
 
 /** A live firing as the state names it, from its entry. */
@@ -355,7 +396,7 @@ const storedOf = (row: RoutineRow): StoredRoutine => ({
     movedFrom: parsed<RoutineMoveLink>(row.moved_from),
     movedTo: parsed<RoutineMoveLink>(row.moved_to),
     baseline: baselineOf(row.baseline),
-    handledThrough: null,
+    handledThrough: row.handled_through,
     liveFiring: row.live_entry === null ? null : liveFiringOf(JSON.parse(row.live_entry) as FiringEntry),
     lastOutcome: parsed<RoutineLastOutcome>(row.last_outcome),
     failureStreak: row.failure_streak,
@@ -385,15 +426,25 @@ export const routineNamed = (reader: Reader, name: string): { readonly id: strin
 export interface LiveFiringRecord {
   readonly routineId: string;
   readonly entry: FiringEntry;
+  /** The marker its final text is read against (#524). */
+  readonly silenceMarker: string;
+  /** How long after its start its live run is interrupted (#524). */
+  readonly maxDurationMinutes: number;
 }
 
 /** The live firing whose `column` is `value`; null when none is. */
 const liveFiringWhere = (reader: Reader, column: "e.run_id" | "e.routine_id", value: string): LiveFiringRecord | null => {
-  const [row] = reader.all<{ routine_id: string; entry: string }>(
-    `SELECT e.routine_id, e.entry FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE ${column} = ?`,
+  const [row] = reader.all<{ routine_id: string; entry: string; silence_marker: string | null; max_duration_minutes: number | null }>(
+    `SELECT e.routine_id, e.entry, e.silence_marker, e.max_duration_minutes FROM routine_entries e JOIN routines r ON r.live_firing = e.id WHERE ${column} = ?`,
     value,
   );
-  return row === undefined ? null : { routineId: row.routine_id, entry: JSON.parse(row.entry) as FiringEntry };
+  if (row === undefined) return null;
+  return {
+    routineId: row.routine_id,
+    entry: JSON.parse(row.entry) as FiringEntry,
+    silenceMarker: row.silence_marker ?? ROUTINE_PRESETS.silenceMarker,
+    maxDurationMinutes: row.max_duration_minutes ?? ROUTINE_PRESETS.maxDurationMinutes,
+  };
 };
 
 /** The live firing whose run `runId` is; null when no live firing's is. */
@@ -401,6 +452,10 @@ export const liveFiringOfRun = (reader: Reader, runId: string): LiveFiringRecord
 
 /** The routine's live firing; null when none is live. */
 export const liveFiringOfRoutine = (reader: Reader, routineId: string): LiveFiringRecord | null => liveFiringWhere(reader, "e.routine_id", routineId);
+
+/** The ids of the routines with a live firing. */
+export const routinesWithLiveFirings = (reader: Reader): string[] =>
+  reader.all<{ id: string }>("SELECT id FROM routines WHERE live_firing IS NOT NULL").map((row) => row.id);
 
 /** Where the routine's entry `entryId` stands in its history; null when it has no such entry. */
 export const entryPosition = (reader: Reader, routineId: string, entryId: string): number | null =>

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "client.answer result",
+  "type": "object",
+  "properties": {
+    "taken": {
+      "type": "boolean",
+      "description": "Whether the call took this answer: false for a call unknown, past its deadline or answered already."
+    }
+  },
+  "required": [
+    "taken"
+  ],
+  "description": "Whether the answer reached the run."
+}

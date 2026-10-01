@@ -252,6 +252,58 @@ export const skillsSourcesRemove = defineMethod({
 });
 
 /**
+ * Pull now (skills spec, "Skill sources"; ADR 0029): a prepared command
+ * that syncs the source at once, or joins the sync of it already under way,
+ * and answers the source as that sync left it. A sync is a depth-one fetch
+ * of the branch the source follows within sixty seconds, then the folder
+ * exported at that commit into a new snapshot, now current. Its outcome is
+ * the source's `sync`: `ok`; `failed` with the probe's problem; or
+ * `layout_moved` when the folder yields no valid member, with the folders
+ * that would. Failed and layout_moved keep the last good snapshot current.
+ * The sync is the environment's: it appends `skills.source-synced` and
+ * `skills.updated` itself, and only when the commit, the members or the
+ * outcome change; the command appends nothing of its own. A source the
+ * environment does not track, or one removed while it synced, is
+ * `not_found` (data `kind: source`); a pinned source never syncs and is
+ * `conflict`, reason `pinned` (`SkillSourcePullConflict`).
+ */
+export const skillsSourcesPull = defineMethod({
+  name: "skills.sources.pull",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ sourceId: SkillSourceId }),
+  result: z.object({ source: SkillsViewSource.meta({ description: "The source as the sync left it: its commit, skill count, what the sync came to, and when it ended." }) }),
+  errors: [],
+});
+
+/**
+ * Pins a source, or unpins it (skills spec, "Pin and remove"; ADR 0029): a
+ * prepared command. A pin at the source's current commit is recorded as it
+ * is; a pin at another commit fetches it first, exports the folder at it
+ * into a snapshot, now current, and appends `skills.source-synced` with
+ * it. Following a branch again appends `skills.source-follow-set` and the
+ * source syncs at once, as the environment, after the command. A pinned
+ * source never syncs. `skills.source-follow-set` and `skills.updated` are
+ * appended unless the source already follows that. A source the
+ * environment does not track is `not_found` (data `kind: source`); a commit
+ * that cannot be fetched is `conflict`, reason `unreachable`, as the
+ * probe's, and one at which the folder yields no valid member is
+ * `conflict`, reason `no_skills`, with the folders that would
+ * (`SkillSourceFollowConflict`).
+ */
+export const skillsSourcesSetFollow = defineMethod({
+  name: "skills.sources.setFollow",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    sourceId: SkillSourceId,
+    follow: SkillSourceFollow.meta({ description: "What the source follows from now: a commit to pin it at (its current one, or another, which is fetched), or a branch (null for the remote's default) to sync from." }),
+  }),
+  result: z.object({ source: SkillsViewSource.meta({ description: "The source as skills.get lists it now; one unpinned has not synced yet." }) }),
+  errors: [],
+});
+
+/**
  * `skills.readiness`: a session, or an account and a workspace, never
  * both, with the names to answer and whether to read again. The
  * refinement is zod's half; the `oneOf` the export's.

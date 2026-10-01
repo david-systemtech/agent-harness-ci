@@ -1499,6 +1499,10 @@
       "title": "SkillsSourceRemovedPayload"
     },
     {
+      "path": "skills/events/skills.source-follow-set.json",
+      "title": "SkillsSourceFollowSetPayload"
+    },
+    {
       "path": "skills/view-member.json",
       "title": "SkillsViewMember"
     },
@@ -1617,6 +1621,22 @@
     {
       "path": "skills/source-add-conflict.json",
       "title": "SkillSourceAddConflict"
+    },
+    {
+      "path": "skills/source-no-skills.json",
+      "title": "SkillSourceNoSkills"
+    },
+    {
+      "path": "skills/source-pull-conflict.json",
+      "title": "SkillSourcePullConflict"
+    },
+    {
+      "path": "skills/source-follow-conflict.json",
+      "title": "SkillSourceFollowConflict"
+    },
+    {
+      "path": "skills/source-sync.json",
+      "title": "SkillSourceSync"
     },
     {
       "path": "skills/readiness/fix.json",
@@ -3397,6 +3417,18 @@
     {
       "path": "browser/chrome-updated.json",
       "title": "ChromeUpdatedPayload"
+    },
+    {
+      "path": "client-calls/call-id.json",
+      "title": "ClientCallId"
+    },
+    {
+      "path": "client-calls/browser-chrome.json",
+      "title": "BrowserChromeCall"
+    },
+    {
+      "path": "client-calls/call.json",
+      "title": "ClientCallPayload"
     },
     {
       "path": "settings/events/settings.updated.json",
@@ -6263,6 +6295,38 @@
       "title": "skills.sources.remove error"
     },
     {
+      "path": "methods/skills.sources.pull/params.json",
+      "title": "skills.sources.pull params"
+    },
+    {
+      "path": "methods/skills.sources.pull/result.json",
+      "title": "skills.sources.pull result"
+    },
+    {
+      "path": "methods/skills.sources.pull/response.json",
+      "title": "skills.sources.pull response"
+    },
+    {
+      "path": "methods/skills.sources.pull/error.json",
+      "title": "skills.sources.pull error"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/params.json",
+      "title": "skills.sources.setFollow params"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/result.json",
+      "title": "skills.sources.setFollow result"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/response.json",
+      "title": "skills.sources.setFollow response"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/error.json",
+      "title": "skills.sources.setFollow error"
+    },
+    {
       "path": "methods/skills.readiness/params.json",
       "title": "skills.readiness params"
     },
@@ -6409,6 +6473,18 @@
     {
       "path": "methods/browser.chromes.perform/error.json",
       "title": "browser.chromes.perform error"
+    },
+    {
+      "path": "methods/client.answer/params.json",
+      "title": "client.answer params"
+    },
+    {
+      "path": "methods/client.answer/result.json",
+      "title": "client.answer result"
+    },
+    {
+      "path": "methods/client.answer/error.json",
+      "title": "client.answer error"
     }
   ],
   "cases": [
@@ -6443,6 +6519,10 @@
     {
       "path": "cases/schedule-due-times.json",
       "title": "Schedule due times"
+    },
+    {
+      "path": "cases/silence.json",
+      "title": "Silence"
     }
   ],
   "data": [
@@ -8274,6 +8354,26 @@
       "error": "methods/skills.sources.remove/error.json"
     },
     {
+      "name": "skills.sources.pull",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.sources.pull/params.json",
+      "result": "methods/skills.sources.pull/result.json",
+      "response": "methods/skills.sources.pull/response.json",
+      "error": "methods/skills.sources.pull/error.json"
+    },
+    {
+      "name": "skills.sources.setFollow",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.sources.setFollow/params.json",
+      "result": "methods/skills.sources.setFollow/result.json",
+      "response": "methods/skills.sources.setFollow/response.json",
+      "error": "methods/skills.sources.setFollow/error.json"
+    },
+    {
       "name": "skills.readiness",
       "scope": "read",
       "kind": "query",
@@ -8375,6 +8475,15 @@
       "params": "methods/browser.chromes.perform/params.json",
       "result": "methods/browser.chromes.perform/result.json",
       "error": "methods/browser.chromes.perform/error.json"
+    },
+    {
+      "name": "client.answer",
+      "scope": "runs:drive",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/client.answer/params.json",
+      "result": "methods/client.answer/result.json",
+      "error": "methods/client.answer/error.json"
     }
   ]
 }

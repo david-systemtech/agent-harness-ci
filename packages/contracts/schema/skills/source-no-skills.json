@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillSourceNoSkills",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string",
+      "const": "no_skills"
+    },
+    "folders": {
+      "type": "array",
+      "items": {
+        "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+        "type": "string"
+      },
+      "description": "The folders at the commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none."
+    }
+  },
+  "required": [
+    "reason",
+    "folders"
+  ],
+  "description": "The folder yields no valid member at the commit; the folders that would."
+}

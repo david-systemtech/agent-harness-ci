@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
+  ROUTINE_STREAM_KIND,
   WorkspaceRequest,
   type CannotStartReason,
   type Mode,
@@ -25,13 +26,24 @@ import { routineAccount, type RoutineAccounts } from "./listing.js";
 import { preCheckBlock, type BlockBaseline } from "./pre-check-block.js";
 import type { PreCheckRunner } from "./pre-check.js";
 import { appendRoutineRecord, routineActor, routineStream } from "./records.js";
-import { liveFiringOfRoutine, liveRoutine, routineBaseline } from "./routine-store.js";
+import { liveFiringOfRoutine, liveRoutine, routineBaseline, routinesWithLiveFirings } from "./routine-store.js";
 
 /**
  * A firing's start (routines spec, "A firing": Start; #523): what run now
- * feeds, and the scheduler will (#527). The start runs in the background, so
- * run now answers at once with the firing's id, which its record then
- * shows: a firing, or the skip it became.
+ * and the scheduler (#527) feed. The start runs in the background, so run
+ * now answers at once with the firing's id, which its record then shows: a
+ * firing, or the skip it became.
+ *
+ * - **Four at a time** (#527): at most four firings are in a pre-check or a
+ *   run on the environment, whatever started them: from a start's take-up
+ *   to its skip, or to its firing's end. Later ones wait in memory, in the
+ *   order they were asked for, and are taken up as slots free; the
+ *   environment's close drops them, and their due times stay unhandled for
+ *   the next start's missed rule.
+ * - **Overlap** (#527): a firing asked for, or taken up, while a firing of
+ *   its routine is in its pre-check or live is a skip `overlap`. One taken up
+ *   after its routine was deleted is dropped, as is one from the schedule
+ *   after its routine was disabled.
  *
  * - **The pre-check** (#526), first, when the firing asks for one and its
  *   routine has one: its output compared with the baseline's. Unchanged
@@ -57,14 +69,18 @@ import { liveFiringOfRoutine, liveRoutine, routineBaseline } from "./routine-sto
  *   run, through the actor start (#131) as a routine by its name and
  *   effort, under the firing's ceiling, starting with the header and the
  *   instructions and the pre-check's block; and `routine.firing-started`
- *   with the pre-check and the targets. A refusal
- *   anywhere, or a failure, rolls it all back: the resolver's undo removes
- *   what it made, and the entry is `cannot-start` `start_refused`, so no
- *   firing session is left without a run.
+ *   with the pre-check, and the targets, the silence marker and the
+ *   maximum duration it finishes under (#524). A refusal anywhere, or a
+ *   failure, rolls it all back: the resolver's undo removes what it made,
+ *   and the entry is `cannot-start` `start_refused`, so no firing session
+ *   is left without a run.
  */
 
 /** The tag every firing's session carries, beside its routine's name. */
 const ROUTINE_TAG = "routine";
+
+/** How many firings may be in a pre-check or a run at once on an environment (routines spec, "The scheduler"). */
+export const FIRINGS_AT_ONCE = 4;
 
 /** A firing to start. */
 export interface FiringStart {
@@ -104,9 +120,9 @@ export interface FiringStarterOptions {
 }
 
 export interface FiringStarter {
-  /** Whether a firing of the routine is starting or live, so another is not started. */
+  /** Whether a firing of the routine is waiting for a slot, starting or live, so another is not asked for. */
   live(routineId: string): boolean;
-  /** Starts `firing` in the background: its record says how it went. */
+  /** Starts `firing` in the background once a slot is free, or skips it `overlap`: its record says how it went. */
   start(firing: FiringStart): void;
   /** Lets the starts under way finish, each making nothing more once it sees the environment is closing. */
   close(): Promise<void>;
@@ -122,7 +138,7 @@ interface CannotStart {
 }
 
 /** A skip as the firing records it: why, why it could not start when that is why, what a person should know, and the pre-check it ran. */
-interface Skip {
+export interface Skip {
   readonly reason: SkipReason;
   readonly cannotStart: CannotStartReason | null;
   readonly detail: string | null;
@@ -134,6 +150,39 @@ interface Observation {
   readonly record: PreCheckRecord;
   readonly baseline: BlockBaseline | null;
 }
+
+/** What records a skip: the log, the clock that stamps it, and the environment whose stream carries its notice. */
+export interface SkipRecorder {
+  readonly log: EventLog;
+  readonly clock: () => Date;
+  readonly environmentId: string;
+}
+
+/** A skip's due time, as the firing it would have been names it. */
+export type SkippedDue = Pick<FiringStart, "routineId" | "firingId" | "trigger" | "dueAt" | "count">;
+
+/** Records `due` as a skip, under its id, as the routine, in a command of its own; a `no-change` skip raises no `routine.updated`. */
+export const recordSkip = ({ log, clock, environmentId }: SkipRecorder, due: SkippedDue, skipped: Skip): void => {
+  const actor = routineActor(due.routineId);
+  const payload: RoutineSkippedPayload = {
+    skipId: due.firingId,
+    trigger: due.trigger,
+    dueAt: due.dueAt,
+    reason: skipped.reason,
+    cannotStart: skipped.cannotStart,
+    count: due.count,
+    detail: skipped.detail,
+    preCheck: skipped.preCheck,
+  };
+  const change = skipped.reason === "no-change" ? null : "skipped";
+  log.command({ actor, commandId: due.firingId }, (tx) => {
+    appendRoutineRecord(log, environmentId, due.routineId, { event: { type: "routine.skipped", payload, occurredAt: clock().toISOString() }, change }, { tx, actor, commandId: due.firingId });
+    return { aggregate: routineStream(due.routineId), result: null };
+  });
+};
+
+/** A skip with no pre-check and no detail, for a reason other than `cannot-start`: `overlap` or `missed`. */
+export const plainSkip = (reason: "overlap" | "missed"): Skip => ({ reason, cannotStart: null, detail: null, preCheck: null });
 
 /** A pre-check's failure as its skip's detail: why, then the last of the script's standard error when it wrote any. */
 const failureDetail = (record: PreCheckRecord): string => {
@@ -199,34 +248,25 @@ const workspaceDetail = (refused: { readonly message: string; readonly data: Rea
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 export const createFiringStarter = (options: FiringStarterOptions): FiringStarter => {
-  const { log, clock, environmentId, host, resolver, preChecks } = options;
+  const { log, environmentId, host, resolver, preChecks } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  /** The firing starting for each routine: from the ask to its record's commit. */
+  /** The firing starting for each routine: from its take-up to its record's commit. */
   const starting = new Map<string, string>();
+  /** The firings asked for while every slot was taken, in the order they were asked for. */
+  const waiting: FiringStart[] = [];
   const underWay = new Set<Promise<void>>();
   /** Stops the pre-checks under way once the environment is closing. */
   const closer = new AbortController();
   let closing = false;
 
   /** Records the firing as a skip, under its id, as the routine; a `no-change` skip raises no `routine.updated`. */
-  const skip = (firing: FiringStart, skipped: Skip): void => {
-    const actor = routineActor(firing.routineId);
-    const payload: RoutineSkippedPayload = {
-      skipId: firing.firingId,
-      trigger: firing.trigger,
-      dueAt: firing.dueAt,
-      reason: skipped.reason,
-      cannotStart: skipped.cannotStart,
-      count: firing.count,
-      detail: skipped.detail,
-      preCheck: skipped.preCheck,
-    };
-    const change = skipped.reason === "no-change" ? null : "skipped";
-    log.command({ actor, commandId: firing.firingId }, (tx) => {
-      appendRoutineRecord(log, environmentId, firing.routineId, { event: { type: "routine.skipped", payload, occurredAt: clock().toISOString() }, change }, { tx, actor, commandId: firing.firingId });
-      return { aggregate: routineStream(firing.routineId), result: null };
-    });
-  };
+  const skip = (firing: FiringStart, skipped: Skip): void => recordSkip(options, firing, skipped);
+
+  /** Whether a firing of the routine is in its pre-check or live. */
+  const busy = (routineId: string): boolean => starting.has(routineId) || liveFiringOfRoutine(reader, routineId) !== null;
+
+  /** How many firings hold a slot: those starting, and those live, each once. */
+  const held = (): number => new Set([...starting.keys(), ...routinesWithLiveFirings(reader)]).size;
 
   /** Records the firing as a skip `cannot-start`, with the pre-check it ran. */
   const cannotStart = (firing: FiringStart, why: CannotStart, observation: Observation | null): void =>
@@ -314,6 +354,8 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
       requestedBy: firing.requestedBy,
       preCheck: observation?.record ?? null,
       targets: definition.delivery,
+      silenceMarker: definition.silenceMarker,
+      maxDurationMinutes: definition.maxDurationMinutes,
     };
     appendRoutineRecord(log, environmentId, routineId, { event: { type: "routine.firing-started", payload }, change: "firing-started" }, attribution);
   };
@@ -361,21 +403,61 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     }
   };
 
+  /** Begins the firing in the background, holding a slot until its record commits; the next waiting ones are taken up after. */
+  const launch = (firing: FiringStart): void => {
+    const { routineId, firingId } = firing;
+    starting.set(routineId, firingId);
+    const work = begin(firing)
+      .catch((error: unknown) => console.error(`Starting the firing ${firingId} of the routine ${routineId} failed:`, error))
+      .finally(() => {
+        if (starting.get(routineId) === firingId) starting.delete(routineId);
+        underWay.delete(work);
+        takeUp();
+      });
+    underWay.add(work);
+  };
+
+  /**
+   * Takes up a waiting firing: dropped when its routine is gone, or when it
+   * is the schedule's and its routine is disabled now; a skip `overlap`
+   * when a firing of its routine is busy; else begun.
+   */
+  const takeUpOne = (firing: FiringStart): void => {
+    const routine = liveRoutine(reader, firing.routineId);
+    if (routine === null || (firing.trigger !== "run-now" && !routine.definition.enabled)) return;
+    if (busy(firing.routineId)) return skip(firing, plainSkip("overlap"));
+    launch(firing);
+  };
+
+  /** Takes up waiting firings, in order, while a slot is free; one whose take-up fails is logged and the next taken up. */
+  const takeUp = (): void => {
+    for (let next = waiting[0]; !closing && next !== undefined && held() < FIRINGS_AT_ONCE; next = waiting[0]) {
+      waiting.shift();
+      try {
+        takeUpOne(next);
+      } catch (error) {
+        console.error(`Taking up the firing ${next.firingId} of the routine ${next.routineId} failed:`, error);
+      }
+    }
+  };
+
+  // A firing's end frees its slot: the next waiting firing is taken up once the end commits.
+  const unsubscribe = log.subscribe((event) => {
+    if (event.streamKind === ROUTINE_STREAM_KIND && event.type === "routine.firing-ended") takeUp();
+  });
+
   return {
-    live: (routineId) => starting.has(routineId) || liveFiringOfRoutine(reader, routineId) !== null,
+    live: (routineId) => busy(routineId) || waiting.some((firing) => firing.routineId === routineId),
     start(firing) {
-      const { routineId, firingId } = firing;
-      starting.set(routineId, firingId);
-      const work = begin(firing)
-        .catch((error: unknown) => console.error(`Starting the firing ${firingId} of the routine ${routineId} failed:`, error))
-        .finally(() => {
-          if (starting.get(routineId) === firingId) starting.delete(routineId);
-          underWay.delete(work);
-        });
-      underWay.add(work);
+      if (closing) return;
+      if (busy(firing.routineId)) return skip(firing, plainSkip("overlap"));
+      waiting.push(firing);
+      takeUp();
     },
     async close() {
       closing = true;
+      waiting.length = 0;
+      unsubscribe();
       closer.abort();
       await Promise.all(underWay);
     },

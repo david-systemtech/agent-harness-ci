@@ -81,12 +81,13 @@ describe("routines.create", () => {
         movedFrom: null,
         movedTo: null,
         baseline: null,
-        handledThrough: null,
+        // Saved now, it owes no due time before now (#527): its first is Monday 03:00 in Manila.
+        handledThrough: MANUAL_CLOCK_START,
         liveFiring: null,
         lastOutcome: null,
         failureStreak: 0,
       },
-      nextDueAt: null,
+      nextDueAt: "2026-09-27T19:00:00.000Z",
       attention: [],
     });
   });

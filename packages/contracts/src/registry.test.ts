@@ -296,6 +296,8 @@ describe("the method registry", () => {
       "skills.setEnabled",
       "skills.sources.add",
       "skills.sources.remove",
+      "skills.sources.pull",
+      "skills.sources.setFollow",
       "trust.decide",
       "trust.revoke",
       "browser.chromes.rename",
@@ -559,6 +561,8 @@ describe("the method registry", () => {
       | "skills.setEnabled"
       | "skills.sources.add"
       | "skills.sources.remove"
+      | "skills.sources.pull"
+      | "skills.sources.setFollow"
       | "skills.readiness"
       | "trust.get"
       | "trust.list"
@@ -570,6 +574,7 @@ describe("the method registry", () => {
       | "browser.chromes.rename"
       | "browser.chromes.unpair"
       | "browser.chromes.perform"
+      | "client.answer"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

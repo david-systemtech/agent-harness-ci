@@ -137,7 +137,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const where: RoutineSurroundings = { reader, accounts: options.accounts, scriptPresent: (path) => options.scripts.present(path) };
 
-  const listed = (routine: StoredRoutine): ListedRoutine => listRoutine(routine, where, readSettings(reader)["permissions.unattended.mode"]);
+  const listed = (routine: StoredRoutine): ListedRoutine => listRoutine(routine, where, readSettings(reader)["permissions.unattended.mode"], clock());
 
   const ceilingOf = (clientSession: VerifiedClientSession): Ceiling => currentCeiling(options.ceilingOf, clientSession);
 
@@ -349,7 +349,8 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      * once: the firing starter starts it once the command commits, under
      * the routine's definition as it is now and the lower of its saved
      * ceiling and the caller's. Refused `conflict` `firing_running` while a
-     * firing of the routine is starting or live. Its routine's pre-check
+     * firing of the routine is waiting for a slot, starting or live; it waits
+     * for a slot itself while four firings are (#527). Its routine's pre-check
      * runs first only when `withPreCheck` asks (#526); a firing without one
      * leaves the baseline alone.
      */

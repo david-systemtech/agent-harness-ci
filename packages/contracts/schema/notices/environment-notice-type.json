@@ -291,6 +291,11 @@
       "type": "string",
       "const": "chrome.updated",
       "description": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again."
+    },
+    {
+      "type": "string",
+      "const": "client.call",
+      "description": "A call addressed to one client session, which answers it with client.answer before its deadline; every other client leaves it alone."
     }
   ],
   "description": "An environment notice's event type, each type described by what it tells a client."
