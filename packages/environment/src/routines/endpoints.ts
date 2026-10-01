@@ -4,19 +4,24 @@ import {
   ROUTINE_WEBHOOK_VERSION,
   WEBHOOK_SECRET_PREFIX,
   addressClassOf,
+  displayReference,
   hostOf,
   invalidParams,
   webhookKey,
   type AddressClass,
   type ParamsOf,
+  type KeyManagerReferenceHolder,
   type RoutineEndpointSetPayload,
   type WebhookEndpoint,
   type WebhookPayload,
 } from "@agent-harness/contracts";
+import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
-import type { CommandRejection, MethodHandlers } from "../serve/methods.js";
+import type { MoveSource } from "../key-managers/moves.js";
+import { createEndpointMoveSource } from "./endpoint-move-source.js";
+import type { CommandRejection, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { listStoredEndpoints, storedEndpoint, type EndpointResult, type StoredEndpoint } from "./endpoint-store.js";
@@ -39,8 +44,8 @@ import { postWebhook } from "./webhook-post.js";
  * carries it. It is written before the set's transaction, the value it
  * replaces put back when the set is not accepted; a removal deletes it once
  * it commits, and a start deletes any entry an endpoint with a pasted
- * secret no longer holds. A key-manager reference as the secret is #536's,
- * `unsupported` until then.
+ * secret no longer holds. A key-manager reference is resolved afresh for
+ * each attempt, held for scrubbing until that attempt ends (#536).
  *
  * The URL is `https`, or `http` only to a host the clear text never leaves
  * the machine or the private network for: loopback (`localhost` among it),
@@ -88,12 +93,10 @@ const invalid = (path: readonly string[], message: string, data: Record<string, 
   return new ContractError({ ...error, data: { ...error.data, ...data } });
 };
 
-/** The pasted secret a set carries; undefined for none. Throws the refusal of a reference (#536's) and of a whsec_ secret that gives no key. */
+/** The pasted secret a set carries; undefined for none. Throws for a whsec_ secret that gives no key; a reference is read per attempt. */
 const pastedSecret = (secret: ParamsOf<"routines.endpoints.set">["secret"]): string | undefined => {
   if (secret === undefined) return undefined;
-  if (secret.kind === "reference") {
-    throw invalid(["secret"], "A key-manager reference as an endpoint's secret is not supported yet: paste the secret.", { reason: "unsupported" });
-  }
+  if (secret.kind === "reference") return undefined;
   if (webhookKey(secret.secret) === null) {
     throw invalid(["secret", "secret"], `A ${WEBHOOK_SECRET_PREFIX} secret is the prefix and its key in padded standard base64, which this secret is not.`);
   }
@@ -112,12 +115,16 @@ export interface RoutineEndpointsOptions {
   readonly name: () => string;
   /** Where pasted secrets are kept: the vault the environment holds, which registers each for scrubbing. */
   readonly vault: Vault;
+  /** Reads a reference afresh for each delivery or test; owns its scrub registration until released. */
+  readonly keyManagers: KeyManagerRegistry;
   /** Whether the host `url` reaches is on the denylist's hosts, as the denylist is now. */
   readonly denylisted: (url: string) => boolean;
   /** What error text passes before a client reads it. */
   readonly scrub: Pick<ScrubRegistry, "scrubOutput">;
   /** How long a test's POST may take; preset ten seconds. */
   readonly timeoutMs?: number;
+  /** The current label of a reference's connection, or null when it is absent. */
+  readonly connectionLabel: (id: string) => string | null;
 }
 
 type EndpointMethodName = "routines.endpoints.set" | "routines.endpoints.remove" | "routines.endpoints.list" | "routines.endpoints.test";
@@ -125,9 +132,11 @@ type EndpointMethodName = "routines.endpoints.set" | "routines.endpoints.remove"
 export interface RoutineEndpoints {
   /** Deletes the vault entries no endpoint with a pasted secret holds: a removal's delete that never ran. Never rejects. */
   start(): Promise<void>;
-  /** Resolves the endpoint and its secret per delivery; #536 adds reference resolution here. */
+  /** Resolves the endpoint and its secret per delivery; the caller releases a resolved reference when its attempt ends. */
   resolve(name: string): Promise<DeliveryEndpoint>;
   readonly handlers: Required<Pick<MethodHandlers, EndpointMethodName>>;
+  readonly moveSource: MoveSource;
+  referenceHolders(connectionId: string): KeyManagerReferenceHolder[];
 }
 
 export const createRoutineEndpoints = (options: RoutineEndpointsOptions): RoutineEndpoints => {
@@ -142,7 +151,9 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
     const tested = tests.get(endpoint.name);
     const test = tested?.setSequence === endpoint.setSequence ? tested.result : null;
     const lastResult = test !== null && (endpoint.delivered === null || test.at >= endpoint.delivered.at) ? test : endpoint.delivered;
-    return { name: endpoint.name, url: endpoint.url, secretKind: endpoint.secretKind, lastResult };
+    return { name: endpoint.name, url: endpoint.url, secretKind: endpoint.secretKind, lastResult,
+      ...(endpoint.reference !== null && { reference: displayReference(endpoint.reference, options.connectionLabel(endpoint.reference.connectionId)) }),
+    };
   };
 
   /** Deletes an endpoint's vault entry once its removal committed; one left behind is deleted by the next start. */
@@ -165,6 +176,49 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
     };
   };
 
+  const resolve = async (name: string, purpose: string): Promise<DeliveryEndpoint> => {
+    const endpoint = storedEndpoint(reader, name);
+    if (endpoint === null) return { error: `No webhook endpoint ${name} is on this environment.`, retryable: false };
+    if (endpoint.secretKind === "reference" && endpoint.reference !== null) {
+      const answer = await options.keyManagers.resolve({ reference: endpoint.reference, owner: `endpoint:${name}`, purpose });
+      if (answer.outcome === "unavailable") return { error: answer.code, retryable: true };
+      return { url: endpoint.url, secret: answer.value, release: answer.release };
+    }
+    const secret = endpoint.secretKind === "pasted" ? await vault.get(secretEntry(name)) : undefined;
+    if (secret === undefined) return { error: `The webhook endpoint ${name} has no secret: set one with routines.endpoints.set, then test it.`, retryable: false };
+    return { url: endpoint.url, secret };
+  };
+
+  const set: PreparedCommand<"routines.endpoints.set"> = {
+    prepare: async (params, context) => {
+      const problem = urlProblem(params.url);
+      if (problem !== null) throw invalid(["url"], problem);
+      const secret = pastedSecret(params.secret);
+      if (options.denylisted(params.url)) {
+        const host = hostOf(params.url) ?? params.url;
+        const rejected: CommandRejection<"denylisted"> = { code: "denylisted", message: `${host} is on the denylist's hosts.`, data: { host } };
+        return () => ({ aggregate: stream, rejected });
+      }
+      if (secret !== undefined) {
+        const entry = secretEntry(params.name);
+        const replaced = await vault.get(entry);
+        context.onUndo(() => (replaced === undefined ? vault.delete(entry) : vault.set(entry, replaced)));
+        await vault.set(entry, secret);
+      }
+      return (_params, command) => {
+        const previous = storedEndpoint(reader, params.name);
+        const secretKind = params.secret?.kind ?? previous?.secretKind ?? "missing";
+        const reference = params.secret?.kind === "reference" ? params.secret.reference : params.secret === undefined ? previous?.reference : null;
+        if (previous?.secretKind === "pasted" && secretKind === "reference") command.tx.afterCommit(() => forget(params.name));
+        const payload: RoutineEndpointSetPayload = { name: params.name, url: params.url, secretKind, ...(reference != null && { reference }) };
+        const endpoint: WebhookEndpoint = { name: params.name, url: params.url, secretKind, lastResult: null,
+          ...(reference != null && { reference: displayReference(reference, options.connectionLabel(reference.connectionId)) }),
+        };
+        return { aggregate: stream, result: { endpoint }, events: [{ type: "routine.endpoint-set", payload: { ...payload } }] };
+      };
+    },
+  };
+
   return {
     async start() {
       const held = new Set(listStoredEndpoints(reader).flatMap((endpoint) => (endpoint.secretKind === "pasted" ? [secretEntry(endpoint.name)] : [])));
@@ -175,14 +229,11 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
       }
     },
 
-    async resolve(name) {
-      const endpoint = storedEndpoint(reader, name);
-      if (endpoint === null) return { error: `No webhook endpoint ${name} is on this environment.`, retryable: false };
-      if (endpoint.secretKind === "reference") return { error: `The webhook endpoint ${name}'s secret reference could not be resolved.`, retryable: true };
-      const secret = endpoint.secretKind === "pasted" ? await vault.get(secretEntry(name)) : undefined;
-      if (secret === undefined) return { error: `The webhook endpoint ${name} has no secret.`, retryable: false };
-      return { url: endpoint.url, secret };
-    },
+    resolve: (name) => resolve(name, "delivery"),
+    moveSource: createEndpointMoveSource({ log, reader, vault, set }),
+    referenceHolders: (connectionId) => listStoredEndpoints(reader)
+      .filter((endpoint) => endpoint.secretKind === "reference" && endpoint.reference?.connectionId.toLowerCase() === connectionId.toLowerCase())
+      .map((endpoint) => ({ kind: "endpoint", id: endpoint.name, name: endpoint.name })),
 
     handlers: {
       "routines.endpoints.list": () => ({ endpoints: listStoredEndpoints(reader).map(listed) }),
@@ -193,29 +244,7 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
        * the set is accepted. Inside it, records the endpoint with where its
        * secret is: pasted when one came, else the kind it held, else missing.
        */
-      "routines.endpoints.set": {
-        prepare: async (params, context) => {
-          const problem = urlProblem(params.url);
-          if (problem !== null) throw invalid(["url"], problem);
-          const secret = pastedSecret(params.secret);
-          if (options.denylisted(params.url)) {
-            const host = hostOf(params.url) ?? params.url;
-            const rejected: CommandRejection<"denylisted"> = { code: "denylisted", message: `${host} is on the denylist's hosts.`, data: { host } };
-            return () => ({ aggregate: stream, rejected });
-          }
-          if (secret !== undefined) {
-            const entry = secretEntry(params.name);
-            const replaced = await vault.get(entry);
-            context.onUndo(() => (replaced === undefined ? vault.delete(entry) : vault.set(entry, replaced)));
-            await vault.set(entry, secret);
-          }
-          return () => {
-            const secretKind = secret !== undefined ? "pasted" : (storedEndpoint(reader, params.name)?.secretKind ?? "missing");
-            const payload: RoutineEndpointSetPayload = { name: params.name, url: params.url, secretKind };
-            return { aggregate: stream, result: { endpoint: { ...payload, lastResult: null } }, events: [{ type: "routine.endpoint-set", payload: { ...payload } }] };
-          };
-        },
-      },
+      "routines.endpoints.set": set,
 
       "routines.endpoints.remove": (params, context) => {
         if (storedEndpoint(reader, params.name) === null) return { aggregate: stream, rejected: endpointNotFound(params.name) };
@@ -227,24 +256,25 @@ export const createRoutineEndpoints = (options: RoutineEndpointsOptions): Routin
       "routines.endpoints.test": async (params) => {
         const endpoint = storedEndpoint(reader, params.name);
         if (endpoint === null) throw new ContractError(endpointNotFound(params.name));
-        const secret = endpoint.secretKind === "pasted" ? await vault.get(secretEntry(endpoint.name)) : undefined;
-        if (secret === undefined) {
-          return { status: null, durationMs: 0, error: `The webhook endpoint ${endpoint.name} has no secret: set one with routines.endpoints.set, then test it.` };
+        const resolved = await resolve(endpoint.name, "test");
+        if ("error" in resolved) return { status: null, durationMs: 0, error: resolved.error };
+        try {
+          const posted = await postWebhook({
+            ...resolved,
+            id: `test-${randomUUID()}`,
+            body: JSON.stringify(testPayload(endpoint.name)),
+            clock,
+            ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
+          });
+          const error = posted.error === null ? null : options.scrub.scrubOutput(posted.error);
+          tests.set(endpoint.name, {
+            setSequence: endpoint.setSequence,
+            result: { at: clock.now().toISOString(), result: error === null ? "delivered" : "failed", status: posted.status, error },
+          });
+          return { ...posted, error };
+        } finally {
+          resolved.release?.();
         }
-        const posted = await postWebhook({
-          url: endpoint.url,
-          secret,
-          id: `test-${randomUUID()}`,
-          body: JSON.stringify(testPayload(endpoint.name)),
-          clock,
-          ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }),
-        });
-        const error = posted.error === null ? null : options.scrub.scrubOutput(posted.error);
-        tests.set(endpoint.name, {
-          setSequence: endpoint.setSequence,
-          result: { at: clock.now().toISOString(), result: error === null ? "delivered" : "failed", status: posted.status, error },
-        });
-        return { ...posted, error };
       },
     },
   };

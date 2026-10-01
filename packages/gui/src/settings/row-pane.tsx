@@ -13,6 +13,7 @@ import { PermissionsPane } from "../permissions/permissions-pane.js";
 import { InstructionsPane } from "../instructions/instructions-pane.js";
 import { THIS_MACHINE } from "../frame/sidebar-region.js";
 import { YourMachines } from "../machines/your-machines.js";
+import { SkillsPane } from "../skills/skills-pane.js";
 import { ServicePane } from "../service/service-pane.js";
 import { SetupPane } from "../setup/setup-pane.js";
 import { useCheckHomedSteps } from "../setup/use-setup.js";
@@ -113,6 +114,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "environments.access": AccessPane,
   "environments.service": ServicePane,
   "knowledge.instructions": InstructionsPane,
+  "knowledge.skills": SkillsPane,
   ...APPEARANCE_PANES,
 };
 

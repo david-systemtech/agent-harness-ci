@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SCOPES, registry, type ClientCallPayload, type JsonObject, type ParamsOf, type SessionBrowser } from "@agent-harness/contracts";
+import { SCOPES, registry, type ClientCallPayload, type JsonObject, type ParamsOf, type PromptOpenedPayload, type SessionBrowser } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { callHostTool, end, fakeAdapter, gate, type FakeAdapter, type Script } from "../../test/fake-adapter.js";
@@ -159,7 +159,7 @@ describe("the call", () => {
     expect(deadlines).toEqual([after(18_000), after(7_000), after(5_000)]);
 
     // The tools carry no allowance until the gate gives one (#557); the relay's driver carries what a call holds.
-    const relay = createBrowserRelay({ log: t.env.log, clock: t.clock, stream: { kind: "environment", id: t.env.id }, connected: () => true, clientLabel: () => undefined });
+    const relay = createBrowserRelay({ log: t.env.log, clock: t.clock, stream: { kind: "environment", id: t.env.id }, connected: () => true, clientLabel: () => undefined, scrub: (text) => t.scrub.scrub(text) });
     onCleanup(() => relay.close());
     const allowed = { environmentId: DESK, chromeId: null, sessionId: id, runId };
     void relay.driverOf(allowed).perform({ pageKey: `${t.env.id}/${id}`, command: { verb: "open", args: { url: "https://www.paypal.com/" } }, allowance: { host: "www.paypal.com" } });
@@ -222,6 +222,28 @@ describe("the call", () => {
     ]);
     expect(environmentEvents(t).filter((event) => event.sequence > before && event.type === "client.call")).toEqual([]);
     expect(watcher.isOpen()).toBe(true);
+  });
+
+  it("is not made when the verb's arguments hold a value the scrub registry holds: the verb is refused with a sentence, and the log holds no part of the value", async () => {
+    const t = await start();
+    const starter = await clientNamed(t, "David's desktop");
+    const id = await sessionWith(starter);
+    const secret = "token-for-tests";
+    t.scrub.register(secret, { owner: "test:key-manager" });
+    const before = t.env.log.head();
+
+    const { runId, answers } = await startRun(t, starter, id, ["browser_type", { ref: "e1", text: `Signed in with ${secret}`, snapshot: false }]);
+    await untilEnded(t, id, runId);
+
+    expect(answers).toEqual([
+      {
+        text: `What this call would send to the Chrome holds a secret this environment keeps, such as a key manager's or a forge's credential or a run's token. A verb for this Chrome goes to the client "David's desktop" through the environment's log, which never holds such a secret, so nothing was sent and the page is unchanged. Ask the person to enter it on the Chrome's machine themselves.`,
+        isError: true,
+      },
+    ]);
+    const appended = t.env.log.read<{ type: string; payload: string }>("SELECT type, payload FROM events WHERE sequence > ?", before);
+    expect(appended.filter((event) => event.type === "client.call")).toEqual([]);
+    expect(appended.filter((event) => event.payload.includes(secret))).toEqual([]);
   });
 });
 
@@ -311,5 +333,32 @@ describe("the deadline", () => {
       { text: `The client "David's desktop" did not answer within 20 seconds. Try again; if it still does not answer, ask the person to look at that client.`, isError: true },
     ]);
     expect(await answerWith(starter, { callId: call.callId, ok: true, result: NAVIGATED })).toEqual({ taken: false });
+  });
+});
+
+
+describe("the two denylists of a relayed Chrome", () => {
+  it("asks about an entry only the Chrome's environment lists, names that environment and relays the person's allowance", async () => {
+    const t = await start();
+    const starter = await clientNamed(t, "David's desktop");
+    const calls = await hearing(t, starter);
+    const id = await sessionWith(starter);
+    const address = "https://payments.example/pay";
+    const match = { section: "browserDomains" as const, entry: { id: "payments-for-tests", pattern: "payments.example", note: "Payments", preset: false, enabled: true }, matched: address };
+    const { runId, answers } = await startRun(t, starter, id, ["browser_open", { address, snapshot: false }]);
+    const initial = await calls.next();
+    expect(initial.payload.allowance).toBeUndefined();
+    await answerWith(starter, { callId: initial.callId, ok: true, result: { ok: false, reason: `The page went to ${address}, which the denylist lists (payments.example), so it was stopped at about:blank.`, denylist: { frame: "top-level", match } } });
+    await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "prompt.opened")).toHaveLength(1), { timeout: WAIT_MS });
+    const p = eventsOf(t, id).find((event) => event.type === "prompt.opened")!.payload as PromptOpenedPayload;
+    expect(p).toMatchObject({ kind: "denylist", denylist: [match], reason: expect.stringContaining(DESK) });
+    expect(answers).toEqual([]);
+    expect(environmentEvents(t).filter((event) => event.type === "client.call")).toHaveLength(1);
+    await starter.request("permissions.prompts.answer", { commandId: randomUUID(), sessionId: id, promptId: p.promptId, decision: "allow" });
+    const allowed = await calls.next();
+    expect(allowed.payload).toMatchObject({ environmentId: DESK, chromeId: CHROME, command: { verb: "navigate", args: { url: address } }, allowance: { host: "payments.example" } });
+    await answerWith(starter, { callId: allowed.callId, ok: true, result: { ok: true, value: { url: address, title: "Payments" } } });
+    await untilEnded(t, id, runId);
+    expect(answers[0]).toMatchObject({ isError: false, text: expect.stringContaining(address) });
   });
 });

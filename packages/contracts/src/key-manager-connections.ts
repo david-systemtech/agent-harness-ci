@@ -337,15 +337,15 @@ export const displayReference = (reference: KeyManagerReference, label: string |
   locator: referenceLocator(reference),
 });
 
-/** What holds a reference to a key-manager connection: a forge account whose credential is one (ADR 0020). */
-export const KEY_MANAGER_REFERENCE_HOLDERS = ["forge-account"] as const;
+/** What holds a reference to a key-manager connection: a forge account's credential or a webhook endpoint's secret. */
+export const KEY_MANAGER_REFERENCE_HOLDERS = ["forge-account", "endpoint"] as const;
 
 /** A holder of a reference, as a connection's removal names it. */
 export const KeyManagerReferenceHolder = z
   .object({
-    kind: z.enum(KEY_MANAGER_REFERENCE_HOLDERS).meta({ description: "What holds the reference: forge-account." }),
-    id: z.string().min(1).meta({ description: "The holder's id: a forge account's." }),
-    name: z.string().min(1).meta({ description: "What people know the holder by: a forge account's origin." }),
+    kind: z.enum(KEY_MANAGER_REFERENCE_HOLDERS).meta({ description: "What holds the reference: forge-account or endpoint." }),
+    id: z.string().min(1).meta({ description: "The holder's id: a forge account's id or an endpoint's name." }),
+    name: z.string().min(1).meta({ description: "What people know the holder by: a forge account's origin or an endpoint's name." }),
   })
   .meta({ description: "Something holding a reference to a key-manager connection, as the connection's removal names it: its kind, id and name." });
 export type KeyManagerReferenceHolder = z.infer<typeof KeyManagerReferenceHolder>;
