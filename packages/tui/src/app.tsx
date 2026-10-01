@@ -28,6 +28,7 @@ import {
   undoableFold,
   userMessagesOf,
   withdrawQueued,
+  workspaceLabel,
   type BrowseRow,
   type Clock,
   type EnvironmentView,
@@ -113,7 +114,7 @@ import { badgesOf } from "./rail/badge.js";
 import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
-import { isFullPath, workspaceLabel } from "./rail/workspace-step.js";
+import { isFullPath } from "./rail/workspace-step.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
