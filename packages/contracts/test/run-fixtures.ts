@@ -46,6 +46,7 @@ export const capabilities = {
   interactivePrompts: true,
   partialMessages: true,
   providerQueue: true,
+  withdraw: true,
   steering: true,
   resume: true,
   fork: true,
