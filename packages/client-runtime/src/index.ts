@@ -54,6 +54,8 @@ export {
   type ShellTray,
   type ShellUpdate,
   type ShellWebView,
+  type ShellWebViewState,
+  type ShellWebViewKey,
   type ShellWindow,
 } from "./shell.js";
 export {

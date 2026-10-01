@@ -40,11 +40,25 @@ export const ANSWERED = [
   "update.apply",
   "installer.bundledServer",
   "gh.token",
+  "webView.create",
+  "webView.navigate",
+  "webView.state",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 
 /** The members that answer nothing (`void` in the shell interface), each heard through `ipcMain.on`. */
-export const TOLD = ["window.setTitle", "window.focus", "window.setBadge", "window.setBackgroundColour"] as const;
+export const TOLD = [
+  "window.setTitle",
+  "window.focus",
+  "window.setBadge",
+  "window.setBackgroundColour",
+  "webView.attach",
+  "webView.hide",
+  "webView.destroy",
+  "webView.back",
+  "webView.forward",
+  "webView.reload",
+] as const;
 export type Told = (typeof TOLD)[number];
 
 export const channelOf = (member: Answered | Told): string => `shell:${member}`;
@@ -53,6 +67,10 @@ export const channelOf = (member: Answered | Told): string => `shell:${member}`;
 export const DEEP_LINK_CHANNEL = "shell:deepLinks.opened";
 
 /** The channel the main process sends a clicked notification's tag on. */
+export const WEB_VIEW_KEY_CHANNEL = "shell:webView.key";
+
+export const WEB_VIEW_CHANNEL = "shell:webView.changed";
+
 export const NOTIFICATION_CHANNEL = "shell:notifications.activated";
 
 /** What the main process answers an `http` call with; the preload gives the renderer its `json()`. */
