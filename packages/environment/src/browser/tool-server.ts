@@ -108,6 +108,9 @@ interface Chosen {
   readonly chromeId: string;
 }
 
+/** How many sessions' chosen Chromes are kept: the least recently chosen goes first, and its run's next verb is the plain My Chrome's again. */
+export const CHOICES_KEPT = 1_000;
+
 /**
  * The environment's `browser` servers: `web_read`, one tool for every run,
  * and, for a run whose resolved browser is not none, the browser's verbs for
@@ -125,11 +128,12 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
   /** The driver of the browser the session's live run resolved, the plain My Chrome narrowed to the Chrome the agent chose in it; or why there is none. */
   const liveBrowser = (sessionId: string): LiveBrowser => {
     const live = options.live(sessionId);
+    // A choice is the run's it was made in: once the session's live run is another, or none, it goes.
+    const choice = chosen.get(sessionId);
+    if (choice !== undefined && choice.runId !== live?.runId) chosen.delete(sessionId);
     if (live === null) return NO_RUN;
     const { browser } = live.browser;
     if (browser.kind === "none") return { kind: "refused", reason: `This run has no browser: ${live.browser.message} Read a plain page with web_read.` };
-    const choice = chosen.get(sessionId);
-    if (choice !== undefined && choice.runId !== live.runId) chosen.delete(sessionId);
     const narrowed = browser.kind === "chrome" && browser.chromeId === null && choice?.runId === live.runId ? { ...browser, chromeId: choice.chromeId } : browser;
     return driverFor(options, { browser: narrowed, sessionId, runId: live.runId });
   };
@@ -142,7 +146,10 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
     if (browser.kind !== "chrome" || browser.chromeId !== null) return { kind: "refused", reason: "This run's browser is not My Chrome, so browser_open takes no browser." };
     const choice = options.chooseChrome({ sessionId, runId: live.runId, environmentId: browser.environmentId, name });
     if (!choice.ok) return { kind: "refused", reason: choice.reason };
+    chosen.delete(sessionId);
     chosen.set(sessionId, { runId: live.runId, chromeId: choice.chrome.id });
+    const oldest = chosen.keys().next();
+    if (chosen.size > CHOICES_KEPT && oldest.done !== true) chosen.delete(oldest.value);
     const reached = driverFor(options, { browser: { ...browser, chromeId: choice.chrome.id }, sessionId, runId: live.runId });
     return reached.kind === "refused" ? reached : { ...reached, chosen: choice.chrome.name };
   };
