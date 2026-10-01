@@ -9,6 +9,8 @@ import { fakeAdapter } from "../../test/fake-adapter.js";
 import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
 import { SKILLS_HOST, skill, skillRepositories, skillsInsteadOf, type SkillRepositories } from "../../test/skill-repositories.js";
+import { DATABASE_FILE } from "../serve/start.js";
+import { loadSqlite } from "../event-log/sqlite.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
@@ -251,29 +253,82 @@ describe("a sync", () => {
 });
 
 describe("the syncs on their own", () => {
+  it("keeps an unchanged pull's attempt time and seven-hour answer across restarts and a projection rebuild", async () => {
+    const forge = skillRepositories(tempDir);
+    forge.commit("david/skills", { "SKILL.md": skill("tdd") });
+    const { t, client } = await start(forge, { dataDir: join(tempDir(), "data") });
+    const source = await add(client, `${SKILLS_HOST}david/skills`);
+    t.clock.advance(HOUR);
+    const attempted = (await pull(client, source.id)).source;
+    expect(attempted?.attemptedAt).not.toBe(source.attemptedAt);
+    expect(attempted?.sync).toEqual(source.sync);
+
+    const git = skillsGit();
+    const release = git.hold();
+    const again = await restartAfter(t, 6 * HOUR + 1, (options) => start(forge, { ...options, skillsGit: git.wrap }));
+    try {
+      await vi.waitFor(() => expect(git.requests).toHaveLength(1), { timeout: WAIT_MS });
+      expect((await view(again.client)).sources[0]).toEqual(attempted);
+      expect((await again.client.request("setup.check", { step: "skills" })).results[0]).toMatchObject({ state: "done", failing: [] });
+      await again.client.request("environment.rebuildProjections", { commandId: randomUUID() });
+      expect((await view(again.client)).sources[0]).toEqual(attempted);
+      // Restart once more with the rebuilt projections, still before a fetch ends.
+      const rebuilt = await restartAfter(again.t, HOUR, (options) => start(forge, { ...options, skillsGit: git.wrap }));
+      expect((await view(rebuilt.client)).sources[0]).toEqual(attempted);
+      expect((await rebuilt.client.request("setup.check", { step: "skills" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["skills.sources-synced"], targets: [{ id: source.id }] });
+    } finally { release(); }
+  });
+
+  it("fails freshness after upgrading a source with no stored attempt until the held start sync ends", async () => {
+    const forge = skillRepositories(tempDir);
+    forge.commit("david/skills", { "SKILL.md": skill("tdd") });
+    const { t, client } = await start(forge, { dataDir: join(tempDir(), "data") });
+    const source = await add(client, `${SKILLS_HOST}david/skills`);
+    await t.close();
+    // The previous build held attempt times only in memory: its database has no attempt table.
+    const previous = new (loadSqlite().DatabaseSync)(join(t.dataDir, DATABASE_FILE));
+    try { previous.exec("DROP TABLE skill_source_attempts; PRAGMA user_version = 7;"); }
+    finally { previous.close(); }
+    const git = skillsGit();
+    const release = git.hold();
+    const again = await start(forge, { dataDir: t.dataDir, clock: t.clock, skillsGit: git.wrap });
+    try {
+      await vi.waitFor(() => expect(git.requests).toHaveLength(1), { timeout: WAIT_MS });
+      expect((await view(again.client)).sources[0]).toMatchObject({ attemptedAt: null, sync: source.sync });
+      expect((await again.client.request("setup.check", { step: "skills" })).results[0]).toMatchObject({ state: "needs-attention", failing: ["skills.sources-synced"], targets: [{ id: source.id }] });
+    } finally { release(); }
+    await pull(again.client, source.id);
+    expect((await view(again.client)).sources[0]?.attemptedAt).toBe(t.clock.now().toISOString());
+    expect((await again.client.request("setup.check", { step: "skills" })).results[0]).toMatchObject({ state: "done", failing: [] });
+  });
+
   it("sync every unpinned source once after start, past the startup gate with the wire open while the fetch is still held, and never a pinned one", async () => {
     const forge = skillRepositories(tempDir);
     const before = forge.commit("david/first", { "skills/tdd/SKILL.md": skill("tdd") });
     const pinnedAt = forge.commit("david/second", { "handoff/SKILL.md": skill("handoff") });
     const { t, client } = await start(forge, { dataDir: join(tempDir(), "data") });
-    await add(client, `${SKILLS_HOST}david/first`, { folder: "skills" });
-    await add(client, `${SKILLS_HOST}david/second`, { follow: { kind: "pinned", commit: pinnedAt } });
+    const first = await add(client, `${SKILLS_HOST}david/first`, { folder: "skills" });
+    const pinned = await add(client, `${SKILLS_HOST}david/second`, { follow: { kind: "pinned", commit: pinnedAt } });
     const after = forge.commit("david/first", { "skills/tdd/SKILL.md": skill("tdd", "Moved on.") });
     forge.commit("david/second", { "handoff/SKILL.md": skill("handoff", "Moved on.") });
 
     const git = skillsGit();
     const release = git.hold();
     const again = await restartAfter(t, MINUTE, (options) => start(forge, { ...options, skillsGit: git.wrap }));
-    await vi.waitFor(() => expect(git.requests).toHaveLength(1), { timeout: WAIT_MS });
-    expect((await view(again.client)).sources.map((source) => [source.commit, source.attemptedAt])).toEqual([
-      [before, null],
-      [pinnedAt, null],
-    ]);
-
-    release();
+    try {
+      await vi.waitFor(() => expect(git.requests).toHaveLength(1), { timeout: WAIT_MS });
+      expect((await view(again.client)).sources.map((source) => [source.commit, source.attemptedAt])).toEqual([
+        [before, first.attemptedAt],
+        [pinnedAt, pinned.attemptedAt],
+      ]);
+      expect((await again.client.request("setup.check", { step: "skills" })).results[0]).toMatchObject({ state: "done", failing: [] });
+      const rebuilt = await again.client.request("environment.rebuildProjections", { commandId: randomUUID() });
+      expect(rebuilt.receipt.status).toBe("accepted");
+      expect((await view(again.client)).sources.map((source) => source.attemptedAt)).toEqual([first.attemptedAt, pinned.attemptedAt]);
+    } finally { release(); }
     await vi.waitFor(async () => expect((await view(again.client)).sources[0]).toMatchObject({ commit: after, attemptedAt: again.t.clock.now().toISOString() }), { timeout: WAIT_MS });
     expect(git.requests).toEqual([expect.objectContaining({ operation: "clone", repository: `${SKILLS_HOST}david/first`, depth: 1 })]);
-    expect((await view(again.client)).sources[1]).toMatchObject({ commit: pinnedAt, attemptedAt: null });
+    expect((await view(again.client)).sources[1]).toMatchObject({ commit: pinnedAt, attemptedAt: pinned.attemptedAt });
   });
 
   it("sync each unpinned source once every six hours on one timer, staggered by position from six hours after start, and never a pinned one", async () => {
