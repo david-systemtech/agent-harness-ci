@@ -8,7 +8,7 @@ import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
-import { OPENBAO_TOKEN_HELPER, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
+import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
 /**
@@ -175,7 +175,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     try {
       await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
       await replaceFile(path, openBaoConfiguration(helper), 0o600);
-      await replaceFile(helper, OPENBAO_TOKEN_HELPER, 0o700);
+      await replaceFile(helper, OPENBAO_TOKEN_HELPER_SCRIPT, 0o700);
     } catch (error) {
       console.error(`Writing the key-manager CLIs' configuration ${path} and token helper failed:`, error);
     }

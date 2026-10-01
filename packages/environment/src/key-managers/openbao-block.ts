@@ -46,7 +46,7 @@ export interface OpenBaoBlockValues {
  * `store` sends, so an empty run token reaches no token and a `bao login` in
  * a run stores nothing on disk.
  */
-export const OPENBAO_TOKEN_HELPER = "#!/bin/sh\n# The agent-harness token helper: it answers no token and keeps none.\nexit 0\n";
+export const OPENBAO_TOKEN_HELPER_SCRIPT = "#!/bin/sh\n# The agent-harness token helper: it answers no token and keeps none.\nexit 0\n";
 
 /** The harness-owned configuration both CLIs are pointed at: the token helper at `tokenHelper`, an absolute path, and nothing else. */
 export const openBaoConfiguration = (tokenHelper: string): string => `token_helper = ${JSON.stringify(tokenHelper)}\n`;
