@@ -19,6 +19,8 @@ import {
   type VerbAvailability,
 } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
+import type { DiffBand } from "../theme/colours.js";
 
 /**
  * How a row is drawn (docs/specs/tui.md, "The transcript"): as lines of
@@ -88,6 +90,8 @@ export const colourOf = (colour: CellColour): string | undefined => {
 export interface Line {
   readonly row: string;
   readonly spans: readonly Span[];
+  /** A diff's addition or removal, drawn on the theme's band for it where the terminal draws truecolour. */
+  readonly band?: DiffBand;
 }
 
 /** How much of a cut result a collapsed row keeps: its first lines say which call it was, its last where it failed. */
@@ -126,7 +130,7 @@ const TOOL = "◆";
 const INDENT = "  ";
 
 /** Styles by a call's state. Amber for a quiet one: nothing has failed yet. */
-const CALL_COLORS: Readonly<Record<string, string>> = { running: "cyan", ok: "green", error: "red", cancelled: "gray", denied: "yellow", quiet: "yellow" };
+const CALL_COLORS: Readonly<Record<string, string>> = { running: TERMINAL_ROLES.machine, ok: TERMINAL_ROLES.success, error: TERMINAL_ROLES.danger, cancelled: TERMINAL_ROLES.faint, denied: TERMINAL_ROLES.warning, quiet: TERMINAL_ROLES.warning };
 
 /** `text` as spans of one style, one per line of it. */
 const paragraphs = (text: string, style: Omit<Span, "text"> = {}): Span[][] => text.split("\n").map((line) => [{ ...style, text: line }]);
@@ -239,16 +243,16 @@ const callLines = (row: string, call: ToolCallEntry, context: LineContext, whole
     if (gloss.length > 0) head.push({ text: `(${oneLine(gloss, 140)})`, dim: true });
   }
   if (call.durationMs !== null && call.durationMs >= 1000) head.push({ text: `  ${formatDuration(call.durationMs)}`, dim: true });
-  if (quiet) head.push({ text: ` · no output for ${Math.floor(quietMs / 60_000)}m · ${context.stopKey ?? "x"} stops it`, color: "yellow" });
-  const body: Span[][] = [quiet ? head.map((span) => ({ ...span, color: "yellow" })) : head];
+  if (quiet) head.push({ text: ` · no output for ${Math.floor(quietMs / 60_000)}m · ${context.stopKey ?? "x"} stops it`, color: TERMINAL_ROLES.warning });
+  const body: Span[][] = [quiet ? head.map((span) => ({ ...span, color: TERMINAL_ROLES.warning })) : head];
   const under: Span[][] = [];
   if (call.status === "running" && call.update !== null) under.push([{ text: oneLine(outputText(call.update), 160), dim: true }]);
-  if (denied && call.decision?.decision === "denied") under.push([{ text: `Denied: ${oneLine(call.decision.reason, 300)}`, color: "yellow" }]);
-  else if (call.status === "error") under.push(...cutLines(nonBlank(outputText(call.output)), whole, { color: "red" }));
+  if (denied && call.decision?.decision === "denied") under.push([{ text: `Denied: ${oneLine(call.decision.reason, 300)}`, color: TERMINAL_ROLES.warning }]);
+  else if (call.status === "error") under.push(...cutLines(nonBlank(outputText(call.output)), whole, { color: TERMINAL_ROLES.danger }));
   else if (call.status === "cancelled") under.push([{ text: "Cancelled", dim: true }]);
   else if (call.status === "ok" && whole) under.push(...cutLines(nonBlank(outputText(call.output)), true));
   if (under.length > 0) body.push(...returned(under));
-  return block(row, { text: TOOL, color: CALL_COLORS[state] ?? "green" }, body, context.width, spaced);
+  return block(row, { text: TOOL, color: CALL_COLORS[state] ?? TERMINAL_ROLES.success }, body, context.width, spaced);
 };
 
 /** The counts of the calls folded into the count row, by category. */
@@ -267,7 +271,7 @@ const callsLines = (row: string, calls: readonly ToolCallEntry[], context: LineC
   const shown = context.expanded ? calls : calls.filter((call) => !folded(call));
   const summary = describeActivity(countsOf(done));
   const lines: Line[] = [];
-  if (summary.length > 0) lines.push(...block(row, { text: TOOL, color: context.expanded ? "gray" : "green" }, [[{ text: summary, dim: context.expanded }]], context.width, true));
+  if (summary.length > 0) lines.push(...block(row, { text: TOOL, color: context.expanded ? TERMINAL_ROLES.faint : TERMINAL_ROLES.success }, [[{ text: summary, dim: context.expanded }]], context.width, true));
   shown.forEach((call, index) => lines.push(...callLines(row, call, context, context.expanded, summary.length === 0 && index === 0)));
   return lines;
 };
@@ -276,16 +280,16 @@ const callsLines = (row: string, calls: readonly ToolCallEntry[], context: LineC
 const turnLines = (row: string, run: RunSummary, context: LineContext): Line[] => {
   const facts = [...turnFacts(run), ...(context.planDeltas?.(run.runId) ?? [])];
   if (run.reason === "completed") return [{ row, spans: [{ text: `${INDENT}${facts.join(" · ")}`, dim: true }] }];
-  const color = run.reason === "error" ? "red" : "yellow";
+  const color = run.reason === "error" ? TERMINAL_ROLES.danger : TERMINAL_ROLES.warning;
   const body: Span[][] = [[{ text: endWords(run), color }, ...(facts.length > 0 ? [{ text: ` · ${facts.join(" · ")}`, dim: true }] : [])]];
-  if (run.error !== null) body.push([{ text: oneLine(run.error.message, 300), color: "red" }]);
+  if (run.error !== null) body.push([{ text: oneLine(run.error.message, 300), color: TERMINAL_ROLES.danger }]);
   return block(row, { text: "✗", color }, body, context.width, false);
 };
 
 /** A prompt where it was asked: what it asked and how it was answered; a plan with its text; a parked one waiting, in amber. */
 const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry"], context: LineContext): Line[] => {
   const { prompt, answer } = entry;
-  const waiting: Span = { text: " — waiting for an answer", color: "yellow" };
+  const waiting: Span = { text: " — waiting for an answer", color: TERMINAL_ROLES.warning };
   if (entry.kind === "question") {
     const body: Span[][] = [];
     for (const question of prompt.questions ?? []) {
@@ -293,7 +297,7 @@ const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry
       body.push([{ text: question.question, bold: true }, ...(answer === null ? [waiting] : [{ text: ` — ${given ?? (answer.decision === "deny" ? "skipped" : "answered")}`, dim: true }])]);
     }
     if (body.length === 0) body.push([{ text: prompt.summary, bold: true }, ...(answer === null ? [waiting] : [])]);
-    return block(row, { text: "?", color: "cyan" }, body, context.width, true);
+    return block(row, { text: "?", color: TERMINAL_ROLES.machine }, body, context.width, true);
   }
   if (entry.kind === "plan") {
     const verdict: Span =
@@ -304,7 +308,7 @@ const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry
     const shown = context.expanded ? text : text.slice(0, PLAN_LINES);
     const body: Span[][] = [[{ text: "Plan", bold: true }, verdict], ...shown.map((line) => [{ text: line }])];
     if (shown.length < text.length) body.push([{ text: `… +${text.length - shown.length} lines · Ctrl+O`, dim: true }]);
-    return block(row, { text: "▤", color: "cyan" }, body, context.width, true);
+    return block(row, { text: "▤", color: TERMINAL_ROLES.machine }, body, context.width, true);
   }
   const verdict: Span =
     answer === null
@@ -313,7 +317,7 @@ const promptLines = (row: string, entry: Extract<Row, { kind: "prompt" }>["entry
           text: ` — ${answer.decision === "allow" ? "allowed" : "denied"}${answer.remember === "session" ? " for this session" : ""}${answer.message ? `: ${oneLine(answer.message, 120)}` : ""}`,
           dim: true,
         };
-  return block(row, { text: "⚿", dim: answer !== null, ...(answer === null && { color: "yellow" }) }, [[{ text: prompt.summary, dim: answer !== null }, verdict]], context.width, true);
+  return block(row, { text: "⚿", dim: answer !== null, ...(answer === null && { color: TERMINAL_ROLES.warning }) }, [[{ text: prompt.summary, dim: answer !== null }, verdict]], context.width, true);
 };
 
 /**
@@ -336,10 +340,10 @@ const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineConte
     const { availability } = latest;
     head.push({ text: ` · ${latest.key} undo${availability.status === "absent" ? ` (${availability.message})` : ""}`, dim: true });
   }
-  const lines = block(row.id, { text: "↶", color: "yellow" }, [head], context.width, true);
+  const lines = block(row.id, { text: "↶", color: TERMINAL_ROLES.warning }, [head], context.width, true);
   if (!context.expanded) return lines;
   const inner = transcriptLines(row.rows, { ...context, width: context.width - 2 });
-  return [...lines, ...inner.map((line): Line => ({ row: row.id, spans: [{ text: "┊ ", color: "yellow" }, ...line.spans.map((span) => ({ ...span, dim: true }))] }))];
+  return [...lines, ...inner.map((line): Line => ({ row: row.id, spans: [{ text: "┊ ", color: TERMINAL_ROLES.warning }, ...line.spans.map((span) => ({ ...span, dim: true }))] }))];
 };
 
 /**
@@ -352,7 +356,7 @@ const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext
   const head: Span[] = [{ text: "Forked from ", bold: true }, { text: title ?? "another session" }];
   if (anchor !== null) head.push({ text: " at ", bold: true }, { text: oneLine(anchor, 160) });
   if (!context.expanded) head.push({ text: ` · ${context.openKey ?? "o"} opens it`, dim: true });
-  return block(row.id, { text: "⑂", color: "cyan" }, [head], context.width, true);
+  return block(row.id, { text: "⑂", color: TERMINAL_ROLES.machine }, [head], context.width, true);
 };
 
 /** The lines of one row. */
@@ -361,7 +365,7 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
   switch (row.kind) {
     case "user": {
       const chips = row.entry.attachments.map((a): Span[] => [{ text: `[${a.kind} ${a.name} · ${Math.max(1, Math.round(a.size / 1024))} KB]`, dim: true }]);
-      return block(row.id, { text: "▌", color: "cyan" }, [...paragraphs(row.entry.text, { bold: true }), ...chips], width, true);
+      return block(row.id, { text: "▌", color: TERMINAL_ROLES.machine }, [...paragraphs(row.entry.text, { bold: true }), ...chips], width, true);
     }
     case "assistant": {
       const { entry } = row;
@@ -387,7 +391,7 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       const head: Span[] = [{ text: who, bold: true }, ...(what.length > 0 ? [{ text: `: ${oneLine(what, 120)}` }] : []), { text: ` · ${calls} · ${entry.running ? "running" : "done"}`, dim: true }];
       const body: Span[][] = [head];
       if (context.expanded) for (const call of entry.calls) body.push(...callLines(row.id, call, { ...context, width: width - 2 }, true, false).map((line) => [...line.spans]));
-      return block(row.id, { text: "⤷", color: entry.running ? "cyan" : "gray" }, body, width, true);
+      return block(row.id, { text: "⤷", color: entry.running ? TERMINAL_ROLES.machine : TERMINAL_ROLES.faint }, body, width, true);
     }
     case "turn":
       return turnLines(row.id, row.run, context);

@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Reading, Styled } from "./line.js";
 
 /**
@@ -55,7 +56,7 @@ export const StatusLine = (props: { readonly one: StatusLineOne; readonly two: S
                       <Text dimColor>{reading.bar.slice(reading.bar.replace(/░+$/, "").length)}</Text>{" "}
                     </Text>
                   )}
-                  <Text {...(reading.tone !== undefined && { color: reading.tone })} bold={reading.tone === "red"} dimColor={reading.tone === undefined}>
+                  <Text {...(reading.tone !== undefined && { color: reading.tone })} bold={reading.tone === TERMINAL_ROLES.danger} dimColor={reading.tone === undefined}>
                     {reading.value}
                   </Text>
                 </Text>
@@ -67,7 +68,7 @@ export const StatusLine = (props: { readonly one: StatusLineOne; readonly two: S
       <Box>
         <Text wrap="truncate-end">
           {two.kind === "offer" ? (
-            <Text color="yellow">{two.text}</Text>
+            <Text color={TERMINAL_ROLES.warning}>{two.text}</Text>
           ) : (
             <>
               {two.activity !== undefined && <Piece piece={two.activity} />}

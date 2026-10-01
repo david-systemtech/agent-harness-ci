@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { useRef } from "react";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { RailHeading, RailLine, RailRow } from "./model.js";
 
 /**
@@ -29,7 +30,7 @@ const HeadingLine = (props: { readonly line: RailHeading; readonly selected: boo
         <Text bold inverse={selected} dimColor={line.dim}>
           {line.text}
         </Text>
-        {line.pendingCommands > 0 && <Text color="yellow"> {line.pendingCommands} pending</Text>}
+        {line.pendingCommands > 0 && <Text color={TERMINAL_ROLES.warning}> {line.pendingCommands} pending</Text>}
       </Text>
     );
   }
@@ -39,7 +40,7 @@ const HeadingLine = (props: { readonly line: RailHeading; readonly selected: boo
         {line.folded ? "▸" : "▾"} {line.text}
       </Text>
       {line.folded && <Text dimColor> {line.count}</Text>}
-      {line.pending && <Text color="yellow"> pending</Text>}
+      {line.pending && <Text color={TERMINAL_ROLES.warning}> pending</Text>}
     </Text>
   );
 };
@@ -51,7 +52,7 @@ const RowLine = (props: { readonly line: RailRow; readonly selected: boolean }) 
     <Box height={1} flexDirection="row">
       <Box flexShrink={0}>
         <Text>
-          {selected ? <Text color="cyan">›</Text> : " "}{" "}
+          {selected ? <Text color={TERMINAL_ROLES.machine}>›</Text> : " "}{" "}
           <Text color={badge.colour} dimColor={dim}>
             {badge.abbreviation}
           </Text>{" "}
@@ -73,7 +74,7 @@ const RowLine = (props: { readonly line: RailRow; readonly selected: boolean }) 
       )}
       {line.pending && (
         <Box flexShrink={0}>
-          <Text color="yellow"> {PENDING_MARK}</Text>
+          <Text color={TERMINAL_ROLES.warning}> {PENDING_MARK}</Text>
         </Box>
       )}
     </Box>
@@ -108,7 +109,7 @@ export const RailView = (props: RailViewProps) => {
   top.current = from;
   const edge = props.width === undefined ? {} : { width: props.width, borderStyle: "single" as const, borderTop: false, borderBottom: false, borderLeft: false };
   return (
-    <Box flexDirection="column" flexShrink={0} flexGrow={props.width === undefined ? 1 : 0} {...edge} {...(focused && props.width !== undefined && { borderColor: "cyan" })}>
+    <Box flexDirection="column" flexShrink={0} flexGrow={props.width === undefined ? 1 : 0} {...edge} {...(focused && props.width !== undefined && { borderColor: TERMINAL_ROLES.machine })}>
       {props.title && (
         <Text bold wrap="truncate-end">
           {props.title.text} <Text dimColor>{props.title.hint}</Text>
@@ -116,7 +117,7 @@ export const RailView = (props: RailViewProps) => {
       )}
       {props.filter !== null && (
         <Text wrap="truncate-start">
-          <Text color="cyan">/</Text>
+          <Text color={TERMINAL_ROLES.machine}>/</Text>
           {props.filter}
           {focused && <Text inverse> </Text>}
         </Text>

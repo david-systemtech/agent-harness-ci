@@ -1,6 +1,7 @@
 import { choiceRows, oneLine } from "@agent-harness/client-runtime";
 import { Box, Text } from "ink";
 import { describeDenylistMatch, type PromptOpenedPayload, type PromptQuestion } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { currentQuestion, isQuestion, type CardState } from "../cards/prompt.js";
 
 /**
@@ -16,7 +17,7 @@ import { currentQuestion, isQuestion, type CardState } from "../cards/prompt.js"
 const INPUT_LINES = 6;
 const PLAN_LINES = 10;
 
-const COLOURS: Readonly<Record<PromptOpenedPayload["kind"], string>> = { permission: "yellow", denylist: "red", question: "magenta", plan: "blue" };
+const COLOURS: Readonly<Record<PromptOpenedPayload["kind"], string>> = { permission: TERMINAL_ROLES.warning, denylist: TERMINAL_ROLES.danger, question: TERMINAL_ROLES.accent, plan: TERMINAL_ROLES.thinking };
 
 /** The input as the card shows it: a shell command as its line, anything else as indented JSON; none when there is none. */
 const inputLines = (input: PromptOpenedPayload["input"]): readonly string[] => {
@@ -53,7 +54,7 @@ export interface PromptCardProps {
   readonly absent: string | undefined;
 }
 
-const Cursor = (props: { readonly selected: boolean }) => <Text color="cyan">{props.selected ? "❯ " : "  "}</Text>;
+const Cursor = (props: { readonly selected: boolean }) => <Text color={TERMINAL_ROLES.machine}>{props.selected ? "❯ " : "  "}</Text>;
 
 export const PromptCard = (props: PromptCardProps) => {
   const { prompt, state } = props;
@@ -73,10 +74,10 @@ export const PromptCard = (props: PromptCardProps) => {
         {facts.length > 0 && <Text dimColor>{`  ${facts}`}</Text>}
       </Text>
       {question ? <Text wrap="truncate-end">{question.question}</Text> : prompt.kind !== "plan" && <Text wrap="truncate-end">{oneLine(prompt.summary, 300)}</Text>}
-      {prompt.reason !== null && <Text color="yellow" wrap="truncate-end">{oneLine(prompt.reason, 300)}</Text>}
+      {prompt.reason !== null && <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">{oneLine(prompt.reason, 300)}</Text>}
       {prompt.blockedPath !== null && <Text dimColor wrap="truncate-end">path: {prompt.blockedPath}</Text>}
       {prompt.denylist?.map((match, at) => (
-        <Text key={at} color="red" wrap="truncate-end">
+        <Text key={at} color={TERMINAL_ROLES.danger} wrap="truncate-end">
           {describeDenylistMatch(match)}
         </Text>
       ))}
@@ -121,7 +122,7 @@ export const PromptCard = (props: PromptCardProps) => {
       {question && question.options.length === 0 && <Text dimColor>No options: Tab answers it in your own words.</Text>}
       {state.line !== null ? (
         <Text wrap="truncate-start">
-          <Text color="cyan">{"✎ "}</Text>
+          <Text color={TERMINAL_ROLES.machine}>{"✎ "}</Text>
           {state.line}
           <Text inverse> </Text>
           {state.line.length === 0 && <Text dimColor>{question ? " your own answer" : " a note for the agent, sent with the answer"}</Text>}
