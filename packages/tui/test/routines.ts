@@ -58,7 +58,7 @@ export const definition = (overrides: Partial<RoutineDefinition> = {}): RoutineD
 /** A routine as `routines.list` answers it: enabled, never fired, next due a day after the clock's start, nothing needing attention. */
 export const listedRoutine = (
   routineId: string,
-  overrides: { readonly definition?: Partial<RoutineDefinition>; readonly state?: Partial<RoutineState>; readonly nextDueAt?: string | null; readonly attention?: ListedRoutine["attention"] } = {},
+  overrides: { readonly definition?: Partial<RoutineDefinition>; readonly state?: Partial<RoutineState>; readonly nextDueAt?: string | null; readonly attention?: ListedRoutine["attention"]; readonly unknownSkills?: ListedRoutine["unknownSkills"] } = {},
 ): ListedRoutine => {
   const saved = definition(overrides.definition);
   return ListedRoutine.parse({
@@ -81,7 +81,7 @@ export const listedRoutine = (
     nextDueAt: overrides.nextDueAt === undefined ? (saved.enabled ? "2026-09-25T00:00:00.000Z" : null) : overrides.nextDueAt,
     mode: { requested: saved.mode, effective: saved.mode ?? "acceptEdits", ceiling: "bypassPermissions", clamped: false, clampReason: null },
     attention: overrides.attention ?? [],
-    unknownSkills: [],
+    unknownSkills: overrides.unknownSkills ?? [],
   });
 };
 

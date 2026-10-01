@@ -14,7 +14,7 @@ export const BUSY_WORDS: Readonly<Record<BusyReason, string>> = {
   "run-running": "a run is running",
   "terminal-running": "a terminal runs a command",
   "parked-prompt": "a run is parked on a prompt",
-  "recent-activity": "a run started or ended within the idle window",
+  "recent-activity": "a run started or ended, or the environment started, within the idle window",
 };
 
 /** What started a drain, after "started by". */
