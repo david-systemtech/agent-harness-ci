@@ -1611,7 +1611,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
-  const bankService = createBankService({ log, clock, environmentId: record.id, forge });
+  const bankService = createBankService({ log, clock, environmentId: record.id, forge, dataDir, scrub });
   capabilities.push("banks");
   const banks = bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.

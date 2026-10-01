@@ -8,6 +8,7 @@ import {
   type BankEntry,
   type BankIndexConflict,
   type BankLocation,
+  type BankJoinPreview,
   type BankManifestStatus,
   type BankRecord,
   type BankStatus,
@@ -17,7 +18,9 @@ import {
 import { readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/contracts/bank-validator";
 import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
-import type { ForgeOperations } from "../forge/operations.js";
+import type { ForgeService } from "../forge/forge-service.js";
+import { joinBank, previewBank } from "./join.js";
+import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
@@ -30,7 +33,7 @@ import { renderFixedTiers } from "./index-renderer.js";
 /**
  * The BankService's registry part (banks spec, "The registry" and "The
  * BankService's methods"; ADR 0010, ADR 0035, ADR 0036; #1025): it
- * registers an existing checkout, verifies every enabled bank, and answers
+ * registers an existing checkout, previews and joins a remote bank, verifies every enabled bank, and answers
  * the records with their status, counts and rendered bank line. A bank's
  * files are read as committed at its checkout's head (`bank-files.ts`),
  * never as the working tree holds them.
@@ -191,8 +194,10 @@ export interface BankServiceOptions {
   readonly log: EventLog;
   readonly clock: Clock;
   readonly environmentId: string;
+  readonly dataDir: string;
+  readonly scrub: Pick<ScrubRegistry, "check">;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
-  readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
+  readonly forge: Pick<ForgeService, "repositories" | "pullRequests" | "users" | "git">;
 }
 
 export interface BankService {
@@ -204,7 +209,9 @@ export interface BankService {
   entries(): readonly { readonly entry: BankEntry; readonly index: BankIndex | null }[];
   /** Verifies one bank, or every enabled one, joining a verification of every one running; answers the records after. */
   verify(bankId?: string): Promise<BankRecord[]>;
+  preview(url: string): Promise<BankJoinPreview>;
   readonly register: PreparedCommand<"banks.register">;
+  readonly join: PreparedCommand<"banks.join">;
 }
 
 export const createBankService = (options: BankServiceOptions): BankService => {
@@ -424,6 +431,8 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       return records();
     },
     register,
+    preview: (url) => previewBank(options, url),
+    join: joinBank({ ...options, register }),
   };
 };
 
