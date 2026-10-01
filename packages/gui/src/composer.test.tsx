@@ -300,7 +300,7 @@ const PROVIDER_COMMANDS = [
 
 /**
  * The slash commands the window wires (the composer's, /settings among them since #625, the side column's, #408 and #427,
- * the status line's pickers, #402, and the session pane's fork and rewind, #665), in
+ * the status line's pickers, #402, the session pane's fork and rewind, #665, and its organising commands, #753), in
  * the shared list's order, as the menu and the palette list them; the menu offers the first `MENU_ROWS` at once.
  */
 const WINDOW_COMMANDS = [
@@ -308,11 +308,20 @@ const WINDOW_COMMANDS = [
   "/modeSet the permission mode for the next turn",
   "/attachSend an image or file with the next message",
   "/diffWhat this conversation changed, and the working tree's diff",
+  "/pinKeep this conversation at the top of its folder",
+  "/titleName this conversation",
   "/tasksBackground work: what is running, and what a delegated agent did",
   "/handoffMove this conversation to another account, or start it fresh there",
   "/accountSwitch the account this session's next run uses, or add one",
   "/containmentSet how contained this session's runs are",
   "/settingsEvery environment setting under its row, in a generic editor; a row's id opens that row",
+  "/archiveArchive this session, or unarchive it",
+  "/groupPut this session in a group, or a new one",
+  "/tagTag this session",
+  "/settleSettle this session, or unsettle it",
+  "/snoozeSnooze this session until a time you pick",
+  "/restoreBring back a session deleted within the grace period",
+  "/searchSearch the sessions on every environment",
   "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
   "/documentsThe pages, SVGs and markdown this session wrote, newest first",
@@ -321,7 +330,7 @@ const WINDOW_COMMANDS = [
 ];
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
-const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[9], WINDOW_COMMANDS[11]];
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[9], WINDOW_COMMANDS[18], WINDOW_COMMANDS[20]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {
@@ -412,8 +421,8 @@ describe("slash commands", () => {
     await screen.findByText("/quit is not here: The GUI's window closes as the platform's windows do.");
     expect(box().value).toBe("/quit");
 
-    await write(app, "{Control>}a{/Control}/pin{Enter}");
-    await screen.findByText("/pin is not in this build of the window yet.");
+    await write(app, "{Control>}a{/Control}/export{Enter}");
+    await screen.findByText("/export is not in this build of the window yet.");
     expect(env.requests("runs.start")).toEqual([]);
   });
 });
