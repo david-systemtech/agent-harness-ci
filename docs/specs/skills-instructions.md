@@ -175,6 +175,8 @@ The registry's `skills` and `instructions` entries (ADR 0016, ADR 0031); their c
 
 `commands.copyToEnvironments` in the client runtime is the explicit bulk edit (ADR 0009, ADR 0030; never an implicit global): for the environments chosen among those the client holds an `admin` connection to, it replays sources (URL, folder, follow), choices and owned instructions under the same ids (create, or edit and set), mapping account ids by account identity and dropping those absent there, and the dismissed set only when ticked; it reports per environment, and no environment learns of another. Own-directory files do not travel: a set wanted everywhere belongs in a source.
 
+For a new owned copy, `instructions.create` accepts its remembered `origin` beside the explicit title and body, keeping its catalogue id and original version even when the target's catalogue differs. A catalogue tick still takes only `catalogueId`; the origin accompanies explicit text only. An existing id is edited and set through the ordinary field commands, retaining its existing origin.
+
 ### Codex and local models, as milestone 2 direction
 
 Codex maps the generation's `skills/` through its daemon's extra roots, never `$CODEX_HOME/skills`, invokes `$name`, carries the composed text in `developerInstructions`, and keeps an untrusted repository's `.agents/skills` and `AGENTS.md` out through its own project trust (the research found Codex loads them untrusted). The local loop discloses members in three tiers and invokes by injecting the body. Nothing here builds either.
