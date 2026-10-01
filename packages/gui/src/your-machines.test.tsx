@@ -58,7 +58,10 @@ describe("Your machines", () => {
     expect(cardNames(pane)).toEqual(["desk", "laptop"]);
     const desk = card(pane, "desk");
     const mark = within(desk).getByRole("img", { name: "desktop, teal" });
+    expect(mark.tagName).toBe("svg");
     expect(mark.style.color).toBe("var(--environment-teal)");
+    // The icon is drawn, not written beside the name.
+    expect(within(desk).getByRole("heading", { level: 3 }).parentElement?.textContent).not.toContain("desktop");
     expect(within(desk).getByText("This machine")).toBeDefined();
     expect(within(card(pane, "laptop")).getByRole("img", { name: "laptop, amber" }).style.color).toBe("var(--environment-amber)");
     expect(within(card(pane, "laptop")).getByText("Primary")).toBeDefined();
@@ -81,7 +84,9 @@ describe("Your machines", () => {
     await waitFor(() => expect(cardNames(pane)).toEqual(["studio", "laptop"]));
     await app.user.selectOptions(within(card(pane, "studio")).getByRole("combobox", { name: "Colour" }), "violet");
     await app.user.selectOptions(within(card(pane, "studio")).getByRole("combobox", { name: "Icon" }), "nas");
-    expect(await within(card(pane, "studio")).findByRole("img", { name: "nas, violet" })).toBeDefined();
+    const mark = await within(card(pane, "studio")).findByRole("img", { name: "nas, violet" });
+    expect(mark.tagName).toBe("svg");
+    const drawing = mark.innerHTML;
     expect(desk.requests("environment.rename").map((request) => request.params["name"])).toEqual(["studio"]);
     expect(desk.requests("environment.setColour").map((request) => request.params["colour"])).toEqual(["violet"]);
     expect(desk.requests("environment.setIcon").map((request) => request.params["icon"])).toEqual(["nas"]);
@@ -89,6 +94,8 @@ describe("Your machines", () => {
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     expect(badge().getAttribute("aria-label")).toBe("studio");
     expect(badge().style.color).toBe("var(--environment-violet)");
+    // The row's badge and the card draw the one glyph for nas.
+    expect(badge().innerHTML).toBe(drawing);
 
     // A name the environment does not take is said, and nothing is sent.
     const again = await openMachines(app);

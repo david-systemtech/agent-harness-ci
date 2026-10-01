@@ -11,7 +11,7 @@ import {
   type SessionRow,
 } from "@agent-harness/client-runtime";
 import { useState, type FormEvent, type ReactNode } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { Button, Dialog, DialogClose, DialogContent, Input } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -225,7 +225,7 @@ const RestoreDialog = ({ close }: { close(): void }) => {
             const view = environments.find((candidate) => candidate.environmentId === environmentId);
             return (
               <li key={`${environmentId}/${summary.id}`} className="flex flex-wrap items-center gap-2 text-sm">
-                <EnvironmentDot view={view} label={view?.name ?? THIS_MACHINE} />
+                <EnvironmentGlyph view={view} label={view?.name ?? THIS_MACHINE} />
                 <span className="min-w-0 flex-1 truncate">{summary.title}</span>
                 <span className="text-xs text-ink-muted">{`restorable until ${whenWords(new Date(summary.purgeAt))}`}</span>
                 <Button
