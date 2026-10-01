@@ -15,6 +15,7 @@ import { classes } from "../ui/classes.js";
 import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 import { WorkspacePopover } from "../workspace/picker.js";
+import { BrowserChoiceMenu } from "../browser/choice-menu.js";
 import { checkRequest } from "./check.js";
 import { requestWords } from "./words.js";
 
@@ -208,5 +209,10 @@ const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
   );
 };
 
-/** The chips in their order: environment, account, model, workspace. */
-export const CHIPS: readonly ComponentType<ChipProps>[] = [EnvironmentChip, AccountChip, ModelChip, WorkspaceChip];
+/** The browser preset follows the account until a person chooses on its chip. */
+const BrowserChip = ({ view, choose }: ChipProps) => (
+  <BrowserChoiceMenu rows={view.browser.options} choose={(value) => choose({ browser: value })} className={CHIP} />
+);
+
+/** The chips in their order: environment, account, model, workspace, browser. */
+export const CHIPS: readonly ComponentType<ChipProps>[] = [EnvironmentChip, AccountChip, ModelChip, WorkspaceChip, BrowserChip];
