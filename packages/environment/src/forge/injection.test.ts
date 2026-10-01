@@ -391,6 +391,7 @@ describe("containment", () => {
     join(dataDir, "skills", "own"),
     join(dataDir, "skills", "snapshots"),
     join(dataDir, "skills", "generations"),
+    join(dataDir, "banks"),
   ];
 
   it("adds the helper's directory to an unattended run's exempt directories where the denylist's paths cover the helper, the data directory's preset among them", async () => {

@@ -20,5 +20,6 @@ export const bankMethods = (banks: BankService): MethodHandlers => ({
   "banks.registry.update": banks.update,
   "banks.pin": banks.pin,
   "banks.forget": banks.forget,
+  "banks.create": banks.create,
   "banks.verify": async (params) => ({ banks: await banks.verify(params.bankId) }),
 });

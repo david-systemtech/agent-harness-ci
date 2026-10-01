@@ -254,6 +254,7 @@ describe("the method registry", () => {
       "banks.registry.update",
       "banks.pin",
       "banks.forget",
+      "banks.create",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
@@ -487,6 +488,7 @@ describe("the method registry", () => {
       | "banks.registry.update"
       | "banks.pin"
       | "banks.forget"
+      | "banks.create"
       | "banks.verify"
       | "keyManagers.list"
       | "keyManagers.connections.add"

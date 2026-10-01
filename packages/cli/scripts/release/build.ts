@@ -66,6 +66,7 @@ const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 
 const compileWorkspace = async (repoRoot: string): Promise<void> => {
   await run("pnpm", ["exec", "tsc", "-b", "packages/cli"], { cwd: repoRoot });
+  await run("pnpm", ["--filter", "@agent-harness/contracts", "build-validator"], { cwd: repoRoot });
 };
 
 /** The artefact `target` packed at `path`, as the manifest lists it. */

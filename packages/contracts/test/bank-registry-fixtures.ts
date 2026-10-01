@@ -204,6 +204,20 @@ export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; resu
     params: { valid: [{ commandId, bankId }, { commandId, bankId, removeCheckout: true }], invalid: [{ bankId }, { commandId, bankId, removeCheckout: "yes" }] },
     result: { valid: [{ bankId, checkoutRemoved: false }], invalid: [{ bankId }, { bankId, checkoutRemoved: "yes" }] },
   },
+  "banks.create": {
+    params: {
+      valid: [
+        { commandId, bankId, name: "maya-memory", creation: { kind: "personal", localOnly: true, personName: "Maya Reyes", org: "personal", project: "homelab" } },
+        { commandId, bankId, name: "acme-memory", creation: { kind: "team", forgeAccountId: bankId, owner: { kind: "organisation", login: "acme" }, repositoryName: "team-memory", teamName: "Acme", org: "acme", projects: [{ name: "Web", folder: "web" }] } },
+      ],
+      invalid: [
+        { bankId, name: "maya-memory", creation: { kind: "personal", localOnly: true, personName: "Maya", org: "personal", project: "homelab" } },
+        { commandId, bankId, name: "acme-memory", creation: { kind: "team", localOnly: true } },
+        { commandId, bankId, name: "maya-memory", creation: { kind: "personal", localOnly: true, personName: "Maya", org: "../escape", project: "homelab" } },
+      ],
+    },
+    result: { valid: [{ bank: record }, { bank: teamRecord }], invalid: [{}, { bank: entry }] },
+  },
   "banks.verify": {
     params: { valid: [{}, { bankId }], invalid: [{ bankId: "maya-memory" }, []] },
     result: { valid: [{ banks: [] }, { banks: [teamRecord] }], invalid: [{}, { banks: [entry] }] },
