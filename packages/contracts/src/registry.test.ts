@@ -250,6 +250,7 @@ describe("the method registry", () => {
       "forge.accounts.setPrimary",
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
+      "banks.register",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
