@@ -29,6 +29,7 @@ export const PANES: Readonly<Record<SidePane, PaneKind>> = {
   diff: { label: "Diff", needs: ["diffs.session"], drawnWhileAbsent: false },
   documents: { label: "Documents", needs: [], drawnWhileAbsent: false },
   tasks: { label: "Tasks", needs: [], drawnWhileAbsent: false },
+  browser: { label: "Browser", needs: ["shell.webView"], drawnWhileAbsent: false },
   preview: { label: "Preview", needs: ["shell.preview", "files.read"], drawnWhileAbsent: false },
 };
 
