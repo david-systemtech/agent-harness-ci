@@ -208,7 +208,7 @@ describe("About's Managed tools", () => {
     expect(desk.requests("terminals.close").map((request) => request.params["id"])).toEqual([id]);
   });
 
-  it("refuses a run while another is in progress, tool_run_in_progress in one line, and draws the run under way again when About opens anew", async () => {
+  it("refuses a run while another is in progress, tool_run_in_progress in one line, and draws the run under way again when About opens anew, until its Close", async () => {
     const app = await opened({ managedTools: { runs: { bao: BAO_RUN } } });
     await openAbout(app);
     await app.user.click(within(await row("OpenBao CLI")).getByRole("button", { name: "Install" }));
@@ -217,13 +217,34 @@ describe("About's Managed tools", () => {
     const gh = await row("GitHub CLI");
     await app.user.click(within(gh).getByRole("button", { name: "Update" }));
     expect(await within(gh).findByRole("status")).toHaveProperty("textContent", "Not run: A bao install is running on this environment; package managers lock, so one tool run runs at a time.");
-    expect(app.environment("desk").requests("tools.run").map((request) => request.params["tool"])).toEqual(["bao", "gh"]);
+    const desk = app.environment("desk");
+    expect(desk.requests("tools.run").map((request) => request.params["tool"])).toEqual(["bao", "gh"]);
+    const id = String(desk.requests("tools.run")[0]?.params["id"]);
+    const subscribed = () => desk.requests("terminals.subscribe").filter((request) => request.params["id"] === id).length;
 
     // Settings closed and opened again: the run's terminal is drawn again, still asking for the password.
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     await openAbout(app);
     const again = await toolTerminal("Installing OpenBao CLI");
     await waitFor(() => expect(screenOf(again)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for seth:"]));
+    const before = subscribed();
+
+    // The section drawn anew while the run is under way (a probe's tools.updated) keeps the one pane, the focus still in it.
+    act(() => (again.querySelector("textarea") as HTMLTextAreaElement).focus());
+    const ghAgain = await row("GitHub CLI");
+    desk.changeTool("gh", { latest: "2.65.0", status: "update-available" });
+    await waitFor(() => expect(facts(ghAgain)).toMatchObject({ Latest: "2.65.0" }));
+    expect(subscribed()).toBe(before);
+    expect(again.contains(document.activeElement)).toBe(true);
+    expect(screenOf(again)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for seth:"]);
+
+    // Its run finished, the pane stays, saying how it ended, until its Close closes the terminal.
+    await typeInto(app, again, "password-for-tests{Enter}");
+    expect(await within(await row("OpenBao CLI")).findByText(/^The install of bao finished\./)).toBeDefined();
+    expect(await within(await toolTerminal("Installing OpenBao CLI")).findByText("· exit 0")).toBeDefined();
+    await app.user.click(within(await toolTerminal("Installing OpenBao CLI")).getByRole("button", { name: "Close" }));
+    expect(within(section()).queryByRole("region", { name: "Installing OpenBao CLI" })).toBeNull();
+    expect(desk.requests("terminals.close").map((request) => request.params["id"])).toEqual([id]);
   });
 
   it("goes when the environment closes the tool terminal", async () => {

@@ -10,7 +10,7 @@ import { ToolTerminal, type ShownRun } from "./tool-terminal.js";
 /** What About's Managed tools send at `admin`: a run and a verification. Without `admin` both are dim, with the capability's line said once on About. */
 export const MANAGED_TOOLS_SENT: readonly MethodName[] = ["tools.run", "tools.verify"];
 
-/** A run the environment's stream says is under way, as the section draws it: at the size the environment opens a tool terminal at unless asked another. */
+/** A run the environment's stream says is under way, as the section holds it: at the size the environment opens a tool terminal at unless asked another. */
 const shownFrom = (running: ToolRunStartedPayload): ShownRun => ({
   terminal: { id: running.terminalId, ...DEFAULT_TERMINAL_SIZE },
   tool: running.tool,
@@ -26,9 +26,9 @@ const shownFrom = (running: ToolRunStartedPayload): ShownRun => ({
  * the environment probes again (rate-limited there; a client never probes).
  * Install and Update open a tool terminal, drawn here until it is closed;
  * a run under way the environment's stream tells of (from this window
- * earlier, or another client) is drawn too, so a `sudo` prompt left waiting
- * can still be answered. Opened at its part (the Key manager step's link),
- * the section takes the focus.
+ * earlier, or another client) is drawn too, and kept the same way past its
+ * finish, so a `sudo` prompt left waiting can still be answered. Opened at
+ * its part (the Key manager step's link), the section takes the focus.
  *
  * Without the `managedTools` flag the section holds its reason alone;
  * without `admin` Install, Update and Verify are dim, About saying why once.
@@ -44,8 +44,8 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
   const offered = !(flagged.status === "absent" && flagged.reason === "unsupported");
   const listed = useFollowed(useMemo(() => (offered ? runtime.requests.cached(environmentId, "tools.list", {}) : undefined), [runtime, environmentId, offered]));
   const { running, finished } = useObservable(useMemo(() => runtime.projections.toolRuns(environmentId), [runtime, environmentId]));
-  /** The run this window opened a tool terminal for, and the terminals closed here, which a run still under way does not bring back. */
-  const [opened, open] = useState<ShownRun | null>(null);
+  /** The run drawn here until its Close: one this window started, or one under way the stream told of; and the terminals closed here, which a run still under way does not bring back. */
+  const [drawn, open] = useState<ShownRun | null>(null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
 
   // Opening About asks the environment to probe again, behind the cached rows it shows meanwhile.
@@ -55,8 +55,11 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
   useEffect(() => {
     if (part === "managed-tools") region.current?.focus();
   }, [part]);
+  // A run under way, while none is drawn and its terminal was not closed here, is held as drawn: one object, kept past its finish.
+  useEffect(() => {
+    if (running !== null && !closed.has(running.terminalId)) open((shown) => shown ?? shownFrom(running));
+  }, [running, closed]);
 
-  const drawn = opened ?? (running !== null && !closed.has(running.terminalId) ? shownFrom(running) : null);
   const close = () => {
     if (drawn !== null) setClosed((held) => new Set(held).add(drawn.terminal.id));
     open(null);

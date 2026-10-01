@@ -35,13 +35,15 @@ export const ToolTerminal = ({ environmentId, run, label, close }: { readonly en
   const terminal = useRef<PaneTerminal | null>(null);
   const [view, setView] = useState<PaneView>(NOTHING_YET);
   const heading = useId();
+  // The pane is made once per terminal and size, not per drawing of `run`: a section drawn anew keeps its subscription and its focus.
+  const { id, cols, rows } = run.terminal;
 
   useEffect(() => {
     if (host.current === null) return;
     const made = createPaneTerminal({
       runtime,
       environmentId,
-      source: { kind: "tool", terminal: run.terminal, gone: () => latest.current.close() },
+      source: { kind: "tool", terminal: { id, cols, rows }, gone: () => latest.current.close() },
       host: host.current,
       theme: latest.current.theme,
       onScreen: true,
@@ -54,7 +56,7 @@ export const ToolTerminal = ({ environmentId, run, label, close }: { readonly en
       terminal.current = null;
       made.dispose();
     };
-  }, [runtime, environmentId, run.terminal]);
+  }, [runtime, environmentId, id, cols, rows]);
   useEffect(() => terminal.current?.theme(theme), [theme]);
 
   const closeIt = () => {
