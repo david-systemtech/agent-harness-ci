@@ -99,6 +99,9 @@ export const banksProjector: Projector = {
 export const listBanks = (reader: Reader): BankEntry[] =>
   reader.all<{ entry: string }>("SELECT entry FROM banks WHERE forgotten_at IS NULL ORDER BY position").map((row) => JSON.parse(row.entry) as BankEntry);
 
+/** Whether a bank was ever registered as `bankId` here, forgotten or not: its id is never taken again. */
+export const bankEver = (reader: Reader, bankId: string): boolean => reader.all("SELECT 1 AS found FROM banks WHERE id = ?", bankId).length > 0;
+
 /** The bank registered as `bankId`; null for one not held now. */
 export const liveBank = (reader: Reader, bankId: string): BankEntry | null => {
   const [row] = reader.all<{ entry: string }>("SELECT entry FROM banks WHERE id = ? AND forgotten_at IS NULL", bankId);

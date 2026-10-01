@@ -24,7 +24,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { runGit } from "../workspace/git.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank, type BankIndex } from "./bank-index.js";
-import { importHolder, listBanks, liveBank, nameHolder } from "./bank-store.js";
+import { bankEver, importHolder, listBanks, liveBank, nameHolder } from "./bank-store.js";
 import { renderFixedTiers } from "./index-renderer.js";
 
 /**
@@ -312,7 +312,8 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
     const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
-    const unreachable = entry.location.kind === "remote" ? await reachableRemote(entry.location) : unreadable;
+    // A checkout git cannot read fails the bank wherever its remote is; a readable one with a remote fails when its forge does not have it.
+    const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null);
     const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
     // A checkout that cannot be read says nothing new of what it holds: those parts stay as last found.
     if ("problem" in read) return { status: { ...entry.status, reachable }, reading: null };
@@ -389,6 +390,9 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const held = await readAll();
       const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
       return (_params, command) => {
+        if (bankEver(reader, entry.id)) {
+          return { aggregate: stream, rejected: { code: "conflict", message: `A bank ${entry.id} was registered on this environment already.`, data: { reason: "exists", bankId: entry.id } } };
+        }
         if (nameHolder(reader, entry.name) !== null) {
           return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
         }

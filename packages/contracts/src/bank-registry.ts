@@ -86,7 +86,7 @@ export const BankReachability = z
     z.object({ state: z.literal("reachable"), since }),
     z.object({ state: z.literal("unreachable"), reason: z.string().min(1).meta({ description: "Why it could not be reached, in a sentence." }), since }),
   ])
-  .meta({ description: "Whether the bank's remote answered, or a local-only bank's repository is there; why not, when not." });
+  .meta({ description: "Whether the bank's checkout can be read and, for a bank with a remote, the remote answered; why not, when not." });
 export type BankReachability = z.infer<typeof BankReachability>;
 
 /** Its `BANK.md` on main, as the validator reads it. */
@@ -276,9 +276,9 @@ export const BANK_EVENT_PAYLOADS = {
 export type BankEventType = keyof typeof BANK_EVENT_PAYLOADS;
 
 /** Why a bank method was refused for the registry's state (`conflict`). */
-export const BANK_CONFLICT_REASONS = ["name_taken", "index_too_large", "landing_in_progress", "not_local_only", "registered_path"] as const;
+export const BANK_CONFLICT_REASONS = ["exists", "name_taken", "index_too_large", "landing_in_progress", "not_local_only", "registered_path"] as const;
 export const BankConflictReason = z.enum(BANK_CONFLICT_REASONS).meta({
   description:
-    "Why a bank method was refused: name_taken (another bank holds the name), index_too_large (an account and repository would carry over 8 KB of fixed tiers), landing_in_progress, not_local_only (publish on a bank with a remote) or registered_path (the checkout is a registered path, never removed).",
+    "Why a bank method was refused: exists (a bank was registered under the id on this environment already, forgotten or not), name_taken (another bank holds the name), index_too_large (an account and repository would carry over 8 KB of fixed tiers), landing_in_progress, not_local_only (publish on a bank with a remote) or registered_path (the checkout is a registered path, never removed).",
 });
 export type BankConflictReason = z.infer<typeof BankConflictReason>;

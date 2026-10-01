@@ -2803,7 +2803,7 @@
                           ]
                         }
                       ],
-                      "description": "Whether the bank's remote answered, or a local-only bank's repository is there; why not, when not."
+                      "description": "Whether the bank's checkout can be read and, for a bank with a remote, the remote answered; why not, when not."
                     },
                     "manifest": {
                       "oneOf": [
@@ -3481,7 +3481,7 @@
                       ]
                     }
                   ],
-                  "description": "Whether the bank's remote answered, or a local-only bank's repository is there; why not, when not."
+                  "description": "Whether the bank's checkout can be read and, for a bank with a remote, the remote answered; why not, when not."
                 },
                 "manifest": {
                   "oneOf": [

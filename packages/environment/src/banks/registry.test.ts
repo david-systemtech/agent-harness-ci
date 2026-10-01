@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BankRecord, EventEnvelope, EventFrame, ParamsOf, ResponseOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
@@ -133,6 +133,17 @@ describe("banks.register and banks.list", () => {
     const answer = await register(client, { path: gitBank(PERSONAL_BANK) });
     expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "name_taken", name: "maya-memory" } } });
     expect(await list(client)).toHaveLength(1);
+  });
+
+  it("refuses an id a bank was registered under already, conflict exists, registering nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await registered(client, { path: gitBank(PERSONAL_BANK) });
+    const from = t.env.log.head();
+    const answer = await register(client, { path: gitBank(changed(PERSONAL_BANK, { "BANK.md": null })), bankId: bank.id });
+    expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "exists", bankId: bank.id } } });
+    expect(await list(client)).toEqual([bank]);
+    expect(await bankEvents(client, from)).toEqual([]);
   });
 
   it("refuses a path that holds no git repository, or is not absolute, invalid_params", async () => {
@@ -285,6 +296,25 @@ describe("banks.verify", () => {
     release();
     expect(await second).toEqual(await first);
     expect(reads()).toBe(before + 1);
+  });
+
+  it("records a bank with a remote whose checkout is gone as unreachable, its other parts as last found", async () => {
+    const t = await start();
+    const client = await t.client();
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    const checkout = gitBank(changed(TEAM_BANK, { "BANK.md": null }));
+    git(checkout, "remote", "add", "origin", `${forge.origin}/acme/bank.git`);
+    forge.repository(TOKEN, "acme/bank");
+    const bank = await registered(client, { path: checkout });
+    expect(bank.status.reachable.state).toBe("reachable");
+    rmSync(checkout, { recursive: true, force: true });
+    t.clock.advance(60_000);
+    const later = new Date(Date.parse(MANUAL_CLOCK_START) + 60_000).toISOString();
+    const [after] = (await client.request("banks.verify", { bankId: bank.id })).banks;
+    expect(after?.status).toEqual({ ...bank.status, reachable: { state: "unreachable", reason: `its repository at ${checkout} is not there`, since: later } });
   });
 
   it("keeps an owner last found unresolved, and a pull request last found holding BANK.md, while the forge does not answer: nothing is recorded", async () => {
