@@ -327,9 +327,14 @@ export const CompletionsErrorBody = z
   .object({
     error: CompletionsErrorDetail,
     [COMPLETIONS_NAMESPACE]: z
-      .object({ sessionId: SessionId.optional(), runId: RunId.optional(), ended: CompletionsRunEnd.optional() })
+      .object({
+        sessionId: SessionId.optional(),
+        runId: RunId.optional(),
+        ended: CompletionsRunEnd.optional(),
+        waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue, for a run to read it: do not send it again." }),
+      })
       .optional()
-      .meta({ description: "The session and run a failed turn ran on, when it got that far." }),
+      .meta({ description: "The session and run a failed turn ran on, when it got that far, and its message when it still waits." }),
   })
   .meta({ description: "An OpenAI-style error body." });
 export type CompletionsErrorBody = z.infer<typeof CompletionsErrorBody>;
