@@ -79,12 +79,16 @@ const manifestOf = (files: BankFiles): Manifest => {
 /** The bank's files at its checkout's head, and its index; null when git cannot read them, with why. */
 const readCheckout = async (checkout: string, entry: Pick<BankEntry, "name" | "role">): Promise<{ readonly reading: Reading } | { readonly problem: string }> => {
   try {
-    const files = await readBankFiles(checkout);
-    const { kind } = manifestOf(files);
-    return { reading: { files, index: kind === null ? null : indexBank({ name: entry.name, kind, role: entry.role, files }) } };
+    return { reading: readingFrom(await readBankFiles(checkout), entry) };
   } catch (error) {
     return { problem: error instanceof Error ? error.message : String(error) };
   }
+};
+
+/** The bank's files as the registry names it: its index under its name and role, when its BANK.md names its kind. */
+const readingFrom = (files: BankFiles, entry: Pick<BankEntry, "name" | "role">): Reading => {
+  const { kind } = manifestOf(files);
+  return { files, index: kind === null ? null : indexBank({ name: entry.name, kind, role: entry.role, files }) };
 };
 
 /** Where the checkout's `origin` remote points, as a bank's location: local when it has none, or one that names no forge repository. */
@@ -315,14 +319,23 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   /** Verifies one bank and records what changed; answers its entry after. */
   const verifyOne = async (entry: BankEntry): Promise<void> => {
     const { status: found, reading } = await inspect(entry);
-    readings.set(entry.id, reading);
+    const manifest = reading === null ? null : manifestOf(reading.files);
     log.atomically((tx) => {
       const held = liveBank(reader, entry.id);
       if (held === null) return;
+      // A name or kind BANK.md names since the bank was registered is the record's, a name another bank holds aside.
+      const named = BankName.safeParse(manifest?.name);
+      const name = named.success && named.data !== held.name && nameHolder(reader, named.data) === null ? named.data : undefined;
+      const kind = manifest?.kind != null && manifest.kind !== held.kind ? manifest.kind : undefined;
+      if (name !== undefined || kind !== undefined) {
+        log.append(stream, [{ type: "bank.updated", payload: { bankId: entry.id, ...(name !== undefined && { name }), ...(kind !== undefined && { kind }) } }], { tx, actor: BANKS_ACTOR });
+      }
       const status = keepSince(held.status, found);
       if (JSON.stringify(status) === JSON.stringify(held.status)) return;
       log.append(stream, [{ type: "bank.verified", payload: { bankId: entry.id, status } }], { tx, actor: BANKS_ACTOR });
     });
+    const now = liveBank(reader, entry.id);
+    readings.set(entry.id, reading === null || now === null ? reading : readingFrom(reading.files, now));
   };
 
   const verifyAll = (): Promise<BankRecord[]> => {

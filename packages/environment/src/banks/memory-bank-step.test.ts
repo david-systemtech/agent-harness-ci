@@ -472,7 +472,8 @@ describe("the describe session", () => {
       reason: ALL_HOLD,
       failing: [],
       actions: ["revise"],
-      targets: [target("revise", bank)],
+      // The bank takes the name its landed BANK.md gives it.
+      targets: [{ ...target("revise", bank), label: "maya-memory" }],
       checkedAt: new Date(Date.parse(MANUAL_CLOCK_START) + 2 * TRIGGER_WINDOW_MS).toISOString(),
     });
   });

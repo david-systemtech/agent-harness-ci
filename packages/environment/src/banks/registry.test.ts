@@ -239,6 +239,25 @@ describe("banks.verify", () => {
     expect(await bankEvents(client, from)).toHaveLength(1);
   });
 
+  it("takes the name and kind a BANK.md landed since registration names, as system:banks", async () => {
+    const t = await start();
+    const client = await t.client();
+    const checkout = gitBank(changed(PERSONAL_BANK, { "BANK.md": null }));
+    const bank = await registered(client, { path: checkout });
+    expect([bank.kind, bank.line]).toEqual([null, null]);
+    writeFileSync(join(checkout, "BANK.md"), PERSONAL_BANK["BANK.md"] ?? "");
+    git(checkout, "add", "BANK.md");
+    git(checkout, "commit", "--quiet", "-m", "Describe the bank.");
+    const from = t.env.log.head();
+
+    const [after] = (await client.request("banks.verify", {})).banks;
+    expect(after).toMatchObject({ name: "maya-memory", kind: "personal", line: PERSONAL_LINE, status: { manifest: { state: "valid" } } });
+    expect((await bankEvents(client, from)).map(({ type, actor, payload }) => ({ type, actor, payload }))).toEqual([
+      { type: "bank.updated", actor: { kind: "system", id: "banks" }, payload: { bankId: bank.id, name: "maya-memory", kind: "personal" } },
+      { type: "bank.verified", actor: { kind: "system", id: "banks" }, payload: { bankId: bank.id, status: after?.status } },
+    ]);
+  });
+
   it("joins a verification of every bank running rather than starting a second: the forge is asked once", async () => {
     const t = await start();
     const client = await t.client();
