@@ -540,15 +540,15 @@ describe("a connection without a credential", () => {
     const { t, client } = await withOpenBao();
     const from = t.env.log.head();
 
-    const refused = await add(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com", credential: token() });
-    expect(rejection(refused.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "doppler" } });
+    const refused = await add(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com", credential: token() });
+    expect(rejection(refused.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "bitwarden" } });
     const notToken = await add(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com", credential: userpass() });
     expect(rejection(notToken.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "bitwarden" } });
     expect(await keyManagerEvents(client, from)).toEqual([]);
     expect(await saidBack(t, [PERSON_TOKEN])).toEqual([PERSON_TOKEN]);
 
-    const waiting = await added(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com/" });
-    expect(waiting).toMatchObject({ provider: "doppler", address: "https://api.doppler.com", ca: null, method: null, mount: null, username: null, status: { kind: "awaiting-sign-in" } });
+    const waiting = await added(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com/" });
+    expect(waiting).toMatchObject({ provider: "bitwarden", address: "https://vault.bitwarden.com", ca: null, method: null, mount: null, username: null, status: { kind: "awaiting-sign-in" } });
   });
 });
 

@@ -31,6 +31,7 @@ import { createBackgroundWork } from "./background.js";
 import { basePathProblem, providerSuggestion } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
+import { createDopplerProvider } from "./doppler.js";
 import { createOnePasswordProvider } from "./onepassword.js";
 import type { OnePasswordSdk } from "./onepassword-sdk.js";
 import { createOpenBaoProvider } from "./openbao.js";
@@ -247,8 +248,12 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const { log, clock, vault, scrub } = options;
   const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
-  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; the rest arrive with their tickets (#377, #379). */
-  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: createOpenBaoProvider(), onepassword: createOnePasswordProvider(options.onePasswordSdk) };
+  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; Bitwarden's arrives with its ticket (#379). */
+  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = {
+    openbao: createOpenBaoProvider(),
+    doppler: createDopplerProvider(),
+    onepassword: createOnePasswordProvider(options.onePasswordSdk),
+  };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -487,7 +492,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /**
    * Where a connection signs in, at `address` with `ca`: OpenBao by its
    * method at its mount, null while it has none; another provider with its
-   * token (1Password's service-account token, #378), trusting no pinned CA.
+   * token (Doppler's, #377; 1Password's service-account token, #378),
+   * trusting no pinned CA.
    */
   const targetOf = (record: Pick<KeyManagerConnectionRecord, "provider" | "address" | "ca" | "method" | "mount" | "username">, address = record.address, ca = record.ca): SignInTarget | null => {
     if (record.provider !== "openbao") return { address, ca: null, method: "token", mount: "token", username: null };

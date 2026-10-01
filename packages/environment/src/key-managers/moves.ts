@@ -229,7 +229,12 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
       const keeps = `the ${kind} ${item.name} keeps its stored token`;
       if (!mode.verifyOnly) {
         // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
-        const location = reference.provider === "openbao" ? { mount: reference.mount, path: reference.path } : { mount: reference.vault, path: reference.item };
+        const location =
+          reference.provider === "openbao"
+            ? { mount: reference.mount, path: reference.path }
+            : reference.provider === "onepassword"
+              ? { mount: reference.vault, path: reference.item }
+              : { mount: reference.project ?? "", path: reference.config ?? "" };
         const checked = await login.provider.canWrite(login.target, login.token, location, AbortSignal.timeout(budgetMs));
         if (checked.outcome !== "checked") {
           return { result: failed(ref, "write", false, { code: WRITE_CODES[checked.outcome], message: `${said(checked.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
@@ -318,7 +323,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         const held = connections.readable(connectionId);
         if (held === null) return rejecting(noConnection(connectionId));
         const { record, login } = held;
-        if (record.provider !== "openbao" && record.provider !== "onepassword") {
+        if (record.provider !== "openbao" && record.provider !== "onepassword" && record.provider !== "doppler") {
           return rejecting({ code: "provider_unavailable", message: `This environment cannot move stored tokens into ${PROVIDER_NAMES[record.provider]} yet.`, data: { provider: record.provider } });
         }
         if (record.basePath === null) invalid(["connectionId"], `The key-manager connection ${record.label} has no base path: set where Move keeps the harness's secrets first.`);

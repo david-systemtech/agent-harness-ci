@@ -8,6 +8,7 @@ import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
+import { dopplerBlock } from "./doppler-block.js";
 import { onePasswordBlock } from "./onepassword-block.js";
 import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
@@ -22,12 +23,12 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * through.
  *
  * - **What is injected**: each injecting OpenBao connection's block
- *   (`openbao-block.ts`) and 1Password connection's (`onepassword-block.ts`,
- *   #378), at most one per provider (the connections' rule); the other
- *   providers' blocks join with their tickets (#377, #379). With none,
- *   nothing is supplied and the key is empty.
- * - **1Password** mints nothing: a holder is given the connection's own
- *   service-account token while it is signed in, registered with the scrub
+ *   (`openbao-block.ts`), Doppler connection's (`doppler-block.ts`, #377) and
+ *   1Password connection's (`onepassword-block.ts`, #378), at most one per
+ *   provider (the connections' rule); Bitwarden's joins with its ticket
+ *   (#379). With none, nothing is supplied and the key is empty.
+ * - **Doppler and 1Password** mint nothing: a holder is given the
+ *   connection's own token while it is signed in, registered with the scrub
  *   registry for the holder's life, and a 0700 configuration directory of
  *   its own in the key-manager CLI directory, deleted when it stops.
  * - **The key** names, per injected connection, its id, its credential
@@ -161,14 +162,23 @@ const replaceFile = async (path: string, text: string, mode: number): Promise<vo
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const { source, clock, scrub, budgetMs, background } = options;
   const held = new Set<HeldRunToken>();
+  /** The holders' own CLI configuration directories (Doppler's and 1Password's), each with its token's scrub release: deleted at the holder's release or the close. */
+  const directories = new Map<string, ScrubRelease>();
+  const removeDirectory = (directory: string): void => {
+    const unregister = directories.get(directory);
+    if (unregister === undefined) return;
+    directories.delete(directory);
+    unregister();
+    background.run(rm(directory, { recursive: true, force: true }).catch((error: unknown) => console.error(`Deleting the key-manager CLI directory ${directory} failed:`, error)));
+  };
   /** How many times each connection's run tokens were all revoked (its sign-outs and removal): a mint under way across one is revoked as it lands. */
   const revocations = new Map<string, number>();
   let closed = false;
 
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
-  /** The injecting connections this supplier serves: OpenBao's and 1Password's. */
-  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "onepassword");
+  /** The injecting connections this supplier serves: OpenBao's, Doppler's and 1Password's. */
+  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler" || record.provider === "onepassword");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
@@ -307,14 +317,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
     const configDirectory = await mkdtemp(join(options.cliDirectory, ONEPASSWORD_CONFIG_PREFIX));
     const token = record.status.kind === "signed-in" && login !== null ? login.token : "";
-    const registered = token === "" ? () => undefined : scrub.register(token, { owner: `key-manager:${record.id}:holder` });
-    return {
-      variables: onePasswordBlock({ token, configDirectory }),
-      release: () => {
-        registered();
-        background.run(rm(configDirectory, { recursive: true, force: true }).catch((error: unknown) => console.error(`Deleting the 1Password CLI directory ${configDirectory} failed:`, error)));
-      },
-    };
+    directories.set(configDirectory, token === "" ? () => undefined : scrub.register(token, { owner: `key-manager:${record.id}:holder` }));
+    return { variables: onePasswordBlock({ token, configDirectory }), release: () => removeDirectory(configDirectory) };
   };
 
   /** The block of one injecting connection for the holder, once its sign-in under way has ended or been waited for, with its run token and that token's release; null for a connection no longer held. */
@@ -323,6 +327,20 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     const now = source.readable(connectionId);
     if (now === null) return null;
     if (now.record.provider === "onepassword") return onePasswordBlockFor(now.record, now.login);
+    if (now.record.provider === "doppler") {
+      await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
+      const directory = await mkdtemp(join(options.cliDirectory, "doppler-"));
+      const current = source.readable(connectionId);
+      if (current === null || !current.record.injects || closed) {
+        directories.set(directory, () => {});
+        removeDirectory(directory);
+        return null;
+      }
+      const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
+      const unregister = token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` });
+      directories.set(directory, unregister);
+      return { variables: dopplerBlock(current.record.address, token, directory), release: () => removeDirectory(directory) };
+    }
     const run = await mintFor(now.record, now.login, scope);
     return {
       variables: openBaoBlock({ address: now.record.address, ca: now.record.ca, token: run?.token ?? "", configPath }),
@@ -382,6 +400,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
 
     close() {
       closed = true;
+      for (const directory of directories.keys()) removeDirectory(directory);
       for (const run of held) {
         run.renewal.cancel();
         run.unregister();

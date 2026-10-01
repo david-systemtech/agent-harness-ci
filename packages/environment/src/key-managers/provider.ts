@@ -115,9 +115,9 @@ export type ReadAnswer = { readonly outcome: "read"; readonly value: string } | 
 
 /**
  * Where a list looks: for OpenBao a KV mount and a path under it, null for
- * the mount's top, no mount listing the mounts; for 1Password a vault
- * (`mount`) and an item in it (`path`), no vault listing the vaults and no
- * item the vault's items.
+ * the mount's top, no mount listing the mounts; for Doppler a project and a
+ * config, null omitting each; for 1Password a vault (`mount`) and an item in
+ * it (`path`), no vault listing the vaults and no item the vault's items.
  */
 export interface ListLocation {
   readonly mount: string | null;
@@ -127,7 +127,7 @@ export interface ListLocation {
 /** What a list answered: the names under the location, a folder's or a mount's ending in `/`; never a value. */
 export type ListAnswer = { readonly outcome: "listed"; readonly names: readonly string[] } | ProviderFailure;
 
-/** Where a secret sits for a write check (#371): a KV mount and a path under it; for 1Password a vault (`mount`) and an item's title (`path`). */
+/** Where a secret sits for a write check (#371): a KV mount and a path under it; for Doppler a project and config (empty omits either); for 1Password a vault (`mount`) and an item's title (`path`). */
 export interface SecretLocation {
   readonly mount: string;
   readonly path: string;

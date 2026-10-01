@@ -278,8 +278,8 @@ describe("keyManagers.move's refusals", () => {
     const { client } = await withOpenBao();
     const waiting = await added(client, { address: "https://bao.example.com:8200", method: "approle", basePath: "personal/harness" });
     expect(rejection((await move(client, { connectionId: waiting.id })).receipt)).toMatchObject({ reason: "credential_source_unavailable", data: { connectionId: waiting.id } });
-    const doppler = await added(client, { provider: "doppler", address: "https://api.doppler.com", basePath: "harness" });
-    expect(rejection((await move(client, { connectionId: doppler.id })).receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "doppler" } });
+    const other = await added(client, { provider: "bitwarden", address: "https://vault.bitwarden.com", basePath: "harness" });
+    expect(rejection((await move(client, { connectionId: other.id })).receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "bitwarden" } });
   });
 
   it("answers an item that holds no stored value not_found, and moves the others", async () => {
