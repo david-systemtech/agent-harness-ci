@@ -7,7 +7,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$",
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm|routines)(\\.[a-z][A-Za-z]*)+$",
           "description": "`<context>.<verb>`, where the prefix app is the context anywhere, row is transcript and rail is sidebar; `command.<name>` for a slash command."
         },
         "context": {
@@ -23,9 +23,10 @@
             "pager",
             "terminal",
             "asks",
-            "confirm"
+            "confirm",
+            "routines"
           ],
-          "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context."
+          "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer), routines (the routines card: the list, a routine's history, the webhook endpoints). A key is claimed at most once per context."
         },
         "keys": {
           "type": "array",
@@ -48,7 +49,7 @@
         "aliasOf": {
           "description": "For a slash command kept as a hidden alias: the command it now names. The help overlay leaves it out.",
           "type": "string",
-          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm|routines)(\\.[a-z][A-Za-z]*)+$"
         },
         "when": {
           "description": "For a terminal key answered only under a condition of its own context: the condition. Such an action may share a default key with an action of its context under a wider condition or none, and is asked first; absent, the key is the action's whenever its context has the keys.",
@@ -141,7 +142,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$",
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm|routines)(\\.[a-z][A-Za-z]*)+$",
           "description": "`<context>.<verb>`, where the prefix app is the context anywhere, row is transcript and rail is sidebar; `command.<name>` for a slash command."
         },
         "context": {
@@ -157,9 +158,10 @@
             "pager",
             "terminal",
             "asks",
-            "confirm"
+            "confirm",
+            "routines"
           ],
-          "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context."
+          "description": "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer), routines (the routines card: the list, a routine's history, the webhook endpoints). A key is claimed at most once per context."
         },
         "keys": {
           "type": "array",
@@ -182,7 +184,7 @@
         "aliasOf": {
           "description": "For a slash command kept as a hidden alias: the command it now names. The help overlay leaves it out.",
           "type": "string",
-          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm)(\\.[a-z][A-Za-z]*)+$"
+          "pattern": "^(app|composer|command|transcript|row|rail|delegated|picker|permission|pager|terminal|asks|confirm|routines)(\\.[a-z][A-Za-z]*)+$"
         },
         "when": {
           "description": "For a terminal key answered only under a condition of its own context: the condition. Such an action may share a default key with an action of its context under a wider condition or none, and is asked first; absent, the key is the action's whenever its context has the keys.",

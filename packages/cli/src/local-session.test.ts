@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type AddressInfo, type Socket } from "node:net";
 import { ContractError, registry } from "@agent-harness/contracts";
 import { systemClock, type Clock, type Timer } from "@agent-harness/environment";
@@ -89,6 +90,31 @@ describe("the local session route", () => {
     expect(status).toMatchObject({ readiness: "ready" });
     expect(updates).toMatchObject({ manager: { kind: "none" } });
     expect(await liveLabels(t)).not.toContain("two calls");
+  });
+
+  it("hears the notices raised once it follows them and none the catch-up replays, and revokes its client session after", async () => {
+    const t = await start();
+    const admin = await t.client();
+    cleanups.push(() => admin.close());
+    await admin.apply("environment.rename", { commandId: randomUUID(), name: "Before" });
+
+    const heard = await withLocalSession({ dataDir: t.dataDir }, net, "notices", async (call, notices) => {
+      const names: string[] = [];
+      let both!: () => void;
+      const heardBoth = new Promise<void>((resolve) => (both = resolve));
+      await notices((notice) => {
+        if (notice.type !== "environment.renamed") return;
+        names.push(notice.payload.name);
+        if (names.length === 2) both();
+      });
+      await call("environment.rename", { commandId: randomUUID(), name: "After" });
+      await call("environment.rename", { commandId: randomUUID(), name: "Again" });
+      await heardBoth;
+      return names;
+    });
+
+    expect(heard).toEqual(["After", "Again"]);
+    expect(await liveLabels(t)).not.toContain("notices");
   });
 
   it("fails the verb when a call goes unanswered for the timeout, even after another call in flight with it was answered", async () => {

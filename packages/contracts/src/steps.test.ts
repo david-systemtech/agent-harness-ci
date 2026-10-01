@@ -327,15 +327,22 @@ describe("the step registry", () => {
     expect([check?.check(true), check?.check(false), check?.check("on")]).toEqual([true, true, "instructions.orientation does not hold a valid value."]);
   });
 
-  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
+  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with pairing state writes, three state checks, the local budget and the hour, and the browser triggers", () => {
     const browser = stepOf("browser");
     expect((STEP_ORDER as readonly string[]).indexOf("browser")).toBe(8);
     expect(STEP_REGISTRY.find((step) => step.id === "browser")?.home).toBe("access.browser");
     expect(browser.writes).toEqual([...BROWSER_SETTINGS_KEYS]);
     expect(browser.checks.map((check) => check.key)).toEqual([...BROWSER_SETTINGS_KEYS]);
-    expect(browser).toMatchObject({ stateChecks: [], links: [], skippable: false, budget: "local", cadence: { minutes: 60 }, triggers: [] });
-    expect(browser).not.toHaveProperty("skip");
-    expect(browser.writesState).toBeUndefined();
+    expect(browser).toMatchObject({ links: [], skippable: true, skip: "browser.present", budget: "local", cadence: { minutes: 60 }, triggers: ["chrome.updated", "extension.seen"] });
+    expect(browser.writesState).toEqual([
+      { method: "browser.pairing.code", parts: ["pairedChromes"] },
+      { method: "browser.chromes.unpair", parts: ["pairedChromes"] },
+    ]);
+    expect(browser.stateChecks).toEqual([
+      { id: "browser.present", holds: "A Chrome is paired with this environment.", actions: [] },
+      { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
+      { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
+    ]);
     const presets = presetSettings();
     for (const check of browser.checks) expect(check.check(presets[check.key as SettingsKey]), check.key).toBe(true);
     expect(browser.checks.find((check) => check.key === "browser.devSites")?.check(["https://myapp.test"])).toBe("browser.devSites does not hold a valid value.");
@@ -691,7 +698,7 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Instructions on every bank.* event, the rest of its triggers left to #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Instructions on every bank.* event, the rest of its triggers left to #588, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
@@ -700,7 +707,7 @@ describe("the step registry", () => {
       ["key-manager", ["key-manager.*", "tools.updated"]],
       ["memory-bank", ["bank.*"]],
       ["instructions", ["bank.*"]],
-      ["browser", []],
+      ["browser", ["chrome.updated", "extension.seen"]],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],
     ]);
