@@ -5395,6 +5395,18 @@
       "title": "banks.verify error"
     },
     {
+      "path": "methods/banks.sync/params.json",
+      "title": "banks.sync params"
+    },
+    {
+      "path": "methods/banks.sync/result.json",
+      "title": "banks.sync result"
+    },
+    {
+      "path": "methods/banks.sync/error.json",
+      "title": "banks.sync error"
+    },
+    {
       "path": "methods/keyManagers.list/params.json",
       "title": "keyManagers.list params"
     },
@@ -7947,6 +7959,15 @@
       "params": "methods/banks.verify/params.json",
       "result": "methods/banks.verify/result.json",
       "error": "methods/banks.verify/error.json"
+    },
+    {
+      "name": "banks.sync",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.sync/params.json",
+      "result": "methods/banks.sync/result.json",
+      "error": "methods/banks.sync/error.json"
     },
     {
       "name": "keyManagers.list",

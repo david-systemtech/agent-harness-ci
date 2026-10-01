@@ -1,5 +1,6 @@
 import { ContractError } from "@agent-harness/contracts";
 import type { MethodHandlers } from "../serve/methods.js";
+import type { BankSyncer } from "./syncer.js";
 import type { BankService } from "./bank-service.js";
 
 /**
@@ -9,9 +10,9 @@ import type { BankService } from "./bank-service.js";
  * the checkout first; `banks.join.preview`, a read-only temporary clone;
  * `banks.join`, an admin command prepared by cloning and validating;
  * `banks.verify`, a `read` query that records what it
- * finds as `system:banks`. The rules are the BankService's.
+ * finds as `system:banks`; `banks.sync` pulls through the Syncer at `read`. The rules are the BankService's.
  */
-export const bankMethods = (banks: BankService): MethodHandlers => ({
+export const bankMethods = (banks: BankService, syncer: BankSyncer): MethodHandlers => ({
   "banks.join": banks.join,
   "banks.join.preview": async (params) => banks.preview(params.url),
   "banks.list": async () => ({ banks: await banks.list() }),
@@ -21,6 +22,7 @@ export const bankMethods = (banks: BankService): MethodHandlers => ({
     return { bank };
   },
   "banks.register": banks.register,
+  "banks.sync": async (params) => ({ banks: await syncer.sync(params.bankId) }),
   "banks.create": banks.create,
   "banks.verify": async (params) => ({ banks: await banks.verify(params.bankId) }),
 });

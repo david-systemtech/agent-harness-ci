@@ -488,6 +488,7 @@ describe("the method registry", () => {
       | "banks.register"
       | "banks.create"
       | "banks.verify"
+      | "banks.sync"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"

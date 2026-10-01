@@ -156,6 +156,16 @@ export const banksJoin = defineMethod({
   errors: [ValidationFailedError, ForgeAccountMissingError, CredentialUnavailableError, ForgeUnreachableError, KindUnsupportedError],
 });
 
+/** Pulls one bank now, or every enabled one; records the last successful fetch as system:banks, even when main did not move. */
+export const banksSync = defineMethod({
+  name: "banks.sync",
+  scope: "read",
+  kind: "query",
+  params: z.object({ bankId: BankId.optional().meta({ description: "The bank to pull; every enabled one when absent." }) }),
+  result: z.object({ banks: z.array(BankRecord) }),
+  errors: [],
+});
+
 /** Creates and admits a bank from the shipped template; describe is a later session. */
 export const banksCreate = defineMethod({
   name: "banks.create",
