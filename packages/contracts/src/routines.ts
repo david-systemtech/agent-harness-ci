@@ -7,6 +7,7 @@ import { Mode } from "./permissions-modes.js";
 import { ClientSessionId, EnvironmentId, setOf, Timestamp } from "./primitives.js";
 import { Sha256 } from "./release.js";
 import { RepositoryIdentity } from "./repository-identity.js";
+import { RoutineSchedule, RoutineTimeZone, WrittenTimeZone } from "./schedule.js";
 import { Ceiling } from "./scopes.js";
 import { SessionId, Tag, WorkspaceRequest } from "./sessions.js";
 import { SkillName } from "./skill-rules.js";
@@ -16,9 +17,9 @@ import { ModelUsage } from "./transcript.js";
  * The routine vocabulary (routines spec; ADR 0008): a routine's definition,
  * which YAML carries and a client writes, with its bounds and presets; its
  * state, which is the environment's and never exported; the routine
- * `routines.list` answers with its attention codes. Only the shapes are
- * here: the schedule maths, the silence rule, the YAML codec and the webhook
- * signature are the tickets' that first use them.
+ * `routines.list` answers with its attention codes. The schedule, its zone
+ * and their maths are `schedule.ts`'s; the silence rule, the YAML codec and
+ * the webhook signature are the tickets' that first use them.
  */
 
 /** A routine's id: a version 4 UUID the creating client mints, so a create can queue offline. */
@@ -31,68 +32,6 @@ export const RoutineName = Tag.meta({
     "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case.",
 });
 export type RoutineName = z.infer<typeof RoutineName>;
-
-/** The days a schedule names, Monday first. */
-export const ROUTINE_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
-export const RoutineDay = z.enum(ROUTINE_DAYS).meta({ description: "A day of the week, named in English and lower case: monday to sunday." });
-export type RoutineDay = z.infer<typeof RoutineDay>;
-
-/** A time of day in the routine's zone, `HH:MM` on the 24-hour clock. */
-export const RoutineTime = z
-  .string()
-  .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
-  .meta({ description: "A time of day in the routine's zone: HH:MM on the 24-hour clock, 00:00 to 23:59." });
-export type RoutineTime = z.infer<typeof RoutineTime>;
-
-const at = RoutineTime.meta({ description: "When in the day it is due, HH:MM in the routine's zone." });
-
-/** The longest cron expression a schedule takes. */
-export const MAX_CRON_EXPRESSION = 200;
-
-/**
- * When a routine is due (routines spec, "Schedules"): run now only, or a
- * kind with named days and `HH:MM` times, or a five-field cron expression,
- * each in the routine's zone at minute resolution. What only the schedule
- * maths can judge (cron's grammar, the five-minute floor) is its ticket's.
- */
-export const RoutineSchedule = z
-  .discriminatedUnion("kind", [
-    z.object({ kind: z.literal("manual") }).meta({ description: "Never due: the routine runs when run now." }),
-    z
-      .object({ kind: z.literal("hourly"), minute: z.int().min(0).max(59).meta({ description: "The minute past each hour it is due, 0 to 59." }) })
-      .meta({ description: "Due every hour at a minute past it." }),
-    z.object({ kind: z.literal("daily"), at }).meta({ description: "Due every day at a time." }),
-    z.object({ kind: z.literal("weekdays"), at }).meta({ description: "Due Monday to Friday at a time." }),
-    z.object({ kind: z.literal("weekly"), day: RoutineDay, at }).meta({ description: "Due one day a week at a time." }),
-    z
-      .object({ kind: z.literal("days"), days: setOf(RoutineDay).min(1).meta({ description: "The days it is due, each once." }), at })
-      .meta({ description: "Due on some days of the week at a time." }),
-    z
-      .object({ kind: z.literal("monthly"), day: z.int().min(1).max(31).meta({ description: "The day of the month, 1 to 31; a month without it is skipped." }), at })
-      .meta({ description: "Due one day a month at a time; a month without the day is skipped, as cron does." }),
-    z
-      .object({
-        kind: z.literal("cron"),
-        expression: z.string().min(1).max(MAX_CRON_EXPRESSION).meta({
-          description: "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form.",
-        }),
-      })
-      .meta({ description: "Due when a five-field cron expression matches; both day fields restricted combine with OR, as Vixie cron's do." }),
-  ])
-  .meta({
-    description:
-      "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression.",
-  });
-export type RoutineSchedule = z.infer<typeof RoutineSchedule>;
-
-/** An IANA time zone's name, as the runtime's zone data names it. */
-export const RoutineTimeZone = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z][A-Za-z0-9_+\-/]*$/)
-  .meta({ description: "An IANA time zone's name, such as Europe/London or UTC; whether the environment's zone data knows it is the schedule's to check." });
-export type RoutineTimeZone = z.infer<typeof RoutineTimeZone>;
 
 /** What a routine does with due times its environment missed: fire the latest once, within seven days, or skip them. */
 export const ROUTINE_IF_MISSED = ["run-once", "skip"] as const;
@@ -288,7 +227,7 @@ export type RoutineDefinition = z.infer<typeof RoutineDefinition>;
 export const RoutineDefinitionInput = z
   .object({
     ...definitionShape,
-    timezone: RoutineTimeZone.optional().meta({ description: "An IANA time zone's name; the environment's own zone when absent." }),
+    timezone: WrittenTimeZone.optional().meta({ description: "An IANA time zone's name the environment's zone data knows; the environment's own zone when absent." }),
     ifMissed: RoutineIfMissed.default(ROUTINE_PRESETS.ifMissed),
     injection: RoutineInjection.default(ROUTINE_PRESETS.injection),
     preCheck: PreCheckInput.nullable().meta({ description: "What runs before each firing, a script's timeout preset when absent; null for none, so every due time fires." }),

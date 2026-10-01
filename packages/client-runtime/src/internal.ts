@@ -23,6 +23,7 @@ import { createKeyManagers } from "./key-managers.js";
 import { reportKnownEnvironments } from "./known-environments.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
 import { createKeyManagerNotices } from "./projections/key-manager-notices.js";
+import { createToolRuns } from "./managed-tools/tool-runs.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
@@ -88,6 +89,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       // every connection's event, for the labels and statuses it names (#384).
       forgeNotices.heard(environmentId, event, news);
       keyManagerNotices.heard(environmentId, event, news);
+      // A tool run's start and end, history too, so the run under way and each tool's last are as the stream says (#426).
+      toolRuns.heard(environmentId, event);
       // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
       // again. Only news says how it was settled (`environmentNotices.heard`, below).
       if (event.type === "prompt.resolved") {
@@ -153,7 +156,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
   // Each environment told of this client's other connections, after each hello and as they change (#382).
   const stopReporting = reportKnownEnvironments({ kind: platform.client.kind, records: registry.list, call, report });
-  const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
+  const requests: Requests = {
+    call,
+    cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params),
+    refresh: (environmentId, method, params) => requestCache.refresh(environmentId, method, params),
+  };
   // The desktop's own update and the server it carries (#354): through the local environment, its stage given the time a download takes.
   const desktopUpdate = createDesktopUpdate({
     clock: platform.clock,
@@ -207,6 +214,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     report,
   });
   registry.seams.onForget((environmentId) => keyManagerNotices.forget(environmentId));
+  const toolRuns = createToolRuns(report);
+  registry.seams.onForget((environmentId) => toolRuns.forget(environmentId));
 
   // The projections of #142: runs and parked asks, one session's transcript, accounts, models and plan usage, the mode picker,
   // and the calls the environment addresses to this client.
@@ -336,6 +345,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       knownDirectories: (environmentId) => knownDirectories(environmentId),
       newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
+      toolRuns: (environmentId) => toolRuns.view(environmentId),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },

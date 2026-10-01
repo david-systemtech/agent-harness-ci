@@ -28,6 +28,7 @@ import type { ModePicker } from "./projections/modes.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
 import type { SetupView } from "./projections/setup.js";
+import type { ToolRunsView } from "./managed-tools/tool-runs.js";
 
 /**
  * The client runtime (docs/specs/client-runtime.md): what every client
@@ -124,6 +125,13 @@ export interface Runtime {
      * `setup.check` of every step each time the view comes to be followed.
      */
     setup(environmentId: string): Observable<SetupView>;
+    /**
+     * The environment's tool runs as its stream tells of them (#426): the
+     * run under way (`tool.run-started`), and each tool's last run heard to
+     * finish with its exit and verification (`tool.run-finished`). Heard,
+     * never asked; in memory only.
+     */
+    toolRuns(environmentId: string): Observable<ToolRunsView>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;

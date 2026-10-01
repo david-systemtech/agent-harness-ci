@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skills.readiness params",
+  "type": "object",
+  "properties": {
+    "sessionId": {
+      "description": "The session whose next run's set and workspace to check; leave out accountId and workspace.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
+    },
+    "accountId": {
+      "description": "With workspace and no sessionId: the account of a new session whose set to check.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "workspace": {
+      "description": "With accountId and no sessionId: the workspace of a new session, where the checks run.",
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "directory"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                  "description": "The directory on the environment's machine."
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ],
+              "description": "A directory the environment has; the harness never makes, moves or removes it outside a workspace root."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "worktree"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                  "description": "The worktree's directory, which the environment chose and made."
+                },
+                "repository": {
+                  "type": "string",
+                  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                  "description": "The main checkout (or bare repository) the worktree was made from."
+                },
+                "branch": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The branch the worktree was made on; not read again when a run switches branch."
+                }
+              },
+              "required": [
+                "kind",
+                "path",
+                "repository",
+                "branch"
+              ],
+              "description": "A git worktree the environment made from a repository it has."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "scratch"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+                  "description": "The scratch directory, under the data directory's scratch root."
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ],
+              "description": "A scratch directory the environment made for the session that asked for it."
+            }
+          ]
+        },
+        {
+          "description": "A workspace of a kind a later environment records: read as a directory at its path.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!(?:directory|worktree|scratch)$)",
+              "description": "A kind this version does not know."
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ]
+        }
+      ]
+    },
+    "names": {
+      "description": "The members to answer; every member of the set when absent. A name not in the set is left out.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "maxLength": 64
+      }
+    },
+    "refresh": {
+      "description": "Check again rather than answer what was checked in the last sixty seconds.",
+      "type": "boolean"
+    }
+  },
+  "description": "A session, whose next run's set is checked in its workspace; or an account and a workspace, where a new session's first run would be; with the names to answer and whether to check again.",
+  "oneOf": [
+    {
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": true,
+        "accountId": false,
+        "workspace": false
+      }
+    },
+    {
+      "required": [
+        "accountId",
+        "workspace"
+      ],
+      "properties": {
+        "sessionId": false,
+        "accountId": true,
+        "workspace": true
+      }
+    }
+  ]
+}

@@ -30,8 +30,8 @@ export interface SettingsWindow {
   pick(environmentId: string): void;
 }
 
-/** A part of a pane an opening may go to, which takes the focus: Your machines' Add a machine (#577). */
-export type SettingsPart = "add-a-machine";
+/** A part of a pane an opening may go to, which takes the focus: Your machines' Add a machine (#577), About's Managed tools (#426). */
+export type SettingsPart = "add-a-machine" | "managed-tools";
 
 const SettingsContext = createContext<SettingsWindow | null>(null);
 

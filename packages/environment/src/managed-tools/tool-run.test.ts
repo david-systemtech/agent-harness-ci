@@ -232,6 +232,28 @@ posix("tools.run's Update", () => {
     expect(pty.spawned).toEqual([]);
   });
 
+  it("puts that command on each Copy row tools.list answers, so a client shows it before anything is clicked, and none on a row whose action runs (#426)", async () => {
+    const path = fakePath();
+    programs(path, "brew");
+    path.install("doppler", { output: "v3.80.0" });
+    path.install("gh", { at: ".local/share/mise/installs/gh/2.63.2/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    path.install("vault", { output: "Vault v1.15.0" });
+    path.install("op", { at: "homebrew/Caskroom/1password-cli/2.30.0/op", output: "2.30.0" });
+    const { client } = await withRunner(path);
+
+    const rows = (await client.request("tools.list", {})).tools;
+    const commands = Object.fromEntries(rows.map((row) => [row.tool, [row.action, row.command]]));
+    expect(commands).toEqual({
+      claude: ["install", null],
+      bao: ["install", null],
+      vault: ["copy", null],
+      doppler: ["copy", "doppler update"],
+      op: ["update", null],
+      bws: ["install", null],
+      gh: ["copy", "brew install gh"],
+    });
+  });
+
   it("on claude runs claude doctor first, answering its report beside the method the row detected, which the update uses", async () => {
     const path = fakePath();
     const claude = path.install("claude", {

@@ -3,7 +3,6 @@ import {
   KEY_MANAGER_STATUS_ADVICE,
   basePathWords,
   caWords,
-  cliRowOf,
   cliWords,
   injectsWords,
   methodWords,
@@ -15,7 +14,7 @@ import {
   updateConnection,
   verifyConnection,
 } from "@agent-harness/client-runtime";
-import type { KeyManagerConnectionRecord, KeyManagerStatusKind, ManagedToolRow } from "@agent-harness/contracts";
+import type { KeyManagerStatusKind, ListedKeyManagerConnection } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import { Button, Fact } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -32,13 +31,12 @@ const SIGN_IN_FIXES: ReadonlySet<KeyManagerStatusKind> = new Set<KeyManagerStatu
 
 export interface ConnectionCardProps {
   readonly environmentId: string;
-  readonly connection: KeyManagerConnectionRecord;
+  /** The connection as the cached `keyManagers.list` holds it, with its CLI's Managed tools row (#375). */
+  readonly connection: ListedKeyManagerConnection;
   /** Whether this client may change it: the environment reached, with `admin`. */
   readonly writable: boolean;
   /** Says one line in the pane: what a command did, or why it did not. */
   readonly say: (line: string) => void;
-  /** The managed tools' rows, or the line saying why they cannot be read here. */
-  readonly tools: readonly ManagedToolRow[] | string;
 }
 
 /**
@@ -48,9 +46,10 @@ export interface ConnectionCardProps {
  * its status with its since-time, the environment's line and what that
  * status asks; its token information; whether it can mint run tokens; its
  * base path, or the one suggested; whether runs receive its variables; its
- * CLI's Managed tools row; and where it was copied from.
+ * CLI's Managed tools row, the one the listed connection carries (#776);
+ * and where it was copied from.
  */
-export const ConnectionCard = ({ environmentId, connection, tools, writable, say }: ConnectionCardProps) => {
+export const ConnectionCard = ({ environmentId, connection, writable, say }: ConnectionCardProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const heading = useId();
@@ -71,7 +70,6 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
   const close = () => setOpen(null);
   const dialog = { environmentId, connection, close, say };
   const advice = KEY_MANAGER_STATUS_ADVICE[kind];
-  const cli = typeof tools === "string" ? tools : cliRowOf(connection.provider, tools);
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
       <h3 id={heading} className="text-base font-semibold text-ink">
@@ -87,7 +85,7 @@ export const ConnectionCard = ({ environmentId, connection, tools, writable, say
         <Fact name="Run tokens">{mintWords(connection.canMint)}</Fact>
         <Fact name="Base path">{basePathWords(connection)}</Fact>
         <Fact name="Runs">{injectsWords(connection)}</Fact>
-        <Fact name="CLI">{cli === undefined ? null : typeof cli === "string" ? cli : cliWords(cli)}</Fact>
+        <Fact name="CLI">{cliWords(connection.cli)}</Fact>
         <Fact name="Copied from">{originWords(connection)}</Fact>
       </dl>
       <PolicyTicks environmentId={environmentId} connection={connection} writable={writable} say={say} />

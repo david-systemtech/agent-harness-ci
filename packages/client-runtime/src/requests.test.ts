@@ -365,6 +365,43 @@ describe("the request cache", () => {
     expect([asked(), reads]).toEqual([1, 3]);
   });
 
+  it("fetches skills.readiness again on skills.updated and on an account changing, and no other query (#510)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    const ready = { skills: [{ name: "tdd", state: "ready", declaredBy: null }] };
+    const setupNeeded = {
+      skills: [
+        {
+          name: "to-spec",
+          state: "setup-needed",
+          declaredBy: "overlay",
+          failing: [{ check: { kind: "file", paths: ["docs/agents/issue-tracker.md"] }, outcome: "failed", message: "docs/agents/issue-tracker.md is not in the workspace." }],
+          why: null,
+          fix: "/setup-matt-pocock-skills",
+        },
+      ],
+    };
+    wire.answer("skills.readiness", () => {
+      reads++;
+      return { result: reads > 1 ? setupNeeded : ready };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const readiness = runtime.requests.cached(id, "skills.readiness", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
+    readiness.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+    environment?.event(noticeEvent(1, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(readiness.read()).toMatchObject({ result: setupNeeded, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+  });
+
   it("fetches trust.get and trust.list again on trust.updated and on a forge account's aliases changing, and no other query (#500)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     const reads = { get: 0, list: 0 };
@@ -595,6 +632,38 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "carry-over.imported", { accountId: "claude-max", sessions: { listed: 0, imported: 0, archived: 0, missingDirectory: 0, held: 0 }, failed: [] }));
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
+  });
+
+  it("fetches one query again when asked to, at once while followed and by its next follower otherwise, and no other query (#576)", async () => {
+    const { runtime, wire, id, asked } = await counting();
+    let reads = 0;
+    wire.answer("environment.status", () => {
+      reads++;
+      return { result: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "environment.status", {});
+    const stop = status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    runtime.requests.refresh(id, "environment.status", {});
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+
+    // Followed by nobody, it is fetched by its next follower, well inside the five minutes.
+    stop();
+    runtime.requests.refresh(id, "environment.status", {});
+    await flush();
+    expect(reads).toBe(2);
+    status.subscribe(() => undefined);
+    await flush();
+    expect(reads).toBe(3);
+
+    // A query nobody has asked for has nothing to fetch again.
+    runtime.requests.refresh(id, "trust.list", {});
+    await flush();
+    expect(runtime.requests.cached(id, "trust.list", {}).read()).toEqual({ result: null, fetchedAt: null, error: null, loading: false });
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {

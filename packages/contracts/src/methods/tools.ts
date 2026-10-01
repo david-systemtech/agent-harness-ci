@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { InstallableToolName, RunnableToolAction, ToolCommandLine, ToolCommandMethod, ToolNotRunnableError } from "../managed-tool-commands.js";
-import { DoctorToolName, ManagedToolDetail, ManagedToolName, ManagedToolRow, ManagedToolVerification, ToolDoctorReport, VerifiableToolName } from "../managed-tools.js";
+import { InstallableToolName, RunnableToolAction, ToolCommandMethod, ToolNotRunnableError } from "../managed-tool-commands.js";
+import { DoctorToolName, ManagedToolDetail, ManagedToolName, ManagedToolRow, ManagedToolVerification, ToolCommandLine, ToolDoctorReport, VerifiableToolName } from "../managed-tools.js";
 import { commandParams, defineMethod } from "../method.js";
 import { Timestamp } from "../primitives.js";
 import { TerminalColumns, TerminalId, TerminalRows, ToolTerminalInfo } from "../terminals.js";

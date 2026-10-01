@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScheduleIssueParams",
+  "type": "object",
+  "properties": {
+    "rule": {
+      "type": "string",
+      "const": "schedule"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "kind",
+        "minute",
+        "time",
+        "day",
+        "days_empty",
+        "days_repeated",
+        "day_of_month",
+        "cron_at_form",
+        "cron_seconds",
+        "cron_fields",
+        "cron_syntax",
+        "cron_range",
+        "cron_backwards",
+        "cron_never",
+        "floor",
+        "zone"
+      ],
+      "description": "Why the schedule maths refused the schedule or its zone."
+    }
+  },
+  "required": [
+    "rule",
+    "reason"
+  ],
+  "description": "The params of an invalid_params issue the schedule maths raised: the rule schedule and its reason. The issue's path names the field; its message says why. The published cases (cases/schedule-validation.json) give each reason's inputs."
+}

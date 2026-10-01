@@ -42,9 +42,8 @@ export const TerminalPane = ({ environmentId, sessionId, onScreen }: TerminalPan
     const made = createPaneTerminal({
       runtime,
       environmentId,
-      sessionId,
+      source: { kind: "session", sessionId, oneOffs: panes.oneOffs },
       host: host.current,
-      oneOffs: panes.oneOffs,
       theme: latest.current.theme,
       onScreen: latest.current.onScreen,
       nameOf: () => latest.current.name,

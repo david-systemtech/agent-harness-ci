@@ -265,6 +265,7 @@ describe("a deleted session", () => {
     "instructions.preview": { sessionId },
     "forge.pullRequests.refresh": { sessionId },
     "skills.get": { sessionId },
+    "skills.readiness": { sessionId },
     "trust.get": { sessionId },
   });
 

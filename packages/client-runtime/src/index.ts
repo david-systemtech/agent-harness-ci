@@ -85,7 +85,6 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
-  cliRowOf,
   cliWords,
   copyLine,
   injectsWords,
@@ -180,6 +179,17 @@ export {
 } from "./desktop-update.js";
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
+export {
+  baseName,
+  heldWords,
+  presetBranch,
+  problemLine,
+  repositoryWords,
+  requestLabel,
+  resolverRefusal,
+  workspaceLabel,
+  type RefusalPlace,
+} from "./workspaces/words.js";
 export type {
   AccountChip,
   AccountPresetReason,
@@ -206,6 +216,7 @@ export {
   type SetupView,
 } from "./projections/setup.js";
 export {
+  RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
   restoreStep,
@@ -599,11 +610,26 @@ export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.
 export {
   bundledClaudeCodeWords,
   bundledServerWords,
+  clientOfferAskWords,
   clientOfferWords,
   clientUpdateWords,
   desktopBuildWords,
+  environmentVersionWords,
   offersClientVersion,
   pendingUpdateWords,
   pinnedWords,
+  updatesUnreadWords,
 } from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";
+export {
+  INSTALL_METHOD_WORDS,
+  MANAGED_TOOL_STATUS_WORDS,
+  doctorMethodWords,
+  noCommandWords,
+  requiredWords,
+  runWords,
+  toolRunWords,
+  verificationWords,
+} from "./managed-tools/words.js";
+export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/actions.js";
+export type { ToolRunsView } from "./managed-tools/tool-runs.js";

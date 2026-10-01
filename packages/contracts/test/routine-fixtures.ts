@@ -288,6 +288,14 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
   "routines/time.json": { valid: ["00:00", "03:00", "23:59"], invalid: ["24:00", "3:00", "03:00:00", ""] },
   "routines/schedule.json": schedules,
   "routines/time-zone.json": { valid: ["UTC", "Europe/London", "Etc/GMT+5"], invalid: ["", "+08:00", "Asia/Manila ", "/UTC"] },
+  "routines/written-time-zone.json": { valid: ["UTC", "Europe/London", "Etc/GMT+5"], invalid: ["", "+08:00", "Asia/Manila ", "/UTC"] },
+  "routines/schedule-issue-params.json": {
+    valid: [
+      { rule: "schedule", reason: "floor" },
+      { rule: "schedule", reason: "zone" },
+    ],
+    invalid: [{ rule: "skill-name", reason: "floor" }, { rule: "schedule", reason: "seconds" }, { rule: "schedule" }],
+  },
   "routines/if-missed.json": { valid: ["run-once", "skip"], invalid: ["run-all", ""] },
   "routines/workspace.json": workspaces,
   "routines/injection.json": { valid: ["inherit", "allow", "deny"], invalid: ["ask", ""] },

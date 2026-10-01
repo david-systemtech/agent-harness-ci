@@ -191,15 +191,15 @@ posix("a tool's latest version", () => {
     const clock = manualClock();
     const before = await withTools(fakePath(), released, { dataDir, clock });
     await list(before.client);
-    // gh's row as a probe before #374 carried it: no latest.
-    const gh = path.install("gh", { output: "gh version 2.63.2 (2024-12-05)" });
-    const recorded = { tool: "gh", label: "GitHub CLI", path: gh.onPath, realpath: gh.file, version: "2.63.2", minimum: "2.40.0", method: "manual", status: "current", action: "copy" };
+    // gh's row as a probe before #374 carried it: no latest, and no command, which an Update row carries none of (#426).
+    const gh = path.install("gh", { at: "homebrew/Cellar/gh/2.63.2/bin/gh", output: "gh version 2.63.2 (2024-12-05)" });
+    const recorded = { tool: "gh", label: "GitHub CLI", path: gh.onPath, realpath: gh.file, version: "2.63.2", minimum: "2.40.0", method: "homebrew", status: "current", action: "update" };
     before.t.env.log.append({ kind: "environment", id: before.t.env.id }, [{ type: "tools.updated", payload: { tools: [recorded] } }], { actor: MANAGED_TOOLS_ACTOR });
     const closedAt = before.t.env.log.head();
     await before.t.close();
 
     const { t, client } = await withTools(path, released, { dataDir, clock });
-    expect((await list(client)).tools.find((row) => row.tool === "gh")).toEqual({ ...recorded, latest: null });
+    expect((await list(client)).tools.find((row) => row.tool === "gh")).toEqual({ ...recorded, latest: null, command: null });
     expect(t.env.log.readStream({ kind: "environment", id: t.env.id }).filter((event) => event.type === "tools.updated" && event.sequence > closedAt)).toEqual([]);
   });
 

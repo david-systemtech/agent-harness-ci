@@ -25,8 +25,9 @@ const gh = {
   method: "homebrew",
   status: "current",
   action: "update",
+  command: null,
 };
-const missing = { tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, latest: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install" };
+const missing = { tool: "op", label: "1Password CLI", path: null, realpath: null, version: null, latest: null, minimum: "2.18.0", method: null, status: "not-installed", action: "install", command: null };
 const claude = {
   tool: "claude",
   label: "claude in your terminal",
@@ -38,8 +39,10 @@ const claude = {
   method: "native",
   status: "update-available",
   action: "update",
+  command: null,
 };
 const hung = { ...gh, version: null, latest: null, status: "below-minimum" };
+const copied = { ...gh, realpath: "/home/david/.local/share/mise/installs/gh/2.63.2/bin/gh", method: "mise", action: "copy", command: "brew install gh" };
 const field = { name: "Running", value: "npm-global (2.1.283)" };
 const warning = { issue: "Running native installation but config install method is 'unknown'", fix: "Run claude install to update configuration" };
 const doctorRead = { outcome: "read", method: "npm", fields: [field, { name: "Config install method", value: "unknown" }], warnings: [warning] };
@@ -84,8 +87,8 @@ export const managedToolSchemaFixtures: Record<string, Fixtures> = {
   "managed-tools/status.json": { valid: ["current", "update-available", "below-minimum", "not-installed", "method-unknown"], invalid: ["outdated", "installed", ""] },
   "managed-tools/action.json": { valid: ["install", "update", "copy"], invalid: ["upgrade", "ignore", ""] },
   "managed-tools/row.json": {
-    valid: [gh, missing, claude, hung],
-    invalid: [{ ...gh, status: "outdated" }, { ...gh, version: "v2.63.2" }, { ...gh, path: "" }, { tool: "gh", status: "current", action: "update" }],
+    valid: [gh, missing, claude, hung, copied],
+    invalid: [{ ...gh, status: "outdated" }, { ...gh, version: "v2.63.2" }, { ...gh, path: "" }, { tool: "gh", status: "current", action: "update" }, { ...copied, command: "brew install gh\nrm -rf ~" }],
   },
   "managed-tools/verifiable-name.json": { valid: ["bao", "vault", "doppler", "op", "bws", "gh"], invalid: ["claude", "codex", ""] },
   "managed-tools/verify-outcome.json": { valid: ["passed", "failed", "not-installed"], invalid: ["sealed", "skipped", ""] },

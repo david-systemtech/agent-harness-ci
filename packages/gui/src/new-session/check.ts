@@ -1,6 +1,5 @@
-import type { Runtime } from "@agent-harness/client-runtime";
+import { presetBranch, resolverRefusal, type RefusalPlace, type Runtime } from "@agent-harness/client-runtime";
 import type { WorkspaceInspection, WorkspaceRequest } from "@agent-harness/contracts";
-import { presetBranch, resolverRefusal, type RefusalPlace } from "./words.js";
 
 /**
  * The new-session picker's check of a workspace request before the chip
