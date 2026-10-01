@@ -379,16 +379,16 @@ describe("/routines: what an edit asks and where it waits", () => {
   });
 
   it("queues an edit saved while its environment cannot be reached, showing its routine pending until it is sent", async () => {
-    let laptopHandle: EnvironmentHandle | undefined;
+    const away: { laptop?: EnvironmentHandle } = {};
     const editor = fakeEditor((handed) => {
       // The laptop goes away while the routine is being edited.
-      laptopHandle?.autoAccept(false);
-      laptopHandle?.discovery("nothing");
-      laptopHandle?.server.drop();
+      away.laptop?.autoAccept(false);
+      away.laptop?.discovery("nothing");
+      away.laptop?.server.drop();
       return { ok: true, text: handed.replace("Read the sources and file a digest.", "Check the backups.") };
     });
     const { app, laptop, laptopRoutines } = await launch({ laptop: { routines: [listedRoutine(BACKUP, { definition: { name: "Backup check" } })] } }, { editRoutine: editor.editRoutine });
-    laptopHandle = laptop;
+    away.laptop = laptop;
     await openRoutines(app);
     await app.waitFor("Backup check");
     await app.press(KEY.down, "e");
