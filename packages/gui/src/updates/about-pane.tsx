@@ -32,8 +32,8 @@ const AboutOn = ({ view }: { readonly view: EnvironmentView }) => {
   const status = useUpdatesStatus(view.environmentId);
   const ready = view.phase === "ready";
   // Managed tools' verbs join the line only where the environment offers them: one that does not says so in its section.
-  const tools = runtime.capability(view.environmentId, "managedTools").status === "present";
-  const sent = tools ? [...SENT, ...MANAGED_TOOLS_SENT] : SENT;
+  const offersTools = runtime.capability(view.environmentId, "managedTools").status === "present";
+  const sent = offersTools ? [...SENT, ...MANAGED_TOOLS_SENT] : SENT;
   return (
     <>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, status.result !== null)}</p>}

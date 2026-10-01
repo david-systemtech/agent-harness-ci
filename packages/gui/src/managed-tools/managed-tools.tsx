@@ -63,6 +63,7 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
   };
   const writable = ready && MANAGED_TOOLS_SENT.every((method) => runtime.capability(environmentId, method).status === "present");
   const rows = listed?.result?.tools ?? null;
+  const unread = listed?.error ?? null;
 
   return (
     <section ref={region} tabIndex={-1} aria-labelledby={heading} className="flex flex-col gap-3 outline-none">
@@ -75,7 +76,7 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
         <>
           {rows === null
             ? ready && (
-                <p className="text-sm text-ink-faint">{listed?.error == null ? "Reading the managed tools…" : `The managed tools could not be read: ${listed.error.message}`}</p>
+                <p className="text-sm text-ink-faint">{unread === null ? "Reading the managed tools…" : `The managed tools could not be read: ${unread.message}`}</p>
               )
             : rows.map((row) => (
                 <ToolRow
