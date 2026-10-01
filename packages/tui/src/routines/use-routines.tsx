@@ -1,18 +1,18 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { useMemo, type ReactElement } from "react";
-import type { Clock, DispatchFailure, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
+import type { Clock, CommandParams, DispatchAnswer, DispatchFailure, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
 import { BYPASS_SENTENCE, ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry, type SchemaIssue } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { expandHome } from "../composer/attachments.js";
 import type { ExternalEditResult } from "../composer/external-editor.js";
 import type { Handler } from "../keys.js";
-import { ListCard, TypedLine, wrappedRows } from "../pickers/cards.js";
+import { LinesPanel, ListCard, TypedLine, wrappedRows } from "../pickers/cards.js";
 import { useFollow, type Opened } from "../session/use-session.js";
 import { messageOf, nameOf, type Question } from "../view.js";
-import { entryLines, historyRows, listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
-import { annotated, asksBypass, type DocumentIssue } from "./document.js";
+import { entryLines, historyRows, importLines, listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
+import { ROUTINE_TEMPLATE, annotated, asksBypass, documentCount, type DocumentIssue } from "./document.js";
 import type { RoutineKey, RoutinesCommand } from "./commands.js";
 
 /**
@@ -101,6 +101,16 @@ const refusalIssues = (error: DispatchFailure): readonly DocumentIssue[] | null 
     return at === "yaml" && typeof document === "number" ? checkedIssue(document, { ...issue, path }) : checkedIssue(0, issue);
   });
 };
+
+/** What a save writes to: the routine it replaces, or (null) new routines on the environment, named for its lines. */
+interface SaveTarget {
+  readonly environmentId: string;
+  readonly routineId: string | null;
+  readonly name: string;
+}
+
+/** Names as a line says them: `A`, `A and B`, `A, B and C`. */
+const namesWords = (names: readonly string[]): string => (names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`);
 
 /** What became of one save: refused with issues to write into the document, or done, its line said. */
 type Saved = { readonly kind: "refused"; readonly issues: readonly DocumentIssue[] } | { readonly kind: "done" };
@@ -194,33 +204,51 @@ export const useRoutines = (host: RoutinesHost): Routines => {
   const confirmed = (text: string): Promise<boolean> => new Promise((settle) => host.ask({ text, yes: () => settle(true), no: () => settle(false) }));
 
   /**
-   * One save of a routine's YAML: checked with `routines.checkImport`, whose
-   * issues send it back to the editor; a document asking for
-   * `bypassPermissions` confirmed with the permissions spec's sentence
-   * (read from the document itself when the environment cannot be asked);
-   * then `routines.import` through the outbox, naming the routine it
-   * replaces. While the environment cannot be reached the import waits in
-   * the outbox and the routine shows pending; a refusal then is its notice.
+   * `routines.import` through the outbox, and its answer while the
+   * environment can be reached; `gone` once it cannot, the import waiting in
+   * the outbox (its routine pending) and a refusal then its notice.
    */
-  const save = async (routine: RoutineRef, yaml: string): Promise<Saved> => {
-    const { environmentId, name } = routine;
+  const sendImport = async (environmentId: string, params: CommandParams<"routines.import">): Promise<DispatchAnswer<"routines.import"> | "gone"> => {
+    const sent = runtime.commands.dispatch(environmentId, "routines.import", params);
+    const watch = untilUnreachable(environmentId);
+    const answer = reachable(environmentId) ? await Promise.race([sent, watch.gone]) : "gone";
+    watch.stop();
+    return answer;
+  };
+
+  /** The confirmation a document asking for `bypassPermissions` needs: the permissions spec's sentence, after who asks. */
+  const bypassWords = (names: readonly string[]): string => `${namesWords(names)} ${names.length === 1 ? "asks" : "ask"} for bypassPermissions. ${BYPASS_SENTENCE}`;
+
+  /**
+   * One save of routine YAML: checked with `routines.checkImport`, whose
+   * issues send it back to the editor; a document asking for
+   * `bypassPermissions` confirmed with the permissions spec's sentence (read
+   * from the document itself when the environment cannot be asked); then
+   * `routines.import`, replacing the routine the target names, or making
+   * each document a routine under an id this client mints.
+   */
+  const save = async (target: SaveTarget, yaml: string): Promise<Saved> => {
+    const { environmentId } = target;
     const where = environmentName(environmentId);
-    const check = await runtime.requests.call(environmentId, "routines.checkImport", { yaml, routineId: routine.routineId });
-    if (check.ok) {
-      const issues = check.result.documents.flatMap((document) => document.issues.map((issue) => checkedIssue(document.index, issue)));
-      if (check.result.documents.length === 0) return { kind: "refused", issues: [{ document: 0, path: [], message: "There is no routine document here: the edit needs one." }] };
+    const check = await runtime.requests.call(environmentId, "routines.checkImport", { yaml, ...(target.routineId !== null && { routineId: target.routineId }) });
+    const documents = check.ok ? check.result.documents : null;
+    if (documents !== null) {
+      if (documents.length === 0) return { kind: "refused", issues: [{ document: 0, path: [], message: "There is no routine document here." }] };
+      const issues = documents.flatMap((document) => document.issues.map((issue) => checkedIssue(document.index, issue)));
       if (issues.length > 0) return { kind: "refused", issues };
     }
-    const bypass = check.ok ? check.result.documents.some((document) => document.definition?.mode === "bypassPermissions") : asksBypass(yaml);
-    if (bypass && !(await confirmed(`${name} asks for bypassPermissions. ${BYPASS_SENTENCE} Apply it? y/n`))) {
-      host.say(`Not applied: ${name} on ${where} is as it was.`);
+    const names = documents?.flatMap((document) => (document.definition ? [document.definition.name] : [])) ?? [];
+    const name = target.routineId === null && names.length > 0 ? namesWords(names) : target.name;
+    const bypass = documents === null ? (asksBypass(yaml) ? [name] : []) : documents.flatMap((document) => (document.definition?.mode === "bypassPermissions" ? [document.definition.name] : []));
+    if (bypass.length > 0 && !(await confirmed(`${bypassWords(bypass)} Apply it? y/n`))) {
+      host.say(`Not applied: ${target.routineId === null ? `nothing was made on ${where}` : `${name} on ${where} is as it was`}.`);
       return DONE;
     }
-    const sent = runtime.commands.dispatch(environmentId, "routines.import", { yaml, routineId: routine.routineId });
-    const watch = untilUnreachable(environmentId);
     if (reachable(environmentId)) host.say(`Saving ${name} on ${where}…`);
-    const answer = await Promise.race([sent, watch.gone]);
-    watch.stop();
+    const answer = await sendImport(
+      environmentId,
+      target.routineId !== null ? { yaml, routineId: target.routineId } : { yaml, routineIds: Array.from({ length: documents?.length ?? documentCount(yaml) }, () => host.newRoutineId()) },
+    );
     if (answer === "gone") {
       host.say(`Queued: ${name} is saved once ${where} can be reached; until then it shows pending.`);
       return DONE;
@@ -236,24 +264,72 @@ export const useRoutines = (host: RoutinesHost): Routines => {
   };
 
   /**
-   * `e`: the routine's YAML as its environment exports it, in the editor;
-   * what is saved, applied (`save`), and a refusal opened again with its
-   * issues as comments, until a save is applied, or comes back unchanged,
-   * or the editor is left without saving.
+   * The editor over `first`: what is saved, applied (`save`), and a refusal
+   * opened again with its issues as comments, until a save is applied, or
+   * comes back unchanged, or the editor is left without saving.
    */
+  const editLoop = async (target: SaveTarget, first: string) => {
+    let opened = first;
+    for (;;) {
+      const edited = await host.editYaml(opened).catch((error: unknown): ExternalEditResult => ({ ok: false, reason: messageOf(error) }));
+      if (!edited.ok) return host.say(`${target.routineId === null ? "Not made" : "Not edited"}: ${edited.reason}.`);
+      if (sameText(edited.text, opened)) return host.say(`${target.name} is unchanged: nothing was sent.`);
+      const saved = await save(target, edited.text);
+      if (saved.kind === "done") return;
+      host.say(`${target.name} was refused: its issues are written into it.`);
+      opened = annotated(edited.text, saved.issues);
+    }
+  };
+
+  /** `e`: the routine's YAML as its environment exports it, in the editor, applied with `routines.import` naming it. */
   const edit = async (routine: RoutineRef) => {
     const exported = await runtime.requests.call(routine.environmentId, "routines.export", { routineIds: [routine.routineId] });
     if (!exported.ok) return host.say(`Not edited: ${exported.error.message}`);
-    let opened = exported.result.yaml;
-    for (;;) {
-      const edited = await host.editYaml(opened).catch((error: unknown): ExternalEditResult => ({ ok: false, reason: messageOf(error) }));
-      if (!edited.ok) return host.say(`Not edited: ${edited.reason}.`);
-      if (sameText(edited.text, opened)) return host.say(`${routine.name} is unchanged: nothing was sent.`);
-      const saved = await save(routine, edited.text);
-      if (saved.kind === "done") return;
-      host.say(`${routine.name} was refused: its issues are written into it.`);
-      opened = annotated(edited.text, saved.issues);
+    await editLoop(routine, exported.result.yaml);
+  };
+
+  /** `/routines new`: the template in the editor, saved as a new routine on the header's environment. */
+  const create = async () => {
+    const view = host.current;
+    if (!view) return host.say("There is no environment to make a routine on: /pair one first.");
+    await editLoop({ environmentId: view.environmentId, routineId: null, name: "The new routine" }, ROUTINE_TEMPLATE);
+  };
+
+  /**
+   * `/routines import <path>`: the file, relative to the working directory,
+   * read by `routines.checkImport` on the header's environment and shown;
+   * with no issue, imported once confirmed, each document a routine under an
+   * id this client mints.
+   */
+  const importFile = async (typed: string) => {
+    const view = host.current;
+    if (!view) return host.say("There is no environment to import routines to: /pair one first.");
+    const path = resolve(host.cwd, expandHome(typed, homedir()));
+    let yaml: string;
+    try {
+      yaml = await readFile(path, "utf8");
+    } catch (error) {
+      return host.say(`Not imported: ${messageOf(error)}`);
     }
+    if (yaml.trim() === "") return host.say(`Not imported: ${path} is empty.`);
+    const check = await runtime.requests.call(view.environmentId, "routines.checkImport", { yaml });
+    if (!check.ok) return host.say(`Not imported: ${check.error.message}`);
+    const { documents } = check.result;
+    host.open({ kind: "import", environmentId: view.environmentId, path, yaml, documents, cursor: 0 });
+    if (documents.length === 0 || documents.some((document) => document.issues.length > 0)) return;
+    const names = documents.flatMap((document) => (document.definition ? [document.definition.name] : []));
+    const bypass = documents.flatMap((document) => (document.definition?.mode === "bypassPermissions" ? [document.definition.name] : []));
+    const where = environmentName(view.environmentId);
+    const count = `${documents.length} routine${documents.length === 1 ? "" : "s"}`;
+    if (!(await confirmed(`Import ${count} to ${where}?${bypass.length > 0 ? ` ${bypassWords(bypass)}` : ""} y/n`))) {
+      host.close();
+      return host.say("Nothing was imported.");
+    }
+    const answer = await sendImport(view.environmentId, { yaml, routineIds: documents.map(() => host.newRoutineId()) });
+    if (answer === "gone") return host.say(`Queued: ${namesWords(names)} ${names.length === 1 ? "is" : "are"} imported once ${where} can be reached.`);
+    if (!answer.ok) return host.say(`Not imported: ${answer.error.message}`);
+    host.open({ kind: "list", cursor: 0, exporting: null });
+    host.say(`Imported ${namesWords(names)} to ${where}.`);
   };
 
   /** The export typed: the routine's YAML as its environment exports it, written to the path, relative to the working directory. */
@@ -277,6 +353,8 @@ export const useRoutines = (host: RoutinesHost): Routines => {
         return list().length;
       case "history":
         return entries().length;
+      case "import":
+        return 0;
     }
   };
 
@@ -291,6 +369,10 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       switch (command.name) {
         case "list":
           return host.open({ kind: "list", cursor: 0, exporting: null });
+        case "new":
+          return void create();
+        case "import":
+          return void importFile(command.path);
         default:
           return host.say(`/routines ${command.name} is not in this build yet.`);
       }
@@ -314,9 +396,11 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           if (entry) host.say("A skip has no session: the due time was skipped before one started.");
           return;
         }
+        case "import":
+          return;
       }
     },
-    back: (shown) => (shown.kind === "history" ? shown.back : shown.exporting !== null ? { ...shown, exporting: null } : null),
+    back: (shown) => (shown.kind === "history" ? shown.back : shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: null } : null),
     takesText: (shown) => shown.kind === "list" && shown.exporting !== null,
     typed: (shown, text) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: shown.exporting.text + text.replace(/[\r\n]/g, ""), error: null } } : shown),
     erased: (shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: [...shown.exporting.text].slice(0, -1).join("") } } : shown),
@@ -354,10 +438,22 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     hint(shown) {
       const k = host.keys;
       if (shown.kind === "history") return `${k("picker.move")} move · ${k("picker.choose")} opens its firing · ${k("picker.leave")} back`;
+      if (shown.kind === "import") return `${k("picker.leave")} close`;
       if (shown.exporting !== null) return `${k("picker.choose")} exports it · ${k("picker.leave")} leaves it`;
       return `${k("picker.move")} move · ${k("picker.choose")} opens its latest firing · ${k("picker.leave")} close`;
     },
     render(shown, size) {
+      if (shown.kind === "import") {
+        const refused = shown.documents.length === 0 || shown.documents.some((document) => document.issues.length > 0);
+        return (
+          <LinesPanel
+            title={`Import from ${shown.path} to ${environmentName(shown.environmentId)}`}
+            hint={routines.hint(shown)}
+            lines={importLines(shown.documents)}
+            after={refused ? [[], [{ text: shown.documents.length === 0 ? "There is no routine document in it." : "Nothing is imported until the file's issues are fixed.", dim: true }]] : []}
+          />
+        );
+      }
       if (shown.kind === "history") {
         const read = history?.read();
         const all = read?.entries ?? [];

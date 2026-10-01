@@ -5,6 +5,7 @@ import {
   RoutineEntry,
   WebhookEndpoint,
   type PreCheckRecord,
+  type RoutineImportWarnings,
   type RoutineState,
   type SchemaIssue,
   type WireError,
@@ -164,6 +165,10 @@ export interface ScriptedRoutines {
   heard(method?: string): readonly Heard[];
   /** The next request of `method` is answered with `answer` instead. */
   answerNext(method: string, answer: FakeAnswer): void;
+  /** The next `routines.checkImport` warns of these for each document. */
+  warnNext(warnings: RoutineImportWarnings): void;
+  /** The routines' YAML as `routines.export` answers it. */
+  exported(routineIds: readonly string[]): Promise<string>;
   /** The routine's definition now. */
   definitionOf(routineId: string): RoutineDefinition;
 }
@@ -179,6 +184,7 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
   const endpoints: WebhookEndpoint[] = [...(script.endpoints ?? [])];
   const heard: Heard[] = [];
   const next = new Map<string, FakeAnswer>();
+  let warnings: RoutineImportWarnings = { attention: [], workspace: null };
   let entries = 0;
   const find = (routineId: unknown) => routines.findIndex((routine) => routine.state.id === String(routineId).toLowerCase());
   const answer = (method: string, respond: (params: Record<string, unknown>) => FakeAnswer) =>
@@ -204,13 +210,13 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
     const from = before === undefined ? 0 : all.findIndex((entry) => entry.id === before) + 1;
     return { result: { entries: all.slice(from, from + Number(params["limit"] ?? 50)) } };
   });
-  answer("routines.export", (params) => {
-    const ids = (params["routineIds"] as string[] | undefined) ?? routines.map((r) => r.state.id);
-    return { result: { yaml: renderRoutineYaml(ids.map((id) => routines[find(id)]?.definition as RoutineDefinition), { environmentName: env.name, exportedAt: EXPORTED_AT }) } };
-  });
+  const exported = (ids: readonly string[]) => renderRoutineYaml(ids.map((id) => routines[find(id)]?.definition as RoutineDefinition), { environmentName: env.name, exportedAt: EXPORTED_AT });
+  answer("routines.export", (params) => ({ result: { yaml: exported((params["routineIds"] as string[] | undefined) ?? routines.map((r) => r.state.id)) } }));
   answer("routines.checkImport", (params) => {
     const documents = read(String(params["yaml"]), (params["routineId"] as string | undefined) ?? null);
-    return { result: { documents: documents.map(({ index, definition, issues }) => ({ index, definition, issues, warnings: { attention: [], workspace: null } })) } };
+    const warned = warnings;
+    warnings = { attention: [], workspace: null };
+    return { result: { documents: documents.map(({ index, definition, issues }) => ({ index, definition, issues, warnings: warned })) } };
   });
   answer("routines.import", (params) => {
     const replacing = (params["routineId"] as string | undefined) ?? null;
@@ -282,6 +288,8 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
     endpoints,
     heard: (method) => heard.filter((h) => method === undefined || h.method === method),
     answerNext: (method, scripted) => void next.set(method, scripted),
+    warnNext: (warned) => void (warnings = warned),
+    exported: async (ids) => exported(ids),
     definitionOf: (routineId) => (routines[find(routineId)] as ListedRoutine).definition,
   };
 };

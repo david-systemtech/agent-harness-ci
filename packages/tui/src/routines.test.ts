@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BYPASS_SENTENCE } from "@agent-harness/contracts";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
@@ -402,5 +402,61 @@ describe("/routines: what an edit asks and where it waits", () => {
     await app.waitUntil(() => laptopRoutines.heard("routines.import").length === 1, "the import sent once the laptop is back", 400);
     await app.waitUntil(() => !(app.rows().find((row) => row.includes("Backup check")) ?? "").includes("pending"), "the routine no longer pending", 400);
     expect(laptopRoutines.definitionOf(BACKUP).instructions).toBe("Check the backups.");
+  });
+});
+
+describe("/routines new and /routines import", () => {
+  it("opens a template with the presets in the editor, and imports what is saved as a new routine under an id this client minted", async () => {
+    const editor = fakeEditor((handed) => ({ ok: true, text: handed.replace("name: New routine", "name: Nightly triage") }));
+    const { app, deskRoutines } = await launch({}, { editRoutine: editor.editRoutine });
+    await openRoutines(app, "/routines new");
+    await app.waitFor("Saved Nightly triage on desk.");
+    const template = editor.handed[0] ?? "";
+    for (const preset of ["if-missed: run-once", "injection: inherit", 'silent-marker: "[SILENT]"', "max-duration-minutes: 60", "- { kind: client-notice, on: both }"]) expect(template).toContain(preset);
+    expect(template.split("\n").filter((line) => line.startsWith("#")).length).toBeGreaterThan(5);
+    const [imported] = deskRoutines.heard("routines.import");
+    expect(imported?.params["routineIds"]).toEqual(["0199cc00-0000-4000-8000-000000000001"]);
+    expect(imported?.params["routineId"]).toBeUndefined();
+    expect(deskRoutines.definitionOf("0199cc00-0000-4000-8000-000000000001")).toMatchObject({ name: "Nightly triage", ifMissed: "run-once", silenceMarker: "[SILENT]", maxDurationMinutes: 60 });
+  });
+
+  it("sends nothing for the template saved as it is", async () => {
+    const editor = fakeEditor((handed) => ({ ok: true, text: handed }));
+    const { app, deskRoutines } = await launch({}, { editRoutine: editor.editRoutine });
+    await openRoutines(app, "/routines new");
+    await app.waitFor("The new routine is unchanged: nothing was sent.");
+    expect(deskRoutines.heard("routines.import")).toEqual([]);
+  });
+
+  it("reads a file, shows what routines.checkImport says of each document, and imports it once confirmed", async () => {
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } });
+    const yaml = (await deskRoutines.exported([WATCH])).replace("name: Upstream watch", "name: Upstream watch copy").replace("mode: acceptEdits", "mode: bypassPermissions");
+    await writeFile(join(app.stateDir, "routines.yaml"), `${yaml}---\n${yaml.replace("Upstream watch copy", "Second watch").replace("mode: bypassPermissions", "mode: plan")}`, "utf8");
+    deskRoutines.warnNext({ attention: ["script_missing"], workspace: { kind: "scratch", repositoryIdentity: null } });
+    await openRoutines(app, "/routines import routines.yaml");
+    await app.waitFor(`Import from ${join(app.stateDir, "routines.yaml")} to desk`);
+    expect(app.frame()).toContain("Upstream watch copy");
+    expect(app.frame()).toContain("Second watch");
+    expect(app.frame()).toContain("Here it would need: pre-check script missing");
+    expect(app.frame()).toContain("Its workspace here: a scratch directory");
+    await app.waitFor(`Import 2 routines to desk? Upstream watch copy asks for bypassPermissions. ${BYPASS_SENTENCE} y/n`);
+    await app.press("y");
+    await app.waitFor("Imported Upstream watch copy and Second watch to desk.");
+    const [imported] = deskRoutines.heard("routines.import");
+    expect(imported?.params["routineIds"]).toEqual(["0199cc00-0000-4000-8000-000000000001", "0199cc00-0000-4000-8000-000000000002"]);
+    await app.waitFor("desk · 3 routines");
+  });
+
+  it("shows a file's issues at their paths and imports nothing", async () => {
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } });
+    const yaml = await deskRoutines.exported([WATCH]);
+    await writeFile(join(app.stateDir, "taken.yaml"), `${yaml}---\n${yaml.replace("name: Upstream watch", "name: Other watch").replace("enabled: true", "enabled: maybe")}`, "utf8");
+    await openRoutines(app, "/routines import taken.yaml");
+    await app.waitFor("name: Upstream watch is taken on this environment.");
+    expect(rowWith(app, "1. Upstream watch")).toBeLessThan(rowWith(app, "name: Upstream watch is taken"));
+    expect(rowWith(app, "2. Not a routine")).toBeLessThan(rowWith(app, "enabled: "));
+    expect(app.frame()).toContain("Nothing is imported until the file's issues are fixed.");
+    expect(app.frame()).not.toContain("y/n");
+    expect(deskRoutines.heard("routines.import")).toEqual([]);
   });
 });

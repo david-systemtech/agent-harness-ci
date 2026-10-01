@@ -7,13 +7,16 @@ import {
   type RoutineAttention,
   type RoutineDelivery,
   type RoutineEntry,
+  type RoutineImportCheck,
   type RoutineLastOutcome,
+  type RoutineWorkspace,
   type RoutineTrigger,
   type SkipReason,
 } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { PanelRow, Typed } from "../pickers/panel.js";
 import type { Span } from "../transcript/lines.js";
+import { pathWords } from "./document.js";
 import { clockTime } from "../view.js";
 
 /**
@@ -40,7 +43,9 @@ export interface ListCard {
 export type RoutinesCard =
   | ListCard
   /** `h`: a routine's firings and skips, newest first, over the list it goes back to. */
-  | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: ListCard };
+  | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: ListCard }
+  /** `/routines import <path>`: the file read, what `routines.checkImport` says of each document, until it is imported or left. */
+  | { readonly kind: "import"; readonly environmentId: string; readonly path: string; readonly yaml: string; readonly documents: readonly RoutineImportCheck[]; readonly cursor: number };
 
 /** One row of the list: a routine, or an environment that lists none, which nothing can be done to. */
 export type ListRow = { readonly kind: "routine"; readonly row: RoutineRow; readonly panel: PanelRow } | { readonly kind: "empty"; readonly panel: PanelRow };
@@ -60,8 +65,10 @@ const FAILURE_WORDS: Readonly<Record<FiringFailureReason, string>> = {
   drained: "the environment drained",
 };
 
-/** What needs attention on a routine, in words; `failing` is the streak's, said beside it. */
-const ATTENTION_WORDS: Readonly<Record<Exclude<RoutineAttention, "failing" | "clamped">, string>> = {
+/** What needs attention on a routine, in words; `failing` is the streak's, said beside it, and `clamped` names the mode. */
+const ATTENTION_WORDS: Readonly<Record<RoutineAttention, string>> = {
+  failing: "failing",
+  clamped: "its mode clamped",
   account_missing: "no account here",
   account_signed_out: "account signed out",
   model_unavailable: "model unavailable",
@@ -101,6 +108,24 @@ const stateWords = (row: RoutineRow, now: Date): readonly string[] => {
 };
 
 const pad = (text: string, width: number): string => text + " ".repeat(Math.max(0, width - [...text].length));
+
+// An import ------------------------------------------------------------------------------------
+
+/** A workspace as an import re-resolves it here. */
+const workspaceWords = (workspace: RoutineWorkspace): string =>
+  workspace.kind === "scratch" ? "a scratch directory" : workspace.kind === "directory" ? workspace.path : `a worktree of ${workspace.repository}`;
+
+/** Each document of an import, as `routines.checkImport` read it: its name and schedule, its issues at their paths, what it would need here. */
+export const importLines = (documents: readonly RoutineImportCheck[]): readonly (readonly Span[])[] =>
+  documents.flatMap(({ index, definition, issues, warnings }) => [
+    [
+      { text: `${index + 1}. ${definition?.name ?? "Not a routine"}`, bold: true },
+      ...(definition ? [{ text: `  ${describeSchedule({ schedule: definition.schedule, timezone: definition.timezone })}`, dim: true }] : []),
+    ],
+    ...issues.map((issue) => [{ text: `   ${issue.path.length === 0 ? "" : `${pathWords(issue.path)}: `}${issue.message.replace(/\s+/g, " ")}`, color: TERMINAL_ROLES.danger }]),
+    ...(warnings.attention.length === 0 ? [] : [[{ text: `   Here it would need: ${warnings.attention.map((code) => ATTENTION_WORDS[code]).join(", ")}`, color: TERMINAL_ROLES.warning }]]),
+    ...(warnings.workspace === null ? [] : [[{ text: `   Its workspace here: ${workspaceWords(warnings.workspace)}`, dim: true }]]),
+  ]);
 
 // A routine's history ---------------------------------------------------------------------------
 

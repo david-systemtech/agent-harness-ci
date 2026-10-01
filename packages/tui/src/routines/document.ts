@@ -1,3 +1,5 @@
+import { CONTAINMENT_LEVELS, MODES, ROUTINE_PRESETS } from "@agent-harness/contracts";
+
 /**
  * A routine's YAML as the editor holds it (docs/specs/tui.md, "The
  * routines"; #533). The codec is the environment's (routines spec, "YAML
@@ -81,9 +83,16 @@ const lineOf = (lines: readonly string[], from: number, to: number, path: readon
   return found;
 };
 
+/** Where an issue is in its document, as a person reads the document: `schedule.day`, `delivery[1].on`. */
+export const pathWords = (path: readonly (string | number)[]): string =>
+  path
+    .map((step) => (typeof step === "number" ? `[${step}]` : step))
+    .join(".")
+    .replace(/\.\[/g, "[");
+
 /** An issue as its comment says it: where in the document, unless at its root, and what is wrong, on one line. */
 const commentOf = (issue: DocumentIssue): string => {
-  const where = issue.path.map((step) => (typeof step === "number" ? `[${step}]` : step)).join(".").replace(/\.\[/g, "[");
+  const where = pathWords(issue.path);
   return `${ISSUE_MARK} ${where === "" ? "" : `${where}: `}${issue.message.replace(/\s+/g, " ").trim()}`;
 };
 
@@ -113,3 +122,58 @@ export const annotated = (yaml: string, issues: readonly DocumentIssue[]): strin
  * asked (`routines.checkImport`), so a routine saved offline asks it too.
  */
 export const asksBypass = (yaml: string): boolean => /^mode\s*:\s*(["']?)bypassPermissions\1\s*(#.*)?$/m.test(yaml);
+
+/** How many routine documents `yaml` holds, as the environment counts them: what an import offline mints its ids by. */
+export const documentCount = (yaml: string): number => documentRanges(yaml.split("\n")).length;
+
+/**
+ * `/routines new`'s template (#533): a routine document with every key, the
+ * presets written in (`ROUTINE_PRESETS`), each key's choices in a comment
+ * over it. Saved as it is, it makes nothing: an edit saved unchanged sends
+ * nothing.
+ */
+export const ROUTINE_TEMPLATE = [
+  "# A new routine: set its name, when it runs and what it does, then save and close the",
+  "# editor to make it on this environment. Close it without saving to make nothing.",
+  "# A key with a preset may be left out; each comment says what a key takes.",
+  "kind: routine",
+  "version: 1",
+  "name: New routine",
+  "enabled: true",
+  `# ${["manual", "hourly", "daily", "weekdays", "weekly", "days", "monthly", "cron"].join(", ")}; for example`,
+  '# { kind: weekly, day: monday, at: "09:00" } or { kind: cron, expression: "*/30 9-17 * * 1-5" }',
+  'schedule: { kind: daily, at: "09:00" }',
+  "# An IANA zone, such as Europe/London; left out, this environment's own.",
+  "# timezone: Europe/London",
+  "# run-once fires the latest due time missed while the environment was down, within seven days; skip skips them.",
+  `if-missed: ${ROUTINE_PRESETS.ifMissed}`,
+  "# A directory ({ kind: directory, path: ~/code/project }), a worktree made per firing",
+  "# ({ kind: worktree, repository: ~/code/project }), or a scratch directory made per firing.",
+  "workspace: { kind: scratch }",
+  "# { provider: claude, email: you@example.com, organisation: null }; null for the default account.",
+  "account: null",
+  "# null for the strongest model of the account's family, and its default effort.",
+  "model: null",
+  "effort: null",
+  `# ${MODES.join(", ")}; null for the unattended mode in the settings.`,
+  "mode: null",
+  `# ${CONTAINMENT_LEVELS.join(", ")}; null for the containment in the settings.`,
+  "containment: null",
+  "# Whether a firing's run gets the forge's credentials: inherit, allow or deny.",
+  `injection: ${ROUTINE_PRESETS.injection}`,
+  "# Names from the skill set, loaded for every run of a firing.",
+  "skills: []",
+  "# What runs first, whose unchanged output skips the firing: a script in the scripts directory",
+  "# ({ kind: script, path: check.sh, timeout-seconds: 60 }) or a URL ({ kind: url, url: https://example.com/feed }).",
+  "pre-check: null",
+  "# The final text that delivers nothing.",
+  `silent-marker: "${ROUTINE_PRESETS.silenceMarker}"`,
+  `max-duration-minutes: ${ROUTINE_PRESETS.maxDurationMinutes}`,
+  "# Up to eight targets, each on success, failure or both: client-notice, or a webhook endpoint by its name",
+  "# ({ kind: webhook, target: hermes-home, on: success }).",
+  "delivery:",
+  ...ROUTINE_PRESETS.delivery.map((target) => `  - { kind: ${target.kind}, on: ${target.on} }`),
+  "instructions: |-",
+  "  Say what this routine should do each time it fires.",
+  "",
+].join("\n");
