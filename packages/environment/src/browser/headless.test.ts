@@ -464,6 +464,7 @@ describe("the tools on the headless path", () => {
     peer.inPage("selectFieldContents", () => "selected");
     peer.inPage("showsText", () => true);
     peer.inPage("readStorage", () => ({ origin: "https://shop.example", local: { theme: "dark" }, session: {} }));
+    peer.inPage("readPage", () => ({ article: "# Shop\n\nEverything for the garden, delivered on Thursdays." }));
     peer.answer("Runtime.evaluate", () => ({ result: { type: "number", value: 2 } }));
     const id = await sessionWith(client, HEADLESS);
 
@@ -491,9 +492,9 @@ describe("the tools on the headless path", () => {
 
     const names = ["open", "navigate", "snapshot", "click", "type", "read", "screenshot", "clickAt", "scroll", "waitFor", "console", "network", "cookies", "storage", "evaluate", "close"];
     const failed = names.filter((_, index) => answers[index]?.isError === true);
-    // The reader is #545's: until then the driver answers it with its sentence.
-    expect(failed).toEqual(["read"]);
+    expect(failed).toEqual([]);
     expect(answers[2]?.text).toContain('- heading "Shop" [level=1] [ref=e1]');
+    expect(answers[5]?.text).toContain("Everything for the garden, delivered on Thursdays.");
     expect(answers[6]?.images).toHaveLength(1);
     expect(answers[12]?.text).toContain('"value":"cookie-for-tests"');
     expect(answers[13]?.text).toContain("dark");

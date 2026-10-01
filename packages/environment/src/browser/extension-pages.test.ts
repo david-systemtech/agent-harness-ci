@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Worker } from "node:worker_threads";
 import { registry, type ResultOf } from "@agent-harness/contracts";
-import { scriptedCdpPeer } from "@agent-harness/browser/testing";
+import { scriptedCdpPeer, type InPageCall } from "@agent-harness/browser/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { HARNESS_VERSION } from "../serve/start.js";
 import { useCleanups } from "../../test/cleanups.js";
@@ -28,6 +28,9 @@ import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
  * the port file, announces, pairs with a code from `browser.pairing.code`,
  * proves itself when Chrome starts it again, and answers the tools a fake
  * provider calls on the direct path with the page driver over its debugger.
+ * The reader's in-page functions run from the declarations the built worker
+ * sent, in a jsdom window of the page, so the bundle is shown to send code
+ * that runs alone in a page.
  */
 
 const { onCleanup } = useCleanups();
@@ -93,6 +96,33 @@ const runBuiltWorker = (folder: string, profile: { readonly browser: string; rea
 
 const folderOf = (t: Pick<TestEnvironment, "dataDir">): string => join(t.dataDir, "extension", "current");
 
+/** An article long enough for Readability to judge the page readerable, written for this test. */
+const ARTICLE = `<!doctype html><html><head><title>Example Domain</title></head><body><nav><a href="/">Home</a></nav><article><h1>Example Domain</h1>${`<p>${"This domain is for use in documentation examples without needing permission. ".repeat(4)}</p>`.repeat(4)}</article></body></html>`;
+
+/** A jsdom window that runs a script it is handed: the part of jsdom this file uses, which the tests' project has no types for. */
+interface PageWindow {
+  eval(source: string): (...args: unknown[]) => unknown;
+}
+const { JSDOM } = createRequire(import.meta.url)("jsdom") as {
+  JSDOM: new (html: string, options: { readonly url: string; readonly runScripts: "outside-only" }) => { readonly window: PageWindow };
+};
+
+/** Answers an in-page call as the page would: its declaration, as the worker sent it, run in a jsdom window kept per document. */
+const inPageWindows = (html: string): ((call: InPageCall) => unknown) => {
+  const windows = new Map<string, PageWindow>();
+  return (call) => {
+    let window = windows.get(call.frame.loaderId);
+    if (window === undefined) {
+      window = new JSDOM(html, { url: call.frame.url, runScripts: "outside-only" }).window;
+      // tsx, which runs the built worker on the thread, names the bundle's functions with a helper of its own; Chrome runs
+      // the file as built, which calls none, so the page gets a stand-in for tsx's helper and nothing else.
+      window.eval("var __name = (target) => target;");
+      windows.set(call.frame.loaderId, window);
+    }
+    return window.eval(`(${call.declaration})`)(...call.args);
+  };
+};
+
 const eventsOf = (t: TestEnvironment, sessionId: string): LogEvent[] => t.env.log.readStream({ kind: "session", id: sessionId });
 
 /** Runs `calls` of the `browser` server's tools in an attended run of the session, as a fake provider makes them; answers what the model read of each. */
@@ -119,6 +149,8 @@ describe("the extension end to end", () => {
     onCleanup(() => peer.close());
     peer.document("https://example.com/", { title: "Example Domain" });
     peer.inPage("snapshotFrame", () => ({ nodes: [{ role: "heading", name: "Example Domain", level: 1, ref: "e1" }], lastRef: 1 }));
+    const page = inPageWindows(ARTICLE);
+    for (const name of ["installReader", "readPage", "pageChallenge"]) peer.inPage(name, page);
     const t = await startTestEnvironment({ name: "Laptop", adapter: fakeAdapter(), browser: { extensionSource: built } });
     onCleanup(() => t.close());
     const client = await t.client();
@@ -143,13 +175,24 @@ describe("the extension end to end", () => {
     await notice("chrome.updated", "connected");
 
     const session = await create(client, { browser: { value: { kind: "chrome", environmentId: t.env.id, chromeId: chromes[0]?.id ?? null }, chosenBy: "person" } });
-    const [opened, snapshot] = await run(t, client, session.id, ["browser_open", { address: "https://example.com/", snapshot: false }], ["browser_snapshot", { filter: "all" }]);
+    const [opened, snapshot, read] = await run(
+      t,
+      client,
+      session.id,
+      ["browser_open", { address: "https://example.com/", snapshot: false }],
+      ["browser_snapshot", { filter: "all" }],
+      ["browser_read", {}],
+    );
 
     expect(opened?.isError).toBe(false);
     expect(opened?.text.split("\n")[0]).toBe("Opened https://example.com/. The page is at https://example.com/.");
     expect(opened?.text).toContain("Title: Example Domain");
     expect(snapshot?.isError).toBe(false);
     expect(snapshot?.text).toContain('- heading "Example Domain" [level=1] [ref=e1]');
+    expect(read?.isError).toBe(false);
+    expect(read?.text.split("\n")[0]).toBe("Read https://example.com/ through a reader: its article as Markdown.");
+    expect(read?.text).toContain("# Example Domain\n\nThis domain is for use in documentation examples without needing permission.");
+    expect(read?.text).not.toContain("Home");
     expect(peer.sentOf("Target.attachToTarget")).toHaveLength(1);
     expect(peer.sentOf("Page.navigate").map(({ params }) => params.url)).toEqual(["https://example.com/"]);
   });
