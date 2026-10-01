@@ -311,6 +311,7 @@ export type {
   ToolCallEntry,
   TranscriptEntry,
   UserMessageEntry,
+  UpdateInterruptedEntry,
 } from "./projections/session.js";
 export {
   DOCUMENT_KIND_WORDS,
@@ -375,6 +376,8 @@ export {
   promptsIn,
   rewoundRowId,
   transcriptRows,
+  environmentMessage,
+  updateInterruptedText,
   undoableFold,
   type ForkedFrom,
   type TranscriptRow,

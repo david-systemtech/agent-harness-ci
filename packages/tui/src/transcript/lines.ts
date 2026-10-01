@@ -3,6 +3,8 @@ import {
   classifyTool,
   describeActivity,
   endWords,
+  environmentMessage,
+  updateInterruptedText,
   folded,
   formatDuration,
   oneLine,
@@ -365,7 +367,9 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
   switch (row.kind) {
     case "user": {
       const chips = row.entry.attachments.map((a): Span[] => [{ text: `[${a.kind} ${a.name} · ${Math.max(1, Math.round(a.size / 1024))} KB]`, dim: true }]);
-      return block(row.id, { text: "▌", color: TERMINAL_ROLES.machine }, [...paragraphs(row.entry.text, { bold: true }), ...chips], width, true);
+      const environment = environmentMessage(row.entry);
+      const text = environment ? `Environment: ${row.entry.text}` : row.entry.text;
+      return block(row.id, { text: environment ? "·" : "▌", color: TERMINAL_ROLES.machine }, [...paragraphs(text, { bold: !environment }), ...chips], width, true);
     }
     case "assistant": {
       const { entry } = row;
@@ -401,6 +405,8 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       return rewoundLines(row, context);
     case "forked":
       return forkedLines(row, context);
+    case "update-interrupted":
+      return wrap([{ text: `${INDENT}· ${updateInterruptedText(row.entry)}`, dim: true }], width).map((spans) => ({ row: row.id, spans }));
     case "history-unreadable":
       // An imported session whose history the account's directory no longer gave (#579): one line saying so, and why.
       return [{ row: row.id, spans: [{ text: `${INDENT}· The history could not be read: ${oneLine(row.entry.message, 300)}`, dim: true }] }];

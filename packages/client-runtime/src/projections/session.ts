@@ -19,6 +19,7 @@ import {
   type RunPolicyResolvedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type RunUpdateInterruptedPayload,
   type SessionContainmentSetPayload,
   type SessionForkedPayload,
   type SessionHistoryImportedPayload,
@@ -128,6 +129,8 @@ import type { SessionLease } from "../streams/streams.js";
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 type SnapshotItem<K extends string> = Extract<TranscriptItem, { kind: K }>;
+
+export type UpdateInterruptedEntry = SnapshotItem<"update-interrupted">;
 
 export type UserMessageEntry = SnapshotItem<"user-message">;
 
@@ -242,6 +245,7 @@ export interface RewoundEntry {
 
 export type TranscriptEntry =
   | UserMessageEntry
+  | UpdateInterruptedEntry
   | AssistantEntry
   | ToolCallEntry
   | CommandEntry
@@ -314,6 +318,7 @@ interface Fold {
 /** An entry as the fold holds it: of a known kind, before subagents are gathered, a rewind's fold, or opaque. */
 type Held =
   | Mutable<UserMessageEntry>
+  | UpdateInterruptedEntry
   | Mutable<AssistantEntry>
   | Mutable<ToolCallEntry>
   | Mutable<CommandEntry>
@@ -370,6 +375,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
     case "command":
     case "tasks":
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
+    case "update-interrupted":
+      return { ...(item as UpdateInterruptedEntry) };
     case "history-unreadable":
       return { ...(item as HistoryUnreadableEntry) };
     case "forked":
@@ -539,6 +546,11 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         if (run !== undefined) run.usage = payload.models;
         return;
       }
+      case "run.update-interrupted": {
+        const payload = event.payload as RunUpdateInterruptedPayload;
+        push<UpdateInterruptedEntry>({ ...payload, kind: "update-interrupted", sequence });
+        return;
+      }
       case "message.sent": {
         const payload = event.payload as MessageSentPayload;
         messages.set(
@@ -553,6 +565,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
             delivery: payload.delivery,
             heldBy: holderOf(payload.delivery, payload.heldBy),
             sentAt: event.occurredAt,
+            sender: event.actor,
           }),
         );
         return;

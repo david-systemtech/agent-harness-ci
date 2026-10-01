@@ -210,7 +210,9 @@ describe("a run the update cut that its provider can resume", () => {
       { runId: cut, origin: "client" },
       { runId: continuation, origin: "update" },
     ]);
-    expect(snapshot.items).toContainEqual(expect.objectContaining({ kind: "user-message", runId: continuation, text: CONTINUATION, delivery: "prompt" }));
+    expect(snapshot.items).toContainEqual(expect.objectContaining({ kind: "user-message", runId: continuation, text: CONTINUATION, delivery: "prompt", sender: { kind: "system", id: "updates" } }));
+    const mark = ofType(again, id, "run.update-interrupted")[0];
+    expect(snapshot.items).toContainEqual({ kind: "update-interrupted", sequence: mark?.sequence, runId: cut, updateId, toVersion: TARGET, outcome: "continued", reason: null, continuationRunId: continuation });
   });
 
   it("is continued in the model and effort it ran in", async () => {

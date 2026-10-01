@@ -136,3 +136,15 @@ describe("what a rewind cut, in /export (#232)", () => {
     expect(text).not.toContain(">");
   });
 });
+
+describe("update cuts in /export", () => {
+  it("keeps the update outcome and credits the continuation to the environment", () => {
+    const cut: TranscriptEntry = { kind: "update-interrupted", sequence: 2, runId: RUN, updateId: RUN, toVersion: "0.5.0", outcome: "waiting-on-prompt", reason: null, continuationRunId: null };
+    const continuation: TranscriptEntry = { kind: "user-message", sequence: 3, runId: RUN, messageId: "continuation", text: "Check the current state, then continue.", attachments: [], delivery: "prompt", heldBy: null, sentAt: "2026-09-25T10:00:00.000Z", sender: { kind: "system", id: "updates" } };
+    const exported = exportMarkdown({ items: [cut, continuation], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T10:00:00.000Z") });
+    expect(exported).toContain("_Updated to 0.5.0 while this ran; waits for your answer to the parked prompt_");
+    expect(exported).toContain("### Environment · ");
+    expect(exported).not.toContain("### You · ");
+    expect(exported).toContain("Check the current state, then continue.");
+  });
+});
