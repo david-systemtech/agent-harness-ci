@@ -19,6 +19,7 @@ import {
   RoutineWorkspace,
   WebhookEndpoint,
 } from "../routines.js";
+import { WrittenTimeZone } from "../schedule.js";
 
 /**
  * The `routines.*` methods (routines spec, "Methods on the wire"; ADR 0008),
@@ -178,6 +179,7 @@ export const routinesCreate = defineMethod({
 const FieldsInput = z
   .object({
     ...RoutineDefinition.shape,
+    timezone: WrittenTimeZone.meta({ description: "An IANA time zone's name the environment's zone data knows." }),
     preCheck: PreCheckInput.nullable().meta({ description: "What runs before each firing, a script's timeout preset when absent; null for none." }),
   })
   .partial()
