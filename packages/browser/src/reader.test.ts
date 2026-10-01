@@ -53,6 +53,20 @@ describe("a fetched page as web_read reads it", () => {
     });
   });
 
+  it("reads the page's body as the document's text on a page whose element named body takes the document's own member's place (#1052)", () => {
+    const named = pageOf(INDEX.replace("<h1>", `<img name="body" src="/logo.png" alt=""><h1>`));
+    expect(named.body.localName).toBe("img");
+    expect(readFetchedPage(named)).toEqual({
+      kind: "document",
+      markdown: [
+        "Home",
+        "# Releases",
+        "- Version 2, the current one\n- Version 1, kept for old machines",
+        "Each release lists its changes on its own page.",
+      ].join("\n\n"),
+    });
+  });
+
   it("names a challenge the page shows, before anything else it could be read as", () => {
     expect(readFetchedPage(fixturePage("cloudflare-challenge"))).toEqual({ kind: "challenge", challenge: "cloudflare" });
     expect(readFetchedPage(fixturePage("datadome-403"))).toEqual({ kind: "challenge", challenge: "datadome" });

@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
+import { DRAIN_CAP_MS } from "@agent-harness/contracts/launcher";
 import { DEFAULT_PORT, defaultDataDirectory, refusePrivilegedUser, RootRefusedError, type UserCheck } from "@agent-harness/environment";
 import { parseName, parseOptions, parsePort, UsageError } from "../args.js";
 import { discoverEnvironment, environmentAddress } from "../discover.js";
@@ -77,6 +78,13 @@ const putBack = (steps: readonly (() => void)[]): void => {
 };
 
 /**
+ * What a verb says before it stops a running service whose stop drains: the
+ * command waits while the launcher lets running runs finish, up to the
+ * drain's cap.
+ */
+const DRAIN_NOTICE = `Stopping the service, waiting up to ${DRAIN_CAP_MS / 60_000} minutes for any running runs to finish.\n`;
+
+/**
  * `service install`: lays out the launcher in the data directory and writes
  * the definition for this platform, which runs the launcher entry as the
  * current user at logon, then records what it wrote in the data directory's
@@ -122,6 +130,8 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
     undo.push(entry.restore);
     const shim = writeDefinition(shimPath, renderShim(kind, dataDir), writeExecutable);
     undo.push(shim.restore);
+    // A running service that install restarts is stopped first; where the stop drains, that waits for its runs.
+    if (running && !launcherRuns && platform.drainsOnStop) context.stdout(DRAIN_NOTICE);
     installed = await platform.install(spec, { restartRunning: !launcherRuns });
     const created = [...(previous?.createdDirectories ?? []), ...installed.createdDirectories, ...dataDirectories, ...shim.createdDirectories];
     // The record is part of the install: without it status probes the wrong port, so a failed write takes the definition back out.
@@ -181,7 +191,10 @@ const uninstall = async (args: readonly string[], context: ServiceContext): Prom
     recordProblem = error instanceof Error ? error.message : String(error);
   }
   const installed = await platform.isInstalled();
-  if (installed) await platform.uninstall();
+  if (installed) {
+    if (platform.drainsOnStop && (await platform.isRunning())) context.stdout(DRAIN_NOTICE);
+    await platform.uninstall();
+  }
   const kind = scriptKind(installContext.platform);
   const scripts = [
     { path: record?.launcherEntry ?? join(dataDir, LAUNCHER_ENTRY_FILES[kind]), name: "the launcher entry" },

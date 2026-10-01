@@ -36,6 +36,12 @@ describe("the shell rule web_read uses", () => {
     expect(isShell(fixturePage("plain-article"))).toBe(false);
   });
 
+  it("measures the page's body on a page whose element named body takes the document's own member's place (#1052)", () => {
+    const named = page(`<img name="body" src="/logo.png" alt=""><noscript>Enable JavaScript.</noscript><p>${prose(200)}</p>`);
+    expect(named.body.localName).toBe("img");
+    expect(isShell(named)).toBe(false);
+  });
+
   it("counts the text a reader sees: not scripts, styles, noscript fallbacks or hidden elements", () => {
     const unseen = `<style>${prose(400)}</style><script>var x = "${prose(400)}";</script><div hidden>${prose(400)}</div><noscript>${prose(400)}</noscript>`;
     expect(isShell(page(`${unseen}<div id="root"></div>`))).toBe(true);

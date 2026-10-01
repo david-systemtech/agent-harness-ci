@@ -1,6 +1,8 @@
+import type { RunAdmission } from "../serve/run-registry.js";
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
+  ENVIRONMENT_STREAM_KIND,
   ROUTINE_STREAM_KIND,
   WorkspaceRequest,
   type CannotStartReason,
@@ -127,6 +129,8 @@ export interface FiringStarterOptions {
 export interface FiringStarter {
   /** Whether a firing of the routine is waiting for a slot, starting or live, so another is not asked for. */
   live(routineId: string): boolean;
+  /** Checks the drain gate before a run now is accepted. */
+  admit(): void;
   /** Starts `firing` in the background once a slot is free, or skips it `overlap`: its record says how it went. */
   start(firing: FiringStart): void;
   /** Lets the starts under way finish, each making nothing more once it sees the environment is closing. */
@@ -263,6 +267,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
   /** Stops the pre-checks under way once the environment is closing. */
   const closer = new AbortController();
   let closing = false;
+  let draining = false;
 
   /** Records the firing as a skip, under its id, as the routine; a `no-change` skip raises no `routine.updated`. */
   const skip = (firing: FiringStart, skipped: Skip): void => recordSkip(options, firing, skipped);
@@ -303,7 +308,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
   };
 
   /** The firing's session, containment and run, and its `routine.firing-started`, in the open transaction; a refusal is thrown. */
-  const make = (tx: Tx, firing: FiringStart, sessionId: string, place: Place, account: AccountFacts, observation: Observation | null): void => {
+  const make = (tx: Tx, firing: FiringStart, sessionId: string, place: Place, account: AccountFacts, observation: Observation | null, admission: RunAdmission): void => {
     const { routineId, firingId, definition, ceiling } = firing;
     const actor = routineActor(routineId);
     const attribution = { tx, actor, commandId: firingId };
@@ -348,6 +353,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
         alwaysOn: definition.skills,
       },
       firingId,
+      admission,
     );
     if (run.rejected !== undefined) throw new ContractError(run.rejected);
     const payload: RoutineFiringStartedPayload = {
@@ -386,7 +392,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     }
   };
 
-  const begin = async (firing: FiringStart): Promise<void> => {
+  const begin = async (firing: FiringStart, admission: RunAdmission): Promise<void> => {
     const observation = await observe(firing);
     if (observation === "stop") return;
     const check = checked(firing.definition, routineAccount(firing.definition.account, { reader, accounts: options.accounts }));
@@ -403,7 +409,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     if (closing) return discard(place);
     try {
       const outcome = log.command({ actor: routineActor(firing.routineId), commandId: firing.firingId }, (tx) => {
-        make(tx, firing, sessionId, place, check.account, observation);
+        make(tx, firing, sessionId, place, check.account, observation, admission);
         return { aggregate: routineStream(firing.routineId), result: null };
       });
       // A retry under a firing id already made makes nothing: what it resolved goes again.
@@ -418,12 +424,14 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
   /** Begins the firing in the background, holding a slot until its record commits; the next waiting ones are taken up after. */
   const launch = (firing: FiringStart): void => {
     const { routineId, firingId } = firing;
+    const admission = host.runs.reserve(firingId);
     starting.set(routineId, firingId);
-    const work = begin(firing)
+    const work = begin(firing, admission)
       .catch((error: unknown) => console.error(`Starting the firing ${firingId} of the routine ${routineId} failed:`, error))
       .finally(() => {
         if (starting.get(routineId) === firingId) starting.delete(routineId);
         underWay.delete(work);
+        admission.release();
         takeUp();
       });
     underWay.add(work);
@@ -443,7 +451,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
 
   /** Takes up waiting firings, in order, while a slot is free; one whose take-up fails is logged and the next taken up. */
   const takeUp = (): void => {
-    for (let next = waiting[0]; !closing && next !== undefined && held() < FIRINGS_AT_ONCE; next = waiting[0]) {
+    for (let next = waiting[0]; !closing && !draining && next !== undefined && held() < FIRINGS_AT_ONCE; next = waiting[0]) {
       waiting.shift();
       try {
         takeUpOne(next);
@@ -455,13 +463,18 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
 
   // A firing's end frees its slot: the next waiting firing is taken up once the end commits.
   const unsubscribe = log.subscribe((event) => {
-    if (event.streamKind === ROUTINE_STREAM_KIND && event.type === "routine.firing-ended") takeUp();
+    if (event.streamKind === ENVIRONMENT_STREAM_KIND && event.type === "environment.draining") {
+      draining = true;
+      waiting.length = 0;
+    } else if (event.streamKind === ROUTINE_STREAM_KIND && event.type === "routine.firing-ended") takeUp();
   });
 
   return {
+    admit: () => host.admit(),
     live: (routineId) => busy(routineId) || waiting.some((firing) => firing.routineId === routineId),
     start(firing) {
-      if (closing) return;
+      if (closing || draining) return;
+      host.admit();
       if (busy(firing.routineId)) return skip(firing, plainSkip("overlap"));
       waiting.push(firing);
       takeUp();
