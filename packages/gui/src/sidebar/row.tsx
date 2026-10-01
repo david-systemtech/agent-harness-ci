@@ -1,6 +1,6 @@
 import type { DropTarget, EnvironmentView, HeadingRow, RowActivity } from "@agent-harness/client-runtime";
 import { Fragment, useState } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { PullRequestMark } from "../session/pull-requests.js";
 import { classes } from "../ui/classes.js";
@@ -85,7 +85,7 @@ export const SessionRowView = ({ line, environment, current, drop, open }: Sessi
               )}
             >
               {/* Each part after a space of its own, outside it, so the row's name reads "desk Later 18:00 Pending". */}
-              <EnvironmentDot view={environment} label={name} />{" "}
+              <EnvironmentGlyph view={environment} label={name} />{" "}
               <span className="min-w-0 flex-1 truncate">{summary.title}</span>
               {summary.tags.map((tag) => (
                 <Fragment key={tag}>

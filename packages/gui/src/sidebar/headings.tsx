@@ -1,6 +1,6 @@
 import { changeHeading, type EnvironmentHeading, type EnvironmentView, type FoldingHeading, type HeadingRow, type SessionHeading } from "@agent-harness/client-runtime";
 import { useId, useState, type ReactNode } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { EnvironmentStatus } from "../connections/environment-status.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import { NewSessionButton } from "../new-session/control.js";
@@ -104,7 +104,7 @@ export const EnvironmentSection = ({ heading, rows }: { readonly heading: Enviro
   return (
     <section aria-labelledby={name} className="flex flex-col gap-0.5">
       <div {...target.handlers} className={classes("flex items-center gap-1.5 rounded-sm", target.over && "bg-wash-strong")}>
-        <EnvironmentDot view={view} />
+        <EnvironmentGlyph view={view} />
         <h2 id={name} className={classes("min-w-0 truncate text-xs font-semibold", heading.dim ? "text-ink-faint" : "text-ink-muted")}>
           {heading.holds === "unidentified" ? `${named} · no repository` : named}
         </h2>
