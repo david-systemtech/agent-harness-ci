@@ -1,5 +1,6 @@
 import {
   ENVIRONMENT_STREAM_KIND,
+  SESSION_STREAM_KIND,
   type BankAddedPayload,
   type BankEntry,
   type BankForgottenPayload,
@@ -78,6 +79,11 @@ export const banksProjector: Projector = {
   name: BANKS_PROJECTOR,
   tables: BANKS_TABLES,
   apply(event, db) {
+    // Deletion keeps pins for restore; only the final tombstone releases them.
+    if (event.streamKind === SESSION_STREAM_KIND && event.type === "session.purged") {
+      db.run("DELETE FROM bank_session_pins WHERE session_id = ?", event.streamId);
+      return;
+    }
     if (event.streamKind !== ENVIRONMENT_STREAM_KIND) return;
     switch (event.type) {
       case "bank.added":

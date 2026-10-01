@@ -8,6 +8,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { restartAfter, startTestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
+import { createBankService } from "./bank-service.js";
 
 const { onCleanup, tempDir } = useCleanups();
 const start = async (options: TestEnvironmentOptions = {}) => {
@@ -134,6 +135,51 @@ describe("bank registry settings through the wire", () => {
     const replacement = await registered(client, PERSONAL_BANK);
     expect((await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: false })).result).toEqual({ sessionId, pins: [] });
     expect(replacement.pins).toEqual([]);
+  });
+
+  it("removes a session pin after its folder disappears from the committed bank", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await registered(client, PERSONAL_BANK);
+    const sessionId = randomUUID();
+    const pointer = "maya-memory:personal/homelab/";
+    await client.request("sessions.create", { commandId: randomUUID(), id: sessionId, workspace: { kind: "scratch" } });
+    await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: true });
+    git(bank.checkout, "rm", "-r", "projects/personal/homelab");
+    git(bank.checkout, "commit", "--quiet", "-m", "Remove the homelab folder.");
+    await client.request("banks.verify", { bankId: bank.id });
+    expect(await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: false })).toMatchObject({
+      receipt: { status: "accepted", changed: true }, result: { sessionId, pins: [] },
+    });
+    expect(await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: false })).toMatchObject({
+      receipt: { status: "accepted", changed: false }, result: { sessionId, pins: [] },
+    });
+    expect(await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: true })).toMatchObject({
+      receipt: { status: "rejected", error: { code: "not_found" } },
+    });
+  });
+
+  it("keeps session pins for restoration and clears them permanently when the session is purged", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await registered(client, PERSONAL_BANK);
+    const pins = createBankService({ log: t.env.log, clock: t.clock, environmentId: t.env.id, dataDir: t.dataDir, forge: t.env.forge });
+    const sessionId = randomUUID();
+    const pointer = "maya-memory:personal/homelab/";
+    await update(client, bank, { pins: [pointer] });
+    await client.request("sessions.create", { commandId: randomUUID(), id: sessionId, workspace: { kind: "scratch" } });
+    await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: true });
+    await client.request("sessions.delete", { commandId: randomUUID(), sessionId });
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    expect(pins.sessionPins(sessionId)).toEqual([pointer]);
+    await client.request("sessions.restore", { commandId: randomUUID(), sessionId });
+    expect(await client.request("banks.pin", { commandId: randomUUID(), sessionId, pointer, pinned: true })).toMatchObject({ receipt: { status: "accepted", changed: false }, result: { sessionId, pins: [pointer] } });
+    await client.request("sessions.delete", { commandId: randomUUID(), sessionId });
+    await client.request("sessions.purge", { commandId: randomUUID(), sessionId });
+    expect(pins.sessionPins(sessionId)).toEqual([]);
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    expect(pins.sessionPins(sessionId)).toEqual([]);
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.pins).toEqual([pointer]);
   });
 
   it("retains a forgotten checkout by default and refuses explicit removal of a registered path", async () => {

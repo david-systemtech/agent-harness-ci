@@ -507,12 +507,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async prepare(params) {
       const named = parseBankPointer(params.pointer);
       const entry = listBanks(reader).find((bank) => bank.name === named?.bank);
-      const reading = entry === undefined ? null : await readingOf(entry);
+      const reading = entry === undefined || !params.pinned ? null : await readingOf(entry);
       const apply: MethodHandler<"banks.pin"> = (_params, command) => {
         if (readSummary(reader, params.sessionId) === null) {
           return { aggregate: stream, rejected: { code: "not_found", message: "The session is not present.", data: { kind: "session", sessionId: params.sessionId } } };
         }
-        if (entry === undefined || liveBank(reader, entry.id) === null || !readPointer(reading?.index == null ? [] : [reading.index], params.pointer).found) {
+        if (entry === undefined || liveBank(reader, entry.id) === null || (params.pinned && !readPointer(reading?.index == null ? [] : [reading.index], params.pointer).found)) {
           return { aggregate: stream, rejected: { code: "not_found", message: "The bank folder is not present." } };
         }
         const pins = sessionBankPins(reader, params.sessionId);
