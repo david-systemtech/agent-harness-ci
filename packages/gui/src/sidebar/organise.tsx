@@ -28,7 +28,7 @@ import { notDone } from "./words.js";
  * pane's bare `/snooze` and `/group`, where no context menu is open.
  */
 export type SidebarDialog =
-  | { readonly kind: "snooze" | "snooze-presets" | "tags" | "new-group" | "move-to-group" | "delete"; readonly row: string }
+  | { readonly kind: "snooze" | "snooze-presets" | "tags" | "new-group" | "move-to-group" | "delete" | "instructions"; readonly row: string }
   | { readonly kind: "delete-group"; readonly heading: string }
   | { readonly kind: "restore"; readonly query?: string };
 
