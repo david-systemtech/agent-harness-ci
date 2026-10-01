@@ -12,14 +12,16 @@ import type { BankIndex, IndexedFolder, IndexedMemory, IndexedOrg, IndexedTopic 
  * The tiers: T0 the bank line, T1 its orientation facts, T2 one
  * breadcrumb per project or area holding memories under a counted org
  * header, T3 a folder's index, its memory lines and topic breadcrumbs. The
- * ladder, within 150 lines and 20 KB: T0 and T1 of every bank always; the
- * org headers of every bank, signalled banks first, a bank with no signal
- * collapsing to its line when its headers do not fit; each org's
- * breadcrumbs in place of its header where they fit; then each relevant
- * folder's index in relevance order where it fits, one that does not stays
- * a breadcrumb marked with why it is relevant. Everything is rendered from
- * the banks and the facts, never a clock, so the same state gives the
- * same bytes.
+ * ladder, within 150 lines and 20 KB, each step taken where it fits: T0
+ * and T1 of every bank and the org headers of every signalled bank,
+ * always; the signalled banks' org groups, those holding relevant folders
+ * first; every other bank's org headers, a bank whose headers do not fit
+ * staying at its line, then its groups; then each relevant folder's index
+ * in relevance order, ties by fewer lines. A relevant folder whose index
+ * does not fit stays a breadcrumb marked with why it is relevant, or its
+ * org header is, where the header stands for its group. Signalled banks
+ * print first. Everything is rendered from the banks and the facts, never
+ * a clock, so the same state gives the same bytes.
  */
 
 /** A session's relevance facts (ADR 0013): what expands a folder's index, strongest first. */
@@ -80,7 +82,12 @@ const rendered = (lines: readonly string[]): RenderedIndex => {
   return { text, lines: lines.length, bytes: utf8Bytes(text) };
 };
 
-const pointer = (bank: BankIndex, path: string): string => formatBankPointer({ kind: "folder", bank: bank.name, path });
+/** A folder's or a topic's pointer, its count and its one-liner: what a breadcrumb, an org header and a read's last line say of it. */
+const place = (bank: BankIndex, path: string, count: number, line: string | null): string => `${formatBankPointer({ kind: "folder", bank: bank.name, path })} (${count})${oneLiner(line)}`;
+
+const orgPlace = (bank: BankIndex, org: IndexedOrg): string => place(bank, org.path, org.count, org.line);
+const folderPlace = (bank: BankIndex, folder: IndexedFolder): string => place(bank, folder.path, folder.count, folder.line);
+const topicPlace = (bank: BankIndex, topic: IndexedTopic): string => place(bank, topic.path, topic.memories.length, topic.line);
 
 // The tiers' lines.
 
@@ -93,32 +100,49 @@ const orientationLines = (bank: BankIndex): string[] =>
     ...(memory.body === "" ? [] : memory.body.split(/\r?\n/).map((line) => (line.trim() === "" ? "" : `  ${line}`))),
   ]);
 
-const orgHeader = (bank: BankIndex, org: IndexedOrg): string => `### ${pointer(bank, org.path)} (${org.count})${oneLiner(org.line)}`;
+const orgHeader = (bank: BankIndex, org: IndexedOrg): string => `### ${orgPlace(bank, org)}`;
 
-const breadcrumb = (bank: BankIndex, folder: IndexedFolder | IndexedTopic): string =>
-  `- ${pointer(bank, folder.path)} (${"count" in folder ? folder.count : folder.memories.length})${oneLiner(folder.line)}`;
+const breadcrumb = (bank: BankIndex, folder: IndexedFolder): string => `- ${folderPlace(bank, folder)}`;
+
+const topicBreadcrumb = (bank: BankIndex, topic: IndexedTopic): string => `- ${topicPlace(bank, topic)}`;
 
 const memoryLine = (bank: BankIndex, memory: IndexedMemory): string => `- ${formatBankPointer({ kind: "memory", bank: bank.name, name: memory.name })}${oneLiner(memory.description)}`;
-
-/** A folder's T3: its breadcrumb, then its topics' breadcrumbs and its other memories' lines under it. */
-const folderIndex = (bank: BankIndex, folder: IndexedFolder): string[] => [
-  breadcrumb(bank, folder),
-  ...folder.topics.map((topic) => `  ${breadcrumb(bank, topic)}`),
-  ...folder.memories.map((memory) => `  ${memoryLine(bank, memory)}`),
-];
-
-/** A topic's index: its breadcrumb, then its memories' lines under it. */
-const topicIndex = (bank: BankIndex, topic: IndexedTopic): string[] => [breadcrumb(bank, topic), ...topic.memories.map((memory) => `  ${memoryLine(bank, memory)}`)];
 
 /** The orgs and folders the trail shows: those holding a memory. */
 const shownOrgs = (bank: BankIndex): IndexedOrg[] => bank.orgs.filter((org) => org.count > 0);
 const shownFolders = (org: IndexedOrg): IndexedFolder[] => org.folders.filter((folder) => folder.count > 0);
 
+/** A folder's T3: its breadcrumb, then its topics' breadcrumbs and its other memories' lines under it. */
+const folderIndex = (bank: BankIndex, folder: IndexedFolder): string[] => [
+  breadcrumb(bank, folder),
+  ...folder.topics.map((topic) => `  ${topicBreadcrumb(bank, topic)}`),
+  ...folder.memories.map((memory) => `  ${memoryLine(bank, memory)}`),
+];
+
+/** A topic's index: its breadcrumb, then its memories' lines under it. */
+const topicIndex = (bank: BankIndex, topic: IndexedTopic): string[] => [topicBreadcrumb(bank, topic), ...topic.memories.map((memory) => `  ${memoryLine(bank, memory)}`)];
+
+/** An org's group: its header, then its breadcrumbs. */
+const groupLines = (bank: BankIndex, org: IndexedOrg): string[] => [orgHeader(bank, org), ...shownFolders(org).map((folder) => breadcrumb(bank, folder))];
+
+/** Where the memory named `name` is: its folder and its topic, the first by path where two share a name. */
+const locate = (bank: BankIndex, name: string): { readonly memory: IndexedMemory; readonly folder: IndexedFolder; readonly topic: IndexedTopic | null } | undefined => {
+  for (const folder of bank.orgs.flatMap((org) => org.folders)) {
+    const memory = folder.memories.find((each) => each.name === name);
+    if (memory !== undefined) return { memory, folder, topic: null };
+    for (const topic of folder.topics) {
+      const inTopic = topic.memories.find((each) => each.name === name);
+      if (inTopic !== undefined) return { memory: inTopic, folder, topic };
+    }
+  }
+  return undefined;
+};
+
 /** A bank's root: its line, its orientation, and its orgs, each with its breadcrumbs unless the root is re-tiered to org headers. */
 const rootLines = (bank: BankIndex): string[] => [
   bankLine(bank),
   ...orientationLines(bank),
-  ...shownOrgs(bank).flatMap((org) => [orgHeader(bank, org), ...(bank.rootByOrgs ? [] : shownFolders(org).map((folder) => breadcrumb(bank, folder)))]),
+  ...shownOrgs(bank).flatMap((org) => (bank.rootByOrgs ? [orgHeader(bank, org)] : groupLines(bank, org))),
 ];
 
 /**
@@ -159,9 +183,11 @@ const signalsOf = (bank: BankIndex, relevance: Relevance): BankSignals => {
     for (const text of texts ?? []) {
       const named = parseBankPointer(text);
       if (named === null || named.bank !== bank.name) continue;
-      if (named.kind === "bank") signal([], why);
-      else if (named.kind === "folder") signal(TOPIC.test(named.path) ? [named.path.replace(TOPIC, "")] : under(named.path), why);
-      else signal(folderPaths.filter((path) => holderOf(bank, path)?.memories.some((memory) => memory.name === named.name) ?? false), why);
+      if (named.kind === "folder") signal(TOPIC.test(named.path) ? [named.path.replace(TOPIC, "")] : under(named.path), why);
+      else if (named.kind === "memory") {
+        const holder = locate(bank, named.name)?.folder.path;
+        signal(holder === undefined ? [] : [holder], why);
+      } else signal([], why);
     }
   };
   point(relevance.registryPins, REGISTRY_PIN);
@@ -177,12 +203,6 @@ const signalsOf = (bank: BankIndex, relevance: Relevance): BankSignals => {
   }
   point(relevance.recentUse, RECENT_USE);
   return { folders, bank: own };
-};
-
-/** The folder at `path` with every memory in it, its topics' too, or undefined. */
-const holderOf = (bank: BankIndex, path: string): { readonly memories: readonly IndexedMemory[] } | undefined => {
-  const folder = bank.orgs.flatMap((org) => org.folders).find((each) => each.path === path);
-  return folder === undefined ? undefined : { memories: [...folder.memories, ...folder.topics.flatMap((topic) => topic.memories)] };
 };
 
 // The ladder.
@@ -271,16 +291,14 @@ export const renderTrail = (banks: readonly BankIndex[], relevance: Relevance = 
 
 const notFound = (message: string): PointerRead => ({ found: false, message });
 
-/** `lines`, then the folder they sit in by its breadcrumb's pointer and count, so a read leads sideways. */
-const withContext = (lines: readonly string[], context: string): PointerRead => ({ found: true, text: `${rendered(lines).text}\nIn ${context.replace(/^(?:- |### )/, "")}\n` });
-
-const bankContext = (bank: BankIndex): string => `${bank.name} (${bank.count})${oneLiner(bank.purpose)}`;
+/** `lines`, then the place holding them, its pointer and count, so a read leads sideways. */
+const withContext = (lines: readonly string[], context: string): PointerRead => ({ found: true, text: `${rendered(lines).text}\nIn ${context}\n` });
 
 /**
  * What `memory_read` answers for `text` (ADR 0013): no pointer, every
  * bank's line; a bank, its root (T0 to T2); an org, its group; a folder or
  * a topic, exactly the index the trail shows for it; a memory, its file.
- * Each but the first two ends with the folder holding it and its count.
+ * Each but the first two ends with the place holding it and its count.
  */
 export const readPointer = (banks: readonly BankIndex[], text?: string): PointerRead => {
   const sorted = [...banks].sort((a, b) => compare(a.name, b.name));
@@ -290,18 +308,20 @@ export const readPointer = (banks: readonly BankIndex[], text?: string): Pointer
   const bank = banks.find((each) => each.name === named.bank);
   if (bank === undefined) return notFound(`No bank in scope is named ${named.bank}: the banks are ${sorted.map((each) => each.name).join(", ") || "none"}.`);
   if (named.kind === "bank") return { found: true, text: renderFixedTiers(bank).text };
+  const nothing = notFound(`${formatBankPointer(named)} names nothing in ${bank.name}: read ${bank.name} for its folders.`);
+  if (named.kind === "memory") {
+    const found = locate(bank, named.name);
+    if (found === undefined) return nothing;
+    return withContext(found.memory.text.replace(/\n$/, "").split("\n"), found.topic === null ? folderPlace(bank, found.folder) : topicPlace(bank, found.topic));
+  }
+  const { path } = named;
   for (const org of bank.orgs) {
-    if (named.kind === "folder" && named.path === org.path) return withContext([orgHeader(bank, org), ...shownFolders(org).map((folder) => breadcrumb(bank, folder))], bankContext(bank));
+    if (path === org.path) return withContext(groupLines(bank, org), `${bank.name} (${bank.count})${oneLiner(bank.purpose)}`);
     for (const folder of org.folders) {
-      if (named.kind === "folder" && named.path === folder.path) return withContext(folderIndex(bank, folder), orgHeader(bank, org));
-      for (const topic of folder.topics) {
-        if (named.kind === "folder" && named.path === topic.path) return withContext(topicIndex(bank, topic), breadcrumb(bank, folder));
-        const memory = named.kind === "memory" ? topic.memories.find((each) => each.name === named.name) : undefined;
-        if (memory !== undefined) return withContext(memory.text.replace(/\n$/, "").split("\n"), breadcrumb(bank, topic));
-      }
-      const memory = named.kind === "memory" ? folder.memories.find((each) => each.name === named.name) : undefined;
-      if (memory !== undefined) return withContext(memory.text.replace(/\n$/, "").split("\n"), breadcrumb(bank, folder));
+      if (path === folder.path) return withContext(folderIndex(bank, folder), orgPlace(bank, org));
+      const topic = folder.topics.find((each) => each.path === path);
+      if (topic !== undefined) return withContext(topicIndex(bank, topic), folderPlace(bank, folder));
     }
   }
-  return notFound(`${formatBankPointer(named)} names nothing in ${bank.name}: read ${bank.name} for its folders.`);
+  return nothing;
 };

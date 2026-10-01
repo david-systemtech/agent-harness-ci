@@ -1,4 +1,4 @@
-import { SCOPE_FILES, type BankKind } from "@agent-harness/contracts";
+import { SCOPE_FILES, SCOPE_FOLDER, type BankKind } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, type BankFiles, type BankMarkdown } from "@agent-harness/contracts/bank-validator";
 
 /**
@@ -162,7 +162,8 @@ export const indexBank = (source: BankSource): BankIndex => {
     if (typeof entity !== "object" || entity === null) return [];
     const { name, aliases, folder } = entity as Record<string, unknown>;
     const called = text(name);
-    return called === null ? [] : [{ name: called, aliases: texts(aliases), folder: text(folder) }];
+    const scope = text(folder);
+    return called === null ? [] : [{ name: called, aliases: texts(aliases), folder: scope !== null && SCOPE_FOLDER.test(scope) ? scope : null }];
   });
   return {
     name: source.name,
