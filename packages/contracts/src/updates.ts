@@ -66,11 +66,11 @@ export const UpdateFailureStage = z.enum(UPDATE_FAILURE_STAGES).meta({
 });
 export type UpdateFailureStage = z.infer<typeof UpdateFailureStage>;
 
-/** Why a pending update was withdrawn: `updates.cancel`, or the settings no longer call for a channel's update. */
+/** Why a pending update was withdrawn: `updates.cancel`, or the settings no longer call for a channel's or a pin's update. */
 export const UPDATE_CANCEL_CAUSES = ["requested", "settings"] as const;
 export const UpdateCancelCause = z.enum(UPDATE_CANCEL_CAUSES).meta({
   description:
-    "Why a pending update was withdrawn: requested (updates.cancel) or settings (auto-update was turned off, the channel changed, or a pin names another version, for an update the channel called for).",
+    "Why a pending update was withdrawn: requested (updates.cancel) or settings (for an update the channel called for, auto-update was turned off, the channel changed, or a pin names another version; for an update the pin called for, it was unpinned or pinned to another version).",
 });
 export type UpdateCancelCause = z.infer<typeof UpdateCancelCause>;
 

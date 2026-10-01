@@ -224,6 +224,19 @@ const listed = (items: readonly string[]): string => (items.length < 2 ? items.j
 /** What a secret finding says the file held, by the rule that found it. */
 const heldWhat = (rule: SecretRule): string => (rule === REGISTERED_VALUE_RULE ? "a secret this environment holds" : (SHAPE_RULES.find((shape) => shape.id === rule)?.label ?? "a secret"));
 
+/** `text` with each registered value and each shape rule's hit in it replaced by what it is, in brackets. */
+const withoutSecrets = (text: string, values: readonly string[]): string => {
+  const held = values.reduce((each, value) => each.replaceAll(value, `[${heldWhat(REGISTERED_VALUE_RULE)}]`), text);
+  let shown = "";
+  let at = 0;
+  for (const hit of shapeRuleHits(held)) {
+    if (hit.start < at) continue;
+    shown += `${held.slice(at, hit.start)}[${heldWhat(hit.rule)}]`;
+    at = hit.end;
+  }
+  return `${shown}${held.slice(at)}`;
+};
+
 /** A memory's file as read, beside where it sits. */
 type ReadMemory = MemoryFile & { readonly file: Read };
 
@@ -247,10 +260,11 @@ const NO_IDENTITY = "which is no repository identity: write https://<host>/<owne
 
 const findingsOf = (files: BankFiles, unreadable: Readonly<Record<string, string>>, registeredValues: readonly string[]): BankFinding[] => {
   const found: BankFinding[] = [];
-  const add: Context["add"] = (rule, path, message, field, secret) => {
-    found.push(finding(rule, path, message, field, secret));
-  };
   const values = registeredValues.filter((value) => value.length > 0);
+  // A message that quotes a value (an identity, a name, a link) says what a secret in it is, never the secret.
+  const add: Context["add"] = (rule, path, message, field, secret) => {
+    found.push(finding(rule, path, withoutSecrets(message, values), field, secret));
+  };
   const secretIn = (text: string): SecretRule | null => (values.some((value) => text.includes(value)) ? REGISTERED_VALUE_RULE : (shapeRuleHits(text)[0]?.rule ?? null));
   const scan: Context["scan"] = (path, fields) => {
     for (const [field, text] of Object.entries(fields)) {
@@ -414,7 +428,8 @@ const memoryFindings = ({ memories, names, add, scan }: Context, topicsOf: Reado
         add("description_trigger", path, `${path}'s description opens without a trigger word: open with ${listed(TRIGGER_WORDS.map((word) => `"${word}"`))}, so a run matches it to its task.`, "description");
       }
     }
-    if (memory.topic !== null && topicsOf.get(memory.scope)?.includes(memory.topic) === false) {
+    // A folder file with no topics: map, or none at all, declares no topic.
+    if (memory.topic !== null && !(topicsOf.get(memory.scope) ?? []).includes(memory.topic)) {
       add("undeclared_topic", path, `${path} is in the topic ${memory.topic}, which ${scopeFileOf(memory.scope)} does not declare: add it to topics: with its one-liner, or move the memory.`);
     }
     const unresolved = new Set([...body.matchAll(LINK)].map((match) => (match[1] ?? "").trim()).filter((linked) => !names.has(linked)));

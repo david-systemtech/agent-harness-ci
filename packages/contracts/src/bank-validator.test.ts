@@ -97,6 +97,27 @@ describe("the bank validator", () => {
     expect(JSON.stringify(held)).not.toContain(registered);
   });
 
+  it("says what a secret quoted in another rule's message is, never its value", () => {
+    const project = "projects/personal/homelab/PROJECT.md";
+    const memoryPath = "projects/personal/homelab/memories/backup-schedule.md";
+    const registered = "correct-horse-battery-staple";
+    const files = changed(PERSONAL_BANK, {
+      [project]: scopeFile("Maya's homelab", { deploys: "Before a deploy or rollback - the pipeline and its traps" }, [FAKE_GITHUB_TOKEN]),
+      [memoryPath]: memory("backup-schedule", { description: "When a backup is missing - the nightly schedule and its logs", appliesTo: [registered] }),
+    });
+    const held = validateBank({ files, registeredValues: [registered] });
+    expect(held.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule: "secret_shaped", path: project }),
+        expect.objectContaining({ rule: "repository_identity", path: project, message: expect.stringMatching(/^projects\/personal\/homelab\/PROJECT\.md's repos\.0 holds \[.+\], which is no repository identity/) }),
+        expect.objectContaining({ rule: "secret_shaped", path: memoryPath }),
+        expect.objectContaining({ rule: "repository_identity", path: memoryPath, message: expect.stringContaining("holds [a secret this environment holds], which is no repository identity") }),
+      ]),
+    );
+    expect(JSON.stringify(held)).not.toContain(FAKE_GITHUB_TOKEN);
+    expect(JSON.stringify(held)).not.toContain(registered);
+  });
+
   it("judges a write by what it touches and what it breaks, not by what was wrong elsewhere before it", () => {
     const broken = { ...PERSONAL_BANK, "projects/personal/homelab/nas/AREA.md": markdown({ line: "The NAS" }) };
     const draft = "projects/personal/homelab/memories/disk-alerts.md";
@@ -104,6 +125,12 @@ describe("the bank validator", () => {
     expect(validateBank({ files: broken, writes: { [draft]: memory("disk-alerts", { description: "Alerts on the NAS." }) } }).findings.map((each) => each.rule)).toEqual(["description_length", "description_trigger"]);
     const retired = validateBank({ files: PERSONAL_BANK, writes: { "projects/personal/memory-bank/memories/secrets-layout.md": null } });
     expect(retired.findings).toEqual([expect.objectContaining({ rule: "orientation_missing", path: "BANK.md" })]);
+  });
+
+  it("refuses a write into a topic of a folder whose file declares no topics, though that file was wrong before", () => {
+    const files = changed(PERSONAL_BANK, { "projects/personal/homelab/PROJECT.md": markdown({ line: "Maya's homelab" }) });
+    const draft = "projects/personal/homelab/memories/backups/restore-test.md";
+    expect(validateBank({ files, writes: { [draft]: memory("restore-test") } }).findings).toEqual([expect.objectContaining({ rule: "undeclared_topic", path: draft })]);
   });
 
   it("reads trigger words, links and re-cased names whatever the case and punctuation", () => {

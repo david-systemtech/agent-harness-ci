@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   CLIENT_ANSWER_MAX_BYTES,
+  BrowserChromeListResult,
   ContractError,
   PageOutcome,
   SESSION_STREAM_KIND,
@@ -51,7 +52,7 @@ const BROWSER_ACTOR = formatActor({ kind: "system", id: "browser" });
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-const refusal = (reason: string): PageOutcome => ({ ok: false, reason });
+const refusal = (reason: string): { readonly ok: false; readonly reason: string } => ({ ok: false, reason });
 
 /** A sentence's opening word written as one. */
 const capitalised = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
@@ -91,11 +92,15 @@ export interface BrowserRelayOptions {
 export interface BrowserRelay {
   /** The page driver of a Chrome paired with another environment, for one session's run: every verb relayed through its client. */
   driverOf(chrome: RelayedBrowser): PageDriver;
+  /** The paired Chromes of the remote plain My Chrome, via the same addressed client and deadline rules. */
+  chromesOf(chrome: RelayedChrome): Promise<BrowserChromeListResult | { readonly ok: false; readonly reason: string }>;
   /** `client.answer`. */
   readonly handlers: MethodHandlers;
   /** Ends every verb still waiting with a sentence. */
   close(): void;
 }
+
+type RelayOutcome = PageOutcome | BrowserChromeListResult;
 
 /** A call waiting for its answer. */
 interface Waiting {
@@ -104,7 +109,8 @@ interface Waiting {
   readonly client: string;
   readonly dock: boolean;
   readonly timer: Timer;
-  readonly settle: (outcome: PageOutcome) => void;
+  readonly list: boolean;
+  readonly settle: (outcome: RelayOutcome) => void;
 }
 
 const NO_CLIENT =
@@ -139,7 +145,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
   };
 
   /** Hands the waiting call its outcome; false when it is not waiting. */
-  const settle = (callId: string, outcome: PageOutcome): boolean => {
+  const settle = (callId: string, outcome: RelayOutcome): boolean => {
     const call = waiting.get(callId);
     if (call === undefined) return false;
     waiting.delete(callId);
@@ -149,7 +155,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
   };
 
   /** What the model reads of a client's answer. */
-  const outcomeOf = (client: string, answer: ClientAnswer, dock: boolean): PageOutcome => {
+  const outcomeOf = (client: string, answer: ClientAnswer, dock: boolean, list: boolean): RelayOutcome => {
     if (!answer.ok) {
       const message = answer.error?.message.trim() || "it gave no reason.";
       if (answer.error?.code === "unsupported") {
@@ -159,11 +165,15 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
       }
       return refusal(`${capitalised(client)} could not drive ${dock ? "the browser dock" : "the Chrome"}: ${message}`);
     }
+    if (list) {
+      const result = BrowserChromeListResult.safeParse(answer.result);
+      return result.success ? result.data : refusal(`${capitalised(client)} answered with something that is not a Chrome list.`);
+    }
     const outcome = PageOutcome.safeParse(answer.result);
     return outcome.success ? outcome.data : refusal(`${capitalised(client)} answered with something that is not a browser's answer.`);
   };
 
-  const perform = async (chrome: RelayedBrowser, call: PageCall): Promise<PageOutcome> => {
+  const perform = async (chrome: RelayedBrowser, call?: PageCall): Promise<RelayOutcome> => {
     if (closed) return refusal("The environment is stopping.");
     let addressee: string | null;
     try {
@@ -183,31 +193,20 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
         `${capitalised(client)} is not connected, so ${isDock(chrome) ? "its browser dock" : "the Chrome on its machine"} cannot be driven. Ask the person to open it, then try again.`,
       );
     }
-    const deadlineMs = pageCallDeadlineMs(call.command);
+    const deadlineMs = call === undefined ? 12_000 : pageCallDeadlineMs(call.command);
     const callId = randomUUID();
-    const verb = {
-      pageKey: call.pageKey,
-      command: call.command,
-      ...(call.allowance !== undefined && { allowance: call.allowance }),
-      deadline: new Date(clock.now().getTime() + deadlineMs).toISOString(),
-    };
-    const payload: ClientCallPayload = isDock(chrome)
-      ? {
-          callId,
-          clientSessionId: addressee,
-          kind: "browser.dock",
-          payload: verb,
-        }
-      : {
-          callId,
-          clientSessionId: addressee,
-          kind: "browser.chrome",
-          payload: {
-            ...verb,
-            environmentId: chrome.environmentId,
-            chromeId: chrome.chromeId,
-          },
-        };
+    const deadline = new Date(clock.now().getTime() + deadlineMs).toISOString();
+    const addressed = { callId, clientSessionId: addressee };
+    let payload: ClientCallPayload;
+    if (call === undefined) {
+      if (isDock(chrome)) return refusal("The browser dock has no paired Chromes.");
+      payload = { ...addressed, kind: "browser.chrome", payload: { operation: "list", environmentId: chrome.environmentId, deadline } };
+    } else {
+      const verb = { ...call, deadline };
+      payload = isDock(chrome)
+        ? { ...addressed, kind: "browser.dock", payload: verb }
+        : { ...addressed, kind: "browser.chrome", payload: { ...verb, environmentId: chrome.environmentId, chromeId: chrome.chromeId } };
+    }
     if (holdsScrubbed(payload, options.scrub)) {
       const browser = isDock(chrome) ? "browser dock" : "Chrome";
       const machine = isDock(chrome) ? "desktop" : "Chrome's machine";
@@ -215,7 +214,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
         `What this call would send to the ${browser} holds a secret this environment keeps, such as a key manager's or a forge's credential or a run's token. A verb for this ${browser} goes to ${client} through the environment's log, which never holds such a secret, so nothing was sent and the page is unchanged. Ask the person to enter it on the ${machine} themselves.`,
       );
     }
-    return new Promise<PageOutcome>((resolve) => {
+    return new Promise<RelayOutcome>((resolve) => {
       const timer = clock.setTimeout(
         () =>
           settle(
@@ -228,6 +227,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
         clientSessionId: addressee,
         client,
         dock: isDock(chrome),
+        list: call === undefined,
         timer,
         settle: resolve,
       });
@@ -240,6 +240,10 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
   };
 
   return {
+    chromesOf: async (chrome) => {
+      const result = await perform(chrome);
+      return result.ok && !("chromes" in result) ? refusal("The client did not answer with a Chrome list.") : result;
+    },
     driverOf: (chrome) => ({
       kind: isDock(chrome) ? "dock" : "chrome",
       // A call of one verb is a call; the client's answer is JSON off the wire, which the tools check against the verb.
@@ -262,7 +266,7 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
           throw new ContractError(invalidParams([{ code: "too_big", path: [answer.ok ? "result" : "error"], message }], message));
         }
         if (call === undefined) return { taken: false };
-        settle(answer.callId, outcomeOf(call.client, answer, call.dock));
+        settle(answer.callId, outcomeOf(call.client, answer, call.dock, call.list));
         return { taken: true };
       },
     },

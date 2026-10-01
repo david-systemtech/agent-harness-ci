@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { BYPASS_SENTENCE } from "@agent-harness/contracts";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { afterEach, describe, expect, it } from "vitest";
+import stringWidth from "string-width";
 import type { ExternalEditResult } from "./composer/external-editor.js";
 import { KEY, renderApp, settle, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
 import { ZONE, firingEntry, listedRoutine, preCheckRecord, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
@@ -70,6 +71,40 @@ const rowWith = (app: RenderedApp, text: string): number => {
 };
 
 describe("/routines: the list", () => {
+  it("names each unknown skill in the routine's state line, in the order the environment lists them", async () => {
+    const { app } = await launch(
+      { desk: { routines: [listedRoutine(WATCH, { definition: { schedule: { kind: "manual" }, skills: ["known", "foo", "bar"] }, nextDueAt: null, attention: ["skill_unknown", "script_missing"], unknownSkills: ["foo", "bar"] })] } },
+      { size: { columns: 99, rows: 30 } },
+    );
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    expect(app.rows()[rowWith(app, "Upstream watch") + 1]).toContain("not due · skills unknown: foo, bar · pre-check script missing");
+    expect(app.frame()).not.toContain("skills unknown: known");
+  });
+
+  it("fits a long unknown-skill list to a narrow routine card and wraps it in the import check", async () => {
+    const unknownSkills = ["foo", "bar", "code-review", "diagnosing-bugs", "domain-modeling", "writing-for-agents"];
+    const { app, deskRoutines } = await launch(
+      { desk: { routines: [listedRoutine(WATCH, { definition: { enabled: false, skills: unknownSkills }, attention: ["skill_unknown"], unknownSkills })] } },
+      { size: { columns: 60, rows: 30 } },
+    );
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    const under = app.rows()[rowWith(app, "Upstream watch") + 1] ?? "";
+    expect(under).toContain("disabled · skills unknown: foo, bar");
+    expect(under.trimEnd()).toMatch(/…$/);
+    expect(under).not.toContain("writing-for-agents");
+    expect(app.rows().every((row) => stringWidth(row) <= 60)).toBe(true);
+
+    await app.press(KEY.esc);
+    await writeFile(join(app.stateDir, "skills.yaml"), await deskRoutines.exported([WATCH]), "utf8");
+    deskRoutines.warnNext({ attention: ["skill_unknown"], unknownSkills, workspace: null });
+    await openRoutines(app, "/routines import skills.yaml");
+    await app.waitFor("1. Upstream watch");
+    expect(app.frame().replace(/\s+/g, " ")).toContain("Here it would need: skills unknown: foo, bar, code-review, diagnosing-bugs, domain-modeling, writing-for-agents");
+    expect(app.rows().every((row) => stringWidth(row) <= 60)).toBe(true);
+  });
+
   it("lists every environment's routines under its heading in the connection list's order, each with its schedule in words, its next firing, its last outcome, its streak and its attention", async () => {
     const { app } = await launch(
       {
@@ -432,6 +467,19 @@ describe("/routines: what an edit asks and where it waits", () => {
 });
 
 describe("/routines new and /routines import", () => {
+  it("names each unknown skill on the import check's Here it would need line", async () => {
+    const { app, deskRoutines } = await launch(
+      { desk: { routines: [listedRoutine(WATCH, { definition: { skills: ["known", "bar", "foo"] } })] } },
+      { size: { columns: 99, rows: 30 } },
+    );
+    await writeFile(join(app.stateDir, "skills.yaml"), await deskRoutines.exported([WATCH]), "utf8");
+    deskRoutines.warnNext({ attention: ["skill_unknown", "script_missing"], unknownSkills: ["bar", "foo"], workspace: null });
+    await openRoutines(app, "/routines import skills.yaml");
+    await app.waitFor("1. Upstream watch");
+    expect(app.rows()[rowWith(app, "Here it would need:")]).toContain("Here it would need: skills unknown: bar, foo, pre-check script missing");
+    expect(app.frame()).not.toContain("skills unknown: known");
+  });
+
   it("opens a template with the presets in the editor, and imports what is saved as a new routine under an id this client minted", async () => {
     const editor = fakeEditor((handed) => ({ ok: true, text: handed.replace("name: New routine", "name: Nightly triage") }));
     const { app, deskRoutines } = await launch({}, { editRoutine: editor.editRoutine });
@@ -637,5 +685,55 @@ describe("a routine's notice", () => {
     await app.press(KEY.enter);
     await app.waitFor("Watch firing · ");
     expect(app.frame()).not.toContain("Notices");
+  });
+});
+
+describe("/routines: moving", () => {
+  it("picks the target then confirms with two Enter presses, showing its warnings before importing or disabling", async () => {
+    const { app, deskRoutines, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] }, laptop: {} }, { size: { columns: 99, rows: 30 } });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    laptopRoutines.warnNext({ attention: ["script_missing", "endpoint_missing"], unknownSkills: [], workspace: { kind: "scratch", repositoryIdentity: null } });
+    await app.press("m");
+    await app.waitFor("Move Upstream watch to");
+    await app.press(KEY.enter);
+    await app.waitFor("Confirm move to laptop");
+    await app.waitFor("a scratch directory");
+    expect(app.frame()).toContain("script missing");
+    expect(app.frame()).toContain("an endpoint is missing");
+    expect(app.frame()).toContain("a scratch directory");
+    expect(laptopRoutines.heard("routines.import")).toHaveLength(0);
+    expect(deskRoutines.heard("routines.disable")).toHaveLength(0);
+    await app.press(KEY.enter);
+    await app.waitFor("Moved Upstream watch to laptop.");
+    expect(laptopRoutines.heard("routines.import")).toHaveLength(1);
+    expect(laptopRoutines.heard("routines.import")[0]?.params["movedFrom"]).toEqual({ environmentId: app.environment("desk").environmentId, routineId: WATCH });
+    await app.waitUntil(() => deskRoutines.heard("routines.disable").length === 1, "the original disabled");
+  });
+
+  it("asks for another name on a taken target name, rechecks it, and moves only after confirmation", async () => {
+    const { app, deskRoutines, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] }, laptop: { routines: [listedRoutine(BACKUP)] } }, { size: { columns: 99, rows: 30 } });
+    await openRoutines(app);
+    await app.waitFor("laptop · 1 routine");
+    await app.press("m", KEY.enter);
+    await app.waitFor("Another name:");
+    expect(laptopRoutines.heard("routines.import")).toHaveLength(0);
+    await app.type("Monday watch");
+    await app.press(KEY.enter);
+    await app.waitFor("1. Monday watch");
+    expect(deskRoutines.heard("routines.disable")).toHaveLength(0);
+    await app.press(KEY.enter);
+    await app.waitFor("Moved Upstream watch to laptop.");
+    expect(laptopRoutines.routines.map(r => r.definition.name)).toEqual(["Upstream watch", "Monday watch"]);
+  });
+
+  it("shows both linked copies beside their environment and routine names", async () => {
+    const { app, desk, laptop, deskRoutines, laptopRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH, { definition: { enabled: false } })] }, laptop: { routines: [listedRoutine(BACKUP)] } }, { size: { columns: 99, rows: 30 } });
+    deskRoutines.routines[0] = listedRoutine(WATCH, { definition: { enabled: false }, state: { movedTo: { environmentId: laptop.environmentId, routineId: BACKUP, at: "2026-10-01T08:00:00.000Z" } } });
+    laptopRoutines.routines[0] = listedRoutine(BACKUP, { state: { movedFrom: { environmentId: desk.environmentId, routineId: WATCH, at: "2026-10-01T08:00:00.000Z" } } });
+    await openRoutines(app);
+    await app.waitFor("laptop · 1 routine");
+    expect(app.frame()).toContain("moved to laptop: Upstream watch");
+    expect(app.frame()).toContain("moved from desk: Upstream watch");
   });
 });

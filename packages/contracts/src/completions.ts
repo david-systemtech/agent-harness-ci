@@ -295,7 +295,7 @@ export const CompletionsAnswerExtension = z
     ignored: z.array(z.string().min(1)).optional().meta({ description: "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.0." }),
     activity: CompletionsActivity.optional(),
     ended: CompletionsRunEnd.optional(),
-    waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue: the run it was sent to, or the run it started, ended before reading it." }),
+    waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue: the run it was sent to, or a run launched with it, ended before reading it." }),
   })
   .meta({ description: "The harness's fields on an answer or a chunk." });
 export type CompletionsAnswerExtension = z.infer<typeof CompletionsAnswerExtension>;
@@ -327,9 +327,14 @@ export const CompletionsErrorBody = z
   .object({
     error: CompletionsErrorDetail,
     [COMPLETIONS_NAMESPACE]: z
-      .object({ sessionId: SessionId.optional(), runId: RunId.optional(), ended: CompletionsRunEnd.optional() })
+      .object({
+        sessionId: SessionId.optional(),
+        runId: RunId.optional(),
+        ended: CompletionsRunEnd.optional(),
+        waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue, for a run to read it: do not send it again." }),
+      })
       .optional()
-      .meta({ description: "The session and run a failed turn ran on, when it got that far." }),
+      .meta({ description: "The session and run a failed turn ran on, when it got that far, and its message when it still waits." }),
   })
   .meta({ description: "An OpenAI-style error body." });
 export type CompletionsErrorBody = z.infer<typeof CompletionsErrorBody>;

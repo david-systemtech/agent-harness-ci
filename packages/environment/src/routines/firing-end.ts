@@ -7,15 +7,16 @@ import {
   type ModelUsage,
   type RoutineFiringEndedPayload,
   type RunEndedPayload,
+  type RunUpdateInterruptedPayload,
 } from "@agent-harness/contracts";
-import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
+import type { AppendOptions, EventEnvelope, EventLog, Tx } from "../event-log/event-log.js";
 import { appendDecided } from "../sessions/companions.js";
 import { stampedAt } from "../sessions/decider.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { decideSettle } from "../sessions/shelf-decider.js";
 import { sessionStream } from "../sessions/streams.js";
 import { appendRoutineRecord, routineActor } from "./records.js";
-import { liveFiringOfRun, type LiveFiringRecord } from "./routine-store.js";
+import { liveFiringOfRun, liveFiringOfRoutine, routinesWithLiveFirings, type LiveFiringRecord } from "./routine-store.js";
 
 /**
  * How a firing ends (routines spec, "A firing": End; #523): a log
@@ -36,13 +37,14 @@ import { liveFiringOfRun, type LiveFiringRecord } from "./routine-store.js";
  * | interrupted by a restart, or its process let go while parked | `failed`, `restart` |
  * | `disposed`, its session deleted | `cancelled` |
  * | `disposed`, otherwise | `failed`, `restart` |
- * | `drained` | `failed`, `drained` |
+ * | `drained` | waits for settlement or the next start pass |
  *
  * A silent firing (the silence rule, `isSilent`, over its whole final text
  * and the marker it started with; #524) delivers nothing, and the
  * transaction that ends it also settles its session, `settledBy`
- * `routine`, so the session leaves the active list. A drained firing's wait
- * for its continuation is #535's.
+ * `routine`, so the session leaves the active list. A drained firing waits
+ * for its update mark; its continuation becomes its run, and other drains
+ * are ended by the start pass after the update coordinator settles.
  */
 
 /** How a firing ended, and why when it failed. */
@@ -171,24 +173,79 @@ const settleSession = (log: EventLog, reader: Reader, sessionId: string, at: str
  * sweep's end of a run a crash cut, and the host's ends as the environment
  * closes. Answers the unsubscribe.
  */
-export const followFiringEnds = ({ log, clock, environmentId }: FiringEndsOptions): (() => void) => {
+/** Follows an update's mark; other outcomes end the firing with the mark's reason. */
+const followInterruption = (options: FiringEndsOptions, event: EventEnvelope): void => {
+  const { log, clock, environmentId } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  return log.subscribe((event) => {
-    if (event.streamKind !== SESSION_STREAM_KIND || event.type !== "run.ended") return;
-    const ended = event.payload as RunEndedPayload;
-    const firing = liveFiringOfRun(reader, ended.runId);
-    if (firing === null) return;
-    try {
-      const text = finalText(reader, firing, ended.resultText);
-      const end = firingEndOf(ended, { sessionDeleted: sessionDeleted(reader, firing.entry.sessionId), silent: isSilent(text, firing.silenceMarker) });
-      const at = clock().toISOString();
-      log.atomically((tx) => {
-        const attribution = { tx, causationId: event.eventId, correlationId: ended.runId };
-        endFiring(log, environmentId, firing, { ...end, text: text.slice(0, MAX_ROUTINE_TEXT), usage: ended.usage }, at, attribution);
-        if (end.outcome === "silent") settleSession(log, reader, firing.entry.sessionId, at, { ...attribution, actor: routineActor(firing.routineId) });
-      });
-    } catch (error) {
-      console.error(`Ending the firing ${firing.entry.id} of the routine ${firing.routineId} failed; it stays live:`, error);
+  const mark = event.payload as RunUpdateInterruptedPayload;
+  const firing = liveFiringOfRun(reader, mark.runId);
+  if (firing === null) return;
+  log.atomically((tx) => {
+    const attribution = { tx, actor: routineActor(firing.routineId), causationId: event.eventId, correlationId: firing.entry.id };
+    if (mark.outcome === "continued") {
+      log.append({ kind: "routine", id: firing.routineId }, [{ type: "routine.firing-continued", payload: { firingId: firing.entry.id, runId: mark.continuationRunId }, occurredAt: clock().toISOString() }], attribution);
+    } else {
+      const text = `The update did not continue the firing: ${mark.reason ?? mark.outcome}.`;
+      endFiring(log, environmentId, firing, { outcome: "failed", reason: "drained", text, usage: null }, clock().toISOString(), attribution);
     }
   });
+};
+
+/** Ends a firing from its run; a drained run waits for the update settle or the start pass. */
+const followEnd = (options: FiringEndsOptions, event: EventEnvelope, starting = false): void => {
+  const { log, clock, environmentId } = options;
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  const ended = event.payload as RunEndedPayload;
+  const firing = liveFiringOfRun(reader, ended.runId);
+  if (firing === null || (ended.reason === "drained" && !starting)) return;
+  const text = finalText(reader, firing, ended.resultText);
+  const end = firingEndOf(ended, { sessionDeleted: sessionDeleted(reader, firing.entry.sessionId), silent: isSilent(text, firing.silenceMarker) });
+  const at = clock().toISOString();
+  log.atomically((tx) => {
+    const attribution = { tx, causationId: event.eventId, correlationId: ended.runId };
+    endFiring(log, environmentId, firing, { ...end, text: text.slice(0, MAX_ROUTINE_TEXT), usage: ended.usage }, at, attribution);
+    if (end.outcome === "silent") settleSession(log, reader, firing.entry.sessionId, at, { ...attribution, actor: routineActor(firing.routineId) });
+  });
+};
+
+export const followFiringEnds = (options: FiringEndsOptions): (() => void) => options.log.subscribe((event) => {
+  if (event.streamKind !== SESSION_STREAM_KIND) return;
+  try {
+    if (event.type === "run.ended") followEnd(options, event);
+    else if (event.type === "run.update-interrupted") followInterruption(options, event);
+  } catch (error) {
+    console.error(`Following the firing's run event ${event.eventId} failed; the start pass retries it:`, error);
+  }
+});
+
+/** After update settlement: reconcile live firings with their durable run ends and marks. */
+export const settleFirings = (options: FiringEndsOptions): void => {
+  const { log } = options;
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  let routineIds: readonly string[];
+  try {
+    routineIds = routinesWithLiveFirings(reader);
+  } catch (error) {
+    console.error("Reading the firings to settle failed; the next start retries them:", error);
+    return;
+  }
+  for (const routineId of routineIds) {
+    try {
+      let firing = liveFiringOfRoutine(reader, routineId);
+      if (firing === null) continue;
+      const events = log.readStream(sessionStream(firing.entry.sessionId));
+      // Replaying only the current run makes this pass idempotent, including marks whose follow-up commit was lost.
+      for (const event of events) {
+        firing = liveFiringOfRoutine(reader, routineId);
+        if (firing === null) break;
+        if (event.type !== "run.ended" || event.payload["runId"] !== firing.entry.runId) continue;
+        const runId = firing.entry.runId;
+        const mark = events.find((candidate) => candidate.type === "run.update-interrupted" && candidate.payload["runId"] === runId);
+        if (mark !== undefined) followInterruption(options, mark);
+        else followEnd(options, event, true);
+      }
+    } catch (error) {
+      console.error(`Settling the firing of routine ${routineId} failed; the next start retries it:`, error);
+    }
+  }
 };

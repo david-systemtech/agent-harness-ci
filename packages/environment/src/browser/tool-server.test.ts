@@ -62,3 +62,30 @@ describe("the Chrome the agent chose with browser_open's browser", () => {
     expect(await chromeOf("session-1")).toBeNull();
   });
 });
+
+
+describe("an asynchronous Chrome choice", () => {
+  it("does not drive a Chrome when the session's live run changes while the choice is pending", async () => {
+    let runId = "first-run";
+    let answerChoice!: (choice: { ok: true; chrome: { id: string; name: string } }) => void;
+    let choiceAsked!: () => void;
+    const asked = new Promise<void>((resolve) => { choiceAsked = resolve; });
+    const choice = new Promise<{ ok: true; chrome: { id: string; name: string } }>((resolve) => { answerChoice = resolve; });
+    const driver = scriptedPageDriver("chrome");
+    const serverFor = createBrowserToolServers({
+      reader: { read: async () => ({ text: "", isError: false }) },
+      environmentId: "run-environment",
+      live: () => ({ runId, browser: { requested: MY_CHROME, browser: MY_CHROME, reason: "chosen", message: "Chosen" } }),
+      drivers: { chrome: () => driver },
+      chooseChrome: () => { choiceAsked(); return choice; },
+    });
+    const open = serverFor({ sessionId: "session", browser: MY_CHROME }).tools.find((tool) => tool.name === "browser_open");
+    if (open === undefined) throw new Error("No browser_open");
+    const opening = open.call({ browser: "Work" }, { toolCallId: null });
+    await asked;
+    runId = "next-run";
+    answerChoice({ ok: true, chrome: { id: "chosen-chrome", name: "Work" } });
+    expect((await opening).isError).toBe(true);
+    expect(driver.calls).toEqual([]);
+  });
+});

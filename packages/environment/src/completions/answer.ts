@@ -356,7 +356,12 @@ export const createRenderer = (options: RendererOptions) => {
             reading();
           }
         }
-        if (event.type === "message.requeued" && event.payload["messageId"] === queued && lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
+        if (event.type === "message.requeued" && event.payload["messageId"] === queued) {
+          if (lastEnded !== null) runEnded(lastEnded.payload, lastEnded.seq);
+          // The run that launched with it takes it back unread, ending before its adapter had it (#1045): to this answer it is a
+          // run that never read it, as the run it was sent to may be, so its end names the message waiting or follows a read-now's run.
+          else if (event.correlationId === followed) readBy = null;
+        }
         // Taken back before any run read it (`runs.withdraw`, #228): nothing will read it, so the answer ends here; the runs go on.
         if (event.type === "message.withdrawn" && event.payload["messageId"] === queued) {
           head(event.sequence);

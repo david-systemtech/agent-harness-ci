@@ -293,7 +293,7 @@ import {
   PairedChrome,
 } from "./browser-chromes.js";
 import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
-import { BrowserDockCall, BrowserChromeCall, ClientCallId, ClientCallPayload } from "./client-calls.js";
+import { BrowserDockCall, BrowserChromeCall, BrowserChromeListCall, BrowserChromeListResult, ClientCallId, ClientCallPayload } from "./client-calls.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -1500,6 +1500,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
   { path: "client-calls/call-id.json", title: "ClientCallId", schema: ClientCallId },
   { path: "client-calls/browser-dock.json", title: "BrowserDockCall", schema: BrowserDockCall },
+  { path: "client-calls/browser-chrome-list.json", title: "BrowserChromeListCall", schema: BrowserChromeListCall },
+  { path: "client-calls/browser-chrome-list-result.json", title: "BrowserChromeListResult", schema: BrowserChromeListResult },
   { path: "client-calls/browser-chrome.json", title: "BrowserChromeCall", schema: BrowserChromeCall },
   { path: "client-calls/call.json", title: "ClientCallPayload", schema: ClientCallPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
@@ -1794,7 +1796,7 @@ export const publishedData = (): PublishedData[] => [
     description: [
       "The bank validator's rules (banks spec, \"The validator\"; ADR 0013, ADR 0034, ADR 0037), in the order a verdict lists them: each id, whether it refuses or warns, and what it finds.",
       "One validator gives every verdict: the contracts' validateBank at memory_draft, memory_promote and in the BankService, and validate.mjs in a bank's CI, stamped with the version of these rules on its first line (// bank-validator <version>).",
-      "A bank's files are BANK.md and the Markdown under projects/: ORG.md in projects/<org>/, PROJECT.md in projects/<org>/<project>/, AREA.md in projects/<org>/<project>/<area>/, and memories in a project's or an area's memories/, a topic declared in its topics: one folder deeper; any other file is a document the validator does not read.",
+      "A bank's files are BANK.md and the Markdown under projects/: ORG.md in projects/<org>/, PROJECT.md in projects/<org>/<project>/, AREA.md in projects/<org>/<project>/<area>/, and memories in a project's or an area's memories/, a topic declared in its topics: one folder deeper; any other file is a document the validator does not check, though validate.mjs refuses a Markdown one it cannot read (unreadable).",
       "A finding names its rule, the file or folder, the field where it is one and, for secret_shaped, the shape rule or registered-value, never the value.",
     ].join(" "),
     schema: "banks/validator-rule.json",

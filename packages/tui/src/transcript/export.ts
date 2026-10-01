@@ -1,16 +1,20 @@
 import {
+  attachmentChip,
   classifyTool,
   clockTime,
   endWords,
+  environmentMessage,
   formatDuration,
   oneLine,
   outputText,
   summarizeToolInput,
   transcriptRows,
   turnFacts,
+  updateInterruptedText,
   type ForkedFrom,
   type SessionProjection,
   type ToolCallEntry,
+  type TranscriptEntry,
   type TranscriptRow as Row,
 } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
@@ -35,8 +39,8 @@ const callState = (call: ToolCallEntry): string => (call.decision?.decision === 
 const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
   switch (row.kind) {
     case "user": {
-      const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${a.name}_`);
-      return [`### You · ${clockTime(row.entry.sentAt)}`, row.entry.text, ...attached].join("\n\n");
+      const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${attachmentChip(a)}_`);
+      return [`### ${environmentMessage(row.entry) ? "Environment" : "You"} · ${clockTime(row.entry.sentAt)}`, row.entry.text, ...attached].join("\n\n");
     }
     case "assistant":
       return row.entry.kind === "assistant-thinking" ? row.entry.text.split("\n").map((line) => `> ${line}`).join("\n") : row.entry.text;
@@ -72,6 +76,8 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
     }
     case "forked":
       return `_Forked from ${forked?.title ?? "another session"}${forked?.anchor != null ? ` at ${oneLine(forked.anchor, 200)}` : ""}._`;
+    case "update-interrupted":
+      return `_${updateInterruptedText(row.entry)}_`;
     case "history-unreadable":
       return `_The history could not be read: ${oneLine(row.entry.message, 300)}_`;
   }
@@ -113,14 +119,28 @@ export interface Turn {
   readonly run: RunSummary;
   readonly files: readonly string[];
   readonly commands: number;
+  /** Some of this run's transcript is held under a rewind fold. */
+  readonly cut: boolean;
 }
 
 const PATH_KEYS = ["file_path", "filePath", "notebook_path", "path"];
 
 /** The runs of the session, oldest first, each with the prompt it read, the files it edited and the commands it ran. */
 export const turnsOf = (view: Pick<SessionProjection, "items" | "runs">): Turn[] => {
-  const messages = new Map(view.items.flatMap((entry) => (entry.kind === "user-message" ? [[entry.messageId, entry.text] as const] : [])));
-  const calls = view.items.flatMap((entry) => (entry.kind === "tool-call" ? [entry] : entry.kind === "subagent" ? entry.calls : []));
+  const entries: TranscriptEntry[] = [];
+  const cutRuns = new Set<string>();
+  const collect = (items: readonly TranscriptEntry[], cut: boolean): void => {
+    for (const entry of items) {
+      if (entry.kind === "rewound") collect(entry.items, true);
+      else {
+        entries.push(entry);
+        if (cut && "runId" in entry && entry.runId !== null) cutRuns.add(entry.runId);
+      }
+    }
+  };
+  collect(view.items, false);
+  const messages = new Map(entries.flatMap((entry) => (entry.kind === "user-message" ? [[entry.messageId, entry.text] as const] : [])));
+  const calls = entries.flatMap((entry) => (entry.kind === "tool-call" ? [entry] : entry.kind === "subagent" ? entry.calls : []));
   return view.runs.map((run) => {
     const ids = [...(run.promptMessageId !== null ? [run.promptMessageId] : []), ...run.queuedMessageIds];
     const asked = ids.map((id) => messages.get(id) ?? "").filter((text) => text.length > 0).join(" / ");
@@ -131,7 +151,7 @@ export const turnsOf = (view: Pick<SessionProjection, "items" | "runs">): Turn[]
       const path = PATH_KEYS.map((key) => call.input[key]).find((value): value is string => typeof value === "string" && value.length > 0);
       if (path !== undefined && !files.includes(path)) files.push(path);
     }
-    return { runId: run.runId, at: run.startedAt, asked, run, files, commands: own.filter((call) => classifyTool(call.name) === "command").length };
+    return { runId: run.runId, at: run.startedAt, asked, run, files, commands: own.filter((call) => classifyTool(call.name) === "command").length, cut: cutRuns.has(run.runId) };
   });
 };
 
@@ -143,6 +163,6 @@ export const timelineLine = (turn: Turn): string => {
     ...(turn.files.length > 0 ? [`${turn.files.length} file${turn.files.length === 1 ? "" : "s"}`] : []),
     ...(turn.commands > 0 ? [`${turn.commands} command${turn.commands === 1 ? "" : "s"}`] : []),
   ];
-  const facts = [...turnFacts(run), ...touched, ...(outcome.length > 0 ? [outcome] : [])];
+  const facts = [...turnFacts(run), ...touched, ...(outcome.length > 0 ? [outcome] : []), ...(turn.cut ? ["cut"] : [])];
   return `${clockTime(turn.at)}  ${oneLine(turn.asked.length > 0 ? turn.asked : "(no prompt)", 60)}${facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}`;
 };
