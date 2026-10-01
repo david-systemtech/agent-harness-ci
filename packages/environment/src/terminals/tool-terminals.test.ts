@@ -8,6 +8,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { deleteSession } from "../../test/sessions.js";
 import { follow, openTerminal, refusedWith, sessionIn, terminalCommand, typeInto } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { PRESET_IDLE_WINDOW_MS } from "../serve/run-registry.js";
 import { nodePty } from "./pty.js";
 
 /**
@@ -222,6 +223,8 @@ describe("a tool terminal's end", () => {
 
   it("holds the environment busy while its command runs, as a terminal running a command does, and nothing once it has exited", async () => {
     const { t, client, pty } = await withFakePty();
+    // Past the idle window its start holds (#445).
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
     openTool(t, "brew upgrade openbao");
 
     expect((await client.request("environment.status", {})).activity).toEqual({ state: "busy", reason: "terminal-running" });
