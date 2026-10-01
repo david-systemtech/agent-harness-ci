@@ -6,6 +6,7 @@ import { choicesFor, readSkillChoices } from "./choices.js";
 import type { Generations, PlacedMember, PlacedSet } from "./generations.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
+import { isNativeMember, readRepositorySkills, repositorySkillTarget } from "./repository.js";
 import type { SkillSources } from "./sources.js";
 
 /**
@@ -17,11 +18,10 @@ import type { SkillSources } from "./sources.js";
  * for the account (#501), marks each the account made always-on, places
  * each member in the set where its files lie, and has the materialiser give
  * the set its fingerprint and generation, current for the scope it was
- * resolved for (the account, the workspace and the trust). Its layers so
- * far are the own directory, whose members are linked live, and the
- * sources, whose members are linked into their current snapshots (#498); a
- * trusted repository's members, which may be native and are then hidden
- * when switched off (#502), join as they land.
+ * resolved for (the account, the workspace and the trust). The own and
+ * trusted repository layers are linked live; sources point into their
+ * immutable snapshots. Members in the adapter's native roots are listed
+ * without links, and their names hidden when switched off.
  */
 
 export interface RunSkillSetsOptions {
@@ -50,13 +50,13 @@ export const placeSkillSet =
   async (scope: SkillSetScope): Promise<PlacedSet> => {
     const { own } = options;
     const choices = choicesFor(readSkillChoices(options.log), scope.accountId);
-    const [ownMembers, sources] = await Promise.all([own.read(), options.sources.read()]);
-    const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources)
+    const [ownMembers, sources, repository] = await Promise.all([own.read(), options.sources.read(), readRepositorySkills(scope)]);
+    const members = resolveSkillSet([...repository, ...ownMembers, ...sources.members], sources.sources)
       .filter(inTheSet)
       .filter((member) => choices.enabled(member.name));
-    // An own directory's member is linked live, from its folder or command file there; a source's into its current snapshot.
+    // Own and repository members are linked live; a source points into its current snapshot.
     const placed = members.map((member): PlacedMember => {
-      const { target, commit } = member.layer.kind === "source" ? sources.place(member) : { target: join(own.path, ...member.path.split("/")), commit: null };
+      const { target, commit } = member.layer.kind === "source" ? sources.place(member) : { target: member.layer.kind === "repository" ? repositorySkillTarget(scope.workspace, member) : join(own.path, ...member.path.split("/")), commit: null };
       return {
         name: member.name,
         description: member.description,
@@ -67,11 +67,14 @@ export const placeSkillSet =
         invocation: member.invocation,
         userInvocable: member.userInvocable,
         argumentHint: member.argumentHint,
-        native: false,
+        native: isNativeMember(scope, member),
         alwaysOn: choices.alwaysOn(member.name),
       };
     });
-    return { members: placed, hiddenNativeNames: [] };
+    const hiddenNativeNames = [...new Set(repository.flatMap((member) =>
+      member.name !== null && isNativeMember(scope, member) && !choices.enabled(member.name) ? [member.name] : [],
+    ))].sort();
+    return { members: placed, hiddenNativeNames };
   };
 
 export const runSkillSets = (options: RunSkillSetsOptions): SkillSetSeam => {
