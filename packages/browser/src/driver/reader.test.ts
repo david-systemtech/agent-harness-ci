@@ -206,6 +206,16 @@ describe("a challenge on the driver's results", () => {
     });
   });
 
+  it("reads a page whose element named after a DOM method breaks the check, and says in a sentence, without the script's stack, that it could not check it (#696)", async () => {
+    // A document's named elements override its members: this image makes `document.querySelector` an element.
+    const page = await at(BLOG, LONG_ARTICLE.replace("<main>", `<main><img name="querySelector" src="/logo.png" alt="">`));
+    expect(await page.perform("read", {})).toMatchObject({
+      ok: true,
+      value: { url: BLOG, source: "article" },
+      notice: "The browser could not check the page for a challenge: The page's script failed: TypeError: document.querySelector is not a function.",
+    });
+  });
+
   it("carries no finding on a page with no challenge", async () => {
     const page = await at(BLOG, LONG_ARTICLE);
     page.peer.inPage("snapshotFrame", () => ({ nodes: [{ role: "heading", name: "The World Wide Web", level: 1, ref: "e1" }], lastRef: 1 }));
