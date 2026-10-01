@@ -85,7 +85,6 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
-  cliRowOf,
   cliWords,
   copyLine,
   injectsWords,
