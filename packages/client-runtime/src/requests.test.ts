@@ -380,7 +380,7 @@ describe("the request cache", () => {
     expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 3, 2]);
   });
 
-  it("fetches skills.get again on skills.updated and on an account changing, and no other query (#494, #501)", async () => {
+  it("fetches skills.get again when skills, accounts or repository trust change, and no other query (#517)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     const accounts = [{ accountId: "claude-max", channel: "system-prompt-append", reason: null }];
@@ -402,9 +402,12 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
     await flush();
     expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
   });
 
-  it("fetches skills.readiness again on skills.updated and on an account changing, and no other query (#510)", async () => {
+  it("fetches skills.readiness again when skills, accounts or repository trust change, and no other query (#517)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     const ready = { skills: [{ name: "tdd", state: "ready", declaredBy: null }] };
@@ -438,7 +441,7 @@ describe("the request cache", () => {
     expect([asked(), reads]).toEqual([1, 3]);
     environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
     await flush();
-    expect([asked(), reads]).toEqual([1, 3]);
+    expect([asked(), reads]).toEqual([1, 4]);
   });
 
   it("fetches trust.get and trust.list again on trust.updated and on a forge account's aliases changing, and no other query (#500)", async () => {
