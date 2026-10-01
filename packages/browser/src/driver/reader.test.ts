@@ -149,6 +149,15 @@ describe("browser_read through the driver", () => {
     });
   });
 
+  it("answers a page whose element named after a DOM method breaks the reader with a sentence that says what to do instead (#696)", async () => {
+    // This image makes `document.querySelectorAll` an element, and Readability calls it.
+    const page = await at(BLOG, LONG_ARTICLE.replace("<main>", `<main><img name="querySelectorAll" src="/logo.png" alt="">`));
+    expect(await page.perform("read", {})).toEqual({
+      ok: false,
+      reason: `${BLOG} could not be read. The reader could not read it: TypeError: doc.querySelectorAll is not a function. Take a snapshot to read its elements, or a screenshot to see what it shows.`,
+    });
+  });
+
   it("answers a sentence, never an empty reading, for a page with no article and no text", async () => {
     const page = await at(APP, `<!doctype html><title></title><body></body>`, "");
     page.peer.inPage("snapshotFrame", () => ({ nodes: [], lastRef: 0 }));
