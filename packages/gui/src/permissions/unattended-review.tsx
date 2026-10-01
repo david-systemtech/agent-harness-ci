@@ -8,10 +8,12 @@ import { Part } from "../settings/part.js";
 
 /**
  * The Unattended review (permissions spec, "The Unattended review view";
- * #131; #415): `permissions.review.list` from the request cache, each run
- * newest first with when it ran, its session, who ran it, whether anyone was
- * there, its mode and containment, its calls counted and each denial, in the
- * words the terminal UI's `/review` says; and Mark seen, which moves the
+ * #131; #415): `permissions.review.list` from the request cache, which
+ * fetches it again on `review.updated` (a run decided in, the review seen
+ * from another client, #811), each run newest first with when it ran, its
+ * session, who ran it, whether anyone was there, its mode and containment,
+ * its calls counted and each denial, in the words the terminal UI's
+ * `/review` says; and Mark seen, which moves the
  * environment's watermark through the list's head (`permissions.review.seen`,
  * `sessions:write`, so a client without `admin` may mark it), then reads the
  * list again and shows it over the cached one. Clients hold no state of it
