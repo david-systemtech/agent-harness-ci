@@ -1,6 +1,9 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
-import { firingEntry, listedRoutine, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
+import { ZONE, firingEntry, listedRoutine, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
 
 /**
  * `/routines` in the terminal UI (docs/specs/routines.md, "Clients";
@@ -153,5 +156,52 @@ describe("/routines: Enter", () => {
     await app.waitFor("Upstream watch");
     await app.press(KEY.enter);
     await app.waitFor("Upstream watch has not fired yet.");
+  });
+});
+
+describe("/routines: the row verbs", () => {
+  it("runs a routine now, and refuses at once with one line while its environment cannot be reached", async () => {
+    const { app, laptop, laptopRoutines } = await launch({ laptop: { routines: [listedRoutine(BACKUP, { definition: { name: "Backup check" } })] } });
+    await openRoutines(app);
+    await app.waitFor("Backup check");
+    await app.press(KEY.down, "r");
+    await app.waitFor("Running Backup check on laptop now.");
+    expect(laptopRoutines.heard("routines.runNow").map((h) => h.params["routineId"])).toEqual([BACKUP]);
+
+    laptop.autoAccept(false);
+    laptop.discovery("nothing");
+    laptop.server.drop();
+    await app.waitFor("unreachable: as listed at");
+    await app.press("r");
+    await app.waitFor("Not run: laptop cannot be reached.");
+    expect(laptopRoutines.heard("routines.runNow")).toHaveLength(1);
+  });
+
+  it("disables a routine and enables it again", async () => {
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press(KEY.space);
+    await app.waitUntil(() => (app.rows().find((row) => row.includes("Upstream watch")) ?? "").includes("disabled"), "the routine shown disabled");
+    expect(deskRoutines.definitionOf(WATCH).enabled).toBe(false);
+    await app.press(KEY.space);
+    await app.waitUntil(() => (app.rows().find((row) => row.includes("Upstream watch")) ?? "").includes("next"), "the routine shown enabled");
+    expect(deskRoutines.heard().filter((h) => h.method === "routines.enable" || h.method === "routines.disable").map((h) => h.method)).toEqual(["routines.disable", "routines.enable"]);
+  });
+
+  it("exports a routine to the path typed, writing the YAML its environment exported", async () => {
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("x");
+    await app.waitFor("Export Upstream watch to: upstream-watch.yaml");
+    await app.press(...Array.from({ length: "upstream-watch.yaml".length }, () => KEY.backspace));
+    await app.type("watch.yaml");
+    await app.press(KEY.enter);
+    const path = join(app.stateDir, "watch.yaml");
+    await app.waitFor(`Exported Upstream watch to ${path}.`);
+    const written = await readFile(path, "utf8");
+    expect(written).toContain("# Routines exported from desk at 2026-10-01T08:00:00.000Z.");
+    expect(readRoutineYaml(written, ZONE).map((document) => document.definition)).toEqual([deskRoutines.definitionOf(WATCH)]);
   });
 });

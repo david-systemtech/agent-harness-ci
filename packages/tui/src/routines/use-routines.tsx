@@ -1,11 +1,16 @@
+import { writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import type { ReactElement } from "react";
 import type { Clock, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
 import { ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
+import { expandHome } from "../composer/attachments.js";
 import type { ExternalEditResult } from "../composer/external-editor.js";
 import type { Handler } from "../keys.js";
-import { ListCard } from "../pickers/cards.js";
+import { ListCard, TypedLine, wrappedRows } from "../pickers/cards.js";
 import { useFollow, type Opened } from "../session/use-session.js";
-import type { Question } from "../view.js";
+import { messageOf, nameOf, type Question } from "../view.js";
 import { listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
 import type { RoutineKey, RoutinesCommand } from "./commands.js";
 
@@ -68,6 +73,9 @@ const clamp = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.mi
 
 const refOf = (row: RoutineRow): RoutineRef => ({ environmentId: row.environmentId, routineId: row.routineId, name: row.definition.name });
 
+/** The file an export of `name` is offered: its name in lower case, a hyphen for each run of anything else, `.yaml`. */
+const exportFile = (name: string): string => `${name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "routine"}.yaml`;
+
 /** The newest firing among `entries`, newest first: a skip has no session. */
 const newestFiring = (entries: readonly RoutineEntry[]) => entries.find((entry) => entry.kind === "firing");
 
@@ -106,6 +114,43 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     host.say(entries.length < ROUTINE_HISTORY_MAX ? `${routine.name} has not fired yet.` : `${routine.name} has not fired in its latest ${ROUTINE_HISTORY_MAX} due times.`);
   };
 
+  const environmentName = (environmentId: string): string => {
+    const view = host.views.find((v) => v.environmentId === environmentId);
+    return view ? nameOf(view) : "its environment";
+  };
+
+  /** The verb's routine: the one under the list's cursor, while the list is the card shown and nothing is typed into it. */
+  const verbOn = (): RoutineRow | undefined => (card?.kind === "list" && card.exporting === null ? routineAt(card) : undefined);
+
+  /** A routine command through the outbox: refused at dispatch, it says why in one line, as nothing else will; a refusal after it was kept is its notice's. */
+  const send = (routine: RoutineRef, method: "routines.enable" | "routines.disable", verb: string) =>
+    void runtime.commands.dispatch(routine.environmentId, method, { routineId: routine.routineId }).then((answer) => {
+      if (!answer.ok && answer.commandId === null) host.say(`Not ${verb}: ${answer.error.message}`);
+    });
+
+  /** `r`: run now never waits in the outbox, so it is refused at once while the environment cannot be reached. */
+  const runNow = (routine: RoutineRef) =>
+    void runtime.commands.dispatch(routine.environmentId, "routines.runNow", { routineId: routine.routineId }).then((answer) => {
+      if (answer.ok) return host.say(`Running ${routine.name} on ${environmentName(routine.environmentId)} now.`);
+      const firing = answer.error.code === "conflict" && answer.error.data?.["reason"] === "firing_running";
+      host.say(firing ? `Not run: ${routine.name} is firing already.` : `Not run: ${answer.error.message}`);
+    });
+
+  /** The export typed: the routine's YAML as its environment exports it, written to the path, relative to the working directory. */
+  const exportTo = async (routine: RoutineRef, typed: string) => {
+    const path = resolve(host.cwd, expandHome(typed.trim(), homedir()));
+    const answer = await runtime.requests.call(routine.environmentId, "routines.export", { routineIds: [routine.routineId] });
+    const failed = (line: string) => host.change((shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, error: line } } : shown));
+    if (!answer.ok) return failed(`Not exported: ${answer.error.message}`);
+    try {
+      await writeFile(path, answer.result.yaml, "utf8");
+    } catch (error) {
+      return failed(`Not written: ${messageOf(error)}`);
+    }
+    host.change((shown) => (shown.kind === "list" ? { ...shown, exporting: null } : shown));
+    host.say(`Exported ${routine.name} to ${path}.`);
+  };
+
   const rowsOf = (shown: RoutinesCard): number => {
     switch (shown.kind) {
       case "list":
@@ -127,21 +172,38 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     choose(shown) {
       switch (shown.kind) {
         case "list": {
+          if (shown.exporting !== null) {
+            if (shown.exporting.text.trim() !== "") void exportTo(shown.exporting.routine, shown.exporting.text);
+            return;
+          }
           const row = routineAt(shown);
           if (row) void openLatest(refOf(row), row);
           return;
         }
       }
     },
-    back: () => null,
-    takesText: () => false,
-    typed: (shown) => shown,
-    erased: (shown) => shown,
+    back: (shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: null } : null),
+    takesText: (shown) => shown.kind === "list" && shown.exporting !== null,
+    typed: (shown, text) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: shown.exporting.text + text.replace(/[\r\n]/g, ""), error: null } } : shown),
+    erased: (shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: [...shown.exporting.text].slice(0, -1).join("") } } : shown),
     handlers: {
-      "routines.runNow": () => false,
-      "routines.enable": () => false,
+      "routines.runNow": () => {
+        const row = verbOn();
+        if (!row) return false;
+        runNow(refOf(row));
+      },
+      "routines.enable": () => {
+        const row = verbOn();
+        if (!row) return false;
+        if (row.definition.enabled) send(refOf(row), "routines.disable", "disabled");
+        else send(refOf(row), "routines.enable", "enabled");
+      },
       "routines.history": () => false,
-      "routines.export": () => false,
+      "routines.export": () => {
+        const row = verbOn();
+        if (!row || card?.kind !== "list") return false;
+        host.change((shown) => (shown.kind === "list" ? { ...shown, exporting: { routine: refOf(row), text: exportFile(row.definition.name), error: null } } : shown));
+      },
       "routines.edit": () => false,
       "routines.endpoint.add": () => false,
       "routines.endpoint.test": () => false,
@@ -150,6 +212,8 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     hint: () => `${host.keys("picker.move")} move · ${host.keys("picker.leave")} close`,
     render(shown, size) {
       const rows = list();
+      const { exporting } = shown;
+      const prompt = exporting === null ? "" : `Export ${exporting.routine.name} to:`;
       return (
         <ListCard
           width={size.width}
@@ -159,7 +223,11 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           cursor={clamp(shown.cursor, rows.length)}
           height={size.height}
           empty="No environment is enabled: /environment lists them."
-        />
+          footer={exporting?.error ? [[{ text: exporting.error, color: TERMINAL_ROLES.danger }]] : []}
+          childRows={exporting === null ? 0 : wrappedRows(`${prompt} ${exporting.text} `, size.width)}
+        >
+          {exporting !== null && <TypedLine prompt={prompt} text={exporting.text} />}
+        </ListCard>
       );
     },
   };
