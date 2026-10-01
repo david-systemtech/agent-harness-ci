@@ -130,7 +130,7 @@ const install = async (args: readonly string[], context: ServiceContext): Promis
     undo.push(entry.restore);
     const shim = writeDefinition(shimPath, renderShim(kind, dataDir), writeExecutable);
     undo.push(shim.restore);
-    // A running service install restarts is stopped first, which waits for its runs where the stop drains.
+    // A running service that install restarts is stopped first; where the stop drains, that waits for its runs.
     if (running && !launcherRuns && platform.drainsOnStop) context.stdout(DRAIN_NOTICE);
     installed = await platform.install(spec, { restartRunning: !launcherRuns });
     const created = [...(previous?.createdDirectories ?? []), ...installed.createdDirectories, ...dataDirectories, ...shim.createdDirectories];

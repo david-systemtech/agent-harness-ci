@@ -233,8 +233,9 @@ describe("the systemd user unit", () => {
 
   it("gives the commands that stop the unit, try-restart and disable --now, the stop's wait and a minute, and every other 30 seconds", async () => {
     const home = tempHome();
-    const { service, timeouts } = platformFor("linux", home, (_, args) => (args[1] === "is-active" ? { code: 0 } : undefined));
+    const { service, timeouts } = platformFor("linux", home);
     await service.install(specIn(home), RESTART);
+    // Over its own unit, which systemd calls active: the probes of the unit replaced run too.
     await service.install(specIn(home), RESTART);
     await service.start();
     await service.uninstall();
