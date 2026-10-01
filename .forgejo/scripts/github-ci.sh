@@ -16,8 +16,9 @@
 #    The run's last job deletes ci/<id>.
 #
 # Needs GH_CI_TOKEN: a fine-grained token for agent-harness-ci, with Contents
-# read/write (the push, and repository_dispatch) and Actions read (the run). GROUP is the pull request number or
-# the ref, so a newer push cancels the older run on GitHub as it does here.
+# read/write (the push, and repository_dispatch) and Actions read (the run). GROUP is the pull request number or,
+# on main, the commit, so a newer push to a pull request cancels the older run on GitHub as it does here and
+# every main run finishes.
 set -euo pipefail
 
 : "${GH_CI_TOKEN:?GH_CI_TOKEN is not set}" "${GROUP:?}" "${FORGEJO_RUN:=}"
