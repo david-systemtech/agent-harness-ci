@@ -41,6 +41,8 @@ import {
   type UnopenedReason,
 } from "../permissions/broker.js";
 import { answersFor, hasKeptAnswer, parkedPromptsOfRun } from "../permissions/prompts-store.js";
+import { previewLines } from "../permissions/preview.js";
+import type { BlastRadiusDeps } from "../permissions/command-preview.js";
 import { readRunPolicy } from "../permissions/review-store.js";
 import { EVERY_MODE, actorOfPolicy, type RunActor } from "../permissions/resolver.js";
 import { answerEvents, runToolCalls, type RunToolCalls } from "../permissions/tool-decisions.js";
@@ -244,6 +246,8 @@ export interface AdapterHostOptions {
    * Preset: never; the environment passes `permissions.parkedPrompt.ttl`.
    */
   readonly promptTtlMs?: () => number | null;
+  /** Read-only I/O for the broker's workspace preview; preset: filesystem reads and fixed Git queries. */
+  readonly previewDeps?: Partial<BlastRadiusDeps>;
   /** The policy resolver runs start through; preset: the resolver on the settings' presets. */
   readonly resolvePolicy?: PolicySeam;
   /**
@@ -689,6 +693,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * denies them in memory.
    */
   const waiters = new Map<string, { readonly runId: string; settle(decision: PromptDecision): void }>();
+  const previewing = new Map<string, { readonly runId: string; readonly controller: AbortController }>();
   const waiterKey = (runId: string, promptId: string): string => `${runId}\u0000${promptId}`;
   /** The open requests the tool gate made rather than the adapter (`waiterKey`): their answers go to the gate alone. */
   const gateRequests = new Set<string>();
@@ -1151,6 +1156,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /** Denies in memory every request of the run still waiting: the run has ended, whether or not the log closed its prompts. */
   const denyWaiters = (runId: string, message: string): void => {
+    for (const preview of previewing.values()) if (preview.runId === runId) preview.controller.abort();
     for (const waiter of [...waiters.values()]) if (waiter.runId === runId) waiter.settle({ decision: "deny", message });
   };
 
@@ -1180,12 +1186,33 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const promptId = request.promptId ?? randomUUID();
     // A second request under the id of one this run holds open is refused before it is recorded: the open one stands
     // and stays answerable (the prompts projection would refuse its prompt.opened anyway, as a failed record).
-    if (waiters.has(waiterKey(entry.runId, promptId))) {
+    const previewKey = waiterKey(entry.runId, promptId);
+    if (waiters.has(previewKey) || previewing.has(previewKey)) {
       console.error(`Run ${entry.runId} asked again under prompt ${promptId}, which it holds open; the second request is denied.`);
       return unopened("unrecorded", DUPLICATE_PROMPT_MESSAGE);
     }
     const stream = sessionStream(sessionId);
     const rule = autoAnswer({ kind: request.kind, attended: entry.plan.policy.attended, mode: entry.mode });
+    let preview: readonly string[] | null = null;
+    if (rule === null) {
+      const controller = new AbortController();
+      previewing.set(previewKey, { runId: entry.runId, controller });
+      try {
+        const prepared = previewLines(request.kind, request.detail, {
+          workspace: entry.plan.workspace.path,
+          containment: entry.containment,
+          clock,
+          signal: request.signal === undefined ? controller.signal : AbortSignal.any([request.signal, controller.signal]),
+          ...(options.providerDenylist !== undefined && { denylist: options.providerDenylist }),
+        }, options.previewDeps);
+        if (prepared !== null) preview = await prepared;
+      } finally {
+        previewing.delete(previewKey);
+      }
+    }
+    // The run or request may have ended while the bounded preview was reading.
+    if (entry.ended) return unopened("run_ended", RUN_ENDED_MESSAGE);
+    if (request.signal?.aborted) return unopened("cancelled", CANCELLED_MESSAGE);
     let opened: PromptOpenedPayload;
     let ruled: ReturnType<typeof ruledAnswer> | null;
     try {
@@ -1196,6 +1223,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         promptId,
         kind: request.kind,
         detail: request.detail,
+        previewLines: preview,
         mode: entry.mode,
         ceiling: entry.plan.policy.mode.ceiling,
         ttlExpiresAt: ttlMs === null ? null : new Date(clock.now().getTime() + ttlMs).toISOString(),

@@ -109,6 +109,7 @@ export const openedPayload = (request: {
   readonly mode: Mode;
   readonly ceiling: Mode;
   readonly ttlExpiresAt: string | null;
+  readonly previewLines?: readonly string[] | null;
 }): PromptOpenedPayload => {
   const { detail } = request;
   const text = (value: string | null | undefined): string | null => (value === undefined || value === null || value === "" ? null : value);
@@ -119,6 +120,7 @@ export const openedPayload = (request: {
     toolName: text(detail.toolName),
     toolCallId: text(detail.toolCallId),
     input: detail.input ?? null,
+    previewLines: request.previewLines === undefined || request.previewLines === null ? null : [...request.previewLines],
     summary: summarise(request.kind, detail),
     blockedPath: text(detail.blockedPath),
     reason: text(detail.reason),
