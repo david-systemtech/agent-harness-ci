@@ -24,6 +24,7 @@ export const ANSWERED = [
   "system",
   "http",
   "network.allow",
+  "notifications.show",
   /** The renderer's first `deepLinks.onOpen`: answers the links held for it, and has the rest sent as they come. */
   "deepLinks.listen",
   "secrets.get",
@@ -50,6 +51,9 @@ export const channelOf = (member: Answered | Told): string => `shell:${member}`;
 
 /** The channel the main process sends each deep link on, once the renderer listens. */
 export const DEEP_LINK_CHANNEL = "shell:deepLinks.opened";
+
+/** The channel the main process sends a clicked notification's tag on. */
+export const NOTIFICATION_CHANNEL = "shell:notifications.activated";
 
 /** What the main process answers an `http` call with; the preload gives the renderer its `json()`. */
 export interface HttpAnswer {

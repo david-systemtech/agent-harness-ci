@@ -7,6 +7,9 @@ import {
   attachmentRefusal,
   attachmentRefused,
   browse,
+  bulkAsks,
+  bulkQuestion,
+  decidable,
   directoryOf,
   followDraft,
   inWorkspace,
@@ -28,6 +31,7 @@ import {
   undoableFold,
   userMessagesOf,
   withdrawQueued,
+  workspaceLabel,
   type BrowseRow,
   type Clock,
   type EnvironmentView,
@@ -57,7 +61,7 @@ import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
 import { RECAP_FLASH_MS } from "./attention/policy.js";
 import { useAttention } from "./attention/use-attention.js";
 import { useAnswers } from "./cards/answers.js";
-import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
+import { askKey, askRows, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import {
   applyAction,
@@ -113,7 +117,7 @@ import { badgesOf } from "./rail/badge.js";
 import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
-import { isFullPath, workspaceLabel } from "./rail/workspace-step.js";
+import { isFullPath } from "./rail/workspace-step.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
@@ -1580,7 +1584,7 @@ export const App = (props: AppProps) => {
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
   const askList = card.kind === "asks" ? askRows(asks, views, opened) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
-  const bulk = askList.filter((row) => inBulk(row.ask.kind));
+  const bulk = bulkAsks(askList.map((row) => row.ask));
   /** `y` or `n` on the row under the cursor: a permission or denylist prompt answered in place; any other is opened to answer. */
   const decideInPlace = (decision: "allow" | "deny"): false | void => {
     if (!askAt) return false;
@@ -1589,12 +1593,11 @@ export const App = (props: AppProps) => {
   };
   /** `a` or `N`: every permission row answered at once, once confirmed, and only when there are two or more. */
   const decideAll = (decision: "allow" | "deny"): false | void => {
-    if (card.kind !== "asks" || bulk.length < 2) return false;
-    const targets = bulk.map((row) => row.ask);
+    if (card.kind !== "asks" || bulk.length === 0) return false;
     update({
       question: {
-        text: decision === "allow" ? `Allow all ${targets.length} permissions once? y/n` : `Deny all ${targets.length} permissions? y/n`,
-        yes: () => targets.forEach((target) => answers.answer(target, { decision })),
+        text: `${bulkQuestion(decision, bulk.length)} y/n`,
+        yes: () => bulk.forEach((target) => answers.answer(target, { decision })),
       },
     });
   };
@@ -2352,7 +2355,7 @@ export const App = (props: AppProps) => {
               height={Math.max(1, helpHeight - 3)}
               hint={{
                 decidable: `${keys("asks.move")} move · ${keys("asks.open")} open · ${keys("asks.allow")} allow once · ${keys("asks.deny")} deny${
-                  bulk.length > 1 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
+                  bulk.length > 0 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
                 } · ${keys("asks.close")} closes, deciding nothing`,
                 other: `${keys("asks.move")} move · ${keys("asks.open")} open · this one is answered on its own card · ${keys("asks.close")} closes, deciding nothing`,
               }}

@@ -166,10 +166,19 @@ const FORGE_ACCOUNT_EVENTS: readonly string[] = Object.keys(FORGE_EVENT_PAYLOADS
 
 /**
  * What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), an
- * account, which every row carries and the block names, and what the block's forges and key managers sections read: a
- * forge account, a key-manager connection and the managed tools, whose rows give each connection's CLI.
+ * account, which every row carries and the block names, what the block's forges and key managers sections read: a
+ * forge account, a key-manager connection and the managed tools, whose rows give each connection's CLI; and the known
+ * environments' union, its other environments section (#382).
  */
-const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", "settings.changed", "account.updated", ...FORGE_ACCOUNT_EVENTS, ...KEY_MANAGER_EVENTS, "tools.updated"];
+const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
+  "instructions.updated",
+  "settings.changed",
+  "account.updated",
+  ...FORGE_ACCOUNT_EVENTS,
+  ...KEY_MANAGER_EVENTS,
+  "tools.updated",
+  "environment.known-environments-updated",
+];
 
 /**
  * The notices after which one query's cached answer is fetched again: its
@@ -197,8 +206,9 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; an owned instruction changing
  * (`instructions.updated`, #505), a setting (the orientation switch), an
- * account, a forge account, a key-manager connection or the managed tools
- * (what the block's sections read) `instructions.list` and
+ * account, a forge account, a key-manager connection, the managed tools or
+ * the known environments' union (#382; what the block's sections read)
+ * `instructions.list` and
  * `instructions.preview`, and an owned instruction changing alone
  * `instructions.diff` (#509: a copy's version resolved or its body edited;
  * the catalogue changes only with the build); every key-manager event, a connection's and Move's, the

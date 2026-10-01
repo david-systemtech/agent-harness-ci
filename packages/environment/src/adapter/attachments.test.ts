@@ -34,8 +34,8 @@ const command = async <N extends "runs.start" | "runs.send">(
   commandId = randomUUID(),
 ): Promise<ResponseOf<N>> => registry[method].response.parse(await client.request(method, { commandId, ...params } as ParamsOf<N>)) as ResponseOf<N>;
 
-const startRun = async (client: WireClient, sessionId: string, text = "Fix the receipts") => {
-  const answer = await command(client, "runs.start", { sessionId, text });
+const startRun = async (client: WireClient, sessionId: string, text = "Fix the receipts", attachments?: ParamsOf<"runs.start">["attachments"]) => {
+  const answer = await command(client, "runs.start", { sessionId, text, ...(attachments !== undefined && { attachments }) });
   if (answer.result === undefined) throw new Error(`runs.start was not applied: ${JSON.stringify(answer.receipt)}`);
   return answer.result;
 };
@@ -51,8 +51,19 @@ const image = (pixels = "pixels") => ({ kind: "image" as const, name: "screen.pn
 
 const eventsOf = (t: TestEnvironment, sessionId: string): EventEnvelope[] => t.env.log.readStream({ kind: "session", id: sessionId });
 
-const untilEnded = (t: TestEnvironment, sessionId: string, runId: string) =>
-  vi.waitFor(() => expect(eventsOf(t, sessionId).some((event) => event.type === "run.ended" && event.payload["runId"] === runId)).toBe(true));
+/** Once the session's log holds run `runId`'s end: heard as it commits, or read when it is there already, never on a time budget. */
+const untilEnded = (t: TestEnvironment, sessionId: string, runId: string): Promise<void> =>
+  new Promise((resolve) => {
+    const isEnd = (event: EventEnvelope): boolean => event.type === "run.ended" && event.payload["runId"] === runId;
+    const settle = (): void => {
+      stop();
+      resolve();
+    };
+    const stop = t.env.log.subscribe((event) => {
+      if (isEnd(event)) settle();
+    });
+    if (eventsOf(t, sessionId).some(isEnd)) settle();
+  });
 
 const stagedDir = (dataDir: string, messageId?: string): string => (messageId === undefined ? join(dataDir, ATTACHMENTS_DIRECTORY) : join(dataDir, ATTACHMENTS_DIRECTORY, messageId));
 
@@ -104,6 +115,9 @@ describe("a queued message's attachment bytes", () => {
     const client = await t.client();
     const { id } = await create(client);
     await startRun(client, id);
+    // Once its adapter has the run and has read its first message: a stop that finds the run still composing its
+    // instructions queues that message again, ahead of this one.
+    await t.adapter.reached(1);
     const { messageId } = await sendImage(client, id);
     await client.close();
     await t.close();
@@ -115,6 +129,38 @@ describe("a queued message's attachment bytes", () => {
     await untilEnded(again, id, next.runId);
     expect(again.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Look at this", "Carry on"]);
     expect(received(again, messageId)).toEqual(["pixels"]);
+    expect(existsSync(stagedDir(dataDir, messageId))).toBe(false);
+  });
+
+  it("are staged for a run's first message too when the environment stops while the run composes its instructions: the next run reads it first, with its bytes", async () => {
+    const dataDir = join(tempDir(), "data");
+    const composing = gate();
+    const adapter = { capabilities: { providerQueue: false, steering: false } } as const;
+    // Its instructions wait until the environment has stopped, so its adapter never has the run.
+    const orientation = async () => {
+      await composing.opened;
+      return { text: "You are on SYSTEM-SERVER.", unreadRegistries: [] };
+    };
+    const t = await start(adapter, { dataDir, orientation });
+    const client = await t.client();
+    const { id } = await create(client);
+    const first = await startRun(client, id, "Fix the receipts", [image("receipts")]);
+    const { messageId } = await sendImage(client, id);
+    await client.close();
+    await t.close();
+    expect(t.adapter.runs).toHaveLength(0);
+    composing.open();
+    // Nothing is lost (ADR 0022): what the run was launched with is the environment's queue again, its bytes on disk.
+    expect(readFileSync(join(stagedDir(dataDir, first.messageId), "0"), "utf8")).toBe("receipts");
+
+    const again = await start(adapter, { dataDir });
+    const later = await again.client();
+    const next = await startRun(later, id, "Carry on");
+    await untilEnded(again, id, next.runId);
+    expect(again.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Fix the receipts", "Look at this", "Carry on"]);
+    expect(received(again, first.messageId)).toEqual(["receipts"]);
+    expect(received(again, messageId)).toEqual(["pixels"]);
+    expect(existsSync(stagedDir(dataDir, first.messageId))).toBe(false);
     expect(existsSync(stagedDir(dataDir, messageId))).toBe(false);
   });
 

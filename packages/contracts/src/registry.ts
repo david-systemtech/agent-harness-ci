@@ -9,6 +9,7 @@ import {
 } from "./methods/access.js";
 import {
   environmentDrain,
+  environmentKnownEnvironmentsReport,
   environmentRebuildProjections,
   environmentRename,
   environmentSetColour,
@@ -194,6 +195,7 @@ export const methods = [
   environmentRename,
   environmentSetIcon,
   environmentSetColour,
+  environmentKnownEnvironmentsReport,
   accessPairingsCreate,
   accessSessionsList,
   accessSessionsRevoke,

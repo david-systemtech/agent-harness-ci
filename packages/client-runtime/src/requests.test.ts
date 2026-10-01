@@ -538,7 +538,7 @@ describe("the request cache", () => {
     expect([asked(), reads]).toEqual([1, 4]);
   });
 
-  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection or the managed tools changing, and no other query (#505)", async () => {
+  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection, the managed tools or the known environments changing, and no other query (#505)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     const reads = { list: 0, preview: 0 };
     const accounts = [{ accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null }];
@@ -584,6 +584,10 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(7, wire.environmentId, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
     await flush();
     expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
+    // The block's other environments section (#382).
+    environment?.event(noticeEvent(8, wire.environmentId, "environment.known-environments-updated", { environments: [{ name: "laptop", address: "http://laptop:7433" }] }));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 8, 8]);
   });
 
   it("fetches instructions.diff again on instructions.updated alone (#509)", async () => {
