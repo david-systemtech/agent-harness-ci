@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
-import { listedRoutine, scriptRoutines, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
+import { firingEntry, listedRoutine, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
 
 /**
  * `/routines` in the terminal UI (docs/specs/routines.md, "Clients";
@@ -110,5 +110,48 @@ describe("/routines: the list", () => {
     laptop.server.drop();
     await app.waitFor(/laptop · 1 routine · unreachable: as listed at \d\d:\d\d/);
     expect(app.frame()).toContain("Backup check");
+  });
+});
+
+const FIRING_SESSION = "0199ab00-0000-4000-8000-0000000000f1";
+const LIVE_SESSION = "0199ab00-0000-4000-8000-0000000000f2";
+
+describe("/routines: Enter", () => {
+  it("opens the latest firing's session: the live firing's, else the newest firing in the routine's history", async () => {
+    const { app } = await launch(
+      {
+        desk: {
+          routines: [
+            listedRoutine(WATCH),
+            listedRoutine(DIGEST, {
+              definition: { name: "Morning digest" },
+              state: { liveFiring: { firingId: "0199dd00-0000-4000-8000-0000000000e3", trigger: "run-now", dueAt: "2026-09-24T00:00:00.000Z", startedAt: "2026-09-24T00:00:00.000Z", sessionId: LIVE_SESSION, runId: "7c9e6679-7425-40de-944b-e07fc1f90ae8" } },
+            }),
+          ],
+          history: {
+            [WATCH]: [skipEntry("0199dd00-0000-4000-8000-0000000000e4"), firingEntry("0199dd00-0000-4000-8000-0000000000e5", FIRING_SESSION)],
+          },
+        },
+      },
+      { deskSessions: [{ id: FIRING_SESSION, title: "Watch firing" }, { id: LIVE_SESSION, title: "Digest firing" }] },
+    );
+    await openRoutines(app);
+    await app.waitFor("Morning digest");
+    await app.press(KEY.enter);
+    await app.waitFor("Watch firing · ");
+    expect(app.frame()).not.toContain("Morning digest");
+
+    await openRoutines(app);
+    await app.waitFor("Morning digest");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitFor("Digest firing · ");
+  });
+
+  it("says so when the routine has not fired", async () => {
+    const { app } = await launch({ desk: { routines: [listedRoutine(WATCH)], history: { [WATCH]: [skipEntry("0199dd00-0000-4000-8000-0000000000e4")] } } });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press(KEY.enter);
+    await app.waitFor("Upstream watch has not fired yet.");
   });
 });

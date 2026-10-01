@@ -1,12 +1,12 @@
 import type { ReactElement } from "react";
-import type { Clock, EnvironmentView, Runtime } from "@agent-harness/client-runtime";
-import type { KeyActionId } from "@agent-harness/contracts";
+import type { Clock, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
+import { ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry } from "@agent-harness/contracts";
 import type { ExternalEditResult } from "../composer/external-editor.js";
 import type { Handler } from "../keys.js";
 import { ListCard } from "../pickers/cards.js";
 import { useFollow, type Opened } from "../session/use-session.js";
 import type { Question } from "../view.js";
-import { listRows, type ListRow, type RoutinesCard } from "./cards.js";
+import { listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
 import type { RoutineKey, RoutinesCommand } from "./commands.js";
 
 /**
@@ -66,11 +66,45 @@ export interface Routines {
 
 const clamp = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
 
+const refOf = (row: RoutineRow): RoutineRef => ({ environmentId: row.environmentId, routineId: row.routineId, name: row.definition.name });
+
+/** The newest firing among `entries`, newest first: a skip has no session. */
+const newestFiring = (entries: readonly RoutineEntry[]) => entries.find((entry) => entry.kind === "firing");
+
 export const useRoutines = (host: RoutinesHost): Routines => {
   const { runtime, request, card } = host;
   useFollow(card !== undefined ? runtime.projections.routines : undefined, request);
   const now = host.clock.now();
   const list = (): readonly ListRow[] => listRows(runtime.projections.routines.read(), now);
+
+  /** The routine under the list's cursor; none on an environment that lists none. */
+  const routineAt = (shown: Extract<RoutinesCard, { kind: "list" }>): RoutineRow | undefined => {
+    const rows = list();
+    const at = rows[clamp(shown.cursor, rows.length)];
+    return at?.kind === "routine" ? at.row : undefined;
+  };
+
+  /** A firing's session, opened in place of the card. */
+  const openFiring = (environmentId: string, sessionId: string) => {
+    host.close();
+    host.openSession({ environmentId, sessionId });
+  };
+
+  /**
+   * Enter on a routine: its live firing's session, else its newest firing's
+   * in its history, read whole (500 entries, the most a page holds), or as
+   * the request cache last held it while its environment cannot be reached.
+   */
+  const openLatest = async (routine: RoutineRef, row: RoutineRow) => {
+    const live = row.listed?.state.liveFiring;
+    if (live) return openFiring(routine.environmentId, live.sessionId);
+    const answer = await runtime.requests.call(routine.environmentId, "routines.history", { routineId: routine.routineId, limit: ROUTINE_HISTORY_MAX });
+    const entries = answer.ok ? answer.result.entries : runtime.projections.routineHistory(routine.environmentId, routine.routineId).read().entries;
+    const firing = newestFiring(entries);
+    if (firing?.kind === "firing") return openFiring(routine.environmentId, firing.sessionId);
+    if (!answer.ok && entries.length === 0) return host.say(`Not opened: ${answer.error.message}`);
+    host.say(entries.length < ROUTINE_HISTORY_MAX ? `${routine.name} has not fired yet.` : `${routine.name} has not fired in its latest ${ROUTINE_HISTORY_MAX} due times.`);
+  };
 
   const rowsOf = (shown: RoutinesCard): number => {
     switch (shown.kind) {
@@ -90,7 +124,15 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     },
     rows: rowsOf,
     move: (shown, step) => ({ ...shown, cursor: clamp(shown.cursor + step, rowsOf(shown)) }),
-    choose: () => undefined,
+    choose(shown) {
+      switch (shown.kind) {
+        case "list": {
+          const row = routineAt(shown);
+          if (row) void openLatest(refOf(row), row);
+          return;
+        }
+      }
+    },
     back: () => null,
     takesText: () => false,
     typed: (shown) => shown,
