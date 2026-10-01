@@ -175,6 +175,8 @@ export interface TestEnvironmentOptions {
   readonly harnessGitConfig?: EnvironmentOptions["harnessGitConfig"];
   /** What the skills' git calls go through (#499); preset none. */
   readonly skillsGit?: EnvironmentOptions["skillsGit"];
+  /** What the banks' git fetches go through (#1037); preset none. */
+  readonly banksGit?: EnvironmentOptions["banksGit"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
   /**
@@ -415,6 +417,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     ...(options.harnessReads !== undefined && { harnessReads: options.harnessReads }),
     ...(options.harnessGitConfig !== undefined && { harnessGitConfig: options.harnessGitConfig }),
+    ...(options.banksGit !== undefined && { banksGit: options.banksGit }),
     ...(options.skillsGit !== undefined && { skillsGit: options.skillsGit }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
