@@ -460,3 +460,68 @@ describe("/routines new and /routines import", () => {
     expect(deskRoutines.heard("routines.import")).toEqual([]);
   });
 });
+
+describe("/routines endpoints and /routines test-precheck (David, 2026-09-28)", () => {
+  const hermes = { name: "hermes-home", url: "https://hermes.example.com/webhooks/harness", secretKind: "pasted", lastResult: { at: "2026-09-23T10:04:00.000Z", result: "delivered", status: 204, error: null } } as const;
+
+  it("lists the header environment's webhook endpoints and tests one", async () => {
+    const { app, deskRoutines } = await launch({ desk: { endpoints: [hermes] } });
+    await openRoutines(app, "/routines endpoints");
+    await app.waitFor("Webhook endpoints on desk");
+    await app.waitFor("hermes-home");
+    const row = app.rows()[rowWith(app, "hermes-home")] ?? "";
+    expect(row).toContain("https://hermes.example.com/webhooks/harness");
+    expect(app.frame()).toMatch(/secret pasted · last delivered, 204/);
+    await app.press("t");
+    await app.waitFor("hermes-home answered 204 in 120ms.");
+    expect(deskRoutines.heard("routines.endpoints.test").map((h) => h.params)).toEqual([{ name: "hermes-home" }]);
+  });
+
+  it("adds an endpoint from its name, URL and pasted secret, never drawing the secret, and removes one once confirmed", async () => {
+    const { app, deskRoutines } = await launch({ desk: { endpoints: [hermes] } });
+    await openRoutines(app, "/routines endpoints");
+    await app.waitFor("hermes-home");
+    await app.press("a");
+    await app.waitFor("Name (lower-case letters, digits and hyphens):");
+    await app.type("matrix-relay");
+    await app.press(KEY.enter);
+    await app.waitFor("URL:");
+    await app.type("https://relay.example.com/hook");
+    await app.press(KEY.enter);
+    await app.waitFor("Secret, pasted (Enter for none):");
+    await app.paste("token-for-tests");
+    await app.waitFor("•••••••••••••••");
+    expect(app.frame()).not.toContain("token-for-tests");
+    await app.press(KEY.enter);
+    await app.waitFor("Saved the endpoint matrix-relay on desk.");
+    await app.waitFor("matrix-relay");
+    expect(deskRoutines.heard("routines.endpoints.set").map((h) => ({ ...h.params, commandId: "minted" }))).toEqual([
+      { commandId: "minted", name: "matrix-relay", url: "https://relay.example.com/hook", secret: { kind: "pasted", secret: "token-for-tests" } },
+    ]);
+
+    await app.press(KEY.down, "d");
+    await app.waitFor("Remove the endpoint matrix-relay from desk? A routine delivering to it shows it missing. y/n");
+    await app.press("y");
+    await app.waitFor("Removed the endpoint matrix-relay from desk.");
+    await app.waitUntil(() => !app.frame().includes("https://relay.example.com/hook"), "the endpoint's row gone");
+    expect(deskRoutines.endpoints.map((endpoint) => endpoint.name)).toEqual(["hermes-home"]);
+  });
+
+  it("runs a routine's pre-check once by its name and shows what it found", async () => {
+    const { app, deskRoutines } = await launch({
+      desk: {
+        routines: [listedRoutine(WATCH, { definition: { preCheck: { kind: "script", path: "upstream-watch.sh", timeoutSeconds: 60 } } })],
+        preChecks: { [WATCH]: preCheckRecord("v1.2.3\nv1.2.4\n", { differs: false }) },
+      },
+    });
+    await openRoutines(app, "/routines test-precheck upstream WATCH");
+    await app.waitFor("Pre-check of Upstream watch on desk");
+    await app.waitFor("exited 0 in 1.2s, 14 bytes, unchanged");
+    expect(app.frame()).toContain("v1.2.4");
+    expect(deskRoutines.heard("routines.testPreCheck").map((h) => h.params)).toEqual([{ routineId: WATCH }]);
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("Pre-check of"), "the card closed");
+    await openRoutines(app, "/routines test-precheck nightly");
+    await app.waitFor("No routine is named nightly.");
+  });
+});

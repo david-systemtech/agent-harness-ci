@@ -1772,6 +1772,15 @@ export const App = (props: AppProps) => {
     },
     { isActive: focused === "composer" && !cardOpen },
   );
+  // The routines card taking a line (a path, an endpoint's name, URL or secret) takes a paste into it, as a panel does.
+  const routinesTyping = card.kind === "routines" && routines.takesText(card.routines) && !screen.question;
+  usePaste(
+    (text) => {
+      scheduler.bypass();
+      setScreen((s) => (s.card.kind === "routines" ? { ...s, card: { kind: "routines", routines: routines.typed(s.card.routines, text) } } : s));
+    },
+    { isActive: routinesTyping },
+  );
   // A card taking a line (a label, a sign-in's code, a setting's value) takes a paste into it, unless a question has the keys.
   const panelTyping = card.kind === "panel" && pickers.takesText(card.panel) && !screen.question;
   usePaste(

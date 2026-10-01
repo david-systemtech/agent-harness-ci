@@ -10,6 +10,7 @@ import {
   type RoutineImportCheck,
   type RoutineLastOutcome,
   type RoutineWorkspace,
+  type WebhookEndpoint,
   type RoutineTrigger,
   type SkipReason,
 } from "@agent-harness/contracts";
@@ -45,7 +46,22 @@ export type RoutinesCard =
   /** `h`: a routine's firings and skips, newest first, over the list it goes back to. */
   | { readonly kind: "history"; readonly routine: RoutineRef; readonly cursor: number; readonly back: ListCard }
   /** `/routines import <path>`: the file read, what `routines.checkImport` says of each document, until it is imported or left. */
-  | { readonly kind: "import"; readonly environmentId: string; readonly path: string; readonly yaml: string; readonly documents: readonly RoutineImportCheck[]; readonly cursor: number };
+  | { readonly kind: "import"; readonly environmentId: string; readonly path: string; readonly yaml: string; readonly documents: readonly RoutineImportCheck[]; readonly cursor: number }
+  /** `/routines endpoints`: the webhook endpoints of an environment; `adding`, the endpoint being typed in, a step at a time. */
+  | { readonly kind: "endpoints"; readonly environmentId: string; readonly cursor: number; readonly adding: AddingEndpoint | null }
+  /**
+   * `/routines test-precheck <name>`: the routine found by its name (null
+   * until the lists are read), and what its pre-check found once run, or why
+   * it did not run.
+   */
+  | { readonly kind: "precheck"; readonly name: string; readonly routine: RoutineRef | null; readonly record: PreCheckRecord | null; readonly failed: string | null; readonly cursor: number };
+
+/** An endpoint being added: its name, then its URL, then its secret, each typed in turn. */
+export interface AddingEndpoint extends Typed {
+  readonly step: "name" | "url" | "secret";
+  readonly name: string;
+  readonly url: string;
+}
 
 /** One row of the list: a routine, or an environment that lists none, which nothing can be done to. */
 export type ListRow = { readonly kind: "routine"; readonly row: RoutineRow; readonly panel: PanelRow } | { readonly kind: "empty"; readonly panel: PanelRow };
@@ -127,6 +143,25 @@ export const importLines = (documents: readonly RoutineImportCheck[]): readonly 
     ...(warnings.workspace === null ? [] : [[{ text: `   Its workspace here: ${workspaceWords(warnings.workspace)}`, dim: true }]]),
   ]);
 
+// The webhook endpoints ---------------------------------------------------------------------------
+
+const SECRET_WORDS: Readonly<Record<WebhookEndpoint["secretKind"], string>> = { pasted: "secret pasted", reference: "secret by reference", missing: "no secret" };
+
+/** The endpoints as rows: name and URL, then where its secret is and what its last POST came to. */
+export const endpointRows = (endpoints: readonly WebhookEndpoint[], now: Date): readonly PanelRow[] => {
+  const names = Math.max(0, ...endpoints.map((endpoint) => endpoint.name.length)) + 2;
+  return endpoints.map((endpoint) => {
+    const last = endpoint.lastResult;
+    const result = last === null ? "never posted to" : `last ${last.result}${last.status === null ? "" : `, ${last.status}`}${last.error === null ? "" : `: ${last.error}`} ${pastWords(last.at, now)}`;
+    return {
+      key: endpoint.name,
+      cells: [{ text: pad(endpoint.name, names), bold: true }, { text: endpoint.url }],
+      dim: false,
+      under: { text: `    ${SECRET_WORDS[endpoint.secretKind]} · ${result}`, ...(endpoint.secretKind === "missing" || last?.result === "failed" ? { color: TERMINAL_ROLES.warning } : { dim: true }) },
+    };
+  });
+};
+
 // A routine's history ---------------------------------------------------------------------------
 
 const TRIGGER_WORDS: Readonly<Record<RoutineTrigger, string>> = { schedule: "on schedule", "catch-up": "caught up", "run-now": "run now" };
@@ -162,13 +197,13 @@ export const historyRows = (view: RoutineHistoryView, now: Date): readonly Panel
 const KEPT_LINES = 6;
 const OUTPUT_LINES = 4;
 
-const firstLines = (text: string, most: number): (readonly Span[])[] => {
+export const firstLines = (text: string, most: number): (readonly Span[])[] => {
   const lines = text.replace(/\s+$/, "").split("\n");
   return [...lines.slice(0, most).map((line) => [{ text: line }]), ...(lines.length > most ? [[{ text: `… ${lines.length - most} more lines in its session`, dim: true }]] : [])];
 };
 
 /** A pre-check's run, in words: how it ended, how long it took, its output's size, and whether it differed from the baseline. */
-const preCheckWords = (record: PreCheckRecord): string => {
+export const preCheckWords = (record: PreCheckRecord): string => {
   const ended =
     record.failure !== null
       ? `failed: ${record.failure.detail}`

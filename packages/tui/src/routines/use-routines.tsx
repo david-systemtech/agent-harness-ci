@@ -1,9 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { useMemo, type ReactElement } from "react";
-import type { Clock, CommandParams, DispatchAnswer, DispatchFailure, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
-import { BYPASS_SENTENCE, ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry, type SchemaIssue } from "@agent-harness/contracts";
+import { useEffect, useMemo, type ReactElement } from "react";
+import { formatDuration, type Clock, type CommandParams, type DispatchAnswer, type DispatchFailure, type EnvironmentView, type RoutineRow, type RoutinesView, type Runtime } from "@agent-harness/client-runtime";
+import { BYPASS_SENTENCE, EndpointName, ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry, type SchemaIssue } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { expandHome } from "../composer/attachments.js";
 import type { ExternalEditResult } from "../composer/external-editor.js";
@@ -11,7 +11,19 @@ import type { Handler } from "../keys.js";
 import { LinesPanel, ListCard, TypedLine, wrappedRows } from "../pickers/cards.js";
 import { useFollow, type Opened } from "../session/use-session.js";
 import { messageOf, nameOf, type Question } from "../view.js";
-import { entryLines, historyRows, importLines, listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
+import {
+  endpointRows,
+  entryLines,
+  firstLines,
+  historyRows,
+  importLines,
+  listRows,
+  preCheckWords,
+  type AddingEndpoint,
+  type ListRow,
+  type RoutineRef,
+  type RoutinesCard,
+} from "./cards.js";
 import { ROUTINE_TEMPLATE, annotated, asksBypass, documentCount, type DocumentIssue } from "./document.js";
 import type { RoutineKey, RoutinesCommand } from "./commands.js";
 
@@ -116,6 +128,16 @@ const namesWords = (names: readonly string[]): string => (names.length <= 1 ? (n
 type Saved = { readonly kind: "refused"; readonly issues: readonly DocumentIssue[] } | { readonly kind: "done" };
 const DONE: Saved = { kind: "done" };
 
+/** The routine `/routines test-precheck` names, ignoring case: on the header's environment first, then in the connection list's order. */
+const routineNamed = (view: RoutinesView, name: string, preferred: string | undefined): RoutineRow | undefined => {
+  const wanted = name.trim().replace(/\s+/g, " ").toLowerCase();
+  const rows = [...view.groups.filter((group) => group.environmentId === preferred), ...view.groups.filter((group) => group.environmentId !== preferred)].flatMap((group) => group.routines);
+  return rows.find((row) => row.definition.name.toLowerCase() === wanted);
+};
+
+/** A pre-check's test shows this many lines of its output. */
+const TESTED_OUTPUT_LINES = 12;
+
 /** The newest firing among `entries`, newest first: a skip has no session. */
 const newestFiring = (entries: readonly RoutineEntry[]) => entries.find((entry) => entry.kind === "firing");
 
@@ -131,6 +153,11 @@ export const useRoutines = (host: RoutinesHost): Routines => {
   );
   useFollow(history, request);
   const entries = () => history?.read().entries ?? [];
+  // The endpoints shown, followed while their card is open: fetched again on routine.endpoint-set and -removed.
+  const endpointsOf = card?.kind === "endpoints" ? card.environmentId : undefined;
+  const endpointList = useMemo(() => (endpointsOf !== undefined ? runtime.requests.cached(endpointsOf, "routines.endpoints.list", {}) : undefined), [runtime, endpointsOf]);
+  useFollow(endpointList, request);
+  const endpoints = () => endpointList?.read().result?.endpoints ?? [];
   const list = (): readonly ListRow[] => listRows(runtime.projections.routines.read(), now);
 
   /** The routine under the list's cursor; none on an environment that lists none. */
@@ -332,6 +359,84 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     host.say(`Imported ${namesWords(names)} to ${where}.`);
   };
 
+  /** A routines card being typed into: the list's export, or the endpoint being added. */
+  const typing = (shown: RoutinesCard): boolean => (shown.kind === "list" && shown.exporting !== null) || (shown.kind === "endpoints" && shown.adding !== null);
+
+  const changeAdding = (update: (adding: AddingEndpoint) => AddingEndpoint | null) =>
+    host.change((shown) => (shown.kind === "endpoints" && shown.adding !== null ? { ...shown, adding: update(shown.adding) } : shown));
+
+  /** `routines.endpoints.set`, an `admin` command sent directly: the endpoint with its URL, and a pasted secret when one was typed. */
+  const setEndpoint = async (environmentId: string, adding: AddingEndpoint, secret: string) => {
+    const answer = await runtime.requests.call(environmentId, "routines.endpoints.set", {
+      commandId: host.newCommandId(),
+      name: adding.name,
+      url: adding.url,
+      ...(secret !== "" && { secret: { kind: "pasted" as const, secret } }),
+    });
+    const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : null;
+    if (refused !== null) return changeAdding((held) => ({ ...held, error: `Not saved: ${refused}` }));
+    changeAdding(() => null);
+    host.say(`Saved the endpoint ${adding.name} on ${environmentName(environmentId)}.`);
+  };
+
+  /** Enter while an endpoint is being added: its name, then its URL, then its secret, which saves it. */
+  const addStep = (environmentId: string, adding: AddingEndpoint) => {
+    const text = adding.step === "secret" ? adding.text : adding.text.trim();
+    if (adding.step === "name") {
+      if (!EndpointName.safeParse(text).success) return changeAdding((held) => ({ ...held, error: "A name is 1 to 40 lower-case letters, digits and hyphens." }));
+      return changeAdding((held) => ({ ...held, step: "url", name: text, text: "", error: null }));
+    }
+    if (adding.step === "url") {
+      if (text === "") return changeAdding((held) => ({ ...held, error: "Type the URL its posts go to." }));
+      return changeAdding((held) => ({ ...held, step: "secret", url: text, text: "", error: null }));
+    }
+    void setEndpoint(environmentId, adding, text);
+  };
+
+  /** `t`: `routines.endpoints.test`, a signed test posted to the endpoint, and what it came to. */
+  const testEndpoint = async (environmentId: string, name: string) => {
+    host.say(`Posting a test to ${name}…`);
+    const answer = await runtime.requests.call(environmentId, "routines.endpoints.test", { name });
+    if (!answer.ok) return host.say(`Not tested: ${answer.error.message}`);
+    const { status, durationMs, error } = answer.result;
+    host.say(error === null ? `${name} answered ${status ?? "nothing"} in ${formatDuration(durationMs)}.` : `${name} did not take the test: ${error}`);
+  };
+
+  /** `d`: `routines.endpoints.remove`, once confirmed. */
+  const removeEndpoint = async (environmentId: string, name: string) => {
+    const where = environmentName(environmentId);
+    if (!(await confirmed(`Remove the endpoint ${name} from ${where}? A routine delivering to it shows it missing. y/n`))) return;
+    const answer = await runtime.requests.call(environmentId, "routines.endpoints.remove", { commandId: host.newCommandId(), name });
+    const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : null;
+    host.say(refused === null ? `Removed the endpoint ${name} from ${where}.` : `Not removed: ${refused}`);
+  };
+
+  /** The endpoint under the endpoints card's cursor, while nothing is typed into it. */
+  const endpointOn = () => (card?.kind === "endpoints" && card.adding === null ? endpoints()[clamp(card.cursor, endpoints().length)] : undefined);
+
+  /** `routines.testPreCheck` of the routine found, a query at `runs:drive`, never queued. */
+  const testPreCheck = async (routine: RoutineRef) => {
+    const answer = await runtime.requests.call(routine.environmentId, "routines.testPreCheck", { routineId: routine.routineId });
+    host.change((shown) => (shown.kind === "precheck" ? (answer.ok ? { ...shown, record: answer.result } : { ...shown, failed: `Not run: ${answer.error.message}` }) : shown));
+  };
+
+  // `/routines test-precheck <name>`: once the lists are read, the routine named, and its pre-check run once.
+  const finding = card?.kind === "precheck" && card.routine === null ? card.name : null;
+  useEffect(() => {
+    if (finding === null) return;
+    const view = runtime.projections.routines.read();
+    const found = routineNamed(view, finding, host.current?.environmentId);
+    if (found) {
+      const routine = refOf(found);
+      host.change((shown) => (shown.kind === "precheck" ? { ...shown, routine } : shown));
+      void testPreCheck(routine);
+      return;
+    }
+    if (view.groups.some((group) => group.fetchedAt === null && group.error === null)) return;
+    host.close();
+    host.say(`No routine is named ${finding}.`);
+  });
+
   /** The export typed: the routine's YAML as its environment exports it, written to the path, relative to the working directory. */
   const exportTo = async (routine: RoutineRef, typed: string) => {
     const path = resolve(host.cwd, expandHome(typed.trim(), homedir()));
@@ -353,7 +458,10 @@ export const useRoutines = (host: RoutinesHost): Routines => {
         return list().length;
       case "history":
         return entries().length;
+      case "endpoints":
+        return endpoints().length;
       case "import":
+      case "precheck":
         return 0;
     }
   };
@@ -373,8 +481,13 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           return void create();
         case "import":
           return void importFile(command.path);
-        default:
-          return host.say(`/routines ${command.name} is not in this build yet.`);
+        case "endpoints": {
+          const view = host.current;
+          if (!view) return host.say("There is no environment whose endpoints to show: /pair one first.");
+          return host.open({ kind: "endpoints", environmentId: view.environmentId, cursor: 0, adding: null });
+        }
+        case "test-precheck":
+          return host.open({ kind: "precheck", name: command.routine, routine: null, record: null, failed: null, cursor: 0 });
       }
     },
     rows: rowsOf,
@@ -396,14 +509,33 @@ export const useRoutines = (host: RoutinesHost): Routines => {
           if (entry) host.say("A skip has no session: the due time was skipped before one started.");
           return;
         }
+        case "endpoints":
+          if (shown.adding !== null) addStep(shown.environmentId, shown.adding);
+          return;
         case "import":
+        case "precheck":
           return;
       }
     },
-    back: (shown) => (shown.kind === "history" ? shown.back : shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: null } : null),
-    takesText: (shown) => shown.kind === "list" && shown.exporting !== null,
-    typed: (shown, text) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: shown.exporting.text + text.replace(/[\r\n]/g, ""), error: null } } : shown),
-    erased: (shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, text: [...shown.exporting.text].slice(0, -1).join("") } } : shown),
+    back(shown) {
+      if (shown.kind === "history") return shown.back;
+      if (shown.kind === "list" && shown.exporting !== null) return { ...shown, exporting: null };
+      if (shown.kind === "endpoints" && shown.adding !== null) return { ...shown, adding: null };
+      return null;
+    },
+    takesText: typing,
+    typed(shown, text) {
+      const clean = text.replace(/[\r\n]/g, "");
+      if (shown.kind === "list" && shown.exporting !== null) return { ...shown, exporting: { ...shown.exporting, text: shown.exporting.text + clean, error: null } };
+      if (shown.kind === "endpoints" && shown.adding !== null) return { ...shown, adding: { ...shown.adding, text: shown.adding.text + clean, error: null } };
+      return shown;
+    },
+    erased(shown) {
+      const drop = (text: string) => [...text].slice(0, -1).join("");
+      if (shown.kind === "list" && shown.exporting !== null) return { ...shown, exporting: { ...shown.exporting, text: drop(shown.exporting.text) } };
+      if (shown.kind === "endpoints" && shown.adding !== null) return { ...shown, adding: { ...shown.adding, text: drop(shown.adding.text) } };
+      return shown;
+    },
     handlers: {
       "routines.runNow": () => {
         const row = verbOn();
@@ -431,18 +563,72 @@ export const useRoutines = (host: RoutinesHost): Routines => {
         if (!row) return false;
         void edit(refOf(row));
       },
-      "routines.endpoint.add": () => false,
-      "routines.endpoint.test": () => false,
-      "routines.endpoint.remove": () => false,
+      "routines.endpoint.add": () => {
+        if (card?.kind !== "endpoints" || card.adding !== null) return false;
+        host.change((shown) => (shown.kind === "endpoints" ? { ...shown, adding: { step: "name", name: "", url: "", text: "", error: null } } : shown));
+      },
+      "routines.endpoint.test": () => {
+        const endpoint = endpointOn();
+        if (!endpoint || card?.kind !== "endpoints") return false;
+        void testEndpoint(card.environmentId, endpoint.name);
+      },
+      "routines.endpoint.remove": () => {
+        const endpoint = endpointOn();
+        if (!endpoint || card?.kind !== "endpoints") return false;
+        void removeEndpoint(card.environmentId, endpoint.name);
+      },
     },
     hint(shown) {
       const k = host.keys;
       if (shown.kind === "history") return `${k("picker.move")} move · ${k("picker.choose")} opens its firing · ${k("picker.leave")} back`;
-      if (shown.kind === "import") return `${k("picker.leave")} close`;
+      if (shown.kind === "import" || shown.kind === "precheck") return `${k("picker.leave")} close`;
+      if (shown.kind === "endpoints") return shown.adding !== null ? `${k("picker.choose")} ${shown.adding.step === "secret" ? "saves it" : "next"} · ${k("picker.leave")} leaves it` : `${k("picker.move")} move · ${k("picker.leave")} close`;
       if (shown.exporting !== null) return `${k("picker.choose")} exports it · ${k("picker.leave")} leaves it`;
       return `${k("picker.move")} move · ${k("picker.choose")} opens its latest firing · ${k("picker.leave")} close`;
     },
     render(shown, size) {
+      if (shown.kind === "precheck") {
+        const { record, routine } = shown;
+        const lines = shown.failed
+          ? [[{ text: shown.failed, color: TERMINAL_ROLES.danger }]]
+          : record === null
+            ? [[{ text: routine === null ? `Finding ${shown.name}…` : "Running its pre-check once: it records nothing…", dim: true }]]
+            : [
+                [{ text: preCheckWords(record), ...(record.failure !== null && { color: TERMINAL_ROLES.danger }) }],
+                ...(record.output === null || record.output === "" ? [] : [[], ...firstLines(record.output, TESTED_OUTPUT_LINES)]),
+                ...(record.stderr === null ? [] : [[], ...firstLines(record.stderr, TESTED_OUTPUT_LINES).map((line) => line.map((span) => ({ ...span, dim: true })))]),
+              ];
+        return <LinesPanel title={`Pre-check of ${routine?.name ?? shown.name}${routine ? ` on ${environmentName(routine.environmentId)}` : ""}`} hint={routines.hint(shown)} lines={lines} />;
+      }
+      if (shown.kind === "endpoints") {
+        const read = endpointList?.read();
+        const all = endpoints();
+        const { adding } = shown;
+        const held = adding !== null && all.some((endpoint) => endpoint.name === adding.name);
+        const prompt =
+          adding === null ? "" : adding.step === "name" ? "Name (lower-case letters, digits and hyphens):" : adding.step === "url" ? "URL:" : `Secret, pasted (Enter ${held ? "keeps the one held" : "for none"}):`;
+        const text = adding === null ? "" : adding.step === "secret" ? "•".repeat([...adding.text].length) : adding.text;
+        const k = host.keys;
+        return (
+          <ListCard
+            width={size.width}
+            title={`Webhook endpoints on ${environmentName(shown.environmentId)}`}
+            hint={routines.hint(shown)}
+            rows={endpointRows(all, now)}
+            cursor={clamp(shown.cursor, all.length)}
+            height={size.height}
+            empty={read?.error ? `Not listed: ${read.error.message}` : read?.fetchedAt == null ? "Reading the endpoints…" : `No endpoints yet: ${k("routines.endpoint.add")} adds one.`}
+            footer={[
+              [],
+              [{ text: `${k("routines.endpoint.add")} add · ${k("routines.endpoint.test")} test · ${k("routines.endpoint.remove")} remove`, dim: true }],
+              ...(adding?.error ? [[{ text: adding.error, color: TERMINAL_ROLES.danger }]] : []),
+            ]}
+            childRows={adding === null ? 0 : wrappedRows(`${prompt} ${text} `, size.width)}
+          >
+            {adding !== null && <TypedLine prompt={prompt} text={text} />}
+          </ListCard>
+        );
+      }
       if (shown.kind === "import") {
         const refused = shown.documents.length === 0 || shown.documents.some((document) => document.issues.length > 0);
         return (
