@@ -53,6 +53,7 @@ import { keepSince } from "./verification.js";
 import { FORGE_ACTOR, createVerifier } from "./verifier.js";
 import { createEntityTags } from "./forge-http.js";
 import { FORGE_CALL_TIMEOUT_MS, forgeProvider, type ForgeFetch, type IdentityAnswer, type ProviderOptions } from "./providers.js";
+import type { GitConfigEntry } from "./git-helper.js";
 import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./harness-git.js";
 import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
@@ -173,6 +174,8 @@ export interface ForgeServiceOptions {
   readonly harnessCommand?: readonly string[];
   /** The environment's loopback address, where the helper asks; undefined until it listens. */
   readonly address?: () => Address | undefined;
+  /** Configuration the harness's git is given after its own (a test's `insteadOf`); preset none. */
+  readonly gitConfig?: readonly GitConfigEntry[];
 }
 
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
@@ -340,6 +343,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     command: options.harnessCommand,
     address: options.address ?? (() => undefined),
     originMissing: (origin, operation) => missing.record(origin, operation),
+    ...(options.gitConfig !== undefined && { config: options.gitConfig }),
   });
 
   /**
