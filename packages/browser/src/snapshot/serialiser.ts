@@ -1,5 +1,6 @@
 import { SNAPSHOT_MAX_CHARS, type PageArgs } from "@agent-harness/contracts";
 import { redactTokens, redactedFieldValue, secretField } from "../redaction.js";
+import { refGone } from "./refs.js";
 import { renderAriaSnapshotAsYaml } from "./vendor/aria-yaml.js";
 import type { AriaNodeJSON } from "./vendor/aria-types.js";
 
@@ -143,7 +144,7 @@ export const serialiseSnapshot = (tree: readonly AriaNodeJSON[], args: PageArgs<
     if (!focused) {
       return {
         ok: false,
-        reason: `No element on the page has the ref ${args.ref} now: it is from an older snapshot, or its element has left the page. Take a new snapshot without ref, and focus on a ref it gives.`,
+        reason: `${refGone(args.ref)} Take a new snapshot without ref, and focus on a ref it gives.`,
       };
     }
     roots = [focused];

@@ -242,14 +242,6 @@ describe("open, navigate and screenshot", () => {
     }
     expect(peer.sentOf("Page.navigate")).toEqual([]);
   });
-
-  it("says an action's snapshot cannot come with its answer yet", async () => {
-    const { perform } = await driven();
-    expect(await perform("open", { url: "https://example.com/", snapshot: { filter: "interactive", maxChars: 12_000 } })).toMatchObject({
-      ok: true,
-      notice: "No snapshot came with this answer: this browser cannot take one yet.",
-    });
-  });
 });
 
 describe("click and type by selector", () => {
@@ -258,7 +250,7 @@ describe("click and type by selector", () => {
     withField(peer, false);
     await perform("open", { url: "https://example.com/" });
     expect(await perform("click", { target: { selector: "button.buy" } })).toEqual({ ok: true, value: { url: "https://example.com/", title: "" } });
-    expect(peer.sentOf("Runtime.callFunctionOn")[0]?.params.arguments).toEqual([{ value: "button.buy" }]);
+    expect(peer.sentOf("Runtime.callFunctionOn")[0]?.params.arguments).toEqual([{ value: { selector: "button.buy" } }]);
     expect(String(peer.sentOf("Runtime.callFunctionOn")[0]?.params.functionDeclaration)).toMatch(/^function locateElement\(/);
     expect(mouse(peer)).toEqual([
       { type: "mouseMoved", x: 320, y: 240 },
@@ -307,17 +299,18 @@ describe("click and type by selector", () => {
   it("answers a sentence for a selector that matches nothing, one that is not valid, an element with nothing visible, and one that takes no text", async () => {
     const { peer, perform } = await driven();
     await perform("open", { url: "https://example.com/" });
-    peer.inPage("locateElement", ({ args }) =>
-      args[0] === "#missing"
+    peer.inPage("locateElement", ({ args }) => {
+      const { selector } = args[0] as { selector: string };
+      return selector === "#missing"
         ? { kind: "none" }
-        : args[0] === "p["
+        : selector === "p["
           ? { kind: "invalid", message: "'p[' is not a valid selector." }
-          : args[0] === "#hidden"
+          : selector === "#hidden"
             ? { kind: "hidden" }
-            : args[0] === "#under"
+            : selector === "#under"
               ? { kind: "covered", by: "div#banner.cookie" }
-              : { kind: "found", x: 1, y: 1, editable: false },
-    );
+              : { kind: "found", x: 1, y: 1, editable: false };
+    });
     expect(await perform("click", { target: { selector: "#missing" } })).toEqual({ ok: false, reason: "No element on the page matches the CSS selector #missing." });
     expect(await perform("click", { target: { selector: "p[" } })).toEqual({ ok: false, reason: "The CSS selector p[ is not valid: 'p[' is not a valid selector." });
     expect(await perform("click", { target: { selector: "#hidden" } })).toEqual({ ok: false, reason: "The element matching #hidden has no visible part on the page to act on." });
@@ -329,15 +322,9 @@ describe("click and type by selector", () => {
     expect(mouse(peer)).toEqual([]);
   });
 
-  it("says refs need a snapshot, which this browser cannot take yet", async () => {
+  it("says it cannot read a page as text yet", async () => {
     const { perform } = await driven();
     await perform("open", {});
-    const reason = "Refs come from snapshots, which this browser cannot take yet: name the element by a CSS selector instead.";
-    expect(await perform("click", { target: { ref: "e12" } })).toEqual({ ok: false, reason });
-    expect(await perform("type", { target: { ref: "e12" }, text: "x" })).toEqual({ ok: false, reason });
-    expect(await perform("scroll", { to: { ref: "e12" } })).toEqual({ ok: false, reason });
-    expect(await perform("waitFor", { until: { ref: "e12" } })).toEqual({ ok: false, reason });
-    expect(await perform("snapshot", {})).toEqual({ ok: false, reason: "This browser cannot take a snapshot yet. Take a screenshot to see the page." });
     expect(await perform("read", {})).toEqual({ ok: false, reason: "This browser cannot read a page as text yet. Take a screenshot to see the page." });
   });
 });

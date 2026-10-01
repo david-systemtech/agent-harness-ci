@@ -10,6 +10,7 @@ import {
   type PageRefusal,
 } from "@agent-harness/contracts";
 import { CdpError, type CdpEvent, type CdpParams, type CdpSession } from "../cdp/session.js";
+import { RefBook } from "../snapshot/refs.js";
 
 /**
  * One session's page as the driver holds it (browser spec, "One page driver
@@ -98,6 +99,18 @@ interface TrackedFrame {
   sessionId?: string;
 }
 
+/** An in-page function sent as a declaration composed from the source texts of several (the snapshot's), with the signature it is called by. */
+export interface InPageSource<A extends unknown[], R> {
+  readonly declaration: string;
+  /** The declaration's signature, for the type checker alone. */
+  readonly signature?: (...args: A) => R;
+}
+
+/** What the driver runs in a page: a function, sent as its own source text, or a composed declaration. */
+export type InPageFunction<A extends unknown[], R> = ((...args: A) => R) | InPageSource<A, R>;
+
+const declarationOf = (fn: InPageFunction<never, unknown>): string => (typeof fn === "function" ? fn.toString() : fn.declaration);
+
 /** An in-page function's answer in one frame. */
 export type FrameOutcome<R> = { readonly frame: PageFrame; readonly ok: true; readonly value: R } | { readonly frame: PageFrame; readonly ok: false; readonly error: string };
 
@@ -169,6 +182,8 @@ export class CdpPage {
   /** The document the allowance opened: its frames in the allowed host stand while it is the page's. */
   private allowedLoad: { readonly host: string; readonly loaderId: string } | undefined;
   private notices: string[] = [];
+  /** The refs the page's snapshots gave, frame by frame. */
+  readonly refs = new RefBook();
   private consoleLines: ConsoleEntry[] = [];
   private consoleDropped = 0;
   private requests = new Map<string, NetworkRecord>();
@@ -236,6 +251,12 @@ export class CdpPage {
 
   mainFrame(): PageFrame {
     return this.frames.get(this.mainFrameId) as TrackedFrame;
+  }
+
+  /** The frame `frameId`, while the page has it. */
+  frame(frameId: string): PageFrame | undefined {
+    const frame = this.frames.get(frameId);
+    return frame && publicFrame(frame);
   }
 
   /** The page's address's standing under the host's policy. */
@@ -308,7 +329,7 @@ export class CdpPage {
    * answers its value. A world whose document went between the two is made
    * again once. Throws the page's exception as an `Error`.
    */
-  async callInFrame<A extends unknown[], R>(frame: PageFrame, fn: (...args: A) => R, ...args: A): Promise<Awaited<R>> {
+  async callInFrame<A extends unknown[], R>(frame: PageFrame, fn: InPageFunction<A, R>, ...args: A): Promise<Awaited<R>> {
     const tracked = this.frames.get(frame.id);
     if (!tracked) throw new CdpError(`The frame ${frame.id} has left the page`);
     for (let attempt = 1; ; attempt++) {
@@ -316,7 +337,7 @@ export class CdpPage {
       try {
         const reply = await this.session.send(
           "Runtime.callFunctionOn",
-          { functionDeclaration: fn.toString(), executionContextId, arguments: args.map((value) => ({ value })), returnByValue: true, awaitPromise: true },
+          { functionDeclaration: declarationOf(fn), executionContextId, arguments: args.map((value) => ({ value })), returnByValue: true, awaitPromise: true },
           tracked.sessionId,
         );
         if (reply.exceptionDetails) throw new Error(`The page's script failed: ${exceptionText(reply.exceptionDetails as ExceptionDetails)}`);
@@ -333,20 +354,50 @@ export class CdpPage {
    * world, cross-site frames in their child targets: the answers keyed by
    * frame id, in document order, a frame's failure its own entry.
    */
-  async callInEveryFrame<A extends unknown[], R>(fn: (...args: A) => R, ...args: A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
+  callInEveryFrame<A extends unknown[], R>(fn: InPageFunction<A, R>, ...args: A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
+    return this.callInEachFrame(fn, () => args);
+  }
+
+  /** As `callInEveryFrame`, with each frame's own arguments. */
+  async callInEachFrame<A extends unknown[], R>(fn: InPageFunction<A, R>, argsOf: (frame: PageFrame) => A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
     await Promise.all([...this.setups]);
     const frames = this.framesInOrder();
     const outcomes = await Promise.all(
       frames.map(async (frame): Promise<FrameOutcome<Awaited<R>>> => {
         const shownFrame = publicFrame(frame);
         try {
-          return { frame: shownFrame, ok: true, value: await this.callInFrame(frame, fn, ...args) };
+          return { frame: shownFrame, ok: true, value: await this.callInFrame(frame, fn, ...argsOf(shownFrame)) };
         } catch (error) {
           return { frame: shownFrame, ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       }),
     );
     return new Map(outcomes.map((outcome) => [outcome.frame.id, outcome]));
+  }
+
+  /**
+   * Calls an in-page function on the element that holds `frame` in its
+   * parent's document (its iframe), as `this`, in the parent's isolated
+   * world, through the parent's own target: the protocol names the owner,
+   * resolves it into that world, and the object is let go of after. Answers
+   * undefined for the page's top frame, which no element holds, and throws
+   * when the owner cannot be found or the call fails.
+   */
+  async callOnFrameOwner<R>(frame: PageFrame, fn: (this: Element) => R): Promise<Awaited<R> | undefined> {
+    const tracked = this.frames.get(frame.id);
+    const parent = tracked?.parentId === undefined ? undefined : this.frames.get(tracked.parentId);
+    if (!tracked || !parent) return undefined;
+    const { backendNodeId } = await this.session.send("DOM.getFrameOwner", { frameId: tracked.id }, parent.sessionId);
+    const executionContextId = await this.world(parent);
+    const { object } = await this.session.send("DOM.resolveNode", { backendNodeId, executionContextId }, parent.sessionId);
+    const { objectId } = object as { objectId: string };
+    try {
+      const reply = await this.session.send("Runtime.callFunctionOn", { functionDeclaration: fn.toString(), objectId, returnByValue: true, awaitPromise: true }, parent.sessionId);
+      if (reply.exceptionDetails) throw new Error(`The page's script failed: ${exceptionText(reply.exceptionDetails as ExceptionDetails)}`);
+      return (reply.result as { value?: unknown }).value as Awaited<R>;
+    } finally {
+      void this.session.send("Runtime.releaseObject", { objectId }, parent.sessionId).catch(() => undefined);
+    }
   }
 
   // Loads -----------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import type { InPageSource } from "../driver/page.js";
 import { redactedFieldValue, secretField } from "../redaction.js";
 import { playwrightAriaSnapshot } from "./vendor/aria-snapshot.js";
 import { playwrightCssTokenizer } from "./vendor/css-tokenizer.js";
@@ -13,13 +14,6 @@ import { installSnapshotWorld, snapshotWorld, type FieldMarkers, type FrameSnaps
  * one; each part reaches nothing outside itself but its arguments, so the
  * declaration runs alone in the page as it runs in a test's jsdom.
  */
-
-/** An in-page function sent as a declaration composed from the source texts of several, with the signature it is called by. */
-export interface InPageSource<A extends unknown[], R> {
-  readonly declaration: string;
-  /** The declaration's signature, for the type checker alone. */
-  readonly signature?: (...args: A) => R;
-}
 
 /** The value written for each kind of field whose value is never read. */
 const FIELD_MARKERS: FieldMarkers = {

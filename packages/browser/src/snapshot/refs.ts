@@ -9,6 +9,9 @@
  * names another element.
  */
 
+/** What is said of a ref no element has now, before what to do about it. */
+export const refGone = (ref: string): string => `No element on the page has the ref ${ref} now: it is from an older snapshot, or its element has left the page.`;
+
 /** A ref as the in-page snapshot writes it: an optional frame prefix, then `e` and a number. */
 const REF = /^(f\d+)?e\d+$/;
 
