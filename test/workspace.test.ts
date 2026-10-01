@@ -87,10 +87,10 @@ describe("the workspace", () => {
     expect(deps.filter((d) => d === "@agent-harness/environment" || d === "agent-harness")).toEqual([]);
   });
 
-  it("gives the GUI three workspace dependencies, the client runtime, contracts and theme, and neither Electron nor the environment nor the CLI: its bundle runs in a browser tab", () => {
+  it("gives the GUI four workspace dependencies, the browser, client runtime, contracts and theme, and neither Electron nor the environment nor the CLI: its bundle runs in a browser tab", () => {
     const workspace = new Set(manifests.map((m) => m.name));
     const deps = runtimeDependencies(manifest("@agent-harness/gui"));
-    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme"]);
+    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/browser", "@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme"]);
     expect(deps.filter((d) => d === "electron" || d.startsWith("@electron/"))).toEqual([]);
   });
 

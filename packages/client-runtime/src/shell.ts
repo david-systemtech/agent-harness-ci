@@ -180,7 +180,6 @@ export interface ShellTray {
   onClick(listener: () => void): () => void;
 }
 
-/** An embedded browser page, named by an opaque id. Partitions are separate from the renderer. An opaque partition key reopens its persistent profile; without one, create uses a fresh in-memory profile. */
 /** The CDP channel of a native page and its flat child targets. Contains only opaque view/target ids and protocol objects. */
 export interface ShellWebViewDebugger {
   attach(viewId: string): Promise<void>;
@@ -195,6 +194,7 @@ export interface ShellDebuggerMessage {
   readonly sessionId?: string;
 }
 
+/** An embedded browser page, named by an opaque id. Partitions are separate from the renderer. An opaque partition key reopens its persistent profile; without one, create uses a fresh in-memory profile. */
 export interface ShellWebView {
   /** Absent where the dock can display pages but cannot drive them. */
   readonly debugger?: ShellWebViewDebugger;
