@@ -6,7 +6,7 @@ import { createRuntime, writable } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
-import { DELTA_HOLD_BACK_MS } from "../../environment/src/adapter/delta-scrub.js";
+import { deltaShown, holdBackLastOf } from "../../environment/test/delta-hold-back.js";
 import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { WAIT_MS } from "../../environment/test/wire-client.js";
 import { FORBIDDEN_WORDS } from "../../../eslint-rules/no-client-organisation-state.js";
@@ -91,32 +91,9 @@ const terminal = (dataDir: string, stateDir: string, tty: string, session?: stri
 const ENTER = "\r";
 const UP = "\u001B[A";
 
-/**
- * A value beginning with the last letter of `Look`, the scripts' first delta.
- * The environment holds back a streamed tail that could begin a registered
- * value (`delta-scrub.ts`), so with this registered it holds the `k`, as it
- * does in about one run in 64 for its own signing key, random base64 and
- * registered from its vault, when that begins with `k` (#1133). Registered by
- * the tests that wait on `Look`, so every run takes the path `replyShown` must
- * see through.
- */
-const HELD_FROM_LOOK = "kept-back-by-the-smoke-test";
-
-/**
- * Waits for `text`, a reply's first streamed delta, whole on `terminal`'s
- * screen. The environment shows a tail it holds back as the possible start of
- * a registered value when its continuation or its settlement comes, or once
- * `DELTA_HOLD_BACK_MS` on its clock has passed (`delta-scrub.ts`), and that
- * clock is manual here: a test that waits on the rest with the run held open
- * waits for ever (#1133). Once the reply has begun on screen the environment
- * has taken the delta and set the hold-back's timer, so moving its clock past
- * it shows the rest.
- */
-const replyShown = async (t: TestEnvironment, terminal: { frame(): string }, text: string): Promise<void> => {
-  await until(() => terminal.frame().includes(`● ${text.slice(0, 1)}`), terminal.frame);
-  t.clock.advance(DELTA_HOLD_BACK_MS);
-  await until(() => terminal.frame().includes(`● ${text}`), terminal.frame);
-};
+/** Waits for `text`, a reply's streamed delta, whole on `terminal`'s screen, through the environment's hold-back. */
+const replyShown = (t: TestEnvironment, terminal: { frame(): string }, text: string): Promise<void> =>
+  deltaShown(t, text, (prefix) => until(() => terminal.frame().includes(`● ${prefix}`), terminal.frame));
 
 describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_TEST_MS }, () => {
   it("exchanges the grant and renders the header and the rail", async () => {
@@ -158,7 +135,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
   it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
     const t = await startTestEnvironment({ name: "smoke-send" });
     onCleanup(() => t.close());
-    t.scrub.register(HELD_FROM_LOOK, { owner: "smoke-test" });
+    holdBackLastOf(t, "Look");
     const streamed = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
@@ -203,7 +180,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     // A provider queue that does not steer holds the message while the turn is held open, so the withdraw takes it back from the provider.
     const t = await startTestEnvironment({ name: "smoke-withdraw", adapter: fakeAdapter({ capabilities: { steering: false } }) });
     onCleanup(() => t.close());
-    t.scrub.register(HELD_FROM_LOOK, { owner: "smoke-test" });
+    holdBackLastOf(t, "Look");
     const held = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
