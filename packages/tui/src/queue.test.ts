@@ -280,12 +280,32 @@ describe("when a verb cannot be used", () => {
     expect(mainText(app)).toContain("↑ (empty composer) take the newest back (desk cannot be reached.)");
   });
 
+  it("draws withdraw dim with the adapter's reason before any ↑, then offers it when the environment re-owns the message", async () => {
+    const { app, env } = await launch({ queue: "provider", provider: { providerQueue: true, withdraw: false } });
+    await withQueue(app, "and the tests");
+    const reason = "Claude cannot withdraw a message its provider holds.";
+    await app.waitUntil(() => mainText(app).includes(reason), "the queued line to show the adapter's reason before ↑");
+    expect(mainText(app)).toContain(`↑ (empty composer) take the newest back (${reason})`);
+    expect(mainText(app)).toContain("Ctrl+Enter read now");
+    expect(env.requests("runs.withdraw")).toHaveLength(0);
+
+    await app.press(KEY.up);
+    await app.waitUntil(() => mainText(app).includes(`Not withdrawn: ${reason}`), "the key to refuse withdrawal with the adapter's reason");
+    expect(env.requests("runs.withdraw")).toHaveLength(0);
+
+    const newest = env.queued(SESSION).at(-1);
+    env.emit(SESSION, "message.requeued", { runId: newest?.runId ?? "", messageId: newest?.messageId ?? "" });
+    await app.waitUntil(() => mainText(app).includes("Ctrl+Enter read now · ↑ (empty composer) take the newest back"), "the re-owned queue to offer withdraw");
+    await app.press(KEY.up);
+    await app.waitUntil(() => env.requests("runs.withdraw").length === 1, "the re-owned message to be withdrawn");
+    await app.waitUntil(() => env.summary(SESSION).draft === "and the tests", "the withdrawn text to return to the draft");
+  });
+
   it("refuses in one line with the adapter's reason as the environment gives it, and asks the environment again at the next ↑", async () => {
-    // Nothing on the wire says an adapter cannot withdraw, and the environment refuses only a message the provider holds:
-    // one refusal is not kept, so a message an interrupt hands back to the environment can still be taken back.
+    // A refusal is not kept: the next request and a re-owned message are decided on their current state.
     const reason = "The Claude adapter cannot withdraw a queued message: its CLI has no cancel-by-id control.";
     const { app, env } = await launch({
-      receipts: { "runs.withdraw": { rejected: "invalid_params", message: reason, data: { reason: "unsupported", capability: "providerQueue", provider: "claude" } } },
+      receipts: { "runs.withdraw": { rejected: "invalid_params", message: reason, data: { reason: "unsupported", capability: "withdraw", provider: "claude" } } },
     });
     await withQueue(app, "and the tests");
     await app.press(KEY.up);

@@ -17,11 +17,11 @@ import type { RewoundAt, UserMessageEntry } from "./session.js";
  *    queues (`unreachable`, `not-ready`). `sessions.fork` is `sessions:write`
  *    and queues while the environment is unreachable, as the outbox keeps
  *    it: only its scope counts.
- * 2. **The adapter's capability flag**: `fork` and `rewind` (reason
- *    `adapter`, in the adapter's own name). Read now and withdraw have no
- *    flag: without `providerQueue` the environment holds the queue itself
- *    and does both; the flag only says who holds a message. Undo rewind has
- *    none either: with no rewind there is nothing to undo. An adapter not
+ * 2. **The adapter's capability flag**: `fork`, `rewind`, and `withdraw`
+ *    for a message the provider holds (reason `adapter`, in the adapter's
+ *    own name). An environment-held message is always withdrawable. Read
+ *    now has no flag: the environment interrupts and re-owns the queue.
+ *    Undo rewind has none either: with no rewind there is nothing to undo. An adapter not
  *    known yet (its descriptor not read) decides nothing; the environment
  *    refuses what it cannot do.
  * 3. **The session's state**, as the environment would refuse it:
@@ -93,7 +93,7 @@ export interface VerbsInput {
   /** The connection's answer for a verb's command (`capability`'s, or for `sessions.fork`, which queues, its scope's alone). */
   readonly connection: (method: VerbMethod) => CapabilityAnswer;
   /** The session's adapter; null while it is not known. */
-  readonly adapter: Pick<AdapterCapabilities, "displayName" | "fork" | "rewind"> | null;
+  readonly adapter: Pick<AdapterCapabilities, "displayName" | "fork" | "rewind" | "withdraw"> | null;
   /** A run of the session is live, or starting. */
   readonly live: boolean;
   /** The session's queue, in the order sent (`projections.session`'s `queued`). */
@@ -156,6 +156,8 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
   const withdrawOf = (message: UserMessageEntry, heldBy: QueueHolder): VerbAvailability =>
     first(
       connection("runs.withdraw"),
+      () =>
+        heldBy === "provider" && adapter?.withdraw === false ? absent("adapter", `${adapter.displayName} cannot withdraw a message its provider holds.`) : null,
       () => (reachable(heldBy) ? null : absent("being_read", "The provider is opening a turn with this message: it can no longer be withdrawn.")),
       () =>
         draftAfterWithdraw(input.draft, message.text).length > MAX_DRAFT_LENGTH ? absent("draft_full", "The draft has no room for this message's text: shorten or clear it first.") : null,
