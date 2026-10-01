@@ -33,7 +33,9 @@ import { OVERFLOW_WINDOW_MS, SUBSCRIBE_TIMEOUT_MS, overflowDelay } from "./attac
  *   (environment `wire/subscriptions.ts`). So a chunk before `synchronized`
  *   is never live, and one at or under the cursor, which it never sends, is
  *   dropped rather than drawn twice;
- * - `terminal.exited` is `exited`, the last thing handed over.
+ * - `terminal.exited` is `exited`, with when it happened on the
+ *   environment's clock (its `occurredAt`, the same each time it is sent),
+ *   the last thing handed over.
  *
  * When the socket goes the handle is `unreachable` and the next `ready`
  * resubscribes from the cursor, so the environment replays what was missed
@@ -54,8 +56,8 @@ export type TerminalOutput =
   | { readonly kind: "reset"; readonly data: string; readonly sequence: number; readonly truncated: boolean; readonly terminal: TerminalInfo }
   /** A chunk after the cursor: `live` once the subscription has synchronized, else replayed from while this client was away. */
   | { readonly kind: "output"; readonly data: string; readonly sequence: number; readonly live: boolean }
-  /** The terminal ended; nothing follows. */
-  | { readonly kind: "exited"; readonly exit: TerminalExitedPayload };
+  /** The terminal ended, at `occurredAt` on the environment's clock; nothing follows. */
+  | { readonly kind: "exited"; readonly exit: TerminalExitedPayload; readonly occurredAt: string };
 
 /**
  * Where a terminal's subscription stands: waiting for the environment to be
@@ -174,7 +176,7 @@ export const createTerminalSubscriptions = (options: {
           const read = TerminalExitedPayload.safeParse(event.payload);
           if (!read.success) return report(new Error(`Terminal ${h.terminalId}'s exit could not be read.`));
           set(h, { cursor: message.sequence, exit: read.data, status: "ended" });
-          return hand(h, { kind: "exited", exit: read.data });
+          return hand(h, { kind: "exited", exit: read.data, occurredAt: event.occurredAt });
         }
         // A type this version does not know, from a newer environment: passed over, the cursor with it.
         return set(h, { cursor: message.sequence });
