@@ -3758,19 +3758,298 @@
                   "type": "null"
                 }
               ]
+            },
+            "status": {
+              "description": "A sync changed status or last successful fetch time, even when main stayed at the same head.",
+              "type": "object",
+              "properties": {
+                "reachable": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "reachable"
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "unreachable"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Why it could not be reached, in a sentence."
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "reason",
+                        "since"
+                      ]
+                    }
+                  ],
+                  "description": "Whether the bank's checkout can be read and, for a bank with a remote, the remote answered; why not, when not."
+                },
+                "manifest": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "valid"
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "awaiting-review"
+                        },
+                        "pullRequest": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The web address of the open pull request holding BANK.md."
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "pullRequest",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "missing"
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "invalid"
+                        },
+                        "rule": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The validator rule's id it fails first."
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The rule's message."
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "rule",
+                        "message",
+                        "since"
+                      ]
+                    }
+                  ],
+                  "description": "The bank's BANK.md on main: valid; held by an open pull request on a bank whose merges are reviewed (awaiting-review, which counts as landed, ADR 0019); missing; or invalid, with the first rule it fails."
+                },
+                "orientation": {
+                  "type": "object",
+                  "properties": {
+                    "missing": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": "The orientation names BANK.md lists that name no memory in the bank."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When this part of the status last changed: never when it was last verified."
+                    }
+                  },
+                  "required": [
+                    "missing",
+                    "since"
+                  ],
+                  "description": "Whether every orientation memory BANK.md names is in the bank."
+                },
+                "owners": {
+                  "type": "object",
+                  "properties": {
+                    "unresolved": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "description": "The owners a team bank's BANK.md names that do not resolve on its forge; none on a personal bank."
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When this part of the status last changed: never when it was last verified."
+                    }
+                  },
+                  "required": [
+                    "unresolved",
+                    "since"
+                  ],
+                  "description": "Whether a team bank's owners resolve on its forge."
+                },
+                "lastSync": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "An instant as an ISO 8601 UTC timestamp."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "When a sync last fetched the bank; null before the first."
+                },
+                "landing": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "ok"
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "failed"
+                        },
+                        "step": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "The Lander's step the landing failed at."
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Why, in a sentence."
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "step",
+                        "reason",
+                        "since"
+                      ]
+                    }
+                  ],
+                  "description": "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why."
+                }
+              },
+              "required": [
+                "reachable",
+                "manifest",
+                "orientation",
+                "owners",
+                "lastSync",
+                "landing"
+              ]
             }
           },
           "required": [
             "bankId"
           ],
-          "description": "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on."
+          "description": "bank.updated: a bank's registry settings, sync status or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on."
         }
       },
       "required": [
         "type",
         "payload"
       ],
-      "description": "A bank's registry settings or what its BANK.md names changed: the fields that changed."
+      "description": "A bank's registry settings, sync status or what its BANK.md names changed: the fields that changed."
     },
     {
       "type": "object",

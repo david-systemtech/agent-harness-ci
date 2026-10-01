@@ -95,6 +95,21 @@ it("serves a bank's fallback to its own git, refuses provider grants and uses th
   expect((await askCredentialRoute(t.address, observed.secret, { action: "get", slug: "bank_maya_memory", protocol: "http", host })).status).toBe(401);
 });
 
+it("syncs a bank through its fallback credential and canonical origin", async () => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  const remote = forge.gitRepository("david/memory", { private: true, empty: true });
+  forge.gitCredential("git", TOKEN);
+  const { t, client, bankId, checkout } = await setup(forge.origin, { forgeFetch: forge.fetch, harnessCommand: helper() });
+  git(checkout, "push", remote, "main");
+  await client.request("banks.credential.set", { commandId: randomUUID(), bankId, token: TOKEN });
+  git(checkout, "remote", "set-url", "origin", "https://unrelated.example.test/evil/repo.git");
+  const answer = await client.request("banks.sync", { bankId });
+  expect(answer.banks[0]?.status.lastSync).toBe(t.clock.now().toISOString());
+  expect(git(checkout, "rev-parse", "HEAD")).toBe(git(remote, "rev-parse", "HEAD"));
+  expect(JSON.stringify(answer)).not.toContain(TOKEN);
+});
+
 it("refuses a pasted fallback when a matching forge account exists", async () => {
   const forge = await startFakeForge();
   onCleanup(() => forge.close());
