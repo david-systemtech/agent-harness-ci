@@ -26,7 +26,9 @@ const reachedLines = (binding: EnvironmentBinding): readonly string[] => [
  * address and the LAN address it binds, from `environment.status` in the
  * request cache, so an unreachable environment's is what this window last
  * read. Loopback alone says the Tailscale warning with Check again, which
- * reads the status again; a notice, never a failure. Under it the two
+ * reads the status again, or, once the environment finds a Tailscale address
+ * it did not bind at its start, that it binds it at its next start (#861); a
+ * notice, never a failure. Under it the two
  * binding switches, `network.bindTailnet` and `network.bindLan`, each
  * written through `settings.update` and applied at the environment's next
  * start, the LAN switch naming the address it would bind (a choice among
@@ -53,7 +55,12 @@ export const Reachability = ({ view, writable }: { readonly view: EnvironmentVie
       {binding === undefined ? (
         ready && status.result === null && <p className="text-ink-faint">{status.error === null ? `Reading how ${name} is reached…` : `How ${name} is reached could not be read: ${status.error.message}`}</p>
       ) : (
-        <Reached binding={binding} tailnetOff={values?.["network.bindTailnet"] === false} recheck={ready ? () => runtime.requests.refresh(environmentId, "environment.status", {}) : undefined} />
+        <Reached
+          binding={binding}
+          name={name}
+          tailnetOff={values?.["network.bindTailnet"] === false}
+          recheck={ready ? () => runtime.requests.refresh(environmentId, "environment.status", {}) : undefined}
+        />
       )}
       {values !== null && "network.bindTailnet" in values && (
         <>
@@ -72,8 +79,20 @@ export const Reachability = ({ view, writable }: { readonly view: EnvironmentVie
   );
 };
 
-/** What the environment binds beside loopback, or loopback alone with the Tailscale warning and Check again. */
-const Reached = ({ binding, tailnetOff, recheck }: { readonly binding: EnvironmentBinding; readonly tailnetOff: boolean; readonly recheck: (() => void) | undefined }) => {
+interface ReachedProps {
+  readonly binding: EnvironmentBinding;
+  /** The environment's name, which the line for a Tailscale address found since its start names. */
+  readonly name: string;
+  readonly tailnetOff: boolean;
+  readonly recheck: (() => void) | undefined;
+}
+
+/**
+ * What the environment binds beside loopback, or loopback alone with Check
+ * again: the Tailscale warning, or, for a Tailscale address found since its
+ * start, that it binds it at its next start (#861).
+ */
+const Reached = ({ binding, name, tailnetOff, recheck }: ReachedProps) => {
   const lines = reachedLines(binding);
   if (lines.length > 0) {
     return (
@@ -86,9 +105,10 @@ const Reached = ({ binding, tailnetOff, recheck }: { readonly binding: Environme
   }
   // With its tailnet switch off, finding no address is not what kept it to loopback.
   if (tailnetOff) return <p className="text-ink">Reachable only from itself: binding its tailnet address is off.</p>;
+  const found = binding.tailnetFound ?? null;
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <p className="text-amber">{TAILSCALE_WARNING}</p>
+      {found === null ? <p className="text-amber">{TAILSCALE_WARNING}</p> : <p className="text-ink">{`Tailscale address ${found} found: ${name} binds it at its next start.`}</p>}
       <Button disabled={recheck === undefined} onClick={recheck}>
         Check again
       </Button>

@@ -120,13 +120,32 @@ describe("binding", () => {
   it("says on environment.status and in the snapshot that it binds nothing beside loopback, and which LAN addresses its machine holds now, which it could bind", async () => {
     const held = ["192.168.1.20", "fd00::20"];
     const t = await start({ interfaces: { ...detector(undefined), lanAddresses: () => held } });
-    expect(await binding(t)).toEqual({ tailnet: null, lan: null, lanAddresses: ["192.168.1.20", "fd00::20"] });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: ["192.168.1.20", "fd00::20"] });
     held.pop();
-    expect(await binding(t)).toEqual({ tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: ["192.168.1.20"] });
     const client = await t.client();
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
     const snapshot = await client.next((f): f is SnapshotFrame => f.type === "snapshot" && f.subscription === subscription);
     expect(snapshot.payload).toMatchObject({ status: { binding: { tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] } } });
+  });
+
+  it("says on environment.status a Tailscale address found since its start, which it binds only at its next start, looking again at each status (#861)", async () => {
+    let tailscale: string | undefined;
+    const t = await start({ interfaces: { ...detector(undefined), tailscaleAddress: async () => tailscale } });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] });
+    // Tailscale installed since the start: found, not bound.
+    tailscale = "100.64.0.9";
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: "100.64.0.9", lan: null, lanAddresses: [] });
+    expect(t.env.addresses).toEqual([{ host: "127.0.0.1", port: t.address.port }]);
+    expect(t.env.authPolicy).toBe("local-only");
+    // Stopped again: found no more.
+    tailscale = undefined;
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] });
+  });
+
+  it("says on environment.status the Tailscale address it found at its start with network.bindTailnet off, which it does not bind", async () => {
+    const t = await start({ interfaces: detector("100.64.0.9", "desk.tail1234.ts.net"), bindTailnet: false });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: "100.64.0.9", lan: null, lanAddresses: [] });
   });
 
   it("fails no check of the Your machines step with no tailnet address found: binding none is a notice on its card", async () => {
@@ -144,7 +163,7 @@ describe("binding", () => {
 
     const t = await start({ dataDir, interfaces: detector(undefined, undefined, ["192.168.1.20"]) });
     expect(t.env.addresses).toEqual([{ host: "127.0.0.1", port: t.address.port }]);
-    expect(await binding(t)).toEqual({ tailnet: null, lan: null, lanAddresses: ["192.168.1.20"] });
+    expect(await binding(t)).toEqual({ tailnet: null, tailnetFound: null, lan: null, lanAddresses: ["192.168.1.20"] });
     expect(lines.filter((line) => line.includes("192.0.2.10"))).toEqual([
       "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20), so the environment starts without it: pick one it holds on the Your machines step, or turn LAN binding off.",
     ]);
@@ -240,9 +259,9 @@ describe("binding", () => {
 
     it("says on environment.status that it binds the tailnet address, with its tailnet name, and the LAN addresses it could bind", async () => {
       const t = await start({ interfaces: detector(ALIAS, "desk.tail1234.ts.net", [OTHER_ALIAS]) });
-      expect(await binding(t)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: [OTHER_ALIAS] });
+      expect(await binding(t)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, tailnetFound: null, lan: null, lanAddresses: [OTHER_ALIAS] });
       const unnamed = await start({ interfaces: detector(ALIAS) });
-      expect(await binding(unnamed)).toEqual({ tailnet: { address: ALIAS, name: null }, lan: null, lanAddresses: [] });
+      expect(await binding(unnamed)).toEqual({ tailnet: { address: ALIAS, name: null }, tailnetFound: null, lan: null, lanAddresses: [] });
     });
 
     it("applies network.bindTailnet at the next start: written off, the restart binds loopback alone and says it binds no tailnet; written on again, the next binds the tailnet address", async () => {
@@ -253,7 +272,7 @@ describe("binding", () => {
       const off = await startTestEnvironment({ dataDir, interfaces: machine });
       expect(off.env.addresses).toEqual([{ host: "127.0.0.1", port: off.address.port }]);
       expect(off.env.authPolicy).toBe("local-only");
-      expect(await binding(off)).toEqual({ tailnet: null, lan: null, lanAddresses: [OTHER_ALIAS] });
+      expect(await binding(off)).toEqual({ tailnet: null, tailnetFound: ALIAS, lan: null, lanAddresses: [OTHER_ALIAS] });
       await write(await off.client(), { "network.bindTailnet": true });
       await off.close();
 
@@ -273,7 +292,7 @@ describe("binding", () => {
       const lan = await startTestEnvironment({ dataDir, interfaces: machine });
       expect(lan.env.addresses.map((address) => address.host)).toEqual(["127.0.0.1", ALIAS, OTHER_ALIAS]);
       expect((await get({ host: OTHER_ALIAS, port: lan.address.port }, HEALTH_PATH)).status).toBe(200);
-      expect(await binding(lan)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, lan: OTHER_ALIAS, lanAddresses: [OTHER_ALIAS] });
+      expect(await binding(lan)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, tailnetFound: null, lan: OTHER_ALIAS, lanAddresses: [OTHER_ALIAS] });
       await write(await lan.client(), { "network.bindLan": null });
       await lan.close();
 
@@ -293,7 +312,7 @@ describe("binding", () => {
         { host: ALIAS, port: t.address.port },
       ]);
       expect(t.env.authPolicy).toBe("tailnet");
-      expect(await binding(t)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, lan: null, lanAddresses: ["192.168.1.20"] });
+      expect(await binding(t)).toEqual({ tailnet: { address: ALIAS, name: "desk.tail1234.ts.net" }, tailnetFound: null, lan: null, lanAddresses: ["192.168.1.20"] });
     });
 
     it("takes the start options over both keys, for tests and the service verbs", async () => {
