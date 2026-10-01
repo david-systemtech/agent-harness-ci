@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ChromeId } from "../browser-bridge.js";
 import { ChromePairingCode, PairedChrome } from "../browser-chromes.js";
+import { PageCall, PageOutcome } from "../browser-driver.js";
 import { BrowserStatus } from "../browser-status.js";
 import { commandParams, defineMethod } from "../method.js";
 import { Timestamp } from "../primitives.js";
@@ -8,9 +9,10 @@ import { Timestamp } from "../primitives.js";
 /**
  * The browser's methods (browser spec, "Settings, methods, events and
  * notices"; ADR 0014, ADR 0024), each with one scope. A Chrome the
- * environment does not hold is `not_found` (data `kind: chrome`); every
- * pairing, rename, unpairing, connection, disconnection and version report
- * raises `chrome.updated` on `environment.subscribe`.
+ * environment does not hold is `not_found` (data `kind: chrome`), except to
+ * `browser.chromes.perform`, which answers it as a refusal the model reads;
+ * every pairing, rename, unpairing, connection, disconnection and version
+ * report raises `chrome.updated` on `environment.subscribe`.
  */
 
 /**
@@ -85,5 +87,28 @@ export const browserChromesUnpair = defineMethod({
   kind: "command",
   params: commandParams({ chromeId: ChromeId }),
   result: z.object({ chrome: PairedChrome.meta({ description: "The Chrome as it was when it was unpaired." }) }),
+  errors: [],
+});
+
+/**
+ * Performs one verb on a paired Chrome through its proved socket (#552):
+ * the Chrome named, or, for a null `chromeId`, the plain My Chrome, the one
+ * connected Chrome (none connected, or several, is answered as a refusal
+ * the model reads). It answers the extension's value or refusal, and a
+ * refusal sentence for a Chrome no longer paired, not connected, gone
+ * during the verb or silent past the verb's deadline. The browser relay's
+ * client half calls it on its own local environment; only a local client
+ * session (the bootstrap grant's) may, so only a client on the Chrome's
+ * machine drives it: any other is `forbidden` with reason `local`. A query
+ * that appends nothing: the verb's arguments never reach the log.
+ */
+export const browserChromesPerform = defineMethod({
+  name: "browser.chromes.perform",
+  scope: "runs:drive",
+  kind: "query",
+  params: PageCall.extend({
+    chromeId: ChromeId.nullable().meta({ description: "The Chrome to drive; null for the plain My Chrome, the one paired Chrome connected now." }),
+  }).meta({ description: "One verb for one session's page on a paired Chrome, with a one-time allowance when a person allowed a denylisted address." }),
+  result: z.object({ outcome: PageOutcome.meta({ description: "The extension's value or refusal, or the environment's refusal sentence." }) }),
   errors: [],
 });

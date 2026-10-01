@@ -12,6 +12,7 @@ import {
   SNAPSHOT_MAX_CHARS,
   WAIT_FOR_MS,
   denylistPresets,
+  pageCallDeadlineMs,
   pageKeyOf,
   waitBoundMs,
 } from "./index.js";
@@ -116,6 +117,30 @@ describe("the page-driver contract", () => {
     expect(waitBoundMs({ text: "Loaded", timeoutMs: 60_000 })).toBe(30_000);
     expect(waitBoundMs({ ms: 500 })).toBe(500);
     expect(waitBoundMs({ ms: 45_000 })).toBe(30_000);
+  });
+
+  it("gives each verb its deadline: 20 seconds to open, navigate and click, 18 for a screenshot, 5 to let go, a wait's bound and 5 more, 12 for the rest", () => {
+    expect(pageCallDeadlineMs({ verb: "open", args: {} })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "navigate", args: { url: "https://example.com/" } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "click", args: { target: { ref: "e1" } } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "clickAt", args: { x: 1, y: 2 } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "screenshot", args: {} })).toBe(18_000);
+    expect(pageCallDeadlineMs({ verb: "close", args: {} })).toBe(5_000);
+    expect(pageCallDeadlineMs({ verb: "waitFor", args: { until: { ms: 2_000 } } })).toBe(7_000);
+    expect(pageCallDeadlineMs({ verb: "waitFor", args: { until: { text: "Loaded" } } })).toBe(15_000);
+    expect(pageCallDeadlineMs({ verb: "waitFor", args: { until: { ref: "e3", timeoutMs: 60_000 } } })).toBe(35_000);
+    const rest: PageCommand[] = [
+      { verb: "snapshot", args: {} },
+      { verb: "type", args: { target: { ref: "e1" }, text: "x" } },
+      { verb: "read", args: {} },
+      { verb: "scroll", args: { to: { direction: "down" } } },
+      { verb: "console", args: {} },
+      { verb: "network", args: {} },
+      { verb: "cookies", args: {} },
+      { verb: "storage", args: {} },
+      { verb: "evaluate", args: { expression: "1" } },
+    ];
+    for (const command of rest) expect(pageCallDeadlineMs(command), command.verb).toBe(12_000);
   });
 
   it("reads the page as paged Markdown, saying whether it read an article or the snapshot's text", () => {

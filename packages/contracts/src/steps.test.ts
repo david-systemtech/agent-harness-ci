@@ -13,6 +13,7 @@ import {
   SETTINGS,
   SETUP_ACTIONS,
   STEP_LABELS,
+  STEP_PROMPTS,
   STEP_ORDER,
   STEP_REGISTRY,
   UPDATE_SETTINGS_KEYS,
@@ -34,7 +35,8 @@ import {
  * checks for themselves (#141); each declares its check's budget class, its
  * cadence, one other than the hour with its reason, and the event and notice
  * types that re-run it, and every skippable step and no other a skip check,
- * one of its own (ADR 0031; #308, #568); no part of the state steps write
+ * one of its own (ADR 0031; #308, #568); an LLM step names a prompt
+ * `STEP_PROMPTS` has (ADR 0019; #584); no part of the state steps write
  * through their own methods is named by two. The Permissions entry names
  * every settings key the permissions spec writes and the denylist's four
  * sections. Each
@@ -60,6 +62,7 @@ interface LooseStep {
   readonly cadence?: { readonly minutes: number; readonly reason?: string };
   readonly triggers?: readonly string[];
   readonly skip?: string;
+  readonly llm?: string;
 }
 
 /** Every event and notice type the log carries, on any stream: what a trigger may name. */
@@ -107,10 +110,11 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
  * number of minutes or leaves the hour without a reason, no triggers or a
  * trigger that names, or as a family prefixes, no event or notice type, a
  * skippable step with no skip check, a skip check on a step that may not be
- * skipped or that names none of its own state checks, or a part of the
- * state steps write through their own methods that two steps name.
+ * skipped or that names none of its own state checks, a prompt in `llm`
+ * that none of `prompts` has (ADR 0019; #584), or a part of the state
+ * steps write through their own methods that two steps name.
  */
-const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
+const stepShapeProblems = (steps: readonly LooseStep[], prompts: readonly { readonly id: string }[] = STEP_PROMPTS): string[] => {
   const problems: string[] = [];
   const order = STEP_ORDER as readonly string[];
   const positions = steps.map((step) => order.indexOf(step.id));
@@ -154,6 +158,7 @@ const stepShapeProblems = (steps: readonly LooseStep[]): string[] => {
       if (!step.skippable) problems.push(`${step.id}: names the skip check ${step.skip} but may not be skipped`);
       if (!step.stateChecks.some((check) => check.id === step.skip)) problems.push(`${step.id}: its skip check ${step.skip} is none of its state checks`);
     }
+    if (step.llm !== undefined && !prompts.some((prompt) => prompt.id === step.llm)) problems.push(`${step.id}: names the prompt ${step.llm} in llm, which is none of STEP_PROMPTS`);
   });
   const checkIds = steps.flatMap((step) => step.stateChecks.map((check) => check.id));
   for (const id of new Set(checkIds)) if (checkIds.filter((other) => other === id).length > 1) problems.push(`${id}: a state check named twice`);
@@ -620,12 +625,12 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event, Key manager on every key-manager.* event and tools.updated, Instructions on nothing until #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Instructions on nothing until #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
-      ["forges", ["forge.account.*"]],
+      ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
       ["instructions", []],
       ["browser", []],
@@ -665,6 +670,11 @@ describe("the step registry", () => {
       "appearance: triggers on environment.update, which names no event or notice type",
     ]);
     expect(stepShapeProblems([{ ...appearance, triggers: ["run.ended", "pairing.*", "account.*", "session.*"] }])).toEqual([]);
+  });
+
+  it("fails a step naming a prompt in llm that no prompt of STEP_PROMPTS has (ADR 0019; #584)", () => {
+    expect(stepShapeProblems([{ ...appearance, llm: "appearance-describe" }])).toEqual(["appearance: names the prompt appearance-describe in llm, which is none of STEP_PROMPTS"]);
+    expect(stepShapeProblems([{ ...appearance, llm: "appearance-describe" }], [{ id: "appearance-describe" }])).toEqual([]);
   });
 
   it("fails a skip check on a step that may not be skipped, a skippable step without one, and a skip check naming another step's check or none", () => {

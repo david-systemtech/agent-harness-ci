@@ -1,5 +1,6 @@
 import type { SessionRow } from "@agent-harness/client-runtime";
-import { createContext, use, useMemo, useState, type ReactNode } from "react";
+import { createContext, use, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { usePresentation } from "../window-context.js";
 
 /**
  * What the sidebar keeps for the life of the window (docs/specs/gui.md, "The
@@ -8,10 +9,15 @@ import { createContext, use, useMemo, useState, type ReactNode } from "react";
  * filter, which is not presentation, so a window opened again starts with
  * none; and the session being dragged from it, which a drop anywhere in the
  * window reads (the sidebar's headings and rows, and the pane grid's, #407).
+ * A session pane's `/search` (#753) types in the filter from outside it, the
+ * filter taking the focus once the sidebar is drawn.
  */
 interface WindowSidebar {
   readonly filter: string;
   setFilter(text: string): void;
+  /** Whether the filter is to take the focus once it is drawn: `/search` asked for it. */
+  readonly filterFocus: boolean;
+  setFilterFocus(focus: boolean): void;
   /** The row being dragged from the sidebar; null while none is. */
   readonly dragged: SessionRow | null;
   setDragged(row: SessionRow | null): void;
@@ -21,8 +27,9 @@ const WindowSidebarContext = createContext<WindowSidebar | null>(null);
 
 export const WindowSidebarProvider = ({ children }: { readonly children: ReactNode }) => {
   const [filter, setFilter] = useState("");
+  const [filterFocus, setFilterFocus] = useState(false);
   const [dragged, setDragged] = useState<SessionRow | null>(null);
-  const held = useMemo(() => ({ filter, setFilter, dragged, setDragged }), [filter, dragged]);
+  const held = useMemo(() => ({ filter, setFilter, filterFocus, setFilterFocus, dragged, setDragged }), [filter, filterFocus, dragged]);
   return <WindowSidebarContext value={held}>{children}</WindowSidebarContext>;
 };
 
@@ -36,6 +43,31 @@ const useWindowSidebar = (): WindowSidebar => {
 export const useSidebarFilter = (): readonly [string, (text: string) => void] => {
   const { filter, setFilter } = useWindowSidebar();
   return [filter, setFilter];
+};
+
+/**
+ * Searches the sessions from elsewhere in the window (`/search <text>`): the
+ * sidebar shown, `text` typed in its filter in place of what was there (none
+ * for a bare `/search`), and the focus there, to go on typing.
+ */
+export const useSidebarSearch = (): ((text: string) => void) => {
+  const { setFilter, setFilterFocus } = useWindowSidebar();
+  const [, setShown] = usePresentation("sidebarShown");
+  return (text) => {
+    setShown(true);
+    setFilter(text);
+    setFilterFocus(true);
+  };
+};
+
+/** Gives the sidebar's filter, `field`, the focus once drawn when a search asked for it. */
+export const useFilterFocus = (field: RefObject<HTMLInputElement | null>): void => {
+  const { filterFocus, setFilterFocus } = useWindowSidebar();
+  useEffect(() => {
+    if (!filterFocus) return;
+    field.current?.focus();
+    setFilterFocus(false);
+  }, [field, filterFocus, setFilterFocus]);
 };
 
 /** The row being dragged from the sidebar (null while none is), and the setter that starts or ends a drag. */

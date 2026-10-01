@@ -39,7 +39,7 @@ const chrome = {
 };
 
 describe("the browser methods", () => {
-  it("each have one scope: the status and the list at read, the code, rename and unpair at admin", () => {
+  it("each have one scope: the status and the list at read, the code, rename and unpair at admin, perform at runs:drive", () => {
     const browserMethods = methods.filter((method) => method.name.startsWith("browser."));
     expect(Object.fromEntries(browserMethods.map((method) => [method.name, [method.kind, method.scope]]))).toEqual({
       "browser.status": ["query", "read"],
@@ -47,6 +47,7 @@ describe("the browser methods", () => {
       "browser.chromes.list": ["query", "read"],
       "browser.chromes.rename": ["command", "admin"],
       "browser.chromes.unpair": ["command", "admin"],
+      "browser.chromes.perform": ["query", "runs:drive"],
     });
   });
 
@@ -74,6 +75,29 @@ describe("the browser methods", () => {
     expect(registry["browser.chromes.unpair"].params.safeParse({ commandId }).success).toBe(false);
     expect(registry["browser.chromes.rename"].result.parse({ chrome })).toEqual({ chrome });
     expect(registry["browser.chromes.unpair"].result.parse({ chrome })).toEqual({ chrome });
+  });
+});
+
+describe("browser.chromes.perform", () => {
+  const call = { pageKey: `env/${chromeId}`, command: { verb: "click", args: { target: { ref: "e12" } } } };
+
+  it("takes a Chrome, or null for the plain My Chrome, with the page key, the verb and its arguments, and a one-time allowance", () => {
+    const params = registry["browser.chromes.perform"].params;
+    expect(params.parse({ chromeId, ...call })).toEqual({ chromeId, ...call });
+    expect(params.parse({ chromeId: null, ...call, allowance: { host: "www.paypal.com" } })).toEqual({ chromeId: null, ...call, allowance: { host: "www.paypal.com" } });
+    expect(params.safeParse(call).success).toBe(false);
+    expect(params.safeParse({ chromeId: "work", ...call }).success).toBe(false);
+    expect(params.safeParse({ chromeId, ...call, command: { verb: "focus", args: {} } }).success).toBe(false);
+    expect(params.safeParse({ chromeId, ...call, command: { verb: "click", args: {} } }).success).toBe(false);
+  });
+
+  it("answers the extension's value or its refusal, as the outcome", () => {
+    const result = registry["browser.chromes.perform"].result;
+    const value = { ok: true, value: { url: "https://example.com/", title: "Example" } };
+    expect(result.parse({ outcome: value })).toEqual({ outcome: value });
+    expect(result.parse({ outcome: { ok: false, reason: "The Chrome Work is not connected." } })).toEqual({ outcome: { ok: false, reason: "The Chrome Work is not connected." } });
+    expect(result.safeParse({ outcome: { ok: false } }).success).toBe(false);
+    expect(result.safeParse(value).success).toBe(false);
   });
 });
 

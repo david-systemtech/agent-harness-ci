@@ -196,6 +196,13 @@ export interface Step {
    * (`triggerMatches`).
    */
   readonly triggers: readonly string[];
+  /**
+   * On an LLM step, a step whose artefact has to be authored rather than
+   * filled in, the prompt its minted sessions start with: the id of one of
+   * `STEP_PROMPTS` (ADR 0019; `setup-prompts.ts`). Every run end of a
+   * session tagged `setup` and the step's id checks the step again.
+   */
+  readonly llm?: string;
 }
 
 /** A check that passes on any value the key's schema accepts: what a setting with no stronger notion of done asks. */
@@ -368,7 +375,8 @@ export const STEP_REGISTRY = [
     // Forges row (ADR 0027), linking the Key manager step, whose Move card takes stored tokens (ADR 0028). It writes no
     // settings key: its forge accounts go through the four forge account commands. Skippable: with no forge account it
     // answers skipped, the first step that does (ADR 0020). Its checks await a verification of every forge account
-    // (a network call); every forge.account.* event re-runs it.
+    // (a network call); every forge.account.* event re-runs it, and tools.updated, since forges.gh reads gh's Managed
+    // tools row (#677).
     id: "forges",
     home: "access.forges",
     writes: [],
@@ -403,7 +411,7 @@ export const STEP_REGISTRY = [
       minutes: 15,
       reason: "The orientation block reports each forge account's status (ADR 0012), so the step is checked as often as a forge account is verified.",
     },
-    triggers: ["forge.account.*"],
+    triggers: ["forge.account.*", "tools.updated"],
   },
   {
     // The Key manager step (key-managers spec, "The Key manager step"; ADR 0028, ADR 0034; #367), fifth, before Memory
