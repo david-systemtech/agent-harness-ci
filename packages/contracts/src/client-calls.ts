@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ChromeId } from "./browser-bridge.js";
+import { PairedChrome } from "./browser-chromes.js";
 import { PageCall } from "./browser-driver.js";
 import { ClientSessionId, EnvironmentId, Timestamp } from "./primitives.js";
 
@@ -41,6 +42,22 @@ export const BrowserChromeCall = PageCall.extend({
 });
 export type BrowserChromeCall = z.infer<typeof BrowserChromeCall>;
 
+/** Lists the paired Chromes through the client's local connection before matching browser_open's name. */
+export const BrowserChromeListCall = z.object({
+  operation: z.literal("list").meta({ description: "List the paired Chromes of the target environment before matching browser_open's browser name." }),
+  environmentId: EnvironmentId.meta({ description: "The environment the Chromes are paired with, which the client reaches through its local connection." }),
+  deadline: Timestamp.meta({ description: "When the run stops waiting for the list, on the run environment's clock. A later answer is dropped." }),
+}).meta({ description: "A browser.chrome call that lists another environment's paired Chromes through the addressed client's local connection." });
+export type BrowserChromeListCall = z.infer<typeof BrowserChromeListCall>;
+
+/** The list stays in the answer, never in the run environment's log. */
+export const BrowserChromeListResult = z.object({
+  ok: z.literal(true).meta({ description: "The client read the target environment's paired Chromes." }),
+  environmentName: z.string().meta({ description: "The target environment's name, used in the sentence when no paired Chrome matches." }),
+  chromes: z.array(PairedChrome).meta({ description: "The target environment's paired Chromes, including their names and live connection state." }),
+}).meta({ description: "The paired-Chrome list returned in client.answer, never appended to the run environment's log." });
+export type BrowserChromeListResult = z.infer<typeof BrowserChromeListResult>;
+
 /** A verb on the dock's session page, carried to the desktop that started the run. */
 export const BrowserDockCall = PageCall.extend({
   deadline: Timestamp.meta({ description: "The call's deadline on the run environment's clock." }),
@@ -56,7 +73,7 @@ export const ClientCallPayload = z
         description: "The client session the call is for: the one that started the run, or, for a run the environment started itself, the one that started the session's latest run a client started.",
       }),
       kind: z.literal("browser.chrome").meta({ description: "A verb on a Chrome paired with the client's local environment." }),
-      payload: BrowserChromeCall,
+      payload: z.union([BrowserChromeCall, BrowserChromeListCall]),
     }),
     z.object({
       callId: ClientCallId,

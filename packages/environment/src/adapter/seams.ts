@@ -154,8 +154,8 @@ export interface InstructionScope {
   readonly workspace: Workspace;
   /**
    * The session's repository identity as it was resolved (workspace-picker spec), the repository's for a worktree
-   * and never a path; null for a session without one, and for a preview of a session not yet made, whose identity is
-   * read when it is made. The bank layer's repository scope reads it (banks spec, "The seams"; #1022).
+   * and never a path; for a preview of a session not yet made, the one its create will read (#1072); null for a
+   * session without one. The bank layer's repository scope reads it (banks spec, "The seams"; #1022).
    */
   readonly repositoryIdentity: string | null;
   readonly trust: RunTrust;

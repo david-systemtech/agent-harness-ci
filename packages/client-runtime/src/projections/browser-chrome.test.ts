@@ -1,4 +1,4 @@
-import { ENVIRONMENT_NOTICE_TYPES, registry, type BrowserChromeCall } from "@agent-harness/contracts";
+import { ENVIRONMENT_NOTICE_TYPES, registry, type BrowserChromeListCall, type BrowserChromeCall } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { noticeEvent } from "../../test/events.js";
 import { subscription, type Scripted } from "../../test/scripted.js";
@@ -47,13 +47,13 @@ const setup = async (kind: "desktop" | "tui" = "tui") => {
   await adding;
   const clientSessionId = runtime.connections.list.read().find((record) => record.environmentId === server.environmentId)?.clientSessionId as string;
   /** A browser.chrome call from the server, addressed to this client. */
-  const call = (callId: string, payload: Partial<BrowserChromeCall> = {}) =>
+  const call = (callId: string, payload: Partial<BrowserChromeCall> | BrowserChromeListCall = {}) =>
     notices.event(
       noticeEvent(1, server.environmentId, CLIENT_CALL_EVENT, {
         callId,
         clientSessionId,
         kind: "browser.chrome",
-        payload: {
+        payload: "operation" in payload ? payload : {
           environmentId: desk.environmentId,
           chromeId: CHROME,
           pageKey: `${server.environmentId}/s-1`,
@@ -74,6 +74,21 @@ describe("the runtime's client-call names", () => {
 });
 
 describe("browser.chrome", () => {
+  it("lists the desk's Chromes on the local connection without performing a browser verb", async () => {
+    const { clock, desk, server, call } = await setup();
+    desk.answer("browser.chromes.list", () => ({ result: { chromes: [] } }));
+    call("5b2d0c1e-8f0a-4d5c-9e3b-2a1f0c9d8e7b", { operation: "list", environmentId: desk.environmentId, deadline: new Date(clock.now().getTime() + 12_000).toISOString() });
+    expect((await desk.server.request("browser.chromes.list")).params).toEqual({});
+    expect((await server.server.request(CLIENT_CALL_ANSWER_METHOD)).params).toMatchObject({ ok: true, result: { ok: true, environmentName: "desk", chromes: [] } });
+    expect(desk.server.received().filter((frame) => frame.type === "request" && frame.method === "browser.chromes.perform")).toEqual([]);
+  });
+
+  it("refuses a Chrome list request without a local connection", async () => {
+    const { clock, server, call } = await setup();
+    call("5b2d0c1e-8f0a-4d5c-9e3b-2a1f0c9d8e7b", { operation: "list", environmentId: server.environmentId, deadline: new Date(clock.now().getTime() + 12_000).toISOString() });
+    expect((await server.server.request(CLIENT_CALL_ANSWER_METHOD)).params).toMatchObject({ ok: false, error: { message: expect.stringContaining("no local connection") } });
+  });
+
   it("performs the verb with browser.chromes.perform on the local connection to the Chrome's environment, and answers its outcome", async () => {
     const { desk, server, call } = await setup();
     desk.answer("browser.chromes.perform", () => ({ result: { outcome: OUTCOME } }));

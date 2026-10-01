@@ -1,6 +1,5 @@
 import {
   ContractError,
-  GITHUB_ORIGIN,
   invalidParams,
   normaliseRemote,
   type CredentialUnavailableError,
@@ -10,6 +9,7 @@ import {
   type ForgeKind,
   type ForgeOrigin,
   type ForgeOwner,
+  type KindUnsupportedError,
   type SecretShapedError,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
@@ -18,6 +18,7 @@ import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { ForgeCredential } from "./forge-service.js";
+import { kindUnsupported, type Detection } from "./detection.js";
 import type { CallOptions } from "./forge-http.js";
 import { listForgeAccounts, liveForgeAccount } from "./forge-store.js";
 import { servingAccount } from "./git-helper.js";
@@ -50,11 +51,15 @@ import { FORGE_ACTOR, type Verifier } from "./verifier.js";
  *   The forge account serving that origin (its canonical origin, a verified
  *   alias, or by host for an ssh form) is used, on its canonical origin.
  * - **No forge account.** A read on an origin none serves goes anonymously
- *   first, on github.com's API for github.com and the Gitea API elsewhere
- *   unless the caller names the kind; the forge refusing it (401, 403, or a
- *   404, behind which both APIs hide a private repository) is
- *   `forge_account_missing` and records the origin as missing (#314). A
- *   write there is refused so at once.
+ *   first, on the API of the kind the caller names, else of the kind
+ *   detection finds (#470), kept for the process once found; the forge
+ *   refusing it (401, 403, or a 404, behind which both APIs hide a private
+ *   repository) is `forge_account_missing` and records the origin as
+ *   missing (#314). Detection finding no forge, as for a forge walled to
+ *   anonymous callers, reads on the Gitea API; a GitLab is refused
+ *   `kind_unsupported`, not for want of a forge account; one detection
+ *   cannot finish answers the read unreachable. A write there is refused
+ *   `forge_account_missing` at once.
  * - **A credential per operation.** The forge account's credential is read
  *   for each operation and let go when it ends; one that cannot be read, or
  *   that answers as another user, is `credential_unavailable`.
@@ -85,9 +90,8 @@ export interface ForgeTarget {
   readonly origin?: string;
   /**
    * The kind of forge an origin no forge account serves is, for an
-   * anonymous read: GitHub for github.com, else the Gitea API unless this
-   * says `github` (an Enterprise origin). A forge account's own kind is used
-   * wherever one serves the origin.
+   * anonymous read; absent, detection finds it. A forge account's own kind
+   * is used wherever one serves the origin.
    */
   readonly kind?: Exclude<ForgeKind, "gitlab">;
   /** What the operation is for, in a few words (`read the release channel`): a missing origin's record and the key-manager registry name it. */
@@ -122,7 +126,7 @@ export interface NoPrimaryForgeRefusal {
 }
 
 /** Why an operation did not reach the forge. */
-export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal;
+export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError;
 
 /** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
 export type ForgeAnswer<T> = ForgeReply<T> | { readonly outcome: "refused"; readonly error: ForgeRefusal };
@@ -169,6 +173,8 @@ export interface ForgeOperationsOptions {
   readonly reader: Reader;
   readonly scrub: ScrubRegistry;
   readonly provider: (kind: ForgeKind) => ForgeProvider;
+  /** Detects which forge an origin is, asking it with no credential, for an anonymous read that names no kind. */
+  readonly detect: (origin: ForgeOrigin) => Promise<Detection>;
   /** Reads a forge account's credential for one operation. */
   readonly readCredential: (account: ForgeAccountRecord, purpose: string) => Promise<ForgeCredential>;
   readonly verifier: Pick<Verifier, "pause" | "used">;
@@ -276,13 +282,38 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     }
   };
 
+  /**
+   * Each origin's detection, asked or found: a kind found is kept for the
+   * process, and an answer naming none is let go, so the next read asks
+   * again rather than a passing fault refusing reads until a restart.
+   */
+  const detections = new Map<ForgeOrigin, Promise<Detection>>();
+
+  /** Which forge `origin` is, detected once while reads ask at the same time and kept once found. */
+  const detect = (origin: ForgeOrigin): Promise<Detection> => {
+    const kept = detections.get(origin);
+    if (kept !== undefined) return kept;
+    const asked = options.detect(origin);
+    detections.set(origin, asked);
+    void asked.then(
+      (found) => {
+        if (found.outcome !== "detected") detections.delete(origin);
+      },
+      () => detections.delete(origin),
+    );
+    return asked;
+  };
+
   /** Reaches the target's forge for a read: with the forge account serving it, else anonymously, where the forge refusing it is `forge_account_missing`. */
   const read = async <T>(target: ForgeTarget, work: (reached: Reached) => Promise<ForgeAnswer<T>>): Promise<ForgeAnswer<T>> => {
     const located = locate(target);
     if ("code" in located) return refused(located);
     const { origin, account } = located;
     if (account !== null) return withCredential(account, target, work);
-    const kind = target.kind ?? (origin === GITHUB_ORIGIN ? "github" : "forgejo");
+    const found: Detection = target.kind === undefined ? await detect(origin) : { outcome: "detected", kind: target.kind, version: null };
+    if (found.outcome === "unreachable") return { outcome: "unreachable", message: found.message };
+    if (found.outcome === "unsupported") return refused(kindUnsupported(origin, found.kind));
+    const kind = found.outcome === "detected" ? found.kind : "forgejo";
     const answer = await work({ account: null, origin, provider: provider(kind), token: null, call: {} });
     if (answer.outcome !== "failed" || !ASKS_FOR_A_CREDENTIAL.has(answer.status)) return answer;
     options.originMissing(origin, target.purpose);

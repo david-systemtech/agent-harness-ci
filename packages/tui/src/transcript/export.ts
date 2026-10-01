@@ -1,4 +1,5 @@
 import {
+  attachmentChip,
   classifyTool,
   clockTime,
   endWords,
@@ -35,7 +36,7 @@ const callState = (call: ToolCallEntry): string => (call.decision?.decision === 
 const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
   switch (row.kind) {
     case "user": {
-      const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${a.name}_`);
+      const attached = row.entry.attachments.map((a) => `_attached ${a.kind} ${attachmentChip(a)}_`);
       return [`### You · ${clockTime(row.entry.sentAt)}`, row.entry.text, ...attached].join("\n\n");
     }
     case "assistant":
