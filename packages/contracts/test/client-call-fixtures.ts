@@ -1,6 +1,6 @@
 /**
  * Fixtures for client-addressed calls (#554): a valid and an invalid
- * instance of the `client.call` payload, the `browser.chrome` verb it
+ * instance of the `client.call` payload, the `browser.chrome` and `browser.dock` verbs it
  * carries, and `client.answer`'s params and result. `fixtures.ts` folds them
  * into the package's fixture table.
  */
@@ -20,6 +20,7 @@ const verb = {
   command: { verb: "navigate", args: { url: "https://example.com/" } },
   deadline: "2026-09-24T00:00:20.000Z",
 };
+const dockVerb = { pageKey: verb.pageKey, command: verb.command, deadline: verb.deadline };
 const call = { callId, clientSessionId: "cs-1", kind: "browser.chrome", payload: verb };
 const outcome = { ok: true, value: { url: "https://example.com/", title: "Example" } };
 
@@ -39,8 +40,12 @@ export const clientCallSchemaFixtures: Record<string, Fixtures> = {
     valid: [verb, { ...verb, chromeId: null, allowance: { host: "www.paypal.com" } }],
     invalid: [{ ...verb, environmentId: "desk" }, { ...verb, chromeId: undefined }, { ...verb, deadline: "soon" }, { ...verb, command: { verb: "focus", args: {} } }],
   },
+  "client-calls/browser-dock.json": {
+    valid: [dockVerb, { ...dockVerb, allowance: { host: "www.paypal.com" } }],
+    invalid: [{ ...dockVerb, pageKey: "" }, { ...dockVerb, deadline: "soon" }, { ...dockVerb, deadline: undefined }, { ...dockVerb, command: { verb: "focus", args: {} } }],
+  },
   "client-calls/call.json": {
-    valid: [call, { ...call, payload: { ...verb, chromeId: null } }],
-    invalid: [{ ...call, kind: "browser.dock" }, { ...call, clientSessionId: "" }, { ...call, callId: "call-1" }, { ...call, payload: { ...verb, deadline: undefined } }],
+    valid: [call, { ...call, payload: { ...verb, chromeId: null } }, { ...call, kind: "browser.dock", payload: dockVerb }],
+    invalid: [{ ...call, kind: "browser.unknown" }, { ...call, clientSessionId: "" }, { ...call, callId: "call-1" }, { ...call, payload: { ...verb, deadline: undefined } }],
   },
 };

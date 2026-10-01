@@ -70,7 +70,7 @@ describe("a run's skill set", () => {
     expect(set).toEqual({
       generation: join(t.dataDir, "skills", "generations", set.fingerprint as string),
       fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/),
-      members: [{ name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false }],
+      members: [{ name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "tdd", "SKILL.md"), commit: null }],
       hiddenNativeNames: [],
     });
     const link = join(set.generation as string, "skills", "tdd");
@@ -124,7 +124,7 @@ describe("a run's skill set", () => {
     await runIn(t, client, id);
 
     const set = lastSet(t);
-    expect(set.members).toEqual([{ name: "review", description: "Review the branch.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false }]);
+    expect(set.members).toEqual([{ name: "review", description: "Review the branch.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "review", "SKILL.md"), commit: null }]);
     expect(readlinkSync(join(set.generation as string, "skills", "review", "SKILL.md"))).toBe(join(own, "commands", "review.md"));
   });
 });

@@ -152,7 +152,7 @@ export interface InstructionScope {
   readonly injection: InjectionDecision;
   /** The bot the run is for: null in milestone 1, the Bot object being milestone 2's (#92). */
   readonly bot: null;
-  /** The run's extra always-on names, after its account's: empty until the always-on layer is built (#507). */
+  /** The run's extra always-on names, after its account's: held in memory and inherited by runs of the queue (#507). */
   readonly alwaysOn: readonly string[];
   readonly channel: InstructionChannel;
   /** Whether the account's adapter loads a trusted repository's own instruction files itself; without it the project layer hands them over. */

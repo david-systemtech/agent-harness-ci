@@ -3,7 +3,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { APP_ID } from "./app-id.js";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
-import { ANSWERED, channelOf, TOLD, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
+import { ANSWERED, channelOf, TOLD, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
 import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
 import { grantFile } from "./local-grant.js";
@@ -148,6 +148,8 @@ export const startDesktop = async (
     if (level === "error") reportError(`The window: ${message} (${sourceId}:${lineNumber})`);
   });
   const webView = webViews(electron, window);
+  webView.debugger!.onEvent((id, event) => window.webContents.send(WEB_VIEW_DEBUG_CHANNEL, id, event));
+  webView.debugger!.onDetach((id, reason) => window.webContents.send(WEB_VIEW_DETACH_CHANNEL, id, reason));
   webView.onKey((id, key) => window.webContents.send(WEB_VIEW_KEY_CHANNEL, id, key));
   webView.onChange((id, state) => window.webContents.send(WEB_VIEW_CHANNEL, id, state));
   const network = lockNetwork(window.webContents.session.webRequest);

@@ -340,6 +340,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
         actor: { kind: "routine", name: definition.name, ceiling, clientSessionId: null },
         actorId: routineId,
         injection: definition.injection,
+        alwaysOn: definition.skills,
       },
       firingId,
     );

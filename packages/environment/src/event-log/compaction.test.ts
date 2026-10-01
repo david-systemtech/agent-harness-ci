@@ -170,7 +170,7 @@ describe("compacting a stream", () => {
     // Back to the schema before the columns, the row still in it, and without the tables later migrations add.
     const raw = new (loadSqlite().DatabaseSync)(path);
     raw.exec(
-      "ALTER TABLE snapshots DROP COLUMN stream_version; ALTER TABLE snapshots DROP COLUMN removed; DROP TABLE provider_transcripts; DROP TABLE provider_transcript_summaries; DROP TABLE setup_results; PRAGMA user_version = 4;",
+      "ALTER TABLE snapshots DROP COLUMN stream_version; ALTER TABLE snapshots DROP COLUMN removed; DROP TABLE provider_transcripts; DROP TABLE provider_transcript_summaries; DROP TABLE setup_results; DROP TABLE skill_source_attempts; PRAGMA user_version = 4;",
     );
     raw.close();
 

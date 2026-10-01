@@ -236,10 +236,10 @@ describe("each call", () => {
     expect(drivers.headless.calls.map((call) => call.pageKey)).toEqual([`${t.env.id}/${id}`, `${t.env.id}/${id}`, `${t.env.id}/${id}`]);
   });
 
-  it("answers a sentence for a kind this environment has no driver for", async () => {
-    const { t } = await start(({ headless }) => ({ headless: () => headless }));
+  it("answers the dock driver's refusal when the desktop is unavailable", async () => {
+    const { t } = await start(() => ({ dock: () => ({ kind: "dock", perform: async () => ({ ok: false, reason: "The browser dock is unavailable." }) }) }));
     const answer = await answerOf(t, DOCK, ["browser_open", { address: "example.com" }]);
-    expect(answer).toEqual({ text: "This environment cannot drive the browser dock yet.", isError: true });
+    expect(answer).toEqual({ text: "The browser dock is unavailable.", isError: true });
   });
 });
 

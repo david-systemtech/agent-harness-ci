@@ -144,8 +144,17 @@ export interface ViewOptions {
     allowRunningInsecureContent: boolean;
   };
 }
+export interface ElectronDebugger {
+  isAttached(): boolean;
+  attach(version: string): void;
+  detach(): void;
+  sendCommand(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, unknown>>;
+  on(name: "message", listener: (details: unknown, method: string, params: Record<string, unknown>, sessionId?: string) => void): unknown;
+  on(name: "detach", listener: (details: unknown, reason: string) => void): unknown;
+}
 export interface ElectronWebView {
   readonly webContents: ElectronContents & {
+    readonly debugger: ElectronDebugger;
     loadURL(url: string): Promise<void>;
     close(): void;
     getURL(): string;

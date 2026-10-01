@@ -21,6 +21,7 @@ import { Button, Dialog, DialogClose, DialogContent, Input } from "../ui/index.j
 import { useObservable, useRuntime } from "../window-context.js";
 import { useOrganise } from "./organise.js";
 import { notDone, quoted } from "./words.js";
+import { SessionInstructionsDialog } from "../instructions/session-instructions.js";
 
 /**
  * The sidebar's dialogs (docs/specs/gui.md, "The window and the sidebar";
@@ -375,6 +376,8 @@ export const SidebarDialogs = () => {
   const row = list.rows.find((held) => rowKey(held) === dialog.row);
   if (row === undefined) return null;
   switch (dialog.kind) {
+    case "instructions":
+      return <SessionInstructionsDialog environmentId={row.environmentId} sessionId={row.summary.id} title={row.summary.title} close={close} />;
     case "snooze":
       return <SnoozeDialog row={row} close={close} />;
     case "snooze-presets":

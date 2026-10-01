@@ -187,7 +187,6 @@ export const readTurnRequest = (body: unknown): TurnRequest => {
   }
   for (const name of IGNORED_PARAMETERS) if (isSet(request[name])) ignored.push(name);
   const tools = readTools(request, tolerate, ignored);
-  if (extension.alwaysOnSkills !== undefined && extension.alwaysOnSkills !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills`);
   // A field the namespace does not know (a later version's) is dropped, and said so.
   const known = new Set(Object.keys(ExtensionSchema.shape));
   const raw = (body as Record<string, unknown>)[COMPLETIONS_NAMESPACE];

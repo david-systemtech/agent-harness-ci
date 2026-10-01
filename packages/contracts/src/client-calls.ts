@@ -18,8 +18,8 @@ import { ClientSessionId, EnvironmentId, Timestamp } from "./primitives.js";
  * (the bootstrap grant's), so only a client on the Chrome's machine can.
  */
 
-/** The kinds of call an environment addresses to a client: a verb on a Chrome paired with that client's local environment. */
-export const CLIENT_CALL_KINDS = ["browser.chrome"] as const;
+/** The kinds of call an environment addresses to a client: a verb on its local Chrome or its browser dock. */
+export const CLIENT_CALL_KINDS = ["browser.chrome", "browser.dock"] as const;
 export type ClientCallKind = (typeof CLIENT_CALL_KINDS)[number];
 
 /** The longest answer a client sends, its result or its error as JSON in UTF-8: 8 MiB. */
@@ -41,6 +41,12 @@ export const BrowserChromeCall = PageCall.extend({
 });
 export type BrowserChromeCall = z.infer<typeof BrowserChromeCall>;
 
+/** A verb on the dock's session page, carried to the desktop that started the run. */
+export const BrowserDockCall = PageCall.extend({
+  deadline: Timestamp.meta({ description: "The call's deadline on the run environment's clock." }),
+}).meta({ description: "A browser.dock call: the session's page key, verb, optional allowance and deadline. The dock reads and acts, with no deep verbs." });
+export type BrowserDockCall = z.infer<typeof BrowserDockCall>;
+
 /** `client.call`'s payload: the call, the client session it is for, its kind and what the kind carries. */
 export const ClientCallPayload = z
   .discriminatedUnion("kind", [
@@ -51,6 +57,12 @@ export const ClientCallPayload = z
       }),
       kind: z.literal("browser.chrome").meta({ description: "A verb on a Chrome paired with the client's local environment." }),
       payload: BrowserChromeCall,
+    }),
+    z.object({
+      callId: ClientCallId,
+      clientSessionId: ClientSessionId,
+      kind: z.literal("browser.dock").meta({ description: "A verb on the desktop's browser dock." }),
+      payload: BrowserDockCall,
     }),
   ])
   .meta({ description: "client.call: a call addressed to one client session, which answers it with client.answer before its deadline." });
@@ -69,7 +81,7 @@ export const ClientAnswer = z
   .object({
     callId: ClientCallId,
     ok: z.boolean().meta({ description: "true with result: the client did what the call asked; false with error: it could not." }),
-    result: z.json().optional().meta({ description: "With ok: what the client's handler answered (null for nothing); for browser.chrome, the verb's outcome." }),
+    result: z.json().optional().meta({ description: "With ok: what the client's handler answered (null for nothing); for browser.chrome and browser.dock, the verb's outcome." }),
     error: ClientCallError.optional(),
   })
   .refine((answer) => (answer.ok ? answer.result !== undefined && answer.error === undefined : answer.error !== undefined && answer.result === undefined), {
