@@ -39,7 +39,11 @@ import type { MethodHandlers } from "../serve/methods.js";
  * an answer for a call unknown, past its deadline or answered already is
  * accepted with `taken: false`; one over 8 MiB is refused, and the verb
  * answers that it was too large. Past the deadline the model reads that the
- * client did not answer, naming it.
+ * client did not answer, naming it. A call whose payload holds a value the
+ * scrub registry holds is never made: the log's append would write that
+ * value as `[redacted]`, so the Chrome would be handed the wrong text, and a
+ * secret the environment keeps reaches no client through the log (ADR
+ * 0011); the verb is refused with a sentence and nothing is appended (#926).
  */
 
 /** Who the log says appended a call: the environment's browser. */
@@ -80,6 +84,8 @@ export interface BrowserRelayOptions {
   readonly connected: (clientSessionId: string) => boolean;
   /** The client session's label, which the sentences name it by. */
   readonly clientLabel: (clientSessionId: string) => string | undefined;
+  /** A string as the log's append writes it: the scrub registry's registered values replaced (ADR 0011). */
+  readonly scrub: (text: string) => string;
 }
 
 export interface BrowserRelay {
@@ -103,6 +109,14 @@ interface Waiting {
 
 const NO_CLIENT =
   "No client started a run of this session, so there is no client to drive its Chrome, which is paired with another environment. Ask the person to start this session's run from a client on the Chrome's machine.";
+
+/** Whether a string anywhere in `value`, an object's keys included, holds a value `scrub` replaces: one the log would not write as it is. */
+const holdsScrubbed = (value: unknown, scrub: (text: string) => string): boolean => {
+  if (typeof value === "string") return scrub(value) !== value;
+  if (typeof value !== "object" || value === null) return false;
+  if (Array.isArray(value)) return value.some((entry) => holdsScrubbed(entry, scrub));
+  return Object.entries(value).some(([key, entry]) => scrub(key) !== key || holdsScrubbed(entry, scrub));
+};
 
 export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay => {
   const { log, clock } = options;
@@ -194,6 +208,13 @@ export const createBrowserRelay = (options: BrowserRelayOptions): BrowserRelay =
             chromeId: chrome.chromeId,
           },
         };
+    if (holdsScrubbed(payload, options.scrub)) {
+      const browser = isDock(chrome) ? "browser dock" : "Chrome";
+      const machine = isDock(chrome) ? "desktop" : "Chrome's machine";
+      return refusal(
+        `What this call would send to the ${browser} holds a secret this environment keeps, such as a key manager's or a forge's credential or a run's token. A verb for this ${browser} goes to ${client} through the environment's log, which never holds such a secret, so nothing was sent and the page is unchanged. Ask the person to enter it on the ${machine} themselves.`,
+      );
+    }
     return new Promise<PageOutcome>((resolve) => {
       const timer = clock.setTimeout(
         () =>

@@ -506,7 +506,7 @@ export const STEP_REGISTRY = [
   },
   {
     // Skills (ADR 0029; #514): local health from the sources' last attempts and the own directory.
-    // Its cards, cadence and triggers belong to the Set up workstream (#588).
+    // Its cards belong to the Set up workstream; skills.updated re-runs its local check (#588).
     id: "skills",
     home: "knowledge.skills",
     writes: [],
@@ -532,13 +532,13 @@ export const STEP_REGISTRY = [
     skip: "skills.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: [],
+    triggers: ["skills.updated"],
   },
   {
     // The Instructions step (skills spec, "Set up"; ADR 0030; #505), at home on the Knowledge band's Instructions row
     // (ADR 0027): the orientation switch, which settings.update writes and which passes on any valid value, as a
     // preference's does, and the owned instructions and the dismissed suggestions (#509) through their commands. Never
-    // skipped. Its state check reads the rendered block (#514). Every bank.* notice re-runs it (#586); its other triggers are #588's.
+    // skipped. Its state check reads the rendered block (#514). Its instruction events and the events of each registry the block renders re-run it (#586, #588).
     id: "instructions",
     home: "knowledge.instructions",
     writes: ["instructions.orientation"],
@@ -560,7 +560,7 @@ export const STEP_REGISTRY = [
     skippable: false,
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: ["bank.*"],
+    triggers: ["bank.*", "instructions.*", "account.updated", "key-manager.*", "forge.account.*", "environment.renamed"],
   },
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's
