@@ -54,6 +54,8 @@ export {
   type ShellTray,
   type ShellUpdate,
   type ShellWebView,
+  type ShellWebViewDebugger,
+  type ShellDebuggerMessage,
   type ShellWebViewState,
   type ShellWebViewKey,
   type ShellWindow,
@@ -659,3 +661,5 @@ export {
 } from "./managed-tools/words.js";
 export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/actions.js";
 export type { ToolRunsView } from "./managed-tools/tool-runs.js";
+
+export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";

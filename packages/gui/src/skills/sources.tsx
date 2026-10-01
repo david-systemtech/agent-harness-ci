@@ -6,14 +6,18 @@ import { useObservable, useRuntime } from "../window-context.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
 
 /** The probe is cached by its submitted URL/branch, never copied into component state. */
-export const AddSource = ({ environmentId, say }: { readonly environmentId: string; readonly say: (line: string) => void }) => {
+export const AddSource = ({ environmentId, say, title = "Skill sources" }: {
+  readonly environmentId: string;
+  readonly say: (line: string) => void;
+  readonly title?: string;
+}) => {
   const runtime = useRuntime();
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
   const [asked, setAsked] = useState<{ readonly url: string; readonly branch?: string } | undefined>(undefined);
   return (
     <section aria-label="Add a source" className="flex flex-col gap-3">
-      <h3 className="font-semibold">Skill sources</h3>
+      <h3 className="font-semibold">{title}</h3>
       <p className="text-sm text-ink-muted">
         At most {SKILL_SOURCE_LIMIT} sources. Probe a URL, then choose its skill folders. A folder with its own SKILL.md is one skill, including the repository
         root.

@@ -9,6 +9,7 @@ import { ForgesCard } from "../forges/forges-card.js";
 import { KeyManagerCard } from "../key-managers/key-manager-card.js";
 import { YourMachinesCard } from "../machines/your-machines-card.js";
 import { InstructionsCard } from "../instructions/instructions-card.js";
+import { SkillsCard } from "../skills/skills-card.js";
 import { PermissionsCard } from "../permissions/permissions-card.js";
 
 /**
@@ -39,6 +40,7 @@ export const STEP_CARDS: StepCards = {
   forges: ForgesCard,
   "key-manager": KeyManagerCard,
   instructions: InstructionsCard,
+  skills: SkillsCard,
   browser: BrowserCard,
   permissions: PermissionsCard,
   appearance: AppearanceCard,

@@ -142,6 +142,7 @@ import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
 import { useForkRewind } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
+import { runInfoLines } from "./status/run-info.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
@@ -302,8 +303,8 @@ type Card =
   | { readonly kind: "sessions"; readonly cursor: number; readonly filter: string }
   /** `/snip`: the saved snippets. */
   | { readonly kind: "snippets"; readonly cursor: number }
-  /** `/tasks` or `/timeline`: lines about the session, scrolled from `top`. */
-  | { readonly kind: "lines"; readonly which: "tasks" | "timeline"; readonly top: number }
+  /** `/tasks`, `/timeline` or run info: lines about the session, scrolled from `top`. */
+  | { readonly kind: "lines"; readonly which: "tasks" | "timeline" | "run-info"; readonly top: number }
   /** `/notices`: every notice, newest first; Enter on one about a session (a routine's firing, a parked prompt) opens it (#533). */
   | { readonly kind: "notices"; readonly cursor: number }
   /** A picker or card of accounts, models, permissions and settings (`pickers/`). */
@@ -884,6 +885,9 @@ export const App = (props: AppProps) => {
   const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
   /** The environment the header and the status line are about: the open session's, else the current one. */
   const headerView = sessionView ?? current;
+  const runInfoEnvironment = screen.card.kind === "lines" && screen.card.which === "run-info" ? opened?.environmentId : undefined;
+  const runInfoAccounts = useMemo(() => runInfoEnvironment === undefined ? undefined : runtime.projections.accounts(runInfoEnvironment), [runtime, runInfoEnvironment]);
+  useFollow(runInfoAccounts, request);
   const pickers = usePickers({
     runtime,
     request,
@@ -1713,15 +1717,23 @@ export const App = (props: AppProps) => {
     setScreen((s) => (s.card.kind === "help" && s.card.top > helpMaxTop ? { ...s, card: { ...s.card, top: helpMaxTop } } : s));
   }, [helpMaxTop]);
 
-  // The pager's lines: every row unfolded; `/tasks` and `/timeline` as lines too.
+  // The pager's lines: every row unfolded; `/tasks`, `/timeline` and run info as lines too.
   const card = screen.card;
   const pagerLines = card.kind === "pager" ? transcriptLines(allRows, { ...lineContext, width: mainWidth, expanded: true }) : card.kind === "page" ? card.lines : [];
   const cardLines: TranscriptLine[] =
     card.kind === "lines"
-      ? card.which === "timeline"
-        ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
-        : tasksLines(projection)
+      ? card.which === "run-info"
+        ? runInfoLines(projection, runInfoAccounts?.read().value, mainWidth)
+        : card.which === "timeline"
+          ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
+          : tasksLines(projection)
       : [];
+  const runInfoMaxTop = Math.max(0, cardLines.length - helpHeight);
+  useEffect(() => {
+    setScreen((s) => s.card.kind === "lines" && s.card.which === "run-info" && s.card.top > runInfoMaxTop
+      ? { ...s, card: { ...s.card, top: runInfoMaxTop } }
+      : s);
+  }, [runInfoMaxTop]);
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
   const askList = card.kind === "asks" ? askRows(asks, views, opened, colours) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
@@ -1918,6 +1930,11 @@ export const App = (props: AppProps) => {
     // Every key the screen answers, by action: the key is looked up in the keymap in force, never matched here.
     const handlers: Record<ScreenKey, Handler> & typeof composer.handlers = {
       ...composer.handlers,
+      "app.runInfo.toggle": () => {
+        if (card.kind === "lines" && card.which === "run-info") return update({ card: { kind: "none" } });
+        if (!projection) return say("No session is open.");
+        update({ card: { kind: "lines", which: "run-info", top: 0 } });
+      },
       "app.mode.step": () => pickers.stepMode(),
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
@@ -2550,7 +2567,7 @@ export const App = (props: AppProps) => {
           )}
           {card.kind === "lines" && (
             <LinesCard
-              title={card.which === "timeline" ? "Timeline" : "Tasks"}
+              title={card.which === "run-info" ? "The latest run" : card.which === "timeline" ? "Timeline" : "Tasks"}
               hint={`${keys("pager.close")} close`}
               lines={cardLines.length > 0 ? cardLines : [{ row: "none", spans: [{ text: LINES_EMPTY[card.which], dim: true }] }]}
               top={card.top}
@@ -2662,9 +2679,10 @@ const absentReason = (id: KeyActionId): string => {
 };
 
 /** What a lines card says with nothing to list. */
-const LINES_EMPTY: Readonly<Record<"tasks" | "timeline", string>> = {
+const LINES_EMPTY: Readonly<Record<"tasks" | "timeline" | "run-info", string>> = {
   tasks: "No delegated work in this session.",
   timeline: "No turn yet.",
+  "run-info": "No run yet.",
 };
 
 /** `/notices`: the notices, newest first as given, each with when, where from and what it offers. */

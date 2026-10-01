@@ -1,8 +1,15 @@
-import { describe, expect, it, onTestFinished } from "vitest";
+import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { runInNewContext } from "node:vm";
+import { JSDOM } from "jsdom";
+import { beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { plainPolicy } from "../../test/driven.js";
+import type { TsxInPage } from "../../test/tsx-in-page.js";
 import { cdpConnection } from "../cdp/connection.js";
 import { webSocketTransport } from "../cdp/web-socket.js";
-import { CdpFailure, scriptedCdpPeer } from "../testing/index.js";
+import { CdpFailure, scriptedCdpPeer, type InPageCall } from "../testing/index.js";
 import { showsText } from "./in-page.js";
 import { CdpPage, systemDriverClock } from "./page.js";
 
@@ -11,7 +18,8 @@ import { CdpPage, systemDriverClock } from "./page.js";
  * driver for three browsers"): its own frames and its cross-site frames'
  * child targets, each frame with its own isolated world, and an in-page
  * function's answers keyed by frame, as the snapshot and the reader read
- * every frame (#544, #545).
+ * every frame (#544, #545); and an in-page function sent so that it runs in
+ * the page whatever transform loaded the package (#966).
  */
 
 const attached = async () => {
@@ -104,5 +112,74 @@ describe("a page's frames", () => {
     });
     const [answer] = [...(await page.callInEveryFrame(showsText, "x")).values()];
     expect(answer).toMatchObject({ ok: false, error: "Page.createIsolatedWorld: No frame for given id found" });
+  });
+});
+
+/** Spawning tsx on a loaded runner: a cap for a hang, not a budget. */
+const TSX_MS = 60_000;
+
+describe("an in-page function loaded through tsx", () => {
+  // The package as a development run loads it, from source through tsx, whose transform names functions with a helper the page lacks.
+  let tsx: TsxInPage;
+  beforeAll(async () => {
+    const script = fileURLToPath(new URL("../../test/tsx-in-page.ts", import.meta.url));
+    const loader = createRequire(import.meta.url).resolve("tsx");
+    const { stdout } = await promisify(execFile)(process.execPath, ["--conditions=@agent-harness/source", "--import", loader, script]);
+    tsx = JSON.parse(stdout) as TsxInPage;
+  }, TSX_MS);
+
+  /** A function made from tsx's source text of it, whose own source text the driver sends. */
+  const fromTsx = <F>(name: string): F => runInNewContext(`(${tsx.functions[name]})`) as F;
+
+  const ARTICLE = `<!doctype html><html><head><title>Example Domain</title></head><body><nav><a href="/">Home</a></nav><article><h1>Example Domain</h1>${`<p>${"This domain is for use in documentation examples without needing permission. ".repeat(4)}</p>`.repeat(4)}</article><iframe src="https://blog.example/comments" style="padding-left: 3px; padding-top: 4px"></iframe></body></html>`;
+
+  /** The page at https://blog.example/web with its comments frame, each frame's in-page calls run from the declaration sent, in a jsdom window of its document, which has no `__name`. */
+  const blogPage = async () => {
+    const { peer, page, targetId } = await attached();
+    peer.document("https://blog.example/web", { title: "Example Domain", frames: [{ url: "https://blog.example/comments" }] });
+    await page.navigate("https://blog.example/web");
+    const windows: Record<string, Window & typeof globalThis> = {
+      "https://blog.example/web": new JSDOM(ARTICLE, { url: "https://blog.example/web", runScripts: "outside-only" }).window,
+      "https://blog.example/comments": new JSDOM(`<button>Save</button>`, { url: "https://blog.example/comments", runScripts: "outside-only" }).window,
+    };
+    const comments = windows["https://blog.example/comments"] as Window & typeof globalThis;
+    // jsdom lays nothing out: every element of the comments gets a box, so the snapshot sees it.
+    comments.Element.prototype.getBoundingClientRect = () => ({ left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20, x: 0, y: 0, toJSON: () => ({}) });
+    // jsdom computes no pseudo-element's style, and says so on every call: an element's own style has no content either.
+    const computed = comments.getComputedStyle.bind(comments);
+    comments.getComputedStyle = (element: Element) => computed(element);
+    const answer = ({ frame, declaration, args, owner }: InPageCall): unknown => {
+      const window = windows[frame.url] as Window & typeof globalThis;
+      const fn = (window as unknown as { eval(source: string): (this: unknown, ...args: unknown[]) => unknown }).eval(`(${declaration})`);
+      return owner === undefined ? fn(...args) : fn.call(window.document.querySelector("iframe"));
+    };
+    for (const name of ["installSnapshot", "snapshotFrame", "installReader", "readPage", "pageChallenge", "showsText", "readStorage", "frameOwnerOrigin"]) peer.inPage(name, answer);
+    const commentsFrame = page.frame(peer.target(targetId).frames[1]?.id as string);
+    if (commentsFrame === undefined) throw new Error("the comments frame is not on the page");
+    return { page, comments: commentsFrame };
+  };
+
+  it("is named by tsx with a helper of its own, which the page does not have", () => {
+    for (const declaration of ["installSnapshot", "installReader", "pageChallenge"]) expect(tsx.declarations[declaration], declaration).toContain("__name(");
+    for (const fn of ["showsText", "readStorage"]) expect(tsx.functions[fn], fn).toContain("__name(");
+  });
+
+  it("runs the snapshot, the reader and challenge detection, composed from tsx's source texts, in a page", async () => {
+    const { page, comments } = await blogPage();
+    await page.callInFrame(comments, { declaration: tsx.declarations["installSnapshot"] as string });
+    const snapshot = await page.callInFrame(comments, fromTsx<(options: object) => unknown>("snapshotFrame"), { prefix: "f1", firstRef: 1 });
+    expect(snapshot).toEqual({ nodes: [{ role: "button", name: "Save", ref: "f1e2" }], lastRef: 2 });
+
+    await page.callInFrame(page.mainFrame(), { declaration: tsx.declarations["installReader"] as string });
+    const read = await page.callInFrame(page.mainFrame(), fromTsx<(options: object) => unknown>("readPage"), { links: false });
+    expect(read).toEqual({ article: expect.stringContaining("This domain is for use in documentation examples without needing permission.") });
+    expect(await page.callInFrame(page.mainFrame(), { declaration: tsx.declarations["pageChallenge"] as string })).toBeNull();
+  });
+
+  it("runs the driver's own functions from tsx's source texts in a page, on a frame's owner element too", async () => {
+    const { page, comments } = await blogPage();
+    expect(await page.callInFrame(page.mainFrame(), fromTsx<(text: string) => boolean>("showsText"), "documentation examples")).toBe(true);
+    expect(await page.callInFrame(page.mainFrame(), fromTsx<() => unknown>("readStorage"))).toEqual({ origin: "https://blog.example", local: {}, session: {} });
+    expect(await page.callOnFrameOwner(comments, fromTsx<(this: Element) => unknown>("frameOwnerOrigin"))).toEqual({ x: 3, y: 4 });
   });
 });
