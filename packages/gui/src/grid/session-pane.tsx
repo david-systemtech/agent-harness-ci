@@ -15,6 +15,7 @@ import { PaneDocumentsProvider } from "../session/pane-documents.js";
 import { PaneLine } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
 import { PaneOrganising } from "../sidebar/pane-organising.js";
+import { TrustQuestion } from "../skills/trust.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
 import { StatusLine } from "../status/status-line.js";
 import { Transcript } from "../transcript/transcript.js";
@@ -56,6 +57,7 @@ export const SessionPane = ({ session, focused, header, ...caption }: PaneConten
                 <SessionForkRewindProvider environmentId={environmentId} sessionId={sessionId}>
                   <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
                     {header ?? <SessionCaption session={session} {...caption} />}
+                    <TrustQuestion environmentId={environmentId} sessionId={sessionId} />
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
                     <QueueStrip />
                     <PromptCard environmentId={environmentId} sessionId={sessionId} />
