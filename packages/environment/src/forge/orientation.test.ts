@@ -434,6 +434,7 @@ describe("the forges section in the orientation block", () => {
       sessionId: session.id,
       accountId: "claude-max",
       workspace,
+      repositoryIdentity: null,
       trust: undecidedTrust({ workspace, repositoryIdentity: null }),
       skillSet: EMPTY_RUN_SKILL_SET,
       origin: "client",

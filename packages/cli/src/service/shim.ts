@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { SERVICE_STATE_FILE } from "../launch/state.js";
 import { VERSION_CLI_ENTRY, VERSION_SENTINEL, versionNode, VERSIONS_DIRECTORY } from "../launch/versions.js";
@@ -19,6 +20,16 @@ export const SHIM_DIRECTORY = "bin";
 
 /** The shim's file in `SHIM_DIRECTORY`, by kind: the product's name, which `cmd` finds as a command with the `.cmd` extension. */
 export const SHIM_FILES: Readonly<Record<ScriptKind, string>> = { sh: PRODUCT_NAME, cmd: `${PRODUCT_NAME}.cmd` };
+
+/**
+ * What the shim reads in the data directory `dataDir` beyond its own
+ * folder, on every kind: the service state, for the active version, and the
+ * versions directory, where it runs that version's Node and CLI. The whole
+ * directory, not the active version's folder, since an update may switch
+ * the active version while what started the shim lives. A contained run's
+ * sandbox must let it read them to run it as git's credential helper (#705).
+ */
+export const shimReads = (dataDir: string): string[] => [join(dataDir, SERVICE_STATE_FILE), join(dataDir, VERSIONS_DIRECTORY)];
 
 /** The command that writes the shim and the service state it reads, as the shim's messages name it. */
 const installCommand = `${PRODUCT_NAME} service install`;
