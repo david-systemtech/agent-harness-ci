@@ -225,7 +225,7 @@ export const skillsSourcesAdd = defineMethod({
     url: SkillSourceUrl,
     folder: SkillSourceFolder,
     follow: SkillSourceFollow,
-    probeId: SkillProbeId.optional().meta({ description: "The probe whose checkout to reuse while it is kept; the source is fetched afresh when absent, expired, or of another repository or commit." }),
+    probeId: SkillProbeId.optional().meta({ description: "The probe whose checkout to reuse while it is kept; the source is fetched afresh when it is absent or expired, or read another repository, or another branch or commit than the source follows." }),
   }),
   result: z.object({ source: SkillsViewSource.meta({ description: "The source as skills.get lists it now." }) }),
   errors: [],

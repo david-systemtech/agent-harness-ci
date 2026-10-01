@@ -395,6 +395,21 @@ describe("a source's provenance manifest", () => {
       { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "74ca5fe", licence: "MIT" },
     ]);
   });
+
+  it("in the folder itself wins whole even when it names nothing, so one a level up gives no origin", async () => {
+    const forge = skillRepositories(tempDir);
+    forge.commit("david/agent-skills", {
+      "skills.json": manifest({ tdd: { repo: "mattpocock/skills", path: "skills/engineering/tdd", sha: "74ca5fe", license: "MIT" } }),
+      "vendored/skills.json": manifest({}),
+      "vendored/tdd/SKILL.md": skill("tdd"),
+    });
+    const { client } = await start(forge);
+    await add(client, `${SKILLS_HOST}david/agent-skills`, { folder: "vendored" });
+
+    expect((await view(client)).members.map((member) => member.origin)).toEqual([
+      { kind: "repository", repository: "https://skills.test/david/agent-skills", path: "vendored/tdd" },
+    ]);
+  });
 });
 
 describe("a source's repository", () => {

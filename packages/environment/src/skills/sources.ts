@@ -24,6 +24,7 @@ import { parseActor } from "../event-log/envelope.js";
 import type { EventLog, Projector, StreamRef } from "../event-log/event-log.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PreparedCommand } from "../serve/methods.js";
 import type { SkillProbes } from "./probe.js";
+import { occupied } from "./own-directory.js";
 import { PROVENANCE_MANIFEST, readProvenanceManifest } from "./provenance.js";
 import { findSkillFolders, readSkillFolder, sourceRootNaming, type FoundMember } from "./reader.js";
 import { exportSnapshot, removeSnapshot, snapshotPath } from "./snapshots.js";
@@ -41,7 +42,8 @@ import { exportSnapshot, removeSnapshot, snapshotPath } from "./snapshots.js";
  * earliest added first (`precedence.ts`), and a member's link in a
  * generation points into the snapshot. A provenance manifest in the
  * source's folder, else one level up from it, gives its members their
- * origin, as the own directory's does; a member it does not name comes from
+ * origin, as the own directory's does; the folder's own wins whole, even
+ * one naming nothing. A member the manifest does not name comes from
  * the source's repository and folder. At most twenty sources, one per
  * repository identity and folder.
  */
@@ -184,9 +186,10 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
     const snapshot = snapshotPath(dataDir, source.id, source.commit);
     const segments = segmentsOf(source.folder);
     const found = await readSkillFolder(join(snapshot, ...segments), sourceRootNaming(source.identity, source.folder));
-    // The manifest in the folder, else the one a level up from it.
-    const beside = await readProvenanceManifest(join(snapshot, ...segments, PROVENANCE_MANIFEST));
-    const origins = beside.size > 0 || segments.length === 0 ? beside : await readProvenanceManifest(join(snapshot, ...segments.slice(0, -1), PROVENANCE_MANIFEST));
+    // The manifest in the folder when one is there, naming anything or not, else the one a level up from it.
+    const beside = join(snapshot, ...segments, PROVENANCE_MANIFEST);
+    const manifest = segments.length === 0 || (await occupied(beside)) ? beside : join(snapshot, ...segments.slice(0, -1), PROVENANCE_MANIFEST);
+    const origins = await readProvenanceManifest(manifest);
     const originOf = (relative: string): SkillOrigin => {
       const named = origins.get(relative === "." ? (segments.at(-1) ?? ".") : relative);
       if (named !== undefined) return named;

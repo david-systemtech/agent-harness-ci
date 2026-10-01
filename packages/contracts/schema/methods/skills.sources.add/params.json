@@ -71,7 +71,7 @@
       "description": "What a skill source follows: a branch (null for the remote's default), or a pinned commit, which never syncs."
     },
     "probeId": {
-      "description": "The probe whose checkout to reuse while it is kept; the source is fetched afresh when absent, expired, or of another repository or commit.",
+      "description": "The probe whose checkout to reuse while it is kept; the source is fetched afresh when it is absent or expired, or read another repository, or another branch or commit than the source follows.",
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
