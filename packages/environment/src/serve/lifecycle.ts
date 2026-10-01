@@ -60,6 +60,8 @@ export interface LifecycleOptions {
   readonly readiness: () => EnvironmentReadiness;
   /** What the environment binds beside loopback and could bind, read each time the status is (#574). */
   readonly binding: () => EnvironmentBinding;
+  /** Looks again for what `binding` reads as it was last looked for (a Tailscale address found since the start, #861), before `environment.status` answers. */
+  readonly lookAgain?: () => Promise<void>;
   /** Called once, as a drain begins: readiness turns `draining`. */
   readonly onDraining: () => void;
   /**
@@ -197,7 +199,11 @@ export const createLifecycle = (options: LifecycleOptions): Lifecycle => {
     answer: (query) =>
       query.type === "drain?" ? { type: "draining", ...startedOf(drain("launcher")) } : { type: "idle", ...status() },
     handlers: {
-      "environment.status": status,
+      // Only the method looks again: the launcher's queries, the snapshot and the step's checks read the status as last looked for.
+      "environment.status": async () => {
+        await options.lookAgain?.();
+        return status();
+      },
       // The notice joins the command's transaction; a drain it joins appends nothing, so its receipt says unchanged.
       "environment.drain": (_params, { actor, commandId }) => ({
         aggregate: options.stream,
