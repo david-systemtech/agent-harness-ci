@@ -31,6 +31,20 @@ const scopedClient = (t: TestEnvironment, scopes: Scope[]) =>
   t.client({ token: t.env.clientSessions.issue({ kind: "program", label: "a scoped program", scopes, ceiling: Ceiling.parse("acceptEdits") }).token });
 
 describe("settings.get", () => {
+  it("preserves saved browser host lists with earlier numeric entries through rebuild and restart", async () => {
+    const dataDir = tempDir();
+    const first = await start(dataDir);
+    const values = { "browser.devSites": ["1.2.3.4.5", "dev.example"], "browser.internalHosts": ["08", "private.example"] };
+    first.env.log.append({ kind: "settings", id: first.env.id }, [{ type: "settings.updated", payload: { values } }], { actor: "system:settings" });
+    const client = await first.client();
+    expect(await client.request("settings.get", { keys: ["browser.devSites", "browser.internalHosts"] })).toEqual({ values });
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    expect(await client.request("settings.get", { keys: ["browser.devSites", "browser.internalHosts"] })).toEqual({ values });
+    await first.close();
+    const second = await start(dataDir);
+    expect(await (await second.client()).request("settings.get", { keys: ["browser.devSites", "browser.internalHosts"] })).toEqual({ values });
+  });
+
   it("answers every key at its preset on an environment nobody has changed: 14 days idle, no settle on merge, compaction after 90 days, no default account, family or effort, the update keys' presets (#335), the Default theme (#391), the browser keys' (#541), injection allowed with no account's entry (#367), the tailnet bound with no LAN address (#574), and the orientation block on (#505)", async () => {
     const t = await start();
     const client = await t.client();

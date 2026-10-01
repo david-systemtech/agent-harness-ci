@@ -4,6 +4,7 @@ import {
   DENYLIST_SECTIONS,
   Denylist,
   DenylistChangedPayload,
+  DenylistInput,
   denylistPresets,
   denylistTestCall,
   describeDenylistMatch,
@@ -86,10 +87,11 @@ describe("the denylist's sections", () => {
   it("refuses numeric-only host entries that cannot match, while keeping valid IPv4 spellings and numeric labels in names", () => {
     for (const section of ["hosts", "browserDomains"] as const) {
       for (const pattern of ["1.2.3.4.5", "1.2.3.256", "4294967296", "256.1", "1.16777216", "1.2.65536", "08", "*.1.2.3.256"]) {
-        expect(Denylist.safeParse({ ...presets, [section]: [entry("bad", pattern)] }).success, pattern).toBe(false);
+        expect(DenylistInput.safeParse({ [section]: [{ pattern }] }).success, pattern).toBe(false);
+        expect(Denylist.safeParse({ ...presets, [section]: [entry("saved", pattern)] }).success, pattern).toBe(true);
       }
       for (const pattern of ["2852039166", "0xa9fea9fe", "0251.0376.0251.0376", "169.254.169.254", "4294967295", "255.16777215", "1.2.65535", "1.2.3.255", "037777777777", "*.127.1", "123.example", "example.123"]) {
-        expect(Denylist.safeParse({ ...presets, [section]: [entry("good", pattern)] }).success, pattern).toBe(true);
+        expect(DenylistInput.safeParse({ [section]: [{ pattern }] }).success, pattern).toBe(true);
       }
     }
   });

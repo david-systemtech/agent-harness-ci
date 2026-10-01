@@ -74,13 +74,16 @@ const NUMERIC_HOST = new RegExp(`^(?!(?:\\*\\.)?[0-9.]+$)|^(?:\\*\\.)?(?:${NUMER
 /**
  * A domain or host pattern: a host name, an IPv4 address or an IPv6 literal,
  * with an optional leading wildcard label (`*.paypal.com`: the domain and
- * every subdomain). All-digit names must be valid decimal or octal IPv4
- * spellings. No scheme, port, path or other wildcard. The browser's
+ * every subdomain). No scheme, port, path or other wildcard. The browser's
  * host lists (`browser.devSites`, `browser.internalHosts`) take it too.
  */
 export const HostPattern = z
   .string()
   .regex(new RegExp(`^(?:(?:\\*\\.)?${LABEL}(?:\\.${LABEL})*|${IPV6})$`))
+  .meta({ description: "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path." });
+
+/** New denylist input refuses unusable numeric entries; stored entries and historical events keep their original grammar. */
+const HostPatternInput = HostPattern
   .regex(NUMERIC_HOST, { error: (issue) => `Host entry ${String(issue.input)} is not a valid IPv4 address.` })
   .meta({ description: "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path. All-digit names must be valid IPv4 spellings." });
 
@@ -151,10 +154,10 @@ const inputShape = <P extends z.ZodString>(pattern: P) => ({
  */
 export const DenylistInput = z
   .object({
-    browserDomains: z.array(z.object(inputShape(HostPattern))),
+    browserDomains: z.array(z.object(inputShape(HostPatternInput))),
     paths: z.array(z.object(inputShape(PathPattern))),
     commandPatterns: z.array(z.object(inputShape(CommandPattern))),
-    hosts: z.array(z.object(inputShape(HostPattern))),
+    hosts: z.array(z.object(inputShape(HostPatternInput))),
   })
   .partial()
   .refine((sections) => DENYLIST_SECTIONS.some((section) => sections[section] !== undefined), {
