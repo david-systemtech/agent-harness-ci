@@ -1,14 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { ENVIRONMENT_STREAM_KIND, type RoutineDefinitionInput } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end } from "../../test/fake-adapter.js";
+import { rejection } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { created, history, listed, routineUpdates, runNow, untilRoutineEvent, untilSettled, untilStarted, written } from "../../test/routines.js";
+import { createRoutine, created, history, listed, routineCommand, routineUpdates, runNow, untilRoutineEvent, untilSettled, untilStarted, written } from "../../test/routines.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -93,6 +96,27 @@ const gone = (pid: number): boolean => {
 
 /** The skip's record once it is on the log. */
 const skipOf = async (t: TestEnvironment, routineId: string, skipId: string) => (await untilSettled(t, routineId, skipId)).payload;
+
+/** A loopback HTTP server on port 0 answering with `handler`, closed when the test ends; answers its origin and the paths asked for. */
+const serve = async (handler: (request: IncomingMessage, response: ServerResponse) => void): Promise<{ readonly origin: string; readonly asked: string[] }> => {
+  const asked: string[] = [];
+  const server = createServer((request, response) => {
+    asked.push(request.url ?? "");
+    handler(request, response);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  onCleanup(
+    () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  );
+  return { origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, asked };
+};
+
+/** Puts `pattern` on the denylist's hosts. */
+const denyHost = (client: WireClient, pattern: string) => client.apply("permissions.denylist.set", { commandId: randomUUID(), sections: { hosts: [{ pattern }] } });
 
 /** The environment's scripts directory, where the OS user places pre-check scripts. */
 const scriptsOf = (t: TestEnvironment): string => join(t.dataDir, "scripts");
@@ -396,5 +420,117 @@ describe("a script pre-check that fails", () => {
     });
     placeScript(t, "later.sh", "echo here");
     expect((await listed(client, missing.state.id))?.attention).toEqual(["failing"]);
+  });
+});
+
+describe("a script pre-check's process", () => {
+  it("runs with no arguments, standard input closed, the scrubbed base environment and the routine's four variables, in the workspace's directory, uncontained", async () => {
+    vi.stubEnv("AGENT_HARNESS_TEST_LEAK", "leaked");
+    onCleanup(() => vi.unstubAllEnvs());
+    const t = await start();
+    const client = await t.client();
+    const workspace = tempDir();
+    const outside = join(tempDir(), "written-by-the-pre-check");
+    placeScript(
+      t,
+      "probe.sh",
+      [
+        "printf 'arguments=%s\\n' \"$#\"",
+        "printf 'stdin=%s\\n' \"$(cat)\"",
+        "printf 'id=%s\\nname=%s\\ndue=%s\\ntrigger=%s\\n' \"$AGENT_HARNESS_ROUTINE_ID\" \"$AGENT_HARNESS_ROUTINE_NAME\" \"$AGENT_HARNESS_DUE_AT\" \"$AGENT_HARNESS_TRIGGER\"",
+        "printf 'leak=%s\\n' \"${AGENT_HARNESS_TEST_LEAK:-unset}\"",
+        "printf 'directory=%s\\n' \"$(pwd -P)\"",
+        `echo written > '${outside}'`,
+      ].join("\n"),
+    );
+    const { state } = await created(
+      client,
+      routine({ name: "Probe", workspace: { kind: "directory", path: workspace, repositoryIdentity: null }, containment: "workspace-no-network", preCheck: { kind: "script", path: "probe.sh" } }),
+    );
+
+    const firingId = await checkedRun(client, state.id);
+    expect((await untilStarted(t, state.id, firingId)).payload["preCheck"]).toMatchObject({
+      exitStatus: 0,
+      output: [
+        "arguments=0",
+        "stdin=",
+        `id=${state.id}`,
+        "name=Probe",
+        `due=${MANUAL_CLOCK_START}`,
+        "trigger=run-now",
+        "leak=unset",
+        `directory=${realpathSync(workspace)}`,
+        "",
+      ].join("\n"),
+    });
+    expect(readFileSync(outside, "utf8")).toBe("written\n");
+  });
+});
+
+describe("a URL pre-check", () => {
+  it("is a GET following redirects, whose 2xx body is the output; a status other than 2xx is a failure http_status", async () => {
+    const t = await start();
+    const client = await t.client();
+    let status = 200;
+    const { origin, asked } = await serve((request, response) => {
+      if (request.url === "/moved") return void response.writeHead(302, { location: "/feed" }).end();
+      response.writeHead(status, { "content-type": "text/plain" }).end(status === 200 ? "release 1.4.0\n" : "down\n");
+    });
+    const { state } = await created(client, routine({ preCheck: { kind: "url", url: `${origin}/moved` } }));
+
+    const firingId = await checkedRun(client, state.id);
+    expect((await untilStarted(t, state.id, firingId)).payload["preCheck"]).toEqual({
+      kind: "url",
+      startedAt: MANUAL_CLOCK_START,
+      durationMs: 0,
+      exitStatus: null,
+      httpStatus: 200,
+      bytes: 14,
+      hash: sha256("release 1.4.0\n"),
+      differs: null,
+      output: "release 1.4.0\n",
+      stderr: null,
+      failure: null,
+    });
+    expect(asked).toEqual(["/moved", "/feed"]);
+    await untilSettled(t, state.id, firingId);
+
+    status = 500;
+    expect(await skipOf(t, state.id, await checkedRun(client, state.id))).toMatchObject({
+      reason: "pre-check-failed",
+      detail: `${origin}/feed answered 500.`,
+      preCheck: { httpStatus: 500, hash: null, output: null, failure: { reason: "http_status", detail: `${origin}/feed answered 500.` } },
+    });
+  });
+
+  it("checks every host it reaches against the denylist's hosts: a redirect to one fails denylisted, unfetched", async () => {
+    const t = await start();
+    const client = await t.client();
+    await denyHost(client, "*.blocked.example");
+    const { origin, asked } = await serve((_request, response) => void response.writeHead(301, { location: "http://feeds.blocked.example/latest" }).end());
+    const { state } = await created(client, routine({ preCheck: { kind: "url", url: `${origin}/feed` } }));
+
+    expect(await skipOf(t, state.id, await checkedRun(client, state.id))).toMatchObject({
+      reason: "pre-check-failed",
+      preCheck: { httpStatus: null, failure: { reason: "denylisted", detail: "feeds.blocked.example is on the denylist's hosts, so http://feeds.blocked.example/latest was not fetched." } },
+    });
+    expect(asked).toEqual(["/feed"]);
+  });
+
+  it("is refused denylisted when a save names a host on the denylist's hosts: a create, an update and an import", async () => {
+    const t = await start();
+    const client = await t.client();
+    const allowed = await created(client, routine({ name: "Allowed", preCheck: { kind: "url", url: "https://feeds.example.com/latest" } }));
+    const { yaml } = await client.request("routines.export", { routineIds: [allowed.state.id] });
+    await denyHost(client, "*.example.com");
+    const denied = { reason: "denylisted", data: { host: "feeds.example.com" } };
+
+    const create = await createRoutine(client, routine({ name: "Denied", preCheck: { kind: "url", url: "https://feeds.example.com/latest" } }));
+    expect(rejection(create.receipt)).toMatchObject(denied);
+    const update = await routineCommand(client, "routines.update", { routineId: allowed.state.id, fields: { preCheck: { kind: "url", url: "https://feeds.example.com/other" } } });
+    expect(rejection(update.receipt)).toMatchObject(denied);
+    const imported = await routineCommand(client, "routines.import", { yaml: yaml.replace("name: Allowed", "name: Imported") });
+    expect(rejection(imported.receipt)).toMatchObject(denied);
+    expect((await client.request("routines.list", {})).routines.map((listedRoutine) => listedRoutine.definition.name)).toEqual(["Allowed"]);
   });
 });

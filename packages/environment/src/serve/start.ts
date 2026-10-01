@@ -1551,6 +1551,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       firings,
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
       scripts,
+      denylisted: denylistedHost,
     }),
     ...preCheckMethods({ scripts }),
     ...endpoints.handlers,
