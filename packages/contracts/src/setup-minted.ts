@@ -4,7 +4,7 @@ import { SetupTarget } from "./setup.js";
 import { StepId } from "./steps.js";
 
 /** A minted session's subject, named as the step's action targets name it. */
-export const MintedSubject = SetupTarget.omit({ action: true });
+const MintedSubject = SetupTarget.omit({ action: true });
 
 /**
  * The session stream's authoring provenance (#891). Kept in its own event

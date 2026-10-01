@@ -12,8 +12,8 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, get, refusal } from "../../test/sessions.js";
 import { scriptedStep } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
-import { TRIGGER_WINDOW_MS } from "./scheduler.js";
 import type { StepSubject } from "./mint.js";
+import { TRIGGER_WINDOW_MS } from "./scheduler.js";
 import type { SetupSteps } from "./service.js";
 
 /**

@@ -233,8 +233,8 @@ import {
   UpdatesStatus,
 } from "./updates.js";
 import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepResults, StepState } from "./setup.js";
-import { PromptVariant } from "./setup-prompts.js";
 import { SetupMintedPayload } from "./setup-minted.js";
+import { PromptVariant } from "./setup-prompts.js";
 import {
   ADDRESS_ROWS,
   SETTINGS_ADDRESSES,
