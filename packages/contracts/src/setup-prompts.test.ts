@@ -214,6 +214,7 @@ describe("the Memory bank step's describe prompt (#586)", () => {
         "projects/brandsolidate/bank/PROJECT.md with line:",
         "at most 100 characters",
         "topics: ({} for none)",
+        "a folder that has its folder file",
       ]) {
         expect(text, `${variant}: ${part}`).toContain(part);
       }
