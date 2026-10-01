@@ -19,6 +19,7 @@ const member: SkillsViewMember = {
   problems: [],
   warnings: [],
   shadowedBy: null,
+  native: false,
   enabled: true,
   alwaysOn: false,
   choices: [],

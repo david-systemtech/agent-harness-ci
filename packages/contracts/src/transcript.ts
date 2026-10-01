@@ -8,6 +8,8 @@ import {
   RunId,
 } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { SkillOrigin } from "./skills.js";
+import { SkillName } from "./skill-rules.js";
 import { SessionInstructions } from "./instructions.js";
 import { Mode } from "./permissions-modes.js";
 import { JsonObject, Sequence, Timestamp } from "./primitives.js";
@@ -157,6 +159,7 @@ export const MessageSentPayload = z
     ...runPart,
     messageId: MessageId,
     text: z.string(),
+    skill: z.object({ name: SkillName, origin: SkillOrigin.nullable() }).optional().meta({ description: "The member a leading slash resolved to; text remains what the person typed." }),
     attachments: z.array(AttachmentRecord),
     delivery: MessageDelivery.exclude(["steered"]).meta({
       description: "prompt: the message starts the run; queued: a run was live, so it waits to be steered or read (message.delivered).",

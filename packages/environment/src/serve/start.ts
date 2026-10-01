@@ -1723,6 +1723,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // into the own directory, a checkout among them offered as a source. The choices (#501), on the skills stream.
     ...skillsMethods({
       log,
+      trust: (place) => trustStore.of(place),
+      nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
       environmentId: record.id,
       own: ownSkills,
       defaultAccountId: () => accounts.defaultId(),

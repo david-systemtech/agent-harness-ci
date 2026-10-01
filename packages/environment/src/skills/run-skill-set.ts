@@ -6,6 +6,7 @@ import { choicesFor, readSkillChoices } from "./choices.js";
 import type { Generations, PlacedMember, PlacedSet } from "./generations.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
+import { isNativeMember, readRepositorySkills, repositorySkillTarget } from "./repository.js";
 import type { SkillSources } from "./sources.js";
 
 /**
@@ -17,11 +18,10 @@ import type { SkillSources } from "./sources.js";
  * for the account (#501), marks each the account made always-on, places
  * each member in the set where its files lie, and has the materialiser give
  * the set its fingerprint and generation, current for the scope it was
- * resolved for (the account, the workspace and the trust). Its layers so
- * far are the own directory, whose members are linked live, and the
- * sources, whose members are linked into their current snapshots (#498); a
- * trusted repository's members, which may be native and are then hidden
- * when switched off (#502), join as they land.
+ * resolved for (the account, the workspace and the trust). The own and
+ * trusted repository layers are linked live; sources point into their
+ * immutable snapshots. Members in the adapter's native roots are listed
+ * without links, and their names hidden when switched off or shadowed by a linked member.
  */
 
 export interface RunSkillSetsOptions {
@@ -40,28 +40,19 @@ const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly
 const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.accountId, scope.workspace.path, scope.trust.key, scope.trust.decision]);
 
 /**
- * The members in the set for `accountId` by precedence, each its choices
- * leave on (null: the environment's choices alone), with the sources read
- * for them and the choices.
- */
-const membersFor = async (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">, accountId: string | null) => {
-  const choices = choicesFor(readSkillChoices(options.log), accountId);
-  const [ownMembers, sources] = await Promise.all([options.own.read(), options.sources.read()]);
-  const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources)
-    .filter(inTheSet)
-    .filter((member) => choices.enabled(member.name));
-  return { members, sources, choices };
-};
-
-/**
- * The names in the skill set of `accountId` (null: before any account's
- * choices), as a run on it resolves them, with no generation made: what a
- * routine's skills are checked against (#531).
+ * The names in the skill set of `accountId` from the environment's own
+ * layers (the own directory and the sources; null: before any account's
+ * choices), with no generation made: what a routine's skills are checked
+ * against (#531).
  */
 export const skillSetNames =
   (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">) =>
-  async (accountId: string | null): Promise<ReadonlySet<string>> =>
-    new Set((await membersFor(options, accountId)).members.map((member) => member.name));
+  async (accountId: string | null): Promise<ReadonlySet<string>> => {
+    const choices = choicesFor(readSkillChoices(options.log), accountId);
+    const [ownMembers, sources] = await Promise.all([options.own.read(), options.sources.read()]);
+    const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources).filter(inTheSet);
+    return new Set(members.filter((member) => choices.enabled(member.name)).map((member) => member.name));
+  };
 
 /**
  * The set resolved for `scope`, placed: each member in it with where its
@@ -73,10 +64,14 @@ export const placeSkillSet =
   (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">) =>
   async (scope: SkillSetScope): Promise<PlacedSet> => {
     const { own } = options;
-    const { members, sources, choices } = await membersFor(options, scope.accountId);
-    // An own directory's member is linked live, from its folder or command file there; a source's into its current snapshot.
+    const choices = choicesFor(readSkillChoices(options.log), scope.accountId);
+    const [ownMembers, sources, repository] = await Promise.all([own.read(), options.sources.read(), readRepositorySkills(scope)]);
+    const members = resolveSkillSet([...repository, ...ownMembers, ...sources.members], sources.sources)
+      .filter(inTheSet)
+      .filter((member) => choices.enabled(member.name));
+    // Own and repository members are linked live; a source points into its current snapshot.
     const placed = members.map((member): PlacedMember => {
-      const { target, commit } = member.layer.kind === "source" ? sources.place(member) : { target: join(own.path, ...member.path.split("/")), commit: null };
+      const { target, commit } = member.layer.kind === "source" ? sources.place(member) : { target: member.layer.kind === "repository" ? repositorySkillTarget(scope.workspace, member) : join(own.path, ...member.path.split("/")), commit: null };
       return {
         name: member.name,
         description: member.description,
@@ -87,11 +82,15 @@ export const placeSkillSet =
         invocation: member.invocation,
         userInvocable: member.userInvocable,
         argumentHint: member.argumentHint,
-        native: false,
+        native: isNativeMember(scope, member),
         alwaysOn: choices.alwaysOn(member.name),
       };
     });
-    return { members: placed, hiddenNativeNames: [] };
+    const linkedNames = new Set(placed.filter((member) => !member.native).map((member) => member.name));
+    const hiddenNativeNames = [...new Set(repository.flatMap((member) =>
+      member.name !== null && isNativeMember(scope, member) && (!choices.enabled(member.name) || linkedNames.has(member.name)) ? [member.name] : [],
+    ))].sort();
+    return { members: placed, hiddenNativeNames };
   };
 
 export const runSkillSets = (options: RunSkillSetsOptions): SkillSetSeam => {
