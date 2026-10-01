@@ -148,28 +148,26 @@ const removeLink = async (path: string): Promise<void> => {
   }
 };
 
+/** Removes each link at or under `path` without following one, and leaves the rest; what is not there is already gone. */
+const removeLinks = async (path: string): Promise<void> => {
+  const found = await lstat(path).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  });
+  if (found === null) return;
+  if (found.isSymbolicLink()) await removeLink(path);
+  else if (found.isDirectory()) for (const entry of await readdir(path)) await removeLinks(join(path, entry));
+};
+
 /**
- * Deletes a generation: first each link in its `skills/` (and each command
- * folder's `SKILL.md`), so no removal can reach through one into a
- * member's own files, then what is left.
+ * Deletes a generation: first each link in it (a member's, a command
+ * folder's `SKILL.md`, or one a run left there), so the removal of what is
+ * left meets no link, junction or not, to reach through into a member's own
+ * files or anywhere else; then the rest, a command folder's other files
+ * among it.
  */
 const removeGeneration = async (directory: string): Promise<void> => {
-  const skills = join(directory, SKILLS);
-  let entries: string[] = [];
-  try {
-    entries = await readdir(skills);
-  } catch {
-    // None, or a build cut short before it: nothing is linked.
-  }
-  for (const entry of entries) {
-    const path = join(skills, entry);
-    const found = await lstat(path);
-    if (found.isSymbolicLink()) await removeLink(path);
-    else if (found.isDirectory()) {
-      if (await exists(join(path, SKILL_FILE))) await unlink(join(path, SKILL_FILE));
-      await rmdir(path);
-    }
-  }
+  await removeLinks(directory);
   await rm(directory, { recursive: true, force: true });
 };
 
