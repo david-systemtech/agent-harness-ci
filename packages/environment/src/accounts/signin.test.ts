@@ -26,6 +26,7 @@ import {
 } from "../../test/signin.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "../adapters/claude/credentials.js";
+import { openEventLog, type EventLog } from "../event-log/event-log.js";
 import { SIGN_IN_ACTOR, SIGN_IN_EXPIRY_MS } from "./signin-director.js";
 
 /**
@@ -136,6 +137,55 @@ const accountEvents = (t: TestEnvironment, accountId: string) =>
     .readStream({ kind: "account", id: accountId })
     .map((event) => ({ type: event.type, payload: event.payload }));
 
+/** Check persisted content that could hold the code, excluding generated envelope and receipt ids. */
+const expectCodeNotRecorded = (log: EventLog, code: string): void => {
+  expect(JSON.stringify(log.read("SELECT payload FROM events"))).not.toContain(code);
+  expect(JSON.stringify(log.read("SELECT error_reason, error_message, error_data FROM command_receipts"))).not.toContain(code);
+};
+
+describe("the sign-in code leakage check", () => {
+  it("ignores an event id and a command receipt id containing the fake code substring", () => {
+    const log = openEventLog({ path: ":memory:" });
+    onCleanup(() => log.close());
+    const stream = { kind: "environment", id: "test-environment" };
+    const commandId = "command-a1b2c3-for-tests";
+    log.command({ actor: "system:test", commandId }, () => ({
+      aggregate: stream,
+      result: null,
+      events: [{ eventId: "event-a1b2c3-for-tests", type: "signin.updated", payload: { state: "submitting" } }],
+    }));
+
+    expectCodeNotRecorded(log, "a1b2c3");
+  });
+
+  it("fails when an event payload records the submitted code", () => {
+    const log = openEventLog({ path: ":memory:" });
+    onCleanup(() => log.close());
+    log.append(
+      { kind: "environment", id: "test-environment" },
+      [{ type: "signin.updated", payload: { signIn: { code: "a1b2c3#state-xyz" } } }],
+      { actor: "system:test" },
+    );
+
+    expect(() => expectCodeNotRecorded(log, "a1b2c3")).toThrow(/not to contain/);
+  });
+
+  it.each([
+    ["reason", { code: "a1b2c3#state-xyz", message: "Rejected for tests", data: {} }],
+    ["message", { code: "conflict", message: "Rejected a1b2c3#state-xyz", data: {} }],
+    ["data", { code: "conflict", message: "Rejected for tests", data: { submitted: { code: "a1b2c3#state-xyz" } } }],
+  ] as const)("fails when a receipt's error %s records the submitted code", (_field, rejected) => {
+    const log = openEventLog({ path: ":memory:" });
+    onCleanup(() => log.close());
+    log.command({ actor: "system:test", commandId: "command-for-tests" }, () => ({
+      aggregate: { kind: "environment", id: "test-environment" },
+      rejected,
+    }));
+
+    expect(() => expectCodeNotRecorded(log, "a1b2c3")).toThrow(/not to contain/);
+  });
+});
+
 describe("accounts.signin.start", () => {
   it("spawns the bundled binary with auth login, the account's directory, the stripped variables and scrubbed families absent, and never --console", async () => {
     const setup = await start();
@@ -239,8 +289,7 @@ describe("accounts.signin.code", () => {
     expect(submitting).toMatchObject({ state: "submitting", url: VERIFICATION_URL });
     expect(login.written).toEqual(["a1b2c3#state-xyz\n"]);
     // The code is never recorded.
-    expect(JSON.stringify(setup.t.env.log.read("SELECT * FROM events"))).not.toContain("a1b2c3");
-    expect(JSON.stringify(setup.t.env.log.read("SELECT * FROM command_receipts"))).not.toContain("a1b2c3");
+    expectCodeNotRecorded(setup.t.env.log, "a1b2c3");
     setup.t.adapter.setStatus((ref) => (ref.directory === setup.workDirectory ? signedInAs("work@example.com") : signedInAs(null)));
     login.print("Login successful.\n");
     login.exit(0);
