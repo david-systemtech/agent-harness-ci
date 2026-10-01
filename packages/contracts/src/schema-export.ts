@@ -233,6 +233,7 @@ import {
   UpdatesStatus,
 } from "./updates.js";
 import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepResults, StepState } from "./setup.js";
+import { PromptVariant } from "./setup-prompts.js";
 import {
   ADDRESS_ROWS,
   SETTINGS_ADDRESSES,
@@ -641,6 +642,7 @@ import {
   WebhookEntry,
   WebhookPayload,
 } from "./routines.js";
+import { RoutineDocument } from "./routine-document.js";
 import { RoutineDay, RoutineSchedule, RoutineTime, RoutineTimeZone, ScheduleIssueParams, WrittenTimeZone } from "./schedule.js";
 import { SCHEDULE_DUE_TIME_CASES, SCHEDULE_VALIDATION_CASES } from "./schedule-cases.js";
 import {
@@ -1411,6 +1413,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "routines/conflict-reason.json", title: "RoutineConflictReason", schema: RoutineConflictReason },
   { path: "routines/import-warnings.json", title: "RoutineImportWarnings", schema: RoutineImportWarnings },
   { path: "routines/import-check.json", title: "RoutineImportCheck", schema: RoutineImportCheck },
+  { path: "routines/document.json", title: "RoutineDocument", schema: RoutineDocument },
   { path: "errors/denylisted.json", title: "DenylistedError", schema: DenylistedError },
   { path: "errors/output_too_large.json", title: "OutputTooLargeError", schema: OutputTooLargeError },
   { path: "setup/step-id.json", title: "StepId", schema: StepId },
@@ -1421,6 +1424,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   { path: "setup/step-results.json", title: "StepResults", schema: StepResults },
+  { path: "setup/prompt-variant.json", title: "PromptVariant", schema: PromptVariant },
   { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },
   { path: "browser/page-key.json", title: "PageKey", schema: PageKey },
   ...PAGE_VERBS.flatMap((verb) => [

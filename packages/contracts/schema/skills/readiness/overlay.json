@@ -375,7 +375,7 @@
                     "reference"
                   ],
                   "additionalProperties": false,
-                  "description": "secret: a key-manager reference resolves through the environment's key-manager registry. Not evaluated yet: it fails as such."
+                  "description": "secret: a key-manager reference resolves through the environment's key-manager registry, read in process and let go at once: its value is never shown, kept or asked for in a session."
                 },
                 {
                   "oneOf": [
@@ -595,7 +595,7 @@
                         "condition"
                       ],
                       "additionalProperties": false,
-                      "description": "The repository's origin has a forge account on this environment. Not evaluated yet: it fails as such."
+                      "description": "A forge account on this environment serves the repository's remote (origin, else the only one, else the first by name, as its identity reads it) on its canonical origin or a verified alias."
                     }
                   ],
                   "description": "git: a condition of the workspace's repository: repository, merge-in-progress, changes-since (a ref) or forge-account."
@@ -712,7 +712,7 @@
                     "server"
                   ],
                   "additionalProperties": false,
-                  "description": "mcp: among the tool servers the session's next run is given, one has that name. Not evaluated yet: it fails as such."
+                  "description": "mcp: among the tool servers the session's next run is given (without a session, a new session's of that account and workspace), one has that name."
                 },
                 {
                   "type": "object",

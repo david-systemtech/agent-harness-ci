@@ -34,7 +34,7 @@ export const importsArchived = (session: ProviderSessionInfo): boolean =>
   session.tag === ARCHIVED_TAG || (session.firstPrompt !== null && SCHEDULED_TASK.test(session.firstPrompt));
 
 /** `text` on one line, cut to the title's length with an ellipsis, never splitting a character in two; null when it has none. */
-const titleLine = (text: string | null): string | null => {
+export const titleLine = (text: string | null): string | null => {
   const line = (text ?? "").replace(/\s+/g, " ").trim();
   if (line === "") return null;
   if (line.length <= TITLE_MAX) return line;

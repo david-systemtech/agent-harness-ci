@@ -171,6 +171,10 @@ export const browserMethodFixtures: Record<string, { params: Fixtures; result: F
     params: { valid: [{ commandId, chromeId }], invalid: [{ commandId }, { chromeId }, { commandId, chromeId: "work" }] },
     result: { valid: [{ chrome: { ...chrome, connected: false } }], invalid: [{}, { chrome: { id: chromeId } }] },
   },
+  "browser.chromes.perform": {
+    params: { valid: [{ chromeId, ...call }, { chromeId: null, pageKey: "k", command: { verb: "close", args: {} } }], invalid: [call, { chromeId: "work", ...call }, { chromeId, pageKey: "k" }] },
+    result: { valid: [{ outcome: { ok: true, value: location } }, { outcome: denylisted }], invalid: [{}, { outcome: { ok: false } }, { ok: true, value: location }] },
+  },
 };
 
 export const browserSchemaFixtures: Record<string, Fixtures> = {

@@ -257,6 +257,42 @@ describe("skills.carryOver", () => {
     expect(notices(t)).toBe(noticesAfter);
   });
 
+  it("offers a checkout folder once when two originals link into it, from the first in carry-over order", async () => {
+    const fixed = fixture();
+    const skills = join(fixed.adopted, "skills");
+    // The home's .agents/skills links to the checkout folder the adopted directory's skills/linked leads to.
+    symlinkSync(readlinkSync(join(skills, "linked")), join(fixed.home, ".agents", "skills", "handoff"));
+    const { client } = await start(fixed);
+
+    for (const dryRun of [true, false]) {
+      const report = await reportOf(client, { dryRun });
+      expect(report.offered.map((offer) => [offer.name, offer.from]), `dryRun ${dryRun}`).toEqual([
+        ["grill", join(skills, "grill")],
+        ["handoff", join(skills, "linked")],
+      ]);
+      expect(report.kept.concat(report.copied).map((item) => item.from)).not.toContain(join(fixed.home, ".agents", "skills", "handoff"));
+    }
+  });
+
+  it("refuses conflict, reason root_skill, while the own directory's skills/ holds a SKILL.md of its own, copying nothing and writing no manifest, dry or not", async () => {
+    const fixed = fixture();
+    const { t, client } = await start(fixed);
+    const own = (await get(client)).ownDirectory;
+    write(join(own, "skills", "SKILL.md"), markdown("description: A folder that is itself one skill."));
+    const before = tree(own);
+    const head = t.env.log.head();
+
+    for (const dryRun of [true, false]) {
+      expect((await carryOver(client, { dryRun })).receipt, `dryRun ${dryRun}`).toMatchObject({
+        status: "rejected",
+        error: { code: "conflict", data: { reason: "root_skill", accountId: ACCOUNT } },
+      });
+    }
+
+    expect(tree(own)).toEqual(before);
+    expect(t.env.log.readStream({ kind: "environment", id: t.env.id }, head).map((event) => event.type)).toEqual([]);
+  });
+
   it("refuses an account the environment does not hold, not_found, and one whose directory it owns, not_adopted", async () => {
     const fixed = fixture();
     const { client } = await start(fixed);

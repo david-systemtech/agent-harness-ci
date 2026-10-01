@@ -1,6 +1,7 @@
 import { pageKeyOf, type PageDriver, type PageDriverKind, type PageKey, type RunBrowserResolution, type SessionBrowser } from "@agent-harness/contracts";
 import type { InProcessToolServer } from "../adapter/contract.js";
-import { pageTools, type LiveBrowser } from "./page-tools.js";
+import type { ChromeChoice } from "./chrome-choice.js";
+import { pageTools, type ChosenBrowser, type LiveBrowser } from "./page-tools.js";
 import { webReadTool, type WebReader } from "./web-read.js";
 
 /**
@@ -14,6 +15,11 @@ import { webReadTool, type WebReader } from "./web-read.js";
  * call therefore drives the browser of the session's live run, never the
  * run that built the server. A run whose browser is of another kind is
  * handed other tools, and its adapter starts a fresh process for it.
+ *
+ * A run whose browser is the plain My Chrome has `browser_open` take
+ * `browser`, the name of one of the person's Chromes, the agent's answer to
+ * the several-Chromes question (#552): recorded on the session, it is the
+ * Chrome the rest of the run drives, and its next run resolves it.
  */
 
 export const BROWSER_TOOL_SERVER = "browser";
@@ -44,6 +50,15 @@ export interface LiveRunBrowser {
   readonly browser: RunBrowserResolution;
 }
 
+/** What the agent's answer to the several-Chromes question is made into: the Chrome it chose for the session, or why not. */
+export interface ChromeChoiceAsk {
+  readonly sessionId: string;
+  readonly runId: string;
+  /** The environment whose plain My Chrome the run resolved. */
+  readonly environmentId: string;
+  readonly name: string;
+}
+
 export interface BrowserToolServerOptions {
   readonly reader: WebReader;
   /** The environment the runs are on, whose id is the first half of each session's page key. */
@@ -51,6 +66,8 @@ export interface BrowserToolServerOptions {
   /** The session's live run, read at each call; null when it has none. */
   readonly live: (sessionId: string) => LiveRunBrowser | null;
   readonly drivers: PageDrivers;
+  /** Chooses the Chrome `browser_open`'s `browser` names for the session, recording it as chosen by the agent. */
+  readonly chooseChrome: (ask: ChromeChoiceAsk) => ChromeChoice;
 }
 
 /** What a run's `browser` server is built for: its session, and the browser the run resolved at its start. */
@@ -66,17 +83,33 @@ const NO_DRIVER: { readonly [K in PageDriverKind]: string } = {
   dock: "This environment cannot drive the browser dock yet.",
 };
 
-/** The driver of the browser the session's live run resolved, or the sentence why there is none. */
-const liveBrowser = (options: BrowserToolServerOptions, sessionId: string): LiveBrowser => {
-  const live = options.live(sessionId);
-  if (live === null) return { kind: "refused", reason: "This session has no run in progress, so there is no browser to drive." };
-  const { browser } = live.browser;
-  if (browser.kind === "none") return { kind: "refused", reason: `This run has no browser: ${live.browser.message} Read a plain page with web_read.` };
+const NO_RUN: LiveBrowser = { kind: "refused", reason: "This session has no run in progress, so there is no browser to drive." };
+
+/** The driver of `browser` for the session's run, or the sentence why there is none. */
+const driverFor = (options: BrowserToolServerOptions, request: DriverRequest): LiveBrowser => {
   // Each kind's seam takes its own browser's shape; the record cannot say so of an index it is read at.
-  const driverOf = options.drivers[browser.kind] as ((request: DriverRequest) => PageDriver) | undefined;
-  if (driverOf === undefined) return { kind: "refused", reason: NO_DRIVER[browser.kind] };
-  return { kind: "driven", driver: driverOf({ browser, sessionId, runId: live.runId }) };
+  const driverOf = options.drivers[request.browser.kind] as ((request: DriverRequest) => PageDriver) | undefined;
+  if (driverOf === undefined) return { kind: "refused", reason: NO_DRIVER[request.browser.kind] };
+  return { kind: "driven", driver: driverOf(request) };
 };
+
+/** A call's way to its browser, whose failure is a sentence too. */
+const reaching = <T extends LiveBrowser | ChosenBrowser>(reach: () => T): T | LiveBrowser => {
+  try {
+    return reach();
+  } catch (error) {
+    return { kind: "refused", reason: `The browser could not be reached: ${error instanceof Error ? error.message : String(error)}.` };
+  }
+};
+
+/** The Chrome the agent chose in a run whose browser is the plain My Chrome: the rest of that run drives it. */
+interface Chosen {
+  readonly runId: string;
+  readonly chromeId: string;
+}
+
+/** How many sessions' chosen Chromes are kept: the least recently chosen goes first, and its run's next verb is the plain My Chrome's again. */
+export const CHOICES_KEPT = 1_000;
 
 /**
  * The environment's `browser` servers: `web_read`, one tool for every run,
@@ -89,18 +122,46 @@ export const createBrowserToolServers = (options: BrowserToolServerOptions): ((s
   const readerOnly: InProcessToolServer = { name: BROWSER_TOOL_SERVER, external: false, tools: [webRead] };
   /** The address each session's page last reported, across its runs. */
   const addresses = new Map<PageKey, string>();
+  /** The Chrome the agent chose, by session, for the run it chose it in. */
+  const chosen = new Map<string, Chosen>();
+
+  /** The driver of the browser the session's live run resolved, the plain My Chrome narrowed to the Chrome the agent chose in it; or why there is none. */
+  const liveBrowser = (sessionId: string): LiveBrowser => {
+    const live = options.live(sessionId);
+    // A choice is the run's it was made in: once the session's live run is another, or none, it goes.
+    const choice = chosen.get(sessionId);
+    if (choice !== undefined && choice.runId !== live?.runId) chosen.delete(sessionId);
+    if (live === null) return NO_RUN;
+    const { browser } = live.browser;
+    if (browser.kind === "none") return { kind: "refused", reason: `This run has no browser: ${live.browser.message} Read a plain page with web_read.` };
+    const narrowed = browser.kind === "chrome" && browser.chromeId === null && choice?.runId === live.runId ? { ...browser, chromeId: choice.chromeId } : browser;
+    return driverFor(options, { browser: narrowed, sessionId, runId: live.runId });
+  };
+
+  /** The agent's answer to the several-Chromes question: the Chrome it named, recorded on the session, and its driver; or why not. */
+  const choose = (sessionId: string, name: string): ChosenBrowser | LiveBrowser => {
+    const live = options.live(sessionId);
+    if (live === null) return NO_RUN;
+    const { browser } = live.browser;
+    if (browser.kind !== "chrome" || browser.chromeId !== null) return { kind: "refused", reason: "This run's browser is not My Chrome, so browser_open takes no browser." };
+    const choice = options.chooseChrome({ sessionId, runId: live.runId, environmentId: browser.environmentId, name });
+    if (!choice.ok) return { kind: "refused", reason: choice.reason };
+    chosen.delete(sessionId);
+    chosen.set(sessionId, { runId: live.runId, chromeId: choice.chrome.id });
+    const oldest = chosen.keys().next();
+    if (chosen.size > CHOICES_KEPT && oldest.done !== true) chosen.delete(oldest.value);
+    const reached = driverFor(options, { browser: { ...browser, chromeId: choice.chrome.id }, sessionId, runId: live.runId });
+    return reached.kind === "refused" ? reached : { ...reached, chosen: choice.chrome.name };
+  };
+
   return ({ sessionId, browser }) => {
     if (browser.kind === "none") return readerOnly;
     const tools = pageTools(browser.kind, {
       pageKey: pageKeyOf(options.environmentId, sessionId),
       addresses,
-      live: () => {
-        try {
-          return liveBrowser(options, sessionId);
-        } catch (error) {
-          return { kind: "refused", reason: `The browser could not be reached: ${error instanceof Error ? error.message : String(error)}.` };
-        }
-      },
+      live: () => reaching(() => liveBrowser(sessionId)),
+      // Only the plain My Chrome is a choice among Chromes: a session that names one is never moved by the model.
+      ...(browser.kind === "chrome" && browser.chromeId === null && { choose: (name: string) => reaching(() => choose(sessionId, name)) }),
     });
     return { name: BROWSER_TOOL_SERVER, external: false, tools: [webRead, ...tools] };
   };

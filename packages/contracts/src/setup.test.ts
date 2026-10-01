@@ -189,3 +189,24 @@ describe("a result in a newer environment's vocabulary", () => {
     expect(registry["setup.check"].result.safeParse({ results: [done, { ...attention, state: "pending" }] }).success).toBe(false);
   });
 });
+
+/**
+ * `setup.mint` (ADR 0019; the Set up specification, "The LLM step and
+ * minted sessions"; #584): an `admin` command that mints a session for an
+ * LLM step and answers its id.
+ */
+describe("setup.mint", () => {
+  const commandId = "5a0f9a3e-6b1e-4b47-9d4c-0f1f6f2b8d11";
+
+  it("is an admin command taking the step, an optional subject, the variant, and an optional account, model and effort, and answers the session id", () => {
+    const mint = registry["setup.mint"];
+    expect([mint.scope, mint.kind]).toEqual(["admin", "command"]);
+    expect(mint.params.safeParse({ commandId, step: "permissions", variant: "first" }).success).toBe(true);
+    const full = { commandId, step: "permissions", subject: "bank-1", variant: "revise", account: "claude-max", model: "opus", effort: "high" };
+    expect(mint.params.parse(full)).toEqual(full);
+    expect(mint.params.safeParse({ commandId, step: "permissions", variant: "again" }).success).toBe(false);
+    expect(mint.params.safeParse({ commandId, step: "memory-bank", variant: "first" }).success).toBe(REGISTERED_STEP_IDS.includes("memory-bank" as never));
+    const sessionId = "0b8a3c52-2f5e-4c09-9a6f-1c2d3e4f5a6b";
+    expect(mint.result.parse({ sessionId })).toEqual({ sessionId });
+  });
+});
