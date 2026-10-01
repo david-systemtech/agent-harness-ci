@@ -698,7 +698,7 @@ describe("a client tool's call (mcp__client__*, #139)", () => {
       runId: "run",
       sessionId: "session",
       workspace: "/work/repo",
-      containment: { level: "off", mechanism: null, scratchDirectory: "/s", temporaryDirectory: "/t", writable: ["/work/repo"], network: true },
+      containment: { level: "off", mechanism: null, scratchDirectory: "/s", temporaryDirectory: "/t", writable: ["/work/repo"], readOnly: [], network: true },
       ask: () => {
         throw new Error("Nobody is asked about a call the denylist does not read.");
       },
