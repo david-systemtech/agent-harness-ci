@@ -334,7 +334,7 @@ export interface EnvironmentOptions {
   readonly bindTailnet?: boolean;
   /** Bind `lanAddress`, which must then be given, or no LAN address, over `network.bindLan` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindLan?: boolean;
-  /** The LAN address bound when `bindLan` is on: one the machine holds, never the wildcard address. */
+  /** The LAN address bound when `bindLan` is on: one the machine holds, else the start skips it (#773); never the wildcard address. */
   readonly lanAddress?: string;
   /** Preset: the running process's user (`processUserCheck`). */
   readonly user?: UserCheck;
