@@ -1,4 +1,4 @@
-import { SKILL_REPOSITORY_ROOTS, type SkillLayer, type SkillMember, type SkillSetMember, type SkillSource } from "@agent-harness/contracts";
+import { NATIVE_SKILL_ROOTS, type SkillLayer, type SkillMember, type SkillSetMember, type SkillSource } from "@agent-harness/contracts";
 
 /**
  * The precedence function (skills spec, "The skill set", Precedence; ADR
@@ -24,7 +24,7 @@ const layerRank = (layer: SkillLayer, positions: Positions): Rank => {
   switch (layer.kind) {
     case "repository":
       // A nearer directory is a deeper one: more segments come first.
-      return [0, SKILL_REPOSITORY_ROOTS.indexOf(layer.root), layer.directory === "." ? 0 : -layer.directory.split("/").length];
+      return [0, NATIVE_SKILL_ROOTS.indexOf(layer.root), layer.directory === "." ? 0 : -layer.directory.split("/").length];
     case "own":
       return [1, 0, 0];
     case "source":

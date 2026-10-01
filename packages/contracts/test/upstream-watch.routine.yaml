@@ -22,6 +22,7 @@ pre-check:
 silent-marker: "[SILENT]"
 delivery:
   - { kind: client-notice, on: both }
+  - { kind: webhook, target: hermes, on: success }
 instructions: |
   You are the weekly upstream watch for the agent-harness, running on the harness. Work in `/work/SYSTEM-SERVER/agent-harness` (run `git pull --ff-only origin main` first). The forge is Forgejo at `https://git.systemtech.dev:5526`, repo `david/agent-harness`. Read its token only from the injected forge variables: the orientation block names `FORGE_<SLUG>_URL` and `FORGE_<SLUG>_TOKEN` for each account. Select the token whose URL matches this Forgejo origin; use bare `FORGE_TOKEN` only if `FORGE_URL` matches. Do not assume a slug or use another origin's token. Pass the Authorization header through curl's header file/stdin support, never as a secret command-line argument; never echo a token. If the matching variables are absent, stop with an error and do not update the ledger. GitHub calls go through `gh api --hostname github.com`, using injected `GH_TOKEN` or the service user's own gh login.
 

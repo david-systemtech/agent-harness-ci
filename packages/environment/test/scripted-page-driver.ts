@@ -1,4 +1,5 @@
-import type { PageCallOf, PageDriver, PageDriverKind, PageKey, PageResult, PageVerb } from "@agent-harness/contracts";
+import { withinMaxChars } from "@agent-harness/browser";
+import { SNAPSHOT_MAX_CHARS, type PageCallOf, type PageDriver, type PageDriverKind, type PageKey, type PageResult, type PageVerb } from "@agent-harness/contracts";
 
 /**
  * A scripted page driver (browser spec, "Testing Decisions"; #551): the
@@ -51,7 +52,7 @@ export const scriptedPageDriver = (kind: PageDriverKind): ScriptedPageDriver => 
 
   const at = (pageKey: PageKey): string => addresses.get(pageKey) ?? "about:blank";
   const snapshotOf = (asked: { readonly maxChars?: number | undefined } | undefined) =>
-    asked === undefined ? undefined : { text: FIXTURE_SNAPSHOT.slice(0, asked.maxChars), totalChars: FIXTURE_SNAPSHOT.length, truncated: (asked.maxChars ?? Infinity) < FIXTURE_SNAPSHOT.length };
+    asked === undefined ? undefined : withinMaxChars(FIXTURE_SNAPSHOT, asked.maxChars ?? SNAPSHOT_MAX_CHARS.preset);
 
   /** Each verb's preset answer. */
   const preset = (call: PageCallOf<PageVerb>): PageResult<PageVerb> => {

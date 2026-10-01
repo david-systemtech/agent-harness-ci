@@ -97,7 +97,7 @@ it("offers always-on per account with its size and changes only the chosen accou
   const member: SkillsViewMember = {
     name: "unslop", kind: "skill", path: "unslop", description: "Remove machine-written prose.", invocation: "model+slash", userInvocable: true,
     argumentHint: null, whileActive: [], origin: { kind: "repository", repository: source.identity, path: "." }, layer: { kind: "source", sourceId: source.id },
-    size: 5924, tokens: 1481, problems: [], warnings: [], shadowedBy: null, enabled: true, alwaysOn: false, choices: [],
+    size: 5924, tokens: 1481, problems: [], warnings: [], shadowedBy: null, native: false, enabled: true, alwaysOn: false, choices: [],
   };
   const skills: SkillsView = { ...initial(), sources: [source], members: [member], accounts: [...initial().accounts, { accountId: "editor", channel: "system-prompt-append", reason: null }] };
   const { app, desk, update } = await opened(skills);

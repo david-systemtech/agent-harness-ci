@@ -792,6 +792,25 @@ describe("runs.withdraw", () => {
     held.open();
   });
 
+  it("refuses provider-held withdrawal by its flag, but allows it after interrupt hands the message back", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { ...PROVIDER, withdraw: false } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    await expect(client.request("runs.withdraw", { commandId: randomUUID(), messageId })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { reason: "unsupported", capability: "withdraw" },
+    });
+    await command(client, "runs.interrupt", { runId: t.adapter.runs[0]?.input.runId as string });
+    await untilEnded(t, id, 1);
+    const answer = await command(client, "runs.withdraw", { messageId });
+    expect(answer.result).toMatchObject({ messageId, sessionId: id, heldBy: "environment" });
+    expect((await get(client, id)).draft).toBe("Also the tests");
+    held.open();
+  });
+
   it("refuses an adapter whose provider cannot take a message back invalid_params, reason unsupported, rather than as read", async () => {
     const held = gate();
     const t = await start(
@@ -807,7 +826,7 @@ describe("runs.withdraw", () => {
     const commandId = randomUUID();
     await expect(client.request("runs.withdraw", { commandId, messageId: queued[0]?.messageId as string })).rejects.toMatchObject({
       code: "invalid_params",
-      data: { reason: "unsupported", capability: "providerQueue" },
+      data: { reason: "unsupported", capability: "withdraw" },
     });
     expect(t.env.log.receipt(`client_session:${client.hello.clientSessionId}`, commandId)).toBeNull();
     held.open();

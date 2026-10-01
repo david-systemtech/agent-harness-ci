@@ -57,6 +57,8 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   interactivePrompts: true,
   partialMessages: true,
   providerQueue: true,
+  // The pinned SDK exposes cancelAsyncMessage at run time (sdk-surface.test.ts).
+  withdraw: true,
   steering: true,
   resume: true,
   fork: true,
