@@ -7,6 +7,7 @@ import { CA_FOR_TESTS, KEY_MANAGER_EVENT_TYPES, keyManagerEventPayload, keyManag
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { createRuntimeWithSeams } from "./internal.js";
+import { addConnection, formProblem, type ConnectionForm } from "./key-managers/actions.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
 import { inMemoryPlatform, manualClock } from "./testing/in-memory-platform.js";
@@ -415,5 +416,45 @@ describe("copying a key-manager connection to other environments", () => {
     expect(await bare.runtime.keyManagers.copy(bareDesk, connection, [old])).toEqual([
       { environmentId: old, status: "refused", error: { code: "unsupported", message: "old does not offer keyManagers; a version that does is needed." } },
     ]);
+  });
+});
+
+describe("the Key manager form (#1118)", () => {
+  const token = { method: "token", token: "token-for-tests" } as const;
+  /** A form for `provider` as the pane fills it: a label, an address and what OpenBao alone sends. */
+  const formFor = (provider: ConnectionForm["provider"], address: string): ConnectionForm => ({
+    provider,
+    label: "Mine",
+    address,
+    method: "approle",
+    mount: "approle",
+    username: "",
+    tokenRole: "",
+    ca: null,
+  });
+
+  it("asks a 1Password connection for no address, and adds it without one: the account URL its token names is learned at sign-in", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    const asked = acceptingAdds(wire);
+
+    expect(formProblem(formFor("onepassword", ""), token)).toBeUndefined();
+    // An address typed for another provider before 1Password was chosen is not sent either.
+    const added = await addConnection({ runtime, clock }, env, formFor("onepassword", "https://bao.example.com:8200"), token);
+
+    expect(added).toMatchObject({ ok: true, line: expect.stringMatching(/^Added /) });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ provider: "onepassword", label: "Mine", credential: token });
+    expect(asked[0]).not.toHaveProperty("address");
+  });
+
+  it("still asks OpenBao, Doppler and Bitwarden for their address, and sends it", async () => {
+    const { runtime, wire, env, clock } = await paired({ capabilities: KEY_MANAGER_FLAGS });
+    const asked = acceptingAdds(wire);
+
+    for (const provider of ["openbao", "doppler", "bitwarden"] as const) {
+      expect(formProblem(formFor(provider, " "), token), provider).toBe("Give it the key manager's address.");
+    }
+    await addConnection({ runtime, clock }, env, formFor("doppler", " https://api.doppler.com "), token);
+    expect(asked).toEqual([expect.objectContaining({ provider: "doppler", address: "https://api.doppler.com" })]);
   });
 });
