@@ -30,7 +30,7 @@ import { parseActor } from "../event-log/envelope.js";
 import type { EventLog, Projector, StreamRef, Tx } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PreparedCommand } from "../serve/methods.js";
-import type { SkillProbes, SourceCheckout } from "./probe.js";
+import type { SkillProbes, SourceCheckout, SourceCheckoutRequest } from "./probe.js";
 import { occupied } from "./own-directory.js";
 import { PROVENANCE_MANIFEST, readProvenanceManifest } from "./provenance.js";
 import { findSkillFolders, readSkillFolder, sourceRootNaming, type FoundMember } from "./reader.js";
@@ -206,8 +206,8 @@ export interface SkillSources {
   readonly add: PreparedCommand<"skills.sources.add">;
   /** `skills.sources.remove`. */
   readonly remove: MethodHandler<"skills.sources.remove">;
-  /** Fetches what `follow` names of `source` and reads its folder at that commit from a snapshot. */
-  fetch(source: Pick<SkillSource, "id" | "url" | "identity" | "folder">, follow: SkillSourceFollow): Promise<SourceFetch>;
+  /** Fetches what `follow` names of `source` and reads its folder at that commit from a snapshot; its git stops when `signal` aborts. */
+  fetch(source: Pick<SkillSource, "id" | "url" | "identity" | "folder">, follow: SkillSourceFollow, signal?: AbortSignal): Promise<SourceFetch>;
   /** Notes that a fetch of the source ended now: its status, kept outside the log. */
   noteAttempt(tx: Tx, sourceId: string): void;
   /** The source as `skills.get` lists it: as the log holds it, with when a fetch of it last ended. */
@@ -329,10 +329,14 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
     (rejected: CommandRejection<"conflict">) =>
     (): CommandAnswer<never, "conflict"> => ({ aggregate: stream, rejected });
 
-  const fetch = async ({ id, url, identity, folder }: Pick<SkillSource, "id" | "url" | "identity" | "folder">, follow: SkillSourceFollow, probeId?: string): Promise<SourceFetch> => {
+  const fetch = async (
+    { id, url, identity, folder }: Pick<SkillSource, "id" | "url" | "identity" | "folder">,
+    follow: SkillSourceFollow,
+    using: Pick<SourceCheckoutRequest, "probeId" | "signal"> = {},
+  ): Promise<SourceFetch> => {
     let checkout: SourceCheckout;
     try {
-      checkout = await options.probes.checkout({ url, follow, ...(probeId !== undefined && { probeId }) });
+      checkout = await options.probes.checkout({ url, follow, ...using });
     } catch (error) {
       if (!(error instanceof ContractError) || error.data["reason"] !== "unreachable") throw error;
       const { problem, line } = error.data as SkillProbeUnreachable;
@@ -360,7 +364,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
       if (early !== null) return refusing(early);
 
       const sourceId = randomUUID();
-      const fetched = await fetch({ id: sourceId, url, identity, folder }, follow, probeId);
+      const fetched = await fetch({ id: sourceId, url, identity, folder }, follow, probeId === undefined ? {} : { probeId });
       if (fetched.outcome === "failed") throw fetched.refusal;
       if (fetched.outcome === "layout_moved") return refusing(noSkills(folder, fetched.commit, fetched.folders));
       const { snapshot } = fetched;
@@ -428,7 +432,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
     },
     add,
     remove,
-    fetch: (source, follow) => fetch(source, follow),
+    fetch: (source, follow, signal) => fetch(source, follow, signal === undefined ? {} : { signal }),
     noteAttempt,
     view,
     sweepSnapshots: () => snapshots.sweep(),

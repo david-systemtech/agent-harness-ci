@@ -103,7 +103,9 @@ import type { OrientationSection } from "../instructions/orientation.js";
  *   holds is `origin_held`.
  * - **Verification** (#311) is the verifier's (`verifier.ts`): after
  *   startup's gate, every fifteen minutes, on `forge.accounts.verify` and
- *   once a credential is given. The records answered carry the verified-at
+ *   once a credential is given; Set up's Forges checks ask only for a forge
+ *   account whose findings are older than they take, and never past a
+ *   forge's pause (#680). The records answered carry the verified-at
  *   times it keeps beside them. The state import's credential probe is one
  *   verification with no record.
  * - **git** (#314): the run-scoped secrets the credential route
@@ -251,6 +253,13 @@ export interface ForgeService extends ForgeOperations {
   startVerifying(): void;
   /** Verifies one forge account now, or every one (`forge.accounts.verify`), and answers every record after; `not_found` for one the environment does not hold. */
   verify(forgeAccountId?: string): Promise<ForgeAccountRecord[]>;
+  /**
+   * Every record as Set up's Forges checks read it (#680): each forge account
+   * whose last verification ended `maxAgeMs` ago or more is verified first,
+   * unless the forge asked for a pause that has not passed; every other is
+   * answered as its last verification found it.
+   */
+  verifiedWithin(maxAgeMs: number): Promise<ForgeAccountRecord[]>;
   /**
    * The state import's in-process credential probe: one verification of a
    * token it carried over, without a record, answering identity and
@@ -963,6 +972,11 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const id = forgeAccountId?.toLowerCase();
       if (id !== undefined && liveForgeAccount(reader, id) === null) throw new ContractError(notFound(id));
       await Promise.all((id === undefined ? listForgeAccounts(reader).map((account) => account.id) : [id]).map(verifier.verify));
+      return listSeen();
+    },
+
+    async verifiedWithin(maxAgeMs) {
+      await Promise.all(listForgeAccounts(reader).map((account) => verifier.verifyStale(account.id, maxAgeMs)));
       return listSeen();
     },
 

@@ -35,9 +35,15 @@ import { NOTHING_KNOWN, reconcile, verifyCredential, type Found, type Reconciled
  *   `unreachable` and nothing else it found is taken.
  * - **Rate limits** a forge asks for, of a verification or of any other
  *   operation with the forge account's credential, pause the forge
- *   account's scheduled verifications until then; a request that is asked
- *   for still runs, and a credential given ends the pause its predecessor
- *   drew.
+ *   account's scheduled verifications until then, and Set up's (below); a
+ *   request that is asked for still runs, and a credential given ends the
+ *   pause its predecessor drew.
+ * - **Set up's Forges checks** (#680) read what the last verification
+ *   found while it ended within the age they give, the Forges step's
+ *   cadence when the environment checks the step itself, and ask for a
+ *   verification only otherwise, as `verify` does, never while a pause
+ *   holds: the schedule here stays the forge accounts' own, and the step's
+ *   checks add none beside it.
  * - **Recorded only on a change.** `forge.account.verified`, as
  *   `system:forge` with no command id, when the identity, a capability, the
  *   token information or the problem's kind changed; `forge.account.updated`
@@ -87,6 +93,13 @@ export interface Verifier {
   pause(account: ForgeAccountRecord, until: Date): void;
   /** An operation found `capability` verified at `at`: the record answers that time from now on. */
   used(forgeAccountId: string, capability: ForgeCapabilityName, at: string): void;
+  /**
+   * Verifies the forge account as `verify` does unless its last
+   * verification's findings stand: it ended less than `maxAgeMs` ago, or
+   * the forge asked for a pause that has not passed. Set up's Forges checks
+   * ask through it (#680).
+   */
+  verifyStale(forgeAccountId: string, maxAgeMs: number): Promise<void>;
   /** One verification of a token no forge account holds, within the budget, recording nothing: what it makes of nothing known. */
   probe(request: ProbeRequest): Promise<Reconciled>;
   /** Stops the schedule; a verification still running, one queued behind it and a rate limit heard after record nothing and read nothing, as the event log closes after. */
@@ -117,6 +130,8 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
   const timers = new Map<string, Timer>();
   const runs = new Map<string, { readonly credential: string; readonly done: Promise<void> }>();
   const pausedUntil = new Map<string, number>();
+  /** When each forge account's last verification recorded what it found, on the environment's clock; none since its credential was given. */
+  const lastEnded = new Map<string, number>();
   const seenTimes = new Map<string, Seen>();
   let closed = false;
 
@@ -226,6 +241,7 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       return { before, after };
     });
     if (recorded === null) return;
+    lastEnded.set(forgeAccountId, clock.now().getTime());
     const { before, after } = recorded;
     const times = timesOf(forgeAccountId);
     for (const [name, capability] of Object.entries(after.capabilities)) if (capability.state === "verified" && capability.verifiedAt !== null) times.capabilities.set(name, capability.verifiedAt);
@@ -290,17 +306,28 @@ export const createVerifier = (options: VerifierOptions): Verifier => {
       for (const account of listForgeAccounts(reader)) if (verifiable(account)) arm(account.id, 0);
     },
     verify,
+    verifyStale(forgeAccountId, maxAgeMs) {
+      const now = clock.now().getTime();
+      const ended = lastEnded.get(forgeAccountId);
+      // A last end later than now (a clock set back) stands for nothing, as the Set up scheduler counts such a result due.
+      const fresh = ended !== undefined && now >= ended && now - ended < maxAgeMs;
+      if (fresh || (pausedUntil.get(forgeAccountId) ?? 0) > now) return Promise.resolve();
+      return verify(forgeAccountId);
+    },
     credentialGiven(forgeAccountId) {
       timers.get(forgeAccountId)?.cancel();
       timers.delete(forgeAccountId);
       // A pause was asked of the credential replaced: the one given is verified at once, and a forge that limits it asks again.
       pausedUntil.delete(forgeAccountId);
+      // What was found is the replaced credential's: Set up's checks wait for the one given.
+      lastEnded.delete(forgeAccountId);
       arm(forgeAccountId, 0);
     },
     removed(forgeAccountId) {
       timers.get(forgeAccountId)?.cancel();
       timers.delete(forgeAccountId);
       pausedUntil.delete(forgeAccountId);
+      lastEnded.delete(forgeAccountId);
       seenTimes.delete(forgeAccountId);
     },
     seen,
