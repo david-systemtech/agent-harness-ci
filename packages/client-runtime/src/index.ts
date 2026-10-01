@@ -217,6 +217,7 @@ export {
   type SetupView,
 } from "./projections/setup.js";
 export {
+  RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
   restoreStep,
