@@ -243,8 +243,11 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
       }
       if (!members.some(valid)) {
         const where = folder === "." ? "The repository's root" : `The folder ${folder}`;
-        const elsewhere = folders.length === 0 ? "No folder in the repository does." : `These folders do: ${folders.join(", ")}.`;
-        return refusing(conflict(`${where} holds no skill at ${checkout.commit.slice(0, 7)}. ${elsewhere}`, { reason: "no_skills", folders }));
+        // The walk lists the folder itself when the skills in it are all invalid: the message says so rather than naming it as one that would do.
+        const invalid = folders.includes(folder) ? " Every skill in it is invalid." : "";
+        const others = folders.filter((found) => found !== folder);
+        const elsewhere = others.length > 0 ? `These folders hold skills: ${others.join(", ")}.` : `No ${folders.length > 0 ? "other " : ""}folder in the repository holds a skill.`;
+        return refusing(conflict(`${where} holds no valid skill at ${checkout.commit.slice(0, 7)}.${invalid} ${elsewhere}`, { reason: "no_skills", folders }));
       }
       const synced: SkillsSourceSyncedPayload = {
         sourceId,

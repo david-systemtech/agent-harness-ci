@@ -104,7 +104,7 @@ describe("a repository whose root is one skill (ADR 0029's root-skill test)", ()
     await runIn(t, client, id);
     const set = lastSet(t);
     expect(set.members).toEqual([
-      { name: "unslop", origin: { kind: "repository", repository: "https://skills.test/theclaymethod/unslop", path: "." }, invocation: "model+slash", native: false, alwaysOn: false },
+      { name: "unslop", description: "Remove AI writing patterns.", origin: { kind: "repository", repository: "https://skills.test/theclaymethod/unslop", path: "." }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
     ]);
     const link = join(set.generation as string, "skills", "unslop");
     expect(readlinkSync(link)).toBe(join(t.dataDir, "skills", "snapshots", source.id, commit));
@@ -181,7 +181,10 @@ describe("a folder that yields no skill", () => {
     }
     // A folder whose members are all invalid yields none either.
     forge.commit("david/broken", { "skills/Bad_Name/SKILL.md": "---\ndescription: No name passes.\n---\n" });
-    expect(rejection(await send(client, `${SKILLS_HOST}david/broken`, { folder: "skills" })).data).toEqual({ reason: "no_skills", folders: ["skills"] });
+    const broken = rejection(await send(client, `${SKILLS_HOST}david/broken`, { folder: "skills" }));
+    expect(broken.data).toEqual({ reason: "no_skills", folders: ["skills"] });
+    // The walk finds the refused folder itself, so the message says its skills are invalid rather than naming it as one that would do.
+    expect(broken.message).toMatch(/^The folder skills holds no valid skill at [0-9a-f]{7}\. Every skill in it is invalid\. No other folder in the repository holds a skill\.$/);
 
     expect(skillsEvents(t)).toEqual([]);
     expect(updates(t)).toBe(0);
@@ -235,7 +238,7 @@ describe("an added source", () => {
     await runIn(t, client, id);
     const set = lastSet(t);
     expect(set.members).toEqual([
-      { name: "tdd", origin: { kind: "repository", repository: "https://skills.test/mattpocock/skills", path: "skills/engineering/tdd" }, invocation: "model+slash", native: false, alwaysOn: false },
+      { name: "tdd", description: "The tdd skill.", origin: { kind: "repository", repository: "https://skills.test/mattpocock/skills", path: "skills/engineering/tdd" }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
     ]);
     expect(readlinkSync(join(set.generation as string, "skills", "tdd"))).toBe(join(snapshot, "skills", "engineering", "tdd"));
     // A later commit upstream changes nothing a run reads: only a sync moves a source.
