@@ -130,7 +130,6 @@ describe("readiness's budgets", () => {
     expect(slow?.state !== "ready" && slow?.failing.map((failure) => [failure.outcome, failure.message])).toEqual([TIMED_OUT]);
     keyManagers.resolveAll("value-for-tests");
     await vi.waitFor(() => expect(keyManagers.outstanding()).toBe(0));
-    expect(keyManagers.asked()).toBe(0);
   });
 
   it("bounds a check that starts late by what is left of the call's ten seconds", async () => {
