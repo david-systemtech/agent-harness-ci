@@ -98,6 +98,13 @@ describe("the page-driver contract", () => {
     expect(accepts("snapshot", "value", { url: "https://example.com/", title: "Example", text: "- button \"Buy\" [ref=e1]", totalChars: 23, truncated: false })).toBe(true);
   });
 
+  it("says a snapshot was cut mid-line only by midLine present, as when no line ends within maxChars", () => {
+    const cut = { url: "https://example.com/", title: "Example", text: "- paragraph: A very lo", totalChars: 900, truncated: true };
+    expect(accepts("snapshot", "value", { ...cut, midLine: true })).toBe(true);
+    expect(accepts("snapshot", "value", { ...cut, midLine: false })).toBe(false);
+    expect(accepts("click", "value", { url: "https://example.com/", title: "Example", snapshot: { text: "- link \"Ne", totalChars: 22, truncated: true, midLine: true } })).toBe(true);
+  });
+
   it("scrolls by a direction and an amount in viewports, or to a ref", () => {
     expect(accepts("scroll", "args", { to: { direction: "down" } })).toBe(true);
     expect(accepts("scroll", "args", { to: { direction: "up", amount: 2.5 } })).toBe(true);
