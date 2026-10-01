@@ -119,7 +119,7 @@ import { createForgeService, type ForgeService } from "../forge/forge-service.js
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
-import { verifiedOrigins } from "../forge/git-helper.js";
+import { verifiedOrigins, type GitConfigEntry } from "../forge/git-helper.js";
 import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -173,6 +173,7 @@ import { settingsMethods } from "../settings/methods.js";
 import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
+import { createSkillProbes } from "../skills/probe.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -451,6 +452,13 @@ export interface EnvironmentOptions {
    * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
+  /**
+   * Configuration the harness's git is given after its own on every
+   * operation. Only tests give it: an `insteadOf` that sends a forge's
+   * `https` URL to a local bare repository, so the source URL rule runs as
+   * written (skills spec, "Testing Decisions"). Preset none.
+   */
+  readonly harnessGitConfig?: readonly GitConfigEntry[];
   /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
@@ -905,6 +913,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       gh: managedGh({ row: () => tools.row("gh"), ...(options.managedTools?.hostEnv !== undefined && { hostEnv: options.managedTools.hostEnv }) }),
       keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
+      ...(options.harnessGitConfig !== undefined && { gitConfig: options.harnessGitConfig }),
       // Where the credential helper asks: the loopback listener, bound after this step.
       address: () => address,
     });
@@ -1078,6 +1087,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // inventory counts (#580). The home's .agents/skills is read beside the adopted directory, and its .claude.json too.
   const carryOverHome = options.carryOverHome ?? homedir();
   const carrySkills = skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: carryOverHome });
+  // The probe (#497): a repository URL's skill folders, cloned through the ForgeService's git under the data directory and
+  // kept thirty minutes for an add to reuse.
+  const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
+  closers.push(() => skillProbes.close());
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1535,6 +1548,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       defaultAccountId: () => accounts.defaultId(),
       accounts: listedAccounts,
       carryOver: carrySkills,
+      probe: skillProbes.probe,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
