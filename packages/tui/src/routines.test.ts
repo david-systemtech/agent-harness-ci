@@ -525,3 +525,29 @@ describe("/routines endpoints and /routines test-precheck (David, 2026-09-28)", 
     await app.waitFor("No routine is named nightly.");
   });
 });
+
+describe("a routine's notice", () => {
+  it("shows on the activity line and in /notices, where Enter opens the firing's session", async () => {
+    const { app, desk } = await launch({ desk: { routines: [listedRoutine(WATCH)] } }, { deskSessions: [{ id: FIRING_SESSION, title: "Watch firing" }] });
+    desk.notice("routine.delivered", {
+      routineId: WATCH,
+      name: "Upstream watch",
+      entryId: "0199dd00-0000-4000-8000-0000000000e9",
+      entryKind: "firing",
+      sessionId: FIRING_SESSION,
+      outcome: "succeeded",
+      summary: "Two sources moved: see the digest.",
+      body: "Two sources moved: see the digest.",
+    });
+    await app.waitFor("Upstream watch on desk: Two sources moved: see the digest.");
+    expect(app.rows().at(-1)).toContain("Upstream watch on desk: Two sources moved: see the digest.");
+
+    await openRoutines(app, "/notices");
+    await app.waitFor("Notices");
+    // The newest notice, under the cursor.
+    expect(app.rows().some((row) => /› .*Upstream watch on desk: Two sources moved/.test(row))).toBe(true);
+    await app.press(KEY.enter);
+    await app.waitFor("Watch firing · ");
+    expect(app.frame()).not.toContain("Notices");
+  });
+});
