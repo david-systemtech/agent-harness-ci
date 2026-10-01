@@ -381,6 +381,7 @@ export {
 } from "./transcript/rows.js";
 export {
   TOOL_CATEGORIES,
+  attachmentChip,
   classifyTool,
   clockTime,
   describeActivity,

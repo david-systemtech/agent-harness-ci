@@ -4,7 +4,7 @@ import { oneLine, type QueuedMessage, type VerbAvailability } from "@agent-harne
 import type { DelegatedWorkRow } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { ThemeColoursContext, type DiffBand } from "../theme/colours.js";
-import type { Line, Span } from "../transcript/lines.js";
+import { terminalChip, type Line, type Span } from "../transcript/lines.js";
 
 /**
  * The transcript on screen (docs/specs/tui.md, "The screen" and "The
@@ -171,7 +171,7 @@ export interface QueueVerb {
 /**
  * The queued line (ADR 0022; #231): the session's queue from
  * `projections.runs`, oldest first, each message with its attachments as
- * chips and saying whether the provider is steering it into the turn or it
+ * the transcript's chips and saying whether the provider is steering it into the turn or it
  * waits for the next run; under it the verbs on the queue, read now and
  * withdraw, in the keys in force: those that can be used now on one line,
  * and each that cannot on a line of its own, dim with its reason, never
@@ -189,9 +189,10 @@ export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; re
           <Text key={message.messageId} wrap="truncate-end">
             <Text color={steering ? TERMINAL_ROLES.machine : TERMINAL_ROLES.warning}>{steering ? "  ↳ steering " : "  ⧗ queued "}</Text>
             <Text dimColor>{oneLine(message.text, 200)}</Text>
-            {message.attachments.map((name, index) => (
+            {message.attachments.map((attachment, index) => (
               <Text key={index} dimColor>
-                {" "}[{name}]
+                {" "}
+                {terminalChip(attachment)}
               </Text>
             ))}
           </Text>
