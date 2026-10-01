@@ -1,9 +1,10 @@
-import type { ForgeAccountRecord, ForgeKind, ResultOf } from "@agent-harness/contracts";
+import { normaliseRemote, type ForgeAccountRecord, type ForgeKind, type GhProbe, type ResultOf } from "@agent-harness/contracts";
+import { ghHost } from "../forges.js";
 import { uuidv4, uuidv7 } from "../ids.js";
 import type { Clock } from "../platform.js";
 import type { Runtime } from "../runtime.js";
 import { adminCall, type AdminOutcome } from "../status/actions.js";
-import { forgeAccountName } from "./words.js";
+import { forgeAccountName, machineGhLogin } from "./words.js";
 
 /**
  * What a Forges pane sends, as both renderers send it and say it (forge
@@ -77,6 +78,94 @@ export const addPastedForge = async ({ runtime, clock }: ForgeSender, environmen
 export const addFromGh = async (runtime: Pick<Runtime, "forges">, environmentId: string, url: string, kind?: Exclude<ForgeKind, "gitlab">): Promise<ForgeOutcome> => {
   const answer = await adminCall(() => runtime.forges.handOverGh(environmentId, { url: url.trim(), ...(kind !== undefined && { kind }) }));
   return addOutcome(answer, url.trim());
+};
+
+/**
+ * Adds a forge account whose token the environment's own `gh` reads on
+ * every use, so it follows `gh`'s rotations (`forge.accounts.add` with a
+ * `gh` credential; ADR 0032): the login `forge.gh.probe` found signed in to
+ * the URL's host, the active one where there are several. Refused in one
+ * line, sending nothing, where that `gh` is signed in to none there.
+ */
+export const addFromMachineGh = async (
+  { runtime, clock }: ForgeSender,
+  environmentId: string,
+  environmentName: string,
+  probe: GhProbe,
+  url: string,
+  kind?: Exclude<ForgeKind, "gitlab">,
+): Promise<ForgeOutcome> => {
+  const given = url.trim();
+  const remote = normaliseRemote(given);
+  if (remote === null) return { ok: false, line: `Not added: ${given} is not a forge's URL.` };
+  const host = ghHost(remote.origin);
+  const login = machineGhLogin(probe, host);
+  if (login === null) return { ok: false, line: `Not added: The gh on ${environmentName} is not signed in to ${host}: run gh auth login --hostname ${host} there, or paste a token.` };
+  const answer = await adminCall(() =>
+    runtime.requests.call(environmentId, "forge.accounts.add", {
+      commandId: uuidv7(clock.now()),
+      forgeAccountId: uuidv4(),
+      url: given,
+      ...(kind !== undefined && { kind }),
+      credential: { kind: "gh", login },
+    }),
+  );
+  return addOutcome(answer, given);
+};
+
+/**
+ * Adds an alias to a forge account (`forge.accounts.update` with its
+ * aliases and the one typed; ADR 0020): the environment asks the alias's own
+ * origin who the credential is before it is used, accepting it verified when
+ * it answers as the same login and user id, and keeping it unverified, not
+ * used, while it does not answer. A URL that names no forge, the forge
+ * account's own origin and an alias it has already are refused here,
+ * sending nothing; the environment's refusal (another identity, an origin
+ * another forge account holds) is one line.
+ */
+export const addForgeAlias = async ({ runtime, clock }: ForgeSender, environmentId: string, account: ForgeAccountRecord, typed: string): Promise<ForgeOutcome> => {
+  const given = typed.trim();
+  const origin = normaliseRemote(given)?.origin;
+  if (origin === undefined) return { ok: false, line: `Not added: ${given} names no forge: give its https or http address.` };
+  if (origin === account.origin) return { ok: false, line: `Not added: ${origin} is the forge account's own origin.` };
+  if (account.aliases.some((alias) => alias.origin === origin)) return { ok: false, line: `Not added: ${origin} is an alias of it already.` };
+  const answer = await adminCall(() =>
+    runtime.requests.call(environmentId, "forge.accounts.update", {
+      commandId: uuidv7(clock.now()),
+      forgeAccountId: account.id,
+      aliases: [...account.aliases.map((alias) => alias.origin), origin],
+    }),
+  );
+  if (!answer.ok) return { ok: false, line: `Not added: ${answer.line}` };
+  const updated = answer.result?.account ?? null;
+  const login = (updated ?? account).identity?.login ?? "the forge account's login";
+  const verified = updated?.aliases.find((alias) => alias.origin === origin)?.verifiedAt ?? null;
+  return {
+    ok: true,
+    account: updated,
+    line: verified === null ? `${origin} did not answer: it is not used until it answers as ${login}.` : `${origin} answers as ${login}: it is an alias of ${forgeAccountName(updated ?? account)}.`,
+  };
+};
+
+/**
+ * Gives a forge account a new pasted token in place of its credential
+ * (`forge.accounts.update`, sent directly, never queued): the token crosses
+ * the wire in this one call and must answer as the forge account's
+ * identity. A refusal (`verification_failed`, `identity_mismatch`) is one
+ * line, and so is where the forge account stands after.
+ */
+export const signInForgeAgain = async ({ runtime, clock }: ForgeSender, environmentId: string, account: ForgeAccountRecord, token: string): Promise<ForgeOutcome> => {
+  const answer = await adminCall(() =>
+    runtime.requests.call(environmentId, "forge.accounts.update", {
+      commandId: uuidv7(clock.now()),
+      forgeAccountId: account.id,
+      credential: { kind: "stored", provenance: "pasted", token: token.trim() },
+    }),
+  );
+  if (!answer.ok) return { ok: false, line: `Not signed in again: ${answer.line}` };
+  const updated = answer.result?.account ?? null;
+  if (updated === null) return { ok: true, account: null, line: `${forgeAccountName(account)} is signed in again.` };
+  return { ok: true, account: updated, line: updated.problem === null ? `${forgeAccountName(updated)} is signed in again.` : `Signed in again to ${updated.origin}: ${updated.problem.message}` };
 };
 
 /** Makes the forge account the primary forge (`forge.accounts.setPrimary`), clearing the one that was. */

@@ -223,8 +223,10 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * key-manager connections and the items Move lists (#384), and a forge
  * account's added, updated or removed those items too, since a forge
  * account holding a stored token is one; a probe changing managed-tool
- * rows (`tools.updated`) the managed tools (#384) and the key-manager
- * connections, each carrying its CLI's row (#375); an unpaired extension
+ * rows (`tools.updated`) the managed tools (#384), the key-manager
+ * connections, each carrying its CLI's row (#375), and what the
+ * environment's own `gh` is (`forge.gh.probe`, which reads the `gh` row,
+ * #589); an unpaired extension
  * opening its socket (`extension.seen`, #547) `browser.status`, whose
  * unpaired flag ticks the Browser card's Load sub-step; an import of an
  * adopted account's directory ending (`carry-over.imported`, #578), a
@@ -248,6 +250,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
+  "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated", "account.updated"],
