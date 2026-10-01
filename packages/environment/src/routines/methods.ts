@@ -100,7 +100,8 @@ const importIssue = (path: (string | number)[], message: string): SchemaIssue =>
 /**
  * Why an import cannot be read, before any routine is looked at: a document
  * with an issue (each at its path under `yaml` and the document's place),
- * none at all, more than one replacing a routine, or ids for another count.
+ * none at all, more than one replacing a routine, ids for another count, or
+ * an id given twice in another case.
  */
 const unreadable = (documents: readonly ImportDocument[], routineIds: readonly string[] | undefined, replacing: boolean): SchemaIssue[] => {
   const issues = documents.flatMap((document) => document.issues.map((issue) => ({ ...issue, path: ["yaml", document.index, ...issue.path] })));
@@ -110,7 +111,8 @@ const unreadable = (documents: readonly ImportDocument[], routineIds: readonly s
   if (routineIds !== undefined && routineIds.length !== documents.length) {
     return [importIssue(["routineIds"], `${routineIds.length} ids were given for ${documents.length} routine documents; one is needed for each.`)];
   }
-  return [];
+  const ids = (routineIds ?? []).map((id) => id.toLowerCase());
+  return ids.flatMap((id, index) => (ids.indexOf(id) === index ? [] : [importIssue(["routineIds", index], `The id ${id} is given twice, in another case.`)]));
 };
 
 /** The refusal of a routine the environment does not hold, or has deleted. */

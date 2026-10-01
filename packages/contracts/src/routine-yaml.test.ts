@@ -209,7 +209,7 @@ describe("the routine YAML codec", () => {
     expect(readRoutineYaml(wrongKind, ZONE)[0]?.issues.map((issue) => issue.path)).toEqual([["kind"], ["version"]]);
   });
 
-  it("reads a YAML problem as an issue at the document's root with the rule yaml, its reason and where it is; a document not a mapping is refused whole; an empty document is no document", () => {
+  it("reads a YAML problem as an issue at the document's root with the rule yaml, its reason and where it is, aliases expanded past the library's bound among them; a document not a mapping is refused whole; an empty document is no document", () => {
     const yaml = [renderRoutineYaml([watch], EXPORTED), "---", "# only a comment", "---", "kind: routine", "kind: bot", "---", "- a list", ""].join("\n");
     const documents = readRoutineYaml(yaml, ZONE);
     expect(documents.map((document) => document.index)).toEqual([0, 1, 2]);
@@ -221,6 +221,9 @@ describe("the routine YAML codec", () => {
     });
     expect(documents[2]).toMatchObject({ index: 2, definition: null, issues: [{ code: "invalid_type", path: [] }] });
     expect(readRoutineYaml("# nothing but a comment\n", ZONE)).toEqual([]);
+
+    const levels = ["a: &a [x, x, x, x, x, x, x, x, x, x]", ...["b", "c", "d", "e", "f"].map((key, at) => `${key}: &${key} [${Array.from({ length: 10 }, () => `*${"abcde"[at]}`).join(", ")}]`)];
+    expect(readRoutineYaml(levels.join("\n"), ZONE)).toEqual([{ index: 0, definition: null, issues: [expect.objectContaining({ path: [], params: { rule: "yaml", reason: "aliases" } })] }]);
   });
 
   it("never renders an id, the environment, the saved ceiling, history, the baseline, lineage or a secret, and names a webhook target by its endpoint", () => {

@@ -59,7 +59,8 @@ const renderDocument = (definition: RoutineDefinition): string => {
   }
   const delivery = document.get("delivery", true);
   if (isSeq(delivery)) for (const target of delivery.items) if (isMap(target)) target.flow = true;
-  const instructions = document.get("instructions", true) as Scalar;
+  const instructions = document.get("instructions", true);
+  if (!isScalar(instructions)) return document.toString(TO_STRING);
   instructions.type = Scalar.BLOCK_LITERAL;
   const text = document.toString(TO_STRING);
   if (parseDocument(text).get("instructions") === definition.instructions) return text;
@@ -96,7 +97,7 @@ const plainIssues = (issues: readonly unknown[]): SchemaIssue[] => SchemaIssues.
 /** The schema's issues, each unknown key one of its own at the key's path, as a person reads the document. */
 const issuesAtKeys = (issues: readonly z.core.$ZodIssue[]): unknown[] =>
   issues.flatMap<unknown>((issue) =>
-    issue.code === "unrecognized_keys" ? issue.keys.map((key) => ({ code: issue.code, path: [...issue.path, key], keys: [key], message: `The key "${key}" is not a routine document's here.` })) : [issue],
+    issue.code === "unrecognized_keys" ? issue.keys.map((key) => ({ code: issue.code, path: [...issue.path, key], keys: [key], message: `A routine document has no key "${key}" here.` })) : [issue],
   );
 
 /** One parsed document read as a routine: its definition, or its YAML problems, else the schema's issues. */

@@ -323,7 +323,7 @@ describe("routines.import", () => {
     expect(routineEvents(t).map((event) => event.type)).toEqual(["routine.created", "routine.edited"]);
   });
 
-  it("is all or nothing: a document with an issue refuses the whole import invalid_params at its path under yaml, and so does a count of ids other than the documents' or a YAML with none", async () => {
+  it("is all or nothing: a document with an issue refuses the whole import invalid_params at its path under yaml, and so do a count of ids other than the documents', an id given twice in another case, and a YAML with none", async () => {
     const t = await start();
     const client = await t.client();
     const broken = yamlOf(documentYaml({ name: "Fine" }), documentYaml({ name: "Broken", schedule: "{ kind: hourly, minute: 60 }" }));
@@ -333,6 +333,9 @@ describe("routines.import", () => {
 
     const counted = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: yamlOf(documentYaml({ name: "A" }), documentYaml({ name: "B" })), routineIds: [randomUUID()] }));
     expect(pathsOf(counted.data)).toEqual([["routineIds"]]);
+    const id = randomUUID();
+    const recased = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: yamlOf(documentYaml({ name: "A" }), documentYaml({ name: "B" })), routineIds: [id, id.toUpperCase()] }));
+    expect(pathsOf(recased.data)).toEqual([["routineIds", 1]]);
     const empty = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: "# nothing to import\n" }));
     expect(pathsOf(empty.data)).toEqual([["yaml"]]);
     expect(await listRoutines(client)).toEqual([]);
