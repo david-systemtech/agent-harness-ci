@@ -92,7 +92,7 @@ export type ChromeCallAnswer =
 export interface ChromeDesk {
   /** A `pair` on a socket that announced `announce`; `open` says whether the socket is still there to hear the answer. */
   pair(pair: { readonly code: string; readonly name: string }, announce: Announce, open: () => boolean): Promise<PairAnswer>;
-  /** The proof `mac` of the hello's Chrome on `nonce`: true, or the sentence the socket is refused with. A throw closes with 1011, preserving the pairing. */
+  /** The proof `mac` of the hello's Chrome on `nonce`: true, or the sentence the socket is refused with. The listener logs a throw and closes with 1011, preserving the pairing. */
   prove(hello: Hello, nonce: string, mac: string): Promise<true | string>;
   /** The hello's Chrome proved itself and holds this socket now; a failure to record it is logged. */
   connected(hello: Hello): void;
@@ -194,7 +194,8 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     let proved: true | string;
     try {
       proved = await chromes.prove(conversation.hello, conversation.nonce, mac);
-    } catch {
+    } catch (error) {
+      console.error(`Checking the proof of the Chrome ${conversation.hello.chromeId.toLowerCase()} failed:`, error);
       // A failed check says nothing about the credential; a refusal would make Chrome forget it.
       if (isOpen(socket)) socket.close(ENVIRONMENT_FAILURE_CLOSE_CODE);
       return;

@@ -287,7 +287,8 @@ describe("the proof", () => {
     expect(chrome.credential()).toMatchObject({ chromeId: message.chromeId });
   });
 
-  it.each(["vault", "Chrome log"])("keeps a Chrome's pairing when the %s fails during proof, closes with 1011 without refused, and answers ready after recovery", async (failed) => {
+  it.each(["vault", "Chrome log"])("logs the cause and keeps a Chrome's pairing when the %s fails during proof, closes with 1011 without refused, and answers ready after recovery", async (failed) => {
+    const errors = quietErrors();
     const t = await start();
     const { chrome, connection, message } = await paired(t);
     await connection.extension.close();
@@ -306,6 +307,8 @@ describe("the proof", () => {
     extension.send({ type: "proof", mac: proofOf(message.secret, challenge.nonce) });
 
     expect((await extension.closed).code).toBe(1011);
+    expect(errors).toHaveBeenCalledWith(`Checking the proof of the Chrome ${message.chromeId} failed:`, expect.any(Error));
+    if (failed === "Chrome log") expect(errors.mock.calls[0]?.[1]).toEqual(new Error("the disk is gone"));
     expect(extension.received.map((answer) => answer.type)).toEqual(["challenge"]);
     expect(chrome.credential()).toEqual(credential);
     mend();
