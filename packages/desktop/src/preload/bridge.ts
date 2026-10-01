@@ -15,13 +15,16 @@ import type {
   ShellSystem,
   ShellUpdate,
   ShellWindow,
+  ShellWebView,
+  ShellWebViewState,
+  ShellWebViewKey,
 } from "@agent-harness/client-runtime";
-import { channelOf, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
+import { channelOf, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL, DEEP_LINK_CHANNEL, NOTIFICATION_CHANNEL, type Answered, type HttpAnswer, type Told } from "../channels.js";
 
 /**
  * The shell as the desktop gives it to its renderer: the members every
  * surface needs, and the platform's own (`secrets`, `localGrant`, `service`,
- * `update`, `installer`, `gh`). `webView` joins as its ticket builds it;
+ * `update`, `installer`, `gh`). `webView` carries the browser dock;
  * there is no `tray` in milestone 1.
  */
 export interface DesktopShell extends Shell {
@@ -41,6 +44,7 @@ export interface DesktopShell extends Shell {
   readonly update: ShellUpdate;
   readonly installer: ShellInstaller;
   readonly gh: ShellGh;
+  readonly webView: ShellWebView;
 }
 
 /** `ipcRenderer`, as the preload uses it. */
@@ -70,6 +74,21 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
   const activationListeners = new Set<(tag: string) => void>();
   ipc.on(NOTIFICATION_CHANNEL, (_details, tag) => {
     if (typeof tag === "string") for (const listener of [...activationListeners]) listener(tag);
+  });
+
+  const keyListeners = new Set<(id: string, key: ShellWebViewKey) => void>();
+  ipc.on(WEB_VIEW_KEY_CHANNEL, (_details, id, key) => {
+    if (typeof id !== "string" || typeof key !== "object" || key === null) return;
+    const value = key as ShellWebViewKey;
+    if (typeof value.key !== "string" || typeof value.code !== "string" || typeof value.ctrlKey !== "boolean" || typeof value.metaKey !== "boolean" || typeof value.shiftKey !== "boolean" || typeof value.altKey !== "boolean") return;
+    for (const listener of keyListeners) listener(id, value);
+  });
+  const viewListeners = new Set<(id: string, state: ShellWebViewState) => void>();
+  ipc.on(WEB_VIEW_CHANNEL, (_details, id, state) => {
+    if (typeof id !== "string" || typeof state !== "object" || state === null) return;
+    const value = state as ShellWebViewState;
+    if (typeof value.url !== "string" || typeof value.canGoBack !== "boolean" || typeof value.canGoForward !== "boolean") return;
+    for (const listener of [...viewListeners]) listener(id, value);
   });
 
   return {
@@ -129,5 +148,21 @@ export const shellBridge = (ipc: PreloadIpc): DesktopShell => {
     update: { current: () => ask("update.current"), apply: (staged, when) => ask("update.apply", staged, when) },
     installer: { bundledServer: () => ask("installer.bundledServer") },
     gh: { token: (host) => ask("gh.token", host) },
+    webView: {
+      create: (options) => ask("webView.create", options),
+      attach: (id, bounds) => tell("webView.attach", id, bounds),
+      hide: (id) => tell("webView.hide", id),
+      navigate: (id, url) => ask("webView.navigate", id, url),
+      back: (id) => tell("webView.back", id),
+      forward: (id) => tell("webView.forward", id),
+      reload: (id) => tell("webView.reload", id),
+      state: (id) => ask("webView.state", id),
+      onChange: (listener) => {
+        viewListeners.add(listener);
+        return () => void viewListeners.delete(listener);
+      },
+      onKey: (listener) => { keyListeners.add(listener); return () => void keyListeners.delete(listener); },
+      destroy: (id) => tell("webView.destroy", id),
+    },
   };
 };
