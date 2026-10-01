@@ -47,7 +47,7 @@ const recordedDocuments = (page: Driven, documents: Readonly<Record<string, stri
 
 /**
  * A Wikipedia-length article, written for these tests: twelve sections of
- * eight long paragraphs, about 80,000 characters as Markdown, a navigation
+ * eight long paragraphs, some 69,000 characters as Markdown, a navigation
  * bar and a footer around it that no reader keeps.
  */
 const LONG_ARTICLE = (() => {
