@@ -45,6 +45,16 @@ export interface RunRegistry {
   admit(): void;
 }
 
+/** An admission held from a firing's pre-check to its run. */
+export interface RunAdmission {
+  /** Checks that this admission is still held. */
+  check(): void;
+  /** Transfers the starting record to its run, even if a drain began meanwhile. */
+  transfer(runId: string): void;
+  /** Ends a pre-check that made no run; transferred admissions are left alone. */
+  release(): void;
+}
+
 /**
  * The in-memory registry: the one the adapter host records its runs in, as
  * they start, run and end, and the one tests drive directly. Each change is
@@ -52,6 +62,8 @@ export interface RunRegistry {
  * forgotten once no idle window the setting can name would count it.
  */
 export interface MemoryRunRegistry extends RunRegistry {
+  /** Admits a firing before its pre-check, while it has no run yet. */
+  reserve(id: string): RunAdmission;
   /** A new run, starting: admitted first, so it is refused while the environment drains. */
   start(id: string): void;
   running(id: string): void;
@@ -116,6 +128,32 @@ export const createRunRegistry = (options: { readonly clock: Pick<Clock, "now"> 
       admit();
       if (runs.has(id)) throw new Error(`A run ${id} is already in the registry.`);
       put({ id, state: "starting", startedAt: clock.now() });
+    },
+    reserve(id) {
+      admit();
+      if (runs.has(id)) throw new Error(`A run ${id} is already in the registry.`);
+      const record: RunRecord = { id, state: "starting", startedAt: clock.now() };
+      put(record);
+      let held = true;
+      const check = (): void => {
+        if (!held || runs.get(id) !== record) throw new Error(`The admission ${id} is no longer held.`);
+      };
+      return {
+        check,
+        transfer(runId) {
+          check();
+          if (runs.has(runId)) throw new Error(`A run ${runId} is already in the registry.`);
+          runs.delete(id);
+          held = false;
+          put({ id: runId, state: "starting", startedAt: record.startedAt });
+        },
+        release() {
+          if (!held) return;
+          check();
+          held = false;
+          put({ id, state: "ended", startedAt: record.startedAt, endedAt: clock.now() });
+        },
+      };
     },
     running: (id) => put({ id, state: "running", startedAt: find(id).startedAt }),
     park: (id) => put({ id, state: "parked", startedAt: find(id).startedAt, parkedSince: clock.now() }),

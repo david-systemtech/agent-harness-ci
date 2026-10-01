@@ -983,6 +983,13 @@ export interface Adapter {
    */
   readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
   /**
+   * Copies an imported provider conversation from its original account into
+   * the store under the harness session before a fork copies that session's
+   * rows. Reads the account's directory only; does nothing when already stored.
+   * Absent for adapters that keep their own conversations without this store.
+   */
+  seedSessionStore?(account: AccountRef, sessionId: string, providerSessionId: string): Promise<void>;
+  /**
    * Whether a fork or rewind can continue stored history before this
    * message. Read before the command's transaction; absent for adapters
    * whose history is decided from the session's visible messages alone.

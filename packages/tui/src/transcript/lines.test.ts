@@ -206,13 +206,14 @@ describe("wrap", () => {
 
 describe("an update cut and its continuation", () => {
   it("draws the update outcome at its sequence and labels the continuation as the environment", () => {
-    const environment: TranscriptEntry = { ...message(2, "Check the current state, then continue."), sender: { kind: "system", id: "updates" } };
+    const environment: TranscriptEntry = { ...message(2, "Check the current state, then continue."), sender: { kind: "system", id: "updates" }, attachments: [{ kind: "image", name: "state.png", mediaType: "image/png", size: 2048 }] };
     const cut: TranscriptEntry = { kind: "update-interrupted", sequence: 3, runId: RUN, updateId: RUN, toVersion: "0.5.0", outcome: "continued", reason: null, continuationRunId: RUN };
     const rows = transcriptRows(view([message(1, "Go"), environment, cut]));
     expect(rows.map((row) => row.kind)).toEqual(["user", "user", "update-interrupted"]);
     const lines = shown(transcriptLines(rows, { ...CONTEXT, width: 120 }));
     expect(lines).toContain("  · Updated to 0.5.0 while this ran; continued");
     expect(lines.join("\n")).toContain("Environment: Check the current state, then continue.");
+    expect(lines.join("\n")).toContain("[image state.png · 2 KB]");
     expect(lines.join("\n")).toContain("▌ Go");
   });
 });

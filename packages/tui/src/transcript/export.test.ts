@@ -79,6 +79,14 @@ describe("the text of a session", () => {
     expect(text).toContain("_Interrupted · 3.0s_");
   });
 
+  it("names a sent picture with its size, as the transcript's chip does, since the log never holds its bytes (#473)", () => {
+    const [first, ...rest] = items;
+    if (first?.kind !== "user-message") throw new Error("no prompt");
+    const sent = { ...first, attachments: [{ kind: "image" as const, name: "screen.png", mediaType: "image/png", size: 1024 }] };
+    const text = exportMarkdown({ ...view, items: [sent, ...rest] }, { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z") });
+    expect(text).toContain("_attached image screen.png · 1 KB_");
+  });
+
   it("gives /timeline one line per turn: what was asked, how long, what it touched, how it ended", () => {
     const [turn] = turnsOf(view);
     expect(turn).toMatchObject({ asked: "Fix the parser", files: ["src/parser.ts"], commands: 1 });
@@ -140,10 +148,11 @@ describe("what a rewind cut, in /export (#232)", () => {
 describe("update cuts in /export", () => {
   it("keeps the update outcome and credits the continuation to the environment", () => {
     const cut: TranscriptEntry = { kind: "update-interrupted", sequence: 2, runId: RUN, updateId: RUN, toVersion: "0.5.0", outcome: "waiting-on-prompt", reason: null, continuationRunId: null };
-    const continuation: TranscriptEntry = { kind: "user-message", sequence: 3, runId: RUN, messageId: "continuation", text: "Check the current state, then continue.", attachments: [], delivery: "prompt", heldBy: null, sentAt: "2026-09-25T10:00:00.000Z", sender: { kind: "system", id: "updates" } };
+    const continuation: TranscriptEntry = { kind: "user-message", sequence: 3, runId: RUN, messageId: "continuation", text: "Check the current state, then continue.", delivery: "prompt", heldBy: null, sentAt: "2026-09-25T10:00:00.000Z", sender: { kind: "system", id: "updates" }, attachments: [{ kind: "image", name: "state.png", mediaType: "image/png", size: 2048 }] };
     const exported = exportMarkdown({ items: [cut, continuation], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T10:00:00.000Z") });
     expect(exported).toContain("_Updated to 0.5.0 while this ran; waits for your answer to the parked prompt_");
     expect(exported).toContain("### Environment · ");
+    expect(exported).toContain("_attached image state.png · 2 KB_");
     expect(exported).not.toContain("### You · ");
     expect(exported).toContain("Check the current state, then continue.");
   });

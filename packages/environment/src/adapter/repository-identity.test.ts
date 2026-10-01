@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { registry, type WorkspaceRequest } from "@agent-harness/contracts";
+import { registry, type Workspace, type WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import type { InstructionScope, ToolServerScope } from "./seams.js";
 import { composeInstructions } from "../instructions/composer.js";
@@ -142,21 +142,47 @@ describe("a run's scopes", () => {
 });
 
 describe("instructions.preview", () => {
-  it("composes a session's preview under that session's repository identity, and a new session's under none until it is made", async () => {
+  it("composes a session's preview under that session's repository identity", async () => {
     const { t, toolScopes, instructionScopes } = await start();
     const client = await t.client();
-    const path = repository({ origin: "https://github.com/acme/receipts.git" });
-    const id = await session(client, { kind: "worktree", repository: path });
+    const id = await session(client, { kind: "worktree", repository: repository({ origin: "https://github.com/acme/receipts.git" }) });
 
     const forSession = await client.request("instructions.preview", { sessionId: id });
     expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: id, repositoryIdentity: IDENTITY })]);
     expect(forSession.text).toContain(repositoryLine(IDENTITY));
-
-    instructionScopes.length = 0;
-    const forNewSession = await client.request("instructions.preview", { accountId: "claude-max", workspace: { kind: "directory", path } });
-    expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: null, workspace: { kind: "directory", path }, repositoryIdentity: null })]);
-    expect(forNewSession.text).toContain(repositoryLine(null));
     // A preview builds no tool servers.
     expect(toolScopes).toEqual([]);
+  });
+
+  it("composes a new session's preview under the identity a session made in its workspace gets, so it reads as that session's first run", async () => {
+    const { t, instructionScopes } = await start();
+    const client = await t.client();
+    const path = repository({ origin: "git@github.com:Acme/receipts.git" });
+
+    const preview = await client.request("instructions.preview", { accountId: "claude-max", workspace: { kind: "directory", path } });
+    expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: null, workspace: { kind: "directory", path }, repositoryIdentity: IDENTITY })]);
+    expect(instructionScopes[0]?.trust).toEqual({ key: { kind: "identity", value: IDENTITY }, decision: "undecided" });
+
+    await run(t, client, await session(client, { kind: "directory", path }));
+    const [firstRun] = t.adapter.runs.map(({ input }) => input);
+    expect(preview.text).toContain(repositoryLine(IDENTITY));
+    expect(firstRun?.instructions).toBe(preview.text);
+  });
+
+  it("composes a new session's preview under null where a session made there gets none: a repository with no remote, a plain directory, a scratch workspace", async () => {
+    const { t, instructionScopes } = await start();
+    const client = await t.client();
+    const workspaces: Workspace[] = [
+      { kind: "directory", path: repository() },
+      { kind: "directory", path: tempDir("agent-harness-plain-") },
+      // A scratch directory is no checkout, wherever it lies: no git is asked.
+      { kind: "scratch", path: repository({ origin: "https://github.com/acme/receipts.git" }) },
+    ];
+    for (const workspace of workspaces) {
+      const preview = await client.request("instructions.preview", { accountId: "claude-max", workspace });
+      expect(preview.text).toContain(repositoryLine(null));
+    }
+
+    expect(instructionScopes.map(({ sessionId, workspace, repositoryIdentity }) => [sessionId, workspace, repositoryIdentity])).toEqual(workspaces.map((workspace) => [null, workspace, null]));
   });
 });

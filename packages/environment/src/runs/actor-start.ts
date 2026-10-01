@@ -1,4 +1,5 @@
 import type { Mode, RoutineInjection, RunOrigin } from "@agent-harness/contracts";
+import type { RunAdmission } from "../serve/run-registry.js";
 import type { AdapterHost } from "../adapter/host.js";
 import { formatActor, type EventLog, type Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
@@ -58,9 +59,10 @@ const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; read
  * events attributed to the actor that started it and, when given, the
  * command it is part of.
  */
-export const startActorRunIn = (log: EventLog, host: AdapterHost, tx: Tx, request: ActorRunRequest, commandId?: string): RunStartOutcome => {
+export const startActorRunIn = (log: EventLog, host: AdapterHost, tx: Tx, request: ActorRunRequest, commandId?: string, admission?: RunAdmission): RunStartOutcome => {
   const { origin, actor } = startedBy(request);
   return startRunIn(log, host, tx, { actor, ...(commandId !== undefined && { commandId }) }, {
+    admission,
     sessionId: request.sessionId,
     actor: actorOfRequest(request),
     origin,

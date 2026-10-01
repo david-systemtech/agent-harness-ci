@@ -1,4 +1,5 @@
 import {
+  attachmentChip,
   endWords,
   environmentMessage,
   oneLine,
@@ -140,9 +141,10 @@ const RewoundFold = ({ row, facts }: { readonly row: Extract<TranscriptRow, { ki
 };
 
 /**
- * A message David sent, on the right: its text, and each attachment by name
- * and size (the log records what was attached, never its bytes, so a sent
- * picture is named, not drawn). Focusable where it has actions to reveal.
+ * A message David sent, on the right: its text, and each attachment as its
+ * chip, by name and size (the log records what was attached, never its bytes,
+ * so a sent picture is named, not drawn: #473). Focusable where it has
+ * actions to reveal.
  */
 const UserMessage = ({ entry, focusable = false }: { readonly entry: UserMessageEntry; readonly focusable?: boolean }) => (
   <article
@@ -158,7 +160,7 @@ const UserMessage = ({ entry, focusable = false }: { readonly entry: UserMessage
       <ul className="flex flex-wrap justify-end gap-1.5 text-[0.85em] text-ink-muted">
         {entry.attachments.map((attachment, index) => (
           <li key={index} className="rounded-md border border-hairline px-2 py-0.5 font-mono">
-            {`${attachment.name} · ${Math.max(1, Math.round(attachment.size / 1024))} KB`}
+            {attachmentChip(attachment)}
           </li>
         ))}
       </ul>

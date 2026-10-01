@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ROUTINE_STREAM_KIND, dueTimesBetween, nextDueAt, type RoutineTrigger } from "@agent-harness/contracts";
+import { ENVIRONMENT_STREAM_KIND, ROUTINE_STREAM_KIND, dueTimesBetween, nextDueAt, type RoutineTrigger } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
@@ -139,11 +139,20 @@ export const createRoutineScheduler = ({ log, clock, environmentId, firings }: R
     arm();
   }
 
+  const stop = (): void => {
+    unsubscribe?.();
+    unsubscribe = null;
+    timer?.cancel();
+    check?.cancel();
+    timer = check = null;
+  };
+
   return {
     start() {
       if (unsubscribe !== null) return;
       unsubscribe = log.subscribe((event) => {
-        if (event.streamKind === ROUTINE_STREAM_KIND && REARMING.has(event.type)) arm();
+        if (event.streamKind === ENVIRONMENT_STREAM_KIND && event.type === "environment.draining") stop();
+        else if (event.streamKind === ROUTINE_STREAM_KIND && REARMING.has(event.type)) arm();
       });
       sweep();
       // The wall clock against the due time the timer waits for: a sleep or a jump the timer slept through is found here.
@@ -151,12 +160,6 @@ export const createRoutineScheduler = ({ log, clock, environmentId, firings }: R
         if (earliest !== null && clock.now().getTime() >= earliest) sweep();
       }, SCHEDULER_CHECK_MS);
     },
-    stop() {
-      unsubscribe?.();
-      unsubscribe = null;
-      timer?.cancel();
-      check?.cancel();
-      timer = check = null;
-    },
+    stop,
   };
 };
