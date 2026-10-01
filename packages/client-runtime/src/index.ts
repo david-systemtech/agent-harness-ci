@@ -76,6 +76,7 @@ export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js"
 export type { Forges, HandOverParams } from "./forges.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
+  INJECTION_SWITCH_WORDS,
   INJECTION_WORDS,
   KEY_MANAGER_METHOD_WORDS,
   KEY_MANAGER_PROVIDER_WORDS,
@@ -85,6 +86,7 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
+  cliHealthWords,
   cliWords,
   copyLine,
   injectsWords,
