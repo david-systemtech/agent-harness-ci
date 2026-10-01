@@ -1,5 +1,6 @@
 import {
   KEY_MANAGER_METHOD_WORDS,
+  asksAddress,
   credentialOf,
   credentialTyped,
   removeConnection,
@@ -93,9 +94,10 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
 };
 
 /**
- * Edit (`keyManagers.connections.update`): the label, the address, the token
- * role and the CA, pinned from the certificate the address presents once a
- * person trusts it, or unpinned. Save sends only what changed; a new address
+ * Edit (`keyManagers.connections.update`): the label, the address (never
+ * 1Password's, which its account names, #1118), the token role and the CA,
+ * pinned from the certificate the address presents once a person trusts
+ * it, or unpinned. Save sends only what changed; a new address
  * or CA is signed in against by the environment first, and a refusal stays
  * in the form in one line.
  */
@@ -136,9 +138,11 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
           <Field label="Label">
             <Input value={label} onChange={(event) => setLabel(event.target.value)} />
           </Field>
-          <Field label="Address">
-            <Input value={address} onChange={(event) => setAddress(event.target.value)} />
-          </Field>
+          {asksAddress(connection.provider) && (
+            <Field label="Address">
+              <Input value={address} onChange={(event) => setAddress(event.target.value)} />
+            </Field>
+          )}
           {openBao && (
             <>
               <Field label="Token role (optional)">
