@@ -398,18 +398,29 @@ const refused = (text: string): HostToolResult => ({ text: redactTokens(text), i
 /** Page-derived text framed as untrusted content from its address, token-redacted first. */
 const framed = (address: string, text: string): string => frameUntrusted(redactTokens(address), redactTokens(text));
 
-/** `text` cut to at most `max` characters at its last line boundary within them. */
-const capped = (text: string, max: number): string => {
-  if (text.length <= max) return text;
+/** A snapshot's text as shown, and whether it was cut mid-line. */
+interface Capped {
+  readonly text: string;
+  readonly midLine: boolean;
+}
+
+/**
+ * `text` cut to at most `max` characters at its last line boundary within them, or, when no line ends within
+ * them, mid-line, one fewer where the last would open a character written as two code units.
+ */
+const capped = (text: string, max: number): Capped => {
+  if (text.length <= max) return { text, midLine: false };
   const lineEnd = text.lastIndexOf("\n", max);
-  return text.slice(0, lineEnd > 0 ? lineEnd : max);
+  if (lineEnd > 0) return { text: text.slice(0, lineEnd), midLine: false };
+  const unit = text.charCodeAt(max - 1);
+  return { text: text.slice(0, unit >= 0xd800 && unit <= 0xdbff ? max - 1 : max), midLine: true };
 };
 
-/** The sentence for a snapshot shown shorter than it is, or undefined when it is whole. */
-const cutStatement = (shown: number, total: number): string | undefined =>
-  shown >= total
+/** The sentence for a snapshot shown shorter than it is, naming where it was cut, or undefined when it is whole. */
+const cutStatement = (shown: Capped, total: number): string | undefined =>
+  shown.text.length >= total
     ? undefined
-    : `The snapshot is ${total.toLocaleString("en-GB")} characters; this is the first ${shown.toLocaleString("en-GB")}, cut at a line boundary. Ask browser_snapshot for more with maxChars (at most ${SNAPSHOT_MAX_CHARS.max.toLocaleString("en-GB")}), or focus on one element with ref.`;
+    : `The snapshot is ${total.toLocaleString("en-GB")} characters; this is the first ${shown.text.length.toLocaleString("en-GB")}, ${shown.midLine ? "cut mid-line, as no line ends within them" : "cut at a line boundary"}. Ask browser_snapshot for more with maxChars (at most ${SNAPSHOT_MAX_CHARS.max.toLocaleString("en-GB")}), or focus on one element with ref.`;
 
 /** A page's title and text, framed, or nothing when it has neither. */
 const pageBody = (url: string, title: string, text: string): string | undefined => {
@@ -432,12 +443,12 @@ const challengeAnswer = (url: string, challenge: ChallengeKind, kind: PageDriver
 /** What an action that leaves the page somewhere answers: where, the notice, the title and the snapshot framed, and how much of the snapshot was shown. */
 const arrivalAnswer = (lead: string, arrival: PageArrival, context: AnswerContext): HostToolResult => {
   if (arrival.challenge !== undefined) return challengeAnswer(arrival.url, arrival.challenge, context.kind);
-  const snapshot = arrival.snapshot === undefined ? "" : capped(arrival.snapshot.text, ACTION_SNAPSHOT_CHARS);
+  const snapshot = arrival.snapshot === undefined ? { text: "", midLine: false } : capped(arrival.snapshot.text, ACTION_SNAPSHOT_CHARS);
   return answered([
     redactTokens(`${lead} The page is at ${arrival.url}.`),
     context.notice,
-    pageBody(arrival.url, arrival.title, snapshot),
-    arrival.snapshot === undefined ? undefined : cutStatement(snapshot.length, Math.max(arrival.snapshot.totalChars, arrival.snapshot.text.length)),
+    pageBody(arrival.url, arrival.title, snapshot.text),
+    arrival.snapshot === undefined ? undefined : cutStatement(snapshot, Math.max(arrival.snapshot.totalChars, arrival.snapshot.text.length)),
   ]);
 };
 
@@ -464,13 +475,13 @@ const answerOf = (outcome: Outcome, context: AnswerContext): HostToolResult => {
     case "snapshot": {
       const snapshot = outcome.value;
       if (snapshot.challenge !== undefined) return challengeAnswer(snapshot.url, snapshot.challenge, kind);
-      const text = capped(snapshot.text, (input["maxChars"] as number | undefined) ?? SNAPSHOT_MAX_CHARS.preset);
+      const shown = capped(snapshot.text, (input["maxChars"] as number | undefined) ?? SNAPSHOT_MAX_CHARS.preset);
       const what = `${input["filter"] === "all" ? "every element" : "the elements you can act on"}${input["ref"] === undefined ? "" : ` under ${String(input["ref"])}`}`;
       return answered([
         redactTokens(`A snapshot of ${snapshot.url}: ${what}.`),
         context.notice,
-        pageBody(snapshot.url, snapshot.title, text),
-        cutStatement(text.length, Math.max(snapshot.totalChars, snapshot.text.length)),
+        pageBody(snapshot.url, snapshot.title, shown.text),
+        cutStatement(shown, Math.max(snapshot.totalChars, snapshot.text.length)),
       ]);
     }
     case "read": {

@@ -327,6 +327,23 @@ describe("an action's snapshot", () => {
       `The snapshot is ${long.length.toLocaleString("en-GB")} characters; this is the first ${snapshot.length.toLocaleString("en-GB")}, cut at a line boundary. Ask browser_snapshot for more with maxChars (at most 200,000), or focus on one element with ref.`,
     );
   });
+
+  it("is cut mid-line and says so when no line ends within the cap, never inside a character, an action's and a snapshot's alike", async () => {
+    const { t, drivers } = await start();
+    const before = `- paragraph "${"A sentence with no line break in it. ".repeat(400)}`.slice(0, 11_999);
+    const long = `${before}😀${" And more after it.".repeat(50)}"`;
+    drivers.headless.next("navigate", { ok: true, value: { url: "https://example.com/wall", title: "Wall", snapshot: { text: long, totalChars: long.length, truncated: false } } });
+    drivers.headless.next("snapshot", { ok: true, value: { url: "https://example.com/wall", title: "Wall", text: long, totalChars: long.length, truncated: false } });
+    const { answers } = await runIn(t, HEADLESS, ["browser_navigate", { address: "https://example.com/wall" }], ["browser_snapshot", { maxChars: 12_000 }]);
+    expect(answers).toHaveLength(2);
+    for (const answer of answers) {
+      expect(answer.isError).toBe(false);
+      expect(framed(answer.text).body).toBe(`Title: Wall\n\n${before}`);
+      expect(answer.text.split("\n").at(-1)).toBe(
+        `The snapshot is ${long.length.toLocaleString("en-GB")} characters; this is the first 11,999, cut mid-line, as no line ends within them. Ask browser_snapshot for more with maxChars (at most 200,000), or focus on one element with ref.`,
+      );
+    }
+  });
 });
 
 describe("the verbs' arguments", () => {
