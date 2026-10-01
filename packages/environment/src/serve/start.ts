@@ -1501,9 +1501,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.
+  // Read the injection setting directly; health never decides a provider process or materialises its skills.
+  const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
   const readOrientation = async () => {
     const accountId = accounts.defaultId();
-    return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
+    return accountId === null ? null : orientationSeam(host.orientationScope(accountId, { kind: "scratch", path: roots.scratch }, orientationInjection({ sessionId: null, accountId, origin: "client", holder: "provider-process", override: null })));
   };
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,

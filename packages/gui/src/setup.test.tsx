@@ -113,8 +113,8 @@ describe("Skip for now", () => {
       if (within(card()).queryByRole("button", { name: "Skip for now" }) !== null) skippable.push(within(card()).getByRole("heading").textContent ?? "");
       await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
     }
-    // The steps this build registers as skippable: Carry over, Forges and Key manager, with nothing set up there when they are skipped.
-    expect(skippable).toEqual(["Carry over", "Forges", "Key manager"]);
+    // The steps this build registers as skippable: Carry over, Forges, Key manager and Skills, with nothing set up there when they are skipped.
+    expect(skippable).toEqual(["Carry over", "Forges", "Key manager", "Skills"]);
 
     await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
     const commands = () => desk.requests().filter((request) => request.params["commandId"] !== undefined).length;

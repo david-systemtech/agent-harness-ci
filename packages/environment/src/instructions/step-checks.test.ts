@@ -3,6 +3,8 @@ import { expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { presetInjection } from "../adapter/process-environment.js";
+import { noSkillSet } from "../adapter/seams.js";
 import type { OrientationAnswer } from "./composer.js";
 
 const { onCleanup } = useCleanups();
@@ -50,4 +52,19 @@ it("answers within the local five-second budget when the orientation seam never 
   t.clock.advance(5_000);
   expect(await checking).toMatchObject({ state: "needs-attention", failing: ["instructions.orientation-renders"], actions: ["check-again"], reason: "could not check: timed out after 5 s" });
   answer({ text: "# Orientation", unreadRegistries: [] });
+});
+
+it("checks and previews orientation without resolving skills or deciding a provider process's injection", async () => {
+  let injections = 0;
+  let skillSets = 0;
+  const t = await startTestEnvironment({ adapterSeams: {
+    injection: (scope) => { injections += 1; return presetInjection(scope); },
+    skillSet: (scope) => { skillSets += 1; return noSkillSet(scope); },
+  } });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  expect(await check(client)).toMatchObject({ state: "done" });
+  await client.request("instructions.list", {});
+  expect(injections).toBe(0);
+  expect(skillSets).toBe(0);
 });

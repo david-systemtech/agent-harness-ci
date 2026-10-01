@@ -480,7 +480,7 @@ export const STEP_REGISTRY = [
     ],
     checks: [],
     stateChecks: [
-      { id: "skills.present", holds: "Skill sources are tracked, or the own directory is not empty.", actions: [] },
+      { id: "skills.present", holds: "Skill sources are tracked, or the own directory is nonempty or unreadable.", actions: [] },
       { id: "skills.sources-synced", holds: "Every unpinned source's last attempt succeeded within seven hours.", actions: ["pull-now"] },
       { id: "skills.sources-yield", holds: "Every source yields skills.", actions: ["pull-now"] },
       { id: "skills.source-limit", holds: "At most twenty skill sources are tracked.", actions: [] },
