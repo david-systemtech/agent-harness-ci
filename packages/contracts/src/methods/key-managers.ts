@@ -115,8 +115,8 @@ export type AddressUnreachableError = z.infer<typeof AddressUnreachableError>;
 /** This environment has no provider for the key manager a credential is for. */
 export const ProviderUnavailableError = errorSchema(
   "provider_unavailable",
-  z.object({ provider: KeyManagerProvider, connectionId: KeyManagerConnectionId.optional() }),
-).meta({ description: "This environment cannot sign in to the provider: nothing was stored. data names the provider." });
+  z.object({ provider: KeyManagerProvider, connectionId: KeyManagerConnectionId.optional().meta({ description: "The existing connection, when the refusal concerns one." }) }),
+).meta({ description: "This environment cannot sign in to the provider: nothing was stored. data names the provider and, when an existing connection is involved, its id." });
 export type ProviderUnavailableError = z.infer<typeof ProviderUnavailableError>;
 
 const connectionResult = z.object({ connection: KeyManagerConnectionRecord });

@@ -179,7 +179,7 @@ export type KeyManagerVaultEntry = z.infer<typeof KeyManagerVaultEntry>;
 export const KEY_MANAGER_STATUS_KINDS = ["awaiting-sign-in", "signing-in", "signed-in", "credential-rejected", "expired", "unreachable", "sealed", "certificate-rejected", "provider-unavailable"] as const;
 export const KeyManagerStatusKind = z.enum(KEY_MANAGER_STATUS_KINDS).meta({
   description:
-    "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's).",
+    "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only), certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's), or provider-unavailable (the provider cannot load on this environment).",
 });
 export type KeyManagerStatusKind = z.infer<typeof KeyManagerStatusKind>;
 

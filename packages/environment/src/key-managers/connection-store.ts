@@ -277,7 +277,7 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     // Suggested in memory from the provider (`connections.ts`), never kept.
     suggestedBasePath: null,
     injects: row.injects === 1,
-    // OpenBao's block alone this version gives (#368); the other providers' join with their tickets.
+    // The injecting connection advertises its provider's environment block.
     injectedVariables: row.injects !== 1 ? [] : row.provider === "openbao" ? [...OPENBAO_BLOCK_NAMES] : row.provider === "bitwarden" ? [...BITWARDEN_BLOCK_NAMES] : [],
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),

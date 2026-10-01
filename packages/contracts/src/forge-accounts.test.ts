@@ -159,11 +159,12 @@ describe("the forge account methods", () => {
       "credential_source_unavailable",
       "reference_not_found",
       "reference_denied",
+      "provider_unavailable",
       "kind_unsupported",
       "not_a_forge",
       "unreachable",
     ]);
-    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable", "reference_not_found", "reference_denied"]);
+    expect(own("forge.accounts.update")).toEqual(["verification_failed", "identity_mismatch", "alias_identity_mismatch", "credential_source_unavailable", "reference_not_found", "reference_denied", "provider_unavailable"]);
     expect(own("forge.detect")).toEqual(["kind_unsupported", "not_a_forge", "unreachable"]);
     expect(own("forge.orgs.list")).toEqual(["credential_unavailable", "verification_failed", "unreachable"]);
     expect(own("forge.pullRequests.link")).toEqual(["not_a_pull_request", "forge_account_missing", "credential_unavailable", "verification_failed", "unreachable"]);

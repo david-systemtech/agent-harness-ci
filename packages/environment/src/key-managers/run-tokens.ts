@@ -159,7 +159,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
 
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
-  /** The injecting connections this supplier serves: OpenBao's. */
+  /** The injecting connections with a supported environment block. */
   const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "bitwarden");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */

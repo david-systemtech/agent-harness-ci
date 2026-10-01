@@ -246,7 +246,7 @@
                       ]
                     }
                   ],
-                  "description": "The reference the item holds once moved there: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key."
+                  "description": "Where the item will be written: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key; for Bitwarden, the base project and key until creation returns the secret id for the reference."
                 }
               },
               "required": [

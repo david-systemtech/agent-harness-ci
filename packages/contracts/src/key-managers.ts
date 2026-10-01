@@ -147,5 +147,5 @@ export type ReferenceDeniedError = z.infer<typeof ReferenceDeniedError>;
 /** What a reference that does not resolve is refused with. */
 export const KeyManagerReferenceProblem = z
   .discriminatedUnion("code", [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, ReferenceProviderUnavailableError])
-  .meta({ description: "Why a key-manager reference does not resolve: credential_source_unavailable, reference_not_found or reference_denied, as a resolve refuses it." });
+  .meta({ description: "Why a key-manager reference does not resolve: credential_source_unavailable, reference_not_found, reference_denied or provider_unavailable, as a resolve refuses it." });
 export type KeyManagerReferenceProblem = z.infer<typeof KeyManagerReferenceProblem>;

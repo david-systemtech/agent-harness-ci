@@ -47,7 +47,7 @@ export type KeyManagerMoveItemRef = z.infer<typeof KeyManagerMoveItemRef>;
 export const KeyManagerMoveTarget = z
   .object({
     connectionId: KeyManagerConnectionId.meta({ description: "The connection the target is on." }),
-    reference: KeyManagerMoveLocator.meta({ description: "The reference the item holds once moved there: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key." }),
+    reference: KeyManagerMoveLocator.meta({ description: "Where the item will be written: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key; for Bitwarden, the base project and key until creation returns the secret id for the reference." }),
   })
   .meta({ description: "Where an item would go on one connection with a base path: the reference it would hold once moved." });
 export type KeyManagerMoveTarget = z.infer<typeof KeyManagerMoveTarget>;
