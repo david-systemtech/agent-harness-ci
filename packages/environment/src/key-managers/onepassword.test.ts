@@ -69,6 +69,12 @@ const check = (client: WireClient, reference: OnePasswordReference) => client.re
 
 const browse = (client: WireClient, params: ParamsOf<"keyManagers.references.browse">) => client.request("keyManagers.references.browse", params);
 
+/** Resolves `reference` in process, as a holder's spawn and the forge's verification do. */
+const resolve = (t: TestEnvironment, reference: OnePasswordReference) => t.env.keyManagers.resolve({ reference, owner: "forge:test", purpose: "verify" });
+
+/** The calls the double saw after the first `from` of them. */
+const callsSince = (onePassword: FakeOnePassword, from: number) => onePassword.calls().slice(from);
+
 const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
 
 /** Starts a run on the session and waits for its end. */
@@ -246,6 +252,64 @@ describe("1Password references", () => {
     await expect(browse(client, { connectionId, item: "forge-github" })).rejects.toMatchObject({
       code: "invalid_params",
       data: { issues: [expect.objectContaining({ path: ["item"], message: "An item's fields are listed in its vault: name the vault too." })] },
+    });
+  });
+
+  describe("with a session the SDK says expired (#1138)", () => {
+    /** A connection signed in to a vault holding `VALUE`, and a reference to it. */
+    const withReference = async () => {
+      const { t, onePassword, client } = await withOnePassword();
+      onePassword.vault("harness", { "forge-github": { credential: VALUE } });
+      const connection = await connected(client);
+      const reference = { provider: "onepassword", connectionId: connection.id, vault: "harness", item: "forge-github", field: "credential" } as const;
+      return { t, onePassword, client, connection, reference };
+    };
+
+    it("read and browse by signing in once more from the kept token and asking again, with no verification between", async () => {
+      const { t, onePassword, client, connection, reference } = await withReference();
+
+      onePassword.expire(TOKEN);
+      const beforeRead = onePassword.calls().length;
+      const read = await resolve(t, reference);
+      const readCalls = callsSince(onePassword, beforeRead);
+      onePassword.expire(TOKEN);
+      const beforeBrowse = onePassword.calls().length;
+      const browsed = await browse(client, { connectionId: connection.id, vault: "harness" });
+
+      expect(read).toMatchObject({ outcome: "resolved", value: VALUE });
+      if (read.outcome === "resolved") read.release();
+      expect(readCalls).toEqual(["resolve", "signIn", "resolve"]);
+      expect(browsed).toEqual({ names: ["forge-github/"] });
+      expect(callsSince(onePassword, beforeBrowse)).toEqual(["vaults", "signIn", "vaults", "items"]);
+    });
+
+    it("sign in once for reads the expired session failed together", async () => {
+      const { t, onePassword, reference } = await withReference();
+
+      onePassword.expire(TOKEN);
+      const before = onePassword.calls().length;
+      const reads = await Promise.all([resolve(t, reference), resolve(t, reference)]);
+
+      expect(reads).toEqual([expect.objectContaining({ outcome: "resolved", value: VALUE }), expect.objectContaining({ outcome: "resolved", value: VALUE })]);
+      for (const read of reads) if (read.outcome === "resolved") read.release();
+      expect(callsSince(onePassword, before).filter((call) => call === "signIn")).toHaveLength(1);
+    });
+
+    it("answer a read whose sign-in again is refused credential_source_unavailable, and sign in afresh at the next read", async () => {
+      const { t, onePassword, reference } = await withReference();
+
+      onePassword.expire(TOKEN);
+      onePassword.failNext("signIn", new Error(REJECTED_TOKEN_MESSAGE));
+      const before = onePassword.calls().length;
+      const refused = await resolve(t, reference);
+      const refusedCalls = callsSince(onePassword, before);
+      const next = await resolve(t, reference);
+
+      expect(refused).toEqual({ outcome: "unavailable", code: "credential_source_unavailable", message: `Reading op://harness/forge-github/credential failed: ${REJECTED_TOKEN_MESSAGE}` });
+      expect(refusedCalls).toEqual(["resolve", "signIn"]);
+      expect(next).toMatchObject({ outcome: "resolved", value: VALUE });
+      if (next.outcome === "resolved") next.release();
+      expect(callsSince(onePassword, before + refusedCalls.length)).toEqual(["signIn", "resolve"]);
     });
   });
 });
