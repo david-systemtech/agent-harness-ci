@@ -75,12 +75,17 @@ export interface ExternalEditorDeps {
   readonly spawn?: SpawnLike;
   /** Where the private directory is made. `os.tmpdir` by default. */
   readonly tmpdir?: () => string;
+  /** The file's name in it, whose extension is what the editor highlights by: `MESSAGE_FILE` by default. */
+  readonly file?: string;
 }
 
 const defaultSpawn: SpawnLike = (file, args, options) => spawn(file, [...args], { stdio: options.stdio });
 
 /** The file the editor is pointed at. `.md`, because a message is prose. */
 const MESSAGE_FILE = "message.md";
+
+/** The file a routine's YAML is edited in (`/routines`, #533): `.yaml`, so the editor reads it as YAML. */
+export const ROUTINE_FILE = "routine.yaml";
 
 /**
  * Split a command line on whitespace, honouring double and single quotes.
@@ -136,7 +141,7 @@ export async function editInExternalEditor(initial: string, deps: ExternalEditor
     // should have to catch; it is one more thing to say in the status line.
     return { ok: false, reason: `could not make a temporary directory: ${messageOf(error)}` };
   }
-  const path = join(directory, MESSAGE_FILE);
+  const path = join(directory, deps.file ?? MESSAGE_FILE);
   try {
     await writeFile(path, initial, "utf8");
     const ended = await runEditor(deps.spawn ?? defaultSpawn, file, [...args, path]);
