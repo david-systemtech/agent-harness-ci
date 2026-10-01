@@ -207,6 +207,9 @@ importers:
 
   packages/gui:
     dependencies:
+      '@agent-harness/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@agent-harness/client-runtime':
         specifier: workspace:*
         version: link:../client-runtime

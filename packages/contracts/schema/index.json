@@ -3423,6 +3423,10 @@
       "title": "ClientCallId"
     },
     {
+      "path": "client-calls/browser-dock.json",
+      "title": "BrowserDockCall"
+    },
+    {
       "path": "client-calls/browser-chrome.json",
       "title": "BrowserChromeCall"
     },

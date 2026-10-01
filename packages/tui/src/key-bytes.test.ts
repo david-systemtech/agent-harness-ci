@@ -62,6 +62,7 @@ const BYTES: Readonly<Record<string, string>> = {
   "Alt+D": "\u001Bd",
   "Alt+F": "\u001Bf",
   "Alt+H": "\u001Bh",
+  "Alt+I": "\u001Bi",
 };
 
 const CLASSES = new Set([";;", "1–4", "Letters"]);

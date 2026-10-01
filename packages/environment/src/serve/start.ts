@@ -1091,6 +1091,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
       // The headless browser (#555): one driver for every session, a browser context each.
       headless: () => browser.headless.driver,
+      dock: ({ sessionId, runId }) => relay.driverOf({ kind: "dock", sessionId, runId }),
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).

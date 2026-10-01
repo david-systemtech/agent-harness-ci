@@ -5,6 +5,11 @@ import { parseCommand } from "./parse.js";
 /** The slash commands this build answers, and what goes to the agent (docs/specs/tui.md, "The composer"). */
 
 describe("parseCommand", () => {
+  it("reads the trust decision and rejects extra words", () => {
+    expect(parseCommand("/trust")).toEqual({ kind: "trust", decision: "trusted" });
+    expect(parseCommand("/trust decline")).toEqual({ kind: "trust", decision: "declined" });
+    for (const text of ["/trust accept", "/trust decline now"]) expect(parseCommand(text)).toEqual({ kind: "usage", line: "Usage: /trust or /trust decline" });
+  });
   it("reads the carried commands", () => {
     expect(parseCommand("/resume")).toEqual({ kind: "resume" });
     expect(parseCommand("/new")).toEqual({ kind: "new" });

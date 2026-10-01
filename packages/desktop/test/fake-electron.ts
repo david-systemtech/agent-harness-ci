@@ -512,11 +512,17 @@ export interface FakeWebView extends ElectronWebView {
   readonly urls: string[];
   reloads: number;
   press(key: string, modifiers?: { control?: boolean; meta?: boolean; shift?: boolean; alt?: boolean }): void;
-  readonly webContents: FakeContents & ElectronWebView["webContents"];
+  readonly webContents: FakeContents & ElectronWebView["webContents"] & { readonly debugger: ElectronWebView["webContents"]["debugger"] & {
+    readonly commands: unknown[];
+    emit(name: string, ...args: unknown[]): void;
+  } };
 }
 const fakeWebView = (options: ViewOptions): FakeWebView => {
   const events = listeners();
   const contents = fakeContents();
+  const debugEvents = listeners();
+  let attached = false;
+  const commands: unknown[] = [];
   let at = -1;
   const moved = () => events.emit("did-navigate");
   const view: FakeWebView = {
@@ -529,6 +535,19 @@ const fakeWebView = (options: ViewOptions): FakeWebView => {
     press: (key, modifiers = {}) => events.emit("before-input-event", { preventDefault: () => undefined }, { type: "keyDown", key, code: `Key${key.toUpperCase()}`, control: false, meta: false, shift: false, alt: false, ...modifiers }),
     webContents: {
       ...contents,
+      debugger: {
+        commands,
+        emit: debugEvents.emit,
+        on: debugEvents.on,
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        detach: () => { attached = false; debugEvents.emit("detach", {}, "target_closed"); },
+        sendCommand: async (method, params, sessionId) => {
+          if (!attached) throw new Error("The debugger is not attached.");
+          commands.push([method, params, sessionId]);
+          return {};
+        },
+      },
       on: (name: string, listener: (...args: never[]) => unknown) => {
         contents.on(name, listener);
         events.on(name, listener);
