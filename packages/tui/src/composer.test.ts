@@ -58,6 +58,17 @@ const send = async (app: RenderedApp, text: string) => {
 };
 
 describe("prompt suggestions (#251)", () => {
+  it.each(["2", "3", "4"])("takes the offer with the explicitly remapped digit %s", async (digit) => {
+    const { app, env } = await launch({}, { keymap: resolveKeymap({ "composer.suggestion.take": [digit] }).keymap });
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Run the tests" });
+    await app.waitFor(`[${digit}] Run the tests`);
+    await app.press(digit);
+    await app.waitFor("▌ Run the tests");
+    expect(paramsOf(app, "runs.start")).toEqual([expect.objectContaining({ text: "Run the tests" })]);
+  });
+
   it("can retry the offer after a refused send restores its text to the draft", async () => {
     const { app, env } = await launch();
     const { runId } = env.startRun(SESSION, "Fix the receipts");

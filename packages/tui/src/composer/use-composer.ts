@@ -214,7 +214,9 @@ export const useComposer = (host: ComposerHost): Composer => {
     "composer.suggestion.take": (name) => {
       const state = box.current;
       const { suggestion, sendSuggestion } = latest.current;
-      if (["2", "3", "4"].includes(name) || suggestion == null || sendSuggestion === undefined) return false;
+      const keys = latest.current.keymap.keys["composer.suggestion.take"];
+      if (keys.includes("1–4") && !keys.includes(name) && ["2", "3", "4"].includes(name)) return false;
+      if (suggestion == null || sendSuggestion === undefined) return false;
       if (state.editor.text !== "" || state.attached.length > 0 || state.search !== null) return false;
       if (takingSuggestion.current === suggestion.runId) return;
       takingSuggestion.current = suggestion.runId;
