@@ -42,7 +42,9 @@ describe("routines across two environments, one stopped and started again", () =
     const stop = routines.subscribe(() => undefined);
     const group = (environmentId: string): RoutineGroup | undefined => routines.read().groups.find((g) => g.environmentId === environmentId);
     const names = (environmentId: string) => group(environmentId)?.routines.map((row) => row.definition.name).join(", ");
-    await holds(routines, () => names(deskId) === "Upstream watch" && names(laptopId) === "Backup check");
+    // Each create's row shows from its receipt before the lists answer: wait for both listings.
+    const listed = (environmentId: string) => group(environmentId)?.routines.every((row) => row.listed !== null) === true;
+    await holds(routines, () => names(deskId) === "Upstream watch" && names(laptopId) === "Backup check" && listed(deskId) && listed(laptopId));
     expect(routines.read().groups.map(({ environmentId, name, icon, colour, stale }) => ({ environmentId, name, icon, colour, stale }))).toEqual(
       [deskId, laptopId].map((environmentId) => {
         const { descriptor } = record(environmentId) ?? {};
@@ -78,7 +80,7 @@ describe("routines across two environments, one stopped and started again", () =
     await runtime.connections.setAddress(laptopId, originOf(back.address));
     expect(await Promise.all(answers)).toMatchObject([{ ok: true }, { ok: true }, { ok: true }]);
     expect(routineEvents(back).map(({ type }) => type)).toEqual(["routine.created", "routine.edited", "routine.created", "routine.disabled"]);
-    await holds(routines, () => names(laptopId) === "Backup check, nightly, Nightly triage" && group(laptopId)?.routines.every((row) => row.listed !== null) === true);
+    await holds(routines, () => names(laptopId) === "Backup check, nightly, Nightly triage" && listed(laptopId));
     expect(group(laptopId)).toMatchObject({
       stale: false,
       routines: [

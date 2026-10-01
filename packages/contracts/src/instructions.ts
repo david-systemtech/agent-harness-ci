@@ -71,7 +71,7 @@ export type InstructionManifestLayer = z.infer<typeof InstructionManifestLayer>;
 /**
  * An always-on skill the composition appended: its name, where it comes
  * from (the member's origin, `skills.ts`), and the commit of the source
- * snapshot it was read from. None until the always-on layer is built (#507).
+ * snapshot it was read from. Live members have no snapshot commit.
  */
 export const InstructionAlwaysOnSkill = z
   .object({
@@ -87,12 +87,12 @@ export type InstructionAlwaysOnSkill = z.infer<typeof InstructionAlwaysOnSkill>;
 /**
  * Why a composed part is not in the text a run is handed: its account's
  * instruction channel is `none`; or the text was over the channel's
- * character cap, which leaves owned instructions out last first (#505).
+ * character cap, which leaves always-on skills out last first, then owned instructions.
  */
 export const INSTRUCTION_LEFT_OUT_REASONS = ["channel-none", "over-cap"] as const;
 export const InstructionLeftOutReason = z.enum(INSTRUCTION_LEFT_OUT_REASONS).meta({
   description:
-    "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and owned instructions are left out last first until it fits).",
+    "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and always-on skills are left out last first, then owned instructions, until it fits).",
 });
 export type InstructionLeftOutReason = z.infer<typeof InstructionLeftOutReason>;
 

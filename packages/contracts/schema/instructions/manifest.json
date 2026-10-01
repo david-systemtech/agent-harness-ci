@@ -257,7 +257,7 @@
               "channel-none",
               "over-cap"
             ],
-            "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and owned instructions are left out last first until it fits)."
+            "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and always-on skills are left out last first, then owned instructions, until it fits)."
           }
         },
         "required": [

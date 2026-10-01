@@ -106,7 +106,7 @@ describe("a repository whose root is one skill (ADR 0029's root-skill test)", ()
     await runIn(t, client, id);
     const set = lastSet(t);
     expect(set.members).toEqual([
-      { name: "unslop", description: "Remove AI writing patterns.", origin: { kind: "repository", repository: "https://skills.test/theclaymethod/unslop", path: "." }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+      { name: "unslop", description: "Remove AI writing patterns.", origin: { kind: "repository", repository: "https://skills.test/theclaymethod/unslop", path: "." }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "unslop", "SKILL.md"), commit },
     ]);
     const link = join(set.generation as string, "skills", "unslop");
     expect(readlinkSync(link)).toBe(join(t.dataDir, "skills", "snapshots", source.id, commit));
@@ -240,7 +240,7 @@ describe("an added source", () => {
     await runIn(t, client, id);
     const set = lastSet(t);
     expect(set.members).toEqual([
-      { name: "tdd", description: "The tdd skill.", origin: { kind: "repository", repository: "https://skills.test/mattpocock/skills", path: "skills/engineering/tdd" }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+      { name: "tdd", description: "The tdd skill.", origin: { kind: "repository", repository: "https://skills.test/mattpocock/skills", path: "skills/engineering/tdd" }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "tdd", "SKILL.md"), commit },
     ]);
     expect(readlinkSync(join(set.generation as string, "skills", "tdd"))).toBe(join(snapshot, "skills", "engineering", "tdd"));
     // A later commit upstream changes nothing a run reads: only a sync moves a source.
