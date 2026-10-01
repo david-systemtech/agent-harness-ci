@@ -904,18 +904,32 @@ describe("a submodule's git directory under the repository's, whose hooks and co
     expect(decisionsOf(t, id, runId).map((event) => event.payload.decidedBy)).toEqual(closed.map(() => "containment"));
   });
 
-  it("is read again at each run start, so a submodule added between runs is closed at the next; a link back into the git directory is walked once, and a damaged git directory's objects not at all", async () => {
+  it("is read again at each run start, so a submodule added between runs is closed at the next, and a damaged git directory's objects are not walked", async () => {
     const checkout = repository();
     const gitDirectory = join(checkout, ".git");
     const damaged = join(gitDirectory, "modules", "damaged");
     mkdirSync(join(damaged, "objects", "ab"), { recursive: true });
     writeFileSync(join(damaged, "objects", "ab", "HEAD"), "");
-    symlinkSync(gitDirectory, join(gitDirectory, "modules", "loop"));
     const { t, client, id, adapter } = await sessionIn(checkout, "workspace");
     await runScript(t, client, id, calling());
     expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(damaged)]);
     addSubmodule(checkout, repository(), "library");
     await runScript(t, client, id, calling());
     expect(adapter.lastRun().input.containment.readOnly).toEqual([...closedIn(gitDirectory), ...closedIn(damaged), ...closedIn(join(gitDirectory, "modules", "library"))]);
+  });
+
+  it("follows no link under modules, nor a modules that is one, so a link a run made cannot lead the next run's start out of the git directory", async () => {
+    const checkout = repository();
+    const gitDirectory = join(checkout, ".git");
+    mkdirSync(join(gitDirectory, "modules"));
+    symlinkSync(gitDirectory, join(gitDirectory, "modules", "loop"));
+    symlinkSync(join(repository(), ".git"), join(gitDirectory, "modules", "elsewhere"));
+    expect((await handedIn(checkout, "workspace")).readOnly).toEqual(closedIn(gitDirectory));
+    const linked = repository();
+    const outside = realpathSync(tempDir("agent-harness-modules-"));
+    mkdirSync(join(outside, "library"));
+    writeFileSync(join(outside, "library", "HEAD"), "ref: refs/heads/main\n");
+    symlinkSync(outside, join(linked, ".git", "modules"));
+    expect((await handedIn(linked, "workspace")).readOnly).toEqual(closedIn(join(linked, ".git")));
   });
 });

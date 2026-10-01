@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -120,20 +120,21 @@ const worktreeNames = (gitDirectory: string): string[] => {
   }
 };
 
-/** The real path of `path`, links followed; null when it is not there or cannot be read. */
-const realPathOf = (path: string): string | null => {
+/** Whether `path` is a directory itself, not a link to one; false when it is not there or cannot be read. */
+const isDirectory = (path: string): boolean => {
   try {
-    return realpathSync(path);
+    return lstatSync(path).isDirectory();
   } catch {
-    return null;
+    return false;
   }
 };
 
-/** The directories in `directory`, links to one included, sorted; none when it cannot be read. */
+/** The directories in `directory`, sorted, a link to one left out; none when it cannot be read. */
 const subdirectories = (directory: string): string[] => {
   try {
-    return readdirSync(directory)
-      .filter((name) => statSync(join(directory, name), { throwIfNoEntry: false })?.isDirectory() === true)
+    return readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
       .sort();
   } catch {
     return [];
@@ -146,20 +147,21 @@ const subdirectories = (directory: string): string[] => {
  * with a `HEAD` is one, as git takes it, and so is one with `objects`, so
  * the walk never goes through a damaged one's objects. One with neither is
  * a component of a name (a submodule's name may hold slashes,
- * `modules/vendor/lib`), walked through. A submodule's own submodules are under its `modules`,
- * found when it is closed. `seen` holds the real paths already walked, so
- * a link back up is walked once.
+ * `modules/vendor/lib`), walked through. git puts no submodule's git
+ * directory inside another's (it refuses the name), so the walk stops at
+ * one; its own submodules are under its `modules`, found when it is
+ * closed. A link is not walked, nor a `modules` that is one: git makes
+ * none there, and one a run made could lead the next run's start anywhere
+ * on the host.
  */
-const submoduleGitDirectories = (gitDirectory: string, seen: Set<string>): string[] => {
+const submoduleGitDirectories = (gitDirectory: string): string[] => {
   const found: string[] = [];
   const walk = (directory: string): void => {
-    const real = realPathOf(directory);
-    if (real === null || seen.has(real)) return;
-    seen.add(real);
     if (existsSync(join(directory, "HEAD")) || existsSync(join(directory, "objects"))) found.push(directory);
     else for (const name of subdirectories(directory)) walk(join(directory, name));
   };
-  for (const name of subdirectories(join(gitDirectory, "modules"))) walk(join(gitDirectory, "modules", name));
+  const modules = join(gitDirectory, "modules");
+  if (isDirectory(modules)) for (const name of subdirectories(modules)) walk(join(modules, name));
   return found;
 };
 
@@ -175,12 +177,12 @@ const submoduleGitDirectories = (gitDirectory: string, seen: Set<string>): strin
  * config the superproject's own `git status` reads as it looks into the
  * submodule, and in theirs in turn, as listed now.
  */
-const closedIn = (gitDirectory: string, seen: Set<string> = new Set([realPathOf(gitDirectory) ?? gitDirectory])): string[] => [
+const closedIn = (gitDirectory: string): string[] => [
   join(gitDirectory, "hooks"),
   join(gitDirectory, "config"),
   join(gitDirectory, "config.worktree"),
   ...worktreeNames(gitDirectory).map((name) => join(gitDirectory, "worktrees", name, "config.worktree")),
-  ...submoduleGitDirectories(gitDirectory, seen).flatMap((submodule) => closedIn(submodule, seen)),
+  ...submoduleGitDirectories(gitDirectory).flatMap(closedIn),
 ];
 
 /**
