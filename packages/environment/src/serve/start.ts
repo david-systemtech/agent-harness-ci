@@ -1975,7 +1975,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
   // The skill sources' syncs (#499): every unpinned source now, past the gate with the wire open, then staggered every six
-  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again.
+  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again. The
+  // stop stops each sync's git and waits for the sync to end, so nothing it would write under the data directory outlives
+  // the close (#1014), and before the probes' close, so no clone runs into their folder as they go.
   closers.push(skillSync.start());
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
   closers.push(forge.links.start());
