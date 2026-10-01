@@ -4,6 +4,7 @@ export * from "./access-log.js";
 export * from "./accounts.js";
 export * from "./actions.js";
 export * from "./adapter.js";
+export * from "./banks.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
 export * from "./browser-choice.js";

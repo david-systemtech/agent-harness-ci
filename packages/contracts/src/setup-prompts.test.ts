@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { PROMPT_VARIANTS, STEP_PROMPTS, STEP_REGISTRY, stepPrompt, type Step } from "./index.js";
+import { BANK_VALIDATOR, ORIENTATION_CAPS, PROMPT_VARIANTS, STEP_PROMPTS, STEP_REGISTRY, stepPrompt, type Step, type StepPrompt } from "./index.js";
 
 /**
  * The prompts of the LLM steps (ADR 0019; the Set up specification, "The
@@ -63,5 +63,67 @@ describe("the prompts of the registered LLM steps", () => {
         expect(rendered?.validator, `${step.id} ${variant}`).toEqual(prompt?.validator);
       }
     }
+  });
+});
+
+/** The Memory bank step's describe prompt, which its entry names. */
+const describeBank = STEP_PROMPTS.find((prompt) => prompt.id === "describe-bank") as StepPrompt;
+
+/** A personal bank as the step renders it: its name and kind, an entity with aliases, and two scope folders. */
+const personal = {
+  name: "david-memory",
+  kind: "personal",
+  entities: [{ name: "Homelab", aliases: ["home lab", "SYSTEM-SERVER"] }],
+  scopes: ["projects/personal/agent-harness/", "projects/personal/homelab/"],
+};
+
+/** A team bank with no entity yet and one scope folder. */
+const team = { name: "brandsolidate", kind: "team", entities: [], scopes: ["projects/brandsolidate/cool-jams/"] };
+
+describe("the Memory bank step's describe prompt (#586)", () => {
+  it("is the bank validator's, at version 1, whose orientation caps are ADR 0013's five names, 600 bytes each and 1,500 in all", () => {
+    expect(describeBank.validator).toEqual({ name: "bank-validator", version: 1 });
+    expect(BANK_VALIDATOR).toEqual({ name: "bank-validator", version: 1 });
+    expect(ORIENTATION_CAPS).toEqual({ names: 5, bytesEach: 600, bytesInAll: 1_500 });
+  });
+
+  it("renders first from the bank's name, kind, entities and scope folders, with the orientation caps and the validator's version, asking for BANK.md landed through the review path from the worktree", () => {
+    const rendered = describeBank.render("first", personal);
+    expect(rendered).toMatchObject({ prompt: "describe-bank", variant: "first", validator: { name: "bank-validator", version: 1 } });
+    for (const part of [
+      "david-memory, a personal bank",
+      "BANK.md",
+      "the bank validator, version 1",
+      "Homelab (home lab, SYSTEM-SERVER)",
+      "projects/personal/agent-harness/ and projects/personal/homelab/",
+      "at most 5 memory names",
+      "at most 600 bytes",
+      "1,500 bytes in all",
+      "projects/personal/memory-bank/",
+      "worktree",
+      "pull request",
+    ]) {
+      expect(rendered.text, part).toContain(part);
+    }
+    expect(rendered.text).not.toContain("owners");
+  });
+
+  it("asks a team bank for its owners and puts its orientation in its first org's bank folder, and says when it names no entity yet", () => {
+    const { text } = describeBank.render("first", team);
+    for (const part of ["brandsolidate, a team bank", "owners", "projects/brandsolidate/bank/", "projects/brandsolidate/cool-jams/", "names no entity yet"]) expect(text, part).toContain(part);
+  });
+
+  it("renders revise from the same facts, asking for the BANK.md main holds to be revised and kept valid", () => {
+    const rendered = describeBank.render("revise", personal);
+    expect(rendered).toMatchObject({ prompt: "describe-bank", variant: "revise", validator: { name: "bank-validator", version: 1 } });
+    for (const part of ["Revise", "david-memory, a personal bank", "the bank validator, version 1", "Homelab (home lab, SYSTEM-SERVER)", "projects/personal/homelab/", "pull request"]) {
+      expect(rendered.text, part).toContain(part);
+    }
+    expect(rendered.text).not.toBe(describeBank.render("first", personal).text);
+  });
+
+  it("refuses facts without the bank's kind, or of a kind no bank has", () => {
+    expect(() => describeBank.render("first", { ...personal, kind: undefined })).toThrow();
+    expect(() => describeBank.render("first", { ...personal, kind: "shared" })).toThrow();
   });
 });

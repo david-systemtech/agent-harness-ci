@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BANK_KINDS, BANK_VALIDATOR, ORIENTATION_CAPS } from "./banks.js";
 
 /**
  * The prompts of the LLM steps (ADR 0019; the Set up specification, "The
@@ -68,9 +69,93 @@ export const stepPrompt = <Facts>(definition: StepPromptDefinition<Facts>): Step
   }),
 });
 
+/** The facts the describe prompt renders from: the bank's name and kind, the entities its `BANK.md` names with their aliases, and its scope folders. */
+const DescribeBankFacts = z.object({
+  name: z.string().min(1),
+  kind: z.enum(BANK_KINDS),
+  entities: z.array(z.object({ name: z.string().min(1), aliases: z.array(z.string().min(1)) })),
+  scopes: z.array(z.string().min(1)),
+});
+type DescribeBankFacts = z.infer<typeof DescribeBankFacts>;
+
+/** "a", "a and b", "a, b and c". */
+const listed = (items: readonly string[]): string => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
+/** The bank as both variants name it: "david-memory, a personal bank". */
+const bankLine = ({ name, kind }: DescribeBankFacts): string => `${name}, a ${kind} bank`;
+
 /**
- * Every LLM step's prompt, by the id its entry's `llm` names. None yet: in
- * milestone 1 the only LLM step is the Memory bank's, whose describe
- * prompt arrives with its entry (#586).
+ * The folder the bank's orientation memories live in (banks spec, "BANK.md
+ * and the folders"; ADR 0034, ADR 0037): a personal bank's
+ * `projects/personal/memory-bank/`, a team bank's `projects/<first org>/bank/`,
+ * the first org read from its first scope folder.
  */
-export const STEP_PROMPTS: readonly StepPrompt[] = [];
+const homeFolder = ({ kind, scopes }: DescribeBankFacts): string => {
+  if (kind === "personal") return "projects/personal/memory-bank/";
+  const org = /^projects\/([^/]+)\//.exec(scopes[0] ?? "")?.[1];
+  return org === undefined ? "projects/<its first org>/bank/" : `projects/${org}/bank/`;
+};
+
+/** What `BANK.md` must hold to pass the validator, as a list for the model: a team bank's owners too. */
+const manifestRules = (facts: DescribeBankFacts): string => {
+  const entities = facts.entities.map(({ name, aliases }) => (aliases.length === 0 ? name : `${name} (${aliases.join(", ")})`));
+  return [
+    `- kind: ${facts.kind}.`,
+    "- purpose: one line of at most 160 characters saying what the bank is for.",
+    `- entities: what the bank holds facts about, each with its name, its aliases, and folder: naming the scope folder a match expands. ${entities.length === 0 ? "It names no entity yet." : `It names ${listed(entities)} so far.`}`,
+    `- orientation: at most ${ORIENTATION_CAPS.names} memory names every session always sees, each memory at most ${ORIENTATION_CAPS.bytesEach} bytes and ${ORIENTATION_CAPS.bytesInAll.toLocaleString("en-US")} bytes in all, kept in the bank's home folder, ${homeFolder(facts)}.`,
+    ...(facts.kind === "team" ? ["- owners: the forge logins that review the bank's reviewed changes, at least one."] : []),
+  ].join("\n");
+};
+
+/** The bank's scope folders, and the shape every folder takes (ADR 0037). */
+const scopeLine = ({ scopes }: DescribeBankFacts): string =>
+  `${scopes.length === 0 ? "It has no scope folder yet." : `Its scope folders are ${listed(scopes)}.`} Folders follow projects/{org}/{project}/{area}/, the area optional.`;
+
+const WORKTREE = "You work in a worktree of the bank on a branch of its own, so nothing reaches the bank's main until your change is reviewed and landed.";
+
+const VALIDATE = `When the bank holds .agent-harness/validate.mjs, run it with node before you commit.`;
+
+const LANDING =
+  "Commit on this branch, then land it through the bank's review path: push the branch and open a pull request against main. BANK.md is a reviewed change, so the pull request waits for an owner's review.";
+
+/**
+ * The Memory bank step's describe prompt (ADR 0019, ADR 0035, ADR 0037;
+ * #586): `first` writes a bank's `BANK.md` with the person, `revise`
+ * revises the one its main holds, each in the minted session's worktree of
+ * the bank and landed through the bank's review path, so that it passes the
+ * bank validator at the version the prompt carries.
+ */
+const describeBank = stepPrompt({
+  id: "describe-bank",
+  validator: BANK_VALIDATOR,
+  facts: DescribeBankFacts,
+  first: (facts) =>
+    [
+      `Describe the memory bank ${bankLine(facts)}, by writing its BANK.md.`,
+      WORKTREE,
+      `Ask me what the bank is for and what it holds facts about before you write. Then write BANK.md at the root of this worktree so it passes the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
+      scopeLine(facts),
+      `${VALIDATE} ${LANDING}`,
+    ].join("\n\n"),
+  revise: (facts) =>
+    [
+      `Revise BANK.md of the memory bank ${bankLine(facts)}.`,
+      `${WORKTREE} It holds BANK.md as the bank's main has it: read it and the bank's folders, then ask me what has changed before you edit.`,
+      `Keep BANK.md passing the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
+      scopeLine(facts),
+      `${VALIDATE} ${LANDING}`,
+    ].join("\n\n"),
+  example: {
+    name: "david-memory",
+    kind: "personal",
+    entities: [{ name: "Homelab", aliases: ["home lab"] }],
+    scopes: ["projects/personal/agent-harness/"],
+  },
+});
+
+/**
+ * Every LLM step's prompt, by the id its entry's `llm` names: in milestone 1
+ * the Memory bank step's describe prompt alone (#586).
+ */
+export const STEP_PROMPTS: readonly StepPrompt[] = [describeBank];
