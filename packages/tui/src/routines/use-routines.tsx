@@ -2,8 +2,8 @@ import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { useMemo, type ReactElement } from "react";
-import type { Clock, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
-import { ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry } from "@agent-harness/contracts";
+import type { Clock, DispatchFailure, EnvironmentView, RoutineRow, Runtime } from "@agent-harness/client-runtime";
+import { BYPASS_SENTENCE, ROUTINE_HISTORY_MAX, type KeyActionId, type RoutineEntry, type SchemaIssue } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { expandHome } from "../composer/attachments.js";
 import type { ExternalEditResult } from "../composer/external-editor.js";
@@ -12,6 +12,7 @@ import { ListCard, TypedLine, wrappedRows } from "../pickers/cards.js";
 import { useFollow, type Opened } from "../session/use-session.js";
 import { messageOf, nameOf, type Question } from "../view.js";
 import { entryLines, historyRows, listRows, type ListRow, type RoutineRef, type RoutinesCard } from "./cards.js";
+import { annotated, asksBypass, type DocumentIssue } from "./document.js";
 import type { RoutineKey, RoutinesCommand } from "./commands.js";
 
 /**
@@ -75,6 +76,35 @@ const refOf = (row: RoutineRow): RoutineRef => ({ environmentId: row.environment
 
 /** The file an export of `name` is offered: its name in lower case, a hyphen for each run of anything else, `.yaml`. */
 const exportFile = (name: string): string => `${name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "routine"}.yaml`;
+
+/** Whether two saves of a document are the same: an editor adds a newline at the end or not, as it likes. */
+const sameText = (a: string, b: string): boolean => a.replace(/\s+$/, "") === b.replace(/\s+$/, "");
+
+/** An issue as `routines.checkImport` answers it, in its document. */
+const checkedIssue = (document: number, issue: SchemaIssue): DocumentIssue => {
+  const line = issue["params"] !== null && typeof issue["params"] === "object" ? (issue["params"] as Record<string, unknown>)["line"] : undefined;
+  return { document, path: issue.path, message: issue.message, ...(typeof line === "number" && { line }) };
+};
+
+/**
+ * The issues a refused `routines.import` names, in their documents: its
+ * `invalid_params` issues at `yaml`, the document's place and the path in
+ * it, or a name another routine holds (`conflict` `name_taken`) at the
+ * document's name; null for a refusal that names no place in the YAML.
+ */
+const refusalIssues = (error: DispatchFailure): readonly DocumentIssue[] | null => {
+  const data = error.data ?? {};
+  if (error.code === "conflict" && data["reason"] === "name_taken") return [{ document: typeof data["document"] === "number" ? data["document"] : 0, path: ["name"], message: error.message }];
+  if (error.code !== "invalid_params" || !Array.isArray(data["issues"])) return null;
+  return (data["issues"] as SchemaIssue[]).map((issue) => {
+    const [at, document, ...path] = issue.path;
+    return at === "yaml" && typeof document === "number" ? checkedIssue(document, { ...issue, path }) : checkedIssue(0, issue);
+  });
+};
+
+/** What became of one save: refused with issues to write into the document, or done, its line said. */
+type Saved = { readonly kind: "refused"; readonly issues: readonly DocumentIssue[] } | { readonly kind: "done" };
+const DONE: Saved = { kind: "done" };
 
 /** The newest firing among `entries`, newest first: a skip has no session. */
 const newestFiring = (entries: readonly RoutineEntry[]) => entries.find((entry) => entry.kind === "firing");
@@ -143,6 +173,88 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       const firing = answer.error.code === "conflict" && answer.error.data?.["reason"] === "firing_running";
       host.say(firing ? `Not run: ${routine.name} is firing already.` : `Not run: ${answer.error.message}`);
     });
+
+  const reachable = (environmentId: string): boolean => {
+    const phase = runtime.projections.environments.read().find((v) => v.environmentId === environmentId)?.phase;
+    return phase === "ready" || phase === "syncing";
+  };
+
+  /** Settles once the environment cannot be reached, unless `stop` is called first. */
+  const untilUnreachable = (environmentId: string) => {
+    let stop = () => undefined as void;
+    const gone = new Promise<"gone">((settle) => {
+      const unsubscribe = runtime.projections.environments.subscribe(() => {
+        if (!reachable(environmentId)) settle("gone");
+      });
+      stop = unsubscribe;
+    });
+    return { gone, stop: () => stop() };
+  };
+
+  const confirmed = (text: string): Promise<boolean> => new Promise((settle) => host.ask({ text, yes: () => settle(true), no: () => settle(false) }));
+
+  /**
+   * One save of a routine's YAML: checked with `routines.checkImport`, whose
+   * issues send it back to the editor; a document asking for
+   * `bypassPermissions` confirmed with the permissions spec's sentence
+   * (read from the document itself when the environment cannot be asked);
+   * then `routines.import` through the outbox, naming the routine it
+   * replaces. While the environment cannot be reached the import waits in
+   * the outbox and the routine shows pending; a refusal then is its notice.
+   */
+  const save = async (routine: RoutineRef, yaml: string): Promise<Saved> => {
+    const { environmentId, name } = routine;
+    const where = environmentName(environmentId);
+    const check = await runtime.requests.call(environmentId, "routines.checkImport", { yaml, routineId: routine.routineId });
+    if (check.ok) {
+      const issues = check.result.documents.flatMap((document) => document.issues.map((issue) => checkedIssue(document.index, issue)));
+      if (check.result.documents.length === 0) return { kind: "refused", issues: [{ document: 0, path: [], message: "There is no routine document here: the edit needs one." }] };
+      if (issues.length > 0) return { kind: "refused", issues };
+    }
+    const bypass = check.ok ? check.result.documents.some((document) => document.definition?.mode === "bypassPermissions") : asksBypass(yaml);
+    if (bypass && !(await confirmed(`${name} asks for bypassPermissions. ${BYPASS_SENTENCE} Apply it? y/n`))) {
+      host.say(`Not applied: ${name} on ${where} is as it was.`);
+      return DONE;
+    }
+    const sent = runtime.commands.dispatch(environmentId, "routines.import", { yaml, routineId: routine.routineId });
+    const watch = untilUnreachable(environmentId);
+    if (reachable(environmentId)) host.say(`Saving ${name} on ${where}…`);
+    const answer = await Promise.race([sent, watch.gone]);
+    watch.stop();
+    if (answer === "gone") {
+      host.say(`Queued: ${name} is saved once ${where} can be reached; until then it shows pending.`);
+      return DONE;
+    }
+    if (answer.ok) {
+      host.say(`Saved ${name} on ${where}.`);
+      return DONE;
+    }
+    const issues = refusalIssues(answer.error);
+    if (issues !== null) return { kind: "refused", issues };
+    host.say(`Not saved: ${answer.error.message}`);
+    return DONE;
+  };
+
+  /**
+   * `e`: the routine's YAML as its environment exports it, in the editor;
+   * what is saved, applied (`save`), and a refusal opened again with its
+   * issues as comments, until a save is applied, or comes back unchanged,
+   * or the editor is left without saving.
+   */
+  const edit = async (routine: RoutineRef) => {
+    const exported = await runtime.requests.call(routine.environmentId, "routines.export", { routineIds: [routine.routineId] });
+    if (!exported.ok) return host.say(`Not edited: ${exported.error.message}`);
+    let opened = exported.result.yaml;
+    for (;;) {
+      const edited = await host.editYaml(opened).catch((error: unknown): ExternalEditResult => ({ ok: false, reason: messageOf(error) }));
+      if (!edited.ok) return host.say(`Not edited: ${edited.reason}.`);
+      if (sameText(edited.text, opened)) return host.say(`${routine.name} is unchanged: nothing was sent.`);
+      const saved = await save(routine, edited.text);
+      if (saved.kind === "done") return;
+      host.say(`${routine.name} was refused: its issues are written into it.`);
+      opened = annotated(edited.text, saved.issues);
+    }
+  };
 
   /** The export typed: the routine's YAML as its environment exports it, written to the path, relative to the working directory. */
   const exportTo = async (routine: RoutineRef, typed: string) => {
@@ -230,7 +342,11 @@ export const useRoutines = (host: RoutinesHost): Routines => {
         if (!row || card?.kind !== "list") return false;
         host.change((shown) => (shown.kind === "list" ? { ...shown, exporting: { routine: refOf(row), text: exportFile(row.definition.name), error: null } } : shown));
       },
-      "routines.edit": () => false,
+      "routines.edit": () => {
+        const row = verbOn();
+        if (!row) return false;
+        void edit(refOf(row));
+      },
       "routines.endpoint.add": () => false,
       "routines.endpoint.test": () => false,
       "routines.endpoint.remove": () => false,

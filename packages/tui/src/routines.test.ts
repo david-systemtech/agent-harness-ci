@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ExternalEditResult } from "./composer/external-editor.js";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
 import { ZONE, firingEntry, listedRoutine, preCheckRecord, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
 
@@ -269,5 +270,85 @@ describe("/routines: a routine's history", () => {
     await app.waitFor("run now");
     await app.press(KEY.down, KEY.down, KEY.enter);
     await app.waitFor("Timed out firing · ");
+  });
+});
+
+/** An editor for the tests: each call hands back what `saves` makes of the text it was handed, or abandons the edit. */
+const fakeEditor = (...saves: ((handed: string) => ExternalEditResult)[]) => {
+  const handed: string[] = [];
+  const editRoutine = async (yaml: string): Promise<ExternalEditResult> => {
+    handed.push(yaml);
+    const save = saves[handed.length - 1];
+    if (save === undefined) throw new Error(`The editor was opened a ${handed.length}th time, which the test did not expect.`);
+    return save(yaml);
+  };
+  return { handed, editRoutine };
+};
+
+/** A save that changes `from` to `to` in what the editor was handed. */
+const changing =
+  (from: string, to: string) =>
+  (handed: string): ExternalEditResult => {
+    if (!handed.includes(from)) throw new Error(`The editor was not handed ${from}:\n${handed}`);
+    return { ok: true, text: handed.replace(from, to) };
+  };
+
+describe("/routines: editing a routine in the editor", () => {
+  it("opens the routine's YAML as its environment exports it, and applies what is saved with routines.import naming the routine", async () => {
+    const editor = fakeEditor(changing("Read the sources and file a digest.", "Read the sources twice, then file a digest."));
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } }, { editRoutine: editor.editRoutine });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("e");
+    await app.waitFor("Saved Upstream watch on desk.");
+    expect(editor.handed[0]).toContain("# Routines exported from desk at 2026-10-01T08:00:00.000Z.");
+    const [imported] = deskRoutines.heard("routines.import");
+    expect(imported?.params).toMatchObject({ routineId: WATCH, yaml: expect.stringContaining("Read the sources twice, then file a digest.") });
+    expect(imported?.params["routineIds"]).toBeUndefined();
+    expect(deskRoutines.definitionOf(WATCH).instructions).toBe("Read the sources twice, then file a digest.");
+  });
+
+  it("sends nothing for an edit saved unchanged or abandoned", async () => {
+    const editor = fakeEditor(
+      (handed) => ({ ok: true, text: handed }),
+      () => ({ ok: false, reason: "editor exited with status 1" }),
+    );
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } }, { editRoutine: editor.editRoutine });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("e");
+    await app.waitFor("Upstream watch is unchanged: nothing was sent.");
+    await app.press("e");
+    await app.waitFor("Not edited: editor exited with status 1.");
+    expect(deskRoutines.heard("routines.import")).toEqual([]);
+    expect(deskRoutines.heard("routines.checkImport")).toEqual([]);
+  });
+
+  it("reopens a refused edit with each issue as a comment at its path, and saving again retries it", async () => {
+    const editor = fakeEditor(
+      (handed) => ({ ok: true, text: handed.replace("day: monday", "day: someday").replace("enabled: true", "enabled: true\nbogus: 1") }),
+      (handed) => ({ ok: true, text: handed.replace("day: someday", "day: tuesday").replace("bogus: 1\n", "") }),
+      (handed) => ({ ok: true, text: handed.replace("  Read the sources", "  Read every source") }),
+    );
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } }, { editRoutine: editor.editRoutine });
+    deskRoutines.answerNext("routines.import", {
+      error: { code: "invalid_params", message: "The YAML cannot be imported as it is.", data: { issues: [{ code: "custom", path: ["yaml", 0, "instructions"], message: "Name the sources." }] } },
+    });
+    await openRoutines(app);
+    await app.waitFor("Upstream watch");
+    await app.press("e");
+    await app.waitFor("Saved Upstream watch on desk.");
+
+    // The schedule's day and the unknown key, each refused at its own line.
+    const second = (editor.handed[1] ?? "").split("\n");
+    const at = (prefix: string) => second.findIndex((line) => line.startsWith(prefix));
+    expect(second[at("schedule:") - 1]).toMatch(/^# refused: schedule\.day: .+/);
+    expect(second[at("bogus:") - 1]).toBe('# refused: bogus: A routine document has no key "bogus" here.');
+    // The import itself refused the third save at the instructions; the comments of the round before are gone.
+    const third = (editor.handed[2] ?? "").split("\n");
+    expect(third[third.findIndex((line) => line.startsWith("instructions:")) - 1]).toBe("# refused: instructions: Name the sources.");
+    expect(third.filter((line) => line.includes("# refused:"))).toHaveLength(1);
+    expect(deskRoutines.heard("routines.import")).toHaveLength(2);
+    expect(deskRoutines.definitionOf(WATCH)).toMatchObject({ schedule: { kind: "weekly", day: "tuesday", at: "03:00" }, instructions: "Read every source and file a digest." });
   });
 });
