@@ -348,7 +348,9 @@ describe("skills.readiness", () => {
       ["failed", `The key-manager reference OTHER_TOKEN does not resolve (credential_source_unavailable): The key manager answered no value for doppler reference ${CONNECTION}.`],
     ]);
     // The members are checked side by side, so the two resolves come in either order.
-    expect(keyManagers.requests.map((request) => request.reference.name).sort()).toEqual(["OTHER_TOKEN", "TRACKER_TOKEN"]);
+    const asked = keyManagers.requests.map((request) => request.reference);
+    expect(asked).toHaveLength(2);
+    expect(asked).toEqual(expect.arrayContaining([resolves, refused]));
     // Let go at once, and in no answer, event or log.
     expect(keyManagers.outstanding()).toBe(0);
     expect(JSON.stringify(answers)).not.toContain(SECRET_VALUE);
