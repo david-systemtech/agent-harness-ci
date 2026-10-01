@@ -85,7 +85,7 @@ const Pair = ({ environmentId, chromes }: { readonly environmentId: string; read
       <label>
         <input type="checkbox" checked={chromes.length > 0} readOnly disabled /> Pair
       </label>
-      <p>Type this code on the extension's options page.</p>
+      {!completed && <p>Type this code on the extension's options page.</p>}
       {chromes.length > 0 && <p>Paired: {chromes.map((chrome) => chrome.name).join(", ")}.</p>}
       {!completed && <BrowserPairingCode environmentId={environmentId} />}
     </>

@@ -81,6 +81,7 @@ describe("the Browser card in Set up", () => {
     expect((within(card()).getByRole("checkbox", { name: "Pair" }) as HTMLInputElement).checked).toBe(true);
     expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(true);
     expect(within(card()).queryByRole("timer")).toBeNull();
+    expect(within(card()).queryByText("Type this code on the extension's options page.")).toBeNull();
   });
 
   it("saves optional development hosts one per line to the page policy, including an empty list", async () => {
@@ -186,13 +187,27 @@ describe("the Browser card in Set up", () => {
     expect(within(card()).getByRole("button", { name: "Done" }).hasAttribute("disabled")).toBe(false);
   });
 
+  it.each(["accounts.list", "settings.get"])("does not save reach when %s cannot be read, and leaves Done available", async (method) => {
+    const { app, desk, pair } = await opened({ accounts: [{ label: "work" }] });
+    act(pair);
+    await within(card()).findByText("Paired: Work Chrome.");
+    desk.wire.answer(method, () => ({ error: { code: "forbidden", message: "This read is unavailable.", data: {} } }));
+    await app.user.click(within(card()).getByRole("button", { name: "Done" }));
+    expect(await within(card()).findByText("Reach not saved: This read is unavailable.")).toBeDefined();
+    expect(desk.requests("settings.update")).toHaveLength(0);
+    expect(within(card()).queryByRole("region", { name: "Using your browser" })).toBeNull();
+    expect(within(card()).getByRole("button", { name: "Done" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("opens an already paired Chrome with a live code, and Pair another preserves unsaved development hosts", async () => {
     const { app, desk } = await opened({ setup: { browser: { actions: ["pair-another"] } } }, true, true);
     expect(await within(card()).findByText("ABCD2345")).toBeDefined();
+    expect(within(card()).getByText("Type this code on the extension's options page.")).toBeDefined();
     const sites = within(card()).getByRole("textbox", { name: "Sites you are developing" });
     await app.user.type(sites, "app.example.test");
     await app.user.click(within(card()).getByRole("button", { name: "Pair another" }));
     await waitFor(() => expect(desk.requests("browser.pairing.code")).toHaveLength(2));
+    expect(within(card()).getByText("Type this code on the extension's options page.")).toBeDefined();
     expect((within(card()).getByRole("textbox", { name: "Sites you are developing" }) as HTMLTextAreaElement).value).toBe("app.example.test");
   });
 });

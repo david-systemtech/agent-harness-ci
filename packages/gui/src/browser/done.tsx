@@ -14,8 +14,13 @@ export const BrowserDone = ({ environmentId, chromeEnvironmentId, paired }: { re
   const finish = async () => {
     setBusy(true);
     const [accounts, settings] = await Promise.all([runtime.requests.call(environmentId, "accounts.list", {}), runtime.requests.call(environmentId, "settings.get", { keys: ["browser.reach"] })]);
-    if (!accounts.ok || !settings.ok) {
-      say(`Reach not saved: ${!accounts.ok ? accounts.error.message : !settings.ok ? settings.error.message : "The accounts could not be read."}`);
+    if (!accounts.ok) {
+      say(`Reach not saved: ${accounts.error.message}`);
+      setBusy(false);
+      return;
+    }
+    if (!settings.ok) {
+      say(`Reach not saved: ${settings.error.message}`);
       setBusy(false);
       return;
     }
