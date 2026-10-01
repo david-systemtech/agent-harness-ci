@@ -18,11 +18,11 @@ import type { CdpParams } from "../cdp/session.js";
  * frame tree, and cross-site frames as `iframe` child targets attached in
  * flat mode where auto-attach is on. A navigation sends what Chromium sends,
  * per session and per enabled domain: the document's request and response
- * (`Network`), the frame starting to load and committing (`Page`), and, a
- * turn later, its lifecycle and load events. Isolated worlds are execution
- * contexts it numbers; an in-page function called in one is answered by the
- * test by the function's name, and a world whose document has gone answers
- * as Chromium does.
+ * (`Network`, none for an about: address, which nothing serves), the frame
+ * starting to load and committing (`Page`), and, a turn later, its lifecycle
+ * and load events. Isolated worlds are execution contexts it numbers; an
+ * in-page function called in one is answered by the test by the function's
+ * name, and a world whose document has gone answers as Chromium does.
  */
 
 /** A command the peer was sent. */
@@ -212,6 +212,9 @@ const hostOf = (url: string): string => {
   }
 };
 
+/** Whether a navigation to `url` fetches its document: Chromium commits about:blank and about:srcdoc with no request and no response. */
+const fetched = (url: string): boolean => !url.startsWith("about:");
+
 export const scriptedCdpPeer = (): ScriptedCdpPeer => {
   const sent: SentCommand[] = [];
   const answers = new Map<string, CommandAnswer>();
@@ -399,7 +402,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
     const main = frame.parentId === undefined;
     const time = clock();
     for (const session of sessionsOn(target)) {
-      const network = session.domains.has("Network");
+      const network = fetched(url) && session.domains.has("Network");
       if (network) {
         emitOn(session, "Network.requestWillBeSent", {
           requestId: loaderId,
@@ -460,7 +463,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
           if (main) emitOn(session, "Page.loadEventFired", { timestamp: at.timestamp });
           emitOn(session, "Page.frameStoppedLoading", { frameId });
         }
-        if (session.domains.has("Network")) emitOn(session, "Network.loadingFinished", { requestId: loaderId, timestamp: at.timestamp, encodedDataLength: 1_024 });
+        if (fetched(url) && session.domains.has("Network")) emitOn(session, "Network.loadingFinished", { requestId: loaderId, timestamp: at.timestamp, encodedDataLength: 1_024 });
       }
     };
     if (holding) target.heldLoad = load;
@@ -562,7 +565,7 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
         if (session.waiting) {
           session.waiting = false;
           const root = target.frames[0] as FrameModel;
-          if (session.domains.has("Network")) {
+          if (fetched(root.url) && session.domains.has("Network")) {
             emitOn(session, "Network.responseReceived", {
               requestId: root.loaderId,
               loaderId: root.loaderId,
