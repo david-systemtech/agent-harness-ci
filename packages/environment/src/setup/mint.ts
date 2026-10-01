@@ -79,8 +79,10 @@ export interface MintOptions {
 const SCRATCH: WorkspaceRequest = { kind: "scratch" };
 
 /** "Set up: <step> (<subject>)", on one line and cut to a title's length. */
-const titleFor = (step: CheckedStep, subject: StepSubject | null): string =>
-  titleLine(subject === null ? `Set up: ${STEP_LABELS[step.id]}` : `Set up: ${STEP_LABELS[step.id]} (${subject.label})`) ?? `Set up: ${STEP_LABELS[step.id]}`;
+const titleFor = (step: CheckedStep, subject: StepSubject | null): string => {
+  const title = `Set up: ${STEP_LABELS[step.id]}`;
+  return titleLine(subject === null ? title : `${title} (${subject.label})`) ?? title;
+};
 
 /** The account the call's runs resolve to, signed in and offering the call's model (or any): null when none does. */
 const resolvedAccount = (host: AdapterHost, account: string | undefined, model: string | undefined): AccountFacts | null => {
