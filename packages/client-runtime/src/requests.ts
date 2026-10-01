@@ -212,7 +212,9 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * checked, and the account's provider); a trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
- * of a verified alias; an owned instruction changing
+ * of a verified alias; the skill set changing, the trust or an account (a
+ * session's listing is resolved under its set, its trust and its account's
+ * choices, #503) a session's `commands.list`; an owned instruction changing
  * (`instructions.updated`, #505), a setting (the orientation switch), an
  * account, a forge account, a key-manager connection, the managed tools or
  * the known environments' union (#382; what the block's sections read)
@@ -254,6 +256,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "skills.readiness": ["skills.updated", "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
+  "commands.list": ["skills.updated", ...TRUST_REFRESH_NOTICES, "account.updated"],
   "instructions.list": INSTRUCTION_REFRESH_NOTICES,
   "instructions.preview": INSTRUCTION_REFRESH_NOTICES,
   "instructions.diff": ["instructions.updated"],
