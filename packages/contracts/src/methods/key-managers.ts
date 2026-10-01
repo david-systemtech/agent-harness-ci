@@ -365,13 +365,16 @@ export const keyManagersReferencesCheck = defineMethod({
  * no mount, the KV mounts the login can see, each ending in `/`; with a
  * mount, an OpenBao list of the path under it (the mount's top without
  * one), a folder's name ending in `/`, whichever KV version the mount is.
- * For 1Password (#378), with no vault, the vaults the service account can
- * see, each ending in `/`; with a vault, its items' titles, each ending in
- * `/`; with an item too, the item's fields' titles. Refused as a resolve
- * is: `credential_source_unavailable`, `reference_not_found` for a path
- * with nothing under it, `reference_denied`. A connection the environment
- * does not hold is `not_found`; a path without a mount, an item without a
- * vault, or another provider's location is `invalid_params`.
+ * For Doppler (#377), the secrets' names in the project (`mount`) and
+ * config (`path`), either left to the token. For 1Password (#378), with no
+ * vault, the vaults the service account can see, each ending in `/`; with a
+ * vault, its items' titles, each ending in `/`; with an item too, the
+ * item's fields' titles; an untitled vault, item or field by its id.
+ * Refused as a resolve is: `credential_source_unavailable`,
+ * `reference_not_found` for a path with nothing under it,
+ * `reference_denied`. A connection the environment does not hold is
+ * `not_found`; an OpenBao path without a mount, an item without a vault, or
+ * another provider's location is `invalid_params`.
  */
 export const keyManagersReferencesBrowse = defineMethod({
   name: "keyManagers.references.browse",
@@ -385,7 +388,7 @@ export const keyManagersReferencesBrowse = defineMethod({
     item: OnePasswordReference.shape.item.optional().meta({ description: "The item in the vault whose fields are listed, by name or id; absent to list the vault's items. 1Password only." }),
   }),
   result: z.object({
-    names: z.array(z.string().min(1)).meta({ description: "The names under the path, in the key manager's order: a folder's, a mount's, a 1Password vault's or item's, ending in /. Never a value." }),
+    names: z.array(z.string().min(1)).meta({ description: "The names under the location, in the key manager's order: a folder's, a mount's, a 1Password vault's or item's ending in /; a key's, a Doppler secret's or a 1Password field's without. An untitled 1Password entry by its id. Never a value." }),
   }),
   errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
 });
