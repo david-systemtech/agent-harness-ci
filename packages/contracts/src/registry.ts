@@ -1,3 +1,4 @@
+import { banksDraftsList } from "./memory-drafts.js";
 import type { z } from "zod";
 import {
   accessLogList,
@@ -108,7 +109,7 @@ import {
   instructionsSetScope,
   sessionsSetInstructions,
 } from "./methods/instructions.js";
-import { banksCreate, banksGet, banksList, banksRegister, banksVerify } from "./methods/banks.js";
+import { banksCreate, banksGet, banksList, banksRegister, banksSync, banksVerify } from "./methods/banks.js";
 import {
   forgeAccountsAdd,
   forgeAccountsList,
@@ -304,10 +305,12 @@ export const methods = [
   forgePullRequestsUnlink,
   forgePullRequestsRefresh,
   banksList,
+  banksDraftsList,
   banksGet,
   banksRegister,
   banksCreate,
   banksVerify,
+  banksSync,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,

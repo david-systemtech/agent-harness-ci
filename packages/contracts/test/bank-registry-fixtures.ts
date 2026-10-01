@@ -92,7 +92,7 @@ const finding = { rule: "secret_shaped", severity: "refusal", path: "projects/pe
 
 const eventPayloads: Record<keyof typeof BANK_EVENT_PAYLOADS, Record<string, unknown>> = {
   "bank.added": { bank: entry },
-  "bank.updated": { bankId, name: "maya-notes", kind: "team", enabled: false },
+  "bank.updated": { bankId, name: "maya-notes", kind: "team", enabled: false, status: troubledStatus },
   "bank.pinned": { bankId, sessionId, pointer: "projects/personal/homelab", pinned: true },
   "bank.forgotten": { bankId, checkoutRemoved: false },
   "bank.synced": { bankId, head, previousHead: null },
@@ -190,6 +190,10 @@ export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; resu
       invalid: [without(registerParams, "commandId"), without(registerParams, "path"), { ...registerParams, path: "" }, { ...registerParams, importedFrom: "" }],
     },
     result: { valid: [{ bank: record }], invalid: [{}, { bank: entry }] },
+  },
+  "banks.sync": {
+    params: { valid: [{}, { bankId }], invalid: [{ bankId: "maya-memory" }, []] },
+    result: { valid: [{ banks: [] }, { banks: [record, teamRecord] }], invalid: [{}, { banks: [entry] }] },
   },
   "banks.create": {
     params: {

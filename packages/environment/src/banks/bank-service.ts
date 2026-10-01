@@ -219,6 +219,8 @@ export interface BankService {
   entries(): readonly { readonly entry: BankEntry; readonly index: BankIndex | null }[];
   /** Verifies one bank, or every enabled one, joining a verification of every one running; answers the records after. */
   verify(bankId?: string): Promise<BankRecord[]>;
+  /** Records a fetch outcome and refreshes the cached reading; only a moved head emits bank.synced. */
+  recordSync(bankId: string, outcome: { readonly head: string; readonly previousHead: string | null } | { readonly problem: string }): Promise<void>;
   readonly register: PreparedCommand<"banks.register">;
   readonly create: PreparedCommand<"banks.create">;
 }
@@ -230,6 +232,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
   let verifyingAll: Promise<BankRecord[]> | null = null;
+  const verificationGenerations = new Map<string, number>();
 
   /** The bank's record from its entry and reading, its shared aliases those `others` claim too. */
   const recordOf = (entry: BankEntry, reading: Reading | null, others: readonly Claim[]): BankRecord => {
@@ -352,7 +355,11 @@ export const createBankService = (options: BankServiceOptions): BankService => {
 
   /** Verifies one bank and records what changed; answers its entry after. */
   const verifyOne = async (entry: BankEntry): Promise<void> => {
+    const generation = (verificationGenerations.get(entry.id) ?? 0) + 1;
+    verificationGenerations.set(entry.id, generation);
     const { status: found, reading } = await inspect(entry);
+    // A newer inspection (notably a sync) owns the reading: an older one must never put old files back.
+    if (verificationGenerations.get(entry.id) !== generation) return;
     const manifest = reading === null ? null : manifestOf(reading.files);
     log.atomically((tx) => {
       const held = liveBank(reader, entry.id);
@@ -456,6 +463,26 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const entry = liveBank(reader, bankId);
       if (entry !== null) await verifyOne(entry);
       return records();
+    },
+    async recordSync(bankId, outcome) {
+      const entry = liveBank(reader, bankId);
+      if (entry === null) return;
+      if ("head" in outcome) await verifyOne(entry);
+      else verificationGenerations.set(bankId, (verificationGenerations.get(bankId) ?? 0) + 1);
+      log.atomically((tx) => {
+        const held = liveBank(reader, bankId);
+        if (held === null) return;
+        const now = clock.now().toISOString();
+        const status: BankStatus = "head" in outcome
+          ? { ...held.status, lastSync: now }
+          : { ...held.status, reachable: held.status.reachable.state === "unreachable" && held.status.reachable.reason === outcome.problem
+            ? held.status.reachable : { state: "unreachable", reason: outcome.problem, since: now } };
+        const moved = "head" in outcome && outcome.previousHead !== null && outcome.head !== outcome.previousHead;
+        if (moved) log.append(stream, [{ type: "bank.synced", payload: { bankId, head: outcome.head, previousHead: outcome.previousHead } }], { tx, actor: BANKS_ACTOR });
+        if (moved || JSON.stringify(status) !== JSON.stringify(held.status)) {
+          log.append(stream, [{ type: "bank.updated", payload: { bankId, status } }], { tx, actor: BANKS_ACTOR });
+        }
+      });
     },
     register,
     create,

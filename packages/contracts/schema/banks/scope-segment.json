@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryScopeSegment",
+  "type": "string",
+  "maxLength": 80,
+  "pattern": "^[a-z0-9][a-z0-9-]*$",
+  "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+}

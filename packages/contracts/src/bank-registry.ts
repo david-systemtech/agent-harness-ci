@@ -210,8 +210,9 @@ export const BankUpdatedPayload = z
     mergeOverride: BankMergeOverride.optional(),
     privateCopy: z.boolean().optional(),
     credential: BankCredentialSource.optional(),
+    status: BankStatus.optional().meta({ description: "A sync changed status or last successful fetch time, even when main stayed at the same head." }),
   })
-  .meta({ description: "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on." });
+  .meta({ description: "bank.updated: a bank's registry settings, sync status or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on." });
 export type BankUpdatedPayload = z.infer<typeof BankUpdatedPayload>;
 
 export const BankPinnedPayload = z

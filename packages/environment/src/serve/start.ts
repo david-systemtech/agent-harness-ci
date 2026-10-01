@@ -1,3 +1,5 @@
+import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
+import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
 import { dirname, isAbsolute, join, resolve as absolutePath } from "node:path";
@@ -49,6 +51,7 @@ import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
 import { banksProjector, listBanks } from "../banks/bank-store.js";
 import { bankMethods } from "../banks/methods.js";
 import { banksSection } from "../banks/orientation.js";
+import { createBankSyncer } from "../banks/syncer.js";
 import { bankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
@@ -179,7 +182,7 @@ import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
-import { knownRepositoryIdentities } from "../sessions/session-tables.js";
+import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
@@ -513,6 +516,8 @@ export interface EnvironmentOptions {
    * stopped at its time (skills spec, "Testing Decisions"). Preset none.
    */
   readonly skillsGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
+  /** Test boundary for observing or holding the BankService's harness git fetches. */
+  readonly banksGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
   /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
@@ -881,6 +886,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accountsProjector,
       forgeAccountsProjector,
       banksProjector,
+      bankDraftsProjector,
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
@@ -1027,12 +1033,27 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     };
   });
 
+  const user = passwdName();
+  const bankService = createBankService({
+    describeRepository: (checkout) => describeRepositoryAt(dataDir, checkout),
+    log, clock, environmentId: record.id, forge,
+    creation: {
+      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
+      keyManager: () => {
+        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
+        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
+      },
+    },
+  });
+  const bankSyncer = createBankSyncer({ banks: bankService, clock, git: (request) => options.banksGit?.(request, forge.git) ?? forge.git(request) });
+  // The host closes first, ending runs waiting on this syncer before its close releases their deadlines.
+  closers.push(() => bankSyncer.close());
+
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
   // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
   // configuration, which an injected CLI reads (#368, David's decision on it).
-  const user = passwdName();
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
@@ -1150,7 +1171,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const seamServers = hostSeams.toolServers ?? noToolServers;
   // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
   // check asks this (#511), since the caller's tools are its request's alone.
-  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...seamServers(scope)];
+  const memoryTools = createMemoryToolServers({ log, environmentId: record.id, scrub });
+  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
   closers.push(() => knownEnvironments.close());
@@ -1361,6 +1383,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
+      beforeRun: bankSyncer.beforeRun,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
     });
@@ -1616,17 +1639,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
-  const bankService = createBankService({
-    describeRepository: (checkout) => describeRepositoryAt(dataDir, checkout),
-    log, clock, environmentId: record.id, forge,
-    creation: {
-      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
-      keyManager: () => {
-        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
-        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
-      },
-    },
-  });
   capabilities.push("banks");
   const banks = bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.
@@ -1749,7 +1761,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
-    ...bankMethods(bankService),
+    ...bankMethods(bankService, bankSyncer),
+    "banks.drafts.list": async ({ sessionId, bankId }) => {
+      const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+      const session = readSessionFacts(log, reader, sessionId);
+      if (session === null || session.deleted) {
+        throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
+      }
+      return { queues: listBankDrafts(reader, sessionId, bankId) };
+    },
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
@@ -2011,6 +2031,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await browser.start();
   // The vault entries of webhook endpoints that are gone deleted (#522), before a client can set one again.
   await endpoints.start();
+  // The helper can answer startup fetches only after the internal listener is ready.
+  bankSyncer.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code

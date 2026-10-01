@@ -142,6 +142,8 @@ describe("the Memory bank step's checks", () => {
     const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
     const bank = await register(client, checkout);
     const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    // Finish the run's before-run sync before authoring the review fixture and verifying it.
+    await runEnded(client, sessionId);
     const { path } = (await get(client, sessionId)).workspace;
     writeFileSync(join(path, "BANK.md"), TEAM_BANK["BANK.md"] ?? "");
     git(path, "add", "BANK.md");
