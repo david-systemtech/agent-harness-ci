@@ -13,7 +13,7 @@ const hooks = vi.hoisted(() => ({ sdk: undefined as FakeSdk | undefined, failLau
 vi.mock("@anthropic-ai/claude-agent-sdk", async (original) => ({
   ...(await original<typeof import("@anthropic-ai/claude-agent-sdk")>()),
   query: (params: Parameters<FakeSdk["query"]>[0]) => {
-    if (hooks.failLaunch && typeof params.prompt !== "string") {
+    if (hooks.failLaunch && params.options?.persistSession !== false) {
       hooks.failLaunch = false;
       throw new Error("Scripted failure before the provider starts.");
     }
@@ -118,6 +118,33 @@ describe("provider history before a session's second message (#236)", () => {
     expect((await anchorCommand(client, method, session.id, messageId)).receipt).toMatchObject({ status: "rejected", error: { data: { reason: "use_new_session" } } });
   });
 
+  it.each(["fork", "rewind"] as const)("refuses a %s on an unlinked historical fork whose inherited anchor has no preceding stored history", async (method) => {
+    const { t, client, session, store, messageId } = await failedFirst();
+    // Existing state from before #236: the command used to accept this second-message anchor.
+    const historical = await create(client, { account: "work" });
+    t.env.log.atomically((tx) => {
+      t.env.log.append({ kind: "session", id: historical.id }, [{ type: "session.forked", payload: { fromSessionId: session.id, fromProviderSessionId: PROVIDER, atMessageId: messageId } }], { tx, actor: "system:test" });
+      store.copySession(tx, session.id, historical.id);
+    });
+    const events = () => t.env.log.readStream({ kind: "session", id: historical.id });
+    const first = await startRun(client, historical.id, "Cannot continue the inherited anchor");
+    await vi.waitFor(() => expect(events().filter((event) => event.type === "run.ended")).toHaveLength(1));
+    await startRun(client, historical.id, "Retry the inherited anchor");
+    await vi.waitFor(() => expect(events().filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(events().filter((event) => event.type === "run.ended").map((event) => event.payload)).toEqual([
+      expect.objectContaining({ reason: "error", error: expect.objectContaining({ message: expect.stringContaining("nothing comes before it") }) }),
+      expect.objectContaining({ reason: "error", error: expect.objectContaining({ message: expect.stringContaining("nothing comes before it") }) }),
+    ]);
+    expect(events().some((event) => event.type === "session.provider-linked")).toBe(false);
+    const before = events();
+    const answer = method === "fork"
+      ? registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId: historical.id, id: randomUUID() }))
+      : await anchorCommand(client, "rewind", historical.id, first.result!.messageId);
+    expect(answer.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "use_new_session" } } });
+    expect(answer.result).toBeUndefined();
+    expect(events()).toEqual(before);
+  });
+
   it("still starts fresh for a fork before the first visible message", async () => {
     const { t, client, session, firstId } = await failedFirst();
     const fork = await anchorCommand(client, "fork", session.id, firstId);
@@ -130,6 +157,41 @@ describe("provider history before a session's second message (#236)", () => {
     const { adapter, session, store, messageId } = await failedFirst();
     await store.append({ projectKey: session.id, sessionId: PROVIDER }, [{ type: "user", uuid: randomUUID(), parentUuid: null, message: { role: "user", content: "Another branch" } }]);
     expect(await adapter.hasHistoryBefore!({ id: "work", directory: "/accounts/work" }, session.id, PROVIDER, messageId)).toBe(true);
+  });
+
+  it("keeps valid inherited history for an unlinked fork's rewind and its next generation", async () => {
+    const { t, client, session, store, fake, query, messageId, ended } = await failedFirst();
+    const third = await startRun(client, session.id, "Next stored");
+    await query.promptsPushed(2);
+    const anchor = third.result!.messageId;
+    await store.append({ projectKey: session.id, sessionId: PROVIDER }, [{ type: "user", uuid: anchor, parentUuid: messageId, message: { role: "user", content: "Next stored" } }]);
+    query.emit(sdk.init(PROVIDER), sdk.replyStart("later-answer", [anchor]), sdk.result(PROVIDER));
+    await vi.waitFor(() => expect(ended()).toHaveLength(3));
+    const fork = await anchorCommand(client, "fork", session.id, anchor);
+    if (fork.result === undefined || !("summary" in fork.result)) throw new Error("No fork created.");
+    const id = fork.result.summary.id;
+    const events = () => t.env.log.readStream({ kind: "session", id });
+    hooks.failLaunch = true;
+    const own = await startRun(client, id, "The fork's unstored first message");
+    await vi.waitFor(() => expect(events().filter((event) => event.type === "run.ended")).toHaveLength(1));
+    expect(events().some((event) => event.type === "session.provider-linked")).toBe(false);
+    expect(await store.load({ projectKey: id, sessionId: PROVIDER })).not.toEqual(expect.arrayContaining([expect.objectContaining({ uuid: own.result!.messageId })]));
+    expect((await anchorCommand(client, "rewind", id, own.result!.messageId)).receipt.status).toBe("accepted");
+    const descendant = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId: id, id: randomUUID() }));
+    expect(descendant.receipt.status).toBe("accepted");
+    if (descendant.result === undefined || !("summary" in descendant.result)) throw new Error("No descendant created.");
+    const descendantId = descendant.result.summary.id;
+    expect(t.env.log.readStream({ kind: "session", id: descendantId }).find((event) => event.type === "session.forked")?.payload).toMatchObject({ atMessageId: anchor, fromProviderSessionId: PROVIDER });
+    expect(await store.load({ projectKey: descendantId, sessionId: PROVIDER })).toEqual(await store.load({ projectKey: id, sessionId: PROVIDER }));
+    const queryCount = fake.queries.length;
+    const retry = await startRun(client, id, "Retry with valid inherited history");
+    await vi.waitFor(() => expect(fake.queries.slice(queryCount).some((query) => query.options.forkSession === true)).toBe(true));
+    const retryQuery = fake.queries.slice(queryCount).find((query) => query.options.forkSession === true)!;
+    await retryQuery.promptsPushed(1);
+    expect(retryQuery.options).toMatchObject({ forkSession: true, resumeSessionAt: messageId });
+    retryQuery.emit(sdk.init(randomUUID()), sdk.replyStart("retry-answer", [retry.result!.messageId]), sdk.result(PROVIDER));
+    await vi.waitFor(() => expect(events().filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(events().filter((event) => event.type === "run.ended").at(-1)?.payload).toMatchObject({ reason: "completed" });
   });
 
   it("accepts a rewind of a fork's first own message when copied provider history precedes it", async () => {

@@ -438,7 +438,12 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
   /** Ask the adapter about the anchor it will actually resume; first-message forks still start fresh. */
   const storedHistoryBefore = (sessionId: string, messageId: string | null): Promise<boolean | null> => {
     const linked = providerSessionOf(reader, sessionId);
-    if (linked === null || messageId === null) return Promise.resolve(null);
+    if (linked === null) {
+      const inherited = forkRecord(log, sessionId);
+      if (inherited?.fromProviderSessionId == null || inherited.atMessageId === null) return Promise.resolve(null);
+      return host.hasHistoryBefore(sessionId, inherited.fromProviderSessionId, inherited.atMessageId);
+    }
+    if (messageId === null) return Promise.resolve(null);
     const messages = visibleMessages(sessionId);
     if (!messages.some((message) => message.messageId === messageId && message.heldBy === null) || !historyBefore(sessionId, messages, messageId)) return Promise.resolve(null);
     return host.hasHistoryBefore(sessionId, linked, messageId);
@@ -449,7 +454,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
       prepare: (params) => {
         const id = params.sessionId.toLowerCase();
         const anchor = params.atMessageId?.toLowerCase() ?? pendingRewind(log, id)?.toMessageId ?? null;
-        return anchor === null ? forkNow() : storedHistoryBefore(id, anchor).then((history) => forkNow(history));
+        return storedHistoryBefore(id, anchor).then((history) => forkNow(history));
       },
     },
 
