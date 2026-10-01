@@ -3,16 +3,20 @@ import { AccountId } from "../accounts.js";
 import { commandParams, defineMethod } from "../method.js";
 import { SkillReadiness } from "../readiness.js";
 import { SessionId, Workspace } from "../sessions.js";
-import { SkillName, SkillSourceUrl } from "../skill-rules.js";
+import { SkillName, SkillSourceFolder, SkillSourceUrl } from "../skill-rules.js";
 import {
   SkillChoice,
   SkillMember,
+  SkillProbeId,
   SkillSourceBranch,
+  SkillSourceFollow,
+  SkillSourceId,
   SkillsAlwaysOnSetPayload,
   SkillsCarryOverReport,
   SkillsEnabledSetPayload,
   SkillsProbeResult,
   SkillsView,
+  SkillsViewSource,
 } from "../skills.js";
 
 /**
@@ -193,6 +197,57 @@ export const skillsProbe = defineMethod({
     branch: SkillSourceBranch.optional().meta({ description: "The branch to probe; the remote's default, the one its HEAD names, when absent." }),
   }),
   result: SkillsProbeResult,
+  errors: [],
+});
+
+/**
+ * Tracks a repository's folder as a skill source (skills spec, "Skill
+ * sources"; ADR 0029): a prepared command whose fetch runs first. It reuses
+ * the checkout of the live probe `probeId` names when that probe read the
+ * same repository at what the source follows, else fetches through the
+ * ForgeService's git as the probe does, then reads the folder at the commit
+ * by the root-skill rule. A folder yielding no valid member is refused
+ * `conflict`, reason `no_skills`, with the folders that would; otherwise the
+ * folder (with any provenance manifest beside it or one level up) is
+ * exported at the commit into the source's snapshot, an immutable,
+ * read-only copy under the data directory, and `skills.source-added` and
+ * `skills.source-synced` are appended on the skills stream, then
+ * `skills.updated`. The source joins every account's set below the own
+ * directory, after the sources added before it, from each run's next start.
+ * A URL or folder failing its rule is `invalid_params`; a repository it
+ * cannot reach is `conflict`, reason `unreachable`, as the probe's; a
+ * twenty-first source is `conflict`, reason `source_limit`; a second source
+ * with the same identity and folder is `conflict`, reason `duplicate`
+ * (`SkillSourceAddConflict`). The same identity with another folder is
+ * another source.
+ */
+export const skillsSourcesAdd = defineMethod({
+  name: "skills.sources.add",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    url: SkillSourceUrl,
+    folder: SkillSourceFolder,
+    follow: SkillSourceFollow,
+    probeId: SkillProbeId.optional().meta({ description: "The probe whose checkout to reuse while it is kept; the source is fetched afresh when it is absent or expired, or read another repository, or another branch or commit than the source follows." }),
+  }),
+  result: z.object({ source: SkillsViewSource.meta({ description: "The source as skills.get lists it now." }) }),
+  errors: [],
+});
+
+/**
+ * Stops tracking a source: `skills.source-removed` on the skills stream,
+ * then `skills.updated`. Its members leave every account's set from each
+ * run's next start; a run already live keeps the snapshot it began with.
+ * A source the environment does not track is `not_found` (data `kind:
+ * source`).
+ */
+export const skillsSourcesRemove = defineMethod({
+  name: "skills.sources.remove",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({ sourceId: SkillSourceId }),
+  result: z.object({ source: SkillsViewSource.meta({ description: "The source as skills.get listed it before." }) }),
   errors: [],
 });
 

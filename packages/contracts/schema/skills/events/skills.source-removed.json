@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillsSourceRemovedPayload",
+  "type": "object",
+  "properties": {
+    "sourceId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+    }
+  },
+  "required": [
+    "sourceId"
+  ],
+  "description": "skills.source-removed: the environment no longer tracks the source; its members leave every account's set from each run's next start."
+}

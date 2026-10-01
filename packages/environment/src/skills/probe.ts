@@ -15,13 +15,14 @@ import {
   type SkillProbeFolder,
   type SkillProbeProblem,
   type SkillProbeUnreachable,
+  type SkillSourceFollow,
   type SkillsProbeResult,
 } from "@agent-harness/contracts";
 import type { ForgeGitAnswer, ForgeGitRequest } from "../forge/harness-git.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import type { MethodHandler } from "../serve/methods.js";
 import { gitComplaint, runGit } from "../workspace/git.js";
-import { findLicenceFile, findSkillFolders, readSkillFolder, type RootNaming } from "./reader.js";
+import { findLicenceFile, findSkillFolders, readSkillFolder, sourceRootNaming, type RootNaming } from "./reader.js";
 
 /**
  * The probe (skills spec, "Skill sources"; ADR 0029, ADR 0020): a
@@ -36,6 +37,12 @@ import { findLicenceFile, findSkillFolders, readSkillFolder, type RootNaming } f
  * would be. It lies under the data directory, in a folder named by the
  * probe's id, and is kept thirty minutes for an add to reuse, then removed;
  * a checkout left by an environment that stopped is removed at start.
+ *
+ * `skills.sources.add` reads a source's folder from a checkout at what the
+ * source follows (#498): the kept probe's when it cloned the same
+ * repository at that, held from removal while the add reads it; else one of
+ * its own beside the probes', cloned the same way (or, for a pin, fetched
+ * at the commit), removed once read.
  */
 
 /** Where the probes' checkouts lie, from the data directory. */
@@ -44,8 +51,46 @@ const PROBES_DIRECTORY = join("skills", "probes");
 /** How long a probe's clone may take (a chosen default: the sync's sixty-second fetch). */
 const PROBE_CLONE_TIMEOUT_MS = 60_000;
 
+/** The prefix of an add's own checkout among the probes'. */
+const ADD_CHECKOUT = "add-";
+
+/** A probe's checkout while it is kept. */
+interface KeptProbe {
+  readonly identity: string;
+  /** The branch the probe was asked for; null for the remote's default. */
+  readonly asked: string | null;
+  readonly branch: string;
+  readonly commit: GitCommit;
+  readonly timer: Timer;
+  /** How many adds read it now. */
+  holders: number;
+  /** Whether its thirty minutes are up, so the last add to release it removes it. */
+  expired: boolean;
+}
+
+/** What a source's checkout is asked for: the URL as entered, what the source follows, and the probe whose checkout to reuse. */
+export interface SourceCheckoutRequest {
+  readonly url: string;
+  readonly follow: SkillSourceFollow;
+  readonly probeId?: string;
+}
+
+/** A checkout whose working tree is at the commit a source follows, released once read. */
+export interface SourceCheckout {
+  readonly path: string;
+  readonly commit: GitCommit;
+  release(): void;
+}
+
 export interface SkillProbes {
   readonly probe: MethodHandler<"skills.probe">;
+  /**
+   * A checkout of `url` at what `follow` names: the kept probe `probeId`'s
+   * when it cloned the same repository at that, held from removal until
+   * released; else a fresh one, removed once released. A repository it
+   * cannot reach throws `conflict`, reason `unreachable`, as the probe does.
+   */
+  checkout(request: SourceCheckoutRequest): Promise<SourceCheckout>;
   /** Removes every kept checkout. */
   close(): void;
 }
@@ -63,6 +108,8 @@ export interface SkillProbesOptions {
 const AUTHENTICATION = /Authentication failed|could not read (?:Username|Password)|terminal prompts disabled|Permission denied|Host key verification failed|returned error: 40[13]\b|Access denied/i;
 /** What git says when there is no such repository or branch. */
 const NOT_FOUND = /not found|does not exist|does not appear to be a git repository|couldn't find remote ref|returned error: 404\b/i;
+/** What git says when a fetch names a commit the remote does not hold. */
+const NOT_OUR_REF = /not our ref/;
 /** The shell's line when git could not run ssh at all (dash's `ssh: not found`, bash's `ssh: command not found`), which would otherwise read as not found. */
 const NO_SSH = /^.*\bssh: (?:command )?not found$/m;
 /** What git says when the host could not be reached. */
@@ -97,6 +144,22 @@ const ask = async (cwd: string, args: readonly string[]): Promise<string | null>
   return answer.ok && !answer.truncated ? answer.stdout.toString("utf8").trim() : null;
 };
 
+/** Throws what kept git from the repository: refused for want of a forge account, else the problem its output names. */
+const reached = (answer: ForgeGitAnswer, origin: string): void => {
+  if (answer.outcome === "refused") throw unreachable("authentication", answer.error.message, answer.error.data.origin);
+  if (answer.git.ok) return;
+  const noSsh = NO_SSH.exec(answer.git.stderr);
+  if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), origin);
+  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), gitComplaint(answer.git.stderr), origin);
+};
+
+/** The commit the checkout at `path` stands at, its branch when on one; unreachable `not_found` when it has none. */
+const headOf = async (path: string, origin: string): Promise<{ readonly commit: GitCommit; readonly branch: SkillSourceBranch | undefined }> => {
+  const commit = GitCommit.safeParse(await ask(path, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]));
+  if (!commit.success) throw unreachable("not_found", "The repository has no commit on that branch.", origin);
+  return { commit: commit.data, branch: SkillSourceBranch.safeParse(await ask(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).data };
+};
+
 /** The folder at `folder` (from the checkout's root) as the probe answers it, its members read by the reader. */
 const probeFolder = async (checkout: string, folder: string, naming: RootNaming): Promise<SkillProbeFolder> => {
   const path = folder === "." ? checkout : join(checkout, ...folder.split("/"));
@@ -114,13 +177,79 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
   const root = join(options.dataDir, PROBES_DIRECTORY);
   // A probe lives in memory alone: what an environment that stopped left is no one's.
   rmSync(root, { recursive: true, force: true });
-  /** The removal timer of each checkout kept, by the probe's id. */
-  const kept = new Map<string, Timer>();
+  /** Each checkout kept, by the probe's id: what it cloned, its removal timer, how many adds hold it, and whether its time is up. */
+  const kept = new Map<string, KeptProbe>();
 
   const remove = (probeId: string): void => {
-    kept.get(probeId)?.cancel();
+    kept.get(probeId)?.timer.cancel();
     kept.delete(probeId);
     rmSync(join(root, probeId), { recursive: true, force: true });
+  };
+
+  /** Clones `url` at `branch`, else the remote's default, into `directory` under the probes' folder, depth one, as the probe does. */
+  const clone = async (url: string, branch: string | undefined, directory: string, purpose: string, origin: string): Promise<void> => {
+    mkdirSync(root, { recursive: true });
+    const cloned = await options.git({
+      operation: "clone",
+      repository: url,
+      cwd: root,
+      directory,
+      depth: 1,
+      ...(branch !== undefined && { branch }),
+      purpose,
+      timeoutMs: PROBE_CLONE_TIMEOUT_MS,
+      sshAsWritten: true,
+    });
+    reached(cloned, origin);
+  };
+
+  /** Fetches `commit` of `url`, depth one, into a new repository at `path`, and checks it out there. */
+  const fetchCommit = async (url: string, commit: GitCommit, path: string, origin: string): Promise<void> => {
+    mkdirSync(path, { recursive: true });
+    if (!(await runGit(path, ["init", "--quiet"], { maxBytes: 64 * 1024 })).ok) throw unreachable("git_failed", "git could not make a repository to fetch the pinned commit into.", origin);
+    const fetched = await options.git({
+      operation: "fetch",
+      repository: url,
+      cwd: path,
+      refspecs: [commit],
+      depth: 1,
+      purpose: "fetch a skill source's pinned commit",
+      timeoutMs: PROBE_CLONE_TIMEOUT_MS,
+      sshAsWritten: true,
+    });
+    // A commit the remote does not have, which a clone, asking for refs alone, never meets.
+    if (fetched.outcome === "ran" && !fetched.git.ok && NOT_OUR_REF.test(fetched.git.stderr)) throw unreachable("not_found", gitComplaint(fetched.git.stderr), origin);
+    reached(fetched, origin);
+    const checkedOut = await runGit(path, ["-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", commit], { maxBytes: 64 * 1024 });
+    if (!checkedOut.ok) throw unreachable("git_failed", gitComplaint(checkedOut.stderr), origin);
+  };
+
+  /** The kept probe `probeId` names, held, when it cloned `identity` at what `follow` names; null otherwise. */
+  const borrow = (probeId: string | undefined, identity: string, follow: SkillSourceFollow): SourceCheckout | null => {
+    const found = probeId === undefined ? undefined : kept.get(probeId);
+    if (probeId === undefined || found === undefined || found.expired || found.identity !== identity) return null;
+    const matches = follow.kind === "pinned" ? found.commit === follow.commit : follow.branch === null ? found.asked === null : found.branch === follow.branch;
+    if (!matches) return null;
+    found.holders += 1;
+    let released = false;
+    return {
+      path: join(root, probeId),
+      commit: found.commit,
+      release: () => {
+        if (released) return;
+        released = true;
+        found.holders -= 1;
+        if (found.holders === 0 && found.expired && kept.get(probeId) === found) remove(probeId);
+      },
+    };
+  };
+
+  /** Removes a probe's checkout once its time is up, or, while an add holds it, once the last releases it. */
+  const expire = (probeId: string): void => {
+    const found = kept.get(probeId);
+    if (found === undefined) return;
+    if (found.holders > 0) found.expired = true;
+    else remove(probeId);
   };
 
   const probe: MethodHandler<"skills.probe"> = async ({ url, branch }) => {
@@ -129,43 +258,24 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     if (remote === null || identity === null) throw new Error("A URL the source URL rule takes has an identity.");
     const probeId = randomUUID();
     const path = join(root, probeId);
-    mkdirSync(root, { recursive: true });
     try {
-      const cloned = await options.git({
-        operation: "clone",
-        repository: url,
-        cwd: root,
-        directory: probeId,
-        depth: 1,
-        ...(branch !== undefined && { branch }),
-        purpose: "probe a skill repository",
-        timeoutMs: PROBE_CLONE_TIMEOUT_MS,
-        sshAsWritten: true,
-      });
-      if (cloned.outcome === "refused") throw unreachable("authentication", cloned.error.message, cloned.error.data.origin);
-      if (!cloned.git.ok) {
-        const noSsh = NO_SSH.exec(cloned.git.stderr);
-        if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), remote.origin);
-        throw unreachable(problemOf(cloned.git.stderr, cloned.git.timedOut), gitComplaint(cloned.git.stderr), remote.origin);
-      }
-
-      const commit = GitCommit.safeParse(await ask(path, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]));
-      if (!commit.success) throw unreachable("not_found", "The repository has no commit on that branch.", remote.origin);
-      const cloneBranch = branch ?? SkillSourceBranch.safeParse(await ask(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).data;
+      await clone(url, branch, probeId, "probe a skill repository", remote.origin);
+      const head = await headOf(path, remote.origin);
+      const cloneBranch = branch ?? head.branch;
       if (cloneBranch === undefined) throw unreachable("git_failed", "The remote's default branch has no name a source can follow.", remote.origin);
 
       const found = await findSkillFolders(path, { depth: SKILL_PROBE_DEPTH, maxDirectories: SKILL_PROBE_MAX_DIRECTORIES, skipped: SKILL_PROBE_SKIPPED });
-      const naming: RootNaming = { sourceFolderSegment: null, repositorySegment: identity.slice(identity.lastIndexOf("/") + 1) };
       const answer: SkillsProbeResult = {
         probeId,
         identity,
         branch: cloneBranch,
-        commit: commit.data,
-        root: found.rootIsSkill ? await probeFolder(path, ".", naming) : null,
-        folders: await Promise.all(found.folders.map((folder) => probeFolder(path, folder, { ...naming, sourceFolderSegment: folder.slice(folder.lastIndexOf("/") + 1) }))),
+        commit: head.commit,
+        root: found.rootIsSkill ? await probeFolder(path, ".", sourceRootNaming(identity, ".")) : null,
+        folders: await Promise.all(found.folders.map((folder) => probeFolder(path, folder, sourceRootNaming(identity, folder)))),
         truncated: found.truncated,
       };
-      kept.set(probeId, options.clock.setTimeout(() => remove(probeId), SKILL_PROBE_KEPT_MS));
+      const timer = options.clock.setTimeout(() => expire(probeId), SKILL_PROBE_KEPT_MS);
+      kept.set(probeId, { identity, asked: branch ?? null, branch: cloneBranch, commit: head.commit, timer, holders: 0, expired: false });
       return answer;
     } catch (error) {
       remove(probeId);
@@ -173,8 +283,29 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     }
   };
 
+  const checkout = async ({ url, follow, probeId }: SourceCheckoutRequest): Promise<SourceCheckout> => {
+    const remote = normaliseRemote(url);
+    const identity = repositoryIdentityOf(url, options.forgeAccounts());
+    if (remote === null || identity === null) throw new Error("A URL the source URL rule takes has an identity.");
+    const borrowed = borrow(probeId, identity, follow);
+    if (borrowed !== null) return borrowed;
+    // A checkout of the add's own, beside the probes' so a start removes what a stopped environment left.
+    const directory = `${ADD_CHECKOUT}${randomUUID()}`;
+    const path = join(root, directory);
+    const release = (): void => rmSync(path, { recursive: true, force: true });
+    try {
+      if (follow.kind === "pinned") await fetchCommit(url, follow.commit, path, remote.origin);
+      else await clone(url, follow.branch ?? undefined, directory, "read a skill source", remote.origin);
+      return { path, commit: (await headOf(path, remote.origin)).commit, release };
+    } catch (error) {
+      release();
+      throw error;
+    }
+  };
+
   return {
     probe,
+    checkout,
     close: () => {
       for (const probeId of [...kept.keys()]) remove(probeId);
     },

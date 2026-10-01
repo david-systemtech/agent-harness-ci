@@ -112,8 +112,8 @@ describe("the shipped overlay", () => {
     expect(checksAt("skills/engineering/resolving-merge-conflicts")).toEqual([expect.objectContaining({ kind: "git", condition: "merge-in-progress" })]);
     expect(READINESS_OVERLAY.find((entry) => entry.path === "skills/engineering/resolving-merge-conflicts")?.removedUpstream).toBe(true);
     expect(READINESS_OVERLAY.filter((entry) => entry.removedUpstream).map((entry) => entry.path)).toEqual(["skills/engineering/resolving-merge-conflicts"]);
-    const changes = checksAt("skills/engineering/code-review").find((check) => check.kind === "git");
-    expect(changes).toMatchObject({ kind: "git", condition: "changes-since" });
+    const [forgeAccount, changes] = checksAt("skills/engineering/code-review").filter((check) => check.kind === "git");
+    expect([forgeAccount, changes]).toMatchObject([{ condition: "forge-account" }, { condition: "changes-since" }]);
     expect(changes).not.toHaveProperty("ref");
   });
 
@@ -130,9 +130,13 @@ describe("the shipped overlay", () => {
     expect(skillChecks.every((check) => check.fix === "skills" && check.modelInvocable === undefined)).toBe(true);
   });
 
-  it("holds only the local checks: no secret, mcp or forge-account check, which nothing evaluates yet", () => {
+  it("holds git's forge-account for the tracker-driven skills, after their files, fixed on the Forges step, and no secret or mcp check", () => {
+    const tracker = ["code-review", "to-spec", "to-tickets", "triage", "wayfinder"].map((skill) => `skills/engineering/${skill}`);
+    for (const path of tracker) expect(checksAt(path)[2], path).toMatchObject({ kind: "git", condition: "forge-account", fix: "forges" });
+    const holders = READINESS_OVERLAY.filter((entry) => entry.declaration.checks.some((check) => check.kind === "git" && check.condition === "forge-account"));
+    expect(holders.map((entry) => entry.path)).toEqual(tracker);
     const kinds = new Set(READINESS_OVERLAY.flatMap((entry) => entry.declaration.checks.map((check) => (check.kind === "git" ? `git:${check.condition}` : check.kind))));
-    expect([...kinds].sort()).toEqual(["file", "git:changes-since", "git:merge-in-progress", "skill"]);
+    expect([...kinds].sort()).toEqual(["file", "git:changes-since", "git:forge-account", "git:merge-in-progress", "skill"]);
   });
 
   it("matches a member by its source's origin or by what its provenance manifest names, and nothing else", () => {

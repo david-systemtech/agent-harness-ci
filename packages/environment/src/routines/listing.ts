@@ -20,9 +20,11 @@ import type { StoredRoutine } from "./routine-store.js";
  * wire"): its definition and state, its effective mode with the clamp, and
  * what needs attention, read from the environment as it is now, so the
  * attention follows an account's change without a save. The account, model
- * and clamp attention are here, and `failing` while the failure streak is
- * not zero (#523); the scripts', endpoints', skills' and deliveries' are
- * the tickets' that add them, and the next due time the scheduler's.
+ * and clamp attention are here, `failing` while the failure streak is not
+ * zero (#523), and `script_missing` while no file is at a script
+ * pre-check's path in the scripts directory (#526); the endpoints', skills'
+ * and deliveries' are the tickets' that add them, and the next due time the
+ * scheduler's.
  */
 
 /** Where a routine's account is looked up: the account store's live accounts by identity, and the host's facts and default account. */
@@ -40,6 +42,11 @@ export const routineAccount = (identity: AccountIdentity | null, { reader, accou
   const id = identity === null ? accounts.defaultId() : (accountByIdentity(reader, identity)?.id ?? null);
   return id === null ? null : accounts.facts(id);
 };
+
+/** What a routine's attention reads of the environment beyond its accounts: whether a file is at a path in the scripts directory. */
+export interface RoutineSurroundings extends RoutineAccounts {
+  readonly scriptPresent: (path: string) => boolean;
+}
 
 /** What a routine's effective mode and attention read: its definition, the ceiling it is saved under and its failure streak. */
 export interface RoutineFacts {
@@ -63,12 +70,13 @@ const effectiveMode = (routine: RoutineFacts, account: AccountFacts | null, unat
 };
 
 /** Each attention code that holds, in the codes' own order. */
-const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution): RoutineAttention[] => {
-  const { model } = routine.definition;
+const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution, scriptPresent: RoutineSurroundings["scriptPresent"]): RoutineAttention[] => {
+  const { model, preCheck } = routine.definition;
   const holds: Partial<Record<RoutineAttention, boolean>> = {
     account_missing: account === null,
     account_signed_out: account !== null && !account.signedIn,
     model_unavailable: account !== null && model !== null && !account.models.some((option) => option.id === model),
+    script_missing: preCheck?.kind === "script" && !scriptPresent(preCheck.path),
     clamped: mode.clamped,
     failing: routine.state.failureStreak > 0,
   };
@@ -76,14 +84,14 @@ const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: 
 };
 
 /** What a routine saved as `routine` would need attention for here, as `routines.list` would show it: an import's warnings (#528). */
-export const routineAttention = (routine: RoutineFacts, where: RoutineAccounts, unattendedMode: UnattendedMode): RoutineAttention[] => {
+export const routineAttention = (routine: RoutineFacts, where: RoutineSurroundings, unattendedMode: UnattendedMode): RoutineAttention[] => {
   const account = routineAccount(routine.definition.account, where);
-  return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode));
+  return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode), where.scriptPresent);
 };
 
-/** The routine as `routines.list` answers it, under the unattended default and the accounts as they are now. */
-export const listRoutine = (routine: StoredRoutine, where: RoutineAccounts, unattendedMode: UnattendedMode): ListedRoutine => {
+/** The routine as `routines.list` answers it, under the unattended default and the accounts and scripts as they are now. */
+export const listRoutine = (routine: StoredRoutine, where: RoutineSurroundings, unattendedMode: UnattendedMode): ListedRoutine => {
   const account = routineAccount(routine.definition.account, where);
   const mode = effectiveMode(routine, account, unattendedMode);
-  return { definition: routine.definition, state: routine.state, nextDueAt: null, mode, attention: attentionOf(routine, account, mode) };
+  return { definition: routine.definition, state: routine.state, nextDueAt: null, mode, attention: attentionOf(routine, account, mode, where.scriptPresent) };
 };

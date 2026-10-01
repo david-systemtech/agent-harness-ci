@@ -1,5 +1,5 @@
 import { keepsFold, rowKey, sessionHeadings, type DropTarget, type HeadingRow, type SessionHeading, type SessionRow } from "@agent-harness/client-runtime";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { useOpenPairing } from "../connections/pairing.js";
 import { focusedPane } from "../grid/layout.js";
 import { useOpenInPane } from "../session/pane-line.js";
@@ -11,7 +11,7 @@ import { useDropTarget } from "./drag.js";
 import { EnvironmentSection, FoldingSection } from "./headings.js";
 import { OrganiseLine, OrganiseProvider, useOrganise } from "./organise.js";
 import { SessionRowView } from "./row.js";
-import { useDraggedRow, useSidebarFilter } from "./window-sidebar.js";
+import { useDraggedRow, useFilterFocus, useSidebarFilter } from "./window-sidebar.js";
 
 /**
  * The sidebar (docs/specs/gui.md, "The window and the sidebar"; #397, #398):
@@ -50,6 +50,8 @@ const Headings = () => {
   const openPairing = useOpenPairing();
   const organise = useOrganise();
   const [filter, setFilter] = useSidebarFilter();
+  const field = useRef<HTMLInputElement>(null);
+  useFilterFocus(field);
   const [dragged] = useDraggedRow();
   const query = filter.trim();
 
@@ -82,7 +84,7 @@ const Headings = () => {
 
   return (
     <nav aria-label="Sessions" className="flex h-full flex-col gap-3 overflow-y-auto bg-inset p-3">
-      <Input type="search" aria-label="Filter the sessions" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <Input ref={field} type="search" aria-label="Filter the sessions" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} />
       <label className="flex items-center gap-2 text-xs text-ink-muted">
         <Switch aria-label="By repository" checked={by === "repositories"} onCheckedChange={(on) => setBy(on ? "repositories" : "groups")} />
         <span>By repository</span>

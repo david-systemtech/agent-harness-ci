@@ -268,6 +268,7 @@ describe("the method registry", () => {
       "permissions.review.seen",
       "permissions.denylist.set",
       "permissions.denylist.restorePresets",
+      "setup.mint",
       "carryOver.run",
       "carryOver.assignMemory",
       "stateImport.run",
@@ -293,6 +294,8 @@ describe("the method registry", () => {
       "skills.carryOver",
       "skills.setAlwaysOn",
       "skills.setEnabled",
+      "skills.sources.add",
+      "skills.sources.remove",
       "trust.decide",
       "trust.revoke",
       "browser.chromes.rename",
@@ -505,6 +508,7 @@ describe("the method registry", () => {
       | "permissions.denylist.restorePresets"
       | "permissions.denylist.test"
       | "setup.check"
+      | "setup.mint"
       | "carryOver.inventory"
       | "carryOver.run"
       | "carryOver.assignMemory"
@@ -553,6 +557,8 @@ describe("the method registry", () => {
       | "skills.carryOver"
       | "skills.setAlwaysOn"
       | "skills.setEnabled"
+      | "skills.sources.add"
+      | "skills.sources.remove"
       | "skills.readiness"
       | "trust.get"
       | "trust.list"

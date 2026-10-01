@@ -4,6 +4,7 @@ import {
   isFolded,
   keepsFold,
   noManualOrder,
+  organiseUsage,
   rowKey,
   stepIn,
   toggleOf,
@@ -21,7 +22,7 @@ import type { Presentation } from "../presentation.js";
 import type { ThemeColours } from "../theme/colours.js";
 import { messageOf, nameOf } from "../view.js";
 import { badgesOf } from "./badge.js";
-import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
+import { RAIL_KEYS, type RailCommand, type RailKey } from "./commands.js";
 import { headingOver, isSelectable, railLines, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
 import { newSessionCard, type CardOpening } from "./new-session.js";
@@ -325,7 +326,8 @@ export const useRail = (options: RailOptions): Rail => {
   };
 
   const run = (command: RailCommand) => {
-    const usage = railUsage(command);
+    // The usage lines are the client runtime's, which the window's session pane says too.
+    const usage = organiseUsage(command.name, command.text);
     if (usage !== undefined) return say(usage);
     const { name, text } = command;
     if (name === "search") return options.open(searchPicker(acts, text));

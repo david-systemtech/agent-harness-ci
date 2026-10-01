@@ -1,5 +1,20 @@
 import { parseArgs } from "node:util";
-import { Ceiling, DISCOVERY_PATH, MODES, PAIRING_PRESET_IDS, PRODUCT_NAME, PairingPresetId, SCOPES, ScopeSet, pairingPreset, presetGrant } from "@agent-harness/contracts";
+import {
+  Ceiling,
+  DISCOVERY_PATH,
+  MODES,
+  NEW_ENVIRONMENT_CHANNEL_VARIABLE,
+  NEW_ENVIRONMENT_NAME_VARIABLE,
+  PAIRING_PRESET_IDS,
+  PRODUCT_NAME,
+  PairingPresetId,
+  RELEASE_CHANNELS,
+  ReleaseChannel,
+  SCOPES,
+  ScopeSet,
+  pairingPreset,
+  presetGrant,
+} from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
   defaultDataDirectory,
@@ -61,19 +76,40 @@ export interface CliContext extends ProcessContext {
   readonly tui?: RunTui;
   /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
-  /** The variables `git-credential` reads; preset: the process's own. */
+  /** The variables `git-credential` reads, and `serve` its new environment's name and channel from; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
 }
 
-const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
+/** A variable's value trimmed, or undefined when it is unset or blank, as the compose file passes one left unset. */
+const given = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed === "" ? undefined : trimmed;
+};
+
+/**
+ * `serve`'s options. A new environment's name is `--name`, else
+ * `AGENT_HARNESS_NAME`, and its channel `AGENT_HARNESS_CHANNEL` (#846): the
+ * variables the published compose file passes into the container. Only the
+ * start that creates the environment uses either.
+ */
+const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel"> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
   const port = parsePort(values.port, 0);
+  const name = values.name ?? given(env[NEW_ENVIRONMENT_NAME_VARIABLE]);
+  const channelValue = given(env[NEW_ENVIRONMENT_CHANNEL_VARIABLE]);
+  let channel: ReleaseChannel | undefined;
+  if (channelValue !== undefined) {
+    const parsed = ReleaseChannel.safeParse(channelValue);
+    if (!parsed.success) throw new UsageError(`${NEW_ENVIRONMENT_CHANNEL_VARIABLE} takes ${RELEASE_CHANNELS.join(" or ")}; got ${channelValue}.`);
+    channel = parsed.data;
+  }
   return {
     ...(values["data-dir"] !== undefined && { dataDir: values["data-dir"] }),
     ...(port !== undefined && { port }),
-    ...(values.name !== undefined && { name: values.name }),
+    ...(name !== undefined && { name }),
+    ...(channel !== undefined && { channel }),
   };
 };
 
@@ -156,7 +192,7 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   let environment: EnvironmentHandle;
   try {
     refusePrivilegedUser(user);
-    const options = parseServe(args);
+    const options = parseServe(args, context.env ?? process.env);
     // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459).
     const underLauncher = context.environment?.launcher?.present() ?? typeof process.send === "function";
     const command = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);

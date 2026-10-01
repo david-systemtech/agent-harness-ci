@@ -36,18 +36,20 @@ const isRecord = (value: unknown): value is EnvironmentRecord => {
 
 /**
  * The environment record in `dataDir`, created on first start with a fresh
- * UUID and `name`. An existing record is kept as it is, its name included:
- * renaming is a command, not a start option. A record that cannot be read is
+ * UUID and `name`, and whether this start created it: what else a new
+ * environment starts with is written at that start alone (its channel,
+ * #846). An existing record is kept as it is, its name included: renaming
+ * is a command, not a start option. A record that cannot be read is
  * refused, never replaced, since replacing it would give the environment a new
  * identity and orphan every saved connection.
  */
-export const loadOrCreateRecord = (dataDir: string, name: string, clock: () => Date): EnvironmentRecord => {
+export const loadOrCreateRecord = (dataDir: string, name: string, clock: () => Date): { readonly record: EnvironmentRecord; readonly created: boolean } => {
   const path = join(dataDir, RECORD_FILE);
   const existing = readJsonFile(path, isRecord, "an environment record");
-  if (existing) return { id: existing.id, createdAt: existing.createdAt, name: existing.name };
+  if (existing) return { record: { id: existing.id, createdAt: existing.createdAt, name: existing.name }, created: false };
   const record: EnvironmentRecord = { id: randomUUID(), createdAt: clock().toISOString(), name };
   writeFileAtomic(path, `${JSON.stringify(record, null, 2)}\n`, 0o600);
-  return record;
+  return { record, created: true };
 };
 
 /**

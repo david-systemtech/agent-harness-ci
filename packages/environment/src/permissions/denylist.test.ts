@@ -705,6 +705,31 @@ describe("the workspace roots", () => {
   });
 });
 
+describe("the routines' scripts directory (#526)", () => {
+  it("stays under the data directory's preset, unlike the workspace roots: an attended run's write there opens a denylist prompt, and an unattended run's is denied", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const script = join(t.env.dataDir, "scripts", "watch.sh");
+    const write: Omit<GatedToolCall, "toolCallId"> = { tool: "Write", summary: "Write watch.sh", access: { kind: "write", paths: [script] }, input: { file_path: script } };
+
+    t.adapter.nextScripts.push(calls(write));
+    const attended = await startRun(client, id, "bypassPermissions");
+    const [prompt] = await untilOpened(t, id);
+    expect(prompt).toMatchObject({ runId: attended.runId, kind: "denylist", denylist: [{ section: "paths", entry: expect.objectContaining({ id: DATA_DIRECTORY_PRESET_ID }), matched: script }] });
+    await answer(client, prompt!.promptId, "deny");
+    await untilEnded(t, id, attended.runId);
+
+    t.adapter.nextScripts.push(calls(write));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
+      ["Write", "denied", "person"],
+      ["Write", "denied", "denylist"],
+    ]);
+  });
+});
+
 describe("the denylist's sections", () => {
   it("are the four the spec names, each held by the environment", async () => {
     const t = await start();

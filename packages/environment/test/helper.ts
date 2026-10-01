@@ -91,6 +91,8 @@ export interface TestEnvironmentOptions {
   /** The harness version the environment runs as; preset: the package's. */
   readonly harnessVersion?: string;
   readonly name?: string;
+  /** The release channel a new environment starts on; preset: none, the setting's preset. */
+  readonly channel?: EnvironmentOptions["channel"];
   /** The machine's hostname, whose first label names a new environment given no `name`; preset: the machine's. */
   readonly hostname?: string;
   /** The operating system an environment's preset icon follows; preset: the machine's. */
@@ -364,6 +366,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
 
   const passed: Partial<EnvironmentOptions> = {
     ...(options.name !== undefined && { name: options.name }),
+    ...(options.channel !== undefined && { channel: options.channel }),
     ...(options.hostname !== undefined && { hostname: options.hostname }),
     ...(options.platform !== undefined && { platform: options.platform }),
     ...(options.timeZone !== undefined && { timeZone: options.timeZone }),
