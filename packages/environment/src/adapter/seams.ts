@@ -91,9 +91,10 @@ export const undecidedTrust: TrustSeam = (place) => ({ key: repositoryKey(place)
 
 /**
  * What a skill set is resolved for (skills spec, "Materialisation and the
- * Claude mapping"): the run's session (null for a commands listing, which
- * has none), its account and workspace, its trust, and the roots the
- * account's adapter loads itself under trust, whose members are native.
+ * Claude mapping"): the run's session (null for a preview of a session not
+ * yet made), its account and workspace, its trust, and the roots the
+ * account's adapter loads itself under trust, whose members are native. A
+ * commands listing is resolved as its session's next run would be (#503).
  */
 export interface SkillSetScope {
   readonly sessionId: string | null;

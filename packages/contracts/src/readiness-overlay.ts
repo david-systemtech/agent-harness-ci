@@ -11,8 +11,9 @@ import type { ReadinessCheck, ReadinessOverlay } from "./readiness.js";
  * `resolving-merge-conflicts`, gone from the repository there and kept for
  * the copies vendored before, which still name it. Each skill's callees are
  * the skills its `SKILL.md` has the model call (the Skill tool, or a `/name`
- * it runs); a skill it only mentions is not one. The secret, mcp and
- * forge-account checks wait for the tickets that evaluate them.
+ * it runs); a skill it only mentions is not one. The tracker-driven
+ * skills, those reading docs/agents/issue-tracker.md, need a forge account
+ * serving the repository's remote (ADR 0012), fixed on the Forges step.
  */
 
 const POCOCK = "https://github.com/mattpocock/skills";
@@ -41,8 +42,15 @@ const TRIAGE_LABELS: ReadinessCheck = {
   fix: SETUP,
 };
 
-/** The tracker-driven skills' first checks. */
-const TRACKER = [ISSUE_TRACKER, AGENT_SKILLS];
+const FORGE_ACCOUNT: ReadinessCheck = {
+  kind: "git",
+  condition: "forge-account",
+  why: "The skill files and reads issues on the repository's forge, which needs a forge account on this environment for it.",
+  fix: "forges",
+};
+
+/** The tracker-driven skills' first checks: the files the setup skill writes, then the forge account the tracker goes through. */
+const TRACKER = [ISSUE_TRACKER, AGENT_SKILLS, FORGE_ACCOUNT];
 
 /** A skill `skill` has the model call: on the Skills step, its folder is tracked. */
 const callee = (skill: string, name: string): ReadinessCheck => ({ kind: "skill", name, why: `${skill} calls the ${name} skill.`, fix: "skills" });

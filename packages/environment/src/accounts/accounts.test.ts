@@ -17,7 +17,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, signedInAs, type FakeAdapter, type FakeAdapterOptions } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, refusal } from "../../test/sessions.js";
+import { create, refusal, workspace } from "../../test/sessions.js";
 import { updateSettings } from "../../test/shelf.js";
 import { scriptedSignIn } from "../../test/signin.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -728,27 +728,30 @@ describe("models.list and commands.list", () => {
     });
   });
 
-  it("lists the provider's commands for an account and workspace without a run, and refuses an adapter without the capability", async () => {
+  it("lists the provider's commands for a session's account and workspace without a run, and refuses an adapter without the capability", async () => {
     const t = await startTestEnvironment({
       accounts: [{ id: "claude-max", provider: "fake" }],
-      adapter: fakeAdapter({ commands: [{ name: "review", description: "Review the branch." }] }),
+      adapter: fakeAdapter({ commands: [{ name: "review", description: "Review the branch.", builtin: false }] }),
     });
     onCleanup(() => t.close());
     const client = await t.client();
-    const workspace = { kind: "directory", path: "/work/agent-harness" } as const;
-    expect(await client.request("commands.list", { workspace })).toEqual({ accountId: "claude-max", commands: [{ name: "review", description: "Review the branch." }] });
-    // Under the workspace's trust and its skill set, as a run there would be: undecided, and the own directory's set, empty (#495, #496).
+    const { id } = await create(client);
+    expect(await client.request("commands.list", { sessionId: id })).toEqual({
+      accountId: "claude-max",
+      entries: [{ kind: "command", name: "review", description: "Review the branch.", builtin: false }],
+    });
+    // Under the session's trust and its skill set, as its next run would be: undecided, and the own directory's set, empty (#495, #496, #503).
     const empty = { generation: null, fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/), members: [], hiddenNativeNames: [] };
     expect(t.adapter.commandListings).toEqual([
       { account: { id: "claude-max", directory: expect.any(String) }, workspace: workspace.path, scope: { trusted: false, skillSet: empty } },
     ]);
     expect(t.adapter.runs).toEqual([]);
-    expect(await refusal(client.request("commands.list", { accountId: "nobody", workspace }))).toMatchObject({ code: "not_found", data: { kind: "account" } });
 
     const bare = await startTestEnvironment({ accounts: [{ id: "claude-max", provider: "fake" }] });
     onCleanup(() => bare.close());
     const other = await bare.client();
-    expect(await refusal(other.request("commands.list", { workspace }))).toMatchObject({ code: "invalid_params", data: { reason: "unsupported", capability: "commands" } });
+    const session = await create(other);
+    expect(await refusal(other.request("commands.list", { sessionId: session.id }))).toMatchObject({ code: "invalid_params", data: { reason: "unsupported", capability: "commands" } });
   });
 
   it("keeps providers.list as #120 registered it: every adapter's descriptor", async () => {

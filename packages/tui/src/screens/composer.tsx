@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { cursorPosition, editorWindow, lines as editorLines, type EditorState } from "../composer/editor.js";
-import type { Popup } from "../composer/state.js";
+import type { CommandRow, Popup } from "../composer/state.js";
 
 /**
  * The composer on screen (docs/specs/tui.md, "The composer"): a box,
@@ -60,6 +60,9 @@ const BufferLine = (props: { readonly text: string; readonly cursor: number | un
   );
 };
 
+/** What a slash menu row says after its usage: its description, marked when the agent's own or a slash-only skill. */
+const rowNote = (row: CommandRow): string => (row.source === "provider" ? `${row.description} · the agent's` : row.slashOnly ? `${row.description} · slash-only` : row.description);
+
 /** The popup's rows, the highlighted one inverse. */
 const PopupRows = (props: { readonly popup: Popup; readonly highlight: number }) => {
   const { popup } = props;
@@ -77,7 +80,7 @@ const PopupRows = (props: { readonly popup: Popup; readonly highlight: number })
         popup.rows.map((row, index) => (
           <Text key={row.name} wrap="truncate-end" inverse={index === props.highlight}>
             {"    "}
-            {row.usage.padEnd(22)} <Text dimColor>{row.provider ? `${row.description} · the agent's` : row.description}</Text>
+            {row.usage.padEnd(22)} <Text dimColor>{rowNote(row)}</Text>
           </Text>
         ))}
       {popup.kind === "mentions" &&

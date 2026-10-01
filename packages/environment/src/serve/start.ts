@@ -43,6 +43,7 @@ import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
+import { chooseChrome } from "../browser/chrome-choice.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
@@ -149,6 +150,7 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -552,8 +554,10 @@ export interface EnvironmentOptions {
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
    * at each run's start (#550); preset: none here, until #555's manager.
-   * And the page drivers the browser tools reach, by kind (#551); preset:
-   * none, each kind answering that it cannot be driven here yet.
+   * And the page drivers the browser tools reach, by kind (#551), each over
+   * its preset: a Chrome paired with this environment is driven by its
+   * extension driver (#552), and every other kind answers that it cannot be
+   * driven here yet.
    */
   readonly browser?: {
     readonly extensionSource?: string;
@@ -627,7 +631,9 @@ export interface EnvironmentHandle {
   readonly forge: ForgeService;
   /**
    * The key-manager connections (#365): the add the state import (ADR
-   * 0036) and the bulk copy call in process, without a credential.
+   * 0036) and the bulk copy call in process, without a credential, and what
+   * a test on a held clock waits on once it has moved the clock (`settled`,
+   * #745).
    */
   readonly keyManagerConnections: KeyManagerConnections;
   /**
@@ -1015,7 +1021,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     environmentId: record.id,
     live: (sessionId) => host.live(sessionId),
-    drivers: options.browser?.drivers ?? {},
+    drivers: {
+      // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
+      // browser when its client closes (#552); another environment's goes through the browser relay (#554).
+      chrome: ({ browser: chrome }) =>
+        chrome.environmentId.toLowerCase() === record.id.toLowerCase()
+          ? browser.driverOf(chrome.chromeId)
+          : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
+      ...options.browser?.drivers,
+    },
+    // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
+    chooseChrome: (ask) =>
+      chooseChrome(
+        { log, environmentId: record.id, environmentName: () => look.read().name },
+        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
+      ),
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
@@ -1033,6 +1053,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The injection seam is the process environment's; the rest are the host's.
   const { injection, ...hostSeams } = options.adapterSeams ?? {};
   const seamServers = hostSeams.toolServers ?? noToolServers;
+  // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
+  // check asks this (#511), since the caller's tools are its request's alone.
+  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
   closers.push(() => knownEnvironments.close());
@@ -1211,7 +1234,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...hostSeams,
       instructions,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
-      toolServers: (scope) => [browserTools(scope), ...seamServers(scope), ...passthrough.toolServers(scope)],
+      toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1395,6 +1418,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
+  // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
+  const checkoutIndex = createCheckoutIndex({ log, availability });
   const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
   closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
@@ -1520,10 +1545,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock: now,
       environmentId: record.id,
+      environmentName: () => look.read().name,
       timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       accounts,
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
+      workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
     }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
@@ -1556,6 +1583,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       place: placeSkillSet({ own: ownSkills, log }),
       hostEnv: options.managedTools?.hostEnv ?? process.env,
       clock,
+      keyManagers,
+      toolServers: runServers,
+      forgeAccounts: () => forge.list(),
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
@@ -1861,7 +1891,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {
-      checkoutIndex: createCheckoutIndex({ log, availability }),
+      checkoutIndex,
       identityPass: identityPasses.resolved,
       availabilityPass: availabilityPasses.pass,
       reaped: () => reaper.settled(),

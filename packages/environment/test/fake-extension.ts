@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   BRIDGE_PROTOCOL_VERSION,
   EXTENSION_ORIGIN,
+  PAGE_VERBS,
   PORT_FILE_NAME,
   PortFile,
   bridgeUrl,
@@ -14,6 +15,7 @@ import {
   type BridgeFromEnvironment,
   type BridgeFromExtension,
   type PageCallOf,
+  type PageDriver,
   type PageOutcome,
   type PageResult,
   type PageVerb,
@@ -30,8 +32,9 @@ import { CONNECT_MS, WAIT_MS } from "./wire-client.js";
  * environment calls from a script. It pairs with a code on an announced
  * socket and proves a pairing on a later one (#548), and `fakeChrome` keeps
  * what a pairing gave it across its sockets, as the extension's storage
- * does, until a refusal takes it back. The verbs a paired Chrome answers
- * (#552) extend it.
+ * does, until a refusal takes it back. A paired Chrome answers the verbs
+ * the extension driver calls (#552) from its script, which `answeringFrom`
+ * makes of a scripted page driver.
  */
 
 /** The built extension a test environment carries unless told otherwise: a manifest and a worker. */
@@ -67,6 +70,10 @@ export type VerbAnswer<V extends PageVerb> = (call: PageCallOf<V>) => PageResult
 
 /** The fake's script: an answer for each verb it is to answer; any other is refused with a sentence naming it. */
 export type ExtensionScript = { readonly [V in PageVerb]?: VerbAnswer<V> };
+
+/** A script answering every verb as `driver` does: a scripted page driver, which records each call and keeps a tab per page key. */
+export const answeringFrom = (driver: PageDriver): ExtensionScript =>
+  Object.fromEntries(PAGE_VERBS.map((verb) => [verb, (call: PageCallOf<PageVerb>) => driver.perform(call)])) as ExtensionScript;
 
 export interface DialOptions {
   /** The Origin the upgrade carries; preset the extension's, `EXTENSION_ORIGIN`. Null sends none. */

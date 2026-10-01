@@ -34,8 +34,12 @@ const remotesIn = (listing: string): Map<string, string> => {
   return remotes;
 };
 
-/** The URL of the remote an identity comes from: `origin`, else the only one, else the first by name. */
-const chosenRemote = (remotes: ReadonlyMap<string, string>): string | undefined => {
+/**
+ * The URL of the remote an identity comes from, in `git remote --verbose`'s listing: `origin`, else the only one,
+ * else the first by name; undefined for a repository with none. Readiness's forge-account check reads the same one.
+ */
+export const identityRemote = (listing: string): string | undefined => {
+  const remotes = remotesIn(listing);
   if (remotes.has("origin")) return remotes.get("origin");
   const [first] = [...remotes.keys()].sort();
   return first === undefined ? undefined : remotes.get(first);
@@ -53,6 +57,6 @@ export const readRepositoryIdentity = async (path: string, options: RepositoryId
   const answer = await runGit(path, ["remote", "--verbose"], { maxBytes: REMOTES_BYTES, ...(options.timeoutMs !== undefined && { timeoutMs: options.timeoutMs }) });
   // A git stopped at the timeout or the cap may have listed only some remotes, `origin` perhaps not among them.
   if (!answer.ok || answer.truncated) return null;
-  const remote = chosenRemote(remotesIn(answer.stdout.toString("utf8")));
+  const remote = identityRemote(answer.stdout.toString("utf8"));
   return remote === undefined ? null : repositoryIdentityOf(remote, options.forgeAccounts);
 };

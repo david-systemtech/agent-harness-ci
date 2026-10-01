@@ -1,0 +1,654 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoutineDocument",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "routine",
+      "description": "What the document is: a routine."
+    },
+    "version": {
+      "type": "number",
+      "const": 1,
+      "description": "The document format's version."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:[^\\p{Cc}\\p{Cf}]{0,38}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+      "description": "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether the scheduler fires it; run now works either way."
+    },
+    "schedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "manual"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "hourly"
+            },
+            "minute": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 59,
+              "description": "The minute past each hour it is due, 0 to 59."
+            }
+          },
+          "required": [
+            "kind",
+            "minute"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "daily"
+            },
+            "at": {
+              "type": "string",
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "description": "When in the day it is due, HH:MM in the routine's zone."
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "weekdays"
+            },
+            "at": {
+              "type": "string",
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "description": "When in the day it is due, HH:MM in the routine's zone."
+            }
+          },
+          "required": [
+            "kind",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "weekly"
+            },
+            "day": {
+              "type": "string",
+              "enum": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+              ],
+              "description": "A day of the week, named in English and lower case: monday to sunday."
+            },
+            "at": {
+              "type": "string",
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "description": "When in the day it is due, HH:MM in the routine's zone."
+            }
+          },
+          "required": [
+            "kind",
+            "day",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "days"
+            },
+            "days": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "monday",
+                  "tuesday",
+                  "wednesday",
+                  "thursday",
+                  "friday",
+                  "saturday",
+                  "sunday"
+                ],
+                "description": "A day of the week, named in English and lower case: monday to sunday."
+              },
+              "uniqueItems": true,
+              "description": "The days it is due, each once."
+            },
+            "at": {
+              "type": "string",
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "description": "When in the day it is due, HH:MM in the routine's zone."
+            }
+          },
+          "required": [
+            "kind",
+            "days",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "monthly"
+            },
+            "day": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31,
+              "description": "The day of the month, 1 to 31; a month without it is skipped."
+            },
+            "at": {
+              "type": "string",
+              "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+              "description": "When in the day it is due, HH:MM in the routine's zone."
+            }
+          },
+          "required": [
+            "kind",
+            "day",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "cron"
+            },
+            "expression": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form (cases/schedule-validation.json)."
+            }
+          },
+          "required": [
+            "kind",
+            "expression"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression. Refused as invalid_params, the issue's params naming the rule schedule and its reason, when the schedule maths refuses it (cases/schedule-validation.json): a cron expression it cannot read or that is never due, or due times that can fall under five minutes apart."
+    },
+    "timezone": {
+      "description": "An IANA time zone's name the importing environment's zone data knows; that environment's own zone when absent.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z][A-Za-z0-9_+\\-/]*$"
+    },
+    "if-missed": {
+      "default": "run-once",
+      "type": "string",
+      "enum": [
+        "run-once",
+        "skip"
+      ],
+      "description": "What a routine does with due times its environment missed: run-once (the latest fires once when the environment is back, within seven days) or skip (each is skipped missed)."
+    },
+    "workspace": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "directory"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^(?:~(?:[\\\\/]|$)|\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "The directory on the environment's machine: an absolute path, or one starting ~ for the environment's home."
+            },
+            "repository-identity": {
+              "description": "The repository identity the workspace resolved to when the routine was saved, which an import re-resolves a path not usable there by; none when absent or null, and the environment records its own when it saves the routine.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                  "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "additionalProperties": false,
+          "description": "A directory the environment has: recorded at its absolute path, ~ expanded to the environment's home, . and .. resolved as written and symlinks kept; refused workspace_unusable, with its problem, when the environment cannot use it."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "worktree"
+            },
+            "repository": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "Any path inside the repository; the worktree is made from its main checkout."
+            },
+            "branch": {
+              "description": "An existing local branch to check out in the worktree.",
+              "type": "string",
+              "minLength": 1
+            },
+            "new-branch": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "description": "The new branch's name; agent-harness/ and the session id's first eight characters when absent.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "base": {
+                  "description": "The ref the branch starts from, any ref; the main checkout's HEAD when absent.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            },
+            "repository-identity": {
+              "description": "The repository identity the workspace resolved to when the routine was saved, which an import re-resolves a path not usable there by; none when absent or null, and the environment records its own when it saves the routine.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                  "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "repository"
+          ],
+          "additionalProperties": false,
+          "description": "A worktree the environment makes from a repository it has: from its main checkout (or bare repository), under the environment's worktrees root, locked for the session, with the ignored files the checkout's .worktreeinclude names copied in; on an existing branch, or on a new one (the new branch with its presets when neither is named), nothing fetched. Refused with the reason git's answer gives: not_a_repository, git_unavailable, no_commits, git_filters_refused, branch_exists, branch_not_found, branch_checked_out or git_failed.",
+          "not": {
+            "required": [
+              "branch",
+              "new-branch"
+            ],
+            "properties": {
+              "branch": true,
+              "new-branch": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "scratch"
+            },
+            "repository-identity": {
+              "description": "The repository identity the workspace resolved to when the routine was saved, which an import re-resolves a path not usable there by; none when absent or null, and the environment records its own when it saves the routine.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+                  "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "description": "A scratch directory made per firing."
+        }
+      ],
+      "description": "Where the routine's firings run: a directory, a worktree made per firing, or a scratch directory made per firing, with the repository identity it resolved to when saved."
+    },
+    "account": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$",
+              "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+            },
+            "email": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The login's email, as the provider's status reports it."
+            },
+            "organisation": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The organisation the login belongs to, when the provider reports one."
+            }
+          },
+          "required": [
+            "provider",
+            "email",
+            "organisation"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The account a firing runs on, by identity; null for the environment's default account at each firing."
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The model a firing's runs use; null for the strongest of accounts.defaultModelFamily."
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The reasoning effort a firing's runs take; null for accounts.defaultEffort."
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "plan",
+            "acceptEdits",
+            "auto",
+            "bypassPermissions"
+          ],
+          "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The mode a firing's runs ask for, clamped to the ceiling it was saved under; null for permissions.unattended.mode."
+    },
+    "containment": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "off",
+            "workspace",
+            "workspace-no-network"
+          ],
+          "description": "Where a run may reach: off (nothing applied), workspace (writes only inside the workspace), workspace-no-network (and no network for the model's commands and fetches)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The containment level of a firing's session; null for permissions.containment.default."
+    },
+    "injection": {
+      "default": "inherit",
+      "type": "string",
+      "enum": [
+        "inherit",
+        "allow",
+        "deny"
+      ],
+      "description": "Whether a firing's runs and pre-check get the environment's credential injection, the forge variables and the credential helper among it: inherit (as the environment's setting says), allow or deny."
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "maxLength": 64
+      },
+      "uniqueItems": true,
+      "description": "Names from the skill set, each once, loaded always-on for a firing's runs."
+    },
+    "pre-check": {
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "script"
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^(?![\\\\/~]|[A-Za-z]:)",
+                  "description": "A script's path relative to the environment's scripts directory; it must stay inside that directory once links are followed, which the environment checks at each firing."
+                },
+                "timeout-seconds": {
+                  "default": 60,
+                  "description": "How long the script may run before its process tree is killed, 1 to 600 seconds; 60 when absent.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 600
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ],
+              "additionalProperties": false,
+              "description": "A script in the environment's scripts directory, run with no arguments; its standard output is the pre-check's output."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "url"
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 2048,
+                  "pattern": "^https?:\\/\\/",
+                  "description": "The URL fetched with a GET; its body is the pre-check's output."
+                }
+              },
+              "required": [
+                "kind",
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "What runs before each firing, whose unchanged output skips the model: a script in the scripts directory, or a URL."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What runs before each firing, a script's timeout preset when absent; null for none, so every due time fires."
+    },
+    "silent-marker": {
+      "default": "[SILENT]",
+      "description": "The final text that delivers nothing: 1 to 64 characters; [SILENT] when absent.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "max-duration-minutes": {
+      "default": 60,
+      "description": "How long a firing may run before its live run is interrupted: 1 to 1,440 minutes; 60 when absent.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440
+    },
+    "delivery": {
+      "default": [
+        {
+          "kind": "client-notice",
+          "on": "both"
+        }
+      ],
+      "description": "Where a firing's result goes: up to 8 targets, a webhook's by its endpoint's name; one client notice on both when absent.",
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "client-notice"
+              },
+              "on": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failure",
+                  "both"
+                ],
+                "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+              }
+            },
+            "required": [
+              "kind",
+              "on"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "webhook"
+              },
+              "target": {
+                "type": "string",
+                "pattern": "^[a-z0-9-]{1,40}$",
+                "description": "The endpoint's name on the routine's environment, which holds its URL and secret."
+              },
+              "on": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failure",
+                  "both"
+                ],
+                "description": "Which results a delivery target takes: success (a succeeded firing), failure (a failed firing or a failing skip), or both."
+              }
+            },
+            "required": [
+              "kind",
+              "target",
+              "on"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "Where a firing's result goes, and which results it takes: a client notice, or a signed webhook to a named endpoint."
+      }
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000,
+      "description": "What a firing's run is asked to do: 1 to 100,000 characters, after the header the environment writes."
+    }
+  },
+  "required": [
+    "kind",
+    "version",
+    "name",
+    "enabled",
+    "schedule",
+    "workspace",
+    "account",
+    "model",
+    "effort",
+    "mode",
+    "containment",
+    "skills",
+    "pre-check",
+    "instructions"
+  ],
+  "additionalProperties": false,
+  "description": "One routine as a YAML document carries it, kebab-case keys: kind routine and version 1, then its definition with no id, environment, saved ceiling, history, baseline, lineage or secret. A key it does not know is refused; what has a preset may be left out, and a zone left out is the importing environment's."
+}

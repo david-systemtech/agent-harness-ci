@@ -435,6 +435,41 @@ describe("the request cache", () => {
     expect([asked(), reads.get, reads.list]).toEqual([1, 3, 3]);
   });
 
+  it("fetches a session's commands.list again on skills.updated, trust.updated, a forge account's aliases or an account changing, and no other query (#503)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    const tdd = { kind: "skill", name: "tdd", description: "Test-driven development.", invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: null };
+    wire.answer("commands.list", () => {
+      reads++;
+      return { result: { accountId: "claude-max", entries: reads > 1 ? [tdd] : [] } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const listing = runtime.requests.cached(id, "commands.list", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
+    listing.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    // The set changed: a member added, switched off or made always-on.
+    environment?.event(noticeEvent(1, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(listing.read()).toMatchObject({ result: { entries: [tdd] }, error: null });
+    // The session's trust changed, and with it the repository's members and the provider's own commands.
+    environment?.event(noticeEvent(2, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
+    // The account's choices, or the default account a session on none lists, changed.
+    environment?.event(noticeEvent(4, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 5]);
+    environment?.event(noticeEvent(5, wire.environmentId, "instructions.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 5]);
+  });
+
   it("fetches browser.status again on extension.seen, and no other query (#547)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;

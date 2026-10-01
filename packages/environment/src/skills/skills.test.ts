@@ -77,10 +77,10 @@ describe("the own directory", () => {
 });
 
 describe("the reader", () => {
-  it("reads each folder of skills/ holding SKILL.md as one member: its name, description, invocation, user-invocable flag, body size and approximate tokens, and the keys that act while it is active", async () => {
+  it("reads each folder of skills/ holding SKILL.md as one member: its name, description, invocation, user-invocable flag, argument hint, body size and approximate tokens, and the keys that act while it is active", async () => {
     const { client } = await start();
     const own = (await get(client)).ownDirectory;
-    write(join(own, "skills", "tdd", "SKILL.md"), skill("name: tdd\ndescription: Test-driven development.", "Red, then green.\n"));
+    write(join(own, "skills", "tdd", "SKILL.md"), skill("name: tdd\ndescription: Test-driven development.\nargument-hint: [feature]", "Red, then green.\n"));
     write(join(own, "skills", "tdd", "scripts", "run.sh"), "#!/bin/sh\n");
     write(join(own, "skills", "handoff", "SKILL.md"), skill("name: handoff\ndescription: >\n  Hand the conversation off\n  to a fresh agent.\ndisable-model-invocation: true\nuser-invocable: false", "x".repeat(4210)));
     write(join(own, "skills", "guarded", "SKILL.md"), skill("name: guarded\ndescription: Runs a check.\nallowed-tools: Bash(git status:*)\nhooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - type: command\n          command: ./check.sh"));
@@ -93,6 +93,7 @@ describe("the reader", () => {
       description: "Test-driven development.",
       invocation: "model+slash",
       userInvocable: true,
+      argumentHint: "[feature]",
       whileActive: [],
       origin: null,
       layer: { kind: "own" },
@@ -289,6 +290,7 @@ describe("skills.own.create", () => {
       description: "Test-driven development: red, then green.",
       invocation: "model+slash",
       userInvocable: true,
+      argumentHint: null,
       whileActive: [],
       origin: null,
       layer: { kind: "own" },

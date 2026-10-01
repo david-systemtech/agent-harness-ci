@@ -95,9 +95,10 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * (`statusReads`), and the fake names a directory of its own for
  * `accounts.adopt` (`ambientDirectory`), one that is not there unless a
  * test gives it one. It lists commands when a test gives it some, and
- * then, as Claude lists them, each member of the skill set it is handed:
- * `agent-harness:<name>` for one the generation links, `<name>` for a
- * native one; every listing is recorded with its scope (#495). A member's
+ * then, as Claude lists them, each member of the skill set it is handed
+ * that a person may invoke: `agent-harness:<name>` for one the generation
+ * links, `<name>` for a native one; every listing is recorded with its
+ * scope (#495). A member's
  * invocation text is Claude's too. It lists an account directory's
  * sessions for Carry over when a test scripts them (`sessions`, #578).
  *
@@ -203,8 +204,12 @@ export interface FakeAdapterOptions {
   readonly status?: (account: AccountRef) => AuthStatus | Promise<AuthStatus>;
   /** The machine's own directory for the fake provider (`accounts.adopt`). Preset: a path that is not there. */
   readonly ambientDirectory?: string | null;
-  /** Declares `commands` with these commands, recording each listing. Preset: not declared. */
-  readonly commands?: readonly ProviderCommand[];
+  /**
+   * Declares `commands` with these commands, or those a function answers for
+   * the scope the host resolved (a trusted repository's own, say), recording
+   * each listing. Preset: not declared.
+   */
+  readonly commands?: readonly ProviderCommand[] | ((scope: CommandsScope) => readonly ProviderCommand[]);
   /**
    * Declares `sessionListing`: the sessions each account's directory holds,
    * given, or read per account from a function that may answer later or
@@ -309,6 +314,7 @@ export interface CommandListing {
 const listedMember = (member: RunSkillSetMember): ProviderCommand => ({
   name: member.native ? member.name : `${SKILL_PLUGIN_NAME}:${member.name}`,
   description: `The skill set's ${member.name}.`,
+  builtin: false,
 });
 
 /** A user title the environment mirrored into the provider's own title field. */
@@ -992,7 +998,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     ...(options.commands !== undefined && {
       commands: async (account: AccountRef, workspace: { readonly path: string }, scope: CommandsScope) => {
         commandListings.push({ account, workspace: workspace.path, scope });
-        return [...(options.commands ?? []), ...scope.skillSet.members.map(listedMember)];
+        const own = typeof options.commands === "function" ? options.commands(scope) : (options.commands ?? []);
+        // Claude's CLI leaves a member a person may not invoke out of its listing (measured on 2.1.283, #503).
+        return [...own, ...scope.skillSet.members.filter((member) => member.userInvocable).map(listedMember)];
       },
     }),
     ...(listed !== undefined && {

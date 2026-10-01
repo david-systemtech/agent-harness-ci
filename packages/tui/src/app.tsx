@@ -24,6 +24,7 @@ import {
   runOneOff,
   sendMessage,
   shellLine,
+  slashMenuRows,
   stopCall,
   transcriptRows,
   ttlWords,
@@ -33,6 +34,7 @@ import {
   withdrawQueued,
   workspaceLabel,
   type BrowseRow,
+  type ClientCommandRow,
   type Clock,
   type EnvironmentView,
   type GrantReader,
@@ -52,6 +54,7 @@ import {
   actionById,
   isCommandId,
   type AttachmentInput,
+  type CommandsListEntry,
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
@@ -371,16 +374,19 @@ const DEAF = "this build of Ink does not hand the pane its keys.";
 
 const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () => () => undefined };
 
-/** The slash menu's rows: the commands this build answers, from the shared list, then the provider's own. */
-const commandRows = (provider: readonly { readonly name: string; readonly description: string }[]): readonly CommandRow[] => {
+/**
+ * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
+ * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
+ */
+const commandRows = (listed: readonly CommandsListEntry[]): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
-    .map((id): CommandRow => {
+    .map((id): ClientCommandRow => {
       const action = actionById(id);
-      return { name: id.slice("command.".length), usage: action?.usage ?? `/${id.slice(8)}`, description: action?.description ?? "", provider: false };
+      return { name: id.slice("command.".length), usage: action?.usage ?? `/${id.slice(8)}`, description: action?.description ?? "" };
     });
   const taken = new Set(own.map((row) => row.name));
-  return [...own, ...provider.filter((c) => !taken.has(c.name)).map((c): CommandRow => ({ name: c.name, usage: `/${c.name}`, description: c.description, provider: true }))];
+  return slashMenuRows(own, listed, (name) => taken.has(name));
 };
 
 export const App = (props: AppProps) => {
@@ -762,7 +768,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.providerCommands),
+      commands: commandRows(session.listedCommands),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],

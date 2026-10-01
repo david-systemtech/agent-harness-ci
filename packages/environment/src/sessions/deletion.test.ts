@@ -267,6 +267,7 @@ describe("a deleted session", () => {
     "skills.get": { sessionId },
     "skills.readiness": { sessionId },
     "trust.get": { sessionId },
+    "commands.list": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */
