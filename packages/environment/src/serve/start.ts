@@ -178,7 +178,7 @@ import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
-import { knownRepositoryIdentities } from "../sessions/session-tables.js";
+import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
@@ -1739,7 +1739,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...bankMethods(bankService),
-    "banks.drafts.list": async ({ sessionId, bankId }) => ({ queues: listBankDrafts({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId, bankId) }),
+    "banks.drafts.list": async ({ sessionId, bankId }) => {
+      const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+      const session = readSessionFacts(log, reader, sessionId);
+      if (session === null || session.deleted) {
+        throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
+      }
+      return { queues: listBankDrafts(reader, sessionId, bankId) };
+    },
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
