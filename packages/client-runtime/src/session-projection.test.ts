@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
+import { deltaShown, holdBackLastOf } from "../../environment/test/delta-hold-back.js";
 import { end, gate, say, toldText, type Script } from "../../environment/test/fake-adapter.js";
 import { workspace } from "../../environment/test/sessions.js";
 import { until, useHarness } from "../test/harness.js";
@@ -40,6 +41,7 @@ describe("a run the fake adapter plays", () => {
       yield end();
     };
     const t = await harness.environment({ name: "desk" });
+    holdBackLastOf(t, "Look");
     t.adapter.nextScripts.push(script);
     const shell = fakeShell();
     const runtime = harness.runtime(inMemoryPlatform({ shell }));
@@ -70,7 +72,11 @@ describe("a run the fake adapter plays", () => {
     const view = (): SessionProjection => session.read();
 
     // The first delta is an open item, streaming.
-    await until(() => view().items.some((item) => item.kind === "assistant-text"), "the first delta");
+    const replyText = (): string => {
+      const reply = view().items.find((item) => item.kind === "assistant-text");
+      return reply?.kind === "assistant-text" ? reply.text : "";
+    };
+    await deltaShown(t, "Look", (prefix) => until(() => replyText().startsWith(prefix), `the first delta to show ${prefix}`));
     expect(await started).toMatchObject({ ok: true });
     expect(view().items.find((item) => item.kind === "assistant-text")).toMatchObject({ itemId: "i-1", text: "Look", streaming: true });
     expect(view().runs).toEqual([expect.objectContaining({ state: "running", reason: null })]);
