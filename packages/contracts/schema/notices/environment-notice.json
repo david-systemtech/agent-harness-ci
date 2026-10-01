@@ -959,6 +959,64 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "denylist.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "sections": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "browserDomains",
+                  "paths",
+                  "commandPatterns",
+                  "hosts"
+                ],
+                "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+              },
+              "uniqueItems": true,
+              "description": "The sections that changed, each once, in section order."
+            }
+          },
+          "required": [
+            "sections"
+          ],
+          "description": "denylist.updated: the denylist changed and has committed; the sections that did, which a client reads again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The denylist changed through permissions.denylist.set or restorePresets, in the transaction of the access log's denylist.changed events: the sections that changed, whose entries and counts a client reads again."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "review.updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "description": "review.updated: the Unattended review changed and has committed; a client reads permissions.review.list again."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The Unattended review changed once something committed: a run it lists was decided in, it was seen, or a session holding runs it lists was deleted or restored; a client reads permissions.review.list again."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "forge.account.added"
         },
         "payload": {

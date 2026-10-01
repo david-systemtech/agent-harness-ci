@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { setOf } from "./primitives.js";
 
 /**
  * The denylist (permissions spec, "The denylist"; ADR 0006, ADR 0014): one
@@ -209,6 +210,24 @@ export const DenylistChangedPayload = z
   })
   .meta({ description: "denylist.changed: a section of the denylist changed; the entries added, removed and edited, and the section after." });
 export type DenylistChangedPayload = z.infer<typeof DenylistChangedPayload>;
+
+/**
+ * The `denylist.updated` notice on the environment's own stream (#811): the
+ * denylist changed through `permissions.denylist.set` or `restorePresets`,
+ * appended in that command's transaction after its `denylist.changed`
+ * events, naming the sections they changed. The access log, where the
+ * change itself is, is a stream no client follows; this says to every
+ * connected client that its cached `permissions.denylist.get` and
+ * `permissions.settings.get` (whose section counts it changes) are stale.
+ */
+export const DenylistUpdatedPayload = z
+  .object({
+    sections: setOf(DenylistSection)
+      .min(1)
+      .meta({ description: "The sections that changed, each once, in section order." }),
+  })
+  .meta({ description: "denylist.updated: the denylist changed and has committed; the sections that did, which a client reads again." });
+export type DenylistUpdatedPayload = z.infer<typeof DenylistUpdatedPayload>;
 
 // ---------------------------------------------------------------------------
 // The presets

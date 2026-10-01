@@ -89,6 +89,16 @@
     },
     {
       "type": "string",
+      "const": "denylist.updated",
+      "description": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again."
+    },
+    {
+      "type": "string",
+      "const": "review.updated",
+      "description": "The Unattended review changed; a client reads permissions.review.list again."
+    },
+    {
+      "type": "string",
       "const": "forge.account.added",
       "description": "A forge account was added; a client refreshes what it caches of the forge accounts."
     },
