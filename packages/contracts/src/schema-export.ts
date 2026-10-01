@@ -640,6 +640,7 @@ import {
   WebhookEntry,
   WebhookPayload,
 } from "./routines.js";
+import { RoutineDocument } from "./routine-document.js";
 import { RoutineDay, RoutineSchedule, RoutineTime, RoutineTimeZone, ScheduleIssueParams, WrittenTimeZone } from "./schedule.js";
 import { SCHEDULE_DUE_TIME_CASES, SCHEDULE_VALIDATION_CASES } from "./schedule-cases.js";
 import {
@@ -1408,6 +1409,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "routines/conflict-reason.json", title: "RoutineConflictReason", schema: RoutineConflictReason },
   { path: "routines/import-warnings.json", title: "RoutineImportWarnings", schema: RoutineImportWarnings },
   { path: "routines/import-check.json", title: "RoutineImportCheck", schema: RoutineImportCheck },
+  { path: "routines/document.json", title: "RoutineDocument", schema: RoutineDocument },
   { path: "errors/denylisted.json", title: "DenylistedError", schema: DenylistedError },
   { path: "errors/output_too_large.json", title: "OutputTooLargeError", schema: OutputTooLargeError },
   { path: "setup/step-id.json", title: "StepId", schema: StepId },

@@ -60,7 +60,10 @@ export const systemDriverClock: DriverClock = {
 export interface FrameArrival {
   readonly url: string;
   readonly topLevel: boolean;
-  /** The IP address the document came from (`Network.responseReceived`'s `remoteIPAddress`); absent while `Network` is off. */
+  /**
+   * The IP address the document came from (`Network.responseReceived`'s `remoteIPAddress`): absent while `Network` is off,
+   * and for a document that had no response of its own (about:blank, a `srcdoc` frame).
+   */
   readonly servedFrom?: string;
 }
 
@@ -142,8 +145,8 @@ export class CdpPage {
   private readonly setups = new Set<Promise<void>>();
   private readonly worlds = new Map<string, { readonly loaderId: string; readonly contextId: Promise<number> }>();
   private readonly waiters = new Set<() => void>();
-  /** Where each frame's latest document was served from, while `Network` is on. */
-  private readonly servedFrom = new Map<string, string>();
+  /** Where each frame's latest document response was served from, and the document (its loader) it was for, while `Network` is on. */
+  private readonly servedFrom = new Map<string, { readonly loaderId: string; readonly address: string }>();
   /** The lifecycle events the top frame's current document has sent. */
   private readonly lifecycle = new Map<string, Set<string>>();
   private mainFrameId = "";
@@ -577,7 +580,9 @@ export class CdpPage {
       this.refuse({ ok: false, reason: `The page went to ${url}, on the Chrome Web Store, where Chrome lets no extension read or act, so it was stopped at about:blank.` });
       return;
     }
-    const servedFrom = this.servedFrom.get(frameId);
+    // A response for another document of the frame (the one before, or one that never committed) says nothing of this one.
+    const served = this.servedFrom.get(frameId);
+    const servedFrom = served !== undefined && served.loaderId === this.frames.get(frameId)?.loaderId ? served.address : undefined;
     const ruled = this.options.addressRule?.({ url, topLevel, ...(servedFrom !== undefined && { servedFrom }) });
     if (ruled) {
       this.refuse({ ok: false, reason: `${ruled} The page was stopped at about:blank.` });
@@ -759,7 +764,9 @@ export class CdpPage {
     // A document's response comes before it commits, where the judge reads where it was served from.
     if (event.method === "Network.responseReceived" && params.type === "Document") {
       const remote = (params.response as { remoteIPAddress?: string }).remoteIPAddress;
-      if (typeof remote === "string" && typeof params.frameId === "string") this.servedFrom.set(params.frameId, remote);
+      if (typeof remote === "string" && typeof params.frameId === "string" && typeof params.loaderId === "string") {
+        this.servedFrom.set(params.frameId, { loaderId: params.loaderId, address: remote });
+      }
     }
     if (event.method === "Network.requestWillBeSent") {
       const previous = this.requests.get(key);

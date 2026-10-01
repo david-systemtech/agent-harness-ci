@@ -835,7 +835,9 @@ export type RoutineImportWarnings = z.infer<typeof RoutineImportWarnings>;
 export const RoutineImportCheck = z
   .object({
     index: z.int().nonnegative().meta({ description: "The document's place in the file, from 0." }),
-    definition: RoutineDefinition.nullable().meta({ description: "The definition as it would be saved; null when an issue refuses it." }),
+    definition: RoutineDefinition.nullable().meta({
+      description: "The definition as it would be saved, its workspace placed on this environment; null when the document does not read as a routine. A name another routine holds is an issue beside it.",
+    }),
     issues: z.array(SchemaIssue).meta({ description: "What is wrong in the document, each at its path; empty when nothing is." }),
     warnings: RoutineImportWarnings,
   })
