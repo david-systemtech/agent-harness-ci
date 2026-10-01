@@ -123,9 +123,11 @@ const TopicName = z.string().regex(SLUG).meta({ description: "A topic's name: a 
  * A scope folder as a pointer names it (ADR 0013, ADR 0037): `org/`,
  * `org/project/` or `org/project/area/`, relative to `projects/`.
  */
+export const SCOPE_FOLDER = /^[^/\s:]+\/(?:[^/\s:]+\/){0,2}$/;
+
 const ScopeFolder = z
   .string({ error: "folder names a scope folder: org/, org/project/ or org/project/area/." })
-  .regex(/^[^/\s:]+\/(?:[^/\s:]+\/){0,2}$/, { error: "folder names a scope folder: org/, org/project/ or org/project/area/." })
+  .regex(SCOPE_FOLDER, { error: "folder names a scope folder: org/, org/project/ or org/project/area/." })
   .meta({ description: "A scope folder as a pointer names it, relative to projects/: org/, org/project/ or org/project/area/, ending in a slash." });
 
 /** An entity a bank holds facts about (ADR 0010, ADR 0034): its name, the aliases a match reads, and the folder a match expands. */

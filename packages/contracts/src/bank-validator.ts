@@ -11,6 +11,7 @@ import {
   ORIENTATION_CAPS,
   RETIRED_KEYS,
   SCOPE_FILES,
+  SCOPE_FOLDER,
   SCOPE_LABELS,
   ScopeFile,
   TRIGGER_WORDS,
@@ -33,7 +34,9 @@ import { REGISTERED_VALUE_RULE, SHAPE_RULES, shapeRuleHits, type SecretRule } fr
  * It reads `BANK.md` and the Markdown files under `projects/`: the folder
  * files `ORG.md`, `PROJECT.md` and `AREA.md`, and the memories under a
  * project's or an area's `memories/`, a declared topic one folder deeper.
- * Every other file is a document it leaves alone.
+ * Every other file is a document it leaves alone. Two banks claiming one
+ * alias is the BankService's warning, which sees both banks; one bank's
+ * validator does not.
  */
 
 /** A bank's files by path from its root, `/`-separated, each its text. */
@@ -129,7 +132,7 @@ const issues = (schema: z.ZodType, data: unknown): { readonly path: readonly Pro
   return parsed.error.issues.map((issue) => ({ path: issue.path, field: fieldOf(issue.path), message: issue.message, missing: at(data, issue.path) === undefined, code: issue.code }));
 };
 
-/** The folder a memory's index line is in: its project's or area's `memories/`, or a topic in it. */
+/** A memory's file and where it sits: its scope folder, and its topic when it is one folder deeper. */
 interface MemoryFile {
   readonly path: string;
   /** Its scope folder, `projects/<org>/<project>/` or `projects/<org>/<project>/<area>/`. */
@@ -206,15 +209,33 @@ const listed = (items: readonly string[]): string => (items.length < 2 ? items.j
 /** What a secret finding says the file held, by the rule that found it. */
 const heldWhat = (rule: SecretRule): string => (rule === REGISTERED_VALUE_RULE ? "a secret this environment holds" : (SHAPE_RULES.find((shape) => shape.id === rule)?.label ?? "a secret"));
 
+/** A memory's file as read, beside where it sits. */
+type ReadMemory = MemoryFile & { readonly file: Read };
+
+/** What every part of the validation reads and how it reports. */
+interface Context {
+  readonly files: BankFiles;
+  readonly tree: Tree;
+  readonly memories: readonly ReadMemory[];
+  /** Each memory name in the bank, with the files that carry it. */
+  readonly names: ReadonlyMap<string, readonly string[]>;
+  readonly add: (rule: BankRuleId, path: string, message: string, field?: string, secret?: SecretRule) => void;
+  /** Refuses the first of `fields` holding a secret, by its rule and field, never its value. */
+  readonly scan: (path: string, fields: Readonly<Record<string, string>>) => void;
+}
+
+const fieldsOf = (file: Read): Record<string, string> => (file.ok ? { frontmatter: file.frontmatter, body: file.body } : { text: file.text });
+
+const NO_IDENTITY = "which is no repository identity: write https://<host>/<owner>/<name> in lower case.";
+
 const findingsOf = (files: BankFiles, registeredValues: readonly string[]): BankFinding[] => {
   const found: BankFinding[] = [];
-  const add = (rule: BankRuleId, path: string, message: string, field?: string, secret?: SecretRule): void => {
+  const add: Context["add"] = (rule, path, message, field, secret) => {
     found.push(finding(rule, path, message, field, secret));
   };
   const values = registeredValues.filter((value) => value.length > 0);
   const secretIn = (text: string): SecretRule | null => (values.some((value) => text.includes(value)) ? REGISTERED_VALUE_RULE : (shapeRuleHits(text)[0]?.rule ?? null));
-  /** The first of `fields` holding a secret, refused by its rule and field, never its value. */
-  const scan = (path: string, fields: Readonly<Record<string, string>>): void => {
+  const scan: Context["scan"] = (path, fields) => {
     for (const [field, text] of Object.entries(fields)) {
       const rule = secretIn(text);
       if (rule === null) continue;
@@ -222,88 +243,90 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
       return;
     }
   };
-  const fieldsOf = (file: Read): Record<string, string> => (file.ok ? { frontmatter: file.frontmatter, body: file.body } : { text: file.text });
+  const tree = treeOf(Object.keys(files).sort(compare));
+  // The memories are read first: the manifest's orientation and the links name them.
+  const memories = tree.memories.map((memory): ReadMemory => ({ ...memory, file: read(files[memory.path] ?? "") }));
+  const names = new Map<string, string[]>();
+  for (const { path, file } of memories) {
+    if (file.ok && typeof file.data.name === "string") names.set(file.data.name, [...(names.get(file.data.name) ?? []), path]);
+  }
+  const context: Context = { files, tree, memories, names, add, scan };
+  const root = manifestFindings(context);
+  const topics = folderFindings(context);
+  memoryFindings(context, topics);
+  capFindings(context, topics, root);
+  return found;
+};
 
-  const paths = Object.keys(files).sort(compare);
-  const tree = treeOf(paths);
-  const memoryNames = new Set<string>();
-  const bodies = new Map<string, string>();
-
-  // The memories, read first: the manifest's orientation and the links name them.
-  const memories = tree.memories.map((memory) => {
-    const file = read(files[memory.path] ?? "");
-    if (file.ok && typeof file.data.name === "string") memoryNames.add(file.data.name);
-    return { ...memory, file };
-  });
-
-  // BANK.md.
-  const manifestText = files["BANK.md"];
-  let root: unknown;
-  if (manifestText === undefined) {
+/** `BANK.md`: its facts, the retired keys, the templates' labels, the entities' folders and the orientation; answers its `root`. */
+const manifestFindings = ({ files, tree, memories, add, scan }: Context): unknown => {
+  const text = files["BANK.md"];
+  if (text === undefined) {
     add("manifest_missing", "BANK.md", "The bank has no BANK.md at its root: write one with its name, kind, purpose, entities, orientation, memories, docs and write.");
-  } else {
-    const manifest = read(manifestText);
-    scan("BANK.md", fieldsOf(manifest));
-    if (!manifest.ok) {
-      add("manifest_malformed", "BANK.md", "BANK.md's frontmatter does not parse: put a YAML mapping between --- lines at the top of the file.");
+    return undefined;
+  }
+  const manifest = read(text);
+  scan("BANK.md", fieldsOf(manifest));
+  if (!manifest.ok) {
+    add("manifest_malformed", "BANK.md", "BANK.md's frontmatter does not parse: put a YAML mapping between --- lines at the top of the file.");
+    return undefined;
+  }
+  const data = manifest.data;
+  for (const retired of RETIRED_KEYS.manifest) {
+    if (retired in data) add("retired_key", "BANK.md", `BANK.md's ${retired} is a retired key: ${retired === "description" ? "purpose replaces it" : "INDEX.md is dropped"}; remove it.`, retired);
+  }
+  const labelled = new Set<string>();
+  for (const field of ["memories.scope", "write.place"]) {
+    const template = at(data, field.split("."));
+    if (typeof template !== "string") continue;
+    const unknown = [...template.matchAll(LABEL)].map((match) => match[1] ?? "").filter((label) => !(SCOPE_LABELS as readonly string[]).includes(label));
+    if (unknown.length === 0) continue;
+    labelled.add(field);
+    add("unknown_scope_label", "BANK.md", `BANK.md's ${field} uses ${listed(unknown.map((label) => `{${label}}`))}: the scope labels are ${listed(SCOPE_LABELS.map((label) => `{${label}}`))}.`, field);
+  }
+  for (const issue of issues(BankManifest, data)) {
+    if (labelled.has(issue.field)) continue;
+    if (issue.field === "orientation" && issue.code === "too_big") {
+      add("orientation_over_cap", "BANK.md", `BANK.md's orientation lists ${(data.orientation as unknown[]).length} names: at most ${ORIENTATION_CAPS.names}.`, "orientation");
+    } else if (issue.missing) {
+      add("manifest_fact_missing", "BANK.md", `BANK.md lacks ${issue.field}: ${issue.message}`, issue.field);
     } else {
-      const data = manifest.data;
-      root = data.root;
-      for (const retired of RETIRED_KEYS.manifest) {
-        if (retired in data) add("retired_key", "BANK.md", `BANK.md's ${retired} is a retired key: ${retired === "description" ? "purpose replaces it" : "INDEX.md is dropped"}; remove it.`, retired);
-      }
-      const labelled = new Set<string>();
-      for (const field of ["memories.scope", "write.place"]) {
-        const template = at(data, field.split("."));
-        if (typeof template !== "string") continue;
-        const unknown = [...template.matchAll(LABEL)].map((match) => match[1] ?? "").filter((label) => !(SCOPE_LABELS as readonly string[]).includes(label));
-        if (unknown.length === 0) continue;
-        labelled.add(field);
-        add("unknown_scope_label", "BANK.md", `BANK.md's ${field} uses ${listed(unknown.map((label) => `{${label}}`))}: the scope labels are ${listed(SCOPE_LABELS.map((label) => `{${label}}`))}.`, field);
-      }
-      for (const issue of issues(BankManifest, data)) {
-        if (labelled.has(issue.field)) continue;
-        if (issue.field === "orientation" && issue.code === "too_big") {
-          add("orientation_over_cap", "BANK.md", `BANK.md's orientation lists ${(data.orientation as unknown[]).length} names: at most ${ORIENTATION_CAPS.names}.`, "orientation");
-        } else if (issue.missing) {
-          add("manifest_fact_missing", "BANK.md", `BANK.md lacks ${issue.field}: ${issue.message}`, issue.field);
-        } else {
-          add("manifest_fact_invalid", "BANK.md", `BANK.md's ${issue.field} does not fit: ${issue.message}`, issue.field);
-        }
-      }
-      const entities = Array.isArray(data.entities) ? (data.entities as unknown[]) : [];
-      entities.forEach((entity, index) => {
-        const folder = at(entity, ["folder"]);
-        if (typeof folder !== "string" || !/^[^/\s:]+\/(?:[^/\s:]+\/){0,2}$/.test(folder)) return;
-        const scope = `${PROJECTS}${folder}`;
-        if (!tree.orgs.has(scope) && !tree.projects.has(scope) && !tree.areas.has(scope)) {
-          add("unknown_scope", "BANK.md", `BANK.md's entities.${index}.folder names ${folder}, which is no folder of the bank: name an org, project or area that has its folder file.`, `entities.${index}.folder`);
-        }
-      });
-      const orientation = Array.isArray(data.orientation) ? data.orientation.filter((name): name is string => typeof name === "string") : [];
-      let total = 0;
-      for (const name of orientation) {
-        const memory = memories.find((each) => each.file.ok && each.file.data.name === name);
-        if (memory === undefined || !memory.file.ok) {
-          add("orientation_missing", "BANK.md", `BANK.md's orientation names ${name}, which no memory in the bank has: write it in the bank's home folder or take the name out.`, "orientation");
-          continue;
-        }
-        const bytes = utf8Bytes(memory.file.body.trim());
-        total += bytes;
-        if (bytes > ORIENTATION_CAPS.bytesEach) {
-          add("orientation_too_large", memory.path, `${memory.path} is an orientation memory of ${bytes} bytes: at most ${ORIENTATION_CAPS.bytesEach}. Make it a short pointer to the longer memories.`, "body");
-        }
-      }
-      if (total > ORIENTATION_CAPS.bytesInAll) {
-        add("orientation_too_large", "BANK.md", `BANK.md's orientation memories are ${total.toLocaleString("en-US")} bytes in all: at most ${ORIENTATION_CAPS.bytesInAll.toLocaleString("en-US")}.`, "orientation");
-      }
+      add("manifest_fact_invalid", "BANK.md", `BANK.md's ${issue.field} does not fit: ${issue.message}`, issue.field);
     }
   }
+  const entities = Array.isArray(data.entities) ? (data.entities as unknown[]) : [];
+  entities.forEach((entity, index) => {
+    const folder = at(entity, ["folder"]);
+    if (typeof folder !== "string" || !SCOPE_FOLDER.test(folder)) return;
+    const scope = `${PROJECTS}${folder}`;
+    if (!tree.orgs.has(scope) && !tree.projects.has(scope) && !tree.areas.has(scope)) {
+      add("unknown_scope", "BANK.md", `BANK.md's entities.${index}.folder names ${folder}, which is no folder of the bank: name an org, project or area that has its folder file.`, `entities.${index}.folder`);
+    }
+  });
+  const orientation = Array.isArray(data.orientation) ? data.orientation.filter((name): name is string => typeof name === "string") : [];
+  let total = 0;
+  for (const name of orientation) {
+    const memory = memories.find((each) => each.file.ok && each.file.data.name === name);
+    if (memory === undefined || !memory.file.ok) {
+      add("orientation_missing", "BANK.md", `BANK.md's orientation names ${name}, which no memory in the bank has: write it in the bank's home folder or take the name out.`, "orientation");
+      continue;
+    }
+    const bytes = utf8Bytes(memory.file.body.trim());
+    total += bytes;
+    if (bytes > ORIENTATION_CAPS.bytesEach) {
+      add("orientation_too_large", memory.path, `${memory.path} is an orientation memory of ${bytes} bytes: at most ${ORIENTATION_CAPS.bytesEach}. Make it a short pointer to the longer memories.`, "body");
+    }
+  }
+  if (total > ORIENTATION_CAPS.bytesInAll) {
+    add("orientation_too_large", "BANK.md", `BANK.md's orientation memories are ${total.toLocaleString("en-US")} bytes in all: at most ${ORIENTATION_CAPS.bytesInAll.toLocaleString("en-US")}.`, "orientation");
+  }
+  return data.root;
+};
 
-  // The folder files.
+/** The folder files, each level's in its place; answers the topics each project and area declares. */
+const folderFindings = ({ files, tree, add, scan }: Context): Map<string, readonly string[]> => {
   const topicsOf = new Map<string, readonly string[]>();
-  const scopes = [...tree.orgs, ...tree.projects, ...tree.areas].sort(compare);
-  for (const scope of scopes) {
+  for (const scope of [...tree.orgs, ...tree.projects, ...tree.areas].sort(compare)) {
     const path = scopeFileOf(scope);
     const name = path.slice(scope.length);
     const text = files[path];
@@ -325,7 +348,7 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
       const [first] = issue.path;
       const rule: BankRuleId = first === "line" ? "scope_line" : first === "topics" ? "scope_topics" : "repository_identity";
       const value = at(file.data, issue.path);
-      add(rule, path, `${path}'s ${issue.field} ${rule === "repository_identity" && typeof value === "string" ? `holds ${value}, which is no repository identity: write https://<host>/<owner>/<name> in lower case.` : `does not fit: ${issue.message}`}`, issue.field);
+      add(rule, path, rule === "repository_identity" && typeof value === "string" ? `${path}'s ${issue.field} holds ${value}, ${NO_IDENTITY}` : `${path}'s ${issue.field} does not fit: ${issue.message}`, issue.field);
     }
     const topics = at(file.data, ["topics"]);
     if (!isOrg && typeof topics === "object" && topics !== null && !Array.isArray(topics)) topicsOf.set(scope, Object.keys(topics));
@@ -333,9 +356,11 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
   for (const path of tree.misplaced) {
     add("unknown_scope", path, `${path} is at no place the structure has: memories live in projects/<org>/<project>/memories/ or projects/<org>/<project>/<area>/memories/, a declared topic one folder deeper, and ORG.md, PROJECT.md and AREA.md each at their own level.`);
   }
+  return topicsOf;
+};
 
-  // The memories.
-  const names = new Map<string, string[]>();
+/** Each memory: its frontmatter and body, its name against its file and the bank, its description against its name and folder, its topic and its links. */
+const memoryFindings = ({ memories, names, add, scan }: Context, topicsOf: ReadonlyMap<string, readonly string[]>): void => {
   const descriptions = new Map<string, string[]>();
   for (const memory of memories) {
     const { path, file } = memory;
@@ -351,37 +376,31 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
       add(
         rule,
         path,
-        rule === "repository_identity" && typeof value === "string"
-          ? `${path}'s ${issue.field} holds ${value}, which is no repository identity: write https://<host>/<owner>/<name> in lower case.`
-          : `${path}'s ${issue.field} ${issue.missing ? "is missing" : "does not fit"}: ${issue.message}`,
+        rule === "repository_identity" && typeof value === "string" ? `${path}'s ${issue.field} holds ${value}, ${NO_IDENTITY}` : `${path}'s ${issue.field} ${issue.missing ? "is missing" : "does not fit"}: ${issue.message}`,
         issue.field,
       );
     }
     const name = typeof file.data.name === "string" ? file.data.name : null;
     const description = typeof file.data.description === "string" ? file.data.description : null;
-    if (name !== null) {
-      if (name !== memory.stem) add("memory_name", path, `${path} is named ${name}: a memory's file is <name>.md, so rename the file or the memory.`, "name");
-      names.set(name, [...(names.get(name) ?? []), path]);
-    }
+    if (name !== null && name !== memory.stem) add("memory_name", path, `${path} is named ${name}: a memory's file is <name>.md, so rename the file or the memory.`, "name");
     const body = file.body.trim();
-    bodies.set(path, body);
-    if ([...body].length > BANK_CAPS.body) add("body_too_long", path, `${path}'s body is ${[...body].length} characters: at most ${BANK_CAPS.body.toLocaleString("en-US")}. Split it into memories of one fact each.`, "body");
+    const length = [...body].length;
+    if (length > BANK_CAPS.body) add("body_too_long", path, `${path}'s body is ${length} characters: at most ${BANK_CAPS.body.toLocaleString("en-US")}. Split it into memories of one fact each.`, "body");
     if (description !== null) {
       if (name !== null && words(description) === words(name)) add("description_is_name", path, `${path}'s description is its name re-cased: say what the memory is for and when to read it.`, "description");
       const folder = `${memory.scope}memories/${memory.topic === null ? "" : `${memory.topic}/`}`;
       const same = `${folder}\0${description.trim().toLowerCase()}`;
       descriptions.set(same, [...(descriptions.get(same) ?? []), path]);
-      const first = /^[\p{L}]+/u.exec(description.trim())?.[0]?.toLowerCase();
+      const first = /^\p{L}+/u.exec(description.trim())?.[0]?.toLowerCase();
       if (first === undefined || !TRIGGERS.has(first)) {
         add("description_trigger", path, `${path}'s description opens without a trigger word: open with ${listed(TRIGGER_WORDS.map((word) => `"${word}"`))}, so a run matches it to its task.`, "description");
       }
     }
-    if (memory.topic !== null) {
-      const declared = topicsOf.get(memory.scope);
-      if (declared !== undefined && !declared.includes(memory.topic)) {
-        add("undeclared_topic", path, `${path} is in the topic ${memory.topic}, which ${scopeFileOf(memory.scope)} does not declare: add it to topics: with its one-liner, or move the memory.`);
-      }
+    if (memory.topic !== null && topicsOf.get(memory.scope)?.includes(memory.topic) === false) {
+      add("undeclared_topic", path, `${path} is in the topic ${memory.topic}, which ${scopeFileOf(memory.scope)} does not declare: add it to topics: with its one-liner, or move the memory.`);
     }
+    const unresolved = new Set([...body.matchAll(LINK)].map((match) => (match[1] ?? "").trim()).filter((linked) => !names.has(linked)));
+    for (const linked of unresolved) add("unresolved_link", path, `${path} links [[${linked}]], which no memory in the bank is named.`, "body");
   }
   for (const [name, holders] of names) {
     if (holders.length < 2) continue;
@@ -391,41 +410,34 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
     if (holders.length < 2) continue;
     for (const path of holders) add("description_duplicate", path, `${path}'s description is also ${listed(holders.filter((other) => other !== path))}'s: tell each memory apart from the others in its folder.`, "description");
   }
-  for (const [path, body] of bodies) {
-    const missing = [...new Set([...body.matchAll(LINK)].map((match) => (match[1] ?? "").trim()))].filter((name) => !memoryNames.has(name));
-    for (const name of missing) add("unresolved_link", path, `${path} links [[${name}]], which no memory in the bank is named.`, "body");
-  }
+};
 
-  // The tiers' caps: each folder's and topic's index, and the root breadcrumbs.
+/** The tiers' caps (ADR 0013, ADR 0037): each folder's and topic's index, and the root breadcrumbs, or each org's once the root is re-tiered. */
+const capFindings = ({ tree, add }: Context, topicsOf: ReadonlyMap<string, readonly string[]>, root: unknown): void => {
   const byScope = new Map<string, MemoryFile[]>();
   for (const memory of tree.memories) byScope.set(memory.scope, [...(byScope.get(memory.scope) ?? []), memory]);
   for (const [scope, held] of byScope) {
+    const file = scopeFileOf(scope).slice(scope.length);
     const topics = [...new Set([...(topicsOf.get(scope) ?? []), ...held.flatMap((memory) => (memory.topic === null ? [] : [memory.topic]))])].sort(compare);
     const lines = held.filter((memory) => memory.topic === null).length + topics.length;
     if (lines > BANK_CAPS.indexLines) {
-      add(
-        "index_over_cap",
-        scope,
-        `${scope} indexes ${lines} lines: at most ${BANK_CAPS.indexLines}. ${topics.length === 0 ? "It has no topics yet" : `Its topics are ${listed(topics)}`}: file the memory under ${topics.length === 0 ? "a topic" : "one of them"}, or declare a new topic in ${scopeFileOf(scope).slice(scope.length)}'s topics:.`,
-      );
+      const named = topics.length === 0 ? "It has no topics yet: file the memory under a topic" : `Its topics are ${listed(topics)}: file the memory under one of them`;
+      add("index_over_cap", scope, `${scope} indexes ${lines} lines: at most ${BANK_CAPS.indexLines}. ${named}, or declare a new topic in ${file}'s topics:.`);
     }
     for (const topic of topics) {
       const count = held.filter((memory) => memory.topic === topic).length;
-      if (count > BANK_CAPS.indexLines) {
-        add("index_over_cap", `${scope}memories/${topic}/`, `${scope}memories/${topic}/ indexes ${count} lines: at most ${BANK_CAPS.indexLines}. Split the topic in ${scopeFileOf(scope).slice(scope.length)}'s topics: and move memories into the new one.`);
-      }
+      if (count > BANK_CAPS.indexLines) add("index_over_cap", `${scope}memories/${topic}/`, `${scope}memories/${topic}/ indexes ${count} lines: at most ${BANK_CAPS.indexLines}. Split the topic in ${file}'s topics: and move memories into the new one.`);
     }
   }
   const crumbs = [...byScope.keys()];
-  if (root === "orgs") {
-    const orgs = [...new Set(crumbs.map((scope) => `${PROJECTS}${scope.slice(PROJECTS.length).split("/")[0]}/`))].sort(compare);
-    if (orgs.length > BANK_CAPS.rootLines) add("root_over_cap", PROJECTS, `The root has ${orgs.length} org headers: at most ${BANK_CAPS.rootLines}.`);
-    for (const org of orgs) {
-      const count = crumbs.filter((scope) => scope.startsWith(org)).length;
-      if (count > BANK_CAPS.rootLines) add("root_over_cap", org, `${org} has ${count} breadcrumbs, one per project or area holding memories: at most ${BANK_CAPS.rootLines}.`);
-    }
-  } else if (crumbs.length > BANK_CAPS.rootLines) {
-    add("root_over_cap", PROJECTS, `The root has ${crumbs.length} breadcrumbs, one per project or area holding memories: at most ${BANK_CAPS.rootLines}. Re-tier the root to orgs with root: orgs in BANK.md.`);
+  if (root !== "orgs") {
+    if (crumbs.length > BANK_CAPS.rootLines) add("root_over_cap", PROJECTS, `The root has ${crumbs.length} breadcrumbs, one per project or area holding memories: at most ${BANK_CAPS.rootLines}. Re-tier the root to orgs with root: orgs in BANK.md.`);
+    return;
   }
-  return found;
+  const orgs = [...new Set(crumbs.map((scope) => `${PROJECTS}${scope.slice(PROJECTS.length).split("/")[0]}/`))].sort(compare);
+  if (orgs.length > BANK_CAPS.rootLines) add("root_over_cap", PROJECTS, `The root has ${orgs.length} org headers: at most ${BANK_CAPS.rootLines}.`);
+  for (const org of orgs) {
+    const count = crumbs.filter((scope) => scope.startsWith(org)).length;
+    if (count > BANK_CAPS.rootLines) add("root_over_cap", org, `${org} has ${count} breadcrumbs, one per project or area holding memories: at most ${BANK_CAPS.rootLines}.`);
+  }
 };
