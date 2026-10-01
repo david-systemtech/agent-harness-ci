@@ -52,6 +52,48 @@ export const saved = {
   delivery: [{ kind: "client-notice", on: "both" }],
 };
 
+/** The same definition as a routine document carries it, every key written. */
+export const document = {
+  kind: "routine",
+  version: 1,
+  name: "Upstream watch",
+  enabled: false,
+  schedule: { kind: "weekly", day: "monday", at: "03:00" },
+  timezone: "Asia/Manila",
+  "if-missed": "run-once",
+  workspace: { kind: "directory", path: "~/code/agent-harness", "repository-identity": "https://git.systemtech.dev/david/agent-harness" },
+  account: { provider: "claude", email: "david@example.com", organisation: null },
+  model: null,
+  effort: null,
+  mode: "acceptEdits",
+  containment: null,
+  injection: "inherit",
+  skills: [],
+  "pre-check": { kind: "script", path: "upstream-watch.sh", "timeout-seconds": 60 },
+  "silent-marker": "[SILENT]",
+  "max-duration-minutes": 60,
+  delivery: [{ kind: "client-notice", on: "both" }],
+  instructions: "Read the sources and file a digest.",
+};
+
+/** A routine document with what has a preset, the zone and the repository identity left out. */
+export const minimalDocument = {
+  kind: "routine",
+  version: 1,
+  name: "Upstream watch",
+  enabled: true,
+  schedule: { kind: "manual" },
+  workspace: { kind: "scratch" },
+  account: null,
+  model: null,
+  effort: null,
+  mode: null,
+  containment: null,
+  skills: [],
+  "pre-check": null,
+  instructions: "Read the sources and file a digest.",
+};
+
 /** A routine's state: the environment's own, never exported. */
 export const state = {
   id: routineId,
@@ -387,6 +429,10 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
       { index: 1, definition: null, issues: [{ code: "invalid_value", path: ["schedule", "day"], message: "Invalid option" }], warnings: { attention: [], workspace: null } },
     ],
     invalid: [{ index: -1, definition: saved, issues: [], warnings: { attention: [], workspace: null } }, { index: 0, definition: saved, issues: [] }],
+  },
+  "routines/document.json": {
+    valid: [document, minimalDocument, { ...minimalDocument, workspace: { kind: "worktree", repository: "/srv/code/harness", "new-branch": { name: "digest" } } }],
+    invalid: [{ ...document, id: routineId }, { ...minimalDocument, silenceMarker: "[QUIET]" }, without(minimalDocument, "kind"), { ...minimalDocument, version: 2 }, { ...minimalDocument, workspace: { kind: "scratch", repositoryIdentity: null } }],
   },
   "errors/denylisted.json": {
     valid: [{ code: "denylisted", message: "example.com is on the denylist.", data: { host: "example.com" } }],

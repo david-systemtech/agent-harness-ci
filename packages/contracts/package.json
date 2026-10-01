@@ -13,6 +13,11 @@
       "@agent-harness/source": "./src/launcher.ts",
       "types": "./dist/launcher.d.ts",
       "default": "./dist/launcher.js"
+    },
+    "./routine-yaml": {
+      "@agent-harness/source": "./src/routine-yaml.ts",
+      "types": "./dist/routine-yaml.d.ts",
+      "default": "./dist/routine-yaml.js"
     }
   },
   "scripts": {
@@ -20,6 +25,7 @@
     "export-schemas": "tsx scripts/export-schemas.ts"
   },
   "dependencies": {
+    "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

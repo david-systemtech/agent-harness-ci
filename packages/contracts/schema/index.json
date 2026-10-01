@@ -3023,6 +3023,10 @@
       "title": "RoutineImportCheck"
     },
     {
+      "path": "routines/document.json",
+      "title": "RoutineDocument"
+    },
+    {
       "path": "errors/denylisted.json",
       "title": "DenylistedError"
     },

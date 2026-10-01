@@ -149,6 +149,7 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
@@ -1397,6 +1398,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
+  // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
+  const checkoutIndex = createCheckoutIndex({ log, availability });
   const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
   closers.push(() => firings.close());
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
@@ -1522,10 +1525,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       clock: now,
       environmentId: record.id,
+      environmentName: () => look.read().name,
       timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       accounts,
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
+      workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
     }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
@@ -1863,7 +1868,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     startPairing,
     setup: { startPass: setupScheduler.startPass },
     workspaces: {
-      checkoutIndex: createCheckoutIndex({ log, availability }),
+      checkoutIndex,
       identityPass: identityPasses.resolved,
       availabilityPass: availabilityPasses.pass,
       reaped: () => reaper.settled(),
