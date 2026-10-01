@@ -377,4 +377,37 @@ describe("without admin", () => {
     expect(within(forgejo).getByRole("textbox", { name: "Alias" }).hasAttribute("disabled")).toBe(true);
     expect(within(forgejo).getByRole("button", { name: "Add alias" }).hasAttribute("disabled")).toBe(true);
   });
+
+  it("dims a problem's action that changes the forge account, and leaves the ways to the Key manager step, which change nothing", async () => {
+    const at = MANUAL_CLOCK_START;
+    const reference = { provider: "openbao", connectionId: "00000000-0000-4000-8000-000000000001", mount: "personal", path: "harness/forge-forgejo", key: "token" } as const;
+    const app = await opened({}, [
+      {
+        name: "laptop",
+        reach: "paired",
+        capabilities: ["forge"],
+        scopes: ["read", "sessions:write", "runs:drive", "terminal"],
+        forges: {
+          accounts: [
+            { problem: { kind: "credential-rejected", since: at, message: "github.com refused the token (HTTP 401): give it a new one in Set up, Forges." }, statusSince: at },
+            {
+              origin: "https://git.example.test",
+              kind: "forgejo",
+              credential: { kind: "reference", reference },
+              problem: { kind: "credential-unavailable", since: at, message: "The key manager did not give the token: open Set up, Key manager." },
+              statusSince: at,
+            },
+          ],
+        },
+      },
+    ], { on: "laptop" });
+    expect(await within(step()).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
+    const github = await row("https://github.com");
+    expect(within(github).getByRole("button", { name: "Sign in again" }).hasAttribute("disabled")).toBe(true);
+    expect(within(github).getByRole("button", { name: "Move to your key manager" }).hasAttribute("disabled")).toBe(false);
+    const forgejo = await row("https://git.example.test");
+    expect(within(forgejo).getByRole("button", { name: "Open Key manager" }).hasAttribute("disabled")).toBe(false);
+    await app.user.click(within(forgejo).getByRole("button", { name: "Open Key manager" }));
+    expect(railStep("Key manager").getAttribute("aria-current")).toBe("step");
+  });
 });
