@@ -15,7 +15,7 @@ import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-di
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
-import { mirrorUserTitle, readGeneratedTitle, readSubagentTranscript, type ClaudeSessionStore } from "./history.js";
+import { mirrorUserTitle, readGeneratedTitle, readStoredSession, readSubagentTranscript, resolveForkPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { readDirectoryHistory } from "./imported-history.js";
 import { createLoginRefresher, reachedPlanLimits, type RefreshOutcome } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
@@ -277,6 +277,12 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
+    async hasHistoryBefore(account, sessionId, providerSessionId, messageId) {
+      const stored = await readStoredSession({ queue, harnessSessionId: sessionId, directory: configDirectory(account), providerSessionId, sessionStore: store ?? null, getSessionMessages: sdkGetSessionMessages });
+      if (resolveForkPoint(stored, messageId) !== null) return true;
+      // A failed continuation may have branched past the anchor: startup resumes that chain unchanged (#137).
+      return !stored.some((entry) => entry.uuid === messageId) && store !== undefined && await storedHolds(store, sessionId, providerSessionId, messageId);
+    },
     // The machine's own directory, resolved once: what `accounts.adopt` registers in place (#134).
     ambientDirectory: () => ambient,
     async models(account) {

@@ -961,6 +961,12 @@ export interface Adapter {
    */
   readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
   /**
+   * Whether a fork or rewind can continue stored history before this
+   * message. Read before the command's transaction; absent for adapters
+   * whose history is decided from the session's visible messages alone.
+   */
+  hasHistoryBefore?(account: AccountRef, sessionId: string, providerSessionId: string, messageId: string): Promise<boolean>;
+  /**
    * The title the provider generated for a session (`titleRead`), or null for
    * none yet: its own summary, never the title field `writeTitle` mirrors a
    * user title into, so a mirrored title is never read back. The host reads
