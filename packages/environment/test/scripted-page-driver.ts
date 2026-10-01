@@ -75,18 +75,18 @@ export const scriptedPageDriver = (kind: PageDriverKind): ScriptedPageDriver => 
       case "read":
         return { ok: true, value: { ...location(), source: "article", text: "# A fixture page\n\nIts only paragraph.", offset: 0, totalChars: 37, nextOffset: null } };
       case "screenshot":
-        return { ok: true, value: { mimeType: "image/jpeg", data: FIXTURE_JPEG } };
+        return { ok: true, value: { url: at(pageKey), mimeType: "image/jpeg", data: FIXTURE_JPEG } };
       case "scroll":
       case "waitFor":
         return { ok: true, value: location() };
       case "console":
       case "network":
       case "cookies":
-        return { ok: true, value: [] };
+        return { ok: true, value: { url: at(pageKey), entries: [] } };
       case "storage":
         return { ok: true, value: { origin: new URL(at(pageKey)).origin, local: {}, session: {} } };
       case "evaluate":
-        return { ok: true, value: { result: null } };
+        return { ok: true, value: { url: at(pageKey), result: null } };
       case "close":
         addresses.delete(pageKey);
         if (kind === "headless" && tabs.delete(pageKey)) closedTabs.push(pageKey);

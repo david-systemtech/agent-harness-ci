@@ -203,6 +203,7 @@ describe("a run's event stream", () => {
       runId,
       accountId: "acct",
       workspace: { kind: "directory", path: "/work" },
+      repositoryIdentity: null,
       clientTools: [],
       browser: { kind: "none" },
     });

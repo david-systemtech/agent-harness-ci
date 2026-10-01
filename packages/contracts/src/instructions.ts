@@ -3,6 +3,7 @@ import { AccountId, AccountLabel } from "./accounts.js";
 import { InstructionChannel, InstructionChannelKind, RunId } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { OrderKey } from "./ordering.js";
+import { RUN_ACTOR_KINDS } from "./permissions.js";
 import { normaliseTrimmedName, trimmedNamePattern } from "./primitives.js";
 import { Sha256 } from "./release.js";
 import { SkillName } from "./skill-rules.js";
@@ -69,9 +70,24 @@ export const InstructionManifestLayer = z
 export type InstructionManifestLayer = z.infer<typeof InstructionManifestLayer>;
 
 /**
+ * Who made an always-on skill always-on for a run: its account
+ * (`skills.setAlwaysOn`), else, for the run's extra names, the kind of
+ * actor the run is for: a routine, whose skills they are (#531), or the
+ * completions surface, a request's `alwaysOnSkills` (#507), which a
+ * person's read-now run takes from the run of the queue before it.
+ */
+export const ALWAYS_ON_CHOOSERS = ["account", ...RUN_ACTOR_KINDS] as const;
+export const AlwaysOnChooser = z.enum(ALWAYS_ON_CHOOSERS).meta({
+  description:
+    "Who made a skill always-on for a run: account (its account's always-on choice); else, for the run's extra always-on names, the kind of actor the run is for: routine (the routine's skills), completions (a request's alwaysOnSkills), client (a person's read-now run that took a completions request's names from the run before it) or bot.",
+});
+export type AlwaysOnChooser = z.infer<typeof AlwaysOnChooser>;
+
+/**
  * An always-on skill the composition appended: its name, where it comes
- * from (the member's origin, `skills.ts`), and the commit of the source
- * snapshot it was read from. Live members have no snapshot commit.
+ * from (the member's origin, `skills.ts`), the commit of the source
+ * snapshot it was read from, and who made it always-on for the run. Live
+ * members have no snapshot commit.
  */
 export const InstructionAlwaysOnSkill = z
   .object({
@@ -80,8 +96,9 @@ export const InstructionAlwaysOnSkill = z
       description: "Where the skill comes from, as its member's origin: null for one of the own directory with no provenance manifest, or of a repository with no identity.",
     }),
     commit: GitCommit.nullable().meta({ description: "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)." }),
+    chosenBy: AlwaysOnChooser,
   })
-  .meta({ description: "An always-on skill the composition appended: its name, its origin and the commit it was read at." });
+  .meta({ description: "An always-on skill the composition appended: its name, its origin, the commit it was read at, and who made it always-on for the run." });
 export type InstructionAlwaysOnSkill = z.infer<typeof InstructionAlwaysOnSkill>;
 
 /**

@@ -40,6 +40,24 @@ const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly
 const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.accountId, scope.workspace.path, scope.trust.key, scope.trust.decision]);
 
 /**
+ * Reads the environment's own layers of the skill set as they are now (the
+ * own directory and the sources, no workspace's repository layer), making
+ * no generation, and answers which names the set of an account holds
+ * (null: before any account's choices), its choices read as they are when
+ * asked: what a routine's skills are checked against (#531).
+ */
+export const skillSetReader =
+  (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">) =>
+  async (): Promise<(accountId: string | null) => ReadonlySet<string>> => {
+    const [ownMembers, sources] = await Promise.all([options.own.read(), options.sources.read()]);
+    const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources).filter(inTheSet);
+    return (accountId) => {
+      const choices = choicesFor(readSkillChoices(options.log), accountId);
+      return new Set(members.filter((member) => choices.enabled(member.name)).map((member) => member.name));
+    };
+  };
+
+/**
  * The set resolved for `scope`, placed: each member in it with where its
  * files lie, before the materialiser gives it a fingerprint and a
  * generation. What the seam materialises, and what readiness checks
