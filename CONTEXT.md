@@ -397,8 +397,12 @@ A secrets service an environment is connected to (OpenBao or Vault, Doppler, 1Pa
 _Avoid_: secret manager, vault (the product; also the environment's local credential store), keychain
 
 **Orientation block**:
-The text the harness renders into every run from live environment state: the environment itself, its key managers and their verified token status, its forges and which is primary, its banks, and the environments the client knows.
+The text the harness renders into every run from live environment state: the environment itself, its key managers and their verified token status, its forges and which is primary, its banks, and the known environments.
 _Avoid_: setup prompt (the wizard's editable prose), system prompt, preamble
+
+**Known environments**:
+The other environments an environment's runs are told of: the union of what its live client sessions report of their other connections, each environment by its name and the address the reporting client uses, never the environment itself. A desktop's or terminal UI's runtime reports after each `hello` and whenever its connections change; each report replaces that client session's last and is dropped when the client session is revoked or expires, and a program's is refused. What the clients know, not a peer list: no environment connects to another.
+_Avoid_: peers, peer list, remotes, other connections (what one client holds)
 
 **Managed tool**:
 A CLI the harness depends on and tracks per environment: detected on PATH, compared against its latest version, installed or updated by one click in a terminal pane, verified by one command.

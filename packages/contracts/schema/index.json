@@ -1735,6 +1735,18 @@
       "title": "EnvironmentColourSetPayload"
     },
     {
+      "path": "environment/known-environment.json",
+      "title": "KnownEnvironment"
+    },
+    {
+      "path": "environment/listed-environment.json",
+      "title": "ListedEnvironment"
+    },
+    {
+      "path": "environment/known-environments-updated.json",
+      "title": "KnownEnvironmentsUpdatedPayload"
+    },
+    {
       "path": "usage/verdict.json",
       "title": "UsageVerdict"
     },
@@ -3569,6 +3581,18 @@
     {
       "path": "methods/environment.setColour/error.json",
       "title": "environment.setColour error"
+    },
+    {
+      "path": "methods/environment.knownEnvironments.report/params.json",
+      "title": "environment.knownEnvironments.report params"
+    },
+    {
+      "path": "methods/environment.knownEnvironments.report/result.json",
+      "title": "environment.knownEnvironments.report result"
+    },
+    {
+      "path": "methods/environment.knownEnvironments.report/error.json",
+      "title": "environment.knownEnvironments.report error"
     },
     {
       "path": "methods/access.pairings.create/params.json",
@@ -6352,6 +6376,15 @@
       "result": "methods/environment.setColour/result.json",
       "response": "methods/environment.setColour/response.json",
       "error": "methods/environment.setColour/error.json"
+    },
+    {
+      "name": "environment.knownEnvironments.report",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/environment.knownEnvironments.report/params.json",
+      "result": "methods/environment.knownEnvironments.report/result.json",
+      "error": "methods/environment.knownEnvironments.report/error.json"
     },
     {
       "name": "access.pairings.create",

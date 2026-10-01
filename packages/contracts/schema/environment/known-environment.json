@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KnownEnvironment",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The environment's id, from its hello: an environment leaves itself out of the union by it."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,198}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+      "description": "An environment's name as the client has it: 1 to 200 characters once trimmed, counted as code points, no control or format (zero-width) characters other than white space; kept trimmed with white space collapsed."
+    },
+    "address": {
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^https?:\\/\\/[^\\s/\\\\?#@\\p{Cc}\\p{Cf}]+$",
+      "description": "The address the client uses for the environment, as its connection keeps it: an http or https origin, http://host:port."
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "address"
+  ],
+  "description": "One of the client's other connections: the environment's id, its name as the client has it, and the address the client uses."
+}
