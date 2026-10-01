@@ -5,6 +5,8 @@ import { registry, type ParamsOf, type SkillReadiness } from "@agent-harness/con
 import { describe, expect, it, vi } from "vitest";
 import { stringify } from "yaml";
 import { useCleanups } from "../../test/cleanups.js";
+import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
+import { DAVID, TOKEN, added } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create, refusal } from "../../test/sessions.js";
@@ -37,6 +39,13 @@ const start = async (options: TestEnvironmentOptions = {}): Promise<{ t: TestEnv
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
   return { t, client: await t.client() };
+};
+
+/** A fake forge, closed after the test. */
+const fakeForge = async (): Promise<FakeForge> => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  return forge;
 };
 
 /** Writes `text` at `path`, making its folders. */
@@ -234,6 +243,36 @@ describe("skills.readiness", () => {
     expect(await one(client, root, "merging")).toMatchObject({ state: "ready" });
     // Mid-merge, main holds changes against topic: its own commit.
     expect(await one(client, root, "against-topic")).toMatchObject({ state: "ready" });
+  });
+
+  it("passes git's forge-account when a forge account here serves the repository's remote on its origin or a verified alias", async () => {
+    const { t, client } = await start();
+    const forge = await fakeForge();
+    const tailnet = await fakeForge();
+    for (const origin of [forge, tailnet]) {
+      origin.user(TOKEN, DAVID);
+      origin.repositories(TOKEN, []);
+    }
+    await added(client, { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin] });
+    declaring(t, "tracker", [{ kind: "git", condition: "forge-account", fix: "forges" }]);
+    /** A repository whose remote `name` is at `url`. */
+    const remoteAt = (url: string, name = "origin"): string => {
+      const root = repository();
+      git(root, "remote", "add", name, url);
+      return root;
+    };
+
+    expect(await one(client, remoteAt(`${forge.origin}/david/agent-harness.git`), "tracker")).toMatchObject({ state: "ready" });
+    expect(await one(client, remoteAt(`${tailnet.origin}/david/agent-harness`), "tracker")).toMatchObject({ state: "ready" });
+    // The remote a repository's identity comes from: origin, else the only one.
+    expect(await one(client, remoteAt(`${forge.origin}/david/agent-harness.git`, "upstream"), "tracker")).toMatchObject({ state: "ready" });
+
+    const elsewhere = await one(client, remoteAt("https://forge.example.invalid/david/agent-harness.git"), "tracker");
+    expect(elsewhere).toMatchObject({ state: "setup-needed", why: null, fix: "forges" });
+    expect(failures(elsewhere)).toEqual([["failed", "No forge account on this environment serves https://forge.example.invalid, where the repository's remote is."]]);
+    expect(failures(await one(client, remoteAt(tempDir()), "tracker"))).toEqual([["failed", "The repository's remote is a local path or a URL that names no forge."]]);
+    expect(failures(await one(client, repository(), "tracker"))).toEqual([["failed", "The repository has no remote, so no forge account serves it."]]);
+    expect(failures(await one(client, tempDir(), "tracker"))).toEqual([["failed", "The workspace is not in a git repository."]]);
   });
 
   it("checks a skill check's member is in the account's set, on, and one the model may call unless the check says otherwise", async () => {

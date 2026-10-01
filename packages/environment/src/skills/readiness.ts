@@ -5,10 +5,12 @@ import {
   ContractError,
   READINESS_OVERLAY,
   invalidParams,
+  normaliseRemote,
   overlayDeclaration,
   referenceLocator,
   type ParamsOf,
   type ReadinessCheck,
+  type ForgeAccountRecord,
   type ReadinessCheckOf,
   type ReadinessDeclaration,
   type ReadinessDeclarer,
@@ -20,12 +22,14 @@ import {
 import type { InstructionTarget } from "../adapter/host.js";
 import { noToolServers, type InstructionScope, type SkillSetScope, type ToolServerFactory } from "../adapter/seams.js";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
+import { servingAccount } from "../forge/git-helper.js";
 import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
 import { findOnPath } from "../managed-tools/detection.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import { runGit, type GitAnswer, type GitOptions } from "../workspace/git.js";
+import { identityRemote } from "../workspace/identity.js";
 import { isInside } from "../workspace/paths.js";
 import { fingerprintOf, type PlacedMember, type PlacedSet } from "./generations.js";
 import { readSidecar } from "./sidecar.js";
@@ -39,8 +43,13 @@ import { readSidecar } from "./sidecar.js";
  * run gets), `git` (`repository`, `merge-in-progress`, `changes-since`),
  * `skill` (in the account's set, on and, unless the check says otherwise,
  * one the model may invoke) and `provider` (the account's provider, or a
- * capability its adapter declares). `secret`, `mcp` and git `forge-account`
- * fail as not evaluated yet, until the tickets that reach those services.
+ * capability its adapter declares). Three ask something beyond the file
+ * system (#511): `secret` resolves its reference through the key-manager
+ * registry in process, never asking anyone for the value, and lets the
+ * value go as soon as it is answered; `mcp` asks the tool-server factory for
+ * the session's next run, or a new session's of the account and workspace;
+ * git `forge-account` looks among the ForgeService's forge accounts for one
+ * serving the repository's remote on its origin or a verified alias.
  *
  * Each check gets five seconds and the call ten, from when it is asked; a
  * check still running then fails as could not be checked in time. A
@@ -82,6 +91,8 @@ export interface SkillReadinessOptions {
   readonly clock: Clock;
   /** The key-manager registry's resolve seam a `secret` check reads its reference through (#312); preset: no key-manager connection, so every reference is unavailable. */
   readonly keyManagers?: KeyManagerRegistry;
+  /** The ForgeService's forge accounts, which a git `forge-account` check looks for one serving the repository's remote among; preset: none. */
+  readonly forgeAccounts?: () => readonly ForgeAccountRecord[];
   /**
    * The tool-server factory a run's servers come from, an `mcp` check's: the environment's own and the seam's, less a
    * completions request's client tools, which are that request's own. Preset: none.
@@ -111,9 +122,6 @@ type Outcome = Failure | null;
 const failed = (message: string): Failure => ({ outcome: "failed", message });
 
 const TIMED_OUT: Failure = { outcome: "timed-out", message: "It could not be checked in time." };
-
-/** A check of a kind this environment does not evaluate yet. */
-const notEvaluated = (what: string): Failure => ({ outcome: "not-evaluated", message: `This environment does not evaluate ${what} checks yet.` });
 
 /** What a member declares, and where. */
 interface Declared {
@@ -217,6 +225,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
   const platform = options.platform ?? process.platform;
   const keyManagers = options.keyManagers ?? noKeyManagerConnections;
   const toolServers = options.toolServers ?? noToolServers;
+  const forgeAccounts = options.forgeAccounts ?? (() => []);
   const pathValue = options.hostEnv["PATH"] ?? options.hostEnv["Path"] ?? "";
 
   /** Answers kept per workspace, account and fingerprint: each member's, with when it was checked. */
@@ -334,11 +343,25 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       return failed("No merge or rebase is in progress in the repository.");
     });
 
+    /**
+     * Whether a forge account here serves the repository's remote, the one its identity comes from, on its canonical
+     * origin or a verified alias (ADR 0012, ADR 0020). The remote's URL is never shown: it can hold a token.
+     */
+    const forgeAccount = once(async (): Promise<Outcome> => {
+      const answer = await gitIn(["remote", "--verbose"]);
+      if (!answer.ok || answer.truncated) return failed("git could not list the repository's remotes.");
+      const url = identityRemote(answer.stdout.toString("utf8"));
+      if (url === undefined) return failed("The repository has no remote, so no forge account serves it.");
+      const remote = normaliseRemote(url);
+      if (remote === null) return failed("The repository's remote is a local path or a URL that names no forge.");
+      return servingAccount(remote, forgeAccounts()) === null ? failed(`No forge account on this environment serves ${remote.origin}, where the repository's remote is.`) : null;
+    });
+
     const gitCheck = async (check: ReadinessCheckOf<"git">): Promise<Outcome> => {
-      if (check.condition === "forge-account") return notEvaluated("git forge-account");
       const where = await inRepository();
       if (!("root" in where)) return where;
       if (check.condition === "repository") return null;
+      if (check.condition === "forge-account") return forgeAccount();
       if (check.condition === "merge-in-progress") return mergeInProgress();
       return changesSince(check.ref ?? "");
     };

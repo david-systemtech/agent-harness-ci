@@ -1547,6 +1547,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       clock,
       keyManagers,
       toolServers: runServers,
+      forgeAccounts: () => forge.list(),
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
