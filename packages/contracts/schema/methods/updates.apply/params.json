@@ -15,7 +15,7 @@
       "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$"
     },
     "artefactPath": {
-      "description": "The path of an artefact of that version on the environment's machine, from a local client session only: the desktop's bundled one, or update apply's.",
+      "description": "The path of an artefact of that version on the environment's machine, from a local client session only: an archive (update apply's), or the folder one is unpacked in (the desktop's bundled one), which the environment copies.",
       "type": "string",
       "minLength": 1
     },
