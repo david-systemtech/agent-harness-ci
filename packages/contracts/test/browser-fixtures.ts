@@ -137,10 +137,29 @@ const listening = { state: "listening", port: 47615 };
 const portInUse = { state: "not-listening", reason: "port-in-use", message: "Ports 47615 to 47634 on loopback are all in use." };
 const folder = { path: "/home/david/.local/state/agent-harness/extension/current", problem: null };
 const noBuild = { path: "C:\\Users\\david\\AppData\\Local\\agent-harness\\extension\\current", problem: "This environment carries no built extension." };
-const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: true };
+/** The headless browser's part (#555): launched, an endpoint, and none with the reason. */
+const launched = { allowRuns: true, availability: { available: true, source: { kind: "launched", executable: "/usr/bin/chromium" } }, liveContexts: 1 };
+const endpoint = { allowRuns: true, availability: { available: true, source: { kind: "endpoint", endpoint: "http://127.0.0.1:9222" } }, liveContexts: 0 };
+const noHeadless = { allowRuns: false, availability: { available: false, reason: "No Chromium or Chrome was found on PATH." }, liveContexts: 0 };
+const headlessFixtures: Fixtures = {
+  valid: [launched, endpoint, noHeadless],
+  invalid: [
+    { ...launched, liveContexts: -1 },
+    { ...noHeadless, availability: { available: false } },
+    { ...endpoint, availability: { available: true, source: { kind: "endpoint", endpoint: "127.0.0.1:9222" } } },
+    { availability: launched.availability, liveContexts: 0 },
+  ],
+};
+const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: true, headless: launched };
 const statusFixtures: Fixtures = {
-  valid: [status, { listener: portInUse, folder: noBuild, shippedVersion: null, unpairedConnected: false }],
-  invalid: [{ ...status, unpairedConnected: undefined }, { ...status, shippedVersion: "" }, { ...status, listener: { state: "listening" } }, { listener: listening, folder }],
+  valid: [status, { listener: portInUse, folder: noBuild, shippedVersion: null, unpairedConnected: false, headless: noHeadless }],
+  invalid: [
+    { ...status, unpairedConnected: undefined },
+    { ...status, shippedVersion: "" },
+    { ...status, listener: { state: "listening" } },
+    { listener: listening, folder },
+    { ...status, headless: undefined },
+  ],
 };
 
 /** Pairing and paired Chromes (#548): the code, a Chrome as the list answers it, the chrome stream and chrome.updated. */
@@ -257,6 +276,11 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ state: "listening", port: 0 }, { state: "not-listening", reason: "port-in-use" }, { state: "not-listening", reason: "busy", message: "Busy." }, { port: 47615 }],
   },
   "browser/status/folder.json": { valid: [folder, noBuild], invalid: [{ path: "", problem: null }, { path: folder.path, problem: "" }, { path: folder.path }] },
+  "browser/status/headless-source.json": {
+    valid: [launched.availability.source, endpoint.availability.source, { kind: "endpoint", endpoint: "wss://browser.example:9222/devtools/browser/abc" }],
+    invalid: [{ kind: "launched" }, { kind: "launched", executable: "" }, { kind: "endpoint", endpoint: "ftp://127.0.0.1" }, { kind: "container" }],
+  },
+  "browser/status/headless.json": headlessFixtures,
   "browser/status/status.json": statusFixtures,
   "browser/chrome-pairing-code.json": { valid: ["K7Q2MXH4", "23456789"], invalid: ["K7Q2MXH", "K7Q2MXH4R", "k7q2mxh4", "K7Q2-MXH", "K7Q2MXH1"] },
   "browser/chrome-name.json": { valid: ["Work", "A browser", "x".repeat(80)], invalid: ["", "x".repeat(81), 7] },

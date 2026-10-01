@@ -291,7 +291,8 @@ import {
   ChromeUpdatedPayload,
   PairedChrome,
 } from "./browser-chromes.js";
-import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
+import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
+import { BrowserChromeCall, ClientCallId, ClientCallPayload } from "./client-calls.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -1463,6 +1464,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
   { path: "browser/status/listener.json", title: "ExtensionListenerStatus", schema: ExtensionListenerStatus },
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
+  { path: "browser/status/headless-source.json", title: "HeadlessSource", schema: HeadlessSource },
+  { path: "browser/status/headless.json", title: "HeadlessBrowserStatus", schema: HeadlessBrowserStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
   { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
@@ -1472,6 +1475,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   ...Object.entries(CHROME_EVENT_TYPES).map(([type, entry]) => ({ path: `browser/chrome-events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
   { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
   { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
+  { path: "client-calls/call-id.json", title: "ClientCallId", schema: ClientCallId },
+  { path: "client-calls/browser-chrome.json", title: "BrowserChromeCall", schema: BrowserChromeCall },
+  { path: "client-calls/call.json", title: "ClientCallPayload", schema: ClientCallPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,

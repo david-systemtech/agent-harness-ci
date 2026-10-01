@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   arrange,
+  changeHeading,
+  groupHeading,
   isFolded,
   keepsFold,
   noManualOrder,
@@ -13,10 +15,11 @@ import {
   type DispatchAnswer,
   type DispatchFailure,
   type EnvironmentView,
+  type MergedGroupHeading,
   type Runtime,
   type SessionRow,
 } from "@agent-harness/client-runtime";
-import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
+import { groupNameKey, type CommandMethodName, type KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
 import type { ThemeColours } from "../theme/colours.js";
@@ -26,7 +29,20 @@ import { RAIL_KEYS, type RailCommand, type RailKey } from "./commands.js";
 import { headingOver, isSelectable, railLines, type RailHeading, type RailInput, type RailLine, type RailRow } from "./model.js";
 import type { Picker } from "./picker.js";
 import { newSessionCard, type CardOpening } from "./new-session.js";
-import { groupPicker, restorePicker, searchPicker, snoozePicker, snoozeTyped, tagPicker, titleOf, whenBack, type RailActs } from "./pickers.js";
+import {
+  groupPicker,
+  headingRefusals,
+  quoted,
+  renamePicker,
+  restorePicker,
+  searchPicker,
+  snoozePicker,
+  snoozeTyped,
+  tagPicker,
+  titleOf,
+  whenBack,
+  type RailActs,
+} from "./pickers.js";
 import { setWorkspacePicker } from "./workspace-step.js";
 
 /**
@@ -35,11 +51,12 @@ import { setWorkspacePicker } from "./workspace-step.js";
  * forms does. The rail holds no state of the environment's: its lines are
  * `railLines` over the runtime's projections, worked out again when one of
  * them changes, and its keys issue the session-state commands through the
- * outbox (`commands.dispatch`, `commands.moveToGroup`), whose overlay shows
- * the effect at once and whose entries mark the rows they are about until
- * their receipt (`awaitingReceipt`). The only state it keeps is
- * client-local: the cursor, the filter, and the fold per heading name
- * (`collapsedHeadings`, in the presentation module).
+ * outbox (`commands.dispatch`, `commands.moveToGroup`, and on a merged
+ * group's heading `changeHeading`, one command per member group), whose
+ * overlay shows the effect at once and whose entries mark the rows and
+ * headings they are about until their receipt (`awaitingReceipt`). The only
+ * state it keeps is client-local: the cursor, the filter, and the fold per
+ * heading name (`collapsedHeadings`, in the presentation module).
  */
 
 /** A yes or no question on the line above the composer (the `confirm` context). */
@@ -196,6 +213,22 @@ export const useRail = (options: RailOptions): Rail => {
       say(said);
       hear(runtime.commands.moveToGroup(row.environmentId, row.summary.id, name));
     },
+    change: (heading, change, said) => {
+      say(said);
+      // The cursor follows a renamed heading to its new name, which may merge it with another.
+      if ("rename" in change) acts.land(groupHeading(groupNameKey(change.rename)));
+      void changeHeading(runtime.commands, heading, change).then(
+        (answers) => {
+          const refused = answers.flatMap((answer, at) => {
+            const member = heading.groups[at];
+            return answer.ok || member === undefined ? [] : [{ environment: environmentName(member.environmentId), error: answer.error }];
+          });
+          const line = headingRefusals(change, refused);
+          if (line !== undefined) say(line);
+        },
+        (error: unknown) => say(messageOf(error)),
+      );
+    },
     reveal,
     close: options.close,
     land: (key) => {
@@ -229,11 +262,25 @@ export const useRail = (options: RailOptions): Rail => {
     const view = views.find((v) => v.environmentId === environmentId);
     return view ? nameOf(view) : "its environment";
   };
+  const removeGroup = (heading: MergedGroupHeading) => {
+    const environmentIds = heading.groups.map((member) => member.environmentId);
+    options.ask({
+      text: `Delete the group ${quoted(heading.name)} on ${environmentIds.map(environmentName).join(" and ")}? Its sessions stay, in no group. y/n`,
+      yes: () => acts.change(heading, { delete: true }, `Deleted the group ${quoted(heading.name)}${whenBack(acts, ...environmentIds)}.`),
+      no: () => say("Not deleted."),
+    });
+  };
 
   /** The session the cursor is on, or why there is none: every row key but the reorder keys needs one. */
   const onRow = (act: (row: SessionRow) => void): Handler => () => {
     if (selected?.kind !== "row") return say("Put the cursor on a session first.");
     act(selected.row);
+  };
+
+  /** The merged group whose heading the cursor is on, or why there is none: the heading keys need one. */
+  const onGroup = (act: (heading: MergedGroupHeading) => void): Handler => () => {
+    if (selected?.kind !== "heading" || selected.group === null) return say("Put the cursor on a group's heading first.");
+    act(selected.group);
   };
 
   const moveBy = (step: -1 | 1): Handler => () => {
@@ -306,6 +353,8 @@ export const useRail = (options: RailOptions): Rail => {
     "rail.group": onRow((row) => options.open(groupPicker(acts, row))),
     "rail.moveUp": moveBy(-1),
     "rail.moveDown": moveBy(1),
+    "rail.renameGroup": onGroup((heading) => options.open(renamePicker(acts, heading))),
+    "rail.deleteGroup": onGroup(removeGroup),
   };
   // While a question stands (the delete's confirm) the rail's keys wait for its answer, so no second command
   // goes out from under it; its own keys (`confirm`) are looked up before the rail's.
@@ -369,7 +418,7 @@ export const useRail = (options: RailOptions): Rail => {
           ? views.some((v) => v.environmentId === selected.environmentId && v.name !== null)
             ? `${keys("rail.open")} starts a session on ${selected.text}`
             : undefined
-          : `${keys("rail.open")} ${selected.folded ? "unfolds" : "folds"} ${selected.text}`;
+          : `${keys("rail.open")} ${selected.folded ? "unfolds" : "folds"} ${selected.text}${selected.group === null ? "" : ` · ${keys("rail.renameGroup")} renames it, ${keys("rail.deleteGroup")} deletes it`}`;
   // The slash forms act on the session in hand, which is not the highlighted row once that row has moved away
   // (onto a folded shelf) or a session is open: the hint names it while they differ.
   const target = inHand();

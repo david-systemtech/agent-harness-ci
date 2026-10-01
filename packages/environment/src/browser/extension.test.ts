@@ -115,6 +115,7 @@ describe("the extension's folder", () => {
       folder: { path: folder, problem: null },
       shippedVersion: TEST_EXTENSION_VERSION,
       unpairedConnected: false,
+      headless: { allowRuns: true, availability: expect.objectContaining({ available: false }), liveContexts: 0 },
     });
     const port = answer.listener.state === "listening" ? answer.listener.port : 0;
     expect(readPortFile(folder)).toEqual({ port, environmentId: t.env.id, environmentName: "Laptop", harnessVersion: "1.0.0-test" });

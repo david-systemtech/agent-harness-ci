@@ -3343,6 +3343,14 @@
       "title": "ExtensionFolderStatus"
     },
     {
+      "path": "browser/status/headless-source.json",
+      "title": "HeadlessSource"
+    },
+    {
+      "path": "browser/status/headless.json",
+      "title": "HeadlessBrowserStatus"
+    },
+    {
       "path": "browser/status/status.json",
       "title": "BrowserStatus"
     },
@@ -3389,6 +3397,18 @@
     {
       "path": "browser/chrome-updated.json",
       "title": "ChromeUpdatedPayload"
+    },
+    {
+      "path": "client-calls/call-id.json",
+      "title": "ClientCallId"
+    },
+    {
+      "path": "client-calls/browser-chrome.json",
+      "title": "BrowserChromeCall"
+    },
+    {
+      "path": "client-calls/call.json",
+      "title": "ClientCallPayload"
     },
     {
       "path": "settings/events/settings.updated.json",
@@ -6401,6 +6421,18 @@
     {
       "path": "methods/browser.chromes.perform/error.json",
       "title": "browser.chromes.perform error"
+    },
+    {
+      "path": "methods/client.answer/params.json",
+      "title": "client.answer params"
+    },
+    {
+      "path": "methods/client.answer/result.json",
+      "title": "client.answer result"
+    },
+    {
+      "path": "methods/client.answer/error.json",
+      "title": "client.answer error"
     }
   ],
   "cases": [
@@ -8367,6 +8399,15 @@
       "params": "methods/browser.chromes.perform/params.json",
       "result": "methods/browser.chromes.perform/result.json",
       "error": "methods/browser.chromes.perform/error.json"
+    },
+    {
+      "name": "client.answer",
+      "scope": "runs:drive",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/client.answer/params.json",
+      "result": "methods/client.answer/result.json",
+      "error": "methods/client.answer/error.json"
     }
   ]
 }

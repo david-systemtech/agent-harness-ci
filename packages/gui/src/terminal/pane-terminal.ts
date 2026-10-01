@@ -4,12 +4,13 @@ import {
   reusableTerminal,
   shownEnv,
   uuidv4,
+  type Clock,
   type Runtime,
   type TerminalHandle,
   type TerminalOutput,
   type TerminalStreamView,
 } from "@agent-harness/client-runtime";
-import { ONE_OFF_LINE, TERMINAL_SCROLLBACK } from "@agent-harness/contracts";
+import { ONE_OFF_LINE, TERMINAL_SCROLLBACK, TOOL_TERMINAL_KEPT_MS } from "@agent-harness/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import type { TerminalAsk } from "./terminal-panes.js";
@@ -60,6 +61,13 @@ import { openStyled } from "./xterm-styles.js";
  *   pane on its own. Once its command exits the environment keeps it, and
  *   the pane keeps showing it with how it ended, until the close button
  *   closes it or it is gone from the environment, which the pane is told.
+ *   The environment closes it `TOOL_TERMINAL_KEPT_MS` after the exit on its
+ *   clock telling no one, since the subscription ended with the exit
+ *   (#864): once the environment's clock as this window reckons it
+ *   (`environmentNow`) is that long past the exit's time, the pane asks
+ *   after it again (`terminals.subscribe`), and is told it is gone when it
+ *   is not there; one still held is asked after again a minute later on
+ *   that clock.
  */
 
 /** What the pane says about the terminal it draws. */
@@ -76,8 +84,16 @@ export interface PaneView {
 export type PaneSource =
   /** The session's shell, and the one-offs this window started, which the pane never reopens as the shell and adds its `!` commands to. */
   | { readonly kind: "session"; readonly sessionId: string; readonly oneOffs: Set<string> }
-  /** A tool terminal `tools.run` opened, by its id, at the size the environment opened it at; `gone` hears that the environment no longer holds it. */
-  | { readonly kind: "tool"; readonly terminal: { readonly id: string; readonly cols: number; readonly rows: number }; readonly gone: () => void };
+  /**
+   * A tool terminal `tools.run` opened, by its id, at the size the environment opened it at; `gone` hears that the
+   * environment no longer holds it, and `clock`, the window's, wakes the pane to ask once its kept time is up.
+   */
+  | {
+      readonly kind: "tool";
+      readonly terminal: { readonly id: string; readonly cols: number; readonly rows: number };
+      readonly gone: () => void;
+      readonly clock: Clock;
+    };
 
 export interface PaneTerminalOptions {
   readonly runtime: Runtime;
@@ -158,6 +174,9 @@ const endingSentence = (exit: Exit, name: string): string =>
         : `The terminal on ${name} ${exitWords(exit, "sentence")}.`;
 
 const sameSize = (a: Size | null, b: Size) => a !== null && a.cols === b.cols && a.rows === b.rows;
+
+/** How long after asking finds a kept tool terminal still held it is asked after again, on the environment's clock: this window's reckoning of that clock is off by the socket's latency, and by any drift since `hello`. */
+const KEPT_ASKED_AGAIN_MS = 60_000;
 
 /** The pane's fonts: the system's monospace faces, since the window bundles no font. */
 const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -279,7 +298,30 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     d.held = ended && source.kind === "tool";
     d.ended = endingMark(output.exit);
     say(d, d.command === null ? endingSentence(output.exit, nameOf()) : null);
-    if (!d.held && source.kind === "tool") source.gone();
+    if (d.held) askAt(d, Date.parse(output.occurredAt) + TOOL_TERMINAL_KEPT_MS);
+    else if (source.kind === "tool") source.gone();
+  };
+
+  /** Asks after the kept tool terminal `d` draws once the environment's clock, as this window reckons it, reaches `at`. */
+  const askAt = (d: Drawn, at: number) => {
+    if (source.kind !== "tool") return;
+    const timer = source.clock.setTimeout(() => askAfterKept(d), Math.max(0, at - runtime.environmentNow(environmentId).getTime()));
+    d.stops.push(() => timer.cancel());
+  };
+
+  /** Subscribes the kept tool terminal `d` draws again: not there, it is gone, and the pane is told; still held, it is asked after again a minute later. */
+  const askAfterKept = (d: Drawn) => {
+    if (d.gone || d.terminalId === null || source.kind !== "tool") return;
+    const asked = runtime.subscriptions.terminal(environmentId, d.terminalId, () => undefined);
+    const stop = asked.state.subscribe((view) => {
+      if (view.status !== "ended") return;
+      stop();
+      asked.release();
+      if (view.exit !== null) return askAt(d, runtime.environmentNow(environmentId).getTime() + KEPT_ASKED_AGAIN_MS);
+      d.held = false;
+      source.gone();
+    });
+    d.stops.push(stop, () => asked.release());
   };
 
   const followState = (d: Drawn, view: TerminalStreamView) => {

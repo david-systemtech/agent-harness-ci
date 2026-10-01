@@ -43,7 +43,9 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
-import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
+import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
+import { spawnBrowser, type BrowserLauncher } from "../browser/headless-launch.js";
+import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { chooseChrome } from "../browser/chrome-choice.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
@@ -167,6 +169,7 @@ import { createTerminalService, type ToolTerminals } from "../terminals/service.
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
+import { createBrowserRelay } from "../browser/relay.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
@@ -306,8 +309,9 @@ export interface EnvironmentOptions {
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
   /**
-   * The operating system the preset icon follows, outside a container (#323), and the rule the scripts directory judges a
-   * pre-check's script executable by, Windows's by its extension (#526). Preset: `process.platform`; tests script it.
+   * The operating system the preset icon follows, outside a container (#323), the rule the scripts directory judges a
+   * pre-check's script executable by, Windows's by its extension (#526), and where the headless browser's executable is
+   * looked for (#555). Preset: `process.platform`; tests script it.
    */
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
@@ -567,17 +571,25 @@ export interface EnvironmentOptions {
    * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
-   * at each run's start (#550); preset: none here, until #555's manager.
-   * And the page drivers the browser tools reach, by kind (#551), each over
-   * its preset: a Chrome paired with this environment is driven by its
-   * extension driver (#552), and every other kind answers that it cannot be
-   * driven here yet.
+   * at each run's start (#550); preset: the headless browser's own answer
+   * (#555). And the page drivers the browser tools reach, by kind (#551),
+   * each over its preset: a Chrome paired with this environment is driven by
+   * its extension driver (#552), the headless browser by its driver (#555),
+   * and the dock answers that it cannot be driven here yet.
+   * And how the headless browser is found and started (#555): whether a path
+   * is a file it can run (preset: one this process may execute), how a found
+   * Chromium is launched (preset: a child process over a pipe), and how its
+   * navigation policy resolves a name before navigating (preset: the system's
+   * resolver). Tests launch the scripted CDP peer and resolve from a table.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
     readonly headless?: HeadlessAvailabilitySeam;
     readonly drivers?: PageDrivers;
+    readonly isExecutable?: (path: string) => boolean;
+    readonly launch?: BrowserLauncher;
+    readonly resolve?: Resolver;
   };
 }
 
@@ -1043,10 +1055,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     drivers: {
       // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
       // browser when its client closes (#552); another environment's goes through the browser relay (#554).
-      chrome: ({ browser: chrome }) =>
+      chrome: ({ browser: chrome, sessionId, runId }) =>
         chrome.environmentId.toLowerCase() === record.id.toLowerCase()
           ? browser.driverOf(chrome.chromeId)
-          : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
+          : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
+      // The headless browser (#555): one driver for every session, a browser context each.
+      headless: () => browser.headless.driver,
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
@@ -1226,9 +1240,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       // Each run's browser (#550): the session's field by whether a person is present, the operator's switch as it is at the
-      // run's start, and whether a headless browser is here.
+      // run's start, and whether a headless browser is here, as the headless browser answers it (#555).
       resolveBrowser: (request) =>
-        resolveRunBrowser(request, { allowRuns: settings()["browser.headless.allowRuns"], headless: (options.browser?.headless ?? noHeadlessBrowser)() }),
+        resolveRunBrowser(request, {
+          allowRuns: settings()["browser.headless.allowRuns"],
+          headless: options.browser?.headless?.() ?? browser.headless.availability(),
+        }),
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
@@ -1499,7 +1516,26 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
+    // The headless browser (#555): an endpoint, else a Chromium it launches, never in a container the install declared.
+    headless: {
+      declaredContainer: detector.declared?.() ?? false,
+      find: (named) =>
+        findHeadlessExecutable(named, {
+          platform: options.platform ?? process.platform,
+          env: process.env,
+          home: homedir(),
+          isExecutable: options.browser?.isExecutable ?? isExecutableFile,
+        }),
+      launch: options.browser?.launch ?? spawnBrowser,
+      resolve: options.browser?.resolve ?? systemResolver,
+    },
   });
+  /** A client session's label, which sentences and records name it by; undefined for one never issued. */
+  const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
+  // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
+  // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel });
+  closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.
   const endpoints = createRoutineEndpoints({
@@ -1632,12 +1668,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
+    // The browser relay's answers (#554): client.answer.
+    ...relay.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
       log,
       environmentId: record.id,
       store: trustStore,
-      clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+      clientSessionLabel,
     }),
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied

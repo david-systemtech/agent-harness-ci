@@ -7,8 +7,10 @@ import type { HttpFetch } from "../platform.js";
  * protocol gap"): the environment is asked to update itself to this client's
  * version, `when: idle`. Blocked `protocol-mismatch`, the wire refuses this
  * client, so the ask goes over `POST /api/update` with the client session's
- * token; otherwise it is `updates.apply` on the connection's socket. Either
- * way the environment answers the update it took, or refuses with a reason.
+ * token (a local connection that holds none, blocked before any grant
+ * exchange, exchanges the grant first, #826); otherwise it is `updates.apply`
+ * on the connection's socket. Either way the environment answers the update
+ * it took, or refuses with a reason.
  */
 
 /** What asking an environment to update came to: the update it took, or why not. */
@@ -16,7 +18,7 @@ export type UpdateEnvironmentOutcome =
   | { readonly ok: true; readonly updateId: string; readonly toVersion: string }
   | {
       readonly ok: false;
-      /** The environment said no, which a notice names; else the ask failed on the way (`unreachable`, `no-token`, `malformed`). */
+      /** The environment said no, which a notice names; else the ask failed on the way (`unreachable`, `no-token` (a local grant exchange that failed among them), `malformed`). */
       readonly refused: boolean;
       /** The environment's conflict reason, `local` for an artefact path, else its error's code; or how the ask failed. */
       readonly reason: string;

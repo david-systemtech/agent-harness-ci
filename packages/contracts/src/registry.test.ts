@@ -570,6 +570,7 @@ describe("the method registry", () => {
       | "browser.chromes.rename"
       | "browser.chromes.unpair"
       | "browser.chromes.perform"
+      | "client.answer"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });
