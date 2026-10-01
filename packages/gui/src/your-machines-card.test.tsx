@@ -89,6 +89,28 @@ describe("the Your machines card in Set up", () => {
     expect(within(part("laptop", "Reachability")).queryByText(TAILSCALE_WARNING)).toBeNull();
   });
 
+  it("says in place of the Tailscale warning that a Tailscale address installed since is found and binds at the machine's next start, until Check again finds it bound", async () => {
+    const app = await opened();
+    const laptop = app.environment("laptop");
+    const reachability = () => part("laptop", "Reachability");
+    const statusSays = (binding: EnvironmentBinding) =>
+      laptop.wire.answer("environment.status", () => ({ result: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding } }));
+    expect(await within(reachability()).findByText(TAILSCALE_WARNING)).toBeDefined();
+
+    // Tailscale installed since laptop started: its address is found, not bound.
+    statusSays({ ...LOOPBACK_ONLY, tailnetFound: "100.64.0.9" });
+    await app.user.click(within(reachability()).getByRole("button", { name: "Check again" }));
+    expect(await within(reachability()).findByText("Tailscale address 100.64.0.9 found: laptop binds it at its next start.")).toBeDefined();
+    expect(within(reachability()).queryByText(TAILSCALE_WARNING)).toBeNull();
+    expect(within(rail()).getByRole("img", { name: "Your machines: done" })).toBeDefined();
+
+    // laptop started again: Check again finds the address bound.
+    statusSays({ ...LOOPBACK_ONLY, tailnet: { address: "100.64.0.9", name: null } });
+    await app.user.click(within(reachability()).getByRole("button", { name: "Check again" }));
+    expect(await within(reachability()).findByText("Reachable on the tailnet at 100.64.0.9.")).toBeDefined();
+    expect(within(reachability()).queryByText(/^Tailscale address/)).toBeNull();
+  });
+
   it("names the LAN address its switch would bind with the warning, writes network.bindLan and network.bindTailnet each through its own switch, and says both apply at the next start", async () => {
     const app = await opened();
     const desk = app.environment("desk");

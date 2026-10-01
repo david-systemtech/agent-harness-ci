@@ -155,7 +155,7 @@ describe("the page driver in a real Chromium", () => {
     expect(sent).not.toContain("Runtime.enable");
     expect(sent).not.toContain("Log.enable");
     expect(sent).not.toContain("Network.enable");
-    expect(await perform("evaluate", { expression: "[window.clicks, window.mainWorldQueries]" })).toEqual({ ok: true, value: { result: [1, 0] } });
+    expect(await perform("evaluate", { expression: "[window.clicks, window.mainWorldQueries]" })).toEqual({ ok: true, value: { url: at("fields.html"), result: [1, 0] } });
     expect(sent).toContain("Runtime.enable");
   });
 
@@ -164,14 +164,14 @@ describe("the page driver in a real Chromium", () => {
     await perform("open", { url: at("fields.html") });
     expect(await perform("type", { target: { selector: "#password" }, text: "new-password-for-tests" })).toMatchObject({ ok: true });
     expect(await perform("type", { target: { selector: "#card" }, text: "" })).toMatchObject({ ok: true });
-    expect(await perform("evaluate", { expression: "[password.value, card.value]" })).toEqual({ ok: true, value: { result: ["new-password-for-tests", ""] } });
+    expect(await perform("evaluate", { expression: "[password.value, card.value]" })).toEqual({ ok: true, value: { url: at("fields.html"), result: ["new-password-for-tests", ""] } });
   });
 
   it("scrolls a long article by viewports and waits for its last sentence", async () => {
     const perform = drive();
     await perform("open", { url: at("article.html") });
     await perform("scroll", { to: { direction: "down", amount: 2 } });
-    await expect.poll(async () => perform("evaluate", { expression: "scrollY" }), { timeout: 10_000 }).toEqual({ ok: true, value: { result: 1_600 } });
+    await expect.poll(async () => perform("evaluate", { expression: "scrollY" }), { timeout: 10_000 }).toEqual({ ok: true, value: { url: at("article.html"), result: 1_600 } });
     expect(await perform("waitFor", { until: { text: "The end of the article." } })).toMatchObject({ ok: true });
   });
 
@@ -179,7 +179,7 @@ describe("the page driver in a real Chromium", () => {
     const perform = drive();
     await perform("open", { url: at("canvas.html") });
     expect(await perform("clickAt", { x: 300, y: 200 })).toMatchObject({ ok: true });
-    expect(await perform("evaluate", { expression: "window.lastClick" })).toEqual({ ok: true, value: { result: [300, 200] } });
+    expect(await perform("evaluate", { expression: "window.lastClick" })).toEqual({ ok: true, value: { url: at("canvas.html"), result: [300, 200] } });
     const shot = await perform("screenshot", {});
     if (!shot.ok) throw new Error(shot.reason);
     expect(shot.value.mimeType).toBe("image/jpeg");
@@ -261,7 +261,7 @@ describe("the page driver in a real Chromium", () => {
     const ref = (name: string): string => new RegExp(`"${name}" (?:\\[\\w=-]+\\] )*\\[ref=(e\\d+)\\]`).exec(text)?.[1] as string;
     expect(await perform("click", { target: { ref: ref("Buy") } })).toMatchObject({ ok: true });
     expect(await perform("type", { target: { ref: ref("Password") }, text: "typed-by-ref-for-tests" })).toMatchObject({ ok: true });
-    expect(await perform("evaluate", { expression: "[window.clicks, password.value]" })).toEqual({ ok: true, value: { result: [1, "typed-by-ref-for-tests"] } });
+    expect(await perform("evaluate", { expression: "[window.clicks, password.value]" })).toEqual({ ok: true, value: { url: at("fields.html"), result: [1, "typed-by-ref-for-tests"] } });
   });
 
   it("reads a Wikipedia-length article through the reader as Markdown to its last sentence over successive offsets, the live page untouched", async () => {

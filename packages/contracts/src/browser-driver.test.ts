@@ -164,21 +164,32 @@ describe("the page-driver contract", () => {
     expect(accepts("navigate", "value", arrival)).toBe(true);
     expect(accepts("click", "value", { ...arrival, snapshot: { text: "- link \"Next\" [ref=e2]", totalChars: 22, truncated: false }, challenge: "recaptcha" })).toBe(true);
     expect(accepts("click", "value", { ...arrival, challenge: "captcha" })).toBe(false);
-    expect(accepts("screenshot", "value", { mimeType: "image/jpeg", data: "/9j/4AAQ" })).toBe(true);
-    expect(accepts("screenshot", "value", { mimeType: "image/gif", data: "R0lG" })).toBe(false);
+    expect(accepts("screenshot", "value", { url: "https://example.com/", mimeType: "image/jpeg", data: "/9j/4AAQ" })).toBe(true);
+    expect(accepts("screenshot", "value", { url: "https://example.com/", mimeType: "image/gif", data: "R0lG" })).toBe(false);
     expect(accepts("close", "value", null)).toBe(true);
   });
 
   it("answers the deep verbs as a developer reads them, a cookie's value only where it may be read", () => {
     const at = "2026-09-29T01:02:03.000Z";
-    expect(accepts("console", "value", [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }])).toBe(true);
+    expect(accepts("console", "value", { url: "https://example.com/", entries: [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }] })).toBe(true);
     expect(accepts("network", "args", { failedOnly: true })).toBe(true);
-    expect(accepts("network", "value", [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }])).toBe(true);
-    expect(accepts("cookies", "value", [{ name: "session", domain: ".example.com", path: "/", httpOnly: true, secure: true, sameSite: "Lax" }])).toBe(true);
+    expect(accepts("network", "value", { url: "https://example.com/", entries: [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }] })).toBe(true);
+    expect(accepts("cookies", "value", { url: "https://example.com/", entries: [{ name: "session", domain: ".example.com", path: "/", httpOnly: true, secure: true, sameSite: "Lax" }] })).toBe(true);
     expect(accepts("storage", "value", { origin: "http://localhost:3000", local: { theme: "dark" }, session: {} })).toBe(true);
     expect(accepts("evaluate", "args", { expression: "document.title" })).toBe(true);
-    expect(accepts("evaluate", "value", { result: { a: [1, "two", null] } })).toBe(true);
+    expect(accepts("evaluate", "value", { url: "https://example.com/", result: { a: [1, "two", null] } })).toBe(true);
     expect(accepts("evaluate", "value", {})).toBe(false);
+  });
+
+  it.each([
+    ["console", { entries: [] }],
+    ["network", { entries: [] }],
+    ["cookies", { entries: [] }],
+    ["evaluate", { result: null }],
+    ["screenshot", { mimeType: "image/jpeg", data: "/9j/4AAQ" }],
+  ] as const)("requires %s to name its page's address, even before another verb reported one", (verb, value) => {
+    expect(accepts(verb, "value", value)).toBe(false);
+    expect(accepts(verb, "value", { url: "about:blank", ...value })).toBe(true);
   });
 
   it("carries a command as its verb and its arguments, and a call as the page key, the command and a one-time allowance", () => {

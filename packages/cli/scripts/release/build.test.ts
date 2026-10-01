@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, ReleaseManifest } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { declaredVersion } from "../../src/launch/versions.js";
-import { FIXTURE_IMAGE, fixtureBuild, fixtureReport, type FixtureBuild } from "../../test/release-fixtures.js";
+import { FIXTURE_IMAGE, fixtureBuild, fixtureInstall, fixtureReport, type FixtureBuild } from "../../test/release-fixtures.js";
 import { buildOptionsOf } from "./arguments.js";
 import type { OtherAsset } from "./assets.js";
 import { buildRelease } from "./build.js";
@@ -48,6 +48,20 @@ const executable = (path: string): boolean => (statSync(path).mode & 0o111) !== 
 const BUILD_MS = 120_000;
 
 describe("the release build", { timeout: BUILD_MS }, () => {
+  it.each(["darwin-arm64", "win32-x64"])("refuses a %s artefact without its keychain native prebuild", async (platform) => {
+    build = fixtureBuild({ host: platform });
+    await expect(buildRelease(build.options({ platforms: [platform] }), {
+      ...build.seams,
+      installDependencies: async (request) => {
+        await fixtureInstall(request);
+        const prebuild = platform === "win32-x64" ? "win32-x64-msvc" : platform;
+        // The package directory remains, but its native file is absent.
+        rmSync(join(request.workspace, "node_modules", "@napi-rs", `keyring-${prebuild}`, `keyring.${prebuild}.node`));
+      },
+    })).rejects.toThrow(/has no keychain prebuild/);
+    expect(existsSync(join(build.out, "release.json"))).toBe(false);
+  });
+
   it("refuses a tag that is not v and a semantic version, before it builds anything", async () => {
     build = fixtureBuild();
     for (const tag of ["0.5.0", "v0.5", "release-0.5.0", "v01.0.0", ""]) {
@@ -116,6 +130,7 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     expect(readdirSync(root).sort()).toEqual(["bin", "node", "node_modules", "packages"]);
     expect(build.downloaded).toContain("https://nodejs.org/dist/v24.0.0/node-v24.0.0-darwin-arm64.tar.gz");
     expect(text(join(root, "node", "bin", "node"))).toContain("for darwin-arm64");
+    expect(text(join(root, "node_modules", "@napi-rs", "keyring-darwin-arm64", "keyring.darwin-arm64.node"))).toBe("fixture keychain prebuild\n");
     const pty = join(root, "node_modules", "node-pty");
     expect(readdirSync(join(pty, "prebuilds"))).toEqual(["darwin-arm64"]);
     expect(existsSync(join(pty, "build"))).toBe(false);
@@ -132,6 +147,7 @@ describe("the release build", { timeout: BUILD_MS }, () => {
     expect(readdirSync(root).sort()).toEqual(["bin", "node", "node_modules", "packages"]);
     expect(build.downloaded).toContain("https://nodejs.org/dist/v24.0.0/node-v24.0.0-win-x64.zip");
     expect(readdirSync(join(root, "node")).sort()).toEqual(["LICENSE", "node.exe"]);
+    expect(text(join(root, "node_modules", "@napi-rs", "keyring-win32-x64-msvc", "keyring.win32-x64-msvc.node"))).toBe("fixture keychain prebuild\n");
     expect(readdirSync(join(root, "bin"))).toEqual(["agent-harness.cmd"]);
     expect(text(join(root, "bin", "agent-harness.cmd"))).toBe(
       '@echo off\r\nrem agent-harness: this release\'s CLI on its own Node, from wherever the artefact is unpacked.\r\n"%~dp0..\\node\\node.exe" "%~dp0..\\packages\\cli\\dist\\main.js" %*\r\nexit /b %ERRORLEVEL%\r\n',
