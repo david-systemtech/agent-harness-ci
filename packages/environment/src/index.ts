@@ -258,10 +258,11 @@ export { defaultDataDirectory, prepareDataDirectory, type PlatformContext } from
 export { isAllowedHost, type Address, type HttpRoutes, type RouteHandler } from "./serve/http.js";
 export {
   LOOPBACK,
-  bindList,
+  bindPlan,
   processRunner,
   tailscaleDetector,
   type BindChoice,
+  type BindPlan,
   type BoundInterface,
   type CommandRunner,
   type InterfaceDetector,

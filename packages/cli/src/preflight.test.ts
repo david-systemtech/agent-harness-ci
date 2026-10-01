@@ -29,6 +29,7 @@ const inProcess = async (args: string[], seams: PreflightSeams) => {
 };
 
 const passing: PreflightSeams = {
+  platform: "linux",
   loadPty: () => ({}),
   claudeExecutable: "/sdk/claude",
   runClaude: async () => ({ code: 0, stdout: "2.1.283 (Claude Code)\n", stderr: "" }),
@@ -46,11 +47,25 @@ describe("agent-harness preflight, run from the build", { timeout: CLI_PROCESS_M
       databaseSchemaVersion: DATABASE_SCHEMA_VERSION,
       bundledClaudeCodeVersion: expect.stringMatching(/^\d+\.\d+\.\d+/) as unknown as string,
     });
-    expect(stderr).toBe("");
+    expect(stderr).toBe(process.platform === "darwin" || process.platform === "win32" ? "agent-harness preflight: keychain: @napi-rs/keyring loaded.\n" : "");
   });
 });
 
 describe("agent-harness preflight", () => {
+  it.each(["darwin", "win32"] as const)("reports a loaded keychain binding on %s to stderr while stdout remains the launcher report", async (platform) => {
+    const { code, stdout, stderr } = await inProcess(["preflight"], { ...passing, platform, loadKeychain: async () => ({ get: async () => undefined, set: async () => undefined, delete: async () => undefined }) });
+    expect(code).toBe(0);
+    expect(parsePreflightReport(stdout)?.version).toBe(HARNESS_VERSION);
+    expect(stderr).toBe("agent-harness preflight: keychain: @napi-rs/keyring loaded.\n");
+  });
+
+  it.each(["darwin", "win32"] as const)("exits 1 on %s when the binding cannot load, so the launcher refuses the staged version", async (platform) => {
+    const { code, stdout, stderr } = await inProcess(["preflight"], { ...passing, platform, loadKeychain: async () => { throw new Error("Cannot find native binding for this platform"); } });
+    expect(code).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toBe("agent-harness preflight failed: keychain: @napi-rs/keyring did not load: Cannot find native binding for this platform\n");
+  });
+
   it("prints the report alone on its standard output when every check passes", async () => {
     const { code, stdout, stderr } = await inProcess(["preflight"], passing);
     expect(code).toBe(0);
