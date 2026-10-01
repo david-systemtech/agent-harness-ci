@@ -1,7 +1,8 @@
 # Browser: manual checklist
 
-The half of the CDP page driver (`packages/browser`, ticket #543) that only a
-real Chromium can prove. The automated tests drive the driver over the
+The half of the CDP page driver (`packages/browser`, ticket #543) and its
+snapshot (#544: the vendored aria snapshot and acting by ref) that only a real
+Chromium can prove. The automated tests drive the driver over the
 scripted CDP peer (`@agent-harness/browser/testing`) on a loopback WebSocket
 and a pipe, and run the in-page functions in jsdom; the fixture-page suite
 (`packages/browser/src/driver/chromium.test.ts`) proves the same against a
@@ -58,6 +59,17 @@ Every case passes:
    WebSocket to its address.
 8. A page whose cross-site frame the denylist lists is refused whole, naming
    the sub-frame, and left at about:blank.
+9. A snapshot of the frames page reads as one tree: the heading, then the
+   same-site frame's text under its iframe with `f1` refs, then the cross-site
+   frame's under its own with the next prefix.
+10. A click by the cross-site frame's Pay button's ref lands in that frame (its
+    text turns to "Paid in full"), and once the page has navigated the same
+    ref is refused with "Take a new snapshot".
+11. A snapshot of the Lit-style card shows its slotted title as a heading and
+    its temperature from inside its shadow root.
+12. A snapshot of the fields page shows the password's and the card number's
+    markers and neither value, and a click and a typing by ref land on the
+    Buy button and the password field.
 
 Record the date, the machine and its platform, the browser and its version
 (`chromium --version`), and each case's result in the pull request.
