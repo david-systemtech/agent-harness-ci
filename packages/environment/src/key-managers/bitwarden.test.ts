@@ -29,8 +29,9 @@ it("signs in with an access token, proves it by listing projects, and checks and
   expect(sdk.calls.slice(beforeBrowse).map((call) => call.operation)).not.toContain("get");
 });
 
-it.runIf(process.platform !== "win32")("tools.verify runs bws project list with the access token, server and empty configuration and shadows the host profile", async () => {
+it.runIf(process.platform !== "win32")("tools.verify runs bws project list with the access token and server in its environment and the empty configuration through --config-file, shadowing the host's profile and configuration", async () => {
   vi.stubEnv("BWS_PROFILE", "stray-profile-for-tests");
+  vi.stubEnv("BWS_CONFIG_FILE", join(tempDir(), "stray-config-for-tests"));
   onCleanup(() => { vi.unstubAllEnvs(); });
   const cli = installFakeBws(join(tempDir(), "bin"));
   const sdk = scriptedBitwarden();
@@ -39,7 +40,12 @@ it.runIf(process.platform !== "win32")("tools.verify runs bws project list with 
   const client = await t.client();
   const connection = await added(client, { provider: "bitwarden", address: "https://bitwarden.test", credential: token(BITWARDEN_TEST_TOKEN) });
   expect(await client.request("tools.verify", { tool: "bws" })).toMatchObject({ outcome: "passed" });
-  expect(cli.calls()).toMatchObject([{ argv: ["project", "list"], config: "", mode: 0o600, saw: { BWS_PROFILE: "", BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN, BWS_SERVER_URL: "https://bitwarden.test", BWS_CONFIG_FILE: expect.stringContaining(join(t.dataDir, "key-manager-cli")) } }]);
+  const calls = cli.calls();
+  expect(calls).toMatchObject([{ command: ["project", "list"], profile: "", serverUrl: "https://bitwarden.test", config: "", mode: 0o600, saw: { BWS_PROFILE: "", BWS_ACCESS_TOKEN: BITWARDEN_TEST_TOKEN, BWS_SERVER_URL: "https://bitwarden.test" } }]);
+  // bws 0.3.0 binds no variable to its configuration file: the block's file reaches it as the option alone, and the token never does.
+  expect(calls[0]?.configFile).toBe(calls[0]?.saw.BWS_CONFIG_FILE);
+  expect(calls[0]?.configFile.startsWith(join(t.dataDir, "key-manager-cli"))).toBe(true);
+  expect(calls[0]?.argv.join(" ")).not.toContain(BITWARDEN_TEST_TOKEN);
   expect(connection.injectedVariables).toEqual(["BWS_ACCESS_TOKEN", "BWS_SERVER_URL", "BWS_CONFIG_FILE", "BWS_PROFILE"]);
 });
 
