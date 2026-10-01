@@ -49,6 +49,57 @@ const answer = (client: WireClient, id: string, p: PromptOpenedPayload, decision
 const navigations = (peer: ReturnType<typeof scriptedCdpPeer>) => peer.sentOf("Page.navigate").map((c) => c.params["url"]);
 
 describe("the denylist on a browser call", () => {
+  it.each(["permission", "denylist"] as const)("records an earlier allowance when the browser run stops under a later %s prompt", async (kind) => {
+    const { t, client, id } = await headless();
+    const toolCallId = "stopped-browser-for-tests";
+    const name = "mcp__browser__browser_open";
+    (t.adapter as FakeAdapter).nextScripts.push(async function* (controls) {
+      const input = { address: PAYPAL, snapshot: false };
+      yield { type: "tool.started", payload: { toolCallId, name, input, title: null, agentId: null, parentToolCallId: null } };
+      const gated = await controls.context.gate.check({ toolCallId, tool: name, summary: "Open the page", access: { kind: "browse", urls: [PAYPAL] }, input });
+      if (gated.decision !== "allow") throw new Error("Gate denied");
+      if (kind === "permission") {
+        await controls.context.broker.request({ sessionId: id, runId: controls.input.runId, kind, detail: { toolName: name, toolCallId, input } });
+      } else {
+        const redirect = "https://checkout.stripe.com/pay";
+        await controls.context.gate.check({ toolCallId, tool: name, summary: "Follow the redirect", access: { kind: "browse", urls: [redirect] }, input: { address: redirect } });
+      }
+      yield end();
+    });
+    await run(client, id);
+    const first = await prompt(t, id);
+    await answer(client, id, first, "allow");
+    const later = await prompt(t, id, 2);
+    expect(later.kind).toBe(kind);
+    expect(events(t, id).filter((e) => e.type === "tool.decision")).toEqual([]);
+    await client.apply("providers.processes.stop", { commandId: randomUUID(), sessionId: id });
+    await ended(t, id);
+    expect((await client.apply("permissions.prompts.list", { sessionId: id })).prompts.map((p) => p.promptId)).toEqual([later.promptId]);
+    expect(events(t, id).filter((e) => e.type === "tool.decision").map((e) => e.payload)).toEqual([
+      expect.objectContaining({ toolCallId, promptId: first.promptId, decision: "allowed", decidedBy: "person" }),
+    ]);
+    await answer(client, id, later, "deny");
+    expect(events(t, id).filter((e) => e.type === "tool.decision")).toHaveLength(1);
+  });
+
+  it("records an allowance answered after the browser run was stopped, beside the next-run answer", async () => {
+    const { t, client, id } = await headless();
+    const answers: HostToolResult[] = [];
+    script(t, answers, [["browser_open", { address: PAYPAL, snapshot: false }]]);
+    await run(client, id);
+    const parked = await prompt(t, id);
+    await client.apply("providers.processes.stop", { commandId: randomUUID(), sessionId: id });
+    await ended(t, id);
+    expect(events(t, id).filter((e) => e.type === "tool.decision")).toEqual([]);
+    await answer(client, id, parked, "allow");
+    expect(events(t, id).filter((e) => e.type === "prompt.answered").map((e) => e.payload)).toEqual([
+      expect.objectContaining({ promptId: parked.promptId, decision: "allow", delivery: "next-run" }),
+    ]);
+    expect(events(t, id).filter((e) => e.type === "tool.decision").map((e) => e.payload)).toEqual([
+      expect.objectContaining({ toolCallId: parked.toolCallId, promptId: parked.promptId, decision: "allowed", decidedBy: "person" }),
+    ]);
+  });
+
   it("carries the person's allow for browser_open to the headless driver once and judges the next navigation afresh", async () => {
     const { t, client, peer, id } = await headless();
     const answers: HostToolResult[] = [];

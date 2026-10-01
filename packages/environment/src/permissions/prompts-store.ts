@@ -229,6 +229,16 @@ export const readCallPrompt = (reader: Reader, runId: string, toolCallId: string
   return row === undefined ? null : toRecord(row);
 };
 
+/** The latest answered prompt about a call, even when a later prompt is still parked. */
+export const readAnsweredCallPrompt = (reader: Reader, runId: string, toolCallId: string): PromptRecord | null => {
+  const [row] = reader.all<PromptRow>(
+    "SELECT * FROM prompts WHERE run_id = ? AND tool_call_id = ? AND answered_sequence IS NOT NULL ORDER BY sequence DESC LIMIT 1",
+    runId,
+    toolCallId,
+  );
+  return row === undefined ? null : toRecord(row);
+};
+
 /** Whether run `runId` asked a prompt about its tool call `toolCallId`, answered or not: that prompt's answer is the call's decision (#131). */
 export const isAsked = (reader: Reader, runId: string, toolCallId: string): boolean =>
   reader.all("SELECT 1 FROM prompts WHERE run_id = ? AND tool_call_id = ? LIMIT 1", runId, toolCallId).length > 0;
