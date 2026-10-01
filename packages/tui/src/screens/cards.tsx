@@ -68,7 +68,7 @@ export const EnvironmentMenu = (props: {
     </Text>
     {props.update.lines.map((line) => (
       <Box key={line.text} paddingLeft={2}>
-        <Text wrap="wrap" dimColor={line.tone === "quiet"} {...(line.tone === "warn" && { color: "yellow" })}>
+        <Text wrap="wrap" dimColor={line.tone === "quiet"} {...(line.tone === "warn" && { color: TERMINAL_ROLES.warning })}>
           {line.text}
         </Text>
       </Box>
