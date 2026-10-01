@@ -1,39 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "KeyManagerMovedPayload",
+  "title": "banks.credential.swap params",
   "type": "object",
   "properties": {
-    "connectionId": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "bankId": {
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "The connection the item was moved to."
-    },
-    "item": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "forge-account",
-            "endpoint",
-            "bank"
-          ],
-          "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
-        },
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "^[^\\p{Cc}]+$",
-          "description": "The item's id with its owner: a forge account's or bank's id, or a webhook endpoint's name."
-        }
-      },
-      "required": [
-        "kind",
-        "id"
-      ],
-      "description": "An item Move takes, by its kind and its owner's id for it."
+      "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
     },
     "reference": {
       "oneOf": [
@@ -202,29 +182,12 @@
           "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
         }
       ],
-      "description": "Where it went: the reference the item holds now."
-    },
-    "undeleted": {
-      "anyOf": [
-        {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "pattern": "^[^\\p{Cc}]+$",
-          "description": "Where an owning service keeps a stored value, never the value: a forge account's vault entry (forge:<forge account id>:<entry id>)."
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "description": "Where the stored value is kept still when its delete failed, which the next start deletes; null once it was deleted."
+      "description": "Where a credential sits in a key manager, never its value: the provider, the connection it is read through, and the provider's locator (OpenBao mount, path and key; a Doppler name with its project and config; a 1Password vault, item and field; a Bitwarden secret id with its key)."
     }
   },
   "required": [
-    "connectionId",
-    "item",
-    "reference",
-    "undeleted"
-  ],
-  "description": "key-manager.moved: an item's stored value was written to a key manager, or pasted there by a person and verified (verifyOnly), read back, and the item swapped to the reference. Never the value."
+    "commandId",
+    "bankId",
+    "reference"
+  ]
 }

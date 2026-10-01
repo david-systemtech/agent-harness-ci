@@ -27,6 +27,7 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { runGit } from "../workspace/git.js";
+import type { BankCredentials } from "./credentials.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank, type BankIndex } from "./bank-index.js";
 import { bankEver, importHolder, listBanks, liveBank, nameHolder } from "./bank-store.js";
@@ -200,6 +201,7 @@ export interface BankServiceOptions {
   readonly describeRepository?: (checkout: string) => string;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
   readonly forge: Pick<ForgeOperations, "repositories" | "pullRequests" | "users">;
+  readonly credentials: BankCredentials;
   readonly creation?: {
     readonly dataDir: string;
     readonly localPersonName: string;
@@ -222,6 +224,7 @@ export interface BankService {
   /** Records a fetch outcome and refreshes the cached reading; only a moved head emits bank.synced. */
   recordSync(bankId: string, outcome: { readonly head: string; readonly previousHead: string | null } | { readonly problem: string }): Promise<void>;
   readonly register: PreparedCommand<"banks.register">;
+  readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
 }
 
@@ -455,6 +458,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   });
 
   return {
+    git: options.credentials.git,
     list: records,
     get: async (bankId) => (await records()).find((bank) => bank.id === bankId) ?? null,
     entries: () => listBanks(reader).map((entry) => ({ entry, index: readings.get(entry.id)?.index ?? null })),

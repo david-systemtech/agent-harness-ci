@@ -45,10 +45,12 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
 import { describeRepositoryAt } from "../banks/describe-repository.js";
+import { createBankCredentials } from "../banks/credentials.js";
+import { createBankService, type BankService } from "../banks/bank-service.js";
 import { PROVIDER_NAMES as KEY_MANAGER_NAMES } from "../key-managers/provider.js";
-import { createBankService } from "../banks/bank-service.js";
 import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
 import { banksProjector, listBanks } from "../banks/bank-store.js";
+import { createBankMoveSource } from "../banks/move-source.js";
 import { bankMethods } from "../banks/methods.js";
 import { banksSection } from "../banks/orientation.js";
 import { createBankSyncer } from "../banks/syncer.js";
@@ -697,6 +699,7 @@ export interface EnvironmentHandle {
    * process, reading a forge account's credential per operation (#312).
    */
   readonly forge: ForgeService;
+  readonly banks: BankService;
   /**
    * The key-manager connections (#365): the add the state import (ADR
    * 0036) and the bulk copy call in process, without a credential, and what
@@ -974,7 +977,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
-      referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId)],
+      referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId), ...bankCredentials.referenceHolders(connectionId)],
       cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
       onePasswordSdk: options.onePasswordSdk ?? officialOnePasswordSdk(HARNESS_VERSION),
     });
@@ -1034,9 +1037,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   const user = passwdName();
+  const bankCredentials = createBankCredentials({ log, environmentId: record.id, forge, vault, references: keyManagers, scrub, command: options.harnessCommand, address: () => address, ...(options.harnessGitConfig !== undefined && { config: options.harnessGitConfig }) });
+  await bankCredentials.start();
+  if (options.moveSources === undefined) moves.register(createBankMoveSource(log, vault, bankCredentials));
+  closers.push(() => bankCredentials.close());
   const bankService = createBankService({
     describeRepository: (checkout) => describeRepositoryAt(dataDir, checkout),
-    log, clock, environmentId: record.id, forge,
+    log, clock, environmentId: record.id, forge, credentials: bankCredentials,
     creation: {
       dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
       keyManager: () => {
@@ -1045,7 +1052,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
     },
   });
-  const bankSyncer = createBankSyncer({ banks: bankService, clock, git: (request) => options.banksGit?.(request, forge.git) ?? forge.git(request) });
+  const bankSyncer = createBankSyncer({
+    banks: bankService, clock,
+    git: (request, bankId) => {
+      const git = (request: ForgeGitRequest) => bankService.git(bankId, request);
+      return options.banksGit?.(request, git) ?? git(request);
+    },
+  });
   // The host closes first, ending runs waiting on this syncer before its close releases their deadlines.
   closers.push(() => bankSyncer.close());
 
@@ -1761,7 +1774,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
-    ...bankMethods(bankService, bankSyncer),
+    ...bankMethods(bankService, bankCredentials, bankSyncer),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
       const session = readSessionFacts(log, reader, sessionId);
@@ -1885,7 +1898,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
   // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
-  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock }));
+  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock, banks: bankCredentials }));
   // The update route (#353): updates.apply over HTTP for a client whose protocol the wire refuses; a client session's token, no exchange.
   surface.route("POST", UPDATE_PATH, createUpdateRoute({ log, clientSessions, methods: table, readiness: () => readiness }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
@@ -2145,6 +2158,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     subscriptions: () => wire.subscriptions(),
     log,
     forge,
+    banks: bankService,
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },

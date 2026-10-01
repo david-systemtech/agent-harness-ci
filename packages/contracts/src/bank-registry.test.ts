@@ -67,11 +67,13 @@ describe("the bank events", () => {
 
 describe("the bank methods", () => {
   it("read records at read, register at admin with a command id, and verify as a read query", () => {
-    expect(["banks.list", "banks.get", "banks.register", "banks.verify", "banks.sync"].map((name) => [name, registry[name as keyof typeof registry].scope, registry[name as keyof typeof registry].kind])).toEqual([
+    expect(["banks.list", "banks.get", "banks.register", "banks.verify", "banks.credential.set", "banks.credential.swap", "banks.sync"].map((name) => [name, registry[name as keyof typeof registry].scope, registry[name as keyof typeof registry].kind])).toEqual([
       ["banks.list", "read", "query"],
       ["banks.get", "read", "query"],
       ["banks.register", "admin", "command"],
       ["banks.verify", "read", "query"],
+      ["banks.credential.set", "admin", "command"],
+      ["banks.credential.swap", "admin", "command"],
       ["banks.sync", "read", "query"],
     ]);
   });
