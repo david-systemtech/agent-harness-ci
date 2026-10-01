@@ -202,7 +202,7 @@ export interface Runtime {
      */
     hide(environmentId: string, path: string): Promise<void>;
   };
-  /** The `sessions:write` and `runs:drive` commands, through the outbox. */
+  /** The `sessions:write` and `runs:drive` commands through the outbox, and copies through direct admin requests. */
   readonly commands: Commands & SkillsCopies;
   /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */
   readonly drafts: Drafts;
