@@ -183,6 +183,7 @@ import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory
 import { skillReadinessMethods } from "../skills/readiness.js";
 import { placeSkillSet, runSkillSets } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
+import { mintMethods } from "../setup/mint.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
 import { environmentStateChecks } from "../setup/state-checks.js";
@@ -1482,6 +1483,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...reviewMethods({ log, environmentId: record.id }),
     ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
     ...setupMethods(setup),
+    // An LLM step's minted session (#584): created and started as sessions.create and runs.start would, in process.
+    ...mintMethods({ log, host, resolver: workspaceResolver, steps: setupSteps, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
     ...instructionMethods({
