@@ -43,6 +43,10 @@ jobs:
     # (agent-harness issue: non-root tests never ran in CI).
     container: node:24-bookworm
     timeout-minutes: 25
+    # A container job's default shell is sh; the steps are bash.
+    defaults:
+      run:
+        shell: bash
     env:
       SHA: ${{ github.event.client_payload.sha }}
       RUN_REF: ci/${{ github.event.client_payload.id }}
