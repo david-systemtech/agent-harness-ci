@@ -124,8 +124,8 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "forge.account.git-rejected",
   "forge.account.removed",
   "forge.origin-missing",
-  // The BankService's own events, which the BankRegistry is kept from (#1025); bank.updated is also the notice a client
-  // refreshes banks.list on.
+  // The BankService's own events, which the BankRegistry is kept from (#1025); bank.updated is also a notice a client
+  // refreshes banks.list and banks.get on.
   "bank.added",
   "bank.updated",
   "bank.pinned",
@@ -223,7 +223,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
   "bank.added": "A bank was registered, created or joined; a client refreshes what it caches of the banks.",
-  "bank.updated": "A bank's registry settings or what its BANK.md names changed; a client reads banks.list again.",
+  "bank.updated": "A bank's registry settings or what its BANK.md names changed; a client refreshes what it caches of the banks.",
   "bank.pinned": "A session pinned or unpinned a folder of a bank.",
   "bank.forgotten": "A bank left the registry; a client refreshes what it caches of the banks.",
   "bank.synced": "A sync moved a bank's checkout to a new head; a client refreshes what it caches of the banks.",

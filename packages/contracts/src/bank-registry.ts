@@ -211,7 +211,7 @@ export const BankUpdatedPayload = z
     privateCopy: z.boolean().optional(),
     credential: BankCredentialSource.optional(),
   })
-  .meta({ description: "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also the notice a client refreshes banks.list on." });
+  .meta({ description: "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on." });
 export type BankUpdatedPayload = z.infer<typeof BankUpdatedPayload>;
 
 export const BankPinnedPayload = z

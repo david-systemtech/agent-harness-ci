@@ -157,5 +157,5 @@
   "required": [
     "bankId"
   ],
-  "description": "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also the notice a client refreshes banks.list on."
+  "description": "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on."
 }
