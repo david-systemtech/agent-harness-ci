@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DATABASE_FILE, OUTCOME_RECORD_FILE, type OutcomeRecord } from "@agent-harness/contracts/launcher";
-import { HARNESS_VERSION } from "@agent-harness/environment";
+import { HARNESS_VERSION, PRESET_IDLE_WINDOW_MS } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { startFakeReleaseSource } from "../../environment/test/release-source.js";
@@ -286,7 +286,10 @@ describe("after update restore", SPAWNS, () => {
     const old = await startOn(dataDir, { ...container, harnessVersion: "0.4.1" });
     const client = await old.client();
     await fake.grantAccess(client);
-    const { pending } = await client.request("updates.check", {});
+    await client.request("updates.check", {});
+    // Past the idle window its start holds (#445), it is idle and the update ready.
+    old.clock.advance(PRESET_IDLE_WINDOW_MS);
+    const { pending } = await client.request("updates.status", {});
     if (pending.state !== "ready") throw new Error(`The update is not ready: ${JSON.stringify(pending)}`);
     const began = await client.request("updates.begin", { commandId: randomUUID(), updateId: pending.updateId });
     expect(began.receipt.status).toBe("accepted");

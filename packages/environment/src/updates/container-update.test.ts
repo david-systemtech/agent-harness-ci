@@ -12,6 +12,7 @@ import { testLauncher } from "../../test/launcher.js";
 import { ARTEFACT, startFakeReleaseSource, type FakeReleaseSource } from "../../test/release-source.js";
 import { create, refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
+import { PRESET_IDLE_WINDOW_MS } from "../serve/run-registry.js";
 
 /**
  * A container's update (launcher-update spec, "Managed outside" and
@@ -104,13 +105,17 @@ describe("managed outside, the target a check finds", () => {
   });
 });
 
-/** A container with the update to TARGET pending from a check, held busy by a run unless `idle`; with its client and the update's id. */
+/**
+ * A container with the update to TARGET pending from a check, held busy by a run unless `idle`; with its client and the
+ * update's id. Idle, the clock passes the idle window the start holds (#445), so the update reads ready.
+ */
 const pendingUpdate = async (options: TestEnvironmentOptions & { readonly idle?: boolean } = {}) => {
   const { idle, ...rest } = options;
   const setup = await container(rest);
   if (idle !== true) busy(setup.t);
   const { pending } = await setup.client.request("updates.check", {});
   if (pending.state !== "waiting" && pending.state !== "ready") throw new Error(`The check left nothing pending: ${JSON.stringify(pending)}`);
+  if (idle === true) setup.t.clock.advance(PRESET_IDLE_WINDOW_MS);
   return { ...setup, updateId: pending.updateId };
 };
 
@@ -238,7 +243,7 @@ describe("updates.begin", () => {
     expect(updateNotices(t).at(-1)).toEqual({ type: "environment.update-started", payload: { updateId, fromVersion: RUNNING, toVersion: TARGET, cause: "idle" } });
     const draining = t.env.log.readStream({ kinds: ["environment"] }).filter((event) => event.type === "environment.draining");
     expect(draining.map(({ payload, actor, commandId: by }) => ({ payload, actor, by }))).toEqual([
-      { payload: { drainingSince: at(0), trigger: "update" }, actor: `client_session:${client.hello.clientSessionId}`, by: commandId },
+      { payload: { drainingSince: at(PRESET_IDLE_WINDOW_MS), trigger: "update" }, actor: `client_session:${client.hello.clientSessionId}`, by: commandId },
     ]);
     expect(t.env.readiness()).toBe("draining");
     expect(await refusal(client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "One more" }))).toEqual({ code: "unavailable", data: { readiness: "draining" } });

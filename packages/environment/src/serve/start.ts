@@ -829,6 +829,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const interfaces = options.interfaces ?? tailscaleDetector();
 
   let readiness: EnvironmentReadiness = "starting";
+  // When this start was noted (`environment.started`): activity for the idle window, as a run's start is (#445).
+  let startedAt: Date | undefined;
   let address: Address | undefined;
   const closers = createCloserStack();
   // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
@@ -1226,6 +1228,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
 
+  // The environment's resolver of a new session's workspace (#321). Its identity rule reads this environment's forge accounts
+  // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1337,6 +1343,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
       trust: (place) => trustStore.of(place),
+      identityAt: (path) => environmentResolver.identityAt(path),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
       skillSet: runSkillSets({ own: ownSkills, sources: skillSources, log, generations }),
@@ -1457,6 +1464,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
+    // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
+    startedAt: () => startedAt,
     readiness: () => readiness,
     binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
     lookAgain: async () => {
@@ -1528,9 +1537,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
-  const forgeAccounts = () => verifiedOrigins(forge.list());
-  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
@@ -1911,11 +1917,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   readiness = "ready";
   // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
-    log.append(
+    const [started] = log.append(
       environmentStream,
       [{ type: "environment.started", payload: { harnessVersion, protocolVersion: PROTOCOL_VERSION } }],
       { actor: formatActor({ kind: "system", id: "lifecycle" }) },
-    );
+    ).events;
+    startedAt = started && new Date(started.occurredAt);
   } catch (error) {
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);

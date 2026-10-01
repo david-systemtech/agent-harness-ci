@@ -69,11 +69,24 @@ describe("the idle rule", () => {
 
   it("is busy while a terminal runs a command, over any window and under a run starting or running, and idle again once it no longer does (#343)", () => {
     const parked: RunRecord = { id: "p", state: "parked", startedAt: ago(60 * MINUTE), parkedSince: ago(MINUTE) };
-    expect(activityOf([], now, WINDOW, true)).toEqual({ state: "busy", reason: "terminal-running" });
-    expect(activityOf([parked], now, WINDOW, true)).toEqual({ state: "busy", reason: "terminal-running" });
-    expect(activityOf([{ id: "s", state: "starting", startedAt: ago(MINUTE) }], now, WINDOW, true)).toEqual({ state: "busy", reason: "run-starting" });
-    expect(activityOf([{ id: "r", state: "running", startedAt: ago(MINUTE) }], now, WINDOW, true)).toEqual({ state: "busy", reason: "run-running" });
-    expect(activityOf([], now, WINDOW, false)).toEqual({ state: "idle" });
+    expect(activityOf([], now, WINDOW, { terminalRunning: true })).toEqual({ state: "busy", reason: "terminal-running" });
+    expect(activityOf([parked], now, WINDOW, { terminalRunning: true })).toEqual({ state: "busy", reason: "terminal-running" });
+    expect(activityOf([{ id: "s", state: "starting", startedAt: ago(MINUTE) }], now, WINDOW, { terminalRunning: true })).toEqual({ state: "busy", reason: "run-starting" });
+    expect(activityOf([{ id: "r", state: "running", startedAt: ago(MINUTE) }], now, WINDOW, { terminalRunning: true })).toEqual({ state: "busy", reason: "run-running" });
+    expect(activityOf([], now, WINDOW, { terminalRunning: false })).toEqual({ state: "idle" });
+  });
+
+  it("counts the environment's start as a run's start: busy for the window after it with no run known, then no longer (#445)", () => {
+    expect(activityOf([], now, WINDOW, { startedAt: ago(9 * MINUTE) })).toEqual({ state: "busy", reason: "recent-activity", busyUntil: at("2026-09-24T12:01:00.000Z").toISOString() });
+    expect(activityOf([], now, 25 * MINUTE, { startedAt: ago(24 * MINUTE) })).toEqual({ state: "busy", reason: "recent-activity", busyUntil: at("2026-09-24T12:01:00.000Z").toISOString() });
+    expect(activityOf([], now, WINDOW, { startedAt: ago(10 * MINUTE) })).toEqual({ state: "idle" });
+    // A later run, or a prompt parked since, holds longer; a run under way and a terminal's command outrank it.
+    const ended: RunRecord = { id: "e", state: "ended", startedAt: ago(8 * MINUTE), endedAt: ago(2 * MINUTE) };
+    expect(activityOf([ended], now, WINDOW, { startedAt: ago(9 * MINUTE) })).toEqual({ state: "busy", reason: "recent-activity", busyUntil: at("2026-09-24T12:08:00.000Z").toISOString() });
+    const parked: RunRecord = { id: "p", state: "parked", startedAt: ago(9 * MINUTE), parkedSince: ago(9 * MINUTE) };
+    expect(activityOf([parked], now, WINDOW, { startedAt: ago(9 * MINUTE) })).toEqual({ state: "busy", reason: "parked-prompt", busyUntil: at("2026-09-24T12:01:00.000Z").toISOString() });
+    expect(activityOf([{ id: "r", state: "running", startedAt: ago(MINUTE) }], now, WINDOW, { startedAt: ago(2 * MINUTE) })).toEqual({ state: "busy", reason: "run-running" });
+    expect(activityOf([], now, WINDOW, { startedAt: ago(MINUTE), terminalRunning: true })).toEqual({ state: "busy", reason: "terminal-running" });
   });
 });
 

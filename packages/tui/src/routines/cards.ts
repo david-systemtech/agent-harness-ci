@@ -100,6 +100,10 @@ const ATTENTION_WORDS: Readonly<Record<RoutineAttention, string>> = {
   delivery_failing: "a delivery failed",
 };
 
+/** Unknown skills are named by the environment, in their order. */
+const attentionWords = (code: RoutineAttention, unknownSkills: readonly string[]): string =>
+  code === "skill_unknown" && unknownSkills.length > 0 ? `skills unknown: ${unknownSkills.join(", ")}` : ATTENTION_WORDS[code];
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 /** A time gone by, short, on this client's clock: its time on the day it is `now`, else its date and time. */
@@ -130,7 +134,7 @@ const stateWords = (row: RoutineRow, now: Date, view: RoutinesView): readonly st
   return [
     ...(state.movedTo ? [`moved to ${linkWords(state.movedTo, view)}`] : []),
     ...(state.movedFrom ? [`moved from ${linkWords(state.movedFrom, view)}`] : []),
-    ...attention.flatMap((code) => (code === "failing" ? [] : code === "clamped" ? [`its mode clamped to ${mode.effective}`] : [ATTENTION_WORDS[code]])),
+    ...attention.flatMap((code) => (code === "failing" ? [] : code === "clamped" ? [`its mode clamped to ${mode.effective}`] : [attentionWords(code, listed.unknownSkills)])),
     ...(state.failureStreak > 0 ? [`${state.failureStreak} failed in a row`] : []),
     state.liveFiring !== null ? `firing since ${pastWords(state.liveFiring.startedAt, now)}` : lastOutcomeWords(state.lastOutcome, now),
   ];
@@ -152,7 +156,7 @@ export const importLines = (documents: readonly RoutineImportCheck[]): readonly 
       ...(definition ? [{ text: `  ${describeSchedule({ schedule: definition.schedule, timezone: definition.timezone })}`, dim: true }] : []),
     ],
     ...issues.map((issue) => [{ text: `   ${issue.path.length === 0 ? "" : `${pathWords(issue.path)}: `}${issue.message.replace(/\s+/g, " ")}`, color: TERMINAL_ROLES.danger }]),
-    ...(warnings.attention.length === 0 ? [] : [[{ text: `   Here it would need: ${warnings.attention.map((code) => ATTENTION_WORDS[code]).join(", ")}`, color: TERMINAL_ROLES.warning }]]),
+    ...(warnings.attention.length === 0 ? [] : [[{ text: `   Here it would need: ${warnings.attention.map((code) => attentionWords(code, warnings.unknownSkills)).join(", ")}`, color: TERMINAL_ROLES.warning }]]),
     ...(warnings.workspace === null ? [] : [[{ text: `   Its workspace here: ${workspaceWords(warnings.workspace)}`, dim: true }]]),
   ]);
 
