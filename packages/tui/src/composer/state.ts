@@ -1,4 +1,4 @@
-import type { AttachmentInput } from "@agent-harness/contracts";
+import type { AttachmentInput, SkillReadiness } from "@agent-harness/contracts";
 import {
   EMPTY_EDITOR,
   backspace,
@@ -208,7 +208,9 @@ export const cursorAt = (editor: EditorState, offset: number): EditorState => {
 /* ------------------------------------------------------------------------ */
 
 /** A row of the slash menu: a command this terminal answers, a skill of the open session's set, or the provider's own (#503). */
-export type CommandRow = SlashMenuRow;
+export interface CommandRow extends SlashMenuRow {
+  readonly readiness?: SkillReadiness;
+}
 
 export type Popup =
   | { readonly kind: "commands"; readonly key: string; readonly rows: readonly CommandRow[] }

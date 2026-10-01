@@ -61,7 +61,12 @@ const BufferLine = (props: { readonly text: string; readonly cursor: number | un
 };
 
 /** What a slash menu row says after its usage: its description, marked when the agent's own or a slash-only skill. */
-const rowNote = (row: CommandRow): string => (row.source === "provider" ? `${row.description} · the agent's` : row.slashOnly ? `${row.description} · slash-only` : row.description);
+const rowNote = (row: CommandRow): string => {
+  const note = row.source === "provider" ? `${row.description} · the agent's` : row.slashOnly ? `${row.description} · slash-only` : row.description;
+  if (row.readiness?.state === "setup-needed") return `setup needed · ${note}`;
+  if (row.readiness?.state === "unsupported") return `unsupported: ${row.readiness.why ?? row.readiness.failing[0]?.message} · ${note}`;
+  return note;
+};
 
 /** The popup's rows, the highlighted one inverse. */
 const PopupRows = (props: { readonly popup: Popup; readonly highlight: number }) => {
@@ -78,10 +83,18 @@ const PopupRows = (props: { readonly popup: Popup; readonly highlight: number })
     <Box flexDirection="column" flexShrink={0}>
       {popup.kind === "commands" &&
         popup.rows.map((row, index) => (
-          <Text key={row.name} wrap="truncate-end" inverse={index === props.highlight}>
-            {"    "}
-            {row.usage.padEnd(22)} <Text dimColor>{rowNote(row)}</Text>
-          </Text>
+          <Box key={row.name} flexDirection="column" flexShrink={0}>
+            <Text wrap="truncate-end" inverse={index === props.highlight} dimColor={row.readiness?.state === "unsupported"}>
+              {"    "}
+              {row.usage.padEnd(22)} <Text dimColor>{rowNote(row)}</Text>
+            </Text>
+            {index === props.highlight && row.readiness?.state === "setup-needed" && (
+              <Text color={TERMINAL_ROLES.warning}>
+                {"      "}{row.readiness.why ?? row.readiness.failing[0]?.message}
+                {row.readiness.fix !== null ? ` Fix: ${row.readiness.fix}` : ""}
+              </Text>
+            )}
+          </Box>
         ))}
       {popup.kind === "mentions" &&
         popup.rows.map((row, index) => (

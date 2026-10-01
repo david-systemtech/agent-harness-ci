@@ -13,6 +13,7 @@ import { ROUTINE_KEYS } from "./routines/commands.js";
  * add them here as they arrive.
  */
 export const SCREEN_KEYS = [
+  "app.runInfo.toggle",
   "app.focus.next",
   "delegated.enter",
   "delegated.move",

@@ -48,6 +48,7 @@ const terminalKeyActions = keyActions.filter((a) => a.keys.length > 0);
 
 /** The actions the harness adds to the reference rows, with their chosen defaults (the tui spec's list under the table). */
 const ADDED_KEYS: Record<string, readonly string[]> = {
+  "app.runInfo.toggle": ["Alt+I"],
   "composer.readNow": ["Ctrl+Enter"],
   "composer.withdrawLast": ["↑"],
   "row.rewind": ["w"],
@@ -107,6 +108,7 @@ const ADDED_COMMANDS = [
   "terminal",
   "files",
   "documents",
+  "trust",
   "notices",
   "reload",
   "fork",
@@ -346,6 +348,7 @@ describe("conditions", () => {
 
 /** The GUI keys of the actions both clients answer, as the GUI spec's table writes them ("Keyboard: the GUI column"), with the condition each is answered under. */
 const GUI_KEYS_OF_SHARED: Record<string, { readonly keys: readonly string[]; readonly when?: string; readonly off?: true }> = {
+  "app.runInfo.toggle": { keys: ["Mod+I"] },
   "app.interrupt": { keys: ["Esc"], off: true },
   "composer.send": { keys: ["Enter"] },
   "composer.newline": { keys: ["Shift+Enter"] },
@@ -376,7 +379,6 @@ const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly
   "app.pane.splitRight": { keys: ["Mod+\\"] },
   "app.pane.splitDown": { keys: ["Mod+Shift+\\"] },
   "app.settings.toggle": { keys: ["Mod+,"] },
-  "app.runInfo.toggle": { keys: ["Mod+I"] },
   "permission.allow": { keys: ["Mod+Enter"] },
   "picker.back": { keys: ["Backspace"], when: "picker.queryEmpty" },
   "transcript.findNext": { keys: ["Enter"], when: "transcript.finding" },
@@ -385,7 +387,7 @@ const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly
 };
 
 /** The slash commands the GUI leaves absent: neither a session verb nor a GUI surface, or deferred as in the terminal. */
-const GUI_ABSENT_COMMANDS = ["command.undo", "command.check", "command.timeline", "command.snip", "command.quit", "command.reload"];
+const GUI_ABSENT_COMMANDS = ["command.undo", "command.check", "command.timeline", "command.snip", "command.quit", "command.reload", "command.trust"];
 
 describe("the GUI column", () => {
   const wired = (id: string) => {
