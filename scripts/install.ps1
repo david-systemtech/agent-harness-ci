@@ -53,6 +53,11 @@ param(
 
 Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
+# The script reads each native command's exit code itself. With this on (PowerShell 7.3 and
+# later, opt-in, from a profile say), a non-zero exit would raise PowerShell's own error first,
+# over the script's message and the verb's exit code, or print one for each health probe the
+# environment does not answer yet. Set in the script's own scope, so the session keeps its own.
+$PSNativeCommandUseErrorActionPreference = $false
 
 $ProductName = 'agent-harness'
 $Forge = 'https://git.systemtech.dev:5526'

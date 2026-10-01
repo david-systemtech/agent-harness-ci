@@ -732,6 +732,39 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     });
   });
 
+  describe("keeps its own exit-code checks in a session with $PSNativeCommandUseErrorActionPreference on, which PowerShell 7.3 and later take from a profile", () => {
+    const withPreference = (f: Fixture, env: NodeJS.ProcessEnv = {}) =>
+      inSession(
+        f,
+        "$PSNativeCommandUseErrorActionPreference = $true; & ([scriptblock]::Create($text)); \"after: $LASTEXITCODE, preference: $PSNativeCommandUseErrorActionPreference\"",
+        env,
+      );
+
+    it("ends the run with a failed verb's exit code and its own message, and leaves the session's preference as it was", async () => {
+      const f = fixture();
+      const result = await withPreference(f, { FAKE_FAIL: "service start" });
+      expect(result.stderr).toBe("service start failed here.\ninstall.ps1: `agent-harness service start` failed with exit code 3; nothing after it ran.\n");
+      expect(result.stdout).toMatch(/after: 3, preference: True\n$/);
+    });
+
+    it("says the token was refused when curl.exe fails on the releases API", async () => {
+      const f = fixture();
+      const result = await withPreference(f, { EXPECTED_TOKEN: "another-token" });
+      expect(result.stderr).toBe(
+        `curl: (22) The requested URL returned error: 401\ninstall.ps1: could not read the releases from ${LIST}; check AGENT_HARNESS_TOKEN.\n`,
+      );
+      expect(result.stdout).toMatch(/after: 1, preference: True\n$/);
+    });
+
+    it("waits through health probes that get no answer, printing nothing but curl.exe's own words", async () => {
+      const f = fixture();
+      const result = await withPreference(f, { FAKE_UNANSWERED_PROBES: "2" });
+      expect(result.stderr).toBe("curl: (7) Failed to connect\n".repeat(2));
+      expect(f.calls().slice(4, 9)).toEqual(["0.1.0 service start", `curl ${HEALTH}`, `curl ${HEALTH}`, `curl ${HEALTH}`, "0.1.0 update settings --channel stable"]);
+      expect(result.stdout).toMatch(/after: 0, preference: True\n$/);
+    });
+  });
+
   // Legacy is how Windows PowerShell 5.1 and PowerShell 7 before 7.3 pass them: PowerShell writes
   // the command line itself, and .NET reads it back into the arguments by Windows' rules here too.
   describe("hands every verb its arguments exactly, a double quote and a trailing backslash included, however the session passes a native command's", () => {
