@@ -45,7 +45,7 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * routines' other notices raise none: `routine.updated`,
  * `routine.endpoint-set` and `routine.endpoint-removed` change what
  * `routines.list` and `routines.endpoints.list` answer, which the routines'
- * projections follow (#532), and a failed webhook delivery's row is #529's.
+ * projections follow (#532), and final webhook failures raise their own row (#529).
  * The forge's rows are
  * `forge-notices.ts`'s (#320). A key-manager connection's status rows (ADR
  * 0011: a failed verification raises a client notice) are
@@ -260,6 +260,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           raise({ kind: "routine", message: `${routine} on ${name}: ${summary}`, action: null, about: sessionId === null ? null : { sessionId, runId: null, promptId: null }, outcome });
           return;
         }
+        case "routine.delivery-failed": {
+          const { name: routine, endpoint, error } = notice.payload;
+          raise({ kind: "routine-delivery-failed", message: `${routine} on ${name} could not deliver to ${endpoint}: ${error}`, action: null });
+          return;
+        }
         // A worktree kept at its last session's purge (#330): where it is, on which branch, whose it was and why.
         case "workspace.kept": {
           const { path, branch, title, reason } = notice.payload;
@@ -268,9 +273,8 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         }
         // The routines' other notices raise none: they change what routines.list and routines.endpoints.list answer, which the
-        // routines' projections follow (#532); a failed webhook delivery's row is #529's.
+        // routines' projections follow (#532).
         case "routine.updated":
-        case "routine.delivery-failed":
         case "routine.endpoint-set":
         case "routine.endpoint-removed":
           return;

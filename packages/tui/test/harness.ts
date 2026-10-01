@@ -205,6 +205,8 @@ export interface RenderOptions {
   readonly clipboard?: FakeClipboard;
   /** Ctrl+G's editor; preset one that hands the text back with " (edited)" after it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** A routine's editor (`/routines`); preset one that abandons every edit, so a test that edits says what is saved. */
+  readonly editRoutine?: (yaml: string) => Promise<ExternalEditResult>;
   /** The user's diff filter; preset none, so a diff is drawn as the terminal UI colours one. */
   readonly diffFilter?: DiffFilter;
   /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
@@ -318,6 +320,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   let commandIds = 0;
   let sessionIds = 0;
   let terminalIds = 0;
+  let routineIds = 0;
   const opened: OpenedFile[] = [];
   const faults = writable<readonly Fault[]>([]);
   const made = options.stateDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-tui-state-")) : undefined;
@@ -351,6 +354,8 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     clipboard,
     chrome,
     editText: options.editText ?? (async (text: string) => ({ ok: true, text: `${text} (edited)` })),
+    editRoutine: options.editRoutine ?? (async () => ({ ok: false, reason: "no editor in this test" })),
+    newRoutineId: () => `0199cc00-0000-4000-8000-${String(++routineIds).padStart(12, "0")}`,
     ...(options.presentation && { presentation: options.presentation }),
     depth: await colourDepth(options.env ?? {}, async () => options.ground),
   });

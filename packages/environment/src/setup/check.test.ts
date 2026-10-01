@@ -47,6 +47,15 @@ const holding: StateCheckers = {
   "memory-bank.orientation": () => true,
   "memory-bank.owners": () => true,
   "memory-bank.landing": () => true,
+  "instructions.orientation-renders": () => true,
+  "skills.present": () => true,
+  "skills.sources-synced": () => true,
+  "skills.sources-yield": () => true,
+  "skills.source-limit": () => true,
+  "skills.own-directory": () => true,
+  "browser.present": () => true,
+  "browser.chrome-connected": () => true,
+  "browser.extension-current": () => true,
   "permissions.containment": () => true,
   "permissions.denylist": () => true,
   "permissions.not-root": () => true,
@@ -63,7 +72,7 @@ describe("a step's result", () => {
       actions: [],
       checkedAt: AT,
     });
-    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
+    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "A Chrome is paired with this environment. A paired Chrome is connected. Every paired Chrome last reported the shipped extension version." });
   });
 
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {

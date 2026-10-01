@@ -1,0 +1,64 @@
+{
+  "source": "Shaped after FileReadOutput in Agent SDK 0.3.283 sdk-tools.d.ts and SDK user/assistant messages. The 4 by 4 PNG is 73 bytes; originalSize and original dimensions deliberately differ from the returned image after resizing.",
+  "messages": [
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg_read_image",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_read_image",
+            "name": "Read",
+            "input": {
+              "file_path": "/work/repo/square.png"
+            }
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "s",
+      "uuid": "read-image-start"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_read_image",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg=="
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tool_use_result": {
+        "type": "image",
+        "file": {
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGP4z8AARwzEcQCukw/x0F8jngAAAABJRU5ErkJggg==",
+          "type": "image/png",
+          "originalSize": 1024,
+          "dimensions": {
+            "originalWidth": 16,
+            "originalHeight": 16,
+            "displayWidth": 4,
+            "displayHeight": 4
+          }
+        }
+      },
+      "parent_tool_use_id": null,
+      "session_id": "s",
+      "uuid": "read-image-end"
+    }
+  ]
+}

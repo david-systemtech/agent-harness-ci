@@ -18,7 +18,8 @@ import { cdpPageDriver } from "./driver.js";
  * The fixture-page suite (browser spec, "Testing Decisions"): the driver and
  * its in-page functions against a real Chromium, launched headless over a
  * pipe, on pages served from loopback: open shadow roots, same-site and
- * cross-site frames, password and card fields, a long article and a canvas;
+ * cross-site frames, password and card fields, a long article and a canvas,
+ * each read through the vendored aria snapshot and acted on by its refs;
  * one case drives a second Chromium over a WebSocket to its DevTools address
  * instead. It runs only where a browser may run, named by
  * AGENT_HARNESS_CHROMIUM (docs/agents/browser-checklist.md), and skips with
@@ -206,6 +207,60 @@ describe("the page driver in a real Chromium", () => {
     }
     // A second browser's cold start is given longer than the preset 30 seconds.
   }, 60_000);
+
+  it("snapshots a same-site frame and a cross-site frame's child target into one tree in document order, the frames' refs prefixed", async () => {
+    const perform = drive();
+    await perform("open", { url: at("frames.html") });
+    const snapshot = await perform("snapshot", { filter: "all" });
+    if (!snapshot.ok) throw new Error(snapshot.reason);
+    const { text } = snapshot.value;
+    expect(text).toMatch(/- heading "Checkout" \[level=1\] \[ref=e\d+\]/);
+    expect(text).toMatch(/\[ref=f1e\d+\]: Five stars from every buyer\./);
+    expect(text).toMatch(/\[ref=f2e\d+\]: Card accepted\./);
+    expect(text.indexOf("Checkout")).toBeLessThan(text.indexOf("Five stars"));
+    expect(text.indexOf("Five stars")).toBeLessThan(text.indexOf("Card accepted"));
+    // Each frame's lines sit under its iframe's line, indented below it.
+    expect(text).toMatch(/- iframe \[ref=e\d+\]:\n {4,}- .*\[ref=f1e\d+\]/);
+    expect(text).toMatch(/- iframe \[ref=e\d+\]:\n {4,}- .*\[ref=f2e\d+\]/);
+  });
+
+  it("clicks by ref inside a cross-site frame, where its frame sits on the page, and refuses the ref once the page has moved on", async () => {
+    const perform = drive();
+    await perform("open", { url: at("frames.html") });
+    const snapshot = await perform("snapshot", {});
+    if (!snapshot.ok) throw new Error(snapshot.reason);
+    const pay = /button "Pay" \[ref=(f\d+e\d+)\]/.exec(snapshot.value.text)?.[1];
+    expect(pay).toMatch(/^f\d+e/);
+    expect(await perform("click", { target: { ref: pay as string } })).toMatchObject({ ok: true });
+    expect(await perform("waitFor", { until: { text: "Paid in full" } })).toMatchObject({ ok: true });
+    await perform("navigate", { url: at("article.html") });
+    expect(await perform("click", { target: { ref: pay as string } })).toMatchObject({ ok: false, reason: expect.stringContaining("Take a new snapshot") });
+  });
+
+  it("snapshots a Lit-style card through its open shadow root, its slotted title in place", async () => {
+    const perform = drive();
+    await perform("open", { url: at("shadow.html") });
+    const snapshot = await perform("snapshot", { filter: "all" });
+    if (!snapshot.ok) throw new Error(snapshot.reason);
+    expect(snapshot.value.text).toMatch(/- heading "Living room" \[level=2\]/);
+    expect(snapshot.value.text).toContain("21.5 °C");
+  });
+
+  it("never shows a password's or a card number's value in a snapshot, and acts on the fields by their refs", async () => {
+    const perform = drive();
+    await perform("open", { url: at("fields.html") });
+    const snapshot = await perform("snapshot", {});
+    if (!snapshot.ok) throw new Error(snapshot.reason);
+    const { text } = snapshot.value;
+    expect(text).not.toContain("old-password-for-tests");
+    expect(text).not.toContain("0000 0000 0000 0000");
+    expect(text).toMatch(/- textbox "Password" \[ref=e\d+\]: "\[redacted: a password\]"/);
+    expect(text).toMatch(/- textbox "Card number" \[ref=e\d+\]: "\[redacted: a payment card detail\]"/);
+    const ref = (name: string): string => new RegExp(`"${name}" (?:\\[\\w=-]+\\] )*\\[ref=(e\\d+)\\]`).exec(text)?.[1] as string;
+    expect(await perform("click", { target: { ref: ref("Buy") } })).toMatchObject({ ok: true });
+    expect(await perform("type", { target: { ref: ref("Password") }, text: "typed-by-ref-for-tests" })).toMatchObject({ ok: true });
+    expect(await perform("evaluate", { expression: "[window.clicks, password.value]" })).toEqual({ ok: true, value: { result: [1, "typed-by-ref-for-tests"] } });
+  });
 
   it("refuses a page whose cross-site frame the denylist lists, and leaves it at about:blank", async () => {
     const perform = drive("chrome", { ...plainPolicy, browserDomains: [listed("pay.other.test")] });

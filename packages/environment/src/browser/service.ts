@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import {
   ContractError,
   chromeNameOf,
+  pageKeyOf,
   type BrowserStatus,
   type ChromeChange,
   type ExtensionListenerStatus,
@@ -15,6 +16,7 @@ import { formatActor, type EventInput, type EventLog, type StreamRef } from "../
 import { readDenylist } from "../permissions/denylist-store.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
+import type { StateCheckers } from "../setup/check.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { readSettings } from "../settings/settings-store.js";
@@ -107,6 +109,8 @@ export interface BrowserService {
   driverOf(chromeId: string | null): PageDriver;
   /** The headless browser: its availability, which each run's resolution reads, and its driver. */
   readonly headless: Pick<HeadlessBrowser, "availability" | "driver">;
+  /** Browser health reads the live listener and chrome projection, without changing either. */
+  readonly stateChecks: Pick<StateCheckers, "browser.present" | "browser.chrome-connected" | "browser.extension-current">;
   readonly handlers: MethodHandlers;
   close(): Promise<void>;
 }
@@ -137,12 +141,14 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
 
   const headless = createHeadlessBrowser({
     dataDir: options.dataDir,
+    clock: options.clock,
     settings: () => {
       const settings = readSettings(reader);
       return {
         allowRuns: settings["browser.headless.allowRuns"],
         endpoint: settings["browser.headless.endpoint"],
         executable: settings["browser.headless.executable"],
+        limits: settings["browser.headless.limits"],
       };
     },
     policy: () => heldPolicy,
@@ -303,6 +309,9 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
   // The port file names the environment as it is now: a rename writes it again. The page policy follows the settings and
   // the denylist: a change that alters it is held, and sent to every proved socket.
   const stopFollowing = log.subscribe((event) => {
+    if (event.streamKind === "session" && (event.type === "session.deleted" || event.type === "session.purged")) {
+      void headless.release(pageKeyOf(options.environmentId, event.streamId));
+    }
     if (event.streamKind === stream.kind && event.streamId === stream.id && event.type === "environment.renamed") void ensure();
     if (event.type !== "settings.updated" && event.type !== "denylist.changed") return;
     if (event.type === "settings.updated") headless.refresh();
@@ -328,6 +337,20 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
     status,
     driverOf: (chromeId) => driver.driverOf(chromeId),
     headless,
+    stateChecks: {
+      "browser.present": () => readChromes(reader).length > 0 || { reason: "No Chrome is paired with this environment." },
+      "browser.chrome-connected": () => readChromes(reader).some((chrome) => listener.isConnected(chrome.id)) || {
+        reason: "The extension only runs while Chrome is open. Open Chrome and, if it asks, dismiss the developer-mode notice; this turns green by itself.",
+        targets: readChromes(reader).map((chrome) => ({ action: "unpair", kind: "chrome", id: chrome.id, label: chrome.name })),
+      },
+      "browser.extension-current": () => {
+        const outdated = readChromes(reader).filter((chrome) => listed(chrome).outdated);
+        return outdated.length === 0 || {
+          reason: outdated.map((chrome) => `${chrome.name}: Chrome is running version ${chrome.lastReportedVersion} of the extension; this environment has ${state.shippedVersion}. Open chrome://extensions and click Reload.`).join(" "),
+          targets: outdated.map((chrome) => ({ action: "reload", kind: "chrome", id: chrome.id, label: chrome.name })),
+        };
+      },
+    },
     handlers: {
       "browser.status": () => status(),
       "browser.pairing.code": () => codes.live(),

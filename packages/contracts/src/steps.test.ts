@@ -254,7 +254,7 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "instructions", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
   });
 
   it("registers the Carry over entry second, after Account, at home on accounts.accounts beside it, writing no settings key and its state through carryOver.run, skills.carryOver and stateImport.run (ADR 0021, ADR 0036; #581)", () => {
@@ -293,6 +293,21 @@ describe("the step registry", () => {
     }
   });
 
+  it("registers Skills in milestone-1 order with local state checks, its pane and state-derived skip", () => {
+    const skills = stepOf("skills");
+    expect(skills).toMatchObject({ home: "knowledge.skills", writes: [], skippable: true, skip: "skills.present", budget: "local", links: [] });
+    expect(skills.stateChecks.map((check) => [check.id, check.actions])).toEqual([
+      ["skills.present", []],
+      ["skills.sources-synced", ["pull-now"]],
+      ["skills.sources-yield", ["pull-now"]],
+      ["skills.source-limit", []],
+      ["skills.own-directory", []],
+    ]);
+    expect(skills.writesState?.map((write) => write.method)).toEqual([
+      "skills.sources.add", "skills.sources.remove", "skills.sources.setFollow", "skills.sources.pull", "skills.setAlwaysOn", "trust.decide", "trust.revoke",
+    ]);
+  });
+
   it("owes a trigger only while it names no event or notice type, each to a named ticket", () => {
     for (const [trigger, ticket] of Object.entries(TRIGGERS_OWED)) {
       expect(
@@ -305,10 +320,10 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, triggers: ["bank.*", "bank.landed"] }])).toEqual(["appearance: triggers on bank.landed, which names no event or notice type"]);
   });
 
-  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its state check left to #514, and re-run on every bank.* event (#586), its other triggers left to #588", () => {
+  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its orientation state check and bank.* triggers (#586), its other triggers left to #588", () => {
     const instructions = stepOf("instructions");
     expect((STEP_ORDER as readonly string[]).indexOf("instructions")).toBe(7);
-    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [], links: [], skippable: false, budget: "local", triggers: ["bank.*"] });
+    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [{ id: "instructions.orientation-renders", actions: [] }], links: [], skippable: false, budget: "local", triggers: ["bank.*"] });
     expect(instructions).not.toHaveProperty("skip");
     expect(instructions.writesState?.map((write) => write.method)).toEqual([
       "instructions.create",
@@ -327,15 +342,22 @@ describe("the step registry", () => {
     expect([check?.check(true), check?.check(false), check?.check("on")]).toEqual([true, true, "instructions.orientation does not hold a valid value."]);
   });
 
-  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
+  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with pairing state writes, three state checks, the local budget and the hour, and the browser triggers", () => {
     const browser = stepOf("browser");
     expect((STEP_ORDER as readonly string[]).indexOf("browser")).toBe(8);
     expect(STEP_REGISTRY.find((step) => step.id === "browser")?.home).toBe("access.browser");
     expect(browser.writes).toEqual([...BROWSER_SETTINGS_KEYS]);
     expect(browser.checks.map((check) => check.key)).toEqual([...BROWSER_SETTINGS_KEYS]);
-    expect(browser).toMatchObject({ stateChecks: [], links: [], skippable: false, budget: "local", cadence: { minutes: 60 }, triggers: [] });
-    expect(browser).not.toHaveProperty("skip");
-    expect(browser.writesState).toBeUndefined();
+    expect(browser).toMatchObject({ links: [], skippable: true, skip: "browser.present", budget: "local", cadence: { minutes: 60 }, triggers: ["chrome.updated", "extension.seen"] });
+    expect(browser.writesState).toEqual([
+      { method: "browser.pairing.code", parts: ["pairedChromes"] },
+      { method: "browser.chromes.unpair", parts: ["pairedChromes"] },
+    ]);
+    expect(browser.stateChecks).toEqual([
+      { id: "browser.present", holds: "A Chrome is paired with this environment.", actions: [] },
+      { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
+      { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
+    ]);
     const presets = presetSettings();
     for (const check of browser.checks) expect(check.check(presets[check.key as SettingsKey]), check.key).toBe(true);
     expect(browser.checks.find((check) => check.key === "browser.devSites")?.check(["https://myapp.test"])).toBe("browser.devSites does not hold a valid value.");
@@ -665,6 +687,7 @@ describe("the step registry", () => {
       ["forges", "network", 15],
       ["key-manager", "network", 15],
       ["memory-bank", "git", 60],
+      ["skills", "local", 60],
       ["instructions", "local", 60],
       ["browser", "local", 60],
       ["permissions", "local", 60],
@@ -691,7 +714,7 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Instructions on every bank.* event, the rest of its triggers left to #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Instructions on every bank.* event, the rest of its triggers left to #588, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
@@ -699,8 +722,9 @@ describe("the step registry", () => {
       ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
       ["memory-bank", ["bank.*"]],
+      ["skills", []],
       ["instructions", ["bank.*"]],
-      ["browser", []],
+      ["browser", ["chrome.updated", "extension.seen"]],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],
     ]);

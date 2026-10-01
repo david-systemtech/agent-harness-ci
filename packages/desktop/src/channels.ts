@@ -40,17 +40,37 @@ export const ANSWERED = [
   "update.apply",
   "installer.bundledServer",
   "gh.token",
+  "webView.create",
+  "webView.navigate",
+  "webView.state",
 ] as const;
 export type Answered = (typeof ANSWERED)[number];
 
 /** The members that answer nothing (`void` in the shell interface), each heard through `ipcMain.on`. */
-export const TOLD = ["window.setTitle", "window.focus", "window.setBadge", "window.setBackgroundColour"] as const;
+export const TOLD = [
+  "window.setTitle",
+  "window.focus",
+  "window.setBadge",
+  "window.setBackgroundColour",
+  "webView.attach",
+  "webView.hide",
+  "webView.destroy",
+  "webView.back",
+  "webView.forward",
+  "webView.reload",
+] as const;
 export type Told = (typeof TOLD)[number];
 
 export const channelOf = (member: Answered | Told): string => `shell:${member}`;
 
 /** The channel the main process sends each deep link on, once the renderer listens. */
 export const DEEP_LINK_CHANNEL = "shell:deepLinks.opened";
+
+/** The channel the main process sends a dock page's native key presses on. */
+export const WEB_VIEW_KEY_CHANNEL = "shell:webView.key";
+
+/** The channel the main process sends a dock page's navigation state on. */
+export const WEB_VIEW_CHANNEL = "shell:webView.changed";
 
 /** The channel the main process sends a clicked notification's tag on. */
 export const NOTIFICATION_CHANNEL = "shell:notifications.activated";
