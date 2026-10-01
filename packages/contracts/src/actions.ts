@@ -647,6 +647,7 @@ export const ACTION_GROUPS = [
     command("terminal", "/terminal", "Open a terminal on the session's environment, in a pane"),
     command("files", "/files [path]", "Browse the workspace's files, and read one in the pager"),
     command("documents", "/documents", "The pages, SVGs and markdown this session wrote, newest first"),
+    command("trust", "/trust [decline]", "Trust this session's repository, or decline its offer", { guiAbsent: "Trust is decided in the session's trust question." }),
     command("notices", "/notices", "Every notice this terminal has shown"),
     command("reload", "/reload", "Read the keybindings file again", {
       guiAbsent: "The GUI reads no keybindings file: its keys are remapped in the Keyboard shortcuts pane.",

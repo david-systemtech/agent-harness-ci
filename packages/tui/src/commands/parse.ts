@@ -49,6 +49,7 @@ export const ANSWERED_COMMANDS = [
   "files",
   "diff",
   "documents",
+  "trust",
   ...RAIL_COMMANDS,
   "fork",
   "rewind",
@@ -84,6 +85,7 @@ export type Command =
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
   | { readonly kind: "documents" }
+  | { readonly kind: "trust"; readonly decision: "trusted" | "declined" }
   /** `/rewind [n]`: to the prompt `back` prompts from the end (1, the latest). */
   | { readonly kind: "rewind"; readonly back: number }
   | { readonly kind: "rewind-undo" }
@@ -135,6 +137,10 @@ export const parseCommand = (typed: string): Command => {
   // them is a name the switch below answers.
   if (isRailCommand(name)) return { kind: "rail", command: { name, text: tail } };
   switch (name) {
+    case "trust":
+      if (rest.length === 0) return { kind: "trust", decision: "trusted" };
+      if (rest.length === 1 && rest[0] === "decline") return { kind: "trust", decision: "declined" };
+      return { kind: "usage", line: "Usage: /trust or /trust decline" };
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };
       const [first = "", second, third] = rest;
