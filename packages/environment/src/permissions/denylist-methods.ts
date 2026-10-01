@@ -68,7 +68,7 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
    * Appends what takes the denylist from `held` to `next`, as the command's client session: one `denylist.changed`
    * per section that changed, then the notice naming them; nothing when none did. Answers `result`.
    */
-  const changed = <R>(context: CommandContext, held: Denylist, next: Denylist, result: R): CommandAnswer<R, never> => {
+  const recordChange = <R>(context: CommandContext, held: Denylist, next: Denylist, result: R): CommandAnswer<R, never> => {
     const changes = DENYLIST_SECTIONS.flatMap((section) => {
       const change = sectionChange(section, held[section], next[section]);
       return change === null ? [] : [change];
@@ -108,7 +108,7 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
       const presetIds = presets();
       const next: Denylist = { ...held };
       for (const section of sections) next[section] = entriesOf(given[section] ?? [], new Set(presetIds[section].map((entry) => entry.id)));
-      return changed(context, held, next, { denylist: next });
+      return recordChange(context, held, next, { denylist: next });
     },
 
     /**
@@ -126,7 +126,7 @@ export const denylistMethods = (options: DenylistMethodsOptions): Required<Pick<
         next[section] = [...held[section], ...missing];
         restored.push(...missing.map((entry) => ({ section, entry })));
       }
-      return changed(context, held, next, { restored, denylist: next });
+      return recordChange(context, held, next, { restored, denylist: next });
     },
 
     /**

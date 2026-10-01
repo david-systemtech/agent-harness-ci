@@ -43,7 +43,7 @@ export interface ScriptedPermissionsHandle {
   setDenylist(sections: Partial<Denylist>): void;
   /** Decides a run into the Unattended review as a run would, the newest it lists, said with `review.updated`. */
   decideReviewRun(run?: Partial<ReviewRun>): void;
-  /** Marks the Unattended review seen through the head as another client would, said with `review.updated`. */
+  /** Marks the Unattended review seen through the head as another client would, said with `review.updated` when the watermark moves. */
   seeReview(): void;
 }
 
@@ -188,6 +188,7 @@ export const scriptedPermissions = (host: PermissionsHost): ScriptedPermissionsH
       host.notice("review.updated", {});
     },
     seeReview: () => {
+      if (host.head() <= watermark) return;
       watermark = host.head();
       host.notice("review.updated", {});
     },
