@@ -325,8 +325,23 @@ describe("forges.gh", () => {
     t.clock.advance(10 * 60_000);
     await client.request("tools.list", { refresh: true });
     t.clock.advance(1_000);
+    // forges.gh holds at once. The credential's read is the last verification's, five minutes on, younger than the step's cadence (#680).
+    expect(await nextForgesResult(client, subscription)).toEqual({
+      step: "forges",
+      state: "needs-attention",
+      reason: `The credential of ${host} could not be read: Sign in again to give it a new one.`,
+      failing: ["forges.identity"],
+      actions: ["sign-in-again", "check-again"],
+      targets: [{ action: "sign-in-again", kind: "forge-account", id: forge.origin, label: host }],
+      checkedAt: after(15 * 60_000 + 2_000),
+    });
+
+    // The verifier's own schedule, fifteen minutes after that verification ended, reads the credential through the gh updated: the step reads it a second on.
+    t.clock.advance(5 * 60_000 - 1_000);
+    await vi.waitFor(async () => expect((await list(client))[0]?.problem).toBeNull(), { timeout: WAIT_MS });
+    t.clock.advance(1_000);
     const result = await nextForgesResult(client, subscription);
-    expect(result).toEqual({ step: "forges", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: after(15 * 60_000 + 2_000) });
+    expect(result).toEqual({ step: "forges", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: after(20 * 60_000 + 2_000) });
 
     // The cache holds it: the snapshot a client subscribing now is sent.
     const { subscription: later } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
