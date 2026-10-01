@@ -156,6 +156,7 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { createRoutineScheduler } from "../routines/scheduler.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
 import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
@@ -170,6 +171,7 @@ import { createTerminalService, type ToolTerminals } from "../terminals/service.
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
+import { createBrowserRelay } from "../browser/relay.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
@@ -1063,10 +1065,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     drivers: {
       // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
       // browser when its client closes (#552); another environment's goes through the browser relay (#554).
-      chrome: ({ browser: chrome }) =>
+      chrome: ({ browser: chrome, sessionId, runId }) =>
         chrome.environmentId.toLowerCase() === record.id.toLowerCase()
           ? browser.driverOf(chrome.chromeId)
-          : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
+          : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
       // The headless browser (#555): one driver for every session, a browser context each.
       headless: () => browser.headless.driver,
       ...options.browser?.drivers,
@@ -1548,6 +1550,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       resolve: options.browser?.resolve ?? systemResolver,
     },
   });
+  /** A client session's label, which sentences and records name it by; undefined for one never issued. */
+  const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
+  // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
+  // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel });
+  closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.
   const endpoints = createRoutineEndpoints({
@@ -1681,12 +1689,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
+    // The browser relay's answers (#554): client.answer.
+    ...relay.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
       log,
       environmentId: record.id,
       store: trustStore,
-      clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+      clientSessionLabel,
     }),
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
@@ -1861,6 +1871,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
   const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
   closers.push(() => setupScheduler.stop());
+  // The routines' scheduler (#527): its start pass applies the missed rule to what came due while the environment was down,
+  // then arms its timer and its check, firing with no client needed; stopped before the firing starter closes.
+  const routineScheduler = createRoutineScheduler({ log, clock, environmentId: record.id, firings });
+  closers.push(() => routineScheduler.stop());
+  routineScheduler.start();
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));

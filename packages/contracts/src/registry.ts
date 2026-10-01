@@ -167,6 +167,7 @@ import {
 } from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
 import { browserChromesList, browserChromesPerform, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
+import { clientAnswer } from "./methods/client.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -399,6 +400,7 @@ export const methods = [
   browserChromesRename,
   browserChromesUnpair,
   browserChromesPerform,
+  clientAnswer,
 ] as const;
 
 type Registered = (typeof methods)[number];
