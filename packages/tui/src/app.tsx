@@ -79,7 +79,7 @@ import {
 } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
-import { updateCard, updateNow, updateToClient } from "./commands/updates.js";
+import { drainAndUpdateQuestionLine, updateCard, updateNow, updateRefusal, updateToClient } from "./commands/updates.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
@@ -1358,7 +1358,30 @@ export const App = (props: AppProps) => {
   useFollow(cardStatus, request);
   const cardView = cardEnvironmentId !== undefined ? viewOf(cardEnvironmentId) : undefined;
   const cardUpdate = cardView ? updateCard(cardView, cardStatus?.read(), props.version, clock.now()) : undefined;
-  const cardActions = cardView ? actionsFor(cardView, cardUpdate?.offered ?? null) : [];
+  const cardActions = cardView && cardUpdate ? actionsFor(cardView, cardUpdate) : [];
+
+  // Drain and update now's question and the update it asks about (#878): it goes, unanswered, once the card no longer
+  // shows that update waiting on work (it went, was replaced or withdrawn, or the card closed), and the work coming
+  // back does not bring it back.
+  const drainAsked = useRef<{ readonly question: Question; readonly updateId: string } | undefined>(undefined);
+  const cardDrainableId = cardUpdate?.drainable?.updateId;
+  useEffect(() => {
+    const asked = drainAsked.current;
+    if (asked === undefined || asked.updateId === cardDrainableId) return;
+    drainAsked.current = undefined;
+    setScreen((s) => (s.question === asked.question ? { ...s, question: undefined } : s));
+  }, [cardDrainableId]);
+
+  /** Drain and update now (#878): asked once on the confirm line, unless the connection cannot send it; a yes sends `updates.apply` now. */
+  const drainAndUpdate = (environment: EnvironmentView) => {
+    const drainable = cardUpdate?.drainable;
+    if (!drainable) return;
+    const refusal = updateRefusal(runtime, environment);
+    if (refusal !== undefined) return say(refusal);
+    const question: Question = { text: drainAndUpdateQuestionLine(environment, drainable), yes: () => void updateNow(runtime, environment, props.newCommandId(), "now").then(say) };
+    drainAsked.current = { question, updateId: drainable.updateId };
+    update({ question });
+  };
 
   const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
   const rail = useRail({
@@ -1464,6 +1487,7 @@ export const App = (props: AppProps) => {
       if (action === "sessions") return openClientSessions(environment);
       if (action === "name" || action === "icon" || action === "colour") return changeLook(environment, action, null);
       if (action === "update") return void updateNow(runtime, environment, props.newCommandId()).then(say);
+      if (action === "drain-and-update") return drainAndUpdate(environment);
       if (action === "update-to-client") return void updateToClient(runtime, environment).then(say);
       if (action === "remove") {
         return update({
