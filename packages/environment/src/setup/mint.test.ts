@@ -9,7 +9,7 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, say, type FakeAdapter, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { get } from "../../test/sessions.js";
+import { create, get, refusal } from "../../test/sessions.js";
 import { scriptedStep } from "../../test/setup-steps.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { TRIGGER_WINDOW_MS } from "./scheduler.js";
@@ -93,14 +93,31 @@ const minted = async (client: WireClient, params: Omit<ParamsOf<"setup.mint">, "
   return answer.result.sessionId;
 };
 
-/** Follows the session's stream from its start until its `n`th run has ended; answers that run's id. */
-const runEnded = async (client: WireClient, sessionId: string, n = 1): Promise<string> => {
+/** Follows the session's stream from its start to its `n`th event of `type`; answers the run that event names. */
+const nth = async (client: WireClient, sessionId: string, type: "run.started" | "run.ended", n: number): Promise<string> => {
   const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
-  for (let ended = 0; ; ) {
-    const { event } = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
-    ended += 1;
-    if (ended === n) return String(event.payload["runId"]);
+  for (let seen = 1; ; seen += 1) {
+    const { event } = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === type);
+    if (seen === n) return String(event.payload["runId"]);
   }
+};
+
+/** Waits for the session's `n`th run to end; answers its id. */
+const runEnded = (client: WireClient, sessionId: string, n = 1): Promise<string> => nth(client, sessionId, "run.ended", n);
+
+/** Waits for the session's `n`th run to start; answers its id. */
+const runStarted = (client: WireClient, sessionId: string, n = 1): Promise<string> => nth(client, sessionId, "run.started", n);
+
+/** A run that fails with the provider's error. */
+const fails: Script = function* () {
+  yield say("Working on NOTE.md.");
+  yield end("error", { error: { message: "The provider is overloaded.", code: null } });
+};
+
+/** A run that works until it is interrupted, when the fake ends it. */
+const holds: Script = async function* ({ signal }) {
+  yield say("Working on NOTE.md.");
+  await new Promise((resolve) => signal.addEventListener("abort", resolve));
 };
 
 /** The manual clock's time `ms` after its start. */
@@ -130,6 +147,92 @@ describe("setup.mint", () => {
     expect(summary).toMatchObject({ title: "Set up: Instructions (david-memory)", tags: ["instructions", "setup"], workspace: { kind: "scratch" }, draft: null });
     expect(t.adapter.lastRun().input).toMatchObject({ sessionId, account: { id: "claude-max" } });
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Write NOTE.md for david-memory."]);
+  });
+
+  it("takes the account, model and effort from the call, else the environment's defaults: the default account, the strongest of the default family and the default effort", async () => {
+    const adapter = fakeAdapter({ script: writesNote });
+    const t = await start({ adapter, accounts: [{ id: "claude-max", provider: adapter.descriptor.provider }, { id: "claude-team", provider: adapter.descriptor.provider }] });
+    const client = await t.client();
+    const settings = await client.request("settings.update", { commandId: randomUUID(), values: { "accounts.defaultModelFamily": "sonnet", "accounts.defaultEffort": "high" } });
+    expect(settings.receipt).toMatchObject({ status: "accepted" });
+
+    const byDefault = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(client, byDefault);
+    expect(t.adapter.lastRun().input).toMatchObject({ sessionId: byDefault, account: { id: "claude-max" }, model: "sonnet", effort: "high" });
+
+    const picked = await minted(client, { step: "instructions", subject: BANK.id, variant: "first", account: "claude-team", model: "opus", effort: "low" });
+    await runEnded(client, picked);
+    expect(t.adapter.lastRun().input).toMatchObject({ sessionId: picked, account: { id: "claude-team" }, model: "opus", effort: "low" });
+  });
+
+  it("holds the rendered prompt as the session's draft and starts no run when no account resolves, answering the session id all the same", async () => {
+    const t = await start({ accounts: [] });
+    const client = await t.client();
+    const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    expect(await get(client, sessionId)).toMatchObject({ draft: "Write NOTE.md for david-memory.", tags: ["instructions", "setup"], activity: { state: "idle" }, accountId: null });
+    expect(t.adapter.runs).toEqual([]);
+  });
+
+  it("holds the prompt as the draft too when the account the call names is not here, or offers no model of the call's", async () => {
+    const t = await start();
+    const client = await t.client();
+    for (const params of [{ account: "claude-gone" }, { model: "a-model-nobody-offers" }]) {
+      const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "revise", ...params });
+      expect((await get(client, sessionId)).draft, JSON.stringify(params)).toBe("Revise NOTE.md for david-memory.");
+    }
+    expect(t.adapter.runs).toEqual([]);
+  });
+
+  it("starts the revise prompt with the revise variant", async () => {
+    const t = await start({ script: writesNote });
+    const client = await t.client();
+    const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "revise" });
+    await runEnded(client, sessionId);
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["Revise NOTE.md for david-memory."]);
+  });
+
+  it("starts over with a new session, the old one staying in the list", async () => {
+    const t = await start({ script: writesNote });
+    t.adapter.nextScripts.push(fails);
+    const client = await t.client();
+    const first = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(client, first);
+    const again = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    expect(again).not.toBe(first);
+    await runEnded(client, again);
+    const listed = (await client.request("sessions.list", {})).sessions.map((session) => session.id);
+    expect(listed).toEqual(expect.arrayContaining([first, again]));
+    await triggerWindowPasses(t);
+    expect(await noteResult(t, client)).toMatchObject({ state: "done", actions: ["revise"] });
+  });
+
+  it("refuses a subject the step does not have, not_found, and a step that names no prompt, conflict no_llm_step, minting nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const unknown = await mint(client, { step: "instructions", subject: "bank-9", variant: "first" });
+    expect(unknown.receipt).toMatchObject({ status: "rejected", error: { code: "not_found", data: { kind: "subject", step: "instructions", subject: "bank-9" } } });
+    for (const step of ["permissions", "appearance"] as const) {
+      const plain = await mint(client, { step, variant: "first" });
+      expect(plain.receipt, step).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "no_llm_step", step } } });
+    }
+    expect((await client.request("sessions.list", {})).sessions).toEqual([]);
+    expect(t.adapter.runs).toEqual([]);
+  });
+
+  it("runs the session under the caller's ceiling as it is now, in the environment's default mode, and needs admin", async () => {
+    const t = await start({ script: writesNote });
+    const full = await t.client();
+    const ordinary = await minted(full, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(full, ordinary);
+    expect(t.adapter.lastRun().input).toMatchObject({ mode: "acceptEdits", ceiling: "bypassPermissions" });
+
+    const planner = await t.client({ token: (await t.pair({ scopes: ["admin", "read"], ceiling: "plan" })).token });
+    const planned = await minted(planner, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(full, planned);
+    expect(t.adapter.lastRun().input).toMatchObject({ sessionId: planned, mode: "plan", ceiling: "plan" });
+
+    const driver = await t.client({ token: (await t.pair({ scopes: ["read", "sessions:write", "runs:drive"] })).token });
+    expect(await refusal(mint(driver, { step: "instructions", variant: "first" }))).toMatchObject({ code: "forbidden", data: { scope: "admin" } });
   });
 });
 
@@ -167,5 +270,63 @@ describe("a minted session's run end", () => {
       actions: [],
       checkedAt: after(TRIGGER_WINDOW_MS),
     });
+  });
+
+  it("after a run that failed, with the artefact missing, the step needs attention with the error, offering try-again targeting that session, write-it-myself and start-over; runs.send continues the same session, whose next clean end with the artefact makes it done", async () => {
+    const t = await start({ script: writesNote });
+    t.adapter.nextScripts.push(fails);
+    const client = await t.client();
+    const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    await runEnded(client, sessionId);
+    await triggerWindowPasses(t);
+    expect(await noteResult(t, client)).toEqual({
+      step: "instructions",
+      state: "needs-attention",
+      reason: "The session's run failed: The provider is overloaded. NOTE.md is missing from the session's workspace.",
+      failing: ["instructions.note"],
+      actions: ["try-again", "write-it-myself", "start-over"],
+      targets: [{ action: "try-again", kind: "session", id: sessionId, label: "Set up: Instructions (david-memory)" }],
+      checkedAt: after(TRIGGER_WINDOW_MS),
+    });
+
+    // Try again: the same session continues where its run stopped.
+    const sent = await client.request("runs.send", { commandId: randomUUID(), sessionId, text: "Continue where you stopped." });
+    expect(sent.receipt).toMatchObject({ status: "accepted" });
+    await runEnded(client, sessionId, 2);
+    expect(t.adapter.lastRun().input).toMatchObject({ sessionId });
+    await triggerWindowPasses(t);
+    expect(await noteResult(t, client)).toMatchObject({ state: "done", actions: ["revise"], checkedAt: after(2 * TRIGGER_WINDOW_MS) });
+  });
+
+  it("after a run that was interrupted, with the artefact missing, the step needs attention saying the run was stopped, with the same three actions", async () => {
+    const t = await start({ script: holds });
+    const client = await t.client();
+    const sessionId = await minted(client, { step: "instructions", subject: BANK.id, variant: "first" });
+    const runId = await runStarted(client, sessionId);
+    expect((await client.request("runs.interrupt", { commandId: randomUUID(), runId })).receipt).toMatchObject({ status: "accepted" });
+    await runEnded(client, sessionId);
+    await triggerWindowPasses(t);
+    expect(await noteResult(t, client)).toMatchObject({
+      state: "needs-attention",
+      reason: "The session's run was stopped. NOTE.md is missing from the session's workspace.",
+      actions: ["try-again", "write-it-myself", "start-over"],
+      targets: [{ action: "try-again", kind: "session", id: sessionId }],
+    });
+  });
+
+  it("of any session tagged setup and the step, however it was tagged, checks the step again, and a run end of a session without the setup tag does not", async () => {
+    const t = await start();
+    const client = await t.client();
+    const byHand = await create(client, { tags: ["Setup", "instructions"] });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: byHand.id, text: "Write NOTE.md." });
+    await runEnded(client, byHand.id);
+    await triggerWindowPasses(t);
+    expect(await noteResult(t, client)).toMatchObject({ checkedAt: after(TRIGGER_WINDOW_MS) });
+
+    const untagged = await create(client, { tags: ["instructions"] });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: untagged.id, text: "Write NOTE.md." });
+    await runEnded(client, untagged.id);
+    await triggerWindowPasses(t);
+    expect(await noteResult(t, client)).toMatchObject({ checkedAt: after(TRIGGER_WINDOW_MS) });
   });
 });
