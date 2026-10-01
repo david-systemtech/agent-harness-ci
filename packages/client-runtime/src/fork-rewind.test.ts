@@ -206,7 +206,7 @@ describe("commands.fork", () => {
     expect(drafts(anchored.sessionId)).toEqual(["Fix the receipts"]);
   });
 
-  it("carries the prompt a branch was made at onto its hand-off while no run has read it, the draft emptied to hand it off", async () => {
+  it("receives the inherited anchor's draft in the hand-off response after the branch draft is emptied", async () => {
     const { runtime, env, sessionId, messageId, send, events, settled } = await start();
     await send("Fix the receipts");
     await send("Then the tests");
@@ -216,7 +216,7 @@ describe("commands.fork", () => {
     onTestFinished(fork.subscribe(() => undefined));
     await vi.waitFor(() => expect(fork.read().draft).toBe("Then the tests"), EVENTUALLY);
     // The composer emptied to type the hand-off, and the environment has it: the branch's own draft is empty, so only the
-    // prompt it was made at can be carried.
+    // environment can restore the prompt it was made at.
     runtime.drafts.set(env, branch.sessionId, null);
     runtime.drafts.flush();
     await settled();
@@ -224,7 +224,7 @@ describe("commands.fork", () => {
     await vi.waitFor(() => expect(fork.read().draft).toBeNull(), EVENTUALLY);
 
     const handedOff = await runtime.commands.fork(env, branch.sessionId, { account: WORK });
-    expect(handedOff.answer).toMatchObject({ ok: true });
+    expect(handedOff.answer).toMatchObject({ ok: true, result: { summary: { draft: "Then the tests" } } });
     await settled();
     expect(events(handedOff.sessionId).filter((event) => event.type === "session.draft-set").map((event) => (event.payload as { draft: string }).draft)).toEqual(["Then the tests"]);
   });
