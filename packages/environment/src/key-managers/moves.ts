@@ -141,6 +141,7 @@ const refOf = (kind: KeyManagerMoveItemKind, id: string): KeyManagerMoveItemRef 
 /** The wire error a key manager's failure at a Move's write comes to, naming the connection. */
 const WRITE_CODES: Record<ProviderFailure["outcome"], string> = {
   "credential-rejected": "credential_source_unavailable",
+  "provider-unavailable": "provider_unavailable",
   unreachable: "unreachable",
   "rate-limited": "unreachable",
   sealed: "sealed",
@@ -213,7 +214,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
    */
   const moveOne = async (source: MoveSource, item: MoveSourceItem, record: KeyManagerConnectionRecord, login: HeldLogin, mode: MoveMode, caller: MethodContext): Promise<Moved> => {
     const ref = refOf(source.kind, item.id);
-    const reference = moveTarget(record, item.entry, source.key);
+    let reference = moveTarget(record, item.entry, source.key);
     if (reference === null) throw new Error(`The key-manager connection ${record.id} has no target for ${item.entry}.`);
     const named = `${PROVIDER_NAMES[record.provider]} at ${referenceLocator(reference)}`;
     const connectionId = record.id;
@@ -229,7 +230,10 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
       const keeps = `the ${kind} ${item.name} keeps its stored token`;
       if (!mode.verifyOnly) {
         // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
-        const checked = await login.provider.canWrite(login.target, login.token, reference.provider === "openbao" ? { mount: reference.mount, path: reference.path } : { mount: reference.project ?? "", path: reference.config ?? "" }, AbortSignal.timeout(budgetMs));
+        const location = reference.provider === "openbao" ? { mount: reference.mount, path: reference.path }
+          : reference.provider === "bitwarden" && "project" in reference ? { mount: reference.project, path: reference.key }
+          : reference.provider === "doppler" ? { mount: reference.project ?? "", path: reference.config ?? "" } : { mount: "", path: "" };
+        const checked = await login.provider.canWrite(login.target, login.token, location, AbortSignal.timeout(budgetMs));
         if (checked.outcome !== "checked") {
           return { result: failed(ref, "write", false, { code: WRITE_CODES[checked.outcome], message: `${said(checked.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
         }
@@ -245,9 +249,19 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
           const message = `A different value is at ${named} already: nothing was written, and ${keeps}. Move it with overwrite to replace that value.`;
           return { result: failed(ref, "write", false, { code: "conflict", message, data: { reason: "target_exists", connectionId, reference } }), event: null };
         }
+        if (written.outcome === "denied" && record.provider === "bitwarden") {
+          offered.add(offer);
+          return { result: failed(ref, "write", false, { code: "cannot_write", message: `${said(written.message)} Nothing was written, and ${keeps}. Copy the value to paste it there by hand, then verify it to finish the move.`, data: { connectionId, reference } }), event: null };
+        }
         if (written.outcome !== "written") {
           return { result: failed(ref, "write", false, { code: WRITE_CODES[written.outcome], message: `${said(written.message)} Nothing was written, and ${keeps}.`, data: { connectionId } }), event: null };
         }
+        if (written.reference !== undefined) reference = written.reference;
+      }
+      if (reference.provider === "bitwarden" && !("secretId" in reference)) {
+        const located = await login.provider.locateMove?.(login.target, login.token, reference, AbortSignal.timeout(budgetMs));
+        if (located === undefined || located.outcome !== "located") return { result: failed(ref, "read-back", !mode.verifyOnly, { code: located === undefined ? "provider_unavailable" : WRITE_CODES[located.outcome], message: located?.message ?? "The provider cannot find a Move target.", data: { connectionId } }), event: null };
+        reference = located.reference;
       }
       // A copy this Move wrote is left at the target when the item goes no further; with verifyOnly it wrote none.
       const wrote = !mode.verifyOnly;
@@ -317,7 +331,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         const held = connections.readable(connectionId);
         if (held === null) return rejecting(noConnection(connectionId));
         const { record, login } = held;
-        if (record.provider !== "openbao" && record.provider !== "doppler") {
+        if (record.provider !== "openbao" && record.provider !== "doppler" && record.provider !== "bitwarden") {
           return rejecting({ code: "provider_unavailable", message: `This environment cannot move stored tokens into ${PROVIDER_NAMES[record.provider]} yet.`, data: { provider: record.provider } });
         }
         if (record.basePath === null) invalid(["connectionId"], `The key-manager connection ${record.label} has no base path: set where Move keeps the harness's secrets first.`);

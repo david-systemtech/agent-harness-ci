@@ -62,7 +62,7 @@ describe("keyManagers.references.check and keyManagers.references.browse", () =>
     expect(Object.keys(result.shape)).toEqual(["names"]);
     expect(result.safeParse({ names: ["harness/", "notes"] }).success).toBe(true);
     expect(result.safeParse({ names: [{ name: "notes", value: "a value for tests" }] }).success).toBe(false);
-    expect(codes("keyManagers.references.browse")).toEqual(["credential_source_unavailable", "reference_not_found", "reference_denied"]);
+    expect(codes("keyManagers.references.browse")).toEqual(["credential_source_unavailable", "reference_not_found", "reference_denied", "provider_unavailable"]);
   });
 });
 

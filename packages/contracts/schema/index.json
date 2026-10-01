@@ -1075,6 +1075,18 @@
       "title": "OnePasswordReference"
     },
     {
+      "path": "key-managers/bitwarden-move-locator.json",
+      "title": "BitwardenMoveLocator"
+    },
+    {
+      "path": "key-managers/move-locator.json",
+      "title": "KeyManagerMoveLocator"
+    },
+    {
+      "path": "key-managers/reference-provider-unavailable-error.json",
+      "title": "ReferenceProviderUnavailableError"
+    },
+    {
       "path": "key-managers/bitwarden-reference.json",
       "title": "BitwardenReference"
     },

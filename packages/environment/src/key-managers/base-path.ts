@@ -1,4 +1,4 @@
-import type { KeyManagerConnectionRecord, KeyManagerProvider, OpenBaoReference, DopplerReference } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, KeyManagerProvider, KeyManagerMoveLocator } from "@agent-harness/contracts";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
 /**
@@ -25,8 +25,9 @@ export const basePathProblem = (provider: KeyManagerProvider, basePath: string):
  * base path, or of a provider a Move cannot write to yet. Doppler puts the upper-case
  * entry and key in its base config, leaving the project to the token.
  */
-export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): OpenBaoReference | DopplerReference | null => {
+export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): KeyManagerMoveLocator | null => {
   if (record.basePath === null) return null;
+  if (record.provider === "bitwarden") return { provider: "bitwarden", connectionId: record.id, project: record.basePath, key: entry };
   if (record.provider === "doppler") return { provider: "doppler", connectionId: record.id, config: record.basePath, name: `${entry}_${key}`.replace(/[^a-zA-Z0-9_]/g, "_").toUpperCase() };
   if (record.provider !== "openbao") return null;
   const [mount = "", project = ""] = record.basePath.split("/");
