@@ -25,6 +25,7 @@ import type { SessionDocument } from "./projections/documents.js";
 import type { KnownDirectory } from "./projections/known-directories.js";
 import type { NewSessionContext, NewSessionView } from "./projections/new-session.js";
 import type { ModePicker } from "./projections/modes.js";
+import type { RoutineHistory, RoutinesView } from "./projections/routines.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
 import type { SetupView } from "./projections/setup.js";
@@ -132,6 +133,23 @@ export interface Runtime {
      * never asked; in memory only.
      */
     toolRuns(environmentId: string): Observable<ToolRunsView>;
+    /**
+     * Every enabled environment's routines (#532), from its `routines.list`
+     * in the request cache, fetched while followed, on every ready and on
+     * `routine.updated`: grouped by environment in the connection list's
+     * order with its name, icon and colour, the list of one that cannot be
+     * reached kept and marked stale, each routine a waiting command names
+     * flagged pending, a waiting create shown from the definition it sent,
+     * and the routines needing attention counted.
+     */
+    readonly routines: Observable<RoutinesView>;
+    /**
+     * A routine's firings and skips, newest first (#532): the newest page of
+     * `routines.history` from the request cache, fetched while followed, on
+     * every ready and on `routine.updated`, and each older page as `more()`
+     * asks for it, by `before`.
+     */
+    routineHistory(environmentId: string, routineId: string): RoutineHistory;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;
