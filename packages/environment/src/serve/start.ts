@@ -1269,6 +1269,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const created = createAdapterHost({
       log,
       clock,
+      scrub,
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
