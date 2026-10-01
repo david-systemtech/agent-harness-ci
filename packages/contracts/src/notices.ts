@@ -1,5 +1,16 @@
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
+import {
+  BankAddedPayload,
+  BankAwaitingReviewPayload,
+  BankForgottenPayload,
+  BankLandedPayload,
+  BankLandingFailedPayload,
+  BankPinnedPayload,
+  BankSyncedPayload,
+  BankUpdatedPayload,
+  BankVerifiedPayload,
+} from "./bank-registry.js";
 import { ChromeUpdatedPayload } from "./browser-chromes.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
 import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carry-over.js";
@@ -113,6 +124,17 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "forge.account.git-rejected",
   "forge.account.removed",
   "forge.origin-missing",
+  // The BankService's own events, which the BankRegistry is kept from (#1025); bank.updated is also the notice a client
+  // refreshes banks.list on.
+  "bank.added",
+  "bank.updated",
+  "bank.pinned",
+  "bank.forgotten",
+  "bank.synced",
+  "bank.verified",
+  "bank.landed",
+  "bank.landing-failed",
+  "bank.awaiting-review",
   // The key-manager connections' own events (#365, #366, #371), Move's (#371) and a stored value
   // copied to paste by hand (#372).
   "key-manager.connection.added",
@@ -200,6 +222,15 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.git-rejected": "git refused a forge account's credential; a client refreshes what it caches of the forge accounts.",
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
+  "bank.added": "A bank was registered, created or joined; a client refreshes what it caches of the banks.",
+  "bank.updated": "A bank's registry settings or what its BANK.md names changed; a client reads banks.list again.",
+  "bank.pinned": "A session pinned or unpinned a folder of a bank.",
+  "bank.forgotten": "A bank left the registry; a client refreshes what it caches of the banks.",
+  "bank.synced": "A sync moved a bank's checkout to a new head; a client refreshes what it caches of the banks.",
+  "bank.verified": "A verification found a bank's status changed; a client refreshes what it caches of the banks.",
+  "bank.landed": "Drafts landed on a bank's main; a client refreshes what it caches of the banks.",
+  "bank.landing-failed": "A landing on a bank failed; a client refreshes what it caches of the banks.",
+  "bank.awaiting-review": "A landing on a bank waits for an owner's review; a client refreshes what it caches of the banks.",
   "key-manager.connection.added": "A key-manager connection was added; a client refreshes what it caches of the key-manager connections.",
   "key-manager.connection.signed-in": "A key-manager connection's sign-in ended; a client refreshes what it caches of the key-manager connections.",
   "key-manager.connection.signed-out": "A key-manager connection was signed out; a client refreshes what it caches of the key-manager connections.",
@@ -382,6 +413,15 @@ const ForgeAccountCapabilityLearned = describedNotice(
 const ForgeAccountGitRejected = describedNotice("forge.account.git-rejected", ForgeAccountGitRejectedPayload, "git refused a forge account's credential.");
 const ForgeAccountRemoved = describedNotice("forge.account.removed", ForgeAccountRemovedPayload, "A forge account was removed.");
 const ForgeOriginMissing = describedNotice("forge.origin-missing", ForgeOriginMissingPayload, "A harness operation was refused on an origin no forge account covers.");
+const BankAdded = describedNotice("bank.added", BankAddedPayload, "A bank was registered, created or joined: its registry entry, whole.");
+const BankUpdated = describedNotice("bank.updated", BankUpdatedPayload, "A bank's registry settings or what its BANK.md names changed: the fields that changed.");
+const BankPinned = describedNotice("bank.pinned", BankPinnedPayload, "A session pinned or unpinned a folder of a bank.");
+const BankForgotten = describedNotice("bank.forgotten", BankForgottenPayload, "A bank left the registry, its checkout removed or kept.");
+const BankSynced = describedNotice("bank.synced", BankSyncedPayload, "A sync moved a bank's checkout to a new head of main.");
+const BankVerified = describedNotice("bank.verified", BankVerifiedPayload, "A verification found a bank's status changed, as system:banks.");
+const BankLanded = describedNotice("bank.landed", BankLandedPayload, "Drafts landed on a bank's main.");
+const BankLandingFailed = describedNotice("bank.landing-failed", BankLandingFailedPayload, "A landing on a bank failed at a step of the Lander.");
+const BankAwaitingReview = describedNotice("bank.awaiting-review", BankAwaitingReviewPayload, "A landing on a bank waits for an owner's review in a pull request.");
 const KeyManagerConnectionAdded = describedNotice(
   "key-manager.connection.added",
   KeyManagerConnectionAddedPayload,
@@ -535,6 +575,15 @@ export const EnvironmentNotice = z
     ForgeAccountGitRejected,
     ForgeAccountRemoved,
     ForgeOriginMissing,
+    BankAdded,
+    BankUpdated,
+    BankPinned,
+    BankForgotten,
+    BankSynced,
+    BankVerified,
+    BankLanded,
+    BankLandingFailed,
+    BankAwaitingReview,
     KeyManagerConnectionAdded,
     KeyManagerConnectionSignedIn,
     KeyManagerConnectionSignedOut,

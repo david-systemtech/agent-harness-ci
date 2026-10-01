@@ -75,20 +75,20 @@ const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(ta
  * change that registers it, which the test below holds it to.
  */
 const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {
-  "banks.create": "#937",
-  "banks.join": "#937",
-  "banks.publish": "#937",
-  "banks.registry.update": "#937",
+  "banks.create": "#1028",
+  "banks.join": "#1029",
+  "banks.publish": "#1033",
+  "banks.registry.update": "#1026",
 };
 
 /**
  * Triggers a registered step names before any event or notice type they
- * name is registered, each with the ticket that registers the types: the
- * banks build's `bank.*` notices (#937), which re-run the Memory bank and
- * Instructions steps (#586). A trigger leaves this list in the change that
- * registers a type it names, which the test below holds it to.
+ * name is registered, each with the ticket that registers the types. None
+ * is owed since the banks build registered its `bank.*` notices (#1025). A
+ * trigger leaves this list in the change that registers a type it names,
+ * which the test below holds it to.
  */
-const TRIGGERS_OWED: Readonly<Record<string, `#${number}`>> = { "bank.*": "#937" };
+const TRIGGERS_OWED: Readonly<Record<string, `#${number}`>> = {};
 
 /** What is wrong with the two tables together. */
 const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep[]): string[] => {
@@ -317,7 +317,7 @@ describe("the step registry", () => {
       expect(ticket, trigger).toMatch(/^#\d+$/);
       expect(steps.some((step) => step.triggers?.includes(trigger)), trigger).toBe(true);
     }
-    expect(stepShapeProblems([{ ...appearance, triggers: ["bank.*", "bank.landed"] }])).toEqual(["appearance: triggers on bank.landed, which names no event or notice type"]);
+    expect(stepShapeProblems([{ ...appearance, triggers: ["bank.*", "bank.archived"] }])).toEqual(["appearance: triggers on bank.archived, which names no event or notice type"]);
   });
 
   it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its orientation state check and the instruction and orientation registry triggers (#588)", () => {
@@ -757,6 +757,17 @@ describe("the step registry", () => {
       "forge.account.capability-learned",
       "forge.account.git-rejected",
       "forge.account.removed",
+    ]);
+    expect(matched("bank.*")).toEqual([
+      "bank.added",
+      "bank.updated",
+      "bank.pinned",
+      "bank.forgotten",
+      "bank.synced",
+      "bank.verified",
+      "bank.landed",
+      "bank.landing-failed",
+      "bank.awaiting-review",
     ]);
     expect(triggerMatches("settings.*", "settings.updated")).toBe(true);
     expect(triggerMatches("settings.updated*", "settings.updated")).toBe(true);

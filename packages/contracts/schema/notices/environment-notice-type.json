@@ -139,6 +139,51 @@
     },
     {
       "type": "string",
+      "const": "bank.added",
+      "description": "A bank was registered, created or joined; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.updated",
+      "description": "A bank's registry settings or what its BANK.md names changed; a client reads banks.list again."
+    },
+    {
+      "type": "string",
+      "const": "bank.pinned",
+      "description": "A session pinned or unpinned a folder of a bank."
+    },
+    {
+      "type": "string",
+      "const": "bank.forgotten",
+      "description": "A bank left the registry; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.synced",
+      "description": "A sync moved a bank's checkout to a new head; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.verified",
+      "description": "A verification found a bank's status changed; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.landed",
+      "description": "Drafts landed on a bank's main; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.landing-failed",
+      "description": "A landing on a bank failed; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.awaiting-review",
+      "description": "A landing on a bank waits for an owner's review; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
       "const": "key-manager.connection.added",
       "description": "A key-manager connection was added; a client refreshes what it caches of the key-manager connections."
     },
