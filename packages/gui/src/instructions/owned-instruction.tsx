@@ -26,8 +26,9 @@ export const OwnedInstructionCard = ({
   const enabled = runtime.capability(environmentId, "instructions.setEnabled");
   const scope = runtime.capability(environmentId, "instructions.setScope");
   const scopeDisabled = sending || scope.status === "absent";
+  const supported = row.accounts.filter((account) => account.channel.kind !== "none").map((account) => account.accountId);
   const changeScope = (accountId: string, on: boolean) => {
-    const current = row.scope === "all" ? row.accounts.map((account) => account.accountId) : row.scope;
+    const current = row.scope === "all" ? supported : row.scope;
     const next = on ? [...current, accountId] : current.filter((id) => id !== accountId);
     if (next.length > 0) void send("instructions.setScope", { instructionId: row.id, scope: next });
   };
@@ -37,7 +38,6 @@ export const OwnedInstructionCard = ({
     void send("instructions.move", { instructionId: row.id, position: keyBetween(before, after) });
   };
   const setAll = (all: boolean) => {
-    const supported = row.accounts.filter((account) => account.channel.kind !== "none").map((account) => account.accountId);
     if (all || supported.length > 0) void send("instructions.setScope", { instructionId: row.id, scope: all ? "all" : supported });
   };
   return (
@@ -82,7 +82,7 @@ export const OwnedInstructionCard = ({
             <input
               type="checkbox"
               checked={row.scope === "all" || row.scope.includes(account.accountId)}
-              disabled={scopeDisabled || account.channel.kind === "none" || (row.scope !== "all" && row.scope.length === 1 && row.scope.includes(account.accountId))}
+              disabled={scopeDisabled || account.channel.kind === "none" || (row.scope === "all" ? supported.length === 1 : row.scope.length === 1 && row.scope.includes(account.accountId))}
               onChange={(event) => changeScope(account.accountId, event.target.checked)}
             />{" "}
             {account.label}

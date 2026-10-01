@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp } from "../test/harness.js";
-import { ownedInstruction, scriptInstructions } from "../test/instructions.js";
+import { INSTRUCTION_ACCOUNT, NO_CHANNEL_ACCOUNT, ownedInstruction, scriptInstructions } from "../test/instructions.js";
 
 const openInstructions = async (app: RenderedApp) => {
   await app.user.keyboard("{Control>},{/Control}");
@@ -69,6 +69,29 @@ describe("Instructions", () => {
     const remove = await screen.findByRole("dialog", { name: "Remove Review habits?" });
     await app.user.click(within(remove).getByRole("button", { name: "Remove instruction" }));
     await waitFor(() => expect(within(pane).queryByRole("region", { name: "Review habits" })).toBeNull());
+  });
+  it("leaves all accounts through an account checkbox without selecting channel-less accounts", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    scriptInstructions(app.environment("desk"), [ownedInstruction({ accounts: [INSTRUCTION_ACCOUNT, NO_CHANNEL_ACCOUNT, { ...INSTRUCTION_ACCOUNT, accountId: "account-3", label: "Second supported account" }] })]);
+    const pane = await openInstructions(app);
+    const row = await within(pane).findByRole("region", { name: "Review habits" });
+    await app.user.click(within(row).getByRole("checkbox", { name: "Main account" }));
+    await waitFor(() => expect((within(row).getByRole("checkbox", { name: "All accounts, including future accounts" }) as HTMLInputElement).checked).toBe(false));
+    expect((within(row).getByRole("checkbox", { name: "Main account" }) as HTMLInputElement).checked).toBe(false);
+    expect((within(row).getByRole("checkbox", { name: /Other account/ }) as HTMLInputElement).checked).toBe(false);
+    expect((within(row).getByRole("checkbox", { name: "Second supported account" }) as HTMLInputElement).checked).toBe(true);
+  });
+  it("keeps the last supported account selected when all accounts are reached", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
+    scriptInstructions(app.environment("desk"), [ownedInstruction()]);
+    const pane = await openInstructions(app);
+    const row = await within(pane).findByRole("region", { name: "Review habits" });
+    const account = within(row).getByRole("checkbox", { name: "Main account" }) as HTMLInputElement;
+    expect(account.disabled).toBe(true);
+    await app.user.click(account);
+    expect(account.checked).toBe(true);
+    expect((within(row).getByRole("checkbox", { name: "All accounts, including future accounts" }) as HTMLInputElement).checked).toBe(true);
+    expect(within(row).getByText("Choose at least one account, or all accounts. Switch the instruction off to reach none.")).toBeDefined();
   });
   it("ticks a suggestion into an owned copy and remembers dismissal until restored", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local" }] });
