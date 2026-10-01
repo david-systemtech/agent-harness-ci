@@ -42,6 +42,7 @@ import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
+import { PROVIDER_NAMES as KEY_MANAGER_NAMES } from "../key-managers/provider.js";
 import { createBankService } from "../banks/bank-service.js";
 import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
 import { banksProjector, listBanks } from "../banks/bank-store.js";
@@ -1614,7 +1615,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
-  const bankService = createBankService({ log, clock, environmentId: record.id, forge });
+  const bankService = createBankService({
+    log, clock, environmentId: record.id, forge,
+    creation: {
+      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
+      keyManager: () => {
+        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
+        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
+      },
+    },
+  });
   capabilities.push("banks");
   const banks = bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.
