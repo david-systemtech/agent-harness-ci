@@ -26,7 +26,10 @@ import type { StoredRoutine } from "./routine-store.js";
  * zero (#523), and `script_missing` while no file is at a script
  * pre-check's path in the scripts directory (#526). Endpoint and delivery
  * attention read the stored endpoints and each target's latest result (#529).
- * Skills' attention is the ticket's that adds it. The next due time is the
+ * `skill_unknown` while the skill set of its account, as read for the list,
+ * lacks a name in its skills, each named in `unknownSkills` (#531): the set
+ * of the environment's own layers, since the repository layer is a
+ * workspace's, placed only when a firing starts. The next due time is the
  * scheduler's (#527): the first after the later of `handledThrough` and now.
  */
 
@@ -46,9 +49,33 @@ export const routineAccount = (identity: AccountIdentity | null, { reader, accou
   return id === null ? null : accounts.facts(id);
 };
 
-/** What a routine's attention reads of the environment beyond its accounts: whether a file is at a path in the scripts directory. */
+/**
+ * Which names the skill set of an account holds (null: the environment's,
+ * before any account's choices), as one reading of the set found them.
+ */
+export type SkillSetHolds = (accountId: string | null) => ReadonlySet<string>;
+
+/** Reads the skill set as it is now: what a routine's skills are checked against (#531). */
+export type SkillSetReader = () => Promise<SkillSetHolds>;
+
+/** The names in `skills` that the set of `accountId` lacks, in their order; none when the set was not read. */
+export const unknownSkills = (skills: readonly string[], holds: SkillSetHolds | null, accountId: string | null): string[] => {
+  if (holds === null || skills.length === 0) return [];
+  const known = holds(accountId);
+  return skills.filter((name) => !known.has(name));
+};
+
+/** The set as read now when `skills` names any; else null at once, since no name is checked. */
+export const readSkillSetFor = (skills: readonly string[], read: SkillSetReader): Promise<SkillSetHolds> | null => (skills.length === 0 ? null : read());
+
+/**
+ * What a routine's attention reads of the environment beyond its accounts:
+ * whether a file is at a path in the scripts directory, and the skill set as
+ * read for it (null when it was not, since no routine read names a skill).
+ */
 export interface RoutineSurroundings extends RoutineAccounts {
   readonly scriptPresent: (path: string) => boolean;
+  readonly skillSet: SkillSetHolds | null;
 }
 
 /** What a routine's effective mode and attention read: its definition, the ceiling it is saved under and its failure streak. */
@@ -72,15 +99,23 @@ const effectiveMode = (routine: RoutineFacts, account: AccountFacts | null, unat
   return clampMode(mode, start, ceiling, account?.descriptor.modes ?? EVERY_MODE) ?? (clampMode(mode, start, ceiling, EVERY_MODE) as ModeResolution);
 };
 
-/** Each attention code that holds, in the codes' own order. */
-const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution, where: RoutineSurroundings): RoutineAttention[] => {
-  const { model, preCheck, delivery } = routine.definition;
+/** What needs attention on a routine: each code that holds, in the codes' own order, and the skills its account's set lacks. */
+interface RoutineNeeds {
+  readonly attention: RoutineAttention[];
+  readonly unknownSkills: string[];
+}
+
+/** Each attention code that holds, in the codes' own order, with the skills the set of its account lacks. */
+const needsOf = (routine: RoutineFacts, account: AccountFacts | null, mode: ModeResolution, where: RoutineSurroundings): RoutineNeeds => {
+  const { model, preCheck, delivery, skills } = routine.definition;
+  const unknown = unknownSkills(skills, where.skillSet, account?.id ?? null);
   const targets = delivery.filter((target) => target.kind === "webhook");
   const endpoints = targets.map((target) => storedEndpoint(where.reader, target.target));
   const holds: Partial<Record<RoutineAttention, boolean>> = {
     account_missing: account === null,
     account_signed_out: account !== null && !account.signedIn,
     model_unavailable: account !== null && model !== null && !account.models.some((option) => option.id === model),
+    skill_unknown: unknown.length > 0,
     script_missing: preCheck?.kind === "script" && !where.scriptPresent(preCheck.path),
     endpoint_missing: endpoints.some((endpoint) => endpoint === null),
     endpoint_needs_secret: endpoints.some((endpoint) => endpoint?.secretKind === "missing"),
@@ -96,13 +131,13 @@ const attentionOf = (routine: RoutineFacts, account: AccountFacts | null, mode: 
     clamped: mode.clamped,
     failing: routine.state.failureStreak > 0,
   };
-  return ROUTINE_ATTENTION.filter((code) => holds[code] === true);
+  return { attention: ROUTINE_ATTENTION.filter((code) => holds[code] === true), unknownSkills: unknown };
 };
 
 /** What a routine saved as `routine` would need attention for here, as `routines.list` would show it: an import's warnings (#528). */
-export const routineAttention = (routine: RoutineFacts, where: RoutineSurroundings, unattendedMode: UnattendedMode): RoutineAttention[] => {
+export const routineNeeds = (routine: RoutineFacts, where: RoutineSurroundings, unattendedMode: UnattendedMode): RoutineNeeds => {
   const account = routineAccount(routine.definition.account, where);
-  return attentionOf(routine, account, effectiveMode(routine, account, unattendedMode), where);
+  return needsOf(routine, account, effectiveMode(routine, account, unattendedMode), where);
 };
 
 /**
@@ -121,5 +156,5 @@ export const listRoutine = (routine: StoredRoutine, where: RoutineSurroundings, 
   const account = routineAccount(routine.definition.account, where);
   const mode = effectiveMode(routine, account, unattendedMode);
   const due = routineNextDueAt(routine, now);
-  return { definition: routine.definition, state: routine.state, nextDueAt: due?.toISOString() ?? null, mode, attention: attentionOf(routine, account, mode, where) };
+  return { definition: routine.definition, state: routine.state, nextDueAt: due?.toISOString() ?? null, mode, ...needsOf(routine, account, mode, where) };
 };

@@ -29,7 +29,9 @@ import { noSkills, readSkillSources, syncedPayload, type SkillSources, type Sour
  * flight of the same branch, and one of another branch waits for it. A
  * pinned source never syncs, and Pull now on one is refused. A sync the
  * environment's close cuts (a drain for an update) records nothing, so
- * nothing partial becomes current, and the next start syncs it again.
+ * nothing partial becomes current, and the next start syncs it again; the
+ * close stops its git and settles once it has ended, so nothing it would
+ * clone or export into the data directory outlives the close.
  */
 
 /** How often each unpinned source syncs (ADR 0029). */
@@ -51,8 +53,13 @@ export interface SkillSync {
   readonly pull: PreparedCommand<"skills.sources.pull">;
   /** `skills.sources.setFollow`. */
   readonly setFollow: PreparedCommand<"skills.sources.setFollow">;
-  /** Syncs every unpinned source now, then on the timer, and each source unpinned at once; answers the stop, after which no sync records anything. */
-  start(): () => void;
+  /**
+   * Syncs every unpinned source now, then on the timer, and each source
+   * unpinned at once; answers the stop, after which no sync records
+   * anything, which stops the git of each sync in flight and settles once
+   * every one has ended.
+   */
+  start(): () => Promise<void>;
 }
 
 export interface SkillSyncOptions {
@@ -76,7 +83,9 @@ export const createSkillSync = (options: SkillSyncOptions): SkillSync => {
   const environmentStream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   /** Each source's sync in flight, with the branch it fetches. */
   const inFlight = new Map<string, { readonly follow: SkillSourceFollow; readonly done: Promise<void> }>();
-  let stopped = false;
+  /** Aborted by the stop: what stops the git of every sync in flight. */
+  const stopping = new AbortController();
+  const stopped = (): boolean => stopping.signal.aborted;
 
   const tracked = (sourceId: string): TrackedSource | undefined => readSkillSources(log).find((source) => source.id === sourceId);
 
@@ -96,10 +105,10 @@ export const createSkillSync = (options: SkillSyncOptions): SkillSync => {
   /** One sync of the source, of what it follows as it begins; nothing for a pinned or untracked one, or once stopped. */
   const syncNow = async (sourceId: string): Promise<void> => {
     const source = tracked(sourceId);
-    if (stopped || source === undefined || source.follow.kind === "pinned") return;
-    const fetched = await sources.fetch(source, source.follow);
+    if (stopped() || source === undefined || source.follow.kind === "pinned") return;
+    const fetched = await sources.fetch(source, source.follow, stopping.signal);
     // Cut by the close: nothing is recorded, and the next start syncs it again.
-    if (stopped) return;
+    if (stopped()) return;
     record(sourceId, source.follow, fetched);
   };
 
@@ -189,10 +198,11 @@ export const createSkillSync = (options: SkillSyncOptions): SkillSync => {
         const { sourceId, follow } = event.payload as SkillsSourceFollowSetPayload;
         if (follow.kind === "branch") background(sourceId);
       });
-      return () => {
-        stopped = true;
+      return async () => {
+        stopping.abort();
         timer.cancel();
         unsubscribe();
+        await Promise.all([...inFlight.values()].map(({ done }) => done.catch(() => undefined)));
       };
     },
   };
