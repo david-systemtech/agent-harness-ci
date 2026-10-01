@@ -58,6 +58,21 @@ it("reads only the named computed value, sends optional scope only when named, a
   expect(api.requests.at(-1)?.query).toEqual({ include_dynamic_secrets: "false" });
 });
 
+it("checks write access without changing values and accepts the documented secrets response without a success flag", async () => {
+  const api = await startFakeDoppler();
+  onCleanup(api.close);
+  const target: SignInTarget = { address: api.address, ca: null, method: "token", mount: "token", username: null };
+  const provider = createDopplerProvider();
+  api.secrets.set("EXISTING", "existing-value-for-tests");
+  const location = { mount: "project-for-tests", path: "harness" };
+  expect(await provider.canWrite(target, DOPPLER_TEST_TOKEN, location)).toEqual({ outcome: "checked", writable: true });
+  expect([...api.secrets]).toEqual([["EXISTING", "existing-value-for-tests"]]);
+  expect(api.requests).toEqual([{ method: "POST", path: "/v3/configs/config/secrets", query: { project: "project-for-tests", config: "harness" }, body: { secrets: {} } }]);
+  api.writable(false);
+  expect(await provider.canWrite(target, DOPPLER_TEST_TOKEN, location)).toEqual({ outcome: "checked", writable: false });
+  expect([...api.secrets]).toEqual([["EXISTING", "existing-value-for-tests"]]);
+});
+
 it("does not call a write successful when Doppler answers success false", async () => {
   const provider = createDopplerProvider(async () => new Response(JSON.stringify({ success: false }), { status: 200 }));
   const target: SignInTarget = { address: "http://doppler.example.test", ca: null, method: "token", mount: "token", username: null };

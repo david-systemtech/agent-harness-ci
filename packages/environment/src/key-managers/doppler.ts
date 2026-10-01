@@ -9,7 +9,6 @@ import { KEY_MANAGER_BUDGET_MS, type ConnectionProvider, type LoginFailure, type
 const actor = z.object({ name: z.string(), type: z.string() });
 const names = z.object({ names: z.array(z.string()) });
 const values = z.object({ secrets: z.record(z.string(), z.object({ computed: z.string().nullable() })) });
-const acknowledged = z.object({ success: z.literal(true) });
 const LIFE = { issuedAt: null, creationTtlSeconds: 0, periodSeconds: 0, explicitMaxTtlSeconds: 0 } as const;
 const SECRET_PATH = "/v3/configs/config/secrets";
 
@@ -107,11 +106,12 @@ export const createDopplerProvider = (fetcher: DopplerFetch = secureFetch): Conn
       return parsed.success ? { outcome: "listed", names: parsed.data.names } : malformed(target);
     },
     async canWrite(target, token, location, signal) {
-      // An empty secrets patch exercises the write permission without sending or changing any value.
+      // The update endpoint's OpenAPI secrets object has no required keys or minimum size.
+      // An empty patch checks write access without changing values; its answer is a secrets map.
       const answer = await request(target, token, SECRET_PATH, scope(location.mount || null, location.path || null), signal, { secrets: {} });
       if (answer.outcome === "denied") return { outcome: "checked", writable: false };
       if (answer.outcome !== "answered") return answer;
-      return acknowledged.safeParse(answer.body).success ? { outcome: "checked", writable: true } : malformed(target);
+      return values.safeParse(answer.body).success ? { outcome: "checked", writable: true } : malformed(target);
     },
     async write(target, token, requestToWrite, signal) {
       const { reference, value, overwrite } = requestToWrite;
@@ -123,7 +123,7 @@ export const createDopplerProvider = (fetcher: DopplerFetch = secureFetch): Conn
       } else if (existing.outcome !== "not-found") return existing;
       const answer = await request(target, token, SECRET_PATH, referenceScope(reference), signal, { secrets: { [reference.name]: value } });
       if (answer.outcome !== "answered") return answer;
-      return acknowledged.safeParse(answer.body).success ? { outcome: "written" } : malformed(target);
+      return values.safeParse(answer.body).success ? { outcome: "written" } : malformed(target);
     },
   };
 };

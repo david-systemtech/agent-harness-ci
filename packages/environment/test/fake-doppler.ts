@@ -29,7 +29,7 @@ export const startFakeDoppler = async (options: { tls?: boolean } = {}) => {
       if (!writable) return reply(403, { success: false });
       const patch = body as { secrets: Record<string, string> };
       for (const [name, value] of Object.entries(patch.secrets)) secrets.set(name, value);
-      return reply(200, { success: true });
+      return reply(200, { secrets: Object.fromEntries([...secrets].map(([name, value]) => [name, { raw: value, computed: value }])) });
     }
     reply(404, { success: false });
   };
