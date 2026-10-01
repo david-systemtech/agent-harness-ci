@@ -100,6 +100,14 @@ export interface Requests {
    * beside it. Anything but a query answers `unsupported`.
    */
   cached<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): Observable<CachedAnswer<N>>;
+  /**
+   * Fetches a cached query again, as a notice that it may have changed
+   * would: at once while followed, else by its next follower. A person's
+   * Check again, where the answer can change with no notice to say so
+   * (`environment.status`'s LAN addresses, #576). Nothing for a query never
+   * asked for.
+   */
+  refresh<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): void;
 }
 
 export interface RequestsHost {
@@ -259,6 +267,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
 
 export interface RequestCache {
   cached: Requests["cached"];
+  refresh: Requests["refresh"];
   /** The last result held for a query, if any: never fetches, and makes no entry. */
   peek<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): ResultOf<N> | null;
   /**
@@ -462,6 +471,10 @@ export const createRequestCache = (host: {
     },
     peek(environmentId, method, params) {
       return (entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }))?.value.read().result ?? null) as never;
+    },
+    refresh(environmentId, method, params) {
+      const entry = entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }));
+      if (entry !== undefined) refresh(entry);
     },
     noticed(environmentId, type) {
       for (const entry of entries.values()) {

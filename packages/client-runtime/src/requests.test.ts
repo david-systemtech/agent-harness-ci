@@ -597,6 +597,38 @@ describe("the request cache", () => {
     expect([asked(), reads]).toEqual([1, 2]);
   });
 
+  it("fetches one query again when asked to, at once while followed and by its next follower otherwise, and no other query (#576)", async () => {
+    const { runtime, wire, id, asked } = await counting();
+    let reads = 0;
+    wire.answer("environment.status", () => {
+      reads++;
+      return { result: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "environment.status", {});
+    const stop = status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    runtime.requests.refresh(id, "environment.status", {});
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+
+    // Followed by nobody, it is fetched by its next follower, well inside the five minutes.
+    stop();
+    runtime.requests.refresh(id, "environment.status", {});
+    await flush();
+    expect(reads).toBe(2);
+    status.subscribe(() => undefined);
+    await flush();
+    expect(reads).toBe(3);
+
+    // A query nobody has asked for has nothing to fetch again.
+    runtime.requests.refresh(id, "trust.list", {});
+    await flush();
+    expect(runtime.requests.cached(id, "trust.list", {}).read()).toEqual({ result: null, fetchedAt: null, error: null, loading: false });
+  });
+
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {
     const { clock, wire, runtime, id, asked, environment } = await counting({ environmentStream: true });
     const cached = runtime.requests.cached(id, "groups.list", {});
