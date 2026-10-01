@@ -1550,6 +1550,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+      scripts,
     }),
     ...preCheckMethods({ scripts }),
     ...endpoints.handlers,

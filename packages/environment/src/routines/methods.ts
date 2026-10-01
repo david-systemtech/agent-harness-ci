@@ -27,9 +27,10 @@ import type { Reader } from "../sessions/session-tables.js";
 import { endFiring, firingText } from "./firing-end.js";
 import type { FiringStart, FiringStarter } from "./firing-start.js";
 import { heldBy, nameHolders, nameTakenIssue, oneDocumentIssue, readImport, type ImportDocument } from "./import-documents.js";
-import { listRoutine, routineAttention, type RoutineAccounts } from "./listing.js";
+import { listRoutine, routineAttention, type RoutineAccounts, type RoutineSurroundings } from "./listing.js";
 import { appendRoutineRecord, routineStream } from "./records.js";
 import { entryPosition, listStoredRoutines, liveFiringOfRoutine, liveRoutine, routineEntries, routineEver, routineNamed, type StoredRoutine } from "./routine-store.js";
+import type { ScriptsDirectory } from "./scripts-directory.js";
 import type { PlacedWorkspace, RoutineWorkspaces } from "./workspace.js";
 
 /**
@@ -70,6 +71,8 @@ export interface RoutineMethodsOptions {
   readonly firings: Pick<FiringStarter, "live" | "start">;
   /** Where a saved routine's workspace stands here: the identity it resolves to, and an import's re-resolution (#528). */
   readonly workspaces: RoutineWorkspaces;
+  /** The scripts directory, whose missing script the list's attention names (#526). */
+  readonly scripts: Pick<ScriptsDirectory, "present">;
 }
 
 type RoutineMethodName =
@@ -124,7 +127,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
   const { log, clock, environmentId } = options;
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  const where: RoutineAccounts = { reader, accounts: options.accounts };
+  const where: RoutineSurroundings = { reader, accounts: options.accounts, scriptPresent: (path) => options.scripts.present(path) };
 
   const listed = (routine: StoredRoutine): ListedRoutine => listRoutine(routine, where, readSettings(reader)["permissions.unattended.mode"]);
 
