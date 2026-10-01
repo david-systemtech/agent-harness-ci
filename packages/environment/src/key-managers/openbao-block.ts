@@ -14,8 +14,9 @@
  *   variables (and a sandbox's) in force;
  * - `SKIP_VERIFY=false`, `MAX_RETRIES=2` (the CLI retries nothing
  *   otherwise) and `CLI_NO_COLOR=1`;
- * - `CONFIG_PATH`, naming a harness-owned empty configuration, so no token
- *   helper a user configured is in the loop.
+ * - `CONFIG_PATH`, naming a harness-owned configuration whose token helper
+ *   is the harness's own, so no token helper a user configured is in the
+ *   loop, and an empty token reaches no token (#716).
  *
  * No output format is forced: the model asks for JSON when it wants it.
  */
@@ -33,9 +34,22 @@ export interface OpenBaoBlockValues {
   readonly token: string;
   /** The pinned CA as PEM; null for none. */
   readonly ca: string | null;
-  /** The harness-owned empty configuration's path. */
+  /** The harness-owned configuration's path. */
   readonly configPath: string;
 }
+
+/**
+ * The harness's token helper (#716; David's decision): with an empty token
+ * both CLIs ask their configuration's token helper, run through the shell
+ * as `<path> get`, `<path> store` or `<path> erase`, and with none they read
+ * `~/.vault-token`. This one answers no token to `get` and keeps nothing a
+ * `store` sends, so an empty run token reaches no token and a `bao login` in
+ * a run stores nothing on disk.
+ */
+export const OPENBAO_TOKEN_HELPER = "#!/bin/sh\n# The agent-harness token helper: it answers no token and keeps none.\nexit 0\n";
+
+/** The harness-owned configuration both CLIs are pointed at: the token helper at `tokenHelper`, an absolute path, and nothing else. */
+export const openBaoConfiguration = (tokenHelper: string): string => `token_helper = ${JSON.stringify(tokenHelper)}\n`;
 
 /** One family's variables, by name without the family's prefix, in the order the spec lists them. */
 const unprefixed = ({ address, token, ca, configPath }: OpenBaoBlockValues): Record<string, string> => ({
