@@ -2215,6 +2215,10 @@
       "title": "InstructionManifestLayer"
     },
     {
+      "path": "instructions/always-on-chooser.json",
+      "title": "AlwaysOnChooser"
+    },
+    {
       "path": "instructions/always-on-skill.json",
       "title": "InstructionAlwaysOnSkill"
     },

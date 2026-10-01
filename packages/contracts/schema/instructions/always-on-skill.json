@@ -110,12 +110,24 @@
         }
       ],
       "description": "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)."
+    },
+    "chosenBy": {
+      "type": "string",
+      "enum": [
+        "account",
+        "client",
+        "routine",
+        "bot",
+        "completions"
+      ],
+      "description": "Who made a skill always-on for a run: account (its account's always-on choice), or the kind of actor whose run asked for it among the run's extra always-on names: routine (the routine's skills), completions (a request's alwaysOnSkills), bot or client."
     }
   },
   "required": [
     "name",
     "origin",
-    "commit"
+    "commit",
+    "chosenBy"
   ],
-  "description": "An always-on skill the composition appended: its name, its origin and the commit it was read at."
+  "description": "An always-on skill the composition appended: its name, its origin, the commit it was read at, and who made it always-on for the run."
 }

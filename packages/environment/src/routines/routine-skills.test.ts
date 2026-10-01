@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { RoutineDefinitionInput } from "@agent-harness/contracts";
+import type { InstructionManifest, RoutineDefinitionInput } from "@agent-harness/contracts";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -171,6 +171,31 @@ describe("a routine's skills in its firing's runs", () => {
       { origin: "client", alwaysOn: [] },
       { origin: "client", alwaysOn: [] },
     ]);
+  });
+
+  it("compose the standing instructions for the firing's run as for any run, with no persona, and its manifest lists them with the routine as their origin, after the account's", async () => {
+    const t = await start();
+    const client = await t.client();
+    await ownSkill(t, client, "tdd");
+    await ownSkill(t, client, "unslop");
+    await client.request("skills.setAlwaysOn", { commandId: randomUUID(), name: "unslop", accountId: "claude-max", on: true });
+    const instructionId = randomUUID();
+    await client.request("instructions.create", { commandId: randomUUID(), id: instructionId, title: "Coding style", body: "Prefer small modules." });
+    const { state } = await created(client, routine({ skills: ["tdd", "unslop"] }));
+
+    const firingId = await ranNow(client, state.id);
+    const { sessionId, runId } = await firingOf(t, state.id, firingId);
+    await untilSettled(t, state.id, firingId);
+
+    const composed = t.env.log.readStream({ kind: "session", id: sessionId }).find((event) => event.type === "run.instructions.composed" && event.payload["runId"] === runId);
+    const manifest = composed?.payload["manifest"] as InstructionManifest;
+    expect(manifest.layers.map((layer) => layer.layer)).toEqual(["user", "always-on"]);
+    expect(manifest.layers[0]?.parts.map((part) => part.id)).toContain(instructionId);
+    expect(manifest.alwaysOn).toEqual([
+      { name: "unslop", origin: null, commit: null, chosenBy: "account" },
+      { name: "tdd", origin: null, commit: null, chosenBy: "routine" },
+    ]);
+    expect(t.adapter.lastRun().input.instructions).toContain("# Always-on skill: tdd");
   });
 });
 
