@@ -113,6 +113,14 @@ describe("the snapshot", () => {
     });
   });
 
+  it("cuts mid-line, short of a ref it would split, and says so when no line ends within maxChars", async () => {
+    const { perform } = await atCheckout();
+    expect(await perform("snapshot", { filter: "all", maxChars: 37 })).toMatchObject({
+      ok: true,
+      value: { text: `- heading "Checkout" [level=1] `, totalChars: STITCHED.length, truncated: true, midLine: true },
+    });
+  });
+
   it("focuses on a ref in a child frame, and refuses a ref the page no longer has", async () => {
     const { perform } = await atCheckout();
     expect(await perform("snapshot", { filter: "all", ref: "f2e2" })).toMatchObject({

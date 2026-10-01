@@ -1,4 +1,4 @@
-import { VIEWPORT, frameUntrusted, pageStatement, redactTokens } from "@agent-harness/browser";
+import { VIEWPORT, frameUntrusted, pageStatement, redactTokens, withinMaxChars, type SnapshotText } from "@agent-harness/browser";
 import {
   PAGE_DRIVER_ABILITIES,
   PAGE_VERB_SCHEMAS,
@@ -210,7 +210,7 @@ const SPECS: readonly PageToolSpec[] = [
         type: "integer",
         minimum: 1,
         maximum: SNAPSHOT_MAX_CHARS.max,
-        description: `The most characters to answer, cut at a line boundary; preset ${SNAPSHOT_MAX_CHARS.preset.toLocaleString("en-GB")}, at most ${SNAPSHOT_MAX_CHARS.max.toLocaleString("en-GB")}.`,
+        description: `The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset ${SNAPSHOT_MAX_CHARS.preset.toLocaleString("en-GB")}, at most ${SNAPSHOT_MAX_CHARS.max.toLocaleString("en-GB")}.`,
       },
     },
     args: passed,
@@ -406,22 +406,19 @@ const refused = (text: string): HostToolResult => ({ text: redactTokens(text), i
 /** Page-derived text framed as untrusted content from its address, token-redacted first. */
 const framed = (address: string, text: string): string => frameUntrusted(redactTokens(address), redactTokens(text));
 
-/** A snapshot's text as shown, and whether it was cut mid-line. */
+/** A snapshot's text as shown, and whether the cut that ends it was mid-line. */
 interface Capped {
   readonly text: string;
   readonly midLine: boolean;
 }
 
 /**
- * `text` cut to at most `max` characters at its last line boundary within them, or, when no line ends within
- * them, mid-line, one fewer where the last would open a character written as two code units.
+ * A driver's snapshot text cut to at most `max` characters as a driver cuts it, whatever the driver answered,
+ * and whether the cut that ends it, the tools' or else the driver's, was mid-line.
  */
-const capped = (text: string, max: number): Capped => {
-  if (text.length <= max) return { text, midLine: false };
-  const lineEnd = text.lastIndexOf("\n", max);
-  if (lineEnd > 0) return { text: text.slice(0, lineEnd), midLine: false };
-  const unit = text.charCodeAt(max - 1);
-  return { text: text.slice(0, unit >= 0xd800 && unit <= 0xdbff ? max - 1 : max), midLine: true };
+const capped = (snapshot: Pick<SnapshotText, "text" | "midLine">, max: number): Capped => {
+  const shown = withinMaxChars(snapshot.text, max);
+  return { text: shown.text, midLine: (shown.truncated ? shown.midLine : snapshot.midLine) === true };
 };
 
 /** The sentence for a snapshot shown shorter than it is, naming where it was cut, or undefined when it is whole. */
@@ -451,7 +448,7 @@ const challengeAnswer = (url: string, challenge: ChallengeKind, kind: PageDriver
 /** What an action that leaves the page somewhere answers: where, the notice, the title and the snapshot framed, and how much of the snapshot was shown. */
 const arrivalAnswer = (lead: string, arrival: PageArrival, context: AnswerContext): HostToolResult => {
   if (arrival.challenge !== undefined) return challengeAnswer(arrival.url, arrival.challenge, context.kind);
-  const snapshot = arrival.snapshot === undefined ? { text: "", midLine: false } : capped(arrival.snapshot.text, ACTION_SNAPSHOT_CHARS);
+  const snapshot = arrival.snapshot === undefined ? { text: "", midLine: false } : capped(arrival.snapshot, ACTION_SNAPSHOT_CHARS);
   return answered([
     redactTokens(`${lead} The page is at ${arrival.url}.`),
     context.notice,
@@ -483,7 +480,7 @@ const answerOf = (outcome: Outcome, context: AnswerContext): HostToolResult => {
     case "snapshot": {
       const snapshot = outcome.value;
       if (snapshot.challenge !== undefined) return challengeAnswer(snapshot.url, snapshot.challenge, kind);
-      const shown = capped(snapshot.text, (input["maxChars"] as number | undefined) ?? SNAPSHOT_MAX_CHARS.preset);
+      const shown = capped(snapshot, (input["maxChars"] as number | undefined) ?? SNAPSHOT_MAX_CHARS.preset);
       const what = `${input["filter"] === "all" ? "every element" : "the elements you can act on"}${input["ref"] === undefined ? "" : ` under ${String(input["ref"])}`}`;
       return answered([
         redactTokens(`A snapshot of ${snapshot.url}: ${what}.`),
