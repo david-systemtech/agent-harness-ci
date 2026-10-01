@@ -6,7 +6,8 @@ import { createRuntime, writable } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
-import { startTestEnvironment } from "../../environment/test/helper.js";
+import { DELTA_HOLD_BACK_MS } from "../../environment/src/adapter/delta-scrub.js";
+import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { WAIT_MS } from "../../environment/test/wire-client.js";
 import { FORBIDDEN_WORDS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { App } from "../src/app.js";
@@ -96,9 +97,25 @@ const UP = "\u001B[A";
  * (`delta-scrub.ts`), so with this registered it holds the `k`: what its own
  * signing key, random base64 and registered from its vault, does in about one
  * run in 64 when it begins with `k` (#1133). Registered by the tests that wait
- * on `Look` so every run takes that path.
+ * on `Look` so every run takes that path, which `replyShown` must see through.
  */
 const HELD_FROM_LOOK = "kept-back-by-the-smoke-test";
+
+/**
+ * Waits for `text`, a reply's first streamed delta, whole on `terminal`'s
+ * screen. The environment shows a tail it holds back as the possible start of
+ * a registered value when its continuation or its settlement comes, or once
+ * `DELTA_HOLD_BACK_MS` on its clock has passed (`delta-scrub.ts`), and that
+ * clock is manual here: a test that waits on the rest with the run held open
+ * waits for ever (#1133). Once the reply has begun on screen the environment
+ * has taken the delta and set the hold-back's timer, so moving its clock past
+ * it shows the rest.
+ */
+const replyShown = async (t: TestEnvironment, terminal: { frame(): string }, text: string): Promise<void> => {
+  await until(() => terminal.frame().includes(`● ${text.slice(0, 1)}`), terminal.frame);
+  t.clock.advance(DELTA_HOLD_BACK_MS);
+  await until(() => terminal.frame().includes(`● ${text}`), terminal.frame);
+};
 
 describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_TEST_MS }, () => {
   it("exchanges the grant and renders the header and the rail", async () => {
@@ -162,7 +179,8 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     await until(() => one.frame().includes("Nothing said yet."), one.frame);
     one.type("Fix the receipts");
     one.type(ENTER);
-    await until(() => one.frame().includes("▌ Fix the receipts") && one.frame().includes("● Look"), one.frame);
+    await replyShown(t, one, "Look");
+    expect(one.frame()).toContain("▌ Fix the receipts");
     streamed.open();
     await until(() => one.frame().includes("● Looking at the receipts."), one.frame);
     await until(() => /\d+ms|\d+(\.\d)?s/.test(one.frame().split("● Looking at the receipts.")[1] ?? ""), () => `the cost line under the turn:\n${one.frame()}`);
@@ -204,7 +222,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     await until(() => one.frame().includes("Nothing said yet."), one.frame);
     one.type("Fix the receipts");
     one.type(ENTER);
-    await until(() => one.frame().includes("● Look"), one.frame);
+    await replyShown(t, one, "Look");
     one.type("and the tests");
     one.type(ENTER);
     await until(() => one.frame().includes("⧗ queued and the tests"), one.frame);
