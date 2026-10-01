@@ -145,6 +145,7 @@ export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./settings-rows.js";
 export * from "./setup.js";
+export * from "./setup-minted.js";
 export * from "./setup-prompts.js";
 export * from "./steps.js";
 export * from "./summary-fields.js";
