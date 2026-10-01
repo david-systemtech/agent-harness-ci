@@ -1,0 +1,1858 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skills.readiness result",
+  "type": "object",
+  "properties": {
+    "skills": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "state": {
+                "type": "string",
+                "const": "ready"
+              },
+              "declaredBy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "sidecar",
+                      "overlay"
+                    ],
+                    "description": "Where the member's checks were declared: sidecar (agents/agent-harness.yaml beside its SKILL.md, which wins whole) or overlay (the harness's, matched by its origin)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where its checks were declared; null for a member that declares nothing."
+              }
+            },
+            "required": [
+              "name",
+              "state",
+              "declaredBy"
+            ],
+            "description": "ready: every check passed, or the member declares none."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "declaredBy": {
+                "type": "string",
+                "enum": [
+                  "sidecar",
+                  "overlay"
+                ],
+                "description": "Where the member's checks were declared: sidecar (agents/agent-harness.yaml beside its SKILL.md, which wins whole) or overlay (the harness's, matched by its origin)."
+              },
+              "failing": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "check": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "file"
+                            },
+                            "paths": {
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "description": "A path from the repository's root, else the workspace: relative, with no .. segment, kept with / between segments (a \\ is read as /); . names the root itself. Refused by the source folder rule.",
+                                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                                "type": "string"
+                              },
+                              "description": "The paths, any one of which passes: from the repository's root, else the workspace."
+                            },
+                            "headings": {
+                              "description": "Headings the file must hold, each with content under it before the next heading of its level or above; absent, the path existing passes.",
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 200,
+                                "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                "description": "A heading's text, without its #s, matched ignoring case and the white space around it."
+                              }
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "paths"
+                          ],
+                          "additionalProperties": false,
+                          "description": "file: one of paths exists, and, when headings are listed, is a file holding each of them with content under it."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "tool"
+                            },
+                            "command": {
+                              "type": "string",
+                              "maxLength": 128,
+                              "pattern": "^[^/\\\\\\s\\p{Cc}]+$",
+                              "description": "A program's name as a run types it, such as gh: no path separator or white space."
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "command"
+                          ],
+                          "additionalProperties": false,
+                          "description": "tool: the command is on the PATH a run on this environment gets."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "secret"
+                            },
+                            "reference": {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "openbao"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "mount": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 1024,
+                                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                                      "description": "The KV mount, as personal or secret/team: no slash at either end."
+                                    },
+                                    "path": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 1024,
+                                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                                      "description": "The secret's path under the mount, as harness/forge-github."
+                                    },
+                                    "key": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The key inside the secret whose value is read."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "mount",
+                                    "path",
+                                    "key"
+                                  ],
+                                  "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "doppler"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "maxLength": 256,
+                                      "pattern": "^[A-Z_][A-Z0-9_]*$",
+                                      "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
+                                    },
+                                    "project": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The project, when the connection's token does not fix one."
+                                    },
+                                    "config": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The config, when the connection's token does not fix one."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "name"
+                                  ],
+                                  "description": "A Doppler secret by name, with its project and config when the token does not fix them."
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "onepassword"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "vault": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The vault, by name or id."
+                                    },
+                                    "item": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The item, by name or id."
+                                    },
+                                    "field": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The field whose value is read."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "vault",
+                                    "item",
+                                    "field"
+                                  ],
+                                  "description": "A 1Password field, as an op:// reference names it: vault, item and field."
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "bitwarden"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "secretId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                      "description": "The secret's id, which is what is read."
+                                    },
+                                    "key": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The secret's key, for display only."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "secretId",
+                                    "key"
+                                  ],
+                                  "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
+                                }
+                              ],
+                              "description": "The key-manager reference that must resolve; its value is never asked for in a session."
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "reference"
+                          ],
+                          "additionalProperties": false,
+                          "description": "secret: a key-manager reference resolves through the environment's key-manager registry. Not evaluated yet: it fails as such."
+                        },
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "repository"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "The workspace is in a git repository."
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "merge-in-progress"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "A merge or a rebase is in progress in the workspace's repository."
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "changes-since"
+                                },
+                                "ref": {
+                                  "description": "The fixed point; absent, the default branch: origin's HEAD as git last cached it, else main, else master.",
+                                  "type": "string",
+                                  "maxLength": 256,
+                                  "pattern": "^[^-\\s\\p{Cc}][^\\s\\p{Cc}]*$"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "HEAD holds changes since its merge base with the ref: what git diff <ref>...HEAD shows is not empty."
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "forge-account"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "The repository's origin has a forge account on this environment. Not evaluated yet: it fails as such."
+                            }
+                          ],
+                          "description": "git: a condition of the workspace's repository: repository, merge-in-progress, changes-since (a ref) or forge-account."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "skill"
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "The member that must be in the account's set.",
+                              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                              "maxLength": 64
+                            },
+                            "modelInvocable": {
+                              "description": "Whether the member must be one the model may invoke; absent, it must. false accepts a slash-only member.",
+                              "type": "boolean"
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ],
+                          "additionalProperties": false,
+                          "description": "skill: a member of that name is in the account's set and on, and one the model may invoke unless modelInvocable is false."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "mcp"
+                            },
+                            "server": {
+                              "type": "string",
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}]+$",
+                              "description": "The name one of the run's tool servers must have."
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "server"
+                          ],
+                          "additionalProperties": false,
+                          "description": "mcp: among the tool servers the session's next run is given, one has that name. Not evaluated yet: it fails as such."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "provider"
+                            },
+                            "providers": {
+                              "description": "Providers any one of which passes, such as claude.",
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$",
+                                "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+                              }
+                            },
+                            "capability": {
+                              "description": "A capability whose flag on the account's adapter passes.",
+                              "type": "string",
+                              "enum": [
+                                "interactivePrompts",
+                                "partialMessages",
+                                "providerQueue",
+                                "steering",
+                                "resume",
+                                "fork",
+                                "rewind",
+                                "sessionListing",
+                                "subagents",
+                                "subagentTranscripts",
+                                "titleRead",
+                                "titleWrite",
+                                "transcriptDelete",
+                                "planUsage",
+                                "liveModels",
+                                "commands",
+                                "imageInput",
+                                "fileInput",
+                                "modeChange",
+                                "containment"
+                              ]
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false,
+                          "description": "provider: the account's provider is among providers, or its adapter declares the capability. Failing it makes the skill unsupported.",
+                          "anyOf": [
+                            {
+                              "required": [
+                                "providers"
+                              ],
+                              "properties": {
+                                "providers": true
+                              }
+                            },
+                            {
+                              "required": [
+                                "capability"
+                              ],
+                              "properties": {
+                                "capability": true
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "description": "One check a skill declares: file, tool, secret, git, skill, mcp or provider, with its parameters, an optional one-line why and an optional fix (a slash command or a Set up step id)."
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "failed",
+                        "timed-out",
+                        "not-evaluated"
+                      ],
+                      "description": "How the check failed: failed (it ran and does not hold), timed-out (it could not be checked in time: five seconds, within the call's ten), or not-evaluated (a secret, mcp or git forge-account check, which this environment does not evaluate yet)."
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What failed, for people."
+                    }
+                  },
+                  "required": [
+                    "check",
+                    "outcome",
+                    "message"
+                  ],
+                  "description": "A check that failed: the check as declared, how it failed, and what failed, for people."
+                },
+                "description": "Every failing check, in the declaration's order."
+              },
+              "why": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 300,
+                    "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                    "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The first failing check's why (for unsupported, the first failing provider check's); null when it gives none."
+              },
+              "fix": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 300,
+                        "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                        "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "account",
+                          "carry-over",
+                          "your-machines",
+                          "forges",
+                          "key-manager",
+                          "memory-bank",
+                          "skills",
+                          "instructions",
+                          "browser",
+                          "permissions",
+                          "appearance"
+                        ],
+                        "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                      }
+                    ],
+                    "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The first failing check's fix (for unsupported, the first failing provider check's); null when it gives none."
+              },
+              "state": {
+                "type": "string",
+                "const": "setup-needed"
+              }
+            },
+            "required": [
+              "name",
+              "declaredBy",
+              "failing",
+              "why",
+              "fix",
+              "state"
+            ],
+            "description": "setup-needed: a check failed, none of them a provider check."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "maxLength": 64
+              },
+              "declaredBy": {
+                "type": "string",
+                "enum": [
+                  "sidecar",
+                  "overlay"
+                ],
+                "description": "Where the member's checks were declared: sidecar (agents/agent-harness.yaml beside its SKILL.md, which wins whole) or overlay (the harness's, matched by its origin)."
+              },
+              "failing": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "check": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "file"
+                            },
+                            "paths": {
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "description": "A path from the repository's root, else the workspace: relative, with no .. segment, kept with / between segments (a \\ is read as /); . names the root itself. Refused by the source folder rule.",
+                                "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                                "type": "string"
+                              },
+                              "description": "The paths, any one of which passes: from the repository's root, else the workspace."
+                            },
+                            "headings": {
+                              "description": "Headings the file must hold, each with content under it before the next heading of its level or above; absent, the path existing passes.",
+                              "minItems": 1,
+                              "maxItems": 20,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 200,
+                                "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                "description": "A heading's text, without its #s, matched ignoring case and the white space around it."
+                              }
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "paths"
+                          ],
+                          "additionalProperties": false,
+                          "description": "file: one of paths exists, and, when headings are listed, is a file holding each of them with content under it."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "tool"
+                            },
+                            "command": {
+                              "type": "string",
+                              "maxLength": 128,
+                              "pattern": "^[^/\\\\\\s\\p{Cc}]+$",
+                              "description": "A program's name as a run types it, such as gh: no path separator or white space."
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "command"
+                          ],
+                          "additionalProperties": false,
+                          "description": "tool: the command is on the PATH a run on this environment gets."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "secret"
+                            },
+                            "reference": {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "openbao"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "mount": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 1024,
+                                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                                      "description": "The KV mount, as personal or secret/team: no slash at either end."
+                                    },
+                                    "path": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 1024,
+                                      "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                                      "description": "The secret's path under the mount, as harness/forge-github."
+                                    },
+                                    "key": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The key inside the secret whose value is read."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "mount",
+                                    "path",
+                                    "key"
+                                  ],
+                                  "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "doppler"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "maxLength": 256,
+                                      "pattern": "^[A-Z_][A-Z0-9_]*$",
+                                      "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
+                                    },
+                                    "project": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The project, when the connection's token does not fix one."
+                                    },
+                                    "config": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The config, when the connection's token does not fix one."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "name"
+                                  ],
+                                  "description": "A Doppler secret by name, with its project and config when the token does not fix them."
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "onepassword"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "vault": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The vault, by name or id."
+                                    },
+                                    "item": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The item, by name or id."
+                                    },
+                                    "field": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The field whose value is read."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "vault",
+                                    "item",
+                                    "field"
+                                  ],
+                                  "description": "A 1Password field, as an op:// reference names it: vault, item and field."
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "provider": {
+                                      "type": "string",
+                                      "const": "bitwarden"
+                                    },
+                                    "connectionId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                      "description": "The key-manager connection the reference is read through."
+                                    },
+                                    "secretId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                      "description": "The secret's id, which is what is read."
+                                    },
+                                    "key": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 256,
+                                      "pattern": "^[^\\p{Cc}]+$",
+                                      "description": "The secret's key, for display only."
+                                    }
+                                  },
+                                  "required": [
+                                    "provider",
+                                    "connectionId",
+                                    "secretId",
+                                    "key"
+                                  ],
+                                  "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
+                                }
+                              ],
+                              "description": "The key-manager reference that must resolve; its value is never asked for in a session."
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "reference"
+                          ],
+                          "additionalProperties": false,
+                          "description": "secret: a key-manager reference resolves through the environment's key-manager registry. Not evaluated yet: it fails as such."
+                        },
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "repository"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "The workspace is in a git repository."
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "merge-in-progress"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "A merge or a rebase is in progress in the workspace's repository."
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "changes-since"
+                                },
+                                "ref": {
+                                  "description": "The fixed point; absent, the default branch: origin's HEAD as git last cached it, else main, else master.",
+                                  "type": "string",
+                                  "maxLength": 256,
+                                  "pattern": "^[^-\\s\\p{Cc}][^\\s\\p{Cc}]*$"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "HEAD holds changes since its merge base with the ref: what git diff <ref>...HEAD shows is not empty."
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "git"
+                                },
+                                "condition": {
+                                  "type": "string",
+                                  "const": "forge-account"
+                                },
+                                "why": {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                                  "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                                },
+                                "fix": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300,
+                                      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "account",
+                                        "carry-over",
+                                        "your-machines",
+                                        "forges",
+                                        "key-manager",
+                                        "memory-bank",
+                                        "skills",
+                                        "instructions",
+                                        "browser",
+                                        "permissions",
+                                        "appearance"
+                                      ],
+                                      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                    }
+                                  ],
+                                  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "condition"
+                              ],
+                              "additionalProperties": false,
+                              "description": "The repository's origin has a forge account on this environment. Not evaluated yet: it fails as such."
+                            }
+                          ],
+                          "description": "git: a condition of the workspace's repository: repository, merge-in-progress, changes-since (a ref) or forge-account."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "skill"
+                            },
+                            "name": {
+                              "type": "string",
+                              "description": "The member that must be in the account's set.",
+                              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                              "maxLength": 64
+                            },
+                            "modelInvocable": {
+                              "description": "Whether the member must be one the model may invoke; absent, it must. false accepts a slash-only member.",
+                              "type": "boolean"
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name"
+                          ],
+                          "additionalProperties": false,
+                          "description": "skill: a member of that name is in the account's set and on, and one the model may invoke unless modelInvocable is false."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "mcp"
+                            },
+                            "server": {
+                              "type": "string",
+                              "maxLength": 128,
+                              "pattern": "^[^\\s\\p{Cc}]+$",
+                              "description": "The name one of the run's tool servers must have."
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "server"
+                          ],
+                          "additionalProperties": false,
+                          "description": "mcp: among the tool servers the session's next run is given, one has that name. Not evaluated yet: it fails as such."
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "provider"
+                            },
+                            "providers": {
+                              "description": "Providers any one of which passes, such as claude.",
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^[a-z][a-z0-9-]*$",
+                                "description": "A provider's id, as the environment's adapter registry keys it: lowercase letters, digits and hyphens (claude)."
+                              }
+                            },
+                            "capability": {
+                              "description": "A capability whose flag on the account's adapter passes.",
+                              "type": "string",
+                              "enum": [
+                                "interactivePrompts",
+                                "partialMessages",
+                                "providerQueue",
+                                "steering",
+                                "resume",
+                                "fork",
+                                "rewind",
+                                "sessionListing",
+                                "subagents",
+                                "subagentTranscripts",
+                                "titleRead",
+                                "titleWrite",
+                                "transcriptDelete",
+                                "planUsage",
+                                "liveModels",
+                                "commands",
+                                "imageInput",
+                                "fileInput",
+                                "modeChange",
+                                "containment"
+                              ]
+                            },
+                            "why": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                              "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                            },
+                            "fix": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300,
+                                  "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                                  "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "account",
+                                    "carry-over",
+                                    "your-machines",
+                                    "forges",
+                                    "key-manager",
+                                    "memory-bank",
+                                    "skills",
+                                    "instructions",
+                                    "browser",
+                                    "permissions",
+                                    "appearance"
+                                  ],
+                                  "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                                }
+                              ],
+                              "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false,
+                          "description": "provider: the account's provider is among providers, or its adapter declares the capability. Failing it makes the skill unsupported.",
+                          "anyOf": [
+                            {
+                              "required": [
+                                "providers"
+                              ],
+                              "properties": {
+                                "providers": true
+                              }
+                            },
+                            {
+                              "required": [
+                                "capability"
+                              ],
+                              "properties": {
+                                "capability": true
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "description": "One check a skill declares: file, tool, secret, git, skill, mcp or provider, with its parameters, an optional one-line why and an optional fix (a slash command or a Set up step id)."
+                    },
+                    "outcome": {
+                      "type": "string",
+                      "enum": [
+                        "failed",
+                        "timed-out",
+                        "not-evaluated"
+                      ],
+                      "description": "How the check failed: failed (it ran and does not hold), timed-out (it could not be checked in time: five seconds, within the call's ten), or not-evaluated (a secret, mcp or git forge-account check, which this environment does not evaluate yet)."
+                    },
+                    "message": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What failed, for people."
+                    }
+                  },
+                  "required": [
+                    "check",
+                    "outcome",
+                    "message"
+                  ],
+                  "description": "A check that failed: the check as declared, how it failed, and what failed, for people."
+                },
+                "description": "Every failing check, in the declaration's order."
+              },
+              "why": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 300,
+                    "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
+                    "description": "Why the check matters, for people: one line of at most 300 characters, shown beside setup needed."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The first failing check's why (for unsupported, the first failing provider check's); null when it gives none."
+              },
+              "fix": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 300,
+                        "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+                        "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "account",
+                          "carry-over",
+                          "your-machines",
+                          "forges",
+                          "key-manager",
+                          "memory-bank",
+                          "skills",
+                          "instructions",
+                          "browser",
+                          "permissions",
+                          "appearance"
+                        ],
+                        "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+                      }
+                    ],
+                    "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The first failing check's fix (for unsupported, the first failing provider check's); null when it gives none."
+              },
+              "state": {
+                "type": "string",
+                "const": "unsupported"
+              }
+            },
+            "required": [
+              "name",
+              "declaredBy",
+              "failing",
+              "why",
+              "fix",
+              "state"
+            ],
+            "description": "unsupported: a provider check failed: the skill cannot help with this account."
+          }
+        ],
+        "description": "A member's readiness: ready (a member declaring nothing is), setup-needed with every failing check and the first one's why and fix, or unsupported when a provider check fails. Advisory: it never blocks an invocation or changes the set."
+      },
+      "description": "Each member asked for that is in the set, in the set's order."
+    }
+  },
+  "required": [
+    "skills"
+  ]
+}

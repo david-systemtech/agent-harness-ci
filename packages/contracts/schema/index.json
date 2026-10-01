@@ -1559,6 +1559,42 @@
       "title": "SkillsCarryOverReport"
     },
     {
+      "path": "skills/readiness/fix.json",
+      "title": "ReadinessFix"
+    },
+    {
+      "path": "skills/readiness/check.json",
+      "title": "ReadinessCheck"
+    },
+    {
+      "path": "skills/readiness/declaration.json",
+      "title": "ReadinessDeclaration"
+    },
+    {
+      "path": "skills/readiness/declarer.json",
+      "title": "ReadinessDeclarer"
+    },
+    {
+      "path": "skills/readiness/failure-outcome.json",
+      "title": "ReadinessFailureOutcome"
+    },
+    {
+      "path": "skills/readiness/failure.json",
+      "title": "ReadinessFailure"
+    },
+    {
+      "path": "skills/readiness/skill-readiness.json",
+      "title": "SkillReadiness"
+    },
+    {
+      "path": "skills/readiness/overlay-entry.json",
+      "title": "ReadinessOverlayEntry"
+    },
+    {
+      "path": "skills/readiness/overlay.json",
+      "title": "ReadinessOverlay"
+    },
+    {
       "path": "catalogue/skill-entry-id.json",
       "title": "CatalogueSkillEntryId"
     },
@@ -6051,6 +6087,18 @@
       "title": "skills.setEnabled error"
     },
     {
+      "path": "methods/skills.readiness/params.json",
+      "title": "skills.readiness params"
+    },
+    {
+      "path": "methods/skills.readiness/result.json",
+      "title": "skills.readiness result"
+    },
+    {
+      "path": "methods/skills.readiness/error.json",
+      "title": "skills.readiness error"
+    },
+    {
       "path": "methods/trust.get/params.json",
       "title": "trust.get params"
     },
@@ -7980,6 +8028,15 @@
       "result": "methods/skills.setEnabled/result.json",
       "response": "methods/skills.setEnabled/response.json",
       "error": "methods/skills.setEnabled/error.json"
+    },
+    {
+      "name": "skills.readiness",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/skills.readiness/params.json",
+      "result": "methods/skills.readiness/result.json",
+      "error": "methods/skills.readiness/error.json"
     },
     {
       "name": "trust.get",

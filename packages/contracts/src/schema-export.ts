@@ -562,6 +562,17 @@ import {
   PromptQuestionOption,
 } from "./prompts.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
+import {
+  ReadinessCheck,
+  ReadinessDeclaration,
+  ReadinessDeclarer,
+  ReadinessFailure,
+  ReadinessFailureOutcome,
+  ReadinessFix,
+  ReadinessOverlay,
+  ReadinessOverlayEntry,
+  SkillReadiness,
+} from "./readiness.js";
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
@@ -1034,6 +1045,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/carry-over-invalid.json", title: "SkillCarryOverInvalid", schema: SkillCarryOverInvalid },
   { path: "skills/not-carried.json", title: "SkillNotCarried", schema: SkillNotCarried },
   { path: "skills/carry-over-report.json", title: "SkillsCarryOverReport", schema: SkillsCarryOverReport },
+  { path: "skills/readiness/fix.json", title: "ReadinessFix", schema: ReadinessFix },
+  { path: "skills/readiness/check.json", title: "ReadinessCheck", schema: ReadinessCheck },
+  { path: "skills/readiness/declaration.json", title: "ReadinessDeclaration", schema: ReadinessDeclaration },
+  { path: "skills/readiness/declarer.json", title: "ReadinessDeclarer", schema: ReadinessDeclarer },
+  { path: "skills/readiness/failure-outcome.json", title: "ReadinessFailureOutcome", schema: ReadinessFailureOutcome },
+  { path: "skills/readiness/failure.json", title: "ReadinessFailure", schema: ReadinessFailure },
+  { path: "skills/readiness/skill-readiness.json", title: "SkillReadiness", schema: SkillReadiness },
+  { path: "skills/readiness/overlay-entry.json", title: "ReadinessOverlayEntry", schema: ReadinessOverlayEntry },
+  { path: "skills/readiness/overlay.json", title: "ReadinessOverlay", schema: ReadinessOverlay },
   { path: "catalogue/skill-entry-id.json", title: "CatalogueSkillEntryId", schema: CatalogueSkillEntryId },
   { path: "catalogue/tag.json", title: "CatalogueTag", schema: CatalogueTag },
   { path: "catalogue/licence-where.json", title: "CatalogueLicenceWhere", schema: CatalogueLicenceWhere },
