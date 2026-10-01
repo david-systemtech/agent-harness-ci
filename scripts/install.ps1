@@ -21,6 +21,10 @@
 #
 # Every verb runs as a version runs, its own node\node.exe on
 # packages\cli\dist\main.js, so no argument passes through cmd.exe's parser.
+# Where PowerShell writes Node's command line itself (Windows PowerShell 5.1,
+# and PowerShell 7 with legacy argument passing) it gets each word already
+# written by the C runtime's rules, so a double quote in -Name or a trailing
+# backslash on -DataDir reaches the verb as it was given.
 #
 # The repository is private, so the releases API and the downloads need a read
 # token: AGENT_HARNESS_TOKEN, a Forgejo access token with the read:repository
@@ -200,6 +204,28 @@ function Format-PlanWord([string]$Word) {
   return "'" + ($Word -replace "'", "''") + "'"
 }
 
+# A word as a Windows command line must hold it for a program's C runtime to read it back
+# exactly: as it is when it holds no white space and no double quote, else in double quotes,
+# each double quote in it escaped as \" and the backslashes before one, or before the closing
+# quote, doubled.
+function Format-CommandLineWord([string]$Word) {
+  if ($Word -and $Word -notmatch '[\s"]') { return $Word }
+  return '"' + ($Word -replace '(\\*)"', '$1$1\"' -replace '(\\+)\z', '$1$1') + '"'
+}
+
+# The words to hand a version's Node for it to read $Words back exactly. Windows PowerShell 5.1
+# and PowerShell 7 before 7.3, or with $PSNativeCommandArgumentPassing at Legacy, write the
+# command line themselves: they wrap a word that holds white space in double quotes, escaping no
+# double quote in it and (5.1) doubling no trailing backslash, so a -Name 'The "big" box' would
+# reach the verb as The big box. A word already written for the command line holds white space
+# only inside its double quotes, and they pass it on as it is. Otherwise PowerShell escapes each
+# word itself, for node.exe in 7.3's Windows mode too.
+function Get-NativeWords([string[]]$Words) {
+  $passing = Get-Variable -Name PSNativeCommandArgumentPassing -ValueOnly -ErrorAction Ignore
+  if ($null -ne $passing -and [string]$passing -ne 'Legacy') { return $Words }
+  return @($Words | ForEach-Object { Format-CommandLineWord $_ })
+}
+
 # A line of the printed plan: $Cli's verb $Words, as PowerShell would call it.
 function Format-PlanLine([hashtable]$Cli, [string[]]$Words) {
   return '  & ' + ((@($Cli.Node, $Cli.Entry) + $Words | ForEach-Object { Format-PlanWord $_ }) -join ' ')
@@ -224,7 +250,8 @@ function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget,
     Write-Host (Format-PlanLine $Cli $words)
     return
   }
-  if ($PSBoundParameters.ContainsKey('Stdin')) { $Stdin | & $Cli.Node $Cli.Entry @words } else { & $Cli.Node $Cli.Entry @words }
+  $native = @(Get-NativeWords (@($Cli.Entry) + $words))
+  if ($PSBoundParameters.ContainsKey('Stdin')) { $Stdin | & $Cli.Node @native } else { & $Cli.Node @native }
   if ($LASTEXITCODE -ne 0) {
     $code = $LASTEXITCODE
     Stop-Install "``$ProductName $($Arguments -join ' ')`` failed with exit code $code; nothing after it ran." $code
@@ -260,7 +287,8 @@ function Get-ActiveCli {
 # Whether the service runs, as its active version's own `service status` says. A read, so a dry run runs it too.
 function Test-Running([hashtable]$Cli) {
   $ErrorActionPreference = 'Continue'
-  $answer = & $Cli.Node $Cli.Entry service status --json @targetOptions 2>$null
+  $native = @(Get-NativeWords (@($Cli.Entry, 'service', 'status', '--json') + $targetOptions))
+  $answer = & $Cli.Node @native 2>$null
   try { return (($answer -join "`n") | ConvertFrom-Json).running -eq $true } catch { return $false }
 }
 

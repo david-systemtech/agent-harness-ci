@@ -57,7 +57,9 @@ afterAll(() => rmSync(pwshHome, { recursive: true, force: true }));
 /**
  * The version's Node, run as the launcher runs a version: its first argument
  * must be this version's CLI entry. Records `<version> <arguments>` (and the
- * token, should it ever reach the CLI's environment), fails the verb FAKE_FAIL
+ * token, should it ever reach the CLI's environment), and each argument after
+ * the entry exactly in FAKE_ARGV (a line a call, each argument ended by a unit
+ * separator), fails the verb FAKE_FAIL
  * names with exit 3, keeps what `update credential` reads on stdin, and
  * answers `pair` with a pairing.
  */
@@ -68,6 +70,7 @@ entry=$1
 shift
 [ "$entry" = "$version_dir/packages/cli/dist/main.js" ] || { echo "node.exe: $entry is not this version's CLI" >&2; exit 64; }
 printf '%s %s\\n' "$version" "$*" >> "$FAKE_LOG"
+{ for word in "$@"; do printf '%s\\037' "$word"; done; echo; } >> "$FAKE_ARGV"
 [ -z "\${AGENT_HARNESS_TOKEN:-}" ] || printf '%s saw AGENT_HARNESS_TOKEN\\n' "$version" >> "$FAKE_LOG"
 [ "$1 $2" != "\${FAKE_FAIL:-}" ] || { echo "$1 $2 failed here." >&2; exit 3; }
 data_dir=$FAKE_DATA_DIR
@@ -113,6 +116,8 @@ interface Fixture {
   readonly log: string;
   readonly env: NodeJS.ProcessEnv;
   calls(): string[];
+  /** The arguments each call of a version's CLI got after its entry, exactly as its Node read them. */
+  argv(): string[][];
   /** Forgets the calls so far, as a new run of the script would find the machine. */
   forget(): void;
 }
@@ -130,6 +135,8 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
   for (const dir of [localAppData, fakeBin, assets, listed, state, temp]) mkdirSync(dir, { recursive: true });
   const log = join(root, "calls.log");
   write(log, "");
+  const argvLog = join(root, "argv.log");
+  write(argvLog, "");
 
   write(join(fakeBin, "curl.exe"), FAKE_CURL, 0o755);
   write(join(fakeBin, "whoami.exe"), FAKE_WHOAMI, 0o755);
@@ -172,6 +179,7 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
     AGENT_HARNESS_TOKEN: TOKEN,
     EXPECTED_TOKEN: TOKEN,
     FAKE_LOG: log,
+    FAKE_ARGV: argvLog,
     FAKE_RELEASES: listed,
     FAKE_ASSETS: assets,
     FAKE_STATE: state,
@@ -186,8 +194,14 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
     log,
     env,
     calls: () => readFileSync(log, "utf8").split("\n").filter(Boolean),
+    argv: () =>
+      readFileSync(argvLog, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("\x1f").slice(0, -1)),
     forget: () => {
       writeFileSync(log, "");
+      writeFileSync(argvLog, "");
       rmSync(join(state, "probes"), { force: true });
     },
   };
@@ -221,6 +235,22 @@ const inSession = (f: Fixture, command: string, env: NodeJS.ProcessEnv = {}): Pr
       cwd: f.root,
     }),
   );
+
+/**
+ * The script's function `name` called on each of `words`, in a PowerShell that defines that function
+ * alone, taken out of the parsed script, so nothing else of the script runs; answers what it returned for each.
+ */
+const callEach = async (name: string, words: readonly string[]): Promise<string[]> => {
+  const command =
+    `$ast = [Management.Automation.Language.Parser]::ParseFile($env:SCRIPT, [ref]$null, [ref]$null); ` +
+    `$definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $env:FUNCTION }, $true); ` +
+    `. ([scriptblock]::Create($definition.Extent.Text)); ` +
+    `ConvertTo-Json -Compress -InputObject @(ConvertFrom-Json $env:WORDS | ForEach-Object { & $env:FUNCTION $_ })`;
+  const { stdout } = await run(PWSH, ["-NoProfile", "-NonInteractive", "-Command", command], {
+    env: { ...process.env, ...POWERSHELL_ENV, HOME: pwshHome, SCRIPT: script, FUNCTION: name, WORDS: JSON.stringify(words) },
+  });
+  return JSON.parse(stdout) as string[];
+};
 
 /** The version's Node and CLI entry in `dataDir`, as the script runs them. */
 const cliOf = (dataDir: string, version: string) => {
@@ -699,6 +729,52 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       expect(result.code).toBe(0);
       expect(existsSync(join(dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
       expect(f.calls()).toContain(`0.1.0 service install --data-dir ${dataDir}`);
+    });
+  });
+
+  // Legacy is how Windows PowerShell 5.1 and PowerShell 7 before 7.3 pass them: PowerShell writes
+  // the command line itself, and .NET reads it back into the arguments by Windows' rules here too.
+  describe("hands every verb its arguments exactly, a double quote and a trailing backslash included, however the session passes a native command's", () => {
+    // The trailing backslash rides on the name: PowerShell on Linux turns a path's backslashes into slashes.
+    const name = 'The "big" box\\';
+    it("writes a word for the command line as the C runtime reads it back: in double quotes when it holds white space or a double quote, each quote escaped, and the backslashes before one or before the closing quote doubled", async () => {
+      const written: [word: string, onTheCommandLine: string][] = [
+        ["service", "service"],
+        ["D:\\agent-data\\", "D:\\agent-data\\"],
+        ["", '""'],
+        ["Build box", '"Build box"'],
+        [String.raw`The "big" box`, String.raw`"The \"big\" box"`],
+        ["D:\\agent data\\", '"D:\\agent data\\\\"'],
+        [String.raw`D:\a b\c d`, String.raw`"D:\a b\c d"`],
+        [String.raw`a\"b`, String.raw`"a\\\"b"`],
+        ["tab\there", '"tab\there"'],
+        ["no\u00a0break", '"no\u00a0break"'],
+      ];
+      const words = written.map(([word]) => word);
+      expect(await callEach("Format-CommandLineWord", words)).toEqual(written.map(([, onTheCommandLine]) => onTheCommandLine));
+    });
+
+    it.each(["Legacy", "Standard", "Windows"])("with $PSNativeCommandArgumentPassing at %s, installing and then run again over the running service", async (passing) => {
+      const f = fixture();
+      const dataDir = join(f.root, "agent data");
+      const line = `$PSNativeCommandArgumentPassing = '${passing}'; & ([scriptblock]::Create($text)) -Name $env:TEST_NAME -DataDir $env:TEST_DATA_DIR`;
+      const given = { TEST_NAME: name, TEST_DATA_DIR: dataDir };
+      const result = await inSession(f, line, given);
+      expect(result.stderr).toBe("");
+      expect(f.argv()).toEqual([
+        ["service", "install", "--name", name, "--data-dir", dataDir],
+        ["service", "start"],
+        ["update", "settings", "--channel", "stable", "--data-dir", dataDir],
+        ["update", "credential", "--stdin", "--data-dir", dataDir],
+        ["pair", "--preset", "own-client", "--data-dir", dataDir],
+      ]);
+
+      f.forget();
+      expect((await inSession(f, line, given)).stderr).toBe("");
+      expect(f.argv().slice(0, 2)).toEqual([
+        ["service", "status", "--json", "--data-dir", dataDir],
+        ["service", "install", "--name", name, "--data-dir", dataDir],
+      ]);
     });
   });
 });
