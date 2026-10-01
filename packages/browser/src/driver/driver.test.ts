@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CdpFailure, SCRIPTED_SCREENSHOT, type ScriptedTarget } from "../testing/index.js";
 import { cdpPageDriver } from "./driver.js";
+import type { FrameArrival } from "./page.js";
 import { PAGE, driven, enabledDomains, listed, manualClock, plainPolicy, type Driven } from "../../test/driven.js";
 
 /**
@@ -822,6 +823,25 @@ describe("the frame judge", () => {
       ok: false,
       reason: "https://rebinding.example/ was served from 10.0.0.5, an internal address. The page was stopped at about:blank.",
     });
+  });
+
+  it("gives the host's rule a document no server served with no address, not the one the frame's last document came from", async () => {
+    const arrivals: FrameArrival[] = [];
+    // The host lists intranet.example as internal: another address served from 10.x is refused.
+    const rule = (arrival: FrameArrival) => {
+      arrivals.push(arrival);
+      const internal = arrival.servedFrom?.startsWith("10.") === true && !arrival.url.startsWith("https://intranet.example/");
+      return internal ? `${arrival.url} was served from ${String(arrival.servedFrom)}, an internal address.` : null;
+    };
+    const { peer, perform, page } = await driven({ kind: "headless", networkAtAttach: true, addressRule: rule });
+    peer.document("https://intranet.example/", { servedFrom: "10.0.0.5" });
+    expect(await perform("open", { url: "https://intranet.example/" })).toMatchObject({ ok: true });
+    expect(arrivals.at(-1)).toEqual({ url: "https://intranet.example/", topLevel: true, servedFrom: "10.0.0.5" });
+    // A script on the page sends it to about:blank, which no server serves.
+    page().navigate("about:blank");
+    await expect.poll(() => arrivals.at(-1)?.url, { timeout: 30_000 }).toBe("about:blank");
+    expect(arrivals.at(-1)).toEqual({ url: "about:blank", topLevel: true });
+    expect(await perform("screenshot", {})).toMatchObject({ ok: true });
   });
 
   it("refuses the Chrome Web Store in a Chrome only, where Chrome lets no extension act", async () => {
