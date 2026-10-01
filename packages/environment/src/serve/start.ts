@@ -151,6 +151,7 @@ import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
+import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
@@ -1184,6 +1185,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
   closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
+  const webhookDeliveries = createWebhookDeliveries({
+    log, clock, environmentId: record.id, name: () => look.read().name, scrub,
+    endpoint: (name) => endpoints.resolve(name),
+  });
+  closers.push(() => webhookDeliveries.close());
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
@@ -1508,6 +1514,33 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => firings.close());
   // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
   closers.push(limitFiringDurations({ log, clock, host }));
+  // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
+  // committed, below.
+  const browser = createBrowserService({
+    log,
+    clock,
+    stream: environmentStream,
+    environmentId: record.id,
+    name: () => look.read().name,
+    harnessVersion,
+    dataDir,
+    extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
+    ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
+    vault,
+    // The headless browser (#555): an endpoint, else a Chromium it launches, never in a container the install declared.
+    headless: {
+      declaredContainer: detector.declared?.() ?? false,
+      find: (named) =>
+        findHeadlessExecutable(named, {
+          platform: options.platform ?? process.platform,
+          env: process.env,
+          home: homedir(),
+          isExecutable: options.browser?.isExecutable ?? isExecutableFile,
+        }),
+      launch: options.browser?.launch ?? spawnBrowser,
+      resolve: options.browser?.resolve ?? systemResolver,
+    },
+  });
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
@@ -1542,39 +1575,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accounts: () => accounts.list(),
       status: () => lifecycle.status(),
       banks,
+      browser,
     }),
     // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
     llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
-  // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
-  // committed, below.
-  const browser = createBrowserService({
-    log,
-    clock,
-    stream: environmentStream,
-    environmentId: record.id,
-    name: () => look.read().name,
-    harnessVersion,
-    dataDir,
-    extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
-    ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
-    vault,
-    // The headless browser (#555): an endpoint, else a Chromium it launches, never in a container the install declared.
-    headless: {
-      declaredContainer: detector.declared?.() ?? false,
-      find: (named) =>
-        findHeadlessExecutable(named, {
-          platform: options.platform ?? process.platform,
-          env: process.env,
-          home: homedir(),
-          isExecutable: options.browser?.isExecutable ?? isExecutableFile,
-        }),
-      launch: options.browser?.launch ?? spawnBrowser,
-      resolve: options.browser?.resolve ?? systemResolver,
-    },
-  });
   /** A client session's label, which sentences and records name it by; undefined for one never issued. */
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
@@ -1857,6 +1864,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());

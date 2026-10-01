@@ -565,9 +565,9 @@ export const STEP_REGISTRY = [
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's
     // Browser row, `access.browser` (ADR 0027): the nine browser keys (#541), which settings.update writes, each done on
-    // any valid value, with the local budget and the hour (#559 keeps both). Its state writes (a paired Chrome, an
-    // unpairing), its state checks, its skip check and its triggers (`chrome.updated`, `extension.seen`) are #559's, which
-    // makes it skippable; until then it has none of them.
+    // any valid value. Pairing and unpairing write the paired Chromes (#559); no denylist section belongs here.
+    // Skipped with no pairing; otherwise the listener and chrome projection check connection and the shipped version.
+    // The local budget and the hour stand; chrome.updated and extension.seen re-run the check.
     id: "browser",
     home: "access.browser",
     writes: [
@@ -581,6 +581,10 @@ export const STEP_REGISTRY = [
       "browser.headless.limits",
       "browser.internalHosts",
     ],
+    writesState: [
+      { method: "browser.pairing.code", parts: ["pairedChromes"] },
+      { method: "browser.chromes.unpair", parts: ["pairedChromes"] },
+    ],
     checks: [
       { key: "browser.devSites", check: anyValidValue("browser.devSites") },
       { key: "browser.evaluateEverywhere", check: anyValidValue("browser.evaluateEverywhere") },
@@ -592,12 +596,17 @@ export const STEP_REGISTRY = [
       { key: "browser.headless.limits", check: anyValidValue("browser.headless.limits") },
       { key: "browser.internalHosts", check: anyValidValue("browser.internalHosts") },
     ],
-    stateChecks: [],
+    stateChecks: [
+      { id: "browser.present", holds: "A Chrome is paired with this environment.", actions: [] },
+      { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
+      { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
+    ],
     links: [],
-    skippable: false,
+    skippable: true,
+    skip: "browser.present",
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: [],
+    triggers: ["chrome.updated", "extension.seen"],
   },
   {
     // The Permissions step (permissions spec, "The Permissions step"; #129's keys, #141's entry): at home on the Access

@@ -149,11 +149,11 @@ export const TranscriptView = (props: TranscriptViewProps) => {
 };
 
 /** Delegated work still going in the live run: one line per task, the strip under the transcript. */
-export const DelegatedStrip = (props: { readonly tasks: readonly DelegatedWorkRow[] }) => (
+export const DelegatedStrip = (props: { readonly tasks: readonly DelegatedWorkRow[]; readonly cursor?: string | undefined }) => (
   <Box flexDirection="column" flexShrink={0}>
     {props.tasks.map((task) => (
-      <Text key={task.taskId} wrap="truncate-end" dimColor>
-        {"  "}
+      <Text key={task.taskId} wrap="truncate-end" dimColor={props.cursor !== task.taskId}>
+        <Text color={TERMINAL_ROLES.accent}>{props.cursor === task.taskId ? "› " : "  "}</Text>
         <Text color={TERMINAL_ROLES.machine}>⤷ </Text>
         {task.subagentType ?? task.kind}: {oneLine(task.description, 120)} <Text dimColor>· {task.status}</Text>
       </Text>

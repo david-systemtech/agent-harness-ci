@@ -100,6 +100,7 @@ describe("the preload bundle", () => {
       "service",
       "system",
       "update",
+      "webView",
       "window",
     ]);
     expect(Object.keys(shell["window"] ?? {}).sort()).toEqual(["focus", "setBackgroundColour", "setBadge", "setTitle"]);
