@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { ARTEFACT_CLI_ENTRY, artefactNode } from "@agent-harness/contracts/launcher";
@@ -180,13 +180,19 @@ const linksUnder = (root: string): string[] =>
 
 /**
  * Checks what only a wrong install would leave: a link (Windows' `tar`
- * cannot make one from a zip), or no Claude binary for the platform, which
+ * cannot make one from a zip), no keychain prebuild on macOS or Windows,
+ * or no Claude binary for the platform, which
  * the SDK ships as a package per platform that the install picks by the
  * target's OS and CPU.
  */
 const checkArtefact = (root: string, target: ArtefactTarget): void => {
   const links = linksUnder(root);
   if (links.length > 0) throw new BuildError(`The ${target.platform} artefact holds links, which do not unpack everywhere: ${links.slice(0, 5).join(", ")}.`);
+  if (target.os === "darwin" || target.os === "win32") {
+    const platform = target.os === "win32" ? `${target.platform}-msvc` : target.platform;
+    const prebuild = join(root, "node_modules", "@napi-rs", `keyring-${platform}`, `keyring.${platform}.node`);
+    if (!existsSync(prebuild) || !statSync(prebuild).isFile()) throw new BuildError(`The ${target.platform} artefact has no keychain prebuild for its platform at ${prebuild}.`);
+  }
   const claude = join(root, "node_modules", "@anthropic-ai", `claude-agent-sdk-${target.platform}`, target.os === "win32" ? "claude.exe" : "claude");
   if (!existsSync(claude)) throw new BuildError(`The ${target.platform} artefact has no Claude binary for its platform at ${claude}.`);
 };

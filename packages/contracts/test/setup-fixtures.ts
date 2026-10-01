@@ -141,6 +141,21 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
     valid: ["first", "revise"],
     invalid: ["again", "", "First"],
   },
+  "setup/minted-payload.json": {
+    valid: [
+      { step: "instructions", subject: null, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "bank-1", label: "Personal" }, variant: "revise" },
+    ],
+    invalid: [
+      { step: "unknown-step", subject: null, variant: "first" },
+      { step: "instructions", subject: null, variant: "again" },
+      { step: "instructions", variant: "first" },
+      { step: "memory-bank", subject: { kind: "workspace", id: "bank-1", label: "Personal" }, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "", label: "Personal" }, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "bank-1", label: "" }, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "bank-1" }, variant: "first" },
+    ],
+  },
 };
 
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {

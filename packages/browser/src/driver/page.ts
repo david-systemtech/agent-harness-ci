@@ -165,6 +165,12 @@ const sourceOf = (url: unknown, line: unknown): string | undefined => (typeof ur
 /** What an exception's details say, as a sentence's tail. */
 export const exceptionText = (details: { text?: string; exception?: { description?: string } }): string => details.exception?.description ?? details.text ?? "an exception";
 
+/**
+ * An in-page function's exception as the driver throws it: its name and message, without the stack Chrome describes it
+ * with, so what reaches the model is a sentence, never a stack trace (#696).
+ */
+const scriptFailure = (details: ExceptionDetails): Error => new Error(`The page's script failed: ${exceptionText(details).replace(/\n\s+at [\s\S]*$/, "")}`);
+
 export class CdpPage {
   private readonly frames = new Map<string, TrackedFrame>();
   /** Each cross-site frame's child target, by the session that reaches it. */
@@ -354,7 +360,7 @@ export class CdpPage {
           { functionDeclaration: declarationOf(fn), executionContextId, arguments: args.map((value) => ({ value })), returnByValue: true, awaitPromise: true },
           tracked.sessionId,
         );
-        if (reply.exceptionDetails) throw new Error(`The page's script failed: ${exceptionText(reply.exceptionDetails as ExceptionDetails)}`);
+        if (reply.exceptionDetails) throw scriptFailure(reply.exceptionDetails as ExceptionDetails);
         return (reply.result as { value?: unknown }).value as Awaited<R>;
       } catch (error) {
         if (attempt > 1 || !(error instanceof CdpError) || !/context/i.test(error.message)) throw error;
@@ -414,7 +420,7 @@ export class CdpPage {
     const { objectId } = object as { objectId: string };
     try {
       const reply = await this.session.send("Runtime.callFunctionOn", { functionDeclaration: declarationOf(fn), objectId, returnByValue: true, awaitPromise: true }, parent.sessionId);
-      if (reply.exceptionDetails) throw new Error(`The page's script failed: ${exceptionText(reply.exceptionDetails as ExceptionDetails)}`);
+      if (reply.exceptionDetails) throw scriptFailure(reply.exceptionDetails as ExceptionDetails);
       return (reply.result as { value?: unknown }).value as Awaited<R>;
     } finally {
       void this.session.send("Runtime.releaseObject", { objectId }, parent.sessionId).catch(() => undefined);
