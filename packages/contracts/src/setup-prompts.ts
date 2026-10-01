@@ -112,6 +112,9 @@ const manifestRules = (facts: DescribeBankFacts): string => {
 const scopeLine = ({ scopes }: DescribeBankFacts): string =>
   `${scopes.length === 0 ? "It has no scope folder yet." : `Its scope folders are ${listed(scopes)}.`} Folders follow projects/{org}/{project}/{area}/, the area optional.`;
 
+/** What the person is asked before a BANK.md is written from nothing: by `first`, and by `revise` on a main without one (the manifest check's Revise). */
+const ASK_PURPOSE = "what the bank is for and what it holds facts about";
+
 const WORKTREE = "You work in a worktree of the bank on a branch of its own, so nothing reaches the bank's main until your change is reviewed and landed.";
 
 const VALIDATE = `When the bank holds .agent-harness/validate.mjs, run it with node before you commit.`;
@@ -122,7 +125,8 @@ const LANDING =
 /**
  * The Memory bank step's describe prompt (ADR 0019, ADR 0035, ADR 0037;
  * #586): `first` writes a bank's `BANK.md` with the person, `revise`
- * revises the one its main holds, each in the minted session's worktree of
+ * revises the one its main holds, or writes one when main has none (the
+ * manifest check offers Revise for both), each in the minted session's worktree of
  * the bank and landed through the bank's review path, so that it passes the
  * bank validator at the version the prompt carries.
  */
@@ -134,15 +138,15 @@ const describeBank = stepPrompt({
     [
       `Describe the memory bank ${bankLine(facts)}, by writing its BANK.md.`,
       WORKTREE,
-      `Ask me what the bank is for and what it holds facts about before you write. Then write BANK.md at the root of this worktree so it passes the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
+      `Ask me ${ASK_PURPOSE} before you write. Then write BANK.md at the root of this worktree so it passes the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
       scopeLine(facts),
       `${VALIDATE} ${LANDING}`,
     ].join("\n\n"),
   revise: (facts) =>
     [
       `Revise BANK.md of the memory bank ${bankLine(facts)}.`,
-      `${WORKTREE} It holds BANK.md as the bank's main has it: read it and the bank's folders, then ask me what has changed before you edit.`,
-      `Keep BANK.md passing the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
+      `${WORKTREE} It holds BANK.md as the bank's main has it: read it and the bank's folders, then ask me what has changed before you edit. If main has no BANK.md, ask me ${ASK_PURPOSE}, then write BANK.md at the root of this worktree.`,
+      `Leave BANK.md passing the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
       scopeLine(facts),
       `${VALIDATE} ${LANDING}`,
     ].join("\n\n"),

@@ -122,6 +122,12 @@ describe("the Memory bank step's describe prompt (#586)", () => {
     expect(rendered.text).not.toBe(describeBank.render("first", personal).text);
   });
 
+  it("renders revise for a bank whose main has no BANK.md too, the manifest check's Revise, asking what the bank is for before writing one", () => {
+    const { text } = describeBank.render("revise", personal);
+    expect(text).toContain("If main has no BANK.md, ask me what the bank is for and what it holds facts about, then write BANK.md at the root of this worktree.");
+    expect(text).not.toContain("Keep BANK.md");
+  });
+
   it("refuses facts without the bank's kind, or of a kind no bank has", () => {
     expect(() => describeBank.render("first", { ...personal, kind: undefined })).toThrow();
     expect(() => describeBank.render("first", { ...personal, kind: "shared" })).toThrow();
