@@ -171,11 +171,11 @@ export interface QueueVerb {
 /**
  * The queued line (ADR 0022; #231): the session's queue from
  * `projections.runs`, oldest first, each message with its attachments as
- * the transcript's chips and saying whether the provider is steering it into the turn or it
- * waits for the next run; under it the verbs on the queue, read now and
- * withdraw, in the keys in force: those that can be used now on one line,
- * and each that cannot on a line of its own, dim with its reason, never
- * hidden.
+ * the transcript's chips and saying whether the provider is steering it into
+ * the turn or it waits for the next run; under it the verbs on the queue,
+ * read now and withdraw, in the keys in force: those that can be used now on
+ * one line, and each that cannot on a line of its own, dim with its reason,
+ * never hidden.
  */
 export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; readonly steers: boolean; readonly verbs: readonly QueueVerb[] }) => {
   if (props.queue.length === 0) return null;

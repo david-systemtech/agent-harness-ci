@@ -75,7 +75,7 @@ describe("a queued message", () => {
     expect(kindOf(holding.transcript, "use the other parser")).toBe("Queued message");
   });
 
-  it("names its attachments as the transcript does, each with its size (#473)", async () => {
+  it("names its attachments as the transcript does, each with its size", async () => {
     const { env, transcript, session, runId } = await withQueue({});
     env.emit(session, "message.sent", {
       runId,
