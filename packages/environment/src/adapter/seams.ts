@@ -268,6 +268,8 @@ export interface RuledRun {
   readonly workspace: string;
   /** The run's containment, as its adapter was handed it (#133). */
   readonly containment: RunContainment;
+  /** Additional readable directories for this run, exempt through the denylist's directory mechanism (registered bank checkouts). */
+  readonly readableDirectories?: readonly string[];
   /**
    * Asks through the broker, as the run's own prompt: recorded as
    * `prompt.opened`, parked for a person on an attended run, answered at once

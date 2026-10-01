@@ -136,7 +136,7 @@ const writeDenial = (containment: RunContainment, workspace: string, paths: read
   const closed = resolvedAll(containment.readOnly).map(fold);
   const shut = written.find(({ resolved }) => resolved !== null && closed.some((path) => within(path, fold(resolved))))?.path;
   if (shut !== undefined) {
-    return `Denied by containment (${containment.level}): ${shut} is in the repository's git hooks or config, which name programs the user's own git runs outside containment, so this run may not write it. ${NOT_WIDENED}`;
+    return `Denied by containment (${containment.level}): ${shut} is in a read-only directory, so this run may not write it. ${NOT_WIDENED}`;
   }
   // Read both spellings: resolving a .git symlink may erase that component,
   // while a differently named link into .git is caught only after resolution.
@@ -174,6 +174,7 @@ export interface GatedRun {
   readonly sessionId: string;
   readonly workspace: string;
   readonly containment: RunContainment;
+  readonly readableDirectories?: readonly string[];
 }
 
 /** Containment's rule (#133), always the gate's first: a hard denial, asking nobody, recorded by `containment`. */
