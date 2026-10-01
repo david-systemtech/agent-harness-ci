@@ -154,9 +154,9 @@ export interface BindPlan {
 }
 
 /**
- * The sentence saying the LAN address `address` is not one the machine,
- * holding `held`, holds, naming those it does; true when it holds it,
- * however either is written.
+ * Whether the machine, holding `held`, holds the LAN address `address`,
+ * however either is written (`FD00:0::20` is `fd00::20`): true, or the
+ * sentence saying it does not, naming those it holds.
  */
 export const lanAddressHeld = (address: string, held: readonly string[]): true | string =>
   held.some((each) => canonical(each) === canonical(address)) ||
