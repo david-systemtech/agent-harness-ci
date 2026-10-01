@@ -21,9 +21,9 @@
     "packages/*/test",
     "packages/*/src/**/*.test.ts"
   ],
-  // The GUI's tests run in jsdom and the browser package's parse pages with it, so each package's tsconfig.test.json
-  // checks them with the DOM's types.
-  "exclude": ["packages/gui/src", "packages/gui/test", "packages/browser/src", "packages/browser/test"],
+  // The GUI's tests run in jsdom, the browser package's parse pages with it and the extension's drive its options page in
+  // it, so each package's tsconfig.test.json checks them with the DOM's types.
+  "exclude": ["packages/gui/src", "packages/gui/test", "packages/browser/src", "packages/browser/test", "packages/extension/src", "packages/extension/test", "packages/extension/scripts/**/*.test.ts"],
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/environment" },
@@ -31,6 +31,7 @@
     { "path": "packages/theme" },
     { "path": "packages/tui" },
     { "path": "packages/desktop" },
+    { "path": "packages/extension" },
     { "path": "packages/cli" }
   ]
 }

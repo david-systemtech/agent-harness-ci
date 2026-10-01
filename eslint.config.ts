@@ -40,6 +40,12 @@ const browserOnly =
 /** Every workspace package the browser package may not import: all but contracts. */
 const browserForbids = ["environment", "client-runtime", "theme", "tui", "gui", "web", "desktop", "cli"];
 
+/** Why the extension imports contracts and the browser package and no other workspace package. */
+const extensionOnly =
+  "The extension runs in Chrome and finds its environment by itself: it depends on contracts and the browser package alone and imports no environment code (docs/specs/browser.md).";
+/** Every workspace package the extension may not import: all but contracts and the browser package. */
+const extensionForbids = ["environment", "client-runtime", "theme", "tui", "gui", "web", "desktop", "cli"];
+
 /** Why the environment imports no client and not the CLI. */
 const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
 /** Every client package the environment may not import: the client packages and the desktop shell. */
@@ -125,6 +131,20 @@ export default defineConfig([
     files: ["packages/browser/src/**/*.ts"],
     ignores: ["**/*.test.ts", "packages/browser/src/testing/**"],
     rules: forbidImports(`^(@agent-harness/(?!contracts(/|$))|agent-harness(/|$)|(${nodeBuiltins})$)`, browserOnly),
+  },
+  // The extension's source runs in Chrome, so no Node built-in and not the browser package's testing exports, which are
+  // Node's; its tests and its build run under Node.
+  {
+    files: ["packages/extension/**/*.ts"],
+    rules: {
+      ...forbidImports("^(@agent-harness/(?!(contracts|browser)(/|$))|agent-harness(/|$))", extensionOnly),
+      "agent-harness/no-relative-import-into": ["error", { root: import.meta.dirname, packages: extensionForbids, because: extensionOnly }],
+    },
+  },
+  {
+    files: ["packages/extension/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: forbidImports(`^(@agent-harness/(?!contracts(/|$)|browser$)|agent-harness(/|$)|(${nodeBuiltins})$)`, extensionOnly),
   },
   {
     files: ["packages/environment/**/*.ts"],
