@@ -45,7 +45,7 @@ export interface ClientTool {
 }
 
 /**
- * What a run's tool servers close over: the account, the workspace and its
+ * What a run's tool servers close over: the account, the workspace with its
  * session's repository identity, the session, the tools its request
  * declared for the caller to run, and its browser.
  */

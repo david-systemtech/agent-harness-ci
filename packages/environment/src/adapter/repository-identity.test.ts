@@ -81,36 +81,20 @@ const run = async (t: TestEnvironment, client: WireClient, sessionId: string): P
   return runId;
 };
 
-describe("the tool-server scope", () => {
-  it("carries the session's repository identity beside its workspace, and the scope's other facts as before", async () => {
-    const { t, toolScopes } = await start();
+describe("a run's scopes", () => {
+  it("carry the session's repository identity beside its workspace, and their other facts as before", async () => {
+    const { t, toolScopes, instructionScopes } = await start();
     const client = await t.client();
     const path = repository({ origin: "git@github.com:Acme/receipts.git" });
     const id = await session(client, { kind: "directory", path });
     const runId = await run(t, client, id);
 
-    expect(toolScopes).toEqual([
-      { sessionId: id, runId, accountId: "claude-max", workspace: { kind: "directory", path }, repositoryIdentity: IDENTITY, clientTools: [], browser: { kind: "none" } },
-    ]);
-  });
-});
-
-describe("the instruction scope", () => {
-  it("carries the session's repository identity beside its workspace, and the scope's other facts as before", async () => {
-    const { t, instructionScopes } = await start();
-    const client = await t.client();
-    const path = repository({ origin: "git@github.com:Acme/receipts.git" });
-    const id = await session(client, { kind: "directory", path });
-    await run(t, client, id);
-
-    expect(instructionScopes).toEqual([
-      expect.objectContaining({ sessionId: id, accountId: "claude-max", workspace: { kind: "directory", path }, repositoryIdentity: IDENTITY, origin: "client" }),
-    ]);
+    const workspace = { kind: "directory", path };
+    expect(toolScopes).toEqual([{ sessionId: id, runId, accountId: "claude-max", workspace, repositoryIdentity: IDENTITY, clientTools: [], browser: { kind: "none" } }]);
+    expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: id, accountId: "claude-max", workspace, repositoryIdentity: IDENTITY, origin: "client" })]);
     expect(instructionScopes[0]?.trust).toEqual({ key: { kind: "identity", value: IDENTITY }, decision: "undecided" });
   });
-});
 
-describe("a run's scopes", () => {
   it("reach the scripted provider: the memory server and the bank layer built from the session's identity are what its run is handed", async () => {
     const { t } = await start();
     const client = await t.client();
@@ -164,12 +148,14 @@ describe("instructions.preview", () => {
     const path = repository({ origin: "https://github.com/acme/receipts.git" });
     const id = await session(client, { kind: "worktree", repository: path });
 
-    await client.request("instructions.preview", { sessionId: id });
+    const forSession = await client.request("instructions.preview", { sessionId: id });
     expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: id, repositoryIdentity: IDENTITY })]);
+    expect(forSession.text).toContain(repositoryLine(IDENTITY));
 
     instructionScopes.length = 0;
-    await client.request("instructions.preview", { accountId: "claude-max", workspace: { kind: "directory", path } });
+    const forNewSession = await client.request("instructions.preview", { accountId: "claude-max", workspace: { kind: "directory", path } });
     expect(instructionScopes).toEqual([expect.objectContaining({ sessionId: null, workspace: { kind: "directory", path }, repositoryIdentity: null })]);
+    expect(forNewSession.text).toContain(repositoryLine(null));
     // A preview builds no tool servers.
     expect(toolScopes).toEqual([]);
   });

@@ -386,8 +386,9 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
 
     /**
      * The names of the servers the factory gives the session's next run, or a new session's first under an id of its
-     * own: a fresh run under the scope's repository identity, with no client tools and no browser resolved, as the browser server has one name whichever
-     * browser it drives. Asked once for the call's checks; nothing is started or recorded.
+     * own: a fresh run under the scope's repository identity, with no client tools and no browser resolved, as the
+     * browser server has one name whichever browser it drives. Asked once for the call's checks; nothing is started or
+     * recorded.
      */
     const serverNames = once(async (): Promise<ReadonlySet<string>> => {
       const servers = toolServers({
