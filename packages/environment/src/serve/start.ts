@@ -45,7 +45,7 @@ import { describeBankStep } from "../banks/describe.js";
 import { createBankService } from "../banks/bank-service.js";
 import { banksProjector } from "../banks/bank-store.js";
 import { bankMethods } from "../banks/methods.js";
-import { bankRecords, type BankRecords } from "../banks/records.js";
+import { bankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
@@ -581,13 +581,6 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
-  /**
-   * The memory banks this environment registers, each with its status and
-   * the verification that records it, which the Memory bank step checks and
-   * its describe sessions work in (#586). Preset: none, until the banks
-   * build registers its BankRegistry here (#937); a test gives fixture banks.
-   */
-  readonly banks?: BankRecords;
   /**
    * How `web_read` reaches the web (#546): the resolver each hop's name is
    * resolved through, how a connection to an address the address rules
@@ -1611,7 +1604,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
   const bankService = createBankService({ log, clock, environmentId: record.id, forge });
   capabilities.push("banks");
-  const banks = options.banks ?? bankRecords(bankService);
+  const banks = bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.
   // Read the injection setting directly; health never decides a provider process or materialises its skills.
   const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));

@@ -80,7 +80,8 @@ export const describeBankStep = ({ banks, clock }: DescribeBankOptions): LlmStep
     facts: (subject) => {
       const bank = bankOf(subject);
       if (bank === undefined) throw new Error("The Memory bank step's prompt renders from a registered bank.");
-      return { name: bank.name, kind: bank.kind, entities: bank.entities, scopes: bank.scopes };
+      // A bank whose BANK.md names no kind yet is described as a personal one, which the session may revise.
+      return { name: bank.name, kind: bank.kind ?? "personal", entities: bank.entities, scopes: bank.scopes };
     },
   };
 };

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import {
   BankName,
@@ -185,10 +186,9 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** `BANK.md` on main: valid, missing or failing a rule, unless an open pull request holds one. */
-  const manifestStatus = async (entry: Pick<BankEntry, "checkout" | "location">, files: BankFiles | null, since: string): Promise<BankManifestStatus> => {
-    const refusal =
-      files?.["BANK.md"] === undefined ? null : validateBank({ files }).findings.find((finding) => finding.severity === "refusal" && finding.path === "BANK.md");
-    if (files?.["BANK.md"] !== undefined && refusal === undefined) return { state: "valid", since };
+  const manifestStatus = async (entry: Pick<BankEntry, "checkout" | "location">, files: BankFiles, since: string): Promise<BankManifestStatus> => {
+    const refusal = files["BANK.md"] === undefined ? null : validateBank({ files }).findings.find((finding) => finding.severity === "refusal" && finding.path === "BANK.md");
+    if (files["BANK.md"] !== undefined && refusal === undefined) return { state: "valid", since };
     const pullRequest = await manifestAwaitingReview(entry.checkout, entry.location);
     if (pullRequest !== null) return { state: "awaiting-review", pullRequest, since };
     if (refusal === null || refusal === undefined) return { state: "missing", since };
@@ -210,15 +210,17 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
-    const reading = "reading" in read ? read.reading : null;
-    const unreachable =
-      entry.location.kind === "remote" ? await reachableRemote(entry.location) : "problem" in read ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : null;
-    const files = reading?.files ?? null;
-    const manifest = manifestOf(files ?? {});
-    const present = new Set(reading?.index?.orientation.map((memory) => memory.name) ?? []);
+    const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
+    const unreachable = entry.location.kind === "remote" ? await reachableRemote(entry.location) : unreadable;
+    const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
+    // A checkout that cannot be read says nothing new of what it holds: those parts stay as last found.
+    if ("problem" in read) return { status: { ...entry.status, reachable }, reading: null };
+    const { reading } = read;
+    const manifest = manifestOf(reading.files);
+    const present = new Set(reading.index?.orientation.map((memory) => memory.name) ?? []);
     const status: BankStatus = {
-      reachable: unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since },
-      manifest: await manifestStatus(entry, files, since),
+      reachable,
+      manifest: await manifestStatus(entry, reading.files, since),
       orientation: { missing: manifest.orientation.filter((name) => !present.has(name)), since },
       owners: { unresolved: await unresolvedOwners(entry.location, manifest), since },
       lastSync: entry.status.lastSync,
