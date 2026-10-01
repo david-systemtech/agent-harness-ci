@@ -1542,6 +1542,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       place: placeSkillSet({ own: ownSkills, log }),
       hostEnv: options.managedTools?.hostEnv ?? process.env,
       clock,
+      keyManagers,
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,

@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { registry, type ParamsOf, type ReadinessCheck, type SkillReadiness } from "@agent-harness/contracts";
+import { registry, type ParamsOf, type SkillReadiness } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { stringify } from "yaml";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
@@ -24,6 +25,12 @@ import { git } from "../../test/workspaces.js";
 const { onCleanup, tempDir } = useCleanups();
 
 const SETUP = "/setup-matt-pocock-skills";
+
+/** The key-manager connection the secret checks' references name. */
+const CONNECTION = "c0ffee00-0000-4000-8000-000000000001";
+
+/** What the scripted key manager answers for a reference that resolves: nothing a secret scanner takes for a real one. */
+const SECRET_VALUE = "value-for-tests";
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<{ t: TestEnvironment; client: WireClient }> => {
   const t = await startTestEnvironment(options);
@@ -269,22 +276,52 @@ describe("skills.readiness", () => {
     expect(failures(await one(client, workspace, "forks"))).toEqual([["failed", "This account's provider, fake, is not codex, and its adapter does not declare fork."]]);
   });
 
-  it("fails a secret, mcp or git forge-account check as not evaluated yet", async () => {
-    const { t, client } = await start();
-    const checks: ReadinessCheck[] = [
-      { kind: "secret", reference: { provider: "doppler", connectionId: "c0ffee00-0000-4000-8000-000000000001", name: "GITHUB_TOKEN" } },
-      { kind: "mcp", server: "linear" },
-      { kind: "git", condition: "forge-account", fix: "forges" },
-    ];
-    declaring(t, "remote", checks);
+  it("passes a secret check whose reference resolves, letting the value go at once and showing it nowhere, and fails one that does not, naming the refusal", async () => {
+    const keyManagers = scriptedKeyManagers();
+    const { t, client } = await start({ keyManagers: keyManagers.registry });
+    const resolves = { provider: "doppler", connectionId: CONNECTION, name: "TRACKER_TOKEN" } as const;
+    const refused = { provider: "doppler", connectionId: CONNECTION, name: "OTHER_TOKEN" } as const;
+    keyManagers.answer(resolves, SECRET_VALUE);
+    declaring(t, "tracked", [{ kind: "secret", reference: resolves }]);
+    declaring(t, "untracked", [{ kind: "secret", reference: refused, fix: "key-manager" }]);
+    const logged = (["log", "info", "warn", "error"] as const).map((method) => vi.spyOn(console, method));
+    for (const spy of logged) onCleanup(() => spy.mockRestore());
+    const head = t.env.log.head();
 
-    const answer = await one(client, repository(), "remote");
-    expect(answer).toMatchObject({ state: "setup-needed", why: null, fix: null });
-    expect(failures(answer)).toEqual([
-      ["not-evaluated", "This environment does not evaluate secret checks yet."],
-      ["not-evaluated", "This environment does not evaluate mcp checks yet."],
-      ["not-evaluated", "This environment does not evaluate git forge-account checks yet."],
+    const answers = await readiness(client, at(tempDir(), ["tracked", "untracked"], true));
+    expect(answers).toEqual([
+      { name: "tracked", state: "ready", declaredBy: "sidecar" },
+      expect.objectContaining({ name: "untracked", state: "setup-needed", why: null, fix: "key-manager" }),
     ]);
+    const [, untracked] = answers;
+    expect(untracked !== undefined && failures(untracked)).toEqual([
+      ["failed", `The key-manager reference OTHER_TOKEN does not resolve (credential_source_unavailable): The key manager answered no value for doppler reference ${CONNECTION}.`],
+    ]);
+    // The members are checked side by side, so the two resolves come in either order.
+    expect(keyManagers.requests.map((request) => request.reference.name).sort()).toEqual(["OTHER_TOKEN", "TRACKER_TOKEN"]);
+    // Let go at once, and in no answer, event or log.
+    expect(keyManagers.outstanding()).toBe(0);
+    expect(JSON.stringify(answers)).not.toContain(SECRET_VALUE);
+    expect(t.env.log.head()).toBe(head);
+    expect(logged.flatMap((spy) => spy.mock.calls).some((call) => JSON.stringify(call).includes(SECRET_VALUE))).toBe(false);
+  });
+
+  it("never asks for a secret check's value in the session: the reference is resolved in process, and the session hears nothing", async () => {
+    const keyManagers = scriptedKeyManagers();
+    const { t, client } = await start({ keyManagers: keyManagers.registry });
+    const reference = { provider: "doppler", connectionId: CONNECTION, name: "TRACKER_TOKEN" } as const;
+    declaring(t, "tracked", [{ kind: "secret", reference, fix: "key-manager" }]);
+    const { id } = await create(client, { workspace: { kind: "directory", path: tempDir() } });
+    const head = t.env.log.head();
+
+    expect(await readiness(client, { sessionId: id })).toEqual([expect.objectContaining({ name: "tracked", state: "setup-needed", fix: "key-manager" })]);
+    keyManagers.answer(reference, SECRET_VALUE);
+    expect(await readiness(client, { sessionId: id, refresh: true })).toEqual([{ name: "tracked", state: "ready", declaredBy: "sidecar" }]);
+
+    expect(keyManagers.requests.map((request) => request.reference)).toEqual([reference, reference]);
+    // No run, prompt or message on the session asked anyone for it.
+    expect(t.env.log.head()).toBe(head);
+    expect(t.adapter.runs).toEqual([]);
   });
 
   it("keeps each answer sixty seconds per workspace, account and fingerprint: refresh, another workspace or a changed set reads again", async () => {

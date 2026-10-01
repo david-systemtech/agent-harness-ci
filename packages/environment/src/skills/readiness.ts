@@ -5,6 +5,7 @@ import {
   READINESS_OVERLAY,
   invalidParams,
   overlayDeclaration,
+  referenceLocator,
   type ParamsOf,
   type ReadinessCheck,
   type ReadinessCheckOf,
@@ -18,6 +19,7 @@ import {
 import type { InstructionTarget } from "../adapter/host.js";
 import type { InstructionScope, SkillSetScope } from "../adapter/seams.js";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
+import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
 import { findOnPath } from "../managed-tools/detection.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
@@ -77,6 +79,8 @@ export interface SkillReadinessOptions {
   /** The environment a run starts from, whose PATH a `tool` check looks on. */
   readonly hostEnv: HostEnvironment;
   readonly clock: Clock;
+  /** The key-manager registry's resolve seam a `secret` check reads its reference through (#312); preset: no key-manager connection, so every reference is unavailable. */
+  readonly keyManagers?: KeyManagerRegistry;
   /** Preset: the overlay the contracts ship. */
   readonly overlay?: ReadinessOverlay;
   /** Preset: the hardened runner. */
@@ -88,6 +92,9 @@ export interface SkillReadinessOptions {
 export interface SkillReadinessService {
   read(params: ParamsOf<"skills.readiness">): Promise<ResultOf<"skills.readiness">>;
 }
+
+/** Who holds a `secret` check's value for the moment it is held, as the scrub registry names owners. */
+const READINESS_OWNER = "skills:readiness";
 
 /** A check that failed, before it is paired with the check. */
 type Failure = Pick<ReadinessFailure, "outcome" | "message">;
@@ -202,6 +209,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
   const overlay = options.overlay ?? READINESS_OVERLAY;
   const git = options.git ?? runGit;
   const platform = options.platform ?? process.platform;
+  const keyManagers = options.keyManagers ?? noKeyManagerConnections;
   const pathValue = options.hostEnv["PATH"] ?? options.hostEnv["Path"] ?? "";
 
   /** Answers kept per workspace, account and fingerprint: each member's, with when it was checked. */
@@ -335,6 +343,16 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       return null;
     };
 
+    /** Resolves the reference in process, never asking anyone for its value, and lets the value go as soon as it is answered. */
+    const secret = async (check: ReadinessCheckOf<"secret">): Promise<Outcome> => {
+      const answer = await keyManagers.resolve({ reference: check.reference, owner: READINESS_OWNER, purpose: "readiness check" });
+      if (answer.outcome === "resolved") {
+        answer.release();
+        return null;
+      }
+      return failed(`The key-manager reference ${referenceLocator(check.reference)} does not resolve (${answer.code}): ${answer.message}`);
+    };
+
     const provider = async (check: ReadinessCheckOf<"provider">): Promise<Outcome> => {
       if (check.providers?.includes(descriptor.provider) === true) return null;
       if (check.capability !== undefined && descriptor[check.capability] === true) return null;
@@ -359,6 +377,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
         case "provider":
           return provider(check);
         case "secret":
+          return secret(check);
         case "mcp":
           return Promise.resolve(notEvaluated(check.kind));
       }
