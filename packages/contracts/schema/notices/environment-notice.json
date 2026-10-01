@@ -2585,6 +2585,118 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "bank.drafts-consumed"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+            },
+            "bankId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "draft"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "removePaths": {
+                        "description": "Prior paths of this name removed when the draft moves to a different scope or topic.",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "name",
+                      "path",
+                      "content"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "retire"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "removePaths": {
+                        "description": "Prior paths removed by queued moves of this name.",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "name",
+                      "path",
+                      "reason"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "sessionId",
+            "bankId",
+            "changes"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A landing consumed the queued changes it verified on main."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "bank.draft-queued"
         },
         "payload": {

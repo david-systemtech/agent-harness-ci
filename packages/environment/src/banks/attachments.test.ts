@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -12,6 +12,8 @@ import { create } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { WAIT_MS } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
+import { isInside } from "../workspace/paths.js";
+import { commonGitDirectory } from "../workspace/repository-key.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -164,7 +166,7 @@ describe("bank attachments", () => {
     }
   });
 
-  it("keeps attached checkouts outside contained writes, including a bank nested in the workspace and a describe worktree's shared git directory", async () => {
+  it("keeps attached checkouts outside contained writes, including a nested bank and a describe worktree with its own git directory", async () => {
     const t = await startTestEnvironment({ containment: bubblewrapProbe() });
     onCleanup(() => t.close());
     const client = await t.client();
@@ -198,7 +200,66 @@ describe("bank attachments", () => {
     expect(run.input.workspace.path).not.toBe(checkout);
     expect(run.input.containment.writable).toContain(run.input.workspace.path);
     expect(run.input.containment.writable).not.toContain(join(checkout, ".git"));
+    const metadata = commonGitDirectory(run.input.workspace.path);
+    expect(metadata).not.toBe(join(checkout, ".git"));
+    expect(run.input.containment.writable).toContain(metadata);
     expect(run.input.containment.readOnly).toContain(checkout);
     expect(run.gated.map(({ decision }) => decision.decision)).toEqual(["allow", "deny"]);
   });
+
+  it("authors and lands a contained describe change through a review branch without opening the attached checkout", async () => {
+    const root = tempDir();
+    const remote = join(root, "origin.git");
+    git(root, "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    const checkout = bankRepository(PERSONAL_BANK);
+    git(checkout, "remote", "add", "origin", remote);
+    git(checkout, "push", "--quiet", "origin", "main");
+    const before = readFileSync(join(checkout, "BANK.md"), "utf8");
+    const authored = before.replace("Maya's durable context.", "Maya's reviewed durable context.") + "\nDescribe review accepted.\n";
+    const originalHead = git(checkout, "rev-parse", "HEAD").trim();
+    const t = await startTestEnvironment({ containment: bubblewrapProbe() });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    const answer = await client.request("setup.mint", { commandId: randomUUID(), step: "memory-bank", subject: bank.id, variant: "first" });
+    if (answer.result === undefined) throw new Error("The describe session was not minted.");
+    const sessionId = answer.result.sessionId;
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: sessionId }).some((event) => event.type === "run.ended")).toBe(true), { timeout: WAIT_MS });
+    await client.request("permissions.containment.set", { commandId: randomUUID(), sessionId, level: "workspace" });
+    t.adapter.nextScripts.push(async function* (controls) {
+      const { workspace, containment } = controls.input;
+      const metadata = commonGitDirectory(workspace.path);
+      if (metadata === null) throw new Error("A describe session needs git metadata.");
+      // Observe the shell policy's actual git write locations before executing real git.
+      const index = git(workspace.path, "rev-parse", "--path-format=absolute", "--git-path", "index").trim();
+      for (const path of [join(workspace.path, "BANK.md"), index, join(metadata, "objects"), join(metadata, "refs")]) {
+        expect(containment.writable.some((root) => isInside(root, path))).toBe(true);
+        expect(containment.readOnly.some((root) => isInside(root, path))).toBe(false);
+      }
+      expect(containment.readOnly).toContain(checkout);
+      expect(containment.writable.some((root) => isInside(root, checkout))).toBe(false);
+      yield* toolCall(controls, { tool: "Write", summary: "Author the describe manifest", access: { kind: "write", paths: ["BANK.md"] } });
+      writeFileSync(join(workspace.path, "BANK.md"), authored);
+      git(workspace.path, "add", "BANK.md");
+      git(workspace.path, "commit", "--quiet", "-m", "Describe the bank.");
+      git(workspace.path, "push", "--quiet", "origin", "HEAD");
+      yield* toolCall(controls, { tool: "Write", summary: "Change the attached manifest", access: { kind: "write", paths: [join(checkout, "BANK.md")] } });
+      yield end();
+    });
+    await runIn(t, sessionId);
+    const run = t.adapter.lastRun();
+    expect(run.gated.map(({ decision }) => decision.decision)).toEqual(["allow", "deny"]);
+    if (run.input.workspace.kind !== "worktree") throw new Error("The describe session needs a worktree.");
+    const branch = run.input.workspace.branch;
+    expect(git(remote, "show", `${branch}:BANK.md`)).toBe(authored);
+    expect(readFileSync(join(checkout, "BANK.md"), "utf8")).toBe(before);
+    expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(originalHead);
+    // The fixture's review accepts the branch on the remote; the environment refreshes its checkout.
+    git(remote, "update-ref", "refs/heads/main", `refs/heads/${branch}`);
+    git(checkout, "fetch", "--quiet", "origin");
+    git(checkout, "reset", "--quiet", "--hard", "origin/main");
+    expect(readFileSync(join(checkout, "BANK.md"), "utf8")).toBe(authored);
+    expect((await client.request("banks.verify", { bankId: bank.id })).banks[0]?.status.manifest.state).toBe("valid");
+  });
+
 });

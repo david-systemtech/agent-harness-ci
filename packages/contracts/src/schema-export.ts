@@ -1,4 +1,4 @@
-import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload } from "./memory-drafts.js";
+import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
 import { z } from "zod";
 import { Action, ActionCondition, ActionContext } from "./actions.js";
 import {
@@ -1063,6 +1063,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
   { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
   { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
+  { path: "banks/tools/search.json", title: "MemorySearchInput", schema: MemorySearchInput },
+  { path: "banks/tools/read.json", title: "MemoryReadInput", schema: MemoryReadInput },
+  { path: "banks/tools/promote.json", title: "MemoryPromoteInput", schema: MemoryPromoteInput },
+  { path: "banks/promote-result.json", title: "MemoryPromoteResult", schema: MemoryPromoteResult },
+  { path: "banks/events/bank.drafts-consumed.json", title: "BankDraftsConsumedPayload", schema: BankDraftsConsumedPayload },
   { path: "banks/tools/draft.json", title: "MemoryDraftInput", schema: MemoryDraftInput },
   { path: "banks/tools/retire.json", title: "MemoryRetireInput", schema: MemoryRetireInput },
   { path: "banks/draft.json", title: "BankDraft", schema: BankDraft },

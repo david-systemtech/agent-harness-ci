@@ -26,6 +26,7 @@ import { forgeAccountMissing } from "./missing-origins.js";
 import type {
   DownloadedAsset,
   ForgeFile,
+  ForgeValidateCheck,
   ForgeIssue,
   ForgeProvider,
   ForgePullRequest,
@@ -155,13 +156,15 @@ export interface ForgeOperations {
     create(request: RepositoryTarget & IssueContent): Promise<ForgeAnswer<ForgeIssue>>;
   };
   readonly pullRequests: {
+    /** The bank's validate check on one immutable pushed commit. */
+    validateCheck(request: RepositoryTarget & { readonly sha: string; readonly signal?: AbortSignal }): Promise<ForgeAnswer<ForgeValidateCheck>>;
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgePullRequest>>;
     /** Up to `limit` pull requests from the branch `branch` of `owner`'s repository (preset the target's owner), in every state, most recently updated first. */
     listByHead(request: RepositoryTarget & { readonly branch: string; readonly owner?: string; readonly limit: number }): Promise<ForgeAnswer<ForgePullRequest[]>>;
     /** Opens a pull request (`pullRequests`); its title and body pass the scrub registry's check first. */
     create(request: RepositoryTarget & PullRequestOpening): Promise<ForgeAnswer<ForgePullRequest>>;
     /** Merges a pull request (`pullRequests`) by `method`, preset a merge commit. */
-    merge(request: NumberedTarget & { readonly method?: MergeMethod }): Promise<ForgeAnswer<null>>;
+    merge(request: NumberedTarget & { readonly method?: MergeMethod; readonly expectedHead?: string }): Promise<ForgeAnswer<null>>;
   };
   readonly releases: {
     /** Up to `limit` of the newest releases that are not drafts. */
@@ -445,6 +448,11 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     },
 
     pullRequests: {
+      async validateCheck(request) {
+        const fullName = fullNameOf(request.repository);
+        if (!/^[0-9a-f]{40,64}$/.test(request.sha)) throw invalid("sha", "The check names a full commit id.");
+        return read(request, ({ provider: forge, origin, token, call }) => forge.validateCheck(origin, token, fullName, request.sha, { ...call, ...(request.signal && { signal: request.signal }) }));
+      },
       async get(request) {
         const [fullName, number] = [fullNameOf(request.repository), numberOf(request.number)];
         return read(request, async (reached) => {
@@ -482,7 +490,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
           const { provider: forge, origin, token, call } = reached;
           const target = readPullRequests(reached, "read a pull request", await forge.pullRequest(origin, token, fullName, number, call));
           if (target.outcome !== "done") return target;
-          return learnFrom(reached, "pullRequests", "merge a pull request", await forge.mergePullRequest(origin, token, fullName, number, request.method ?? "merge", call));
+          return learnFrom(reached, "pullRequests", "merge a pull request", await forge.mergePullRequest(origin, token, fullName, number, request.method ?? "merge", call, request.expectedHead));
         });
       },
     },

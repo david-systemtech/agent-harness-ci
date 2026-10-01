@@ -1,3 +1,4 @@
+import { createBankLander } from "../banks/lander.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
 import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
@@ -1182,7 +1183,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const seamServers = hostSeams.toolServers ?? noToolServers;
   // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
   // check asks this (#511), since the caller's tools are its request's alone.
-  const memoryTools = createMemoryToolServers({ log, environmentId: record.id, scrub });
+  const bankLander = createBankLander({ log, environmentId: record.id, banks: bankService, forge, clock, scrub,
+    temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
+  closers.push(() => bankLander.close());
+  const memoryTools = createMemoryToolServers({ log, environmentId: record.id, scrub, promote: bankLander.promote });
   const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
@@ -1685,7 +1689,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       browser,
     }),
     // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
-    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock, dataDir }) },
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");

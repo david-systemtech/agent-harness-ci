@@ -293,7 +293,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
   "banks.list": BANK_RECORD_EVENTS,
   "banks.get": BANK_RECORD_EVENTS,
-  [banksDraftsList.name]: ["bank.draft-queued"],
+  [banksDraftsList.name]: ["bank.draft-queued", "bank.drafts-consumed"],
   "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed", "denylist.updated"],
