@@ -19,6 +19,7 @@ import type { SessionListView, SessionRow } from "./projections/session-list.js"
 import type { SessionHandle } from "./streams/session-handles.js";
 import type { TerminalHandle, TerminalOutput } from "./streams/terminals.js";
 import type { AccountsAnswer, ModelsAnswer, UsageView } from "./projections/accounts.js";
+import type { BrowsersView } from "./projections/browsers.js";
 import type { Attention } from "./projections/attention.js";
 import type { ClientCalls } from "./projections/client-calls.js";
 import type { SessionDocument } from "./projections/documents.js";
@@ -150,6 +151,18 @@ export interface Runtime {
      * asks for it, by `before`.
      */
     routineHistory(environmentId: string, routineId: string): RoutineHistory;
+    /**
+     * The session's browser picker (#561), which both renderers draw: the
+     * default with what a null field resolves to, a row for each Chrome
+     * paired with this client's local environment or with the session's
+     * (connected, or dimmed with the reason), the plain My Chrome where
+     * more than one is paired, the session environment's headless browser
+     * with its availability, and the browser dock where the shell has
+     * `webView`; the session's browser marked. From `browser.chromes.list`
+     * and `browser.status` in the request cache, fetched while followed and
+     * again on `chrome.updated`.
+     */
+    browsers(environmentId: string, sessionId: string): Observable<BrowsersView>;
   };
   /** Run ended, prompt parked, notice arrived: for the renderer to surface; the runtime never calls the shell for them. */
   readonly attention: Attention;

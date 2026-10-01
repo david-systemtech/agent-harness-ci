@@ -11,6 +11,7 @@ import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } fro
 import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
 import { createAttention } from "./projections/attention.js";
+import { browsersProjection, type BrowsersHost, type BrowsersView } from "./projections/browsers.js";
 import { createClientCalls } from "./projections/client-calls.js";
 import { documentsProjection, type SessionDocument } from "./projections/documents.js";
 import { environmentsProjection } from "./projections/environments.js";
@@ -306,6 +307,17 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     };
     return routineHistoryProjection(host, environmentId, routineId);
   });
+  const browsersHost: BrowsersHost = {
+    records: registry.list,
+    sessionList: sessionList.view,
+    chromes: (environmentId) => requestCache.cached(environmentId, "browser.chromes.list", {}),
+    status: (environmentId) => requestCache.cached(environmentId, "browser.status", {}),
+    webView: answerCapability("shell.webView", undefined, platform.shell),
+  };
+  const browsers = memo((key): Observable<BrowsersView> => {
+    const [environmentId, sessionId] = key.split(" ") as [string, string];
+    return browsersProjection(browsersHost, environmentId, sessionId);
+  });
   const newSessionHost: NewSessionHost = {
     records: registry.list,
     environments,
@@ -361,6 +373,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       toolRuns: (environmentId) => toolRuns.view(environmentId),
       routines,
       routineHistory: (environmentId, routineId) => routineHistories(`${environmentId} ${routineId.toLowerCase()}`),
+      browsers: (environmentId, sessionId) => browsers(`${environmentId} ${sessionId.toLowerCase()}`),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
