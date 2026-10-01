@@ -167,6 +167,8 @@ export interface TestEnvironmentOptions {
   readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
   /** Configuration the harness's git is given after its own (`insteadOf` to a local bare repository); preset none. */
   readonly harnessGitConfig?: EnvironmentOptions["harnessGitConfig"];
+  /** What the skills' git calls go through (#499); preset none. */
+  readonly skillsGit?: EnvironmentOptions["skillsGit"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
   /**
@@ -179,6 +181,8 @@ export interface TestEnvironmentOptions {
   readonly launcherProtocol?: EnvironmentOptions["launcherProtocol"];
   /** The steps `setup.check` runs (`test/setup-steps.ts` scripts them); preset: the step registry with the environment's own answers. */
   readonly setupSteps?: EnvironmentOptions["setupSteps"];
+  /** The memory banks the environment registers, standing for the banks build's registry; preset none. */
+  readonly banks?: EnvironmentOptions["banks"];
   /**
    * How `web_read` resolves and connects, and what a test observes of its
    * workers, each part over the helper's preset: a resolver that resolves
@@ -404,10 +408,12 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     ...(options.harnessGitConfig !== undefined && { harnessGitConfig: options.harnessGitConfig }),
+    ...(options.skillsGit !== undefined && { skillsGit: options.skillsGit }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
+    ...(options.banks !== undefined && { banks: options.banks }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
     webRead: { resolve: noResolver, dial: loopbackDialer, ...options.webRead },
     browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, isExecutable: () => false, launch: refusingLaunch, resolve: noResolver, ...options.browser },

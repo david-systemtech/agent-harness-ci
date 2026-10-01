@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ARTEFACT_CLI_ENTRY, artefactNode, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
+import { ARTEFACT_CLI_ENTRY, ARTEFACT_CLI_PACKAGE, artefactNode, RELEASE_VERSION_PATTERN } from "@agent-harness/contracts/launcher";
 
 /**
  * The versions directory (launcher-update spec, "Versions and the launcher"):
@@ -63,7 +63,7 @@ export const versionCommand = (versionDir: string, platform: NodeJS.Platform = p
  * contracts' `LAUNCHER_PROTOCOL` of its build). The launcher reads them
  * there without running anything of the version.
  */
-export const VERSION_PACKAGE: readonly string[] = ["packages", "cli", "package.json"];
+export const VERSION_PACKAGE: readonly string[] = ARTEFACT_CLI_PACKAGE;
 
 /** What a version's folder declares of itself (`VERSION_PACKAGE`). */
 export interface DeclaredVersion {

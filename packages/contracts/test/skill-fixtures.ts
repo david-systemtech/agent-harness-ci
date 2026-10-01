@@ -54,7 +54,10 @@ const source = {
   addedAt: "2026-09-29T04:40:00.000Z",
 };
 
-const viewSource = { ...source, commit, skillCount: 1 };
+const since = "2026-09-29T10:40:00.000Z";
+const viewSource = { ...source, commit, skillCount: 1, sync: { outcome: "ok", since }, attemptedAt: since };
+const failedSync = { outcome: "failed", since, problem: "network", line: "fatal: unable to access 'https://github.com/mattpocock/skills/': Could not resolve host: github.com" };
+const movedSync = { outcome: "layout_moved", since, commit, folders: ["skills"] };
 const addedSource = { id: sourceId, url: source.url, identity: source.identity, folder: source.folder, follow: source.follow, position: 1 };
 
 const own = { kind: "own" } as const;
@@ -185,6 +188,24 @@ export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fix
     params: { valid: [{ commandId, sourceId }], invalid: [{ commandId, sourceId: "s-1" }, { commandId }, { sourceId }] },
     result: { valid: [{ source: viewSource }], invalid: [{}, { source: { ...viewSource, skillCount: -1 } }] },
   },
+  "skills.sources.pull": {
+    params: { valid: [{ commandId, sourceId }], invalid: [{ commandId, sourceId: "s-1" }, { commandId }, { sourceId }] },
+    result: {
+      valid: [{ source: viewSource }, { source: { ...viewSource, sync: failedSync } }, { source: { ...viewSource, sync: movedSync, attemptedAt: null } }],
+      invalid: [{}, { source }, { source: { ...viewSource, sync: { outcome: "failed", since } } }],
+    },
+  },
+  "skills.sources.setFollow": {
+    params: {
+      valid: [
+        { commandId, sourceId, follow: { kind: "pinned", commit } },
+        { commandId, sourceId, follow: { kind: "branch", branch: null } },
+        { commandId, sourceId, follow: { kind: "branch", branch: "release/2" } },
+      ],
+      invalid: [{ commandId, sourceId }, { commandId, sourceId, follow: { kind: "pinned", commit: "main" } }, { sourceId, follow: { kind: "branch", branch: null } }],
+    },
+    result: { valid: [{ source: { ...viewSource, follow: { kind: "pinned", commit } } }], invalid: [{}, { source: { ...viewSource, attemptedAt: "yesterday" } }] },
+  },
   "skills.own.create": {
     params: {
       valid: [{ commandId, name: "tdd", description: "Test-driven development." }, { commandId, name: "a", description: "x".repeat(1024) }],
@@ -311,8 +332,8 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "skills/event-type.json": {
-    valid: ["skills.enabled-set", "skills.always-on-set", "skills.source-added", "skills.source-synced", "skills.source-removed"],
-    invalid: ["skills.updated", "skills.source-follow-set", ""],
+    valid: ["skills.enabled-set", "skills.always-on-set", "skills.source-added", "skills.source-synced", "skills.source-removed", "skills.source-follow-set"],
+    invalid: ["skills.updated", "skills.source-pulled", ""],
   },
   "skills/events/skills.source-added.json": {
     valid: [addedSource, { ...addedSource, folder: ".", follow: { kind: "pinned", commit }, position: 20 }],
@@ -322,8 +343,24 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
     valid: [
       { sourceId, outcome: "ok", commit, members: [probeMember, invalidProbeMember] },
       { sourceId, outcome: "ok", commit, members: [] },
+      { sourceId, outcome: "failed", problem: "not_found", line: "fatal: repository 'https://github.com/mattpocock/skills/' not found" },
+      { sourceId, outcome: "layout_moved", commit, folders: [".", "skills"] },
+      { sourceId, outcome: "layout_moved", commit, folders: [] },
     ],
-    invalid: [{ sourceId, outcome: "failed", commit, members: [] }, { sourceId, outcome: "ok", commit: "main", members: [] }, { sourceId, outcome: "ok", commit }],
+    invalid: [
+      { sourceId, outcome: "failed", commit, members: [] },
+      { sourceId, outcome: "ok", commit: "main", members: [] },
+      { sourceId, outcome: "ok", commit },
+      { sourceId, outcome: "failed", problem: "timeout", line: "fatal: timed out" },
+      { sourceId, outcome: "layout_moved", commit },
+    ],
+  },
+  "skills/events/skills.source-follow-set.json": {
+    valid: [
+      { sourceId, follow: { kind: "pinned", commit } },
+      { sourceId, follow: { kind: "branch", branch: null } },
+    ],
+    invalid: [{ sourceId }, { sourceId, follow: { kind: "pinned", commit: "main" } }, { follow: { kind: "branch", branch: null } }],
   },
   "skills/events/skills.source-removed.json": { valid: [{ sourceId }], invalid: [{ sourceId: "s-1" }, {}] },
   "skills/events/skills.enabled-set.json": {
@@ -338,7 +375,14 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ name: "unslop", accountId: null, on: true }, { name: "unslop", accountId: "", on: true }, { name: "unslop", accountId: "claude-max" }],
   },
   "skills/view-member.json": { valid: viewMembers, invalid: [setMember, { ...viewMember, choices: [{ kind: "hidden", name: "tdd", accountId: null }] }, { ...viewMember, enabled: undefined }] },
-  "skills/view-source.json": { valid: [viewSource, { ...viewSource, skillCount: 0 }], invalid: [source, { ...viewSource, commit: "74ca5fe" }, { ...viewSource, skillCount: 1.5 }] },
+  "skills/view-source.json": {
+    valid: [viewSource, { ...viewSource, skillCount: 0 }, { ...viewSource, sync: failedSync, attemptedAt: null }, { ...viewSource, sync: movedSync }],
+    invalid: [source, { ...viewSource, commit: "74ca5fe" }, { ...viewSource, skillCount: 1.5 }, { ...viewSource, sync: undefined }, { ...viewSource, attemptedAt: undefined }],
+  },
+  "skills/source-sync.json": {
+    valid: [{ outcome: "ok", since }, failedSync, movedSync, { ...movedSync, folders: [] }],
+    invalid: [{ outcome: "ok" }, { ...failedSync, problem: undefined }, { ...movedSync, commit: "main" }, { outcome: "pinned", since }],
+  },
   "skills/view-account.json": { valid: viewAccounts, invalid: [{ accountId: "local", channel: "none" }, { accountId: "local", channel: "codex", reason: null }, { ...viewAccounts[1], reason: "" }] },
   "skills/view.json": { valid: [view], invalid: [{ ...view, members: undefined }, { ...view, ownDirectory: 7 }, { ...view, accounts: undefined }] },
   "skills/skills-updated.json": { valid: [{}], invalid: [null, "updated"] },
@@ -444,6 +488,18 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
   "skills/source-add-conflict.json": {
     valid: [probeUnreachable, { reason: "no_skills", folders: [".", "skills/engineering"] }, { reason: "no_skills", folders: [] }, { reason: "source_limit", limit: 20 }, { reason: "duplicate", sourceId }],
     invalid: [{ reason: "no_skills" }, { reason: "no_skills", folders: ["/skills"] }, { reason: "source_limit", limit: 0 }, { reason: "duplicate", sourceId: "s-1" }, { reason: "pinned" }],
+  },
+  "skills/source-no-skills.json": {
+    valid: [{ reason: "no_skills", folders: [".", "skills/engineering"] }, { reason: "no_skills", folders: [] }],
+    invalid: [{ reason: "no_skills" }, { reason: "no_skills", folders: ["/skills"] }],
+  },
+  "skills/source-pull-conflict.json": {
+    valid: [{ reason: "pinned", commit }],
+    invalid: [{ reason: "pinned" }, { reason: "pinned", commit: "main" }, { reason: "duplicate", sourceId }],
+  },
+  "skills/source-follow-conflict.json": {
+    valid: [probeUnreachable, { reason: "no_skills", folders: ["skills"] }],
+    invalid: [{ reason: "no_skills" }, { reason: "pinned", commit }, { reason: "duplicate", sourceId }],
   },
   "skills/source-member.json": {
     valid: [probeMember, invalidProbeMember],

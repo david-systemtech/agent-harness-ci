@@ -41,6 +41,8 @@ import {
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
+import { describeBankStep } from "../banks/describe.js";
+import { NO_BANKS, type BankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
@@ -126,6 +128,7 @@ import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
 import { verifiedOrigins, type GitConfigEntry } from "../forge/git-helper.js";
+import type { ForgeGitAnswer, ForgeGitRequest } from "../forge/harness-git.js";
 import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -155,6 +158,7 @@ import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
 import { routinesProjector } from "../routines/routine-store.js";
+import { createRoutineScheduler } from "../routines/scheduler.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
 import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
@@ -187,6 +191,7 @@ import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
 import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -480,6 +485,13 @@ export interface EnvironmentOptions {
    */
   readonly harnessGitConfig?: readonly GitConfigEntry[];
   /**
+   * What the skills' probes, adds and syncs ask of the ForgeService's git
+   * goes through this, handed the request and that git. Only tests give it:
+   * to see each request, hold a sync's fetch in flight, or answer one as
+   * stopped at its time (skills spec, "Testing Decisions"). Preset none.
+   */
+  readonly skillsGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
+  /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
    * variables, platform and home. Preset: this process's; tests point it at
@@ -553,6 +565,13 @@ export interface EnvironmentOptions {
    * gives steps of its own whose checks answer when it says.
    */
   readonly setupSteps?: SetupSteps;
+  /**
+   * The memory banks this environment registers, each with its status and
+   * the verification that records it, which the Memory bank step checks and
+   * its describe sessions work in (#586). Preset: none, until the banks
+   * build registers its BankRegistry here (#937); a test gives fixture banks.
+   */
+  readonly banks?: BankRecords;
   /**
    * How `web_read` reaches the web (#546): the resolver each hop's name is
    * resolved through, how a connection to an address the address rules
@@ -1143,10 +1162,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const carrySkills = skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: carryOverHome });
   // The probe (#497): a repository URL's skill folders, cloned through the ForgeService's git under the data directory and
   // kept thirty minutes for an add to reuse.
-  const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
+  const forgeGit = (request: ForgeGitRequest): Promise<ForgeGitAnswer> => forge.git(request);
+  const { skillsGit } = options;
+  const skillProbes = createSkillProbes({
+    dataDir,
+    clock,
+    git: skillsGit === undefined ? forgeGit : (request) => skillsGit(request, forgeGit),
+    forgeAccounts: () => verifiedOrigins(forge.list()),
+  });
   closers.push(() => skillProbes.close());
   // The skill sources (#498): a folder added from a probe's checkout, or a fetch, exported at its commit into a snapshot.
-  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
+  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, clock, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
+  // The syncer (#499): each unpinned source at start past the gate, every six hours staggered, on Pull now and at once
+  // when unpinned; never before a run.
+  const skillSync = createSkillSync({ log, environmentId: record.id, clock, sources: skillSources });
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1480,6 +1509,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  const banks = options.banks ?? NO_BANKS;
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
@@ -1499,7 +1529,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       look: () => look.read(),
       accounts: () => accounts.list(),
       status: () => lifecycle.status(),
+      banks,
     }),
+    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock }) },
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
@@ -1653,6 +1686,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       carryOver: carrySkills,
       probe: skillProbes.probe,
       sources: skillSources,
+      sync: skillSync,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
@@ -1841,13 +1875,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
-  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly.
-  closers.push(generations.start());
+  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly; each sweep
+  // followed by the snapshots' (#499), which keeps those the generations left link into. Its stop waits for a sweep in
+  // flight, so the snapshots' sweep never reads the log after it closes.
+  closers.push(generations.start(() => skillSources.sweepSnapshots()));
   // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
   // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
   const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
   closers.push(() => setupScheduler.stop());
+  // The routines' scheduler (#527): its start pass applies the missed rule to what came due while the environment was down,
+  // then arms its timer and its check, firing with no client needed; stopped before the firing starter closes.
+  const routineScheduler = createRoutineScheduler({ log, clock, environmentId: record.id, firings });
+  closers.push(() => routineScheduler.stop());
+  routineScheduler.start();
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
@@ -1889,6 +1930,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   managedTools.start();
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // The skill sources' syncs (#499): every unpinned source now, past the gate with the wire open, then staggered every six
+  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again.
+  closers.push(skillSync.start());
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
   closers.push(forge.links.start());
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
