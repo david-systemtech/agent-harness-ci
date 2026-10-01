@@ -298,6 +298,8 @@ export interface OutboxHost {
   shown(environmentId: string): ListData | null;
   /** The name of routine `routineId` (in lowercase) as the environment last listed it (the request cache's `routines.list`), read without fetching; null when it is not held. */
   routineName(environmentId: string, routineId: string): string | null;
+  /** The environment accepted a `routines.create`, told before its entry leaves: `projections.routines` shows it until the environment's list does (#910). */
+  routineCreated(environmentId: string, params: CommandParams<"routines.create">): void;
   /** The environment's time now. */
   now(environmentId: string): Date;
   /** What the runtime holds of a session, read without subscribing anything: its transcript, runs and draft. */
@@ -701,6 +703,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
 
   /** Accepted: the entry leaves, its overlay stays until the list's cursor reaches the receipt's sequence. */
   const acknowledge = (entry: OutboxEntry, receipt: AcceptedReceipt, result: unknown) => {
+    if (entry.method === "routines.create") host.routineCreated(entry.environmentId, entry.params as CommandParams<"routines.create">);
     remove(entry, (overlay) => ({ ...overlay, sequence: receipt.sequence }));
     settleOverlays(entry.environmentId);
     answer(entry.commandId, { ok: true, commandId: entry.commandId, receipt, ...(result !== undefined && { result: result as ResultOf<CommandMethodName> }) });

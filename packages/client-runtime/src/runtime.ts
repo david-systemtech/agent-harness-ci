@@ -141,8 +141,9 @@ export interface Runtime {
      * `routine.updated`: grouped by environment in the connection list's
      * order with its name, icon and colour, the list of one that cannot be
      * reached kept and marked stale, each routine a waiting command names
-     * flagged pending, a waiting create shown from the definition it sent,
-     * and the routines needing attention counted.
+     * flagged pending, a create shown from the definition it sent until a
+     * list asked for after its receipt is held, and the routines needing
+     * attention counted.
      */
     readonly routines: Observable<RoutinesView>;
     /**
