@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -120,6 +120,48 @@ const worktreeNames = (gitDirectory: string): string[] => {
   }
 };
 
+/** The real path of `path`, links followed; null when it is not there or cannot be read. */
+const realPathOf = (path: string): string | null => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+};
+
+/** The directories in `directory`, links to one included, sorted; none when it cannot be read. */
+const subdirectories = (directory: string): string[] => {
+  try {
+    return readdirSync(directory)
+      .filter((name) => statSync(join(directory, name), { throwIfNoEntry: false })?.isDirectory() === true)
+      .sort();
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The git directories of the submodules the git directory `gitDirectory`
+ * keeps under its `modules` (#933), as they are now: a directory there
+ * with a `HEAD` is one, as git takes it, and one without is a component
+ * of a name (a submodule's name may hold slashes, `modules/vendor/lib`),
+ * walked through. A submodule's own submodules are under its `modules`,
+ * found when it is closed. `seen` holds the real paths already walked, so
+ * a link back up is walked once.
+ */
+const submoduleGitDirectories = (gitDirectory: string, seen: Set<string>): string[] => {
+  const found: string[] = [];
+  const walk = (directory: string): void => {
+    const real = realPathOf(directory);
+    if (real === null || seen.has(real)) return;
+    seen.add(real);
+    if (existsSync(join(directory, "HEAD"))) found.push(directory);
+    else for (const name of subdirectories(directory)) walk(join(directory, name));
+  };
+  for (const name of subdirectories(join(gitDirectory, "modules"))) walk(join(gitDirectory, "modules", name));
+  return found;
+};
+
 /**
  * What a run may not write in the git directory `gitDirectory` (#791):
  * where git finds programs to run for the user outside containment. Its
@@ -127,13 +169,17 @@ const worktreeNames = (gitDirectory: string): string[] => {
  * `core.sshCommand`), and the per-worktree `config.worktree` git reads once
  * the config sets `extensions.worktreeConfig` (sparse checkout does): the
  * main worktree's beside `config`, each linked worktree's under
- * `worktrees/<name>/`, there or not, so none can be made either.
+ * `worktrees/<name>/`, there or not, so none can be made either. Then the
+ * same in each submodule's git directory under its `modules` (#933), whose
+ * config the superproject's own `git status` reads as it looks into the
+ * submodule, and in theirs in turn, as listed now.
  */
-const closedIn = (gitDirectory: string): string[] => [
+const closedIn = (gitDirectory: string, seen: Set<string> = new Set([realPathOf(gitDirectory) ?? gitDirectory])): string[] => [
   join(gitDirectory, "hooks"),
   join(gitDirectory, "config"),
   join(gitDirectory, "config.worktree"),
   ...worktreeNames(gitDirectory).map((name) => join(gitDirectory, "worktrees", name, "config.worktree")),
+  ...submoduleGitDirectories(gitDirectory, seen).flatMap((submodule) => closedIn(submodule, seen)),
 ];
 
 /**
