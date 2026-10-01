@@ -8,7 +8,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { created, listRoutines, routineCommand, routineEvents, written } from "../../test/routines.js";
-import { refusal } from "../../test/sessions.js";
+import { create, refusal } from "../../test/sessions.js";
 import { git } from "../../test/workspaces.js";
 import type { WireClient } from "../../test/wire-client.js";
 
@@ -116,3 +116,137 @@ describe("routines.export", () => {
     expect(await listRoutines(client)).toHaveLength(3);
   });
 });
+
+/** A routine document's YAML: these keys over a disabled, manual, scratch one's, each value as YAML writes it. */
+const documentYaml = (keys: Readonly<Record<string, string>> = {}): string =>
+  `${Object.entries({
+    kind: "routine",
+    version: "1",
+    name: "Imported",
+    enabled: "false",
+    schedule: "{ kind: manual }",
+    workspace: "{ kind: scratch }",
+    account: "null",
+    model: "null",
+    effort: "null",
+    mode: "null",
+    containment: "null",
+    skills: "[]",
+    "pre-check": "null",
+    instructions: "Read the sources and file a digest.",
+    ...keys,
+  })
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n")}\n`;
+
+/** Routine documents as one file. */
+const yamlOf = (...documents: string[]): string => documents.join("---\n");
+
+/** The definition `documentYaml()` holds, as this environment would save it: the presets applied and its zone. */
+const importedDefinition = {
+  name: "Imported",
+  schedule: { kind: "manual" },
+  timezone: ZONE,
+  ifMissed: "run-once",
+  instructions: "Read the sources and file a digest.",
+  workspace: { kind: "scratch", repositoryIdentity: null },
+  account: null,
+  model: null,
+  effort: null,
+  mode: null,
+  containment: null,
+  injection: "inherit",
+  skills: [],
+  preCheck: null,
+  silenceMarker: "[SILENT]",
+  maxDurationMinutes: 60,
+  delivery: [{ kind: "client-notice", on: "both" }],
+  enabled: false,
+};
+
+describe("routines.checkImport", () => {
+  it("answers per document the definition as it would be saved, the issues at their paths, and the attention it would show here, saving nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const watch = await created(client);
+    const yaml = yamlOf(
+      documentYaml({ name: '"  Imported  "', account: "{ provider: fake, email: nobody@example.com, organisation: null }" }),
+      documentYaml({ name: "Broken", schedule: "{ kind: hourly, minute: 60 }", colour: "blue" }),
+      documentYaml({ name: "UPSTREAM WATCH" }),
+      documentYaml({ name: "imported" }),
+    );
+
+    const { documents } = await client.request("routines.checkImport", { yaml });
+    expect(documents).toHaveLength(4);
+    expect(documents[0]).toEqual({
+      index: 0,
+      definition: { ...importedDefinition, account: { provider: "fake", email: "nobody@example.com", organisation: null } },
+      issues: [],
+      warnings: { attention: ["account_missing"], workspace: null },
+    });
+    expect(documents[1]).toMatchObject({ index: 1, definition: null, warnings: { attention: [], workspace: null } });
+    expect(documents[1]?.issues.map((issue) => issue.path)).toEqual(expect.arrayContaining([["schedule", "minute"], ["colour"]]));
+    expect(documents[2]).toMatchObject({ index: 2, definition: { name: "UPSTREAM WATCH" }, issues: [{ path: ["name"], params: { reason: "name_taken", routineId: watch.state.id } }] });
+    expect(documents[3]).toMatchObject({ index: 3, definition: { name: "imported" }, issues: [{ path: ["name"], params: { reason: "name_taken", document: 0 } }] });
+    expect(await listRoutines(client)).toEqual([watch]);
+  });
+
+  it("reads a document as the replacement of the routine named: its own name is no issue, a second document is, and a routine not here is not_found", async () => {
+    const t = await start();
+    const client = await t.client();
+    const watch = await created(client);
+
+    const own = await client.request("routines.checkImport", { yaml: documentYaml({ name: "upstream watch" }), routineId: watch.state.id });
+    expect(own.documents).toEqual([{ index: 0, definition: { ...importedDefinition, name: "upstream watch" }, issues: [], warnings: { attention: [], workspace: null } }]);
+
+    const two = await client.request("routines.checkImport", { yaml: yamlOf(documentYaml(), documentYaml({ name: "Other" })), routineId: watch.state.id });
+    expect(two.documents.map((document) => document.issues.map((issue) => issue.path))).toEqual([[[]], [[]]]);
+
+    const missing = randomUUID();
+    expect(await refusal(client.request("routines.checkImport", { yaml: documentYaml(), routineId: missing }))).toMatchObject({ code: "not_found", data: { kind: "routine", routineId: missing } });
+  });
+});
+
+describe("a document's workspace", () => {
+  it("is used as written where its path is usable here, with the identity git finds there, whatever identity the document carries", async () => {
+    const t = await start();
+    const client = await t.client();
+    const checkout = clone();
+    const yaml = documentYaml({ workspace: `{ kind: directory, path: "${checkout}", repository-identity: https://example.com/someone/else }` });
+    const { documents } = await client.request("routines.checkImport", { yaml });
+    expect(documents[0]?.definition?.workspace).toEqual({ kind: "directory", path: checkout, repositoryIdentity: IDENTITY });
+    expect(documents[0]?.warnings.workspace).toBeNull();
+  });
+
+  it("is re-resolved where its path is not usable here and its identity is known: to the most recently used present checkout holding it, a worktree keeping its branch, else to scratch; with no identity, kept as written", async () => {
+    const t = await start();
+    const client = await t.client();
+    const [older, newer] = [clone(), clone("https://git.systemtech.dev:5526/david/agent-harness")];
+    await create(client, { workspace: { kind: "directory", path: older } });
+    t.clock.advance(60_000);
+    await create(client, { workspace: { kind: "directory", path: newer } });
+    const elsewhere = join(tempDir(), "elsewhere", "agent-harness");
+
+    const yaml = yamlOf(
+      documentYaml({ name: "Directory", workspace: `{ kind: directory, path: "${elsewhere}", repository-identity: ${IDENTITY} }` }),
+      documentYaml({ name: "Windows", workspace: `{ kind: directory, path: 'C:\\work\\agent-harness', repository-identity: ${IDENTITY} }` }),
+      documentYaml({ name: "Worktree", workspace: `{ kind: worktree, repository: "${elsewhere}", branch: main, repository-identity: ${IDENTITY} }` }),
+      documentYaml({ name: "Unknown here", workspace: `{ kind: directory, path: "${elsewhere}", repository-identity: https://git.systemtech.dev/david/elsewhere }` }),
+      documentYaml({ name: "No identity", workspace: `{ kind: directory, path: "${elsewhere}" }` }),
+    );
+    const { documents } = await client.request("routines.checkImport", { yaml });
+    const resolved = { kind: "directory", path: newer, repositoryIdentity: IDENTITY };
+    const scratch = { kind: "scratch", repositoryIdentity: null };
+    expect(documents.map((document) => [document.definition?.workspace, document.warnings.workspace])).toEqual([
+      [resolved, resolved],
+      [resolved, resolved],
+      [
+        { kind: "worktree", repository: newer, branch: "main", repositoryIdentity: IDENTITY },
+        { kind: "worktree", repository: newer, branch: "main", repositoryIdentity: IDENTITY },
+      ],
+      [scratch, scratch],
+      [{ kind: "directory", path: elsewhere, repositoryIdentity: null }, null],
+    ]);
+  });
+});
+

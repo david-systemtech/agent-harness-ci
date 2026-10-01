@@ -24,7 +24,8 @@ import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, Me
 import type { Reader } from "../sessions/session-tables.js";
 import { endFiring, firingText } from "./firing-end.js";
 import type { FiringStart, FiringStarter } from "./firing-start.js";
-import { listRoutine, type RoutineAccounts } from "./listing.js";
+import { nameHolders, nameTakenIssue, oneDocumentIssue, readImport } from "./import-documents.js";
+import { listRoutine, routineAttention, type RoutineAccounts } from "./listing.js";
 import { appendRoutineRecord, routineStream } from "./records.js";
 import { entryPosition, listStoredRoutines, liveFiringOfRoutine, liveRoutine, routineEntries, routineEver, routineNamed, type StoredRoutine } from "./routine-store.js";
 import type { PlacedWorkspace, RoutineWorkspaces } from "./workspace.js";
@@ -78,7 +79,8 @@ type RoutineMethodName =
   | "routines.disable"
   | "routines.delete"
   | "routines.runNow"
-  | "routines.export";
+  | "routines.export"
+  | "routines.checkImport";
 
 /** What a command on one routine decides: the event to append for it, with the change its notice names, or its refusal. */
 type Decision = { readonly event: EventInput; readonly change: RoutineChange; readonly rejected?: undefined } | { readonly rejected: CommandRejection<"not_found" | "conflict"> };
@@ -175,6 +177,35 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
 
   return {
     "routines.list": () => ({ routines: listStoredRoutines(reader).map(listed) }),
+
+    /**
+     * What importing the YAML would do, per document, saving nothing (#528):
+     * the definition as it would be saved, its workspace placed here; the
+     * issues at their paths, a name another routine or an earlier document
+     * holds among them, and a second document when one routine's is to be
+     * replaced; the attention it would show here, saved under the caller's
+     * ceiling, and its workspace as re-resolved.
+     */
+    "routines.checkImport": async (params, context) => {
+      const replacing = params.routineId === undefined ? null : params.routineId.toLowerCase();
+      const target = replacing === null ? null : liveRoutine(reader, replacing);
+      if (replacing !== null && target === null) throw new ContractError(routineNotFound(replacing));
+      const documents = await readImport(params.yaml, options.timeZone, options.workspaces);
+      const holders = nameHolders(reader, documents, replacing);
+      const saved = { savedUnderCeiling: ceilingOf(context.clientSession), failureStreak: target?.state.failureStreak ?? 0 };
+      const unattendedMode = readSettings(reader)["permissions.unattended.mode"];
+      return {
+        documents: documents.map(({ index, definition, issues, reresolved }, at) => {
+          const holder = holders[at] ?? null;
+          return {
+            index,
+            definition,
+            issues: [...issues, ...(holder === null ? [] : [nameTakenIssue(holder)]), ...(replacing !== null && documents.length > 1 ? [oneDocumentIssue(documents.length)] : [])],
+            warnings: { attention: definition === null ? [] : routineAttention({ definition, state: saved }, where, unattendedMode), workspace: reresolved },
+          };
+        }),
+      };
+    },
 
     /** The routines as YAML (#528), every one or those named, in the list's order, under a comment naming the environment and the time. */
     "routines.export": (params) => {
