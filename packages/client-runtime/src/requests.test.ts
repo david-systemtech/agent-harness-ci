@@ -191,9 +191,9 @@ const UPDATES_STATUS = {
 
 describe("the request cache", () => {
   /** A runtime paired with the fake wire, counting the `groups.list` requests it sends. */
-  const counting = async (setup: { readonly environmentStream?: boolean } = {}) => {
+  const counting = async (setup: { readonly environmentStream?: boolean; readonly banks?: boolean } = {}) => {
     const clock = manualClock();
-    const wire = fakeWire({ clock, name: "box" });
+    const wire = fakeWire({ clock, name: "box", capabilities: setup.banks ? ["banks"] : [] });
     let asked = 0;
     wire.answer("groups.list", () => {
       asked++;
@@ -280,6 +280,26 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "environment.draining", { drainingSince: "2026-09-24T00:00:00.000Z" }));
     await flush();
     expect(asked()).toBe(2);
+  });
+
+  it("refreshes a followed draft queue when a memory change is queued (#1030)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true, banks: true });
+    const sessionId = "0199aa00-0000-4000-8000-000000000001";
+    const bankId = "0199aa00-0000-4000-8000-000000000002";
+    const change = { kind: "retire" as const, name: "old-fact", path: "projects/team/work/memories/old-fact.md", reason: "The fact no longer applies." };
+    let queued = false;
+    wire.answer("banks.drafts.list", () => ({ result: { queues: queued ? [{ bankId, drafts: [change] }] : [] } }));
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const drafts = runtime.requests.cached(id, "banks.drafts.list", { sessionId, bankId });
+    drafts.subscribe(() => undefined);
+    await flush();
+    expect(drafts.read()).toMatchObject({ result: { queues: [] }, error: null });
+
+    queued = true;
+    environment?.event(noticeEvent(1, wire.environmentId, "bank.draft-queued", { sessionId, bankId, change }));
+    await flush();
+    expect(drafts.read()).toMatchObject({ result: { queues: [{ bankId, drafts: [change] }] }, error: null });
+    expect(asked()).toBe(1);
   });
 
   it("fetches updates.status again on every update notice, and no other query for the pending, started, failed or cancelled one (#344)", async () => {

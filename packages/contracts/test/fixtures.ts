@@ -1,3 +1,4 @@
+import { memoryDraftSchemaFixtures, memoryDraftMethodFixtures } from "./memory-draft-fixtures.js";
 /**
  * Instances the contract tests share: a valid and a malformed frame of every
  * kind, and a valid and an invalid instance of every exported schema. A frame
@@ -566,6 +567,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...carryOverMethodFixtures,
   ...stateImportMethodFixtures,
   ...bankRegistryMethodFixtures,
+  ...memoryDraftMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -1026,6 +1028,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...skillSchemaFixtures,
   ...bankSchemaFixtures,
   ...bankRegistrySchemaFixtures,
+  ...memoryDraftSchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
