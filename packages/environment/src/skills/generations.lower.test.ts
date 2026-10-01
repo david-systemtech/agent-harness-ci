@@ -305,6 +305,31 @@ describe("the sweep", () => {
     await swept();
     expect(listed(root)).not.toContain(stale.fingerprint);
   });
+
+  it("starts nothing after a sweep that ends once stopped, so the snapshots' sweep never reads a log the close has shut", async () => {
+    const { generations } = fixture();
+    const after = vi.fn(() => Promise.resolve());
+    await generations.start(after)();
+    // A sweep queued after the start's answers once the start's has ended.
+    await generations.sweep();
+    expect(after).not.toHaveBeenCalled();
+  });
+
+  it("answers the stop once what follows the sweep in flight has ended", async () => {
+    const { generations } = fixture();
+    let release = (): void => undefined;
+    const after = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    const stop = generations.start(after);
+    await generations.sweep();
+    expect(after).toHaveBeenCalledTimes(1);
+    let stopped = false;
+    const stopping = stop().then(() => (stopped = true));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
 });
 
 /** The snapshot store's sweep, which runs after the generations' one: when a resolution's touch lands within it, which the wire cannot time. */

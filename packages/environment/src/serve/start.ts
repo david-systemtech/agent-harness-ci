@@ -1853,7 +1853,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
   // The skill-set generations (#496): what a start before this one left now, in the background, then hourly; each sweep
-  // followed by the snapshots' (#499), which keeps those the generations left link into.
+  // followed by the snapshots' (#499), which keeps those the generations left link into. Its stop waits for a sweep in
+  // flight, so the snapshots' sweep never reads the log after it closes.
   closers.push(generations.start(() => skillSources.sweepSnapshots()));
   // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
   // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
