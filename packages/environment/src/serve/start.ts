@@ -98,7 +98,7 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { coveredDirectories, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, coveredPaths, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
@@ -482,6 +482,15 @@ export interface EnvironmentOptions {
    * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
+  /**
+   * The absolute paths `harnessCommand` reads as it runs, beyond its own
+   * words (#705): the launcher's shim reads the service state and the
+   * versions directory. Only whoever knows the command's layout can name
+   * them, so `serve` passes them beside it. Where an enabled denied path
+   * covers one, an unattended run's sandbox reads it again, as it does the
+   * command's own directories. Preset none.
+   */
+  readonly harnessReads?: readonly string[];
   /**
    * Configuration the harness's git is given after its own on every
    * operation. Only tests give it: an `insteadOf` that sends a forge's
@@ -1028,8 +1037,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
   // What git's credential helper is run from (#315): the absolute paths of the command git names (the launcher's shim, or
-  // node and the entry it runs).
+  // node and the entry it runs); and what it reads as it runs (#705), the shim's service state and versions directory.
   const helperPaths = (options.harnessCommand ?? []).filter((word) => isAbsolute(word));
+  const helperReads = (options.harnessReads ?? []).filter((path) => isAbsolute(path));
 
   // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
@@ -1304,11 +1314,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
-      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from, where the denylist
-      // covers them (#315), are exempt too, so the sandbox lets the helper run.
+      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
+      // it reads as it runs (#705), where the denylist covers them, are exempt too, so the sandbox lets the helper run.
       providerDenylist: () => {
         const denylist = readDenylistNow();
-        const helper = coveredDirectories({ ...denylistContext, denylist: () => denylist }, helperPaths);
+        const context = { ...denylistContext, denylist: () => denylist };
+        const helper = [...coveredDirectories(context, helperPaths), ...coveredPaths(context, helperReads)];
         return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...helper] });
       },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),

@@ -199,10 +199,11 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   try {
     refusePrivilegedUser(user);
     const options = parseServe(args, context.env ?? process.env);
-    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459).
+    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459), with
+    // what it reads as it runs, which a contained run's sandbox must let it read (#705).
     const underLauncher = context.environment?.launcher?.present() ?? typeof process.send === "function";
-    const command = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
-    environment = await startEnvironment({ ...options, harnessCommand: command, ...context.environment, user });
+    const { command, reads } = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
+    environment = await startEnvironment({ ...options, harnessCommand: command, harnessReads: reads, ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);
