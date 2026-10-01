@@ -1,5 +1,6 @@
 import { serverArtefact } from "../../test/artefacts.js";
 import { testLauncher } from "../../test/launcher.js";
+import * as eventLogs from "../event-log/event-log.js";
 import { DRAIN_CAP_MS } from "../serve/lifecycle.js";
 import { createServer, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
@@ -247,6 +248,66 @@ describe("routines across a drain and restart", () => {
     const reader = await next.client();
     expect(await history(reader, state.id)).toMatchObject([{ id: firingId, outcome: "succeeded", deliveries: [{ result: "delivered" }] }]);
     expect((await listed(reader, state.id))!.state.liveFiring).toBeNull();
+  });
+
+  it.each(["firing end", "notice read", "notice cause"])("leaves a failed %s for the next start and recovers other entries", async (fault) => {
+    const dataDir = tempDir();
+    const t = await start({ dataDir });
+    const client = await t.client();
+    const ids: { routineId: string; entryId: string }[] = [];
+    const append = t.env.log.append.bind(t.env.log);
+    const lostType = fault === "firing end" ? "routine.firing-ended" : "routine.delivery-attempted";
+    const failure = vi.spyOn(t.env.log, "append").mockImplementation((stream, events, options) => {
+      if (events.some((e) => e.type === lostType)) throw new Error("Lost recovery commit");
+      return append(stream, events, options);
+    });
+    const loud = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    onCleanup(() => loud.mockRestore());
+    for (let i = 0; i < 2; i += 1) {
+      const { state } = await created(client, written({ name: `Recover ${i}`, schedule: { kind: "manual" } }));
+      const entryId = await ranNow(client, state.id);
+      const begun = await untilStarted(t, state.id, entryId);
+      await untilEvent(t, { kind: "session", id: begun.payload["sessionId"] as string }, (e) => e.type === "run.ended");
+      ids.push({ routineId: state.id, entryId });
+    }
+    failure.mockRestore();
+    await t.close();
+    const openLog = eventLogs.openEventLog;
+    const opening = vi.spyOn(eventLogs, "openEventLog").mockImplementation((options) => {
+      const log = openLog(options);
+      const append = log.append.bind(log);
+      const read = log.read.bind(log);
+      const readStream = log.readStream.bind(log);
+      vi.spyOn(log, "append").mockImplementation((stream, events, options) => {
+        if (fault === "firing end" && stream.id === ids[0]!.routineId && events.some((e) => e.type === "routine.firing-ended")) throw new Error("Recovery write unavailable");
+        return append(stream, events, options);
+      });
+      let noticeReadFailed = false;
+      vi.spyOn(log, "read").mockImplementation(<Row>(sql: string, ...params: Parameters<typeof read>[1][]): Row[] => {
+        if (fault === "notice read" && !noticeReadFailed && sql.startsWith("SELECT r.definition, e.targets, e.entry") && params.includes(ids[0]!.routineId)) {
+          noticeReadFailed = true;
+          throw new Error("Recovery read unavailable");
+        }
+        return read<Row>(sql, ...params);
+      });
+      vi.spyOn(log, "readStream").mockImplementation((selector, after, limit) => {
+        if (fault === "notice cause" && "id" in selector && selector.id === ids[0]!.routineId && limit === 1) throw new Error("Recovery cause unavailable");
+        return readStream(selector, after, limit);
+      });
+      return log;
+    });
+    onCleanup(() => opening.mockRestore());
+    const next = await start({ dataDir, clock: t.clock });
+    opening.mockRestore();
+    const reader = await next.client();
+    expect(await history(reader, ids[0]!.routineId)).toMatchObject([{ id: ids[0]!.entryId, deliveries: [] }]);
+    expect(await history(reader, ids[1]!.routineId)).toMatchObject([{ id: ids[1]!.entryId, deliveries: [{ result: "delivered" }] }]);
+    expect(loud).toHaveBeenCalled();
+    await next.close();
+    const again = await start({ dataDir, clock: t.clock });
+    const againClient = await again.client();
+    for (const { routineId, entryId } of ids) expect(await history(againClient, routineId)).toMatchObject([{ id: entryId, outcome: "succeeded", deliveries: [{ result: "delivered" }] }]);
+    expect(again.env.log.readStream({ kind: "environment", id: again.env.id }).filter((e) => e.type === "routine.delivered")).toHaveLength(2);
   });
 
 });

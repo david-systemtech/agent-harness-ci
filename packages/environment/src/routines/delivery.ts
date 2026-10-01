@@ -170,15 +170,21 @@ export const resumeDeliveries = (options: DeliveriesOptions): void => {
   const { log } = options;
   const deliver = noticeDelivery(options);
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  const ended = log.read<{ routine_id: string; id: string; cause_sequence: number }>("SELECT routine_id, id, cause_sequence FROM routine_pending_notices ORDER BY cause_sequence");
+  let ended: { routine_id: string; id: string; cause_sequence: number }[];
+  try {
+    ended = log.read("SELECT routine_id, id, cause_sequence FROM routine_pending_notices ORDER BY cause_sequence");
+  } catch (error) {
+    console.error("Reading pending routine notices failed; the next start retries them:", error);
+    return;
+  }
   for (const { routine_id: routineId, id, cause_sequence: sequence } of ended) {
-    const entry = deliverableEntry(reader, routineId, id);
-    if (entry === null) continue;
-    const outcome = deliveredOutcome(entry.entry);
-    if (outcome === null || !entry.targets.some((target) => target.kind === "client-notice" && takes(target.on, outcome) && !entry.entry.deliveries.some((delivery) => sameTarget(delivery.target, target)))) continue;
-    const cause = log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }, sequence - 1, 1).find((event) => endedEntryOf(event) === id);
-    if (cause === undefined) continue;
     try {
+      const entry = deliverableEntry(reader, routineId, id);
+      if (entry === null) continue;
+      const outcome = deliveredOutcome(entry.entry);
+      if (outcome === null || !entry.targets.some((target) => target.kind === "client-notice" && takes(target.on, outcome) && !entry.entry.deliveries.some((delivery) => sameTarget(delivery.target, target)))) continue;
+      const cause = log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }, sequence - 1, 1).find((event) => endedEntryOf(event) === id);
+      if (cause === undefined) continue;
       log.atomically((tx) => deliver(tx, routineId, id, cause));
     } catch (error) {
       console.error(`Resuming the delivery of entry ${id} of routine ${routineId} failed; the next start retries it:`, error);

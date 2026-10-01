@@ -222,19 +222,30 @@ export const followFiringEnds = (options: FiringEndsOptions): (() => void) => op
 export const settleFirings = (options: FiringEndsOptions): void => {
   const { log } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
-  for (const routineId of routinesWithLiveFirings(reader)) {
-    let firing = liveFiringOfRoutine(reader, routineId);
-    if (firing === null) continue;
-    const events = log.readStream(sessionStream(firing.entry.sessionId));
-    // Replaying only the current run makes this pass idempotent, including marks whose follow-up commit was lost.
-    for (const event of events) {
-      firing = liveFiringOfRoutine(reader, routineId);
-      if (firing === null) break;
-      if (event.type !== "run.ended" || event.payload["runId"] !== firing.entry.runId) continue;
-      const runId = firing.entry.runId;
-      const mark = events.find((candidate) => candidate.type === "run.update-interrupted" && candidate.payload["runId"] === runId);
-      if (mark !== undefined) followInterruption(options, mark);
-      else followEnd(options, event, true);
+  let routineIds: readonly string[];
+  try {
+    routineIds = routinesWithLiveFirings(reader);
+  } catch (error) {
+    console.error("Reading the firings to settle failed; the next start retries them:", error);
+    return;
+  }
+  for (const routineId of routineIds) {
+    try {
+      let firing = liveFiringOfRoutine(reader, routineId);
+      if (firing === null) continue;
+      const events = log.readStream(sessionStream(firing.entry.sessionId));
+      // Replaying only the current run makes this pass idempotent, including marks whose follow-up commit was lost.
+      for (const event of events) {
+        firing = liveFiringOfRoutine(reader, routineId);
+        if (firing === null) break;
+        if (event.type !== "run.ended" || event.payload["runId"] !== firing.entry.runId) continue;
+        const runId = firing.entry.runId;
+        const mark = events.find((candidate) => candidate.type === "run.update-interrupted" && candidate.payload["runId"] === runId);
+        if (mark !== undefined) followInterruption(options, mark);
+        else followEnd(options, event, true);
+      }
+    } catch (error) {
+      console.error(`Settling the firing of routine ${routineId} failed; the next start retries it:`, error);
     }
   }
 };
