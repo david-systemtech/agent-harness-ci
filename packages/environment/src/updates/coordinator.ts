@@ -56,13 +56,14 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  * **Waiting** (#343): the installed version is a pending update, `waiting`,
  * appended as `environment.update-pending` with where it comes from: the
  * channel, the pin, a request or the desktop. A newer release replacing it
- * takes a new update id and keeps its `since`; a channel's update is
- * withdrawn (`environment.update-cancelled`, cause `settings`) once the
- * settings stop calling for it. On every run-registry change, every minute
- * and at its `deferUntil`, the coordinator reads the activity, and in that
- * same tick, when the environment is idle or the deferral cap has passed
- * (or at once, asked with `when: now`), appends `environment.update-started`
- * and starts the drain with the trigger `update`, which refuses new runs
+ * takes a new update id and keeps its `since`; a channel's or a pin's
+ * update is withdrawn (`environment.update-cancelled`, cause `settings`)
+ * once the settings stop calling for it (#480). On every run-registry
+ * change, every minute and at its `deferUntil`, the coordinator reads the
+ * activity, and in that same tick, when the environment is idle or the
+ * deferral cap has passed (or at once, asked with `when: now`), appends
+ * `environment.update-started` and starts the drain with the trigger
+ * `update`, which refuses new runs
  * from then on. The drain waits for running runs up to its cap, not for parked ones; then
  * every client hears `bye: updating` and the launcher is asked `switch?`
  * (`afterDrain`); a refused switch is `environment.update-failed` at stage
@@ -169,9 +170,11 @@ export interface UpdateCoordinator {
   follow(reading: ChannelReading, settings: ChannelSettings): Promise<StagingFailure | null>;
   /**
    * `updates.settings.set` changes the settings from `before` to `after` in
-   * `context`'s command: a waiting update the channel called for that they
-   * no longer call for (auto-update turned off, the channel changed, a pin
-   * naming another version) is withdrawn in the same transaction.
+   * `context`'s command: a waiting update the channel or the pin called for
+   * that they no longer call for is withdrawn in the same transaction. The
+   * channel's, once auto-update is turned off, the channel changed or a pin
+   * names another version; the pin's, once the pin changed and does not
+   * name its version (unpinned, or pinned to another, #480).
    */
   settingsChanging(before: ChannelSettings, after: ChannelSettings, context: CommandContext): void;
   /**
@@ -642,9 +645,17 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       armCap();
     });
 
-  /** Whether a settings change from `before` to `after` stops calling for the channel's waiting `update`. */
-  const settingsWithdraw = (update: Update, before: ChannelSettings, after: ChannelSettings): boolean =>
-    !after.autoUpdate || after.channel !== before.channel || (after.pinnedVersion !== null && after.pinnedVersion !== update.toVersion);
+  /**
+   * Whether a settings change from `before` to `after` stops calling for the
+   * waiting `update` the channel or the pin called for. A pin calls for its
+   * update while it stays: a stepping stone to it is below the version it names.
+   */
+  const settingsWithdraw = (update: Update, before: ChannelSettings, after: ChannelSettings): boolean => {
+    const pinNamesIt = after.pinnedVersion === update.toVersion;
+    if (update.source === "pin") return after.pinnedVersion !== before.pinnedVersion && !pinNamesIt;
+    if (update.source !== "channel") return false;
+    return !after.autoUpdate || after.channel !== before.channel || (after.pinnedVersion !== null && !pinNamesIt);
+  };
 
   /** Why the update that is pending is past its cap: due to drain at its `deferUntil`, it has not switched by the end of the drain's own cap. */
   const pastCap = (): string | undefined => {
@@ -773,7 +784,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     },
 
     settingsChanging(before, after, context) {
-      if (held.state !== "waiting" || held.update.source !== "channel" || !settingsWithdraw(held.update, before, after)) return;
+      if (held.state !== "waiting" || !settingsWithdraw(held.update, before, after)) return;
       const { update } = held;
       log.append(stream, [cancelledEvent(update, "settings")], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       withdrawOnCommit(update, context);
