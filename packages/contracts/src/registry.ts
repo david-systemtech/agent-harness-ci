@@ -153,7 +153,7 @@ import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import { skillsCarryOver, skillsGet, skillsOwnCreate, skillsOwnRemove, skillsProbe, skillsReadiness, skillsSetAlwaysOn, skillsSetEnabled } from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
-import { browserChromesList, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
+import { browserChromesList, browserChromesPerform, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -380,6 +380,7 @@ export const methods = [
   browserChromesList,
   browserChromesRename,
   browserChromesUnpair,
+  browserChromesPerform,
 ] as const;
 
 type Registered = (typeof methods)[number];

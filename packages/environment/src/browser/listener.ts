@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import {
@@ -10,6 +10,8 @@ import {
   type BridgeFromEnvironment,
   type BridgeFromExtension,
   type ExtensionListenerStatus,
+  type PageCall,
+  type PageOutcome,
   type PagePolicy,
 } from "@agent-harness/contracts";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
@@ -38,7 +40,10 @@ import { textOf } from "../wire/wire.js";
  * and the socket kept for the next. A paired extension opens with `hello`,
  * answered with a `challenge` carrying the environment's id and a nonce,
  * and a proof the desk takes answers `ready` (#548). Each paired Chrome
- * holds one proved socket at most: a newer one replaces it.
+ * holds one proved socket at most: a newer one replaces it. A verb goes to
+ * a Chrome as a `call` on its proved socket, answered by the `result` with
+ * the call's id (#552); a socket that closes first, or a deadline that
+ * passes, ends the call, and a later result is dropped.
  */
 
 /** The ports the listener tries, the preferred first and then each next up to the last; a preferred port of 0 binds any free one. */
@@ -64,6 +69,16 @@ export type Hello = Extract<BridgeFromExtension, { readonly type: "hello" }>;
 
 /** What the desk made of a `pair`: the Chrome it paired, or the sentence the extension shows. */
 export type PairAnswer = { readonly ok: true; readonly chromeId: string; readonly secret: string } | { readonly ok: false; readonly reason: string };
+
+/** How a call to a Chrome ended: the extension's outcome, or why there was none. */
+export type ChromeCallAnswer =
+  | { readonly kind: "answered"; readonly outcome: PageOutcome }
+  /** The Chrome holds no proved socket. */
+  | { readonly kind: "not-connected" }
+  /** Its socket closed, or was replaced or refused, before the result came. */
+  | { readonly kind: "disconnected" }
+  /** No result came within the deadline. */
+  | { readonly kind: "timed-out" };
 
 /**
  * Where the listener takes what its sockets ask of the environment's paired
@@ -104,6 +119,8 @@ export interface ExtensionListener {
   drop(chromeId: string, reason: string): void;
   /** Sends `policy` to every proved socket. */
   sendPolicy(policy: PagePolicy): void;
+  /** Sends `call` to the Chrome's proved socket, and answers its result, or why none came within `deadlineMs`. Never rejects. */
+  call(chromeId: string, call: PageCall, deadlineMs: number): Promise<ChromeCallAnswer>;
   /** Closes every socket (1001), cutting what has not closed after a second, then stops listening. */
   close(): Promise<void>;
 }
@@ -128,6 +145,8 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
   const conversations = new Map<WebSocket, Conversation>();
   /** Each paired Chrome's proved socket. */
   const live = new Map<string, WebSocket>();
+  /** The calls each proved socket has not answered yet, by call id: each ends with the answer given to it. */
+  const calls = new Map<WebSocket, Map<string, (answer: ChromeCallAnswer) => void>>();
   const { chromes } = options;
 
   const send = (socket: WebSocket, message: BridgeFromEnvironment): void => {
@@ -217,9 +236,9 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
         if (conversation.state !== "challenged" || conversation.proving) return refuse(socket, "A proof answers the challenge to a hello, once.");
         return void prove(socket, conversation, message.mac);
       case "result":
-        // A proved socket's calls are the extension driver's (#552): until it makes one, a result answers no call.
-        if (conversation.state === "live") return;
-        return refuse(socket, "A result comes only on a socket whose Chrome has proved itself.");
+        if (conversation.state !== "live") return refuse(socket, "A result comes only on a socket whose Chrome has proved itself.");
+        // A result for a call that ended (its deadline passed) or that this socket was never sent is dropped.
+        return calls.get(socket)?.get(message.id)?.({ kind: "answered", outcome: message.result });
     }
   };
 
@@ -236,6 +255,7 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
       ws.on("close", () => {
         const conversation = conversations.get(ws);
         conversations.delete(ws);
+        for (const end of [...(calls.get(ws)?.values() ?? [])]) end({ kind: "disconnected" });
         if (conversation?.state !== "live" || live.get(conversation.chromeId) !== ws) return;
         live.delete(conversation.chromeId);
         // A stop closes every socket: that is no Chrome going.
@@ -279,6 +299,24 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     },
     sendPolicy(policy) {
       for (const socket of live.values()) send(socket, { type: "policy", policy });
+    },
+    call(chromeId, call, deadlineMs) {
+      const socket = live.get(chromeId);
+      if (socket === undefined || !isOpen(socket)) return Promise.resolve({ kind: "not-connected" });
+      const id = randomUUID();
+      const open = calls.get(socket) ?? new Map<string, (answer: ChromeCallAnswer) => void>();
+      calls.set(socket, open);
+      return new Promise<ChromeCallAnswer>((resolve) => {
+        const deadline = options.clock.setTimeout(() => end({ kind: "timed-out" }), deadlineMs);
+        const end = (answer: ChromeCallAnswer): void => {
+          deadline.cancel();
+          open.delete(id);
+          if (open.size === 0 && calls.get(socket) === open) calls.delete(socket);
+          resolve(answer);
+        };
+        open.set(id, end);
+        send(socket, { type: "call", id, ...call });
+      });
     },
     async close() {
       closing = true;

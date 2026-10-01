@@ -6305,6 +6305,18 @@
     {
       "path": "methods/browser.chromes.unpair/error.json",
       "title": "browser.chromes.unpair error"
+    },
+    {
+      "path": "methods/browser.chromes.perform/params.json",
+      "title": "browser.chromes.perform params"
+    },
+    {
+      "path": "methods/browser.chromes.perform/result.json",
+      "title": "browser.chromes.perform result"
+    },
+    {
+      "path": "methods/browser.chromes.perform/error.json",
+      "title": "browser.chromes.perform error"
     }
   ],
   "cases": [
@@ -8232,6 +8244,15 @@
       "result": "methods/browser.chromes.unpair/result.json",
       "response": "methods/browser.chromes.unpair/response.json",
       "error": "methods/browser.chromes.unpair/error.json"
+    },
+    {
+      "name": "browser.chromes.perform",
+      "scope": "runs:drive",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/browser.chromes.perform/params.json",
+      "result": "methods/browser.chromes.perform/result.json",
+      "error": "methods/browser.chromes.perform/error.json"
     }
   ]
 }
