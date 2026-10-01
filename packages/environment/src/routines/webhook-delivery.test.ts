@@ -242,6 +242,29 @@ describe("signed result delivery", () => {
     expect(other.received).toHaveLength(1);
   });
 
+  it("fails an unusable resolved signing secret at once and records the preparation failure", async () => {
+    const dataDir = join(tempDir(), "data");
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const held = fileVault(join(dataDir, VAULT_FILE));
+    let unusable = false;
+    const vault = { ...held, get: async (key: string) => {
+      if (unusable && key === "endpoint:hermes") return "whsec_not-base64-for-tests";
+      return held.get(key);
+    } };
+    const { t, client, receiver, routine, fire, attempted } = await setup({ dataDir, vault });
+    unusable = true;
+    await fire();
+    expect((await attempted(1)).payload).toMatchObject({
+      result: "failed", status: null, retryAt: null,
+      error: expect.stringContaining("The webhook POST could not be prepared:"),
+    });
+    const failed = await untilEvent(t, { kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, (e) => e.type === "routine.delivery-failed");
+    expect(failed.payload).toMatchObject({ error: expect.stringContaining("The webhook POST could not be prepared:") });
+    t.clock.advance(60_000);
+    expect(receiver.received).toEqual([]);
+    expect((await history(client, routine.state.id))[0]?.deliveries[0]?.attempts).toHaveLength(1);
+  });
+
   it("retries an unavailable secret store and scrubs its error before the attempt reaches a client", async () => {
     const dataDir = join(tempDir(), "data");
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });

@@ -158,7 +158,7 @@ describe("routines.create", () => {
     expect((await listRoutines(client)).map((routine) => routine.definition.name)).toEqual(["Digest", "upstream watch"]);
   });
 
-  it("saves a routine that names an account, model, script or endpoint the environment lacks, showing the account's and the script's gaps as attention", async () => {
+  it("saves a routine that names an account, model, script or endpoint the environment lacks, showing the account's, script's and endpoint's gaps as attention", async () => {
     const t = await start();
     const client = await t.client();
     const routine = await created(
@@ -176,8 +176,8 @@ describe("routines.create", () => {
       preCheck: { kind: "script", path: "not-there.sh", timeoutSeconds: 60 },
       delivery: [{ kind: "webhook", target: "no-such-endpoint", on: "both" }],
     });
-    expect(routine.attention).toEqual(["account_missing", "script_missing"]);
-    expect((await listed(client, routine.state.id))?.attention).toEqual(["account_missing", "script_missing"]);
+    expect(routine.attention).toEqual(["account_missing", "script_missing", "endpoint_missing"]);
+    expect((await listed(client, routine.state.id))?.attention).toEqual(["account_missing", "script_missing", "endpoint_missing"]);
   });
 });
 

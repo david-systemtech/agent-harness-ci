@@ -76,21 +76,26 @@ export const createWebhookDeliveries = (options: WebhookDeliveriesOptions) => {
     let status: number | null = null;
     let error: string | null;
     let retryable: boolean;
+    let endpoint: DeliveryEndpoint;
     try {
-      const endpoint = await options.endpoint(target.target);
-      if (closed) return;
-      if ("error" in endpoint) {
-        error = endpoint.error;
-        retryable = endpoint.retryable;
-      } else {
+      endpoint = await options.endpoint(target.target);
+    } catch (caught) {
+      endpoint = { error: `The endpoint's secret could not be resolved: ${networkReason(caught)}.`, retryable: true };
+    }
+    if (closed) return;
+    if ("error" in endpoint) {
+      error = endpoint.error;
+      retryable = endpoint.retryable;
+    } else {
+      try {
         const posted = await postWebhook({ ...endpoint, id: keyOf(entryId, target), body: JSON.stringify(payload), clock, signal: abort.signal });
         status = posted.status;
         error = posted.error;
         retryable = status === null || status === 408 || status === 429 || status >= 500;
+      } catch (caught) {
+        error = `The webhook POST could not be prepared: ${networkReason(caught)}.`;
+        retryable = false;
       }
-    } catch (caught) {
-      error = `The endpoint's secret could not be resolved: ${networkReason(caught)}.`;
-      retryable = true;
     }
     if (closed) return;
     error = error === null ? null : options.scrub.scrubOutput(error);
