@@ -411,6 +411,8 @@ describe("skills.readiness", () => {
     expect(newSession).toMatchObject({ accountId: "claude-max", workspace: { kind: "directory", path: elsewhere }, repositoryIdentity: null, clientTools: [] });
     expect(newSession?.sessionId).not.toBe(id);
     expect(await readiness(client, at(linearIn, ["tracker"]))).toEqual([{ name: "tracker", state: "ready", declaredBy: "sidecar" }]);
+    // A new session in the repository is asked under the identity its create will read (#1072).
+    expect(asked.at(-1)).toMatchObject({ sessionId: expect.not.stringMatching(id), workspace: { kind: "directory", path: linearIn }, repositoryIdentity: "https://github.com/acme/receipts" });
 
     // Asking the factory starts no run and records nothing.
     expect(t.env.log.head()).toBe(head);

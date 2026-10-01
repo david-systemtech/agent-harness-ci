@@ -30,6 +30,8 @@ export interface RefusalContext {
   readonly sessionId?: string;
   readonly runId?: string;
   readonly ended?: CompletionsRunEnd;
+  /** The turn's message, still waiting in the session's queue for a run to read it (#1045). */
+  readonly waiting?: string;
 }
 
 /** A refusal the surface answers with: its status, the harness's reason, a sentence, and the field at fault when there is one. */

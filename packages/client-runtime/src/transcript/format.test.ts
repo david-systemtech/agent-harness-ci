@@ -1,6 +1,6 @@
 import type { RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { endWords, formatDuration, turnFacts } from "./format.js";
+import { attachmentChip, endWords, formatDuration, turnFacts } from "./format.js";
 
 /** The numbers and words a transcript prints (docs/specs/tui.md, "Testing Decisions": the fold's pure helpers). */
 
@@ -51,5 +51,13 @@ describe("a finished turn's cost line", () => {
     expect(endWords(ended({ reason: "interrupted", cause: "read-now" }))).toBe("Interrupted to read the queue");
     expect(endWords(ended({ reason: "interrupted", cause: "timeout" }))).toBe("Interrupted at the routine's time limit");
     expect(endWords(ended({ reason: "error" }))).toBe("Error");
+  });
+});
+
+describe("an attachment sent with a message (#473)", () => {
+  it("is named with its size in whole KB, never less than 1, since the log keeps no bytes to draw", () => {
+    expect(attachmentChip({ name: "screen.png", size: 1024 })).toBe("screen.png · 1 KB");
+    expect(attachmentChip({ name: "tiny.gif", size: 43 })).toBe("tiny.gif · 1 KB");
+    expect(attachmentChip({ name: "shot.png", size: 250_000 })).toBe("shot.png · 244 KB");
   });
 });
