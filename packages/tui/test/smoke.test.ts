@@ -90,6 +90,16 @@ const terminal = (dataDir: string, stateDir: string, tty: string, session?: stri
 const ENTER = "\r";
 const UP = "\u001B[A";
 
+/**
+ * A value the scripts' first delta, `Look`, ends on the start of. The
+ * environment holds back a streamed tail that could begin a registered value
+ * (`delta-scrub.ts`), so with this registered it holds the `k`: what its own
+ * signing key, random base64 and registered from its vault, does in about one
+ * run in 64 when it begins with `k` (#1133). Registered by the tests that wait
+ * on `Look` so every run takes that path.
+ */
+const HELD_FROM_LOOK = "kept-back-by-the-smoke-test";
+
 describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_TEST_MS }, () => {
   it("exchanges the grant and renders the header and the rail", async () => {
     const t = await startTestEnvironment({ name: "smoke-desk" });
@@ -130,6 +140,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
   it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
     const t = await startTestEnvironment({ name: "smoke-send" });
     onCleanup(() => t.close());
+    t.scrub.register(HELD_FROM_LOOK, { owner: "smoke-test" });
     const streamed = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
@@ -173,6 +184,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     // A provider queue that does not steer holds the message while the turn is held open, so the withdraw takes it back from the provider.
     const t = await startTestEnvironment({ name: "smoke-withdraw", adapter: fakeAdapter({ capabilities: { steering: false } }) });
     onCleanup(() => t.close());
+    t.scrub.register(HELD_FROM_LOOK, { owner: "smoke-test" });
     const held = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
