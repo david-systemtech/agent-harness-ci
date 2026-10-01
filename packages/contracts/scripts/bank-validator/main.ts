@@ -19,12 +19,12 @@ const USAGE = "Usage: node validate.mjs [bank directory] [--json] [--version]";
 /** An error's code (ENOENT, EACCES), or the error itself where it has none. */
 const codeOf = (error: unknown): string => (error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : String(error));
 
-/** What `path` points at, or null where nothing is. */
-const statOf = (path: string): Stats | null => {
+/** What `path` points at, or the error's code where it points at nothing (ENOENT) or round a loop (ELOOP). */
+const statOf = (path: string): Stats | string => {
   try {
     return statSync(path);
-  } catch {
-    return null;
+  } catch (error) {
+    return codeOf(error);
   }
 };
 
@@ -68,10 +68,11 @@ const readBank = (root: string): { readonly files: Record<string, string>; reado
     }
     for (const entry of entries) {
       const path = join(directory, entry.name);
-      // What a link points at; null for a link to nothing, which a Markdown name's read refuses.
+      // What a link points at: a link that resolves to nothing, whatever its name, is refused, not passed over.
       const kind = entry.isSymbolicLink() ? statOf(path) : entry;
-      if (kind?.isDirectory()) walk(path, [...ancestors, real]);
-      else if ((kind === null || kind.isFile()) && entry.name.endsWith(".md")) read(path);
+      if (typeof kind === "string") unreadable[nameOf(path)] = kind;
+      else if (kind.isDirectory()) walk(path, [...ancestors, real]);
+      else if (kind.isFile() && entry.name.endsWith(".md")) read(path);
     }
   };
   read(join(root, "BANK.md"));

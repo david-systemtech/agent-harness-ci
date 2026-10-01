@@ -116,6 +116,14 @@ describe("the bank validator's validate.mjs", () => {
     const linked = onDisk(Object.fromEntries(Object.entries(PERSONAL_BANK).map(([path, text]) => [path.replace(`${nas}/`, "elsewhere/nas/"), text])));
     symlinkSync("../../../elsewhere/nas", join(linked, nas));
     expect(await validate(linked)).toEqual({ code: 0, stdout: "bank-validator 1: valid\n" });
+    // Two links to each other resolve to nothing, as a link to nothing does, whatever their names.
+    const round = onDisk(PERSONAL_BANK);
+    symlinkSync("b", join(round, "projects/personal/homelab/a"));
+    symlinkSync("a", join(round, "projects/personal/homelab/b"));
+    symlinkSync("nowhere", join(round, "projects/personal/homelab/diagram.png"));
+    expect(JSON.parse((await validate(round, "--json")).stdout)).toEqual(
+      validateBank({ files: PERSONAL_BANK, unreadable: { "projects/personal/homelab/a": "ELOOP", "projects/personal/homelab/b": "ELOOP", "projects/personal/homelab/diagram.png": "ENOENT" } }),
+    );
   });
 
   it("validates the bank a path names, from anywhere", async () => {

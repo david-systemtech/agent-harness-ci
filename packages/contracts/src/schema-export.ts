@@ -1796,7 +1796,7 @@ export const publishedData = (): PublishedData[] => [
     description: [
       "The bank validator's rules (banks spec, \"The validator\"; ADR 0013, ADR 0034, ADR 0037), in the order a verdict lists them: each id, whether it refuses or warns, and what it finds.",
       "One validator gives every verdict: the contracts' validateBank at memory_draft, memory_promote and in the BankService, and validate.mjs in a bank's CI, stamped with the version of these rules on its first line (// bank-validator <version>).",
-      "A bank's files are BANK.md and the Markdown under projects/: ORG.md in projects/<org>/, PROJECT.md in projects/<org>/<project>/, AREA.md in projects/<org>/<project>/<area>/, and memories in a project's or an area's memories/, a topic declared in its topics: one folder deeper; any other file is a document the validator does not read.",
+      "A bank's files are BANK.md and the Markdown under projects/: ORG.md in projects/<org>/, PROJECT.md in projects/<org>/<project>/, AREA.md in projects/<org>/<project>/<area>/, and memories in a project's or an area's memories/, a topic declared in its topics: one folder deeper; any other file is a document the validator does not check, though validate.mjs refuses a Markdown one it cannot read (unreadable).",
       "A finding names its rule, the file or folder, the field where it is one and, for secret_shaped, the shape rule or registered-value, never the value.",
     ].join(" "),
     schema: "banks/validator-rule.json",
