@@ -62,6 +62,48 @@ it("moves from the cached list while the source is stopped and delivers its queu
   stop();
 });
 
+it("blocks concurrent and repeated moves until the queued source disable delivers, including after a client restart", async () => {
+  const { join } = await import("node:path");
+  const { originOf } = await import("../test/harness.js");
+  const { reachable } = await import("./outbox/overlay.js");
+  const dataDir = join(harness.tempDir("agent-harness-pending-move-"), "data");
+  const desk = await harness.environment({ name: "desk", dataDir });
+  const laptop = await harness.environment({ name: "laptop" });
+  const spare = await harness.environment({ name: "spare" });
+  const platform = inMemoryPlatform();
+  const runtime = harness.runtime(platform);
+  await runtime.start();
+  for (const env of [desk, laptop, spare]) await runtime.connections.add({ link: (await env.createPairing()).link });
+  const id = randomUUID();
+  await runtime.commands.dispatch(desk.env.id, "routines.create", { routineId: id, definition: RoutineDefinitionInput.parse(written({ name: "Monday", schedule: { kind: "manual" } })) });
+  const first = await runtime.commands.moveRoutine(desk.env.id, id, laptop.env.id);
+  const second = await runtime.commands.moveRoutine(desk.env.id, id, spare.env.id);
+  if (!first.ok || !second.ok) throw new Error("Both preparations must succeed before either move starts.");
+  await desk.close();
+  await holds(runtime.connections.list, records => !reachable(records.find(r => r.environmentId === desk.env.id)));
+  const [copied, duplicate] = await Promise.all([first.confirm(), second.confirm()]);
+  expect(copied).toMatchObject({ ok: true });
+  expect(duplicate).toMatchObject({ ok: false, error: { code: "not-ready" } });
+  expect(runtime.commands.routineMoveCapability(desk.env.id, id)).toMatchObject({ status: "absent", reason: "not-ready", message: expect.stringContaining("previous move") });
+  expect(await runtime.commands.moveRoutine(desk.env.id, id, spare.env.id)).toMatchObject({ ok: false, error: { code: "not-ready" } });
+  expect(await runtime.requests.call(spare.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [] } });
+  await runtime.close();
+
+  const resumed = harness.runtime(platform);
+  await resumed.start();
+  await holds(resumed.connections.list, records => records.find(r => r.environmentId === desk.env.id)?.phase === "backoff" && [laptop, spare].every(env => reachable(records.find(r => r.environmentId === env.env.id))));
+  expect(resumed.commands.routineMoveCapability(desk.env.id, id)).toMatchObject({ status: "absent", reason: "not-ready", message: expect.stringContaining("previous move") });
+  const restored = await harness.environment({ name: "desk", dataDir, clock: desk.clock });
+  const view = resumed.projections.routines;
+  const stop = view.subscribe(() => undefined);
+  await resumed.connections.setAddress(desk.env.id, originOf(restored.address));
+  await holds(view, v => v.groups.some(g => g.routines.some(r => r.routineId === id && !r.pending && r.listed?.state.movedTo !== null)));
+  expect(resumed.commands.routineMoveCapability(desk.env.id, id)).toEqual({ status: "present" });
+  expect(await resumed.requests.call(spare.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [] } });
+  expect(await resumed.requests.call(laptop.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [{ definition: { enabled: true } }] } });
+  stop();
+});
+
 it("moves back into the original id, updates its definition and keeps both environments' history", async () => {
   const { end } = await import("../../environment/test/fake-adapter.js");
   const desk = await harness.environment({ name: "desk" });
@@ -196,6 +238,56 @@ it("a second runtime following both environments settles a lost disable once, le
   settler.requests.refresh(desk.env.id, "routines.list", {});
   await settler.requests.call(desk.env.id, "routines.list", {});
   expect(routineEvents(desk).filter(e => e.type === "routine.disabled")).toHaveLength(1);
+  stop();
+});
+
+it("settlement preserves an original edited while its export answer is delayed", async () => {
+  const desk = await harness.environment({ name: "desk" });
+  const laptop = await harness.environment({ name: "laptop", clock: desk.clock });
+  const writer = harness.runtime(inMemoryPlatform());
+  await writer.start();
+  for (const env of [desk, laptop]) await writer.connections.add({ link: (await env.createPairing()).link });
+  const id = randomUUID();
+  await writer.commands.dispatch(desk.env.id, "routines.create", { routineId: id, definition: RoutineDefinitionInput.parse(written({ name: "Monday", instructions: "Original work", schedule: { kind: "manual" } })) });
+  const before = await writer.requests.call(desk.env.id, "routines.list", {});
+  if (!before.ok) throw new Error(before.error.message);
+  const definitionSequence = before.result.routines[0]?.state.definitionSequence;
+  const base = globalWebSocket();
+  let exportRequestId: string | undefined;
+  let sawDisable: (() => void) | undefined;
+  const disableHeld = new Promise<void>(resolve => { sawDisable = resolve; });
+  const mover = harness.runtime(inMemoryPlatform({ webSocket: (url, handlers) => {
+    const socket = base(url, { ...handlers, onMessage(text) {
+      const frame = Frame.parse(JSON.parse(text));
+      if (frame.type === "response" && frame.id === exportRequestId) {
+        exportRequestId = undefined;
+        void writer.commands.dispatch(desk.env.id, "routines.update", { routineId: id, fields: { instructions: "Edited after export" } }).then(() => handlers.onMessage(text));
+      } else handlers.onMessage(text);
+    } });
+    return { ...socket, send(text) {
+      const frame = Frame.parse(JSON.parse(text));
+      if (frame.type === "request" && frame.method === "routines.export") exportRequestId = frame.id;
+      if (frame.type === "request" && frame.method === "routines.disable" && frame.params["routineId"] === id) sawDisable?.();
+      else socket.send(text);
+    } };
+  } }));
+  await mover.start();
+  for (const env of [desk, laptop]) await mover.connections.add({ link: (await env.createPairing()).link });
+  const move = await mover.commands.moveRoutine(desk.env.id, id, laptop.env.id);
+  if (!move.ok) throw new Error(move.error.message);
+  const copied = await move.confirm();
+  if (!copied.ok) throw new Error(copied.error.message);
+  await disableHeld;
+  await mover.close();
+  expect(await writer.requests.call(laptop.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [{ definition: { instructions: "Original work" }, state: { movedFrom: { definitionSequence } } }] } });
+  const observer = harness.runtime(inMemoryPlatform());
+  await observer.start();
+  for (const env of [desk, laptop]) await observer.connections.add({ link: (await env.createPairing()).link });
+  const view = observer.projections.routines;
+  const stop = view.subscribe(() => undefined);
+  await holds(view, v => v.groups.length === 2 && v.groups.every(g => !g.stale && g.routines.length === 1 && g.routines.every(r => r.listed !== null)));
+  for (let round = 0; round < 2; round++) await Promise.all([desk, laptop].map(env => observer.requests.call(env.env.id, "routines.list", {})));
+  expect(await observer.requests.call(desk.env.id, "routines.list", {})).toMatchObject({ ok: true, result: { routines: [{ definition: { enabled: true, instructions: "Edited after export" }, state: { movedTo: null } }] } });
   stop();
 });
 

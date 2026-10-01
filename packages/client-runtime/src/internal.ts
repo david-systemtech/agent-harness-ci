@@ -398,7 +398,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
     },
     commands: {
-      ...createRoutineMoves({ capability, admits: outbox.admits, reserve: routineSettlement.reserve, call, dispatch: outbox.dispatch, cached: (environmentId, routineId) => requestCache.peek(environmentId, "routines.list", {})?.routines.find(r => r.state.id === routineId) ?? null }),
+      ...createRoutineMoves({
+        capability, admits: outbox.admits, reserve: routineSettlement.reserve, call, dispatch: outbox.dispatch,
+        cached: (environmentId, routineId) => requestCache.peek(environmentId, "routines.list", {})?.routines.find(r => r.state.id === routineId) ?? null,
+        pendingMove: (environmentId, routineId) => outbox.view.read().get(environmentId)?.entries.some(entry => entry.method === "routines.disable" && String(entry.params["routineId"]).toLowerCase() === routineId && entry.params["movedTo"] !== undefined) ?? false,
+      }),
       ...createSkillsCopies({ clock: platform.clock, call, capability, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null, targetIds: (environmentId) => copyTargetsOf(registry.list.read(), environmentId).map((target) => target.environmentId) }),
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
