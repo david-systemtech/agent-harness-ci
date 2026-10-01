@@ -34,7 +34,8 @@ import { runCommand, type CommandAnswer } from "./run.js";
  *   and 1 unreachable, and any other answer leaves the lookup's own error.
  *   `gh` runs `gh auth status`. The Doppler, 1Password and Bitwarden
  *   commands run the same way, their providers' blocks joining with #377 to
- *   #379.
+ *   #379; `bws` is given the block's configuration file as `--config-file`,
+ *   which it reads from no variable below 0.5.0 (#1123).
  * - **Only the fields wanted are read** from what a command printed (the
  *   run token's policies, the hosts and logins `gh` is signed in to), and
  *   the output is never kept, since `token lookup` prints the token. What
