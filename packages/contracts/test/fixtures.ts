@@ -20,6 +20,7 @@ import { managedToolMethodFixtures, managedToolSchemaFixtures, toolRunNotices, t
 import { invalidBindings, networkSchemaFixtures, validBindings } from "./network-fixtures.js";
 import { permissionMethodFixtures, permissionSchemaFixtures } from "./permission-fixtures.js";
 import { providerMethodFixtures, providerSchemaFixtures } from "./provider-fixtures.js";
+import { readinessMethodFixtures, readinessSchemaFixtures } from "./readiness-fixtures.js";
 import { routineMethodFixtures, routineSchemaFixtures } from "./routine-fixtures.js";
 import { runMethodFixtures, runSchemaFixtures } from "./run-fixtures.js";
 import { sessionMethodFixtures, sessionSchemaFixtures } from "./session-fixtures.js";
@@ -555,6 +556,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...updateMethodFixtures,
   ...routineMethodFixtures,
   ...skillMethodFixtures,
+  ...readinessMethodFixtures,
   ...trustMethodFixtures,
   ...browserMethodFixtures,
   ...carryOverMethodFixtures,
@@ -1011,6 +1013,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...managedToolSchemaFixtures,
   ...networkSchemaFixtures,
   ...skillSchemaFixtures,
+  ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
   ...carryOverSchemaFixtures,

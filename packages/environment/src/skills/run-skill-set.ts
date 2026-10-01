@@ -3,7 +3,7 @@ import type { SkillSetMember } from "@agent-harness/contracts";
 import type { SkillSetScope, SkillSetSeam } from "../adapter/seams.js";
 import type { EventLog } from "../event-log/event-log.js";
 import { choicesFor, readSkillChoices } from "./choices.js";
-import type { Generations, PlacedMember } from "./generations.js";
+import type { Generations, PlacedMember, PlacedSet } from "./generations.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
 
@@ -36,10 +36,16 @@ const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly
 /** What a set is current for: the account, the workspace and the trust it was resolved under. */
 const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.accountId, scope.workspace.path, scope.trust.key, scope.trust.decision]);
 
-export const runSkillSets =
-  (options: RunSkillSetsOptions): SkillSetSeam =>
-  async (scope) => {
-    const { own, generations } = options;
+/**
+ * The set resolved for `scope`, placed: each member in it with where its
+ * files lie, before the materialiser gives it a fingerprint and a
+ * generation. What the seam materialises, and what readiness checks
+ * (`readiness.ts`) without making a generation.
+ */
+export const placeSkillSet =
+  (options: Pick<RunSkillSetsOptions, "own" | "log">) =>
+  async (scope: SkillSetScope): Promise<PlacedSet> => {
+    const { own } = options;
     const choices = choicesFor(readSkillChoices(options.log), scope.accountId);
     const members = resolveSkillSet(await own.read(), [])
       .filter(inTheSet)
@@ -57,12 +63,19 @@ export const runSkillSets =
         alwaysOn: choices.alwaysOn(member.name),
       }),
     );
-    const hiddenNativeNames: string[] = [];
-    const { fingerprint, generation } = await generations.materialise({ members: placed, hiddenNativeNames }, scopeKey(scope));
+    return { members: placed, hiddenNativeNames: [] };
+  };
+
+export const runSkillSets = (options: RunSkillSetsOptions): SkillSetSeam => {
+  const place = placeSkillSet(options);
+  return async (scope) => {
+    const set = await place(scope);
+    const { fingerprint, generation } = await options.generations.materialise(set, scopeKey(scope));
     return {
       generation,
       fingerprint,
-      members: placed.map(({ name, origin, invocation, native, alwaysOn }) => ({ name, origin, invocation, native, alwaysOn })),
-      hiddenNativeNames,
+      members: set.members.map(({ name, origin, invocation, native, alwaysOn }) => ({ name, origin, invocation, native, alwaysOn })),
+      hiddenNativeNames: [...set.hiddenNativeNames],
     };
   };
+};

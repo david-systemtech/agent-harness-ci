@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReadinessFix",
+  "anyOf": [
+    {
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^\\/[^\\s\\p{Cc}][^\\p{Cc}]*$",
+      "description": "A slash command a person sends to fix the check, such as /setup-matt-pocock-skills: a / then the command's name, with any arguments, on one line."
+    },
+    {
+      "type": "string",
+      "enum": [
+        "account",
+        "carry-over",
+        "your-machines",
+        "forges",
+        "key-manager",
+        "memory-bank",
+        "skills",
+        "instructions",
+        "browser",
+        "permissions",
+        "appearance"
+      ],
+      "description": "A step of the milestone-1 checklist, registered or not, each with the label every client names it by: account (Account), carry-over (Carry over), your-machines (Your machines), forges (Forges), key-manager (Key manager), memory-bank (Memory bank), skills (Skills), instructions (Instructions), browser (Browser), permissions (Permissions), appearance (Appearance)."
+    }
+  ],
+  "description": "What fixes a failing check: a slash command to send (it starts with /), or the id of the Set up step that does (such as skills)."
+}
