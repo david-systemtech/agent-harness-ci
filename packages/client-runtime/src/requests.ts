@@ -25,7 +25,9 @@ import type { Clock, Timer } from "./platform.js";
  * (`access.*`), which are never queued. A `sessions:write` or `runs:drive`
  * command is refused (`outbox`): every one goes through the outbox's
  * `commands.dispatch`, so none can skip its command-id and receipt rules
- * by being sent here. It asks `capability` first and
+ * by being sent here. A query is sent whatever its scope: one at
+ * `runs:drive` (`routines.testPreCheck`, #532) records nothing, so it has
+ * no command id and nothing for a receipt to guard. It asks `capability` first and
  * answers absent-with-reason at once when the connection cannot take it,
  * so nothing is ever held for later (a connection not yet `ready` is
  * `unreachable`, the specification's word, whatever phase it is in); it
@@ -40,7 +42,7 @@ import type { Clock, Timer } from "./platform.js";
 /** How long a request waits for its answer. A chosen default (the specification's 30 seconds). */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
-/** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` call). */
+/** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` command). */
 const OUTBOX_SCOPES: ReadonlySet<Scope> = new Set<Scope>(["sessions:write", "runs:drive"]);
 
 /**
@@ -127,7 +129,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     const timeoutMs = host.timeoutMs ?? REQUEST_TIMEOUT_MS;
     const entry = registry[method];
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
-    if (OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
+    if (isCommand(entry) && OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
     const capability = host.capability(environmentId, method);
     // A connection on its way to `ready` (connecting, starting, updating) holds nothing for later: it is unreachable now.
     if (capability.status === "absent") return failed(capability.reason === "not-ready" ? "unreachable" : capability.reason, capability.message);
@@ -189,6 +191,23 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
 ];
 
 /**
+ * What changes a routine's listing: the routine itself (`routine.updated`: a command, a firing, a skip, a delivery
+ * attempt), and what its effective mode and attention are read from as the environment holds it now, with no save: an
+ * account or a sign-in (`account_missing`, `account_signed_out`, `model_unavailable`, the account's modes), the skill set
+ * (`skill_unknown`), an endpoint (`endpoint_missing`, `endpoint_needs_secret`) and the settings (the unattended mode a
+ * routine with none asks for, and so `clamped`).
+ */
+const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
+  "routine.updated",
+  "routine.endpoint-set",
+  "routine.endpoint-removed",
+  "account.updated",
+  "signin.updated",
+  "skills.updated",
+  "settings.changed",
+];
+
+/**
  * The notices after which one query's cached answer is fetched again: its
  * matching notices (#142). An account changing (`account.updated`: its
  * status, identity, label, or its removal) or a sign-in moving
@@ -239,12 +258,18 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * ending (`state-import.finished`, #581) the state import's detection; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
- * `browser.status`, whose unpaired flag a pairing clears; and a drain
- * beginning (`environment.draining`, #417) `environment.status`; the
- * denylist changing (`denylist.updated`, #811) `permissions.denylist.get`
- * and `permissions.settings.get`, which counts each section's entries; and
- * the Unattended review changing (`review.updated`, #811: a decision in a
- * run it lists, the watermark moved, a session holding one deleted or
+ * `browser.status`, whose unpaired flag a pairing clears; a drain
+ * beginning (`environment.draining`, #417) `environment.status`; a
+ * routine changing (`routine.updated`, #532) every `routines.history` and
+ * `routines.list`, as does what its listing's mode and attention are read
+ * from (`ROUTINE_LIST_REFRESH_NOTICES`); a webhook endpoint made,
+ * replaced or removed (`routine.endpoint-set`, `routine.endpoint-removed`)
+ * or a delivery attempted (`routine.updated`, whose attempt is an
+ * endpoint's last result) `routines.endpoints.list`; the denylist changing
+ * (`denylist.updated`, #811) `permissions.denylist.get` and
+ * `permissions.settings.get`, which counts each section's entries; and the
+ * Unattended review changing (`review.updated`, #811: a decision in a run
+ * it lists, the watermark moved, a session holding one deleted or
  * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
@@ -278,6 +303,9 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated"],
   "stateImport.detect": ["state-import.finished"],
   "environment.status": ["environment.draining"],
+  "routines.list": ROUTINE_LIST_REFRESH_NOTICES,
+  "routines.history": ["routine.updated"],
+  "routines.endpoints.list": ["routine.endpoint-set", "routine.endpoint-removed", "routine.updated"],
 };
 
 export interface RequestCache {

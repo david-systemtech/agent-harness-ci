@@ -45,6 +45,16 @@ export interface RootNaming {
   readonly repositorySegment: string | null;
 }
 
+/**
+ * How a repository's folder that is itself one skill is named, as a source
+ * on it reads it: after the folder's last segment, else, for the root, after
+ * the repository identity's last segment.
+ */
+export const sourceRootNaming = (identity: string, folder: string): RootNaming => ({
+  sourceFolderSegment: folder === "." ? null : folder.slice(folder.lastIndexOf("/") + 1),
+  repositorySegment: identity.slice(identity.lastIndexOf("/") + 1),
+});
+
 /** A `SKILL.md` or command file split: its frontmatter as parsed (empty for none, null when it does not read as a mapping) and its body. */
 export interface SplitMarkdown {
   readonly frontmatter: Readonly<Record<string, unknown>> | null;
