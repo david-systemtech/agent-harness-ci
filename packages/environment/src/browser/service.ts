@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import {
   ContractError,
   chromeNameOf,
+  pageKeyOf,
   type BrowserStatus,
   type ChromeChange,
   type ExtensionListenerStatus,
@@ -140,12 +141,14 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
 
   const headless = createHeadlessBrowser({
     dataDir: options.dataDir,
+    clock: options.clock,
     settings: () => {
       const settings = readSettings(reader);
       return {
         allowRuns: settings["browser.headless.allowRuns"],
         endpoint: settings["browser.headless.endpoint"],
         executable: settings["browser.headless.executable"],
+        limits: settings["browser.headless.limits"],
       };
     },
     policy: () => heldPolicy,
@@ -306,6 +309,9 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
   // The port file names the environment as it is now: a rename writes it again. The page policy follows the settings and
   // the denylist: a change that alters it is held, and sent to every proved socket.
   const stopFollowing = log.subscribe((event) => {
+    if (event.streamKind === "session" && (event.type === "session.deleted" || event.type === "session.purged")) {
+      void headless.release(pageKeyOf(options.environmentId, event.streamId));
+    }
     if (event.streamKind === stream.kind && event.streamId === stream.id && event.type === "environment.renamed") void ensure();
     if (event.type !== "settings.updated" && event.type !== "denylist.changed") return;
     if (event.type === "settings.updated") headless.refresh();

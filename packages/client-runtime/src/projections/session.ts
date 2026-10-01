@@ -372,6 +372,8 @@ const fromSnapshot = (item: TranscriptItem): Held => {
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
     case "history-unreadable":
       return { ...(item as HistoryUnreadableEntry) };
+    case "forked":
+      return { ...(item as ForkedEntry) };
     case "assistant-text":
     case "assistant-thinking": {
       const settled = item as SnapshotItem<"assistant-text" | "assistant-thinking">;

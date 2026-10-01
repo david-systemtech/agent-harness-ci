@@ -1,7 +1,7 @@
 import * as nodeFs from "node:fs";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { DATABASE_FILE, isOutcomeRecord, OUTCOME_RECORD_FILE, UPDATE_ID_PATTERN, type OutcomeRecord } from "@agent-harness/contracts/launcher";
+import { DATABASE_FILE, isOutcomeRecord, OUTCOME_RECORD_FILE, RESTORE_MARKER_FILE, UPDATE_ID_PATTERN, type OutcomeRecord } from "@agent-harness/contracts/launcher";
 import { createFileDurably, syncDirectory, syncFile, writeFileDurably, type DurableFs } from "./durable.js";
 
 /**
@@ -29,7 +29,7 @@ export const SNAPSHOTS_DIRECTORY = "snapshots";
  * outcome record, and holding that record, so a restore cut short is
  * finished before anything opens the database again.
  */
-export const RESTORE_MARKER_FILE = "restore-marker.json";
+export { RESTORE_MARKER_FILE } from "@agent-harness/contracts/launcher";
 
 /** The room a snapshot leaves free beyond its copy, for the target's migrations and whatever else writes meanwhile. */
 export const SNAPSHOT_MARGIN_BYTES = 256 * 1024 * 1024;
