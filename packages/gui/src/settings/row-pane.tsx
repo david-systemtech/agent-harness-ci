@@ -1,6 +1,7 @@
 import { homeEnvironment, noKeysLine, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
 import { FIRST_ROW, settingsRow, type SettingsRowId } from "@agent-harness/contracts";
 import { useId, type ComponentType, type ReactNode } from "react";
+import { BrowserSettingsPane } from "../browser/settings-pane.js";
 import { AccessPane } from "../access/access-pane.js";
 import { AccountsPane } from "../accounts/accounts-pane.js";
 import { DefaultModelPane } from "../accounts/default-model-pane.js";
@@ -111,6 +112,7 @@ const BUILT_PANES: Partial<Readonly<Record<SettingsRowId, ComponentType>>> = {
   "access.key-managers": KeyManagersPane,
   "access.forges": ForgesPane,
   "access.permissions": PermissionsPane,
+  "access.browser": BrowserSettingsPane,
   "environments.access": AccessPane,
   "environments.service": ServicePane,
   "knowledge.instructions": InstructionsPane,
