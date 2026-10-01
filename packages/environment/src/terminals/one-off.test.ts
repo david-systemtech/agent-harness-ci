@@ -26,7 +26,7 @@ const oneOff = async (command: string, prepare: (dir: string) => void = () => un
   prepare(dir);
   const sessionId = await sessionIn(client, dir);
   const id = randomUUID();
-  await client.request("terminals.run", { commandId: randomUUID(), id, sessionId, command, cols: 120, rows: 40, env: { ...NO_PAGERS } });
+  await client.request("terminals.run", { commandId: randomUUID(), id, sessionId, command, cols: 120, rows: 40, env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...NO_PAGERS } });
   const view = await follow(client, id);
   await view.until((v) => v.exited !== undefined, `${command} to exit`);
   return { raw: view.text, said: lines(view.text), exitCode: view.exited?.exitCode };

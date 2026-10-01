@@ -219,7 +219,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     }
     const cwd = "command" in params && params.cwd !== undefined ? resolve(workspace.path, params.cwd) : workspace.path;
     if (workspace.status === "missing") {
-      return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is gone, or did not answer in time.`, { path: cwd }) };
+      return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${workspace.path} is gone, or did not answer in time.`, { path: workspace.path }) };
     }
     const unavailable = "command" in params ? undefined : noPty();
     if (unavailable !== undefined) return { aggregate, rejected: unavailable };

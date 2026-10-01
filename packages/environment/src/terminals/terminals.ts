@@ -95,6 +95,8 @@ export interface TerminalsOptions {
   readonly shell?: () => ShellCommand;
   /** The clean base under a client's variables. Preset: `baseEnvironment`. */
   readonly baseEnvironment?: () => Record<string, string>;
+  /** The cached login PATH for one-offs, without starting a login shell per command. Preset: the clean base's PATH. */
+  readonly runPath?: () => Promise<string>;
   /** The process environment of a session's terminal (#307), asked as it opens. Preset: none, so nothing is supplied and the shell starts at once. */
   readonly processEnvironment?: (sessionId: string) => ProcessEnvironment;
   /** Preset `OUTPUT_GATHER_MS`; 0 makes each read a chunk at once. */
@@ -374,24 +376,36 @@ export const createTerminals = (options: TerminalsOptions): Terminals => {
 
   /** Starts the terminal's process in `supplied`, over the clean base and under the opener's variables, and types what was typed at it meanwhile. */
   const start = (terminal: Terminal, launch: Launch, supplied: Readonly<Record<string, string>>): void => {
-    try {
-      const command = launch.command();
-      const env = { ...base(), ...(process.platform === "win32" ? {} : { SHELL: command.file }), ...supplied, ...launch.env };
-      const child = (launch.process ?? pty).spawn(command.file, command.args, { cwd: launch.cwd, cols: terminal.cols, rows: terminal.rows, env });
-      terminal.process = child;
-      child.onData((data) => hear(terminal, data));
-      child.onExit(({ exitCode, signal: signalNumber }) => {
-        if (exitCode === -1 && terminal.closing === undefined) terminal.closing = "failed";
-        exited(terminal, exitCode, signalNumber ? signalNumber : null);
-      });
-      for (const data of terminal.typed.splice(0)) child.write(data);
-    } catch (error) {
-      // The open was accepted already: the failure is the terminal's end, with cause failed, not a lost throw.
-      console.error(`Terminal ${terminal.id} could not start its shell:`, error);
-      hear(terminal, `The terminal could not start: ${error instanceof Error ? error.message : String(error)}\r\n`);
-      terminal.closing = "failed";
-      exited(terminal, -1, null);
-    }
+    const spawn = (path: Readonly<Record<string, string>>): void => {
+      // Closed while the cached PATH was being supplied: start nothing.
+      if (terminal.exit !== undefined) return;
+      try {
+        const command = launch.command();
+        const env = { ...base(), ...path, ...(process.platform === "win32" ? {} : { SHELL: command.file }), ...supplied, ...launch.env };
+        const child = (launch.process ?? pty).spawn(command.file, command.args, { cwd: launch.cwd, cols: terminal.cols, rows: terminal.rows, env });
+        terminal.process = child;
+        child.onData((data) => hear(terminal, data));
+        child.onExit(({ exitCode, signal: signalNumber }) => {
+          if (exitCode === -1 && terminal.closing === undefined) terminal.closing = "failed";
+          exited(terminal, exitCode, signalNumber ? signalNumber : null);
+        });
+        for (const data of terminal.typed.splice(0)) child.write(data);
+      } catch (error) {
+        // The open was accepted already: the failure is the terminal's end, with cause failed, not a lost throw.
+        console.error(`Terminal ${terminal.id} could not start its shell:`, error);
+        hear(terminal, `The terminal could not start: ${error instanceof Error ? error.message : String(error)}\r\n`);
+        terminal.closing = "failed";
+        exited(terminal, -1, null);
+      }
+    };
+    if (launch.process !== runProcess || options.runPath === undefined) spawn({});
+    else void options.runPath().then(
+      (PATH) => spawn({ PATH }),
+      (error: unknown) => {
+        console.error(`The login PATH of terminal ${terminal.id} could not be supplied; it starts with the clean base:`, error);
+        spawn({});
+      },
+    );
   };
 
   const close = (id: string, cause: Extract<TerminalExitCause, "closed" | "deleted">): void => {

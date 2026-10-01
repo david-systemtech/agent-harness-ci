@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import type { Pty } from "./pty.js";
 
+/** Drain trailing output after command exit, without waiting forever for descendants. */
+const DRAIN_MS = 100;
+
 /** The terminal process port over pipes: closed stdin and no controlling terminal. */
 export const runProcess: Pty = {
   check() {},
@@ -32,16 +35,29 @@ export const runProcess: Pty = {
       },
       onExit(listener) {
         let failed = false;
+        let finished = false;
+        let drain: ReturnType<typeof setTimeout> | undefined;
+        const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
+          if (finished) return;
+          finished = true;
+          running = false;
+          clearTimeout(drain);
+          child.stdout.destroy();
+          child.stderr.destroy();
+          listener({ exitCode: failed ? -1 : code ?? 0, signal: signal === null ? undefined : constants.signals[signal] });
+        };
         child.on("error", (error) => {
           failed = true;
           // A spawn error is asynchronous; keep its explanation in the terminal's output.
           output(`The command could not start: ${error.message}\r\n`);
         });
-        // close follows the draining of both pipes, so the exit never precedes its output.
-        child.on("close", (code, signal) => {
+        child.on("exit", (code, signal) => {
           running = false;
-          listener({ exitCode: failed ? -1 : code ?? 0, signal: signal === null ? undefined : constants.signals[signal] });
+          drain = setTimeout(() => finish(code, signal), DRAIN_MS);
         });
+        // Usually both pipes drain at close; descendants may hold them past the bound.
+        // Failed spawns emit close without exit, so they also finish here.
+        child.on("close", finish);
       },
       commandRunning: () => running,
     };

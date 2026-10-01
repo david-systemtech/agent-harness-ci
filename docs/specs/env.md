@@ -122,6 +122,12 @@ resizes only change its display size. Failure to spawn ends it with code -1 and 
 `!` displays this output; `!!` collects it, with the existing size and time limits.
 Interactive commands belong in an ordinary or tool terminal.
 
+A run uses the cached login PATH the Managed tools registry resolved, with the
+session's process environment and explicit env laid over it; it does not run a
+login profile for each command. When the command exits, pipe output drains before
+the exit event, for at most 100 ms if a background descendant keeps the pipes open.
+Output after that bound is discarded, so descendants cannot delay completion.
+
 Both terminal panes answer a newly opened login shell's first snapshot and live
 queries for one second even without focus. Afterwards they answer only focused live
 output. Reused terminals and reconnect snapshots receive no startup exception.
