@@ -292,7 +292,8 @@ interface SpawnKey {
   readonly instructions: string;
   /**
    * What the spawn's sandbox and deny rules were made from (#140): the run's
-   * containment (level, mechanism, network, writable set) and the denylist it
+   * containment (level, mechanism, network, writable set and what it closes
+   * inside it, #791) and the denylist it
    * projects, both fixed when the CLI starts. A run with another needs a
    * spawn of its own.
    */
@@ -311,6 +312,7 @@ const confinementOf = (input: RunInput): string => {
     containment.mechanism,
     containment.network,
     containment.writable,
+    containment.readOnly,
     denylist === null ? null : [denylist.paths, denylist.exempt, denylist.commandPatterns],
   ]);
 };

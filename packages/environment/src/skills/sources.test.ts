@@ -98,6 +98,8 @@ describe("a repository whose root is one skill (ADR 0029's root-skill test)", ()
       addedAt: expect.any(String),
       commit,
       skillCount: 1,
+      sync: { outcome: "ok", since: source.addedAt },
+      attemptedAt: source.addedAt,
     });
 
     const { id } = await create(client);
@@ -248,7 +250,7 @@ describe("an added source", () => {
     expect(readFileSync(join(set.generation as string, "skills", "tdd", "SKILL.md"), "utf8")).toBe(skill("tdd"));
   });
 
-  it("is listed by skills.get with its URL, identity, folder, follow, commit and skill count, its members in its layer", async () => {
+  it("is listed by skills.get with its URL, identity, folder, follow, commit and skill count, its add as its last sync and attempt, its members in its layer", async () => {
     const forge = skillRepositories(tempDir);
     const commit = forge.commit("mattpocock/skills", { "skills/engineering/tdd/SKILL.md": skill("tdd"), "skills/engineering/review/SKILL.md": skill("review") });
     const { client } = await start(forge);
@@ -267,6 +269,8 @@ describe("an added source", () => {
         addedAt: source.addedAt,
         commit,
         skillCount: 2,
+        sync: { outcome: "ok", since: source.addedAt },
+        attemptedAt: source.addedAt,
       },
     ]);
     expect(members.map((member) => [member.name, member.path, member.layer, member.shadowedBy])).toEqual([

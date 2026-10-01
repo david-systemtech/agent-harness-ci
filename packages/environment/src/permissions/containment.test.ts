@@ -628,27 +628,27 @@ describe("the tool gate's containment", () => {
   });
 });
 
+/** A repository with one commit on `main`, made by git in a temporary directory of its own; its real path. */
+const repository = (): string => {
+  const checkout = realpathSync(tempDir("agent-harness-repository-"));
+  git(checkout, "init", "-q");
+  writeFileSync(join(checkout, "README.md"), "# Test\n");
+  git(checkout, "add", "README.md");
+  git(checkout, "commit", "-q", "-m", "First");
+  return checkout;
+};
+
+/** Where git may make a worktree: a path in a temporary directory of its own, not there yet. */
+const worktreePath = (name: string): string => join(realpathSync(tempDir("agent-harness-worktrees-")), name);
+
+/** What the fake provider was handed as its containment for one run in `workspacePath` at `level`. */
+const handedIn = async (workspacePath: string, level: ContainmentLevel) => {
+  const { t, client, id, adapter } = await sessionIn(workspacePath, level);
+  await runScript(t, client, id, calling());
+  return adapter.lastRun().input.containment;
+};
+
 describe("the repository's git directory, which a contained run may write in beside its workspace (#322)", () => {
-  /** A repository with one commit on `main`, made by git in a temporary directory of its own; its real path. */
-  const repository = (): string => {
-    const checkout = realpathSync(tempDir("agent-harness-repository-"));
-    git(checkout, "init", "-q");
-    writeFileSync(join(checkout, "README.md"), "# Test\n");
-    git(checkout, "add", "README.md");
-    git(checkout, "commit", "-q", "-m", "First");
-    return checkout;
-  };
-
-  /** Where git may make a worktree: a path in a temporary directory of its own, not there yet. */
-  const worktreePath = (name: string): string => join(realpathSync(tempDir("agent-harness-worktrees-")), name);
-
-  /** What the fake provider was handed as its containment for one run in `workspacePath` at `level`. */
-  const handedIn = async (workspacePath: string, level: ContainmentLevel) => {
-    const { t, client, id, adapter } = await sessionIn(workspacePath, level);
-    await runScript(t, client, id, calling());
-    return adapter.lastRun().input.containment;
-  };
-
   it.each(["workspace", "workspace-no-network"] as const)(
     "at %s, holds a worktree's common git directory after the workspace, the scratch directory and the temporary directory, in RunContainment's own shape",
     async (level) => {
@@ -662,6 +662,7 @@ describe("the repository's git directory, which a contained run may write in bes
         scratchDirectory: containment.scratchDirectory,
         temporaryDirectory: containment.temporaryDirectory,
         writable: [worktree, containment.scratchDirectory, containment.temporaryDirectory, join(checkout, ".git")],
+        readOnly: ["hooks", "config", "config.worktree", join("worktrees", "feature", "config.worktree")].map((path) => join(checkout, ".git", path)),
         network: level === "workspace",
       });
     },
@@ -757,5 +758,97 @@ describe("the repository's git directory, which a contained run may write in bes
     expect(decisionsOf(t, id, runId).map((event) => event.payload)).toEqual([
       { runId, toolCallId: outside?.call.toolCallId, tool: "Write", summary: "Write call", decision: "denied", decidedBy: "containment", promptId: null, reason: message },
     ]);
+  });
+});
+
+describe("the repository git directory's hooks and config, which a contained run may not write (#791)", () => {
+  /** What a run may not write in the git directory `gitDirectory`: its hooks, its config and the main worktree's config.worktree, then each of `worktrees`' config.worktree, in that order. */
+  const closedIn = (gitDirectory: string, ...worktrees: string[]): string[] => [
+    join(gitDirectory, "hooks"),
+    join(gitDirectory, "config"),
+    join(gitDirectory, "config.worktree"),
+    ...worktrees.map((name) => join(gitDirectory, "worktrees", name, "config.worktree")),
+  ];
+
+  it.each(["workspace", "workspace-no-network"] as const)(
+    "at %s, closes a worktree's common git directory's hooks and config, and each worktree's config.worktree, there or not",
+    async (level) => {
+      const checkout = repository();
+      const worktree = worktreePath("feature");
+      git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+      git(checkout, "worktree", "add", "-q", "-b", "another", worktreePath("another"));
+      git(worktree, "config", "extensions.worktreeConfig", "true");
+      git(worktree, "config", "--worktree", "core.sparseCheckout", "true");
+      const containment = await handedIn(worktree, level);
+      expect(containment.writable).toContain(join(checkout, ".git"));
+      expect(containment.readOnly).toEqual(closedIn(join(checkout, ".git"), "another", "feature"));
+    },
+  );
+
+  it("closes a checkout root's own .git, which the writable set does not name, and the repository's .git above a directory below its root", async () => {
+    const checkout = repository();
+    const root = await handedIn(checkout, "workspace");
+    expect(root.writable).toEqual([checkout, root.scratchDirectory, root.temporaryDirectory]);
+    expect(root.readOnly).toEqual(closedIn(join(checkout, ".git")));
+    const below = join(checkout, "packages", "app");
+    mkdirSync(below, { recursive: true });
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktreePath("feature"));
+    expect((await handedIn(below, "workspace-no-network")).readOnly).toEqual(closedIn(join(checkout, ".git"), "feature"));
+  });
+
+  it("closes a bare repository's hooks and config for its worktree, a submodule's git directory for its checkout, and a separated one for its checkout", async () => {
+    const bare = join(realpathSync(tempDir("agent-harness-bare-")), "app.git");
+    git(repository(), "clone", "-q", "--bare", ".", bare);
+    const worktree = worktreePath("feature");
+    git(bare, "worktree", "add", "-q", "-b", "feature", worktree);
+    expect((await handedIn(worktree, "workspace")).readOnly).toEqual(closedIn(bare, "feature"));
+    const superproject = repository();
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "add", "-q", repository(), "vendor/library");
+    expect((await handedIn(join(superproject, "vendor", "library"), "workspace")).readOnly).toEqual(closedIn(join(superproject, ".git", "modules", "vendor", "library")));
+    const separated = join(realpathSync(tempDir("agent-harness-separated-")), "app.git");
+    const checkout = join(realpathSync(tempDir("agent-harness-checkout-")), "app");
+    git(repository(), "clone", "-q", "--separate-git-dir", separated, ".", checkout);
+    expect((await handedIn(checkout, "workspace")).readOnly).toEqual(closedIn(separated));
+  });
+
+  it.each([
+    ["a checkout root", false],
+    ["a worktree", true],
+  ] as const)("at %s, the gate denies a file tool's write to them, recorded as containment's, and lets a commit's writes through", async (_, inWorktree) => {
+    const checkout = repository();
+    const worktree = worktreePath("feature");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+    const gitDirectory = join(checkout, ".git");
+    const { t, client, id, adapter } = await sessionIn(inWorktree ? worktree : checkout, "workspace");
+    const closed = ["hooks/pre-commit", "config", "config.worktree", "worktrees/feature/config.worktree"].map((path) => join(gitDirectory, path));
+    const commit = ["objects/pack/new.pack", "refs/heads/feature", "worktrees/feature/index", "worktrees/feature/HEAD", "index", "HEAD", "config.lock"].map((path) => join(gitDirectory, path));
+    const runId = await runScript(t, client, id, calling(write(...commit), ...closed.map((path) => write(path))));
+    const [allowed, ...denied] = adapter.lastRun().gated;
+    expect(allowed?.decision).toEqual({ decision: "allow" });
+    expect(denied.map((gated) => gated.decision.decision)).toEqual(["deny", "deny", "deny", "deny"]);
+    const messages = denied.map((gated) => (gated.decision.decision === "deny" ? gated.decision.message : ""));
+    messages.forEach((message, index) => {
+      expect(message).toContain(`${closed[index]} is in the repository's git hooks or config`);
+      expect(message).toContain("asking again will not widen it");
+    });
+    expect(decisionsOf(t, id, runId).map((event) => event.payload)).toEqual(
+      denied.map((gated, index) => ({ runId, toolCallId: gated.call.toolCallId, tool: "Write", summary: "Write call", decision: "denied", decidedBy: "containment", promptId: null, reason: messages[index] })),
+    );
+  });
+
+  it("is read again at each run start, so a worktree made between runs has its config.worktree closed at the next", async () => {
+    const checkout = repository();
+    const { t, client, id, adapter } = await sessionIn(checkout, "workspace");
+    await runScript(t, client, id, calling());
+    expect(adapter.lastRun().input.containment.readOnly).toEqual(closedIn(join(checkout, ".git")));
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktreePath("feature"));
+    await runScript(t, client, id, calling());
+    expect(adapter.lastRun().input.containment.readOnly).toEqual(closedIn(join(checkout, ".git"), "feature"));
+  });
+
+  it("closes nothing for a directory in no repository, or at off", async () => {
+    const loose = realpathSync(tempDir("agent-harness-workspace-"));
+    expect((await handedIn(loose, "workspace")).readOnly).toEqual([]);
+    expect((await handedIn(repository(), "off")).readOnly).toEqual([]);
   });
 });

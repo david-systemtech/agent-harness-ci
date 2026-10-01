@@ -30,19 +30,18 @@ import { NotConnectedError, type ConnectionSeams } from "../connections/registry
  *   is new on every start, and a re-pair makes a new one: a call addressed
  *   to the old session is not this one's to answer).
  *
- * Verified first (#142): in phase A no environment sends a client-addressed
- * call and no method carries its answer. The environment's stream carries
- * the notices of `ENVIRONMENT_NOTICE_TYPES` and nothing addressed to one
- * client, and the frames have no client-bound call. So the event's type and
- * shape here (`CLIENT_CALL_EVENT`) and the answer's method
- * (`CLIENT_CALL_ANSWER_METHOD`) are this build's placeholders, owed to the
- * browser workstream (#93), which names both on the environment's side.
+ * The names #142 built as placeholders are the final ones (#554): the
+ * environment notice `client.call` (`CLIENT_CALL_EVENT`, the contracts'
+ * `ClientCallPayload`) and the method `client.answer`
+ * (`CLIENT_CALL_ANSWER_METHOD`, at `runs:drive`). The runtime itself
+ * registers `browser.chrome` (`browser-chrome.ts`), the browser relay's
+ * client half.
  */
 
-/** The type of the event on the environment's stream that carries a call: a placeholder until the browser workstream names it. */
+/** The type of the event on the environment's stream that carries a call: the environment notice `client.call`. */
 export const CLIENT_CALL_EVENT = "client.call";
 
-/** The method the answer is sent with: a placeholder until the browser workstream names it. */
+/** The method the answer is sent with: `client.answer`, at `runs:drive`. */
 export const CLIENT_CALL_ANSWER_METHOD = "client.answer";
 
 /** A call as its handler receives it. */
