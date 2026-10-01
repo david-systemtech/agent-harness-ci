@@ -91,6 +91,7 @@ const platformSection = (target: DesktopTarget, folders: BuildFolders): Configur
           target: targets,
           artifactName: target.name,
           category: "public.app-category.developer-tools",
+          extendInfo: { NSCameraUsageDescription: "Scan a pairing QR from another machine to add it." },
           // Milestone 1 ships unsigned builds (#359): signed ad hoc, which Apple silicon needs to run it and
           // `codesign --verify` passes, with no hardened runtime, which only notarisation needs.
           identity: "-",

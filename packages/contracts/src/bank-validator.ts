@@ -202,6 +202,15 @@ const treeOf = (paths: readonly string[]): Tree => {
   return tree;
 };
 
+/**
+ * The bank's structure as the validator reads it, which the environment's
+ * IndexRenderer reads too, so the index and the verdict agree on which
+ * files are memories, folder files and topics: a Markdown file's
+ * frontmatter and body, and the tree under `projects/`.
+ */
+export { read as readBankMarkdown, treeOf as bankTreeOf };
+export type { Read as BankMarkdown, Tree as BankTree, MemoryFile as BankMemoryFile };
+
 /** The file a scope folder's level gives it. */
 const scopeFileOf = (folder: string): string => {
   const depth = folder.slice(PROJECTS.length).split("/").length - 1;

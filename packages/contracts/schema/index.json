@@ -643,6 +643,10 @@
       "title": "SessionHistoryImportedPayload"
     },
     {
+      "path": "sessions/events/run.suggested.json",
+      "title": "RunSuggestedPayload"
+    },
+    {
       "path": "sessions/events/run.ended.json",
       "title": "RunEndedPayload"
     },
@@ -5731,6 +5735,22 @@
       "title": "terminals.open error"
     },
     {
+      "path": "methods/terminals.run/params.json",
+      "title": "terminals.run params"
+    },
+    {
+      "path": "methods/terminals.run/result.json",
+      "title": "terminals.run result"
+    },
+    {
+      "path": "methods/terminals.run/response.json",
+      "title": "terminals.run response"
+    },
+    {
+      "path": "methods/terminals.run/error.json",
+      "title": "terminals.run error"
+    },
+    {
       "path": "methods/terminals.write/params.json",
       "title": "terminals.write params"
     },
@@ -7994,6 +8014,16 @@
       "result": "methods/terminals.open/result.json",
       "response": "methods/terminals.open/response.json",
       "error": "methods/terminals.open/error.json"
+    },
+    {
+      "name": "terminals.run",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.run/params.json",
+      "result": "methods/terminals.run/result.json",
+      "response": "methods/terminals.run/response.json",
+      "error": "methods/terminals.run/error.json"
     },
     {
       "name": "terminals.write",

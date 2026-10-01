@@ -14,6 +14,7 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
+import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { hostToolServer, serverRule } from "./host-tools.js";
 
@@ -161,7 +162,8 @@ const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Pa
  * reach, never whether it asks). A command may write in the run's writable
  * set (the workspace is the CLI's working directory already), less what the
  * run may not write inside it (`denyWrite`, which the sandbox puts above
- * `allowWrite`: the repository git directory's hooks and config, #791). The
+ * `allowWrite`: the repository git directory's hooks and config, #791, plus
+ * recursive git program paths under Seatbelt, #1094). The
  * network is open at `workspace`, local binding included; the pinned
  * sandbox cannot name "any domain", so it asks the host about each new
  * host, which the adapter answers itself once the gate lets the host
@@ -176,6 +178,7 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
   if (containment.level === "off") return null;
   const denyRead = denylist?.paths ?? [];
   const allowRead = denyRead.length > 0 ? (denylist?.exempt ?? []) : [];
+  const denyWrite = [...containment.readOnly, ...(containment.mechanism === "seatbelt" ? GIT_PROGRAM_DENY_WRITE : [])];
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -186,7 +189,7 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
       : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: {
       allowWrite: [...containment.writable],
-      ...(containment.readOnly.length > 0 && { denyWrite: [...containment.readOnly] }),
+      ...(denyWrite.length > 0 && { denyWrite }),
       ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
       ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
     },
@@ -308,6 +311,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),
     includePartialMessages: true,
+    promptSuggestions: true,
     // An SDK-driven CLI otherwise returns every thinking block empty; the transcript shows reasoning.
     extraArgs: { "thinking-display": "summarized" },
   };

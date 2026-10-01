@@ -4,6 +4,7 @@
   // only checks it there.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
   "references": [{ "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }]

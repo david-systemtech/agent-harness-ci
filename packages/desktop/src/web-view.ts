@@ -79,6 +79,9 @@ export const webViews = (electron: DesktopElectron, window: ElectronBrowserWindo
           allowRunningInsecureContent: false,
         },
       });
+      // Each dock partition has its own permission handlers; media belongs to the app window alone.
+      view.webContents.session.setPermissionCheckHandler((_contents, permission) => permission !== "media");
+      view.webContents.session.setPermissionRequestHandler((_contents, permission, answer) => answer(permission !== "media"));
       views.set(id, view);
       view.webContents.debugger.on("message", (_details, method, params, sessionId) => {
         const event = { method, params, ...(sessionId && { sessionId }) };

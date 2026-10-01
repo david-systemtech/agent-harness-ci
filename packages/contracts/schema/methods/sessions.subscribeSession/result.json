@@ -603,6 +603,35 @@
       ],
       "description": "A session as every client renders its list row: identity, title, filing, shelf, place, activity, mode, browser, forge and the composer draft."
     },
+    "suggestion": {
+      "description": "The latest completed run's predicted next message; cleared by the next run or a rewind. Absent on older environments.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "runId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            "suggestion": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The predicted next message, verbatim; a client offers it and sends it only on an explicit user action."
+            }
+          },
+          "required": [
+            "runId",
+            "suggestion"
+          ],
+          "description": "A provider's prediction of the user's next message after a run, for the composer."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "runs": {
       "type": "array",
       "items": {

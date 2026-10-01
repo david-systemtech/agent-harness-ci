@@ -62,6 +62,32 @@ export const terminalsOpen = defineMethod({
   errors: [],
 });
 
+/**
+ * Runs one command with closed stdin, pipe output and no controlling terminal.
+ * Uses /bin/sh -c on POSIX, PowerShell without a profile on Windows: never
+ * the login shell's startup. cwd defaults to the session workspace; relative
+ * paths resolve from it. The receipt admits the terminal; terminal.exited
+ * carries the command's status, including -1/cause failed if it cannot start.
+ * Shares open's id, session limit, workspace check, output scrubbing and
+ * lifecycle; no native pseudo-terminal is needed. Writes are ignored.
+ */
+export const terminalsRun = defineMethod({
+  name: "terminals.run",
+  scope: "terminal",
+  kind: "command",
+  params: commandParams({
+    ...terminalTarget,
+    sessionId: SessionId,
+    command: z.string().min(1).max(1024 * 1024),
+    cwd: z.string().min(1).optional(),
+    cols: TerminalColumns.optional(),
+    rows: TerminalRows.optional(),
+    env: TerminalEnvironment.optional(),
+  }),
+  result: z.object({ terminal: TerminalInfo }),
+  errors: [],
+});
+
 /** Writes `data` to the terminal, as keys typed at it: at most 1 MiB of text a command. */
 export const terminalsWrite = defineMethod({
   name: "terminals.write",

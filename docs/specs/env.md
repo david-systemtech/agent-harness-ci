@@ -102,6 +102,36 @@ One **environment** per OS user on every machine: a server installed as a user-l
 - **Client sessions** are listed and revoked through `access.sessions.list` and `access.sessions.revoke` (scope `admin`). The list returns every client session, oldest first, each with its id, kind, label, created, last seen, expiry, revoked-at, scopes, ceiling and local flag; `live: true` leaves out the revoked and expired ones. Revocation closes any open connection with `bye: revoked` and refuses the token from then on. Tokens are signed with the environment's key and are opaque to clients; verification needs no database read, revocation is checked against a small in-memory set loaded from the auth tables.
 - **The access log** (ADR 0006) is the `access` stream in the event log, one stream whose id is the environment's id: pairing created, exchanged and expired (`pairing.created`, `pairing.exchanged`, `pairing.expired`; the code itself is never logged); client session created, refreshed, revoked (`client-session.created` with how it was made, `bootstrap` or `pairing`; `client-session.refreshed`; `client-session.revoked` with the reason, `requested`, `replaced` or `idle`); connection opened and closed with the client session (`socket.opened`, `socket.closed`); scope grant and ceiling change (`scope.granted`, `ceiling.changed`). Payload schemas are in the contracts package. `access.log.list` reads it (scope `admin`) after a cursor, oldest first, 100 events unless asked for up to 1,000.
 
+### Terminals
+
+`terminals.open` starts an interactive login shell in a pseudo-terminal. `terminals.run`
+(#265) starts one command with pipe output, closed stdin and no controlling terminal,
+using `/bin/sh -c` on POSIX or PowerShell with `-NoProfile -NonInteractive -Command`
+on Windows. Its parameters are a command id, terminal id, session id, command,
+optional cwd, env and display size. cwd defaults to the session workspace; relative
+paths resolve from it, and an absolute cwd may name another directory. It requires
+`terminal` scope, admits the terminal in the receipt, and sends output and the exit
+code on `terminals.subscribe` through `terminal.output` and `terminal.exited`.
+
+A run shares open's session owner, id deduplication, sixteen-terminal limit, bounded
+scrollback, scrubbed output, process environment, workspace availability check and
+close/delete/restart lifecycle. It works without node-pty. No login greeting, prompt,
+echo or marker is part of its output. Writes are ignored because stdin is closed;
+resizes only change its display size. Failure to spawn ends it with code -1 and cause
+`failed`. Closing it signals its process group on POSIX, and its process on Windows.
+`!` displays this output; `!!` collects it, with the existing size and time limits.
+Interactive commands belong in an ordinary or tool terminal.
+
+A run uses the cached login PATH the Managed tools registry resolved, with the
+session's process environment and explicit env laid over it; it does not run a
+login profile for each command. When the command exits, pipe output drains before
+the exit event, for at most 100 ms if a background descendant keeps the pipes open.
+Output after that bound is discarded, so descendants cannot delay completion.
+
+Both terminal panes answer a newly opened login shell's first snapshot and live
+queries for one second even without focus. Afterwards they answer only focused live
+output. Reused terminals and reconnect snapshots receive no startup exception.
+
 ### Lifecycle
 
 - **Startup order**: open the database and apply migrations; bootstrap projectors from their cursors; load the environment record and the auth tables; start the adapter host; bind the listeners; signal `prepared` to the launcher; only then accept `auth` frames and requests. Before that point the discovery URL reports `starting` and a request is answered `unavailable`. The gate exists so a trial version that cannot serve is rolled back by the launcher within its deadline (ADR 0007).
