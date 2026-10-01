@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { RoutineDeliveryAttemptedPayload } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { end } from "../../test/fake-adapter.js";
 import { startFakeOpenBao } from "../../test/fake-openbao.js";
@@ -21,9 +21,20 @@ const setup = async () => {
   const t = await startTestEnvironment({ name: "SYSTEM-SERVER" });
   onCleanup(() => t.close());
   const bao = await startFakeOpenBao({ now: () => t.clock.now() });
-  onCleanup(() => bao.close());
+  onCleanup(async () => {
+    try {
+      // The fake adapter can finish a script before its process environment is supplied.
+      await Promise.all(t.adapter.processes.map((process) => process.supplied));
+      await t.close();
+      // Closing the provider processes releases their run tokens in the background.
+      await t.env.keyManagerConnections.settled();
+    } finally {
+      await bao.close();
+    }
+  });
   bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "endpoints"] });
-  bao.policy("endpoints", 'path "personal/data/agents/endpoint-hermes" { capabilities = ["read"] }');
+  // The imported routine inherits injection, so its provider processes need to mint run tokens too.
+  bao.policy("endpoints", 'path "personal/data/agents/endpoint-hermes" { capabilities = ["read"] }\npath "auth/token/create" { capabilities = ["update"] }');
   bao.kv("personal", 2);
   bao.secret("personal", "agents/endpoint-hermes", { secret: SECRET });
   const received: ReceivedRequest[] = [];
@@ -74,10 +85,35 @@ const setup = async () => {
     return ranNow(client, routine.state.id);
   };
   const attempted = (entryId: string, attempt: number) => untilRoutineEvent(t, routine.state.id, (event) => event.type === "routine.delivery-attempted" && event.payload["entryId"] === entryId && event.payload["attempt"] === attempt && RoutineDeliveryAttemptedPayload.parse(event.payload).target.kind === "webhook");
-  return { t, client, routine, received, room, fire, attempted, loseNextAcknowledgement: () => { loseAcknowledgement = true; } };
+  return { t, bao, client, routine, received, room, fire, attempted, loseNextAcknowledgement: () => { loseAcknowledgement = true; } };
 };
 
 describe("upstream watch results through the Hermes endpoint", { timeout: 60_000 }, () => {
+  it("finishes a firing's process environment before tearing down its key manager and data directory", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Registered first so this checks after the fixture's teardown, including background work.
+    let settle: () => Promise<void> = () => Promise.resolve();
+    onCleanup(async () => {
+      try {
+        await settle();
+        expect(errors).not.toHaveBeenCalled();
+      } finally {
+        errors.mockRestore();
+      }
+    });
+    const { t, bao, fire } = await setup();
+    settle = async () => {
+      await Promise.all(t.adapter.processes.map((process) => process.supplied));
+      await t.env.keyManagerConnections.settled();
+    };
+    let answer!: () => void;
+    bao.delay("POST auth/token/create", new Promise<void>((resolve) => { answer = resolve; }));
+    // The answer is ready on the next turn, while teardown begins with the request still in flight.
+    onCleanup(() => { setImmediate(answer); });
+    await fire("completed", "[SILENT]");
+    await bao.until(() => bao.requests.some((request) => request.path === "auth/token/create"));
+  });
+
   it("tests the reference-backed endpoint, then retries a lost acknowledgement with one result in the receiver's room", async () => {
     const { t, client, routine, received, room, fire, attempted, loseNextAcknowledgement } = await setup();
     expect(await client.request("routines.endpoints.test", { name: "hermes" })).toMatchObject({ status: 204, error: null });
