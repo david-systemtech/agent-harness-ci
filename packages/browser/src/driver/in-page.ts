@@ -51,7 +51,8 @@ export function locateElement(target: ElementTarget): LocatedElement {
     if (element === null) return { kind: "stale" };
   } else {
     try {
-      element = document.querySelector(target.selector);
+      // Through the prototype: a page's element named querySelector takes the document's own member's place (#696).
+      element = Document.prototype.querySelector.call(document, target.selector);
     } catch (error) {
       return { kind: "invalid", message: error instanceof Error ? error.message : String(error) };
     }
@@ -91,7 +92,8 @@ export function locateElement(target: ElementTarget): LocatedElement {
  * names no element now.
  */
 export function selectFieldContents(target: ElementTarget): "selected" | "gone" | "not-editable" {
-  const element = "ref" in target ? ((globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(target.ref) ?? null) : document.querySelector(target.selector);
+  // A selector through the prototype, as `locateElement` reads it (#696).
+  const element = "ref" in target ? ((globalThis as SnapshotGlobal).agentHarnessSnapshot?.element(target.ref) ?? null) : Document.prototype.querySelector.call(document, target.selector);
   if (element === null) return "gone";
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     element.focus();
