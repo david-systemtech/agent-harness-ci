@@ -313,7 +313,8 @@ export const STEP_REGISTRY = [
     // has its default (#323). It writes the two binding keys too, on its home row, which settings.update writes and the
     // environment applies at its next start, done on any valid value; and its line says the environment is ready, not
     // draining past its cap (ADR 0025), Check again when it is (#574). No tailnet address is a notice on its card, never
-    // a failure.
+    // a failure. Its line says LAN binding is off or names an address the machine holds now, Check again when it does not:
+    // a start skips one it does not hold, so the step names it (#773).
     id: "your-machines",
     home: "environments.machines",
     writes: [
@@ -364,6 +365,7 @@ export const STEP_REGISTRY = [
       },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
       { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
+      { id: "your-machines.lan", holds: "LAN binding is off, or the LAN address it names is one this machine holds.", actions: ["check-again"] },
     ],
     links: [{ row: "environments.service" }],
     skippable: false,
