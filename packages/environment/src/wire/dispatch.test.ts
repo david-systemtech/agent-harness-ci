@@ -331,6 +331,65 @@ describe("dispatch", () => {
     expect(order).toEqual(["drain", "rebuild", "rebuild", "drain"]);
   });
 
+  it("answers a request under a key whose prepare still runs from the receipt that one stores, never preparing it; one whose first stored none prepares once the first's undos ran (#448)", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stream = { kind: "environment", id: "e" };
+    const order: string[] = [];
+    let prepares = 0;
+    /** Whether the next prepare waits for `release`, and whether it then throws. */
+    let hold = false;
+    let throws = false;
+    let release = (): void => undefined;
+    const dispatch = createDispatch(
+      createMethodTable({
+        "environment.drain": {
+          prepare: async (_params, context) => {
+            const n = ++prepares;
+            order.push(`prepare ${n}`);
+            context.onUndo(() => void order.push(`undo ${n}`));
+            if (hold) {
+              hold = false;
+              await new Promise<void>((resolve) => (release = resolve));
+              if (throws) throw new Error("The provider went away.");
+            }
+            return () => {
+              order.push(`apply ${n}`);
+              return { aggregate: stream, result: { drainingSince: "2026-09-24T00:00:00.000Z", trigger: "command" as const } };
+            };
+          },
+        },
+      }),
+      memoryLog(),
+    );
+    const send = (commandId: string) => {
+      const answers: Answer[] = [];
+      return { answers, done: dispatch(request("environment.drain", { commandId }), caller(["admin"]), (given) => void answers.push(given), vi.fn()) };
+    };
+
+    hold = true;
+    const commandId = crypto.randomUUID();
+    const first = send(commandId);
+    const again = send(commandId);
+    release();
+    await Promise.all([first.done, again.done]);
+    expect(order).toEqual(["prepare 1", "apply 1"]);
+    expect(first.answers).toMatchObject([{ result: { receipt: { status: "accepted" }, result: { trigger: "command" } } }]);
+    expect(again.answers).toEqual([{ result: { receipt: { status: "accepted", sequence: 0, changed: false } } }]);
+
+    order.length = 0;
+    hold = true;
+    throws = true;
+    const failing = crypto.randomUUID();
+    const failed = send(failing);
+    const retried = send(failing);
+    release();
+    await Promise.all([failed.done, retried.done]);
+    expect(order).toEqual(["prepare 2", "undo 2", "prepare 3", "apply 3"]);
+    expect(failed.answers).toEqual([{ error: { code: "internal", message: "The environment failed.", data: {} } }]);
+    expect(retried.answers).toMatchObject([{ result: { receipt: { status: "accepted" }, result: { trigger: "command" } } }]);
+    quiet.mockRestore();
+  });
+
   it("answers invalid_params with the issues", async () => {
     expect(await answer({}, request("access.log.list", { limit: 0 }), ["admin"])).toMatchObject({
       error: { code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["limit"] })] } },
