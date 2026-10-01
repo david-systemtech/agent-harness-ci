@@ -29,8 +29,9 @@ const RailRow = ({ row, current, setup }: { readonly row: (typeof SETTINGS_ROWS)
           aria-describedby={dim === undefined ? undefined : reasonId}
           onClick={() => dim === undefined && open(row.id)}
           className={classes(
-            "flex-1 rounded-md px-2 py-1 text-left text-sm outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam",
+            "flex-1 rounded-md px-2 py-1 text-left text-sm outline-none focus-visible:outline-2 focus-visible:outline-beam",
             current && "bg-wash-strong",
+            dim === undefined && "hover:bg-wash",
             dim !== undefined ? "text-ink-faint hover:bg-transparent" : current ? "text-ink" : "text-ink-muted",
           )}
         >

@@ -43,6 +43,18 @@ const openSettings = async (app: RenderedApp) => {
 };
 
 describe("Settings", () => {
+  it("gives dim rail rows a transparent hover background while active rows keep their wash", async () => {
+    const app = await opened();
+    await openSettings(app);
+    const backgrounds = (label: string) => [...within(rail()).getByRole("button", { name: label }).classList].filter((name) => name.startsWith("hover:bg-"));
+    expect(backgrounds("Set up")).toEqual(["hover:bg-wash"]);
+    expect(backgrounds("Accounts")).toEqual(["hover:bg-wash"]);
+    expect(backgrounds("Bots")).toEqual(["hover:bg-transparent"]);
+
+    act(() => app.shell.openDeepLink(settingsDeepLink("routines.bots")));
+    expect(backgrounds("Bots")).toEqual(["hover:bg-transparent"]);
+  });
+
   it("gives current, inactive and dim rail rows one text colour each, including a dim row opened by a deep link", async () => {
     const app = await opened();
     await openSettings(app);
