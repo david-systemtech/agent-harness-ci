@@ -18,6 +18,7 @@ import {
 import type { CommandMethodName, KeyActionId } from "@agent-harness/contracts";
 import { direction, keysText, type Handler, type Keymap } from "../keys.js";
 import type { Presentation } from "../presentation.js";
+import type { ThemeColours } from "../theme/colours.js";
 import { messageOf, nameOf } from "../view.js";
 import { badgesOf } from "./badge.js";
 import { RAIL_KEYS, railUsage, type RailCommand, type RailKey } from "./commands.js";
@@ -50,6 +51,8 @@ export interface RailQuestion {
 export interface RailOptions {
   readonly runtime: Runtime;
   readonly views: readonly EnvironmentView[];
+  /** The colours the badges are drawn in: the theme's at this terminal's depth. */
+  readonly colours: ThemeColours;
   readonly keymap: Keymap;
   readonly presentation: Presentation;
   readonly startingService: boolean;
@@ -112,7 +115,7 @@ export const useRail = (options: RailOptions): Rail => {
   // when the list, the environments, the folds or the filter changes.
   const list = runtime.projections.sessionList.read();
   const query = filter?.trim() ?? "";
-  const badges = useMemo(() => badgesOf(views), [views]);
+  const badges = useMemo(() => badgesOf(views, options.colours), [views, options.colours]);
   const input: RailInput = useMemo(
     () => ({
       list,
@@ -172,7 +175,7 @@ export const useRail = (options: RailOptions): Rail => {
   const acts: RailActs = {
     runtime,
     views,
-    badge: (environmentId) => badgesOf(runtime.projections.environments.read()).get(environmentId),
+    badge: (environmentId) => badgesOf(runtime.projections.environments.read(), options.colours).get(environmentId),
     workspace: options.workspace,
     say,
     send: (environmentId, method, params, said, done, refused) => {

@@ -7,6 +7,7 @@ import { createRuntime, writable, type AttentionNotification, type GrantReader, 
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { FAKE_HARNESS_VERSION, flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { LadderName } from "@agent-harness/theme";
 import { App, type AppProps, type DiffFilter, type OpenedFile, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
 import type { TerminalChrome } from "../src/attention/chrome.js";
 import type { ExternalEditResult } from "../src/composer/external-editor.js";
@@ -15,6 +16,7 @@ import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
 import type { Presentation } from "../src/presentation.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
+import { colourDepth } from "../src/theme/colours.js";
 import type { Fault } from "../src/view.js";
 
 export { scriptedWorld, type Script, type ScriptedEnvironment, type EnvironmentHandle } from "@agent-harness/client-runtime/testing/scripted-environment";
@@ -207,6 +209,10 @@ export interface RenderOptions {
   readonly diffFilter?: DiffFilter;
   /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
   readonly presentation?: Presentation;
+  /** The variables the terminal UI reads its colour depth from (`COLORTERM`, `AGENT_HARNESS_TUI_BACKGROUND`); preset none, so the sixteen alone. */
+  readonly env?: NodeJS.ProcessEnv;
+  /** What the terminal answers the background colour query with, light or dark; preset no answer. */
+  readonly ground?: LadderName;
 }
 
 export interface RenderedApp {
@@ -346,6 +352,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     chrome,
     editText: options.editText ?? (async (text: string) => ({ ok: true, text: `${text} (edited)` })),
     ...(options.presentation && { presentation: options.presentation }),
+    depth: await colourDepth(options.env ?? {}, async () => options.ground),
   });
   const cleanup = () => {
     if (made !== undefined) rmSync(made, { recursive: true, force: true });

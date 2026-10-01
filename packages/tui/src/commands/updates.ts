@@ -2,6 +2,9 @@ import {
   bundledClaudeCodeWords,
   clientOfferWords,
   clientUpdateWords,
+  drainAndUpdateDescription,
+  drainAndUpdateQuestion,
+  drainableUpdate,
   environmentVersionWords,
   offersClientVersion,
   pendingUpdateWords,
@@ -10,7 +13,9 @@ import {
   type CachedAnswer,
   type EnvironmentView,
   type Runtime,
+  type WaitingUpdate,
 } from "@agent-harness/client-runtime";
+import type { UpdateWhen } from "@agent-harness/contracts";
 import { messageOf, nameOf } from "../view.js";
 
 /**
@@ -20,7 +25,9 @@ import { messageOf, nameOf } from "../view.js";
  * client runtime's words (`updates/words.ts`): the version it runs, its
  * pending update with what it waits on and the Claude Code it bundles, from
  * `updates.status` as the request cache holds it (read again on each update
- * notice); Update now, Set up's `updateEnvironment`; and the offer of this
+ * notice); Update now, Set up's `updateEnvironment`; while busy work holds
+ * the pending update, Drain and update now (#878), the same sent `now`
+ * once the confirm line's question is answered yes; and the offer of this
  * client's version to an environment that runs an older one, by the
  * window's rule (`offersClientVersion`), sent by the connection registry's
  * `update-environment` action. The channel, auto-update and a pin stay the
@@ -35,10 +42,15 @@ export interface UpdateLine {
   readonly tone?: "quiet" | "warn";
 }
 
-/** What the card says of the environment's update, and the version of this client it offers (null for none). */
+/**
+ * What the card says of the environment's update; the version of this
+ * client it offers (null for none); and the pending update Drain and update
+ * now drains, while busy work holds it (`drainableUpdate`, #878; else null).
+ */
 export interface UpdateCard {
   readonly lines: readonly UpdateLine[];
   readonly offered: string | null;
+  readonly drainable: WaitingUpdate | null;
 }
 
 /**
@@ -59,12 +71,33 @@ export const updateCard = (view: EnvironmentView, status: CachedAnswer<"updates.
   if (pending !== null) lines.push({ text: pending });
   if (result !== null) lines.push({ text: bundledClaudeCodeWords(result.bundledClaudeCodeVersion), tone: "quiet" });
   if (offered) lines.push({ text: clientOfferWords(client, name, version) });
-  return { lines, offered: offered ? client : null };
+  return { lines, offered: offered ? client : null, drainable: result === null ? null : drainableUpdate(result.pending) };
 };
 
-/** Update now: `updates.apply` when idle, a direct `admin` command; answers the line to show, or why it was not taken. */
-export const updateNow = async (runtime: Runtime, view: EnvironmentView, commandId: string): Promise<string> =>
-  (await updateEnvironment(runtime, view.environmentId, nameOf(view), commandId)).line;
+/** "Not updated: <the capability's line>" while the connection cannot send `updates.apply` (no `admin`, not ready); undefined when it can. */
+export const updateRefusal = (runtime: Runtime, view: EnvironmentView): string | undefined => {
+  const capability = runtime.capability(view.environmentId, "updates.apply");
+  return capability.status === "absent" ? `Not updated: ${capability.message}` : undefined;
+};
+
+/**
+ * Update now: `updates.apply` when idle, a direct `admin` command; with
+ * `now`, Drain and update now's (#878), which drains at once. Answers the
+ * line to show, or why it was not taken.
+ */
+export const updateNow = async (runtime: Runtime, view: EnvironmentView, commandId: string, when: UpdateWhen = "idle"): Promise<string> =>
+  (await updateEnvironment(runtime, view.environmentId, nameOf(view), commandId, when)).line;
+
+/**
+ * What Drain and update now asks on the confirm line before it drains
+ * `view` for the update `drainable` (#878), in the runtime's words, as the
+ * window's dialog says them: the question, then what the drain does, its
+ * cap cutting running runs.
+ */
+export const drainAndUpdateQuestionLine = (view: EnvironmentView, drainable: WaitingUpdate): string => {
+  const name = nameOf(view);
+  return `${drainAndUpdateQuestion(name, drainable.toVersion)} ${drainAndUpdateDescription(name, drainable.toVersion)} y/n`;
+};
 
 /**
  * The offer taken: this client's version asked of the environment, over its
@@ -76,8 +109,8 @@ export const updateNow = async (runtime: Runtime, view: EnvironmentView, command
 export const updateToClient = async (runtime: Runtime, view: EnvironmentView): Promise<string> => {
   const name = nameOf(view);
   if (view.action !== "update-environment") {
-    const capability = runtime.capability(view.environmentId, "updates.apply");
-    if (capability.status === "absent") return `Not updated: ${capability.message}`;
+    const refusal = updateRefusal(runtime, view);
+    if (refusal !== undefined) return refusal;
   }
   try {
     return clientUpdateWords(await runtime.connections.updateEnvironment(view.environmentId), name);

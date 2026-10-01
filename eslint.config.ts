@@ -40,6 +40,12 @@ const browserOnly =
 /** Every workspace package the browser package may not import: all but contracts. */
 const browserForbids = ["environment", "client-runtime", "theme", "tui", "gui", "web", "desktop", "cli"];
 
+/** Why the extension imports contracts and the browser package and no other workspace package. */
+const extensionOnly =
+  "The extension runs in Chrome and finds its environment by itself: it depends on contracts and the browser package alone and imports no environment code (docs/specs/browser.md).";
+/** Every workspace package the extension may not import: all but contracts and the browser package. */
+const extensionForbids = ["environment", "client-runtime", "theme", "tui", "gui", "web", "desktop", "cli"];
+
 /** Why the environment imports no client and not the CLI. */
 const environmentOnly = "The environment depends on contracts, never on a client or the CLI.";
 /** Every client package the environment may not import: the client packages and the desktop shell. */
@@ -87,6 +93,22 @@ export default defineConfig([
     languageOptions: { tolerant: true },
     rules: { "agent-harness/no-literal-colour": "error" },
   },
+  // The terminal UI draws the terminal's sixteen, each colour a role or an environment colour the theme package maps
+  // (ADR 0023, #392), so its source names no colour, by name or in hex; its tests may.
+  {
+    files: ["packages/tui/src/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Literal[value=/^(?:(?:black|red|green|yellow|blue|magenta|cyan|white|gray|grey)(?:Bright)?|#[0-9a-fA-F]{3,8})$/]",
+          message:
+            "The terminal UI draws a role (TERMINAL_ROLES) or an environment colour (ENVIRONMENT_ANSI, or the theme's colours under truecolour) from @agent-harness/theme, never a colour it names (ADR 0023).",
+        },
+      ],
+    },
+  },
 
   // Dependency direction, as source imports; test/workspace.test.ts holds the manifests to the same rules.
   {
@@ -125,6 +147,20 @@ export default defineConfig([
     files: ["packages/browser/src/**/*.ts"],
     ignores: ["**/*.test.ts", "packages/browser/src/testing/**"],
     rules: forbidImports(`^(@agent-harness/(?!contracts(/|$))|agent-harness(/|$)|(${nodeBuiltins})$)`, browserOnly),
+  },
+  // The extension's source runs in Chrome, so no Node built-in and not the browser package's testing exports, which are
+  // Node's; its tests and its build run under Node.
+  {
+    files: ["packages/extension/**/*.ts"],
+    rules: {
+      ...forbidImports("^(@agent-harness/(?!(contracts|browser)(/|$))|agent-harness(/|$))", extensionOnly),
+      "agent-harness/no-relative-import-into": ["error", { root: import.meta.dirname, packages: extensionForbids, because: extensionOnly }],
+    },
+  },
+  {
+    files: ["packages/extension/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: forbidImports(`^(@agent-harness/(?!contracts(/|$)|browser$)|agent-harness(/|$)|(${nodeBuiltins})$)`, extensionOnly),
   },
   {
     files: ["packages/environment/**/*.ts"],

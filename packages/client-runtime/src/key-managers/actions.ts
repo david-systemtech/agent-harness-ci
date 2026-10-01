@@ -72,6 +72,8 @@ export interface ConnectionForm {
   readonly username: string;
   /** Empty for none. */
   readonly tokenRole: string;
+  /** The CA to pin, as PEM, which a person accepted from the certificate preview; null for none. OpenBao only. */
+  readonly ca: string | null;
 }
 
 /** What a command a pane sends did: its one line, and the connection it answered with when it answered one. */
@@ -95,7 +97,8 @@ export const formProblem = (form: ConnectionForm, credential: KeyManagerCredenti
 /**
  * Adds a connection with its credential (`keyManagers.connections.add`,
  * sent directly, never queued): the credential crosses the wire in this one
- * call and is kept nowhere on the client. A refusal (`verification_failed`,
+ * call and is kept nowhere on the client, and an OpenBao form's accepted CA
+ * goes as the CA it pins. A refusal (`verification_failed`,
  * a connection held already, the environment not reachable) is one line,
  * and so is where the connection stands once added.
  */
@@ -112,6 +115,7 @@ export const addConnection = async ({ runtime, clock }: KeyManagerSender, enviro
       mount: form.mount.trim() === "" ? form.method : form.mount.trim(),
       ...(form.method === "userpass" && { username: form.username.trim() }),
       ...(form.tokenRole.trim() !== "" && { tokenRole: form.tokenRole.trim() }),
+      ...(form.ca !== null && { ca: form.ca }),
     }),
     credential,
   };

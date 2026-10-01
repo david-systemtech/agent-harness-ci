@@ -9,7 +9,7 @@ import {
 } from "@agent-harness/client-runtime";
 import type { WorkspaceRequest } from "@agent-harness/contracts";
 import { useState, type ComponentType, type ReactNode } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
 import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
@@ -102,14 +102,14 @@ const EnvironmentChip = ({ view, choose }: ChipProps) => {
               note={environment.environmentId === value ? HELD : undefined}
               onSelect={() => choose({ environmentId: environment.environmentId })}
             >
-              <EnvironmentDot view={environment} />
+              <EnvironmentGlyph view={environment} />
               {nameOf(environment)}
             </Option>
           ))
         )
       }
     >
-      {chosen !== undefined && <EnvironmentDot view={chosen} />}
+      {chosen !== undefined && <EnvironmentGlyph view={chosen} />}
       {words}
     </ChipMenu>
   );

@@ -1,5 +1,6 @@
 import { DIFF_CUT_NOTE, binaryNote, fileCutNote, fileMarks, sessionDiffNote, workingTreeNote, type Runtime } from "@agent-harness/client-runtime";
 import { DIFF_CAP, FILES_READ_CAP, type SessionDiffFile } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Opened } from "../session/use-session.js";
 import type { Line, Span } from "../transcript/lines.js";
 import { externalDiffTool, pipeThrough, type DiffToolDeps, type PipeDeps, type PipeResult } from "./diff-filter.js";
@@ -74,7 +75,7 @@ export const readFile = async (runtime: Runtime, target: Opened, path: string, w
   const lines = plainPage(text.replace(/\n$/, ""), width);
   if (!truncated) return { ok: true, page: { title, lines, copy: { text, name: read } } };
   // The pager's limit is the read's: the page ends where the read did, saying how much is not shown.
-  const cut = line("file:cut", [{ text: fileCutNote(size), color: "yellow" }]);
+  const cut = line("file:cut", [{ text: fileCutNote(size), color: TERMINAL_ROLES.warning }]);
   return { ok: true, page: { title, lines: [...lines, cut], copy: { text, name: `the first ${String(FILES_READ_CAP / MIB)} MiB of ${read}` } } };
 };
 
@@ -88,7 +89,7 @@ export const diffLines = async (text: string, width: number, filter: DiffFilter 
 
 const joined = (files: readonly SessionDiffFile[]): string => files.map((file) => (file.diff.endsWith("\n") ? file.diff : `${file.diff}\n`)).join("").replace(/\n$/, "");
 
-const cutMark = (row: string): Line => line(row, [{ text: DIFF_CUT_NOTE, color: "yellow" }]);
+const cutMark = (row: string): Line => line(row, [{ text: DIFF_CUT_NOTE, color: TERMINAL_ROLES.warning }]);
 
 /** `d` on a row: the session's diff of the files the row's edits (`calls`, tool call ids) changed. */
 export const rowDiff = async (runtime: Runtime, target: Opened, calls: readonly string[], width: number, filter: DiffFilter | null): Promise<Paged> => {

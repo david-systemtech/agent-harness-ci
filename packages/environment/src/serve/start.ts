@@ -119,7 +119,7 @@ import { createForgeService, type ForgeService } from "../forge/forge-service.js
 import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
-import { verifiedOrigins } from "../forge/git-helper.js";
+import { verifiedOrigins, type GitConfigEntry } from "../forge/git-helper.js";
 import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
@@ -143,6 +143,8 @@ import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
+import { routineEndpointsProjector } from "../routines/endpoint-store.js";
+import { createRoutineEndpoints } from "../routines/endpoints.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -171,6 +173,7 @@ import { settingsMethods } from "../settings/methods.js";
 import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
+import { createSkillProbes } from "../skills/probe.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -219,8 +222,9 @@ const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url
  * The built extension the environment carries and unpacks for Chrome (browser
  * spec; ADR 0024): the extension package's build beside the environment
  * package, as the workspace and the server artefact lay the packages out.
+ * The workspace build writes it there (#549).
  */
-const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
+export const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
 
 /**
  * The port an environment listens on when none is given. A chosen default, not
@@ -448,6 +452,13 @@ export interface EnvironmentOptions {
    * as. Absent, the harness's git fails on an origin a forge account covers.
    */
   readonly harnessCommand?: readonly string[];
+  /**
+   * Configuration the harness's git is given after its own on every
+   * operation. Only tests give it: an `insteadOf` that sends a forge's
+   * `https` URL to a local bare repository, so the source URL rule runs as
+   * written (skills spec, "Testing Decisions"). Preset none.
+   */
+  readonly harnessGitConfig?: readonly GitConfigEntry[];
   /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
@@ -796,6 +807,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
+      routineEndpointsProjector,
       lookProjector,
       trustProjector,
       instructionsProjector,
@@ -899,6 +911,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       gh: managedGh({ row: () => tools.row("gh"), ...(options.managedTools?.hostEnv !== undefined && { hostEnv: options.managedTools.hostEnv }) }),
       keyManagers: registry,
       ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
+      ...(options.harnessGitConfig !== undefined && { gitConfig: options.harnessGitConfig }),
       // Where the credential helper asks: the loopback listener, bound after this step.
       address: () => address,
     });
@@ -1072,6 +1085,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // inventory counts (#580). The home's .agents/skills is read beside the adopted directory, and its .claude.json too.
   const carryOverHome = options.carryOverHome ?? homedir();
   const carrySkills = skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: carryOverHome });
+  // The probe (#497): a repository URL's skill folders, cloned through the ForgeService's git under the data directory and
+  // kept thirty minutes for an add to reuse.
+  const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
+  closers.push(() => skillProbes.close());
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
@@ -1421,6 +1438,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
     vault,
   });
+  // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
+  // hosts as it is at the set, and a test's payload naming the environment as it is named now.
+  const endpoints = createRoutineEndpoints({
+    log,
+    clock,
+    stream: environmentStream,
+    environmentId: record.id,
+    name: () => look.read().name,
+    vault,
+    denylisted: (url) => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0,
+    scrub,
+  });
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({
@@ -1496,6 +1525,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
     }),
+    ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
@@ -1516,6 +1546,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       defaultAccountId: () => accounts.defaultId(),
       accounts: listedAccounts,
       carryOver: carrySkills,
+      probe: skillProbes.probe,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
@@ -1713,6 +1744,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // replaced the folder Chrome loads; before the wire opens, so a first client's browser.status finds them.
   closers.push(() => browser.close());
   await browser.start();
+  // The vault entries of webhook endpoints that are gone deleted (#522), before a client can set one again.
+  await endpoints.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code

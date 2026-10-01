@@ -61,3 +61,41 @@ Every case passes:
 
 Record the date, the machine and its platform, the browser and its version
 (`chromium --version`), and each case's result in the pull request.
+
+## The extension (#549)
+
+The extension package's tests run its worker and options page against a fake
+`chrome` API and a scripted environment, and its build's test runs the built
+worker on a Node thread; none of them loads it in Chrome. Three things only a
+real Chrome answers (the browser spec's "Verify first", items 3 and 8). Run
+them in Google Chrome on a machine that allows browsers, with a profile you
+can throw away, and record the date, the platform, Chrome's version
+(`chrome://version`) and each answer in the pull request that changes the
+extension's worker, its manifest or its build.
+
+From a checkout, after `pnpm install` and `pnpm build`, start an environment
+from the checkout (`node packages/cli/dist/main.js serve --data-dir <a new
+folder>`), and in Chrome open `chrome://extensions`, turn on Developer mode,
+click Load unpacked and choose the folder the environment made,
+(`<data directory>/extension/current`).
+
+1. **The version.** The card shows the version name `0.0.0` and no error.
+   Then build it with a prerelease (from `packages/extension`, `node
+   --conditions=@agent-harness/source --import tsx scripts/build-extension.ts
+   --version 1.2.3-rc.1`), restart the environment, which replaces the folder,
+   and click Reload: the card shows `1.2.3-rc.1`, and `chrome://extensions`
+   raises no manifest error for `version` (`1.2.3`).
+2. **The port file without Reload.** Open the extension's options page: it
+   names the port the port file names and says it is connected and not paired.
+   Stop the environment, hold its port with another program
+   (`python3 -m http.server <port> --bind 127.0.0.1`), and start the environment
+   again, which takes the next free port and rewrites the port file. Without
+   clicking Reload, within a minute the options page names the new port and
+   says it is connected again.
+3. **The unpaired socket across Chrome's idle shutdown.** With the extension
+   unpaired and connected, close its options page and leave Chrome alone for
+   ten minutes. In `chrome://serviceworker-internals`, the extension's worker
+   (`chrome-extension://fnmgmfbcdmlefliicojlcpehmcieoajl/`) stays RUNNING
+   throughout, its socket's pings keeping it; if it ever shows STOPPED, it is
+   RUNNING again within the 30 seconds its alarm takes. Do not open the
+   worker's DevTools for this: an open inspector keeps any worker alive.

@@ -70,7 +70,8 @@ describe("the first-launch mark", () => {
   });
 
   it("is set by Finish on the last step, which Continue walks to one step at a time", async () => {
-    const app = await firstLaunch();
+    // Continue past Account waits on a signed-in account on first launch (#575).
+    const app = await firstLaunch({ accounts: [{ label: "personal" }] });
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const walked: string[] = [];
     while (within(card()).queryByRole("button", { name: "Continue" }) !== null) {
@@ -103,7 +104,8 @@ describe("the first-launch mark", () => {
 
 describe("Skip for now", () => {
   it("is on a skippable step's card beside Continue, moves the rail to the next step and records nothing", async () => {
-    const app = await firstLaunch();
+    // Continue past Account waits on a signed-in account on first launch (#575).
+    const app = await firstLaunch({ accounts: [{ label: "personal" }] });
     const desk = app.environment("desk");
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const skippable: string[] = [];
