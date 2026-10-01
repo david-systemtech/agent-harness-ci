@@ -114,6 +114,12 @@ const AFTER_ACTION: Argument = {
 };
 const REF: Argument = { type: "string", description: "The element's ref, from the latest snapshot (e12)." };
 const SELECTOR: Argument = { type: "string", description: "A CSS selector: the first element it matches in the top document." };
+/** `browser_open`'s `browser`, offered where the run's browser is the plain My Chrome. */
+const CHROME_NAME: Argument = {
+  type: "string",
+  description:
+    "The name of one of the person's Chromes (Work, Personal), once they said which to use after a tool answered that several are connected: this session uses that Chrome from then on. Leave it out otherwise.",
+};
 
 /** What a call's input was read into: the verb's arguments, or the sentence the model reads for an input it cannot be. */
 type Read = JsonObject | string;
@@ -580,6 +586,13 @@ export type LiveBrowser =
   /** No driver: the sentence the model reads (no live run, a run with no browser, no driver for its kind). */
   | { readonly kind: "refused"; readonly reason: string };
 
+/** The Chrome `browser_open`'s `browser` chose for the session: its driver, and its name, which the answer says. */
+export interface ChosenBrowser {
+  readonly kind: "driven";
+  readonly driver: PageDriver;
+  readonly chosen: string;
+}
+
 /** What the page tools reach at each call. */
 export interface PageToolsOptions {
   /** The session's page: the run environment's id and the session id. */
@@ -588,6 +601,13 @@ export interface PageToolsOptions {
   readonly live: () => LiveBrowser;
   /** The address each session's page last reported, kept across the session's runs for the frames of the verbs whose values name none. */
   readonly addresses: Map<PageKey, string>;
+  /**
+   * The agent's answer to the several-Chromes question, `browser_open`'s
+   * `browser`: the Chrome it names, chosen for the session, or the sentence
+   * why not. Given only where the run's browser is the plain My Chrome, and
+   * `browser_open` takes `browser` only then.
+   */
+  readonly choose?: (name: string) => ChosenBrowser | LiveBrowser;
 }
 
 /** How many sessions' last addresses are kept: the least recently reported goes first. */
@@ -610,13 +630,40 @@ const KIND_NAMES: { readonly [K in PageDriverKind]: string } = { chrome: "The pe
  * address, so the gate's denylist rule meets them before the call.
  */
 export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): HostTool[] => {
-  const { pageKey, addresses } = options;
+  const { pageKey, addresses, choose } = options;
   const offered = (verb: PageVerb): boolean => (PAGE_DRIVER_ABILITIES[kind].verbs as readonly PageVerb[]).includes(verb);
-  return SPECS.filter((spec) => offered(spec.verb)).map((spec): HostTool => {
+  return SPECS.filter((listed) => offered(listed.verb)).map((listed): HostTool => {
+    const spec = listed.verb === "open" && choose !== undefined ? { ...listed, arguments: { ...listed.arguments, browser: CHROME_NAME } } : listed;
     const name = PAGE_TOOL_NAMES[spec.verb];
     const own = spec.verb === "close" ? `${spec.description} ${CLOSE_WORDING[kind]}` : spec.description;
     const description = spec.verb === "open" ? [own, KIND_WORDING[kind], LAYER_ORDER].join("\n\n") : `${own} ${KIND_LINE[kind]}`;
     const browses = spec.verb === "open" || spec.verb === "navigate";
+
+    /** The verb on `browser`, and what the model reads of it. */
+    const drive = async (input: Input, args: PageArgs<PageVerb>, browser: LiveBrowser): Promise<HostToolResult> => {
+      if (browser.kind === "refused") return refused(browser.reason);
+      const { driver } = browser;
+      if (!(PAGE_DRIVER_ABILITIES[driver.kind].verbs as readonly PageVerb[]).includes(spec.verb)) {
+        return refused(`${KIND_NAMES[driver.kind]}, this run's browser, has no ${name}: it reads and acts on pages, without the developer tools.`);
+      }
+      let result: PageResult<PageVerb>;
+      try {
+        result = await driver.perform({ pageKey, command: { verb: spec.verb, args } } as PageCallOf<PageVerb>);
+      } catch (error) {
+        return refused(`The browser failed: ${error instanceof Error ? error.message : String(error)}.`);
+      }
+      if (!result.ok) return refused(result.reason);
+      // A value from another machine (the extension, a relayed client) is checked against the verb here, where the call is known.
+      const value = PAGE_VERB_SCHEMAS[spec.verb].value.safeParse(result.value);
+      if (!value.success) return refused(`The browser answered ${name} with a value it does not give: ${value.error.issues[0]?.message ?? "not valid"}.`);
+      const outcome = { verb: spec.verb, value: value.data } as Outcome;
+      if (spec.verb === "close") addresses.delete(pageKey);
+      const reported = addressIn(outcome);
+      if (reported !== undefined) remember(addresses, pageKey, reported);
+      const notice = result.notice === undefined ? undefined : redactTokens(result.notice);
+      return answerOf(outcome, { kind: driver.kind, input, address: addresses.get(pageKey) ?? "this session's page", notice });
+    };
+
     return {
       name,
       description,
@@ -626,28 +673,12 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
         const input = passed(given);
         const args = argsOf(name, spec, input);
         if (typeof args === "string") return refused(args);
-        const browser = options.live();
-        if (browser.kind === "refused") return refused(browser.reason);
-        const { driver } = browser;
-        if (!(PAGE_DRIVER_ABILITIES[driver.kind].verbs as readonly PageVerb[]).includes(spec.verb)) {
-          return refused(`${KIND_NAMES[driver.kind]}, this run's browser, has no ${name}: it reads and acts on pages, without the developer tools.`);
-        }
-        let result: PageResult<PageVerb>;
-        try {
-          result = await driver.perform({ pageKey, command: { verb: spec.verb, args } } as PageCallOf<PageVerb>);
-        } catch (error) {
-          return refused(`The browser failed: ${error instanceof Error ? error.message : String(error)}.`);
-        }
-        if (!result.ok) return refused(result.reason);
-        // A value from another machine (the extension, a relayed client) is checked against the verb here, where the call is known.
-        const value = PAGE_VERB_SCHEMAS[spec.verb].value.safeParse(result.value);
-        if (!value.success) return refused(`The browser answered ${name} with a value it does not give: ${value.error.issues[0]?.message ?? "not valid"}.`);
-        const outcome = { verb: spec.verb, value: value.data } as Outcome;
-        if (spec.verb === "close") addresses.delete(pageKey);
-        const reported = addressIn(outcome);
-        if (reported !== undefined) remember(addresses, pageKey, reported);
-        const notice = result.notice === undefined ? undefined : redactTokens(result.notice);
-        return answerOf(outcome, { kind: driver.kind, input, address: addresses.get(pageKey) ?? "this session's page", notice });
+        // Only browser_open of the plain My Chrome takes browser: no other tool's input fits with it.
+        const asked = input["browser"];
+        if (typeof asked !== "string" || choose === undefined) return drive(input, args, options.live());
+        const browser = choose(asked);
+        const answer = await drive(input, args, browser);
+        return "chosen" in browser ? { ...answer, text: `This session uses the Chrome ${browser.chosen} from now on.\n${answer.text}` } : answer;
       },
     };
   });

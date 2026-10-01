@@ -9,7 +9,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { scriptedPageDriver, type ScriptedPageDriver } from "../../test/scripted-page-driver.js";
 import { create, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
-import type { HostToolResult } from "../adapter/contract.js";
+import { isInProcess, type HostToolResult, type InProcessToolServer } from "../adapter/contract.js";
 import type { EventEnvelope as LogEvent } from "../event-log/event-log.js";
 
 /**
@@ -363,5 +363,101 @@ describe("the direct path", () => {
 
     expect(work.extension.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot"]);
     expect(answers.map((answer) => answer.isError)).toEqual([false, false]);
+  });
+});
+
+// The several-Chromes question and browser_open's browser argument -------------------------------------------------
+
+/** The `browser` server a run was handed. */
+const browserServerOf = (t: TestEnvironment, index: number): InProcessToolServer => {
+  const server = adapterOf(t).runs[index]?.input.toolServers.find((candidate) => candidate.name === "browser");
+  if (server === undefined || !isInProcess(server)) throw new Error(`Run ${index} was handed no in-process browser server.`);
+  return server;
+};
+
+/** The properties of `browser_open`'s input schema in the run's `browser` server. */
+const openArguments = (t: TestEnvironment, index: number): string[] =>
+  Object.keys((browserServerOf(t, index).tools.find((tool) => tool.name === "browser_open")?.inputSchema["properties"] ?? {}) as JsonObject);
+
+const payloadsOf = <P>(t: TestEnvironment, sessionId: string, type: string): P[] =>
+  eventsOf(t, sessionId)
+    .filter((event) => event.type === type)
+    .map((event) => event.payload as P);
+
+describe("browser_open's browser argument", () => {
+  it("is offered only when the session's browser is the plain My Chrome", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const client = await clientOf(t);
+    for (const browser of [chromeOf(t, null), chromeOf(t, work.id), { kind: "headless" } as const, { kind: "dock" } as const]) {
+      await run(t, client, await sessionWith(client, browser));
+    }
+
+    expect([0, 1, 2, 3].map((index) => openArguments(t, index))).toEqual([["address", "snapshot", "browser"], ["address", "snapshot"], ["address", "snapshot"], ["address", "snapshot"]]);
+  });
+
+  it("naming a Chrome records session.browser.set chosen by the agent, and later verbs, and the next run, go to that Chrome", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const personal = await pair(t, "Personal");
+    const client = await clientOf(t);
+    const id = await sessionWith(client, chromeOf(t, null));
+
+    const answers = await run(t, client, id, ["browser_snapshot"], ["browser_open", { browser: "personal", address: "example.com", snapshot: false }], ["browser_snapshot"]);
+
+    expect(answers[0]).toEqual({
+      text: `Several of the person's Chromes are connected to ${t.env.name}: Work, Personal. Ask the person which one this session should use, then call browser_open with browser set to its name.`,
+      isError: true,
+    });
+    expect(answers[1]?.isError).toBe(false);
+    expect(answers[1]?.text.split("\n").slice(0, 2)).toEqual(["This session uses the Chrome Personal from now on.", "Opened example.com. The page is at https://example.com."]);
+    expect(answers[2]?.isError).toBe(false);
+    expect(personal.extension.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot"]);
+    expect(work.extension.calls).toEqual([]);
+    expect(payloadsOf(t, id, "session.browser.set")).toEqual([
+      { browser: chromeOf(t, null), chosenBy: "person" },
+      { browser: chromeOf(t, personal.id), chosenBy: "agent" },
+    ]);
+
+    await run(t, client, id, ["browser_snapshot"]);
+    expect(payloadsOf(t, id, "run.browser.resolved").at(-1)).toMatchObject({ browser: chromeOf(t, personal.id), reason: "chosen" });
+    expect(personal.extension.calls.map((call) => call.command.verb)).toEqual(["open", "snapshot", "snapshot"]);
+  });
+
+  it("naming another Chrome than the one the session names is refused, and the session keeps its Chrome", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const personal = await pair(t, "Personal");
+    const client = await clientOf(t);
+    const id = await sessionWith(client, chromeOf(t, null));
+
+    const answers = await run(
+      t,
+      client,
+      id,
+      ["browser_open", { browser: "Work", snapshot: false }],
+      ["browser_open", { browser: "Personal", snapshot: false }],
+      ["browser_open", { browser: "Work", snapshot: false }],
+    );
+
+    expect(answers[1]).toEqual({ text: "This session uses the Chrome Work, which only the person can change: ask them if this session should use another browser.", isError: true });
+    expect(answers[2]?.isError).toBe(false);
+    expect(work.extension.calls.map((call) => call.command.verb)).toEqual(["open", "open"]);
+    expect(personal.extension.calls).toEqual([]);
+    expect(payloadsOf(t, id, "session.browser.set")).toHaveLength(2);
+  });
+
+  it("naming no paired Chrome is refused with the names the person gave them, and nothing is recorded", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    await pair(t, "Personal");
+    const client = await clientOf(t);
+    const id = await sessionWith(client, chromeOf(t, null));
+
+    const [answer] = await run(t, client, id, ["browser_open", { browser: "Home", address: "example.com" }]);
+
+    expect(answer).toEqual({ text: `No Chrome paired with ${t.env.name} is named Home: the paired Chromes are Work, Personal. Ask the person which one to use.`, isError: true });
+    expect(work.extension.calls).toEqual([]);
+    expect(payloadsOf(t, id, "session.browser.set")).toHaveLength(1);
   });
 });

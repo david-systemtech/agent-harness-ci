@@ -43,6 +43,7 @@ import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
+import { chooseChrome } from "../browser/chrome-choice.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
@@ -1026,6 +1027,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
       ...options.browser?.drivers,
     },
+    // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
+    chooseChrome: (ask) =>
+      chooseChrome(
+        { log, environmentId: record.id, environmentName: () => look.read().name },
+        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
+      ),
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
