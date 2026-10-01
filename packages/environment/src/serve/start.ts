@@ -151,6 +151,7 @@ import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
+import { limitFiringDurations } from "../routines/firing-duration.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -1477,6 +1478,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     preChecks,
   });
   closers.push(() => firings.close());
+  // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
+  closers.push(limitFiringDurations({ log, clock, host }));
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { shelfOf, type RoutineDefinitionInput } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -110,14 +111,105 @@ describe("a firing whose final text is silent", () => {
     const client = await t.client();
     const { state } = await created(client, routine());
 
-    for (const _ of [1, 2]) {
-      const failed = await fire(t, client, state.id, () => [end("error", { error: { message: "The provider failed.", code: null } })]);
-      await untilSettled(t, state.id, failed.firingId);
-    }
+    const failing = (): Script => () => [end("error", { error: { message: "The provider failed.", code: null } })];
+    await untilSettled(t, state.id, (await fire(t, client, state.id, failing())).firingId);
+    await untilSettled(t, state.id, (await fire(t, client, state.id, failing())).firingId);
     expect((await listed(client, state.id))?.state.failureStreak).toBe(2);
 
     const silent = await fire(t, client, state.id, answering("[SILENT]"));
     await untilSettled(t, state.id, silent.firingId);
     expect((await listed(client, state.id))?.state).toMatchObject({ failureStreak: 0, lastOutcome: { kind: "firing", entryId: silent.firingId, outcome: "silent", reason: null } });
+  });
+});
+
+describe("a firing past its maximum duration", () => {
+  const MINUTE = 60_000;
+
+  /** A run that says it is working and does not end on its own until `held` opens. */
+  const endless =
+    (held: Gate): Script =>
+    async function* () {
+      yield say("Working");
+      await held.opened;
+      yield end();
+    };
+
+  /** Resolves once the run has said it is working: its adapter has it. */
+  const working = (t: TestEnvironment, firing: { sessionId: string; runId: string }) =>
+    untilEvent(t, { kind: "session", id: firing.sessionId }, (event) => event.type === "assistant.text" && event.payload["runId"] === firing.runId);
+
+  /** The run's `run.ended`, once it is on the log. */
+  const runEnded = (t: TestEnvironment, firing: { sessionId: string; runId: string }) =>
+    untilEvent(t, { kind: "session", id: firing.sessionId }, (event) => event.type === "run.ended" && event.payload["runId"] === firing.runId);
+
+  /** Whether the run has ended by now. */
+  const hasEnded = (t: TestEnvironment, firing: { sessionId: string; runId: string }): boolean =>
+    t.env.log.readStream({ kind: "session", id: firing.sessionId }).some((event) => event.type === "run.ended" && event.payload["runId"] === firing.runId);
+
+  it("has its live run interrupted with cause timeout once maxDurationMinutes have passed on the environment's clock since it started, and fails timed_out, its session not settled", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ maxDurationMinutes: 5 }));
+    const firing = await fire(t, client, state.id, endless(heldGate()));
+    await working(t, firing);
+
+    t.clock.advance(5 * MINUTE - 1);
+    expect(hasEnded(t, firing)).toBe(false);
+    expect((await listed(client, state.id))?.state.liveFiring).toMatchObject({ firingId: firing.firingId });
+
+    t.clock.advance(1);
+    expect((await runEnded(t, firing)).payload).toMatchObject({ reason: "interrupted", cause: "timeout" });
+    expect((await untilSettled(t, state.id, firing.firingId)).payload).toMatchObject({ outcome: "failed", reason: "timed_out", text: "Working", durationMs: 5 * MINUTE });
+    expect((await get(client, firing.sessionId)).settledBy).toBeNull();
+    expect((await listed(client, state.id))?.state).toMatchObject({ liveFiring: null, failureStreak: 1 });
+  });
+
+  it("runs under the maximum duration it started with, whatever an edit changes meanwhile", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ maxDurationMinutes: 5 }));
+    const firing = await fire(t, client, state.id, endless(heldGate()));
+    await working(t, firing);
+
+    await routineCommand(client, "routines.update", { routineId: state.id, fields: { maxDurationMinutes: 1 } });
+    t.clock.advance(2 * MINUTE);
+    expect(hasEnded(t, firing)).toBe(false);
+    t.clock.advance(3 * MINUTE);
+    expect((await untilSettled(t, state.id, firing.firingId)).payload).toMatchObject({ outcome: "failed", reason: "timed_out", durationMs: 5 * MINUTE });
+  });
+
+  it("cancels its timer when it ends before the limit: a person's run in its session, live past the limit, goes on", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ maxDurationMinutes: 5 }));
+    const firing = await fire(t, client, state.id, answering("Two new releases."));
+    await untilSettled(t, state.id, firing.firingId);
+
+    const held = heldGate();
+    t.adapter.nextScripts.push(endless(held));
+    const { runId } = await client.apply("runs.start", { commandId: randomUUID(), sessionId: firing.sessionId, text: "What changed in the second one?" });
+    const theirs = { sessionId: firing.sessionId, runId };
+    await working(t, theirs);
+    t.clock.advance(10 * MINUTE);
+    expect(hasEnded(t, theirs)).toBe(false);
+    held.open();
+    expect((await runEnded(t, theirs)).payload).toMatchObject({ reason: "completed" });
+  });
+
+  it("ends cancelled when a person interrupts its run before the limit, and the limit then interrupts nothing", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine({ maxDurationMinutes: 5 }));
+    const firing = await fire(t, client, state.id, endless(heldGate()));
+    await working(t, firing);
+    t.clock.advance(4 * MINUTE);
+
+    await client.apply("runs.interrupt", { commandId: randomUUID(), runId: firing.runId });
+    expect((await runEnded(t, firing)).payload).toMatchObject({ reason: "interrupted", cause: "user" });
+    expect((await untilSettled(t, state.id, firing.firingId)).payload).toMatchObject({ outcome: "cancelled", reason: null, durationMs: 4 * MINUTE });
+
+    t.clock.advance(2 * MINUTE);
+    const ends = t.env.log.readStream({ kind: "routine", id: state.id }).filter((event) => event.type === "routine.firing-ended");
+    expect(ends.map((event) => event.payload["outcome"])).toEqual(["cancelled"]);
   });
 });
