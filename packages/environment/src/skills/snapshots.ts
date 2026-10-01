@@ -191,7 +191,9 @@ export const createSnapshots = (options: SnapshotsOptions): Snapshots => {
     sweep: () =>
       inTurn(async () => {
         const current = [...options.current()].map(({ sourceId, commit }) => snapshotPath(dataDir, sourceId, commit));
-        const kept = new Set([...touched, ...current, ...(await linked())]);
+        const links = await linked();
+        // Taken and restarted in one step after the await, so a touch made while the links were read is kept.
+        const kept = new Set([...touched, ...current, ...links]);
         touched = new Set();
         for (const sourceId of await readdir(root).catch(() => [])) {
           const folder = join(root, sourceId);
