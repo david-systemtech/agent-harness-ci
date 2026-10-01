@@ -173,6 +173,18 @@ describe("a challenge on the driver's results", () => {
     expect(await page.perform("read", {})).toMatchObject({ ok: true, value: { url: CHALLENGE, source: "snapshot", challenge: "cloudflare" } });
   });
 
+  it("names the challenge a click's load reached", async () => {
+    const page = await at(BLOG, LONG_ARTICLE);
+    page.peer.document(CHALLENGE, { title: "Just a moment..." });
+    recordedDocuments(page, { [BLOG]: LONG_ARTICLE, [CHALLENGE]: fixtureHtml("datadome-403") });
+    page.peer.inPage("locateElement", () => ({ kind: "found", x: 320, y: 240, editable: false }));
+    page.peer.answer("Input.dispatchMouseEvent", (call) => {
+      if (call.params.type === "mouseReleased") call.target?.navigate(CHALLENGE);
+      return {};
+    });
+    expect(await page.perform("click", { target: { selector: "a.shop" } })).toEqual({ ok: true, value: { url: CHALLENGE, title: "Just a moment...", challenge: "datadome" } });
+  });
+
   it("names the challenge on a reading of a challenge page with no text at all, rather than saying it has none", async () => {
     const page = await at(CHALLENGE, `<!doctype html><title></title><body><div class="cf-turnstile" data-sitekey="site-key-for-tests"></div></body>`, "");
     page.peer.inPage("snapshotFrame", () => ({ nodes: [], lastRef: 0 }));

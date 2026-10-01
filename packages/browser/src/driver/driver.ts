@@ -38,6 +38,7 @@ import {
   systemDriverClock,
   type CdpCookie,
   type DriverClock,
+  type InPageFunction,
   type LoadOutcome,
   type PageFrame,
   type PageJudging,
@@ -128,15 +129,28 @@ const refFrame = (page: CdpPage, ref: string): PageFrame | undefined => {
   return frameId === undefined ? undefined : page.frame(frameId);
 };
 
-/** One frame's snapshot, the vendored snapshot sent to its world first when the world has none. */
-const frameSnapshot = async (page: CdpPage, frame: PageFrame, options: FrameSnapshotOptions): Promise<FrameSnapshot> => {
-  const taken = await page.callInFrame(frame, snapshotFrame, options);
-  if (taken !== null) return taken;
-  await page.callInFrame(frame, installSnapshot);
-  const installed = await page.callInFrame(frame, snapshotFrame, options);
-  if (installed === null) throw new Error("The snapshot could not be set up in the frame.");
+/**
+ * Calls an in-page function that answers null while its world lacks what
+ * `install` puts there (the snapshot, the reader), sending `install` first
+ * when it does: once per document, since a world goes with its document.
+ */
+const callInstalled = async <A extends unknown[], R>(
+  page: CdpPage,
+  frame: PageFrame,
+  install: InPageFunction<[], void>,
+  fn: InPageFunction<A, R | null>,
+  ...args: A
+): Promise<R> => {
+  const answered = await page.callInFrame(frame, fn, ...args);
+  if (answered !== null) return answered;
+  await page.callInFrame(frame, install);
+  const installed = await page.callInFrame(frame, fn, ...args);
+  if (installed === null) throw new Error("The browser could not set up its in-page functions in the frame.");
   return installed;
 };
+
+/** One frame's snapshot, the vendored snapshot sent to its world first when the world has none. */
+const frameSnapshot = (page: CdpPage, frame: PageFrame, options: FrameSnapshotOptions): Promise<FrameSnapshot> => callInstalled(page, frame, installSnapshot, snapshotFrame, options);
 
 /**
  * The page as a snapshot reads it: every frame in its own isolated world,
@@ -205,15 +219,8 @@ const finding = (check: ChallengeCheck): { readonly challenge?: ChallengeKind } 
 const READ_SNAPSHOT: PageArgs<"snapshot"> = { filter: "all", maxChars: Number.POSITIVE_INFINITY };
 
 /** The page's article as Markdown, the reader sent to the top frame's world first when the world has none; null where it finds none. */
-const pageArticle = async (page: CdpPage, options: PageReadOptions): Promise<string | null> => {
-  const main = page.mainFrame();
-  const read = await page.callInFrame(main, readPage, options);
-  if (read !== null) return read.article;
-  await page.callInFrame(main, installReader);
-  const installed = await page.callInFrame(main, readPage, options);
-  if (installed === null) throw new Error("The reader could not be set up in the page.");
-  return installed.article;
-};
+const pageArticle = async (page: CdpPage, options: PageReadOptions): Promise<string | null> =>
+  (await callInstalled(page, page.mainFrame(), installReader, readPage, options)).article;
 
 /**
  * The page's readable text: its article as Markdown, or, where Readability
