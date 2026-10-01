@@ -21,7 +21,7 @@ import type { SkillSources } from "./sources.js";
  * resolved for (the account, the workspace and the trust). The own and
  * trusted repository layers are linked live; sources point into their
  * immutable snapshots. Members in the adapter's native roots are listed
- * without links, and their names hidden when switched off.
+ * without links, and their names hidden when switched off or shadowed by a linked member.
  */
 
 export interface RunSkillSetsOptions {
@@ -71,8 +71,9 @@ export const placeSkillSet =
         alwaysOn: choices.alwaysOn(member.name),
       };
     });
+    const linkedNames = new Set(placed.filter((member) => !member.native).map((member) => member.name));
     const hiddenNativeNames = [...new Set(repository.flatMap((member) =>
-      member.name !== null && isNativeMember(scope, member) && !choices.enabled(member.name) ? [member.name] : [],
+      member.name !== null && isNativeMember(scope, member) && (!choices.enabled(member.name) || linkedNames.has(member.name)) ? [member.name] : [],
     ))].sort();
     return { members: placed, hiddenNativeNames };
   };

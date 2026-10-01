@@ -18,7 +18,12 @@ export const repositorySkillTarget = (workspace: Workspace, member: SkillMember)
   return join(targetRoot, ...member.path.split("/"));
 };
 
-export const isNativeMember = (scope: RepositorySkillScope, member: SkillMember): boolean => member.layer.kind === "repository" && scope.nativeRoots.includes(member.layer.root);
+export const isNativeMember = (scope: RepositorySkillScope, member: SkillMember): boolean => {
+  if (member.layer.kind !== "repository" || !scope.nativeRoots.includes(member.layer.root)) return false;
+  // The adapter anchors a linked worktree's project configuration to the main checkout.
+  // Its branch skill folders therefore need links; commands are already read from that checkout.
+  return member.layer.root !== ".claude/skills" || worktreeCheckout(scope.workspace.path) === null;
+};
 
 export const readRepositorySkills = async (scope: RepositorySkillScope): Promise<SkillMember[]> => {
   if (scope.trust.decision !== "trusted" || scope.workspace.kind === "scratch") return [];

@@ -56,7 +56,7 @@ describe("repository skills behind the trust gate", () => {
     const set = await run(t, client, id);
     expect(set.members.map((m) => [m.name, m.native])).toEqual([["near-agent", false], ["near-native", true], ["root-agent", false], ["root-native", true]]);
     const generation = set.generation as string;
-    expect(readdirSync(join(generation, "skills"))).toEqual(["near-agent", "root-agent"]);
+    expect(readdirSync(join(generation, "skills")).sort()).toEqual(["near-agent", "root-agent"]);
     expect(readlinkSync(join(generation, "skills", "near-agent"))).toBe(join(root, "app/.agents/skills/near-agent"));
     expect(readlinkSync(join(generation, "skills", "root-agent"))).toBe(join(root, ".agents/skills/root-agent"));
   });
