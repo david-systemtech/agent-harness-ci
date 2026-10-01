@@ -19,6 +19,7 @@ const missing: ManagedToolRow = {
   method: null,
   status: "not-installed",
   action: "install",
+  command: null,
 };
 
 describe("the environment's gh over the registry's row", () => {

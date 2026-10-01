@@ -509,6 +509,21 @@
                   "copy"
                 ],
                 "description": "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop)."
+              },
+              "command": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "pattern": "^[^\\r\\n]+$",
+                    "description": "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "For a Copy row, the vendor's documented command a person copies and runs, as tools.run's tool_not_runnable answers it (#426): the vendor script's update where the tool has one, else the install the command table would run here, else the first it has for this platform. Null for an Install or Update row, whose command tools.run runs and answers, and for a Copy row the table has nothing for (vault, which the harness never installs or updates)."
               }
             },
             "required": [
@@ -521,7 +536,8 @@
               "minimum",
               "method",
               "status",
-              "action"
+              "action",
+              "command"
             ],
             "description": "The Managed tools row of the CLI that serves the connection's provider, as the environment's last probe found it: for OpenBao bao's, else vault's when only vault is installed, else bao's, not installed; doppler's, op's or bws's for the others."
           }

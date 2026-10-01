@@ -242,12 +242,12 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   const firstOfProvider = (record: KeyManagerConnectionRecord) => !connections.some((c) => c.id !== record.id && c.provider === record.provider && c.injects);
 
   const tools = (script.tools ?? []).map((row) =>
-    ManagedToolRow.parse({ label: managedTool(row.tool).label, path: `/usr/bin/${row.tool}`, realpath: `/usr/bin/${row.tool}`, version: "2.1.1", latest: null, minimum: "2.1.1", method: "apt", status: "current", action: "update", ...row }),
+    ManagedToolRow.parse({ label: managedTool(row.tool).label, path: `/usr/bin/${row.tool}`, realpath: `/usr/bin/${row.tool}`, version: "2.1.1", latest: null, minimum: "2.1.1", method: "apt", status: "current", action: "update", command: null, ...row }),
   );
   /** Every managed tool's row: the one scripted, else not installed. */
   const everyTool = MANAGED_TOOLS.map(
     ({ name, label, minimum }) =>
-      tools.find((row) => row.tool === name) ?? ManagedToolRow.parse({ tool: name, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install" }),
+      tools.find((row) => row.tool === name) ?? ManagedToolRow.parse({ tool: name, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install", command: null }),
   );
 
   let heldLists: (() => void)[] | null = null;
