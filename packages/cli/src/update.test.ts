@@ -4,7 +4,7 @@ import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative as relativePath } from "node:path";
 import { ContractError, PROTOCOL_VERSION, UpdatesStatus, registry } from "@agent-harness/contracts";
-import { HARNESS_VERSION } from "@agent-harness/environment";
+import { HARNESS_VERSION, PRESET_IDLE_WINDOW_MS } from "@agent-harness/environment";
 import { afterEach, describe, expect, it } from "vitest";
 import { TEST_CLAUDE_CODE_VERSION, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../environment/test/helper.js";
 import { testLauncher } from "../../environment/test/launcher.js";
@@ -353,7 +353,10 @@ describe("agent-harness update begin", () => {
     const t = await start({ harnessVersion: "0.4.1", containerDetector: { inContainer: () => true }, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
     const admin = await t.client();
     await fake.grantAccess(admin);
-    const { pending } = await admin.request("updates.check", {});
+    await admin.request("updates.check", {});
+    // Past the idle window its start holds (#445), it is idle and the update ready.
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
+    const { pending } = await admin.request("updates.status", {});
     await admin.close();
     if (pending.state !== "ready") throw new Error(`The update is not ready: ${JSON.stringify(pending)}`);
     return { t, updateId: pending.updateId };

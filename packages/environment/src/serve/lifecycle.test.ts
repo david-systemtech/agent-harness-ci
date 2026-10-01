@@ -100,7 +100,21 @@ describe("environment.status", () => {
   it("answers a read-only client session with readiness, idle, updates not managed outside, and what it binds beside loopback: nothing, on a machine with no tailnet or LAN address", async () => {
     const t = await start();
     const client = await narrowClient(t, ["read"]);
+    // Past the idle window its start holds (#445).
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
     expect(await status(client)).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] } });
+  });
+
+  it("counts the environment's start as activity: busy for the idle window after its environment.started with no run known, then idle (#445)", async () => {
+    const t = await start();
+    const client = await t.client();
+    const started = t.env.log.readStream({ kinds: ["environment"] }).find((event) => event.type === "environment.started");
+    const until = new Date(Date.parse(started?.occurredAt ?? "") + PRESET_IDLE_WINDOW_MS).toISOString();
+    expect((await status(client)).activity).toEqual({ state: "busy", reason: "recent-activity", busyUntil: until });
+    t.clock.advance(PRESET_IDLE_WINDOW_MS - 1);
+    expect((await status(client)).activity).toEqual({ state: "busy", reason: "recent-activity", busyUntil: until });
+    t.clock.advance(1);
+    expect((await status(client)).activity).toEqual({ state: "idle" });
   });
 
   it("is busy while a run starts and runs, busy nine minutes after it ended, and idle at eleven", async () => {
@@ -166,6 +180,9 @@ describe("the launcher's idle query", () => {
       expect(activity.state).toBe(state);
       expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", readiness, activity, updatesManagedOutside });
     };
+    await same("busy");
+    // Past the idle window its start holds (#445).
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
     await same("idle");
     t.runs.start("r1");
     await same("busy");

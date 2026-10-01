@@ -7,6 +7,7 @@ import { testLauncher, type TestLauncher } from "../../test/launcher.js";
 import { openSocket } from "../../test/wire-client.js";
 import type { Address } from "./http.js";
 import { NO_LAUNCHER } from "./launcher.js";
+import { PRESET_IDLE_WINDOW_MS } from "./run-registry.js";
 import { HARNESS_VERSION } from "./start.js";
 
 /**
@@ -120,11 +121,13 @@ describe("under a launcher, the start", () => {
 
   it("ignores a message from the launcher it does not know, and goes on answering the launcher's queries", async () => {
     const t = await start({ launcher: testLauncher({ present: true }) });
+    // Busy for the idle window after its start (#445).
+    const activity = { state: "busy", reason: "recent-activity", busyUntil: new Date(t.clock.now().getTime() + PRESET_IDLE_WINDOW_MS).toISOString() };
     for (const unknown of [{ type: "surprise" }, { type: "committed", again: true }, { type: "installed", id: 99 }, "idle?", null, 7]) t.launcher.send(unknown);
-    expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+    expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", readiness: "ready", activity, updatesManagedOutside: false });
     expect(t.launcher.received).toEqual([
       { type: "prepared", version: HARNESS_VERSION },
-      { type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
+      { type: "idle", readiness: "ready", activity, updatesManagedOutside: false },
     ]);
   });
 });
