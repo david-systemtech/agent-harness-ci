@@ -65,7 +65,7 @@ export const MintedSessionCard = ({ environmentId, step, subject, artefact, outc
       const columnKey = sideColumnKey(manual);
       setColumns((columns) => ({ ...columns, [columnKey]: showPane(columns[columnKey] ?? NO_COLUMN, "files") }));
       open(manual);
-      checklist.close();
+      checklist.leaveForMain();
       return;
     }
     if (action === "try-again") {
@@ -94,6 +94,6 @@ const MintedConversation = ({ environmentId, sessionId, outcome }: { readonly en
   const session = { environmentId, sessionId };
   return <PaneLines><SessionPane session={session} focused={true} marked={false} close={() => undefined} header={<header>
     <p role="status" aria-label="Authoring status">{projection.parkedPrompts.length > 0 ? "waiting for you" : isLive(runs.state) ? "running" : outcome ?? (projection.draft !== null ? "waiting for you" : "needs attention")}</p>
-    <Button onClick={() => { open(session); checklist.close(); }}>Open in the main window</Button>
+    <Button onClick={() => { open(session); checklist.leaveForMain(); }}>Open in the main window</Button>
   </header>} /></PaneLines>;
 };

@@ -45,6 +45,14 @@ describe("the minted session on its card", () => {
     await app.user.click(screen.getByRole("button", { name: "Open in the main window" }));
     await waitFor(() => expect(app.shown()?.sessionId).toBe(id));
     expect(screen.queryByRole("region", { name: "Set up" })).toBeNull();
+    expect(app.presentation.values.read().firstLaunchDone).toBe(true);
+    await app.user.keyboard("{Control>},{/Control}");
+    await app.user.click(await screen.findByRole("button", { name: "Open the full checklist" }));
+    expect(await screen.findByRole("status", { name: "Authoring status" })).toBeDefined();
+    expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
+    expect(within(screen.getByRole("region", { name: "Transcript" })).getByRole("article", { name: "Reply" }).textContent).toContain("Working on BANK.md.");
+    expect(env.requests("setup.mint")).toHaveLength(1);
+    expect(env.liveRun(id)).toBe(runId);
   });
 
   it("answers a parked permission on the card and resumes its running status", async () => {
@@ -151,6 +159,42 @@ describe("the minted session on its card", () => {
     await waitFor(() => expect(select("Authoring model").value).toBe("small-model"));
     await app.user.selectOptions(select("Authoring model"), "large-model");
     expect(select("Authoring effort").value).toBe("low");
+  });
+
+  it("keeps its picker choices and attached session across a detour to a Settings row", async () => {
+    const app = await openCard({
+      accounts: [{ id: "account-1", label: "Work" }],
+      models: [{ accountId: "account-1", models: [{ id: "large-model", family: "large", tier: 3, efforts: ["low", "high"], label: "Large" }] }],
+      settings: { "accounts.defaultAccount": "account-1", "accounts.defaultEffort": "high" },
+    });
+    const effort = () => screen.getByRole("combobox", { name: "Authoring effort" }) as HTMLSelectElement;
+    await waitFor(() => expect(effort().value).toBe("high"));
+    await app.user.selectOptions(effort(), "low");
+    await mint(app);
+    const env = app.environment("desk");
+    const id = env.sessionId();
+    const runId = env.liveRun(id);
+    await app.user.click(screen.getByRole("button", { name: "Permissions" }));
+    await app.user.click(screen.getByRole("button", { name: "Open Permissions" }));
+    expect(app.presentation.values.read().firstLaunchDone).toBe(false);
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    await app.user.click(within(within(settings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    await app.user.click(screen.getByRole("button", { name: "Memory bank" }));
+    expect(effort().value).toBe("low");
+    expect(await screen.findByRole("textbox", { name: "Message" })).toBeDefined();
+    expect(screen.getByRole("status", { name: "Authoring status" }).textContent).toBe("running");
+    expect(env.requests("setup.mint")).toHaveLength(1);
+    expect(env.liveRun(id)).toBe(runId);
+
+    // An explicit Close ends the checklist run; the next opening uses fresh defaults.
+    await app.user.click(screen.getByRole("button", { name: "Close Set up" }));
+    const reopenedSettings = await screen.findByRole("region", { name: "Settings" });
+    await app.user.click(within(within(reopenedSettings).getByRole("navigation", { name: "Settings rows" })).getByRole("button", { name: "Set up" }));
+    await app.user.click(screen.getByRole("button", { name: "Open the full checklist" }));
+    expect(effort().value).toBe("high");
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(env.liveRun(id)).toBe(runId);
   });
 
   it("shows the minted prompt as the composer's draft when no account resolves", async () => {

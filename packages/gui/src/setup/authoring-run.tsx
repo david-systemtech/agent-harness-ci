@@ -16,17 +16,17 @@ interface AuthoringRun {
 
 const AuthoringContext = createContext<AuthoringRun | null>(null);
 
-export const ChecklistAuthoringProvider = ({ shown, children }: { readonly shown: boolean; readonly children: ReactNode }) => {
+export const ChecklistAuthoringProvider = ({ runId, children }: { readonly runId: number; readonly children: ReactNode }) => {
   const [choices, setChoices] = useState<ReadonlyMap<string, AuthoringChoice>>(new Map());
   const [sessions, setSessions] = useState<ReadonlyMap<string, string>>(new Map());
-  const before = useRef(shown);
+  const before = useRef(runId);
   useEffect(() => {
-    if (shown && !before.current) {
+    if (runId !== before.current) {
       setChoices(new Map());
       setSessions(new Map());
     }
-    before.current = shown;
-  }, [shown]);
+    before.current = runId;
+  }, [runId]);
   return <AuthoringContext value={{ choices, sessions, choose: (id, choice) => setChoices((held) => new Map(held).set(id, choice)), attach: (key, id) => setSessions((held) => new Map(held).set(key, id)) }}>{children}</AuthoringContext>;
 };
 
