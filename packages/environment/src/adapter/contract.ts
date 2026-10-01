@@ -416,8 +416,10 @@ export interface SuppliedVariables {
  * nothing is supplied; and `supply`, which answers them. An adapter adds the
  * key to what its process was spawned with, so a run whose key differs from
  * its live process's is served by a fresh one, as for changed instructions;
- * it calls `supply` once per spawn, before the process starts, and layers
- * the variables over its own scrubbed environment. The host releases them
+ * it calls `supply` once per spawn, before the process starts, layers
+ * the variables over its own scrubbed environment, and lets a contained
+ * run's commands write the directories supplied as the holder's own
+ * (#1119). The host releases them
  * as the pool stops the process, whatever stops it, or as the session's
  * next spawn replaces it; a release runs once, and an adapter need not call it.
  */
