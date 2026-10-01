@@ -11,7 +11,8 @@ import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end } from "../../test/fake-adapter.js";
 import { rejection } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { createRoutine, created, history, listed, routineCommand, routineUpdates, runNow, untilRoutineEvent, untilSettled, untilStarted, written } from "../../test/routines.js";
+import { createRoutine, created, history, listed, routineCommand, routineEvents, routineUpdates, runNow, untilRoutineEvent, untilSettled, untilStarted, written } from "../../test/routines.js";
+import { refusal } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -532,5 +533,84 @@ describe("a URL pre-check", () => {
     const imported = await routineCommand(client, "routines.import", { yaml: yaml.replace("name: Allowed", "name: Imported") });
     expect(rejection(imported.receipt)).toMatchObject(denied);
     expect((await client.request("routines.list", {})).routines.map((listedRoutine) => listedRoutine.definition.name)).toEqual(["Allowed"]);
+  });
+});
+
+describe("routines.testPreCheck", () => {
+  it("runs a routine's pre-check and records nothing, answering its status, duration, bytes, hash, the output's first 8,000 characters, and whether it differs from the baseline", async () => {
+    const t = await start();
+    const client = await t.client();
+    placeScript(t, "watch.sh", "cat feed.txt");
+    writeFileSync(join(scriptsOf(t), "feed.txt"), "v1\n");
+    const { state } = await created(client, routine({ preCheck: { kind: "script", path: "watch.sh" } }));
+    const records = routineEvents(t, state.id).length;
+    const head = t.env.log.head();
+
+    const answer = await client.request("routines.testPreCheck", { routineId: state.id });
+    expect(answer).toEqual({
+      kind: "script",
+      startedAt: MANUAL_CLOCK_START,
+      durationMs: 0,
+      exitStatus: 0,
+      httpStatus: null,
+      bytes: 3,
+      hash: sha256("v1\n"),
+      differs: null,
+      output: "v1\n",
+      stderr: null,
+      failure: null,
+    });
+    expect(await client.request("routines.testPreCheck", { routineId: state.id })).toEqual(answer);
+    expect(routineEvents(t, state.id)).toHaveLength(records);
+    expect(await routineUpdates(await t.client(), head)).toEqual([]);
+
+    await untilSettled(t, state.id, await checkedRun(client, state.id));
+    expect(await client.request("routines.testPreCheck", { routineId: state.id })).toMatchObject({ hash: sha256("v1\n"), differs: false });
+    writeFileSync(join(scriptsOf(t), "feed.txt"), "x".repeat(10_000));
+    expect(await client.request("routines.testPreCheck", { routineId: state.id })).toMatchObject({ bytes: 10_000, hash: sha256("x".repeat(10_000)), differs: true, output: "x".repeat(8000) });
+  });
+
+  it("runs a pre-check not yet saved in the workspace given, as a test with no routine, its differs null", async () => {
+    const t = await start();
+    const client = await t.client();
+    const workspace = tempDir();
+    placeScript(t, "probe.sh", "printf '%s|%s|%s|%s\\n' \"${AGENT_HARNESS_ROUTINE_ID-none}\" \"$AGENT_HARNESS_TRIGGER\" \"$AGENT_HARNESS_DUE_AT\" \"$(pwd -P)\"");
+    const answer = await client.request("routines.testPreCheck", {
+      preCheck: { kind: "script", path: "probe.sh" },
+      workspace: { kind: "directory", path: workspace, repositoryIdentity: null },
+    });
+    expect(answer).toMatchObject({ exitStatus: 0, differs: null, output: `none|test|${MANUAL_CLOCK_START}|${realpathSync(workspace)}\n` });
+  });
+
+  it("is bounded at 25 seconds, below a longer timeout, and refuses a routine with no pre-check", async () => {
+    const t = await start();
+    const client = await t.client();
+    placeScript(t, "slow.sh", "echo started > started\nexec sleep 300");
+    const { state } = await created(client, routine({ preCheck: { kind: "script", path: "slow.sh", timeoutSeconds: 600 } }));
+    const answer = client.request("routines.testPreCheck", { routineId: state.id });
+    await until(() => existsSync(join(scriptsOf(t), "started")));
+    t.clock.advance(25_000);
+    expect(await answer).toMatchObject({ durationMs: 25_000, failure: { reason: "timed_out", detail: "The script ran past 25 seconds, and its process tree was killed." } });
+
+    const bare = await created(client, routine({ name: "Bare" }));
+    expect(await refusal(client.request("routines.testPreCheck", { routineId: bare.state.id }))).toMatchObject({ code: "invalid_params" });
+    expect(await refusal(client.request("routines.testPreCheck", { routineId: randomUUID() }))).toMatchObject({ code: "not_found", data: { kind: "routine" } });
+  });
+
+  it("answers output_too_large past 1 MiB, and denylisted for a URL whose host, or a redirect's, is on the denylist's hosts", async () => {
+    const t = await start();
+    const client = await t.client();
+    placeScript(t, "loud.sh", "head -c 2097152 /dev/zero");
+    const scratch = { kind: "scratch", repositoryIdentity: null } as const;
+    expect(await refusal(client.request("routines.testPreCheck", { preCheck: { kind: "script", path: "loud.sh" }, workspace: scratch }))).toEqual({
+      code: "output_too_large",
+      data: { limitBytes: 1_048_576 },
+    });
+
+    await denyHost(client, "*.blocked.example");
+    const { origin } = await serve((_request, response) => void response.writeHead(302, { location: "https://feeds.blocked.example/" }).end());
+    for (const url of ["https://feeds.blocked.example/latest", `${origin}/feed`]) {
+      expect(await refusal(client.request("routines.testPreCheck", { preCheck: { kind: "url", url }, workspace: scratch }))).toEqual({ code: "denylisted", data: { host: "feeds.blocked.example" } });
+    }
   });
 });

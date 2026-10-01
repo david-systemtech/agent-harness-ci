@@ -398,9 +398,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and
-  // commands, run now (#523) routines.runNow and routines.history, and the endpoints (#522) routines.endpoints.*.
-  "routines.testPreCheck": "#526",
   // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
   "stateImport.run": "#94",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };

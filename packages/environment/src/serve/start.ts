@@ -1553,7 +1553,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scripts,
       denylisted: denylistedHost,
     }),
-    ...preCheckMethods({ scripts }),
+    ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,

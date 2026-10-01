@@ -15,8 +15,8 @@ import { lineDiff, linesOf } from "../workspace/diffs.js";
 /** The most of the diff the first message carries, in characters. */
 export const MAX_PRE_CHECK_DIFF = 4000;
 
-/** The most of the output the first message carries, in characters. */
-export const MAX_PRE_CHECK_MESSAGE_OUTPUT = 8000;
+/** The most of a pre-check's output shown, in characters: in a firing's first message, and in `routines.testPreCheck`'s answer. */
+export const MAX_PRE_CHECK_SHOWN_OUTPUT = 8000;
 
 /** How many unchanged lines a hunk shows around a change. */
 const CONTEXT = 3;
@@ -96,7 +96,7 @@ export const preCheckBlock = (output: string, ranAt: string, baseline: BlockBase
         })();
   const body = [
     baseline === null ? diff : `[A unified line diff against the baseline, at most ${MAX_PRE_CHECK_DIFF.toLocaleString("en-US")} characters:]\n${diff}`,
-    `[The output, at most ${MAX_PRE_CHECK_MESSAGE_OUTPUT.toLocaleString("en-US")} characters:]\n${cut(output, MAX_PRE_CHECK_MESSAGE_OUTPUT)}`,
+    `[The output, at most ${MAX_PRE_CHECK_SHOWN_OUTPUT.toLocaleString("en-US")} characters:]\n${cut(output, MAX_PRE_CHECK_SHOWN_OUTPUT)}`,
   ].join("\n\n");
   const longest = Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length));
   const fence = "`".repeat(Math.max(3, longest + 1));
