@@ -6,6 +6,7 @@ import {
   type JsonObject,
   type SessionDraftSetPayload,
   type SessionForkedPayload,
+  type SessionBrowserSetPayload,
   type SessionRewindUndonePayload,
   type SessionRewoundPayload,
   type SessionTitleGeneratedPayload,
@@ -20,7 +21,7 @@ import { environmentQueue, latestRun, providerQueue, providerSessionOf, readSess
 import { sessionTranscript } from "../runs/transcript.js";
 import type { Clock } from "../serve/clock.js";
 import type { MethodHandler, MethodHandlers } from "../serve/methods.js";
-import { PURGED_STATE, decideCreate, sessionNotFound, type SessionState } from "./decider.js";
+import { PURGED_STATE, decideCreate, sessionNotFound, type FirstBrowser, type SessionState } from "./decider.js";
 import { groupExists } from "./group-reads.js";
 import { acceptAnyRunParameters, keepSessionMode, type RunParametersCheck, type SessionModeClamp } from "./run-parameters.js";
 import { readOrigin, readSessionState, readSummary, type Reader } from "./session-reads.js";
@@ -93,6 +94,17 @@ const forkRecord = (log: Pick<EventLog, "read">, sessionId: string): SessionFork
     sessionId,
   );
   return row === undefined ? null : (JSON.parse(row.payload) as SessionForkedPayload);
+};
+
+/** The source's current browser and its chooser; browser events survive compaction. */
+const forkBrowser = (log: Pick<EventLog, "read">, sessionId: string): FirstBrowser | null => {
+  const [row] = log.read<{ payload: string }>(
+    `SELECT payload FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.browser.set' ORDER BY sequence DESC LIMIT 1`,
+    sessionId,
+  );
+  if (row === undefined) return null;
+  const { browser, chosenBy } = JSON.parse(row.payload) as SessionBrowserSetPayload;
+  return browser === null ? null : { value: browser, chosenBy };
 };
 
 /** A rewind as the log holds it: its `session.rewound`'s sequence and command, and its payload. */
@@ -411,7 +423,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     const created = decideCreate(
       stateOf(id),
       // The source's workspace, shared whatever its kind, with its repository identity as recorded (#324): nothing is read again.
-      { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode, browser: null },
+      { id, title: params.title ?? null, tags: source.tags, groupId: source.groupId, workspace: facts.workspace, repositoryIdentity: facts.repositoryIdentity, account, model, mode, browser: forkBrowser(log, sourceId) },
       { groupExists: source.groupId !== null && groupExists(reader, source.groupId) },
     );
     if (created.rejected !== undefined) return { aggregate, rejected: created.rejected };
