@@ -7,6 +7,7 @@ import {
   type AdapterCapabilityFlag,
   type CommandsListEntry,
   type ContainmentLevel,
+  type InterruptCause,
   type IssueInput,
   type JsonObject,
   type MessageDeliveredPayload,
@@ -395,10 +396,13 @@ export interface AdapterHost {
   continueSession(sessionId: string): void;
   /**
    * Interrupts a live run with cancel; the messages its provider still held
-   * come back to the environment's queue. After a read-now on the run it is
-   * the last word: the run ends with cause `user`, and no run of the queue starts.
+   * come back to the environment's queue. Its end's cause is `cause`: `user`,
+   * a person's, unless named; `timeout` for a routine's firing past its
+   * maximum duration (#524). The first interrupt's cause stands. After a
+   * read-now on the run it is the last word: the run ends with its cause,
+   * and no run of the queue starts.
    */
-  interrupt(runId: string): void;
+  interrupt(runId: string, cause?: AskedInterrupt): void;
   /**
    * Reads the session's queue now (ADR 0022, #228), once the command that
    * asked has committed: interrupts its live run with cause `read-now`, takes
@@ -572,6 +576,8 @@ interface LiveRun {
   unrecorded: boolean;
   running: boolean;
   interrupting: boolean;
+  /** The cause its end records when an interrupt ended it, not a read-now: the first interrupt's (#524). */
+  interruptCause: AskedInterrupt;
   /**
    * The interrupt under way, settled once what the provider reported still
    * queued is back in the environment's queue, or, when the interrupt failed,
@@ -594,6 +600,9 @@ interface LiveRun {
   /** Its tool calls, for the decisions no prompt's answer makes (#131). */
   readonly calls: RunToolCalls;
 }
+
+/** Why the host is asked to interrupt a run: a person (`runs.interrupt`), or a routine's firing past its maximum duration (#524). */
+export type AskedInterrupt = Extract<InterruptCause, "user" | "timeout">;
 
 /** A read-now waiting on its run's interrupt and end (#228). */
 interface ReadNow {
@@ -1015,7 +1024,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: entry.runId,
       reason,
       // The host knows it interrupted; an adapter that ends interrupted on its own names its cause, or none.
-      cause: reason === "interrupted" ? (entry.interrupting ? (entry.readNow !== null ? "read-now" : "user") : (full.cause ?? null)) : null,
+      cause: reason === "interrupted" ? (entry.interrupting ? (entry.readNow !== null ? "read-now" : entry.interruptCause) : (full.cause ?? null)) : null,
       error: reason === "error" ? (full.error ?? { message: "The run failed.", code: null }) : null,
       usage: full.usage === undefined || full.usage === null ? null : [...full.usage],
       durationMs: Math.max(0, clock.now().getTime() - entry.startedAt),
@@ -1343,6 +1352,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       unrecorded: false,
       running: false,
       interrupting: false,
+      interruptCause: "user",
       interruption: null,
       readNow: null,
       prompts: new Set(),
@@ -2221,10 +2231,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       // A refusal that comes after the run's end hands the message back after it: a rewind waits for the answer (#245).
       if (handing !== undefined) track(entry.sessionId, handing);
     },
-    interrupt(runId) {
+    interrupt(runId, cause = "user") {
       const entry = byRunId(runId);
       if (entry === undefined || entry.ended || (entry.run === undefined && !entry.composing)) return;
-      // A person's interrupt after a read-now is the last word: the run ends interrupted by them, and no run of the queue starts.
+      // The first interrupt's cause stands. One after a read-now is the last word: the run ends interrupted for its cause, and no run
+      // of the queue starts.
+      if (!entry.interrupting || entry.readNow !== null) entry.interruptCause = cause;
       entry.readNow = null;
       if (!entry.interrupting) void interruptRun(entry);
     },
