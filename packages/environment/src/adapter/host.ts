@@ -1614,7 +1614,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           supplied.release();
         };
         report(release);
-        return { variables: supplied.variables, release };
+        return { variables: supplied.variables, writable: supplied.writable ?? [], release };
       },
     };
   };
