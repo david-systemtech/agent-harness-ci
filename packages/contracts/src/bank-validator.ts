@@ -414,7 +414,8 @@ const memoryFindings = ({ memories, names, add, scan }: Context, topicsOf: Reado
         add("description_trigger", path, `${path}'s description opens without a trigger word: open with ${listed(TRIGGER_WORDS.map((word) => `"${word}"`))}, so a run matches it to its task.`, "description");
       }
     }
-    if (memory.topic !== null && topicsOf.get(memory.scope)?.includes(memory.topic) === false) {
+    // A folder file with no topics: map, or none at all, declares no topic.
+    if (memory.topic !== null && !(topicsOf.get(memory.scope) ?? []).includes(memory.topic)) {
       add("undeclared_topic", path, `${path} is in the topic ${memory.topic}, which ${scopeFileOf(memory.scope)} does not declare: add it to topics: with its one-liner, or move the memory.`);
     }
     const unresolved = new Set([...body.matchAll(LINK)].map((match) => (match[1] ?? "").trim()).filter((linked) => !names.has(linked)));

@@ -55,6 +55,14 @@ describe("the personal bank template", () => {
     expect(files["BANK.md"]).toContain("issues/");
   });
 
+  it("keeps the home folder's file when the first project is the home folder", () => {
+    const home = "projects/personal/memory-bank/PROJECT.md";
+    const files = renderPersonalBank({ ...personal, project: "memory-bank" });
+    expect(validateBank({ files })).toMatchObject({ valid: true, findings: [] });
+    expect(Object.keys(files).sort()).toEqual(["BANK.md", "README.md", "projects/personal/ORG.md", home]);
+    expect(files[home]).toBe(renderPersonalBank(personal)[home]);
+  });
+
   it("renders the README from the body with nothing left to fill", () => {
     const { "README.md": readme = "", "BANK.md": manifest = "" } = renderPersonalBank(personal);
     expect(readme).not.toMatch(/\{\{|\}\}/);
@@ -83,6 +91,14 @@ describe("the team bank template", () => {
       write: { land: "pull-request", merge: { memories: "auto" } },
     });
     expect(files["BANK.md"]).toContain("projects/acme/bank/");
+  });
+
+  it("keeps the home folder's file when a first project is the home folder", () => {
+    const home = "projects/acme/bank/PROJECT.md";
+    const files = renderTeamBank({ ...team, projects: [{ name: "Acme Bank", folder: "bank" }] });
+    expect(validateBank({ files })).toMatchObject({ valid: true, findings: [] });
+    expect(Object.keys(files).sort()).toEqual(["BANK.md", "README.md", "projects/acme/ORG.md", home]);
+    expect(files[home]).toBe(renderTeamBank(team)[home]);
   });
 
   it("renders the README from the shared-bank body with nothing left to fill", () => {

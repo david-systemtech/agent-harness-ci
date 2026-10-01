@@ -106,6 +106,12 @@ describe("the bank validator", () => {
     expect(retired.findings).toEqual([expect.objectContaining({ rule: "orientation_missing", path: "BANK.md" })]);
   });
 
+  it("refuses a write into a topic of a folder whose file declares no topics, though that file was wrong before", () => {
+    const files = changed(PERSONAL_BANK, { "projects/personal/homelab/PROJECT.md": markdown({ line: "Maya's homelab" }) });
+    const draft = "projects/personal/homelab/memories/backups/restore-test.md";
+    expect(validateBank({ files, writes: { [draft]: memory("restore-test") } }).findings).toEqual([expect.objectContaining({ rule: "undeclared_topic", path: draft })]);
+  });
+
   it("reads trigger words, links and re-cased names whatever the case and punctuation", () => {
     const path = "projects/personal/homelab/memories/backup-schedule.md";
     const files = { ...PERSONAL_BANK, [path]: memory("backup-schedule", { description: "before a restore: the nightly schedule, its logs and the drive it writes to", body: "See [[nas-disk-layout]] and [[ rollback-steps ]].\n" }) };

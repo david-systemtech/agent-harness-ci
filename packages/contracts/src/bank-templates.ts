@@ -145,6 +145,7 @@ const personalBody = (facts: PersonalBankFacts, home: string): string => {
 /** The personal bank's first commit (ADR 0035, ADR 0037): `BANK.md`, the README, the person's first org and project, and the home folder. */
 export const renderPersonalBank = (facts: PersonalBankFacts): BankTemplateFiles => {
   const home = `projects/${PERSONAL_HOME.org}/${PERSONAL_HOME.project}/`;
+  const first = `projects/${facts.org}/${facts.project}/`;
   const purpose = `${facts.person.name}'s memory: their own machines, projects and companies. A team's facts go to that team's bank.`;
   const body = personalBody(facts, home);
   const manifest = withFrontmatter(
@@ -164,7 +165,8 @@ export const renderPersonalBank = (facts: PersonalBankFacts): BankTemplateFiles 
     [`projects/${PERSONAL_HOME.org}/${SCOPE_FILES.org}`]: folderFile("org", "Personal", `${facts.person.name}'s own work`),
     [`${home}${SCOPE_FILES.project}`]: folderFile("project", "The memory bank", "This bank's own facts: where secrets live, the machines, where work is tracked"),
     ...(facts.org !== PERSONAL_HOME.org && { [`projects/${facts.org}/${SCOPE_FILES.org}`]: folderFile("org", facts.org, `${facts.person.name}'s ${facts.org} work`) }),
-    [`projects/${facts.org}/${facts.project}/${SCOPE_FILES.project}`]: folderFile("project", facts.project, `The ${facts.project} project`),
+    // A first project at the home folder is the home folder: its file stays the home's.
+    ...(first !== home && { [`${first}${SCOPE_FILES.project}`]: folderFile("project", facts.project, `The ${facts.project} project`) }),
   };
 };
 
@@ -211,7 +213,8 @@ export const renderTeamBank = (facts: TeamBankFacts): BankTemplateFiles => {
     "README.md": readme(facts.name, purpose, body),
     [`projects/${org}/${SCOPE_FILES.org}`]: folderFile("org", facts.team.name, `The ${facts.team.name} team`),
     [`${home}${SCOPE_FILES.project}`]: folderFile("project", "The bank", "This bank's own facts: accounts, the secrets layout and where work is tracked"),
-    ...Object.fromEntries(facts.projects.map((project) => [`projects/${org}/${project.folder}/${SCOPE_FILES.project}`, folderFile("project", project.name, project.name)])),
+    // A first project at the home folder is the home folder: its file stays the home's.
+    ...Object.fromEntries(facts.projects.filter((project) => project.folder !== TEAM_HOME).map((project) => [`projects/${org}/${project.folder}/${SCOPE_FILES.project}`, folderFile("project", project.name, project.name)])),
   };
 };
 
