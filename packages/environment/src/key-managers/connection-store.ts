@@ -21,6 +21,7 @@ import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-
 import type { Reader } from "../sessions/session-tables.js";
 import { BITWARDEN_BLOCK_NAMES } from "./bitwarden-block.js";
 import { DOPPLER_BLOCK_NAMES } from "./doppler-block.js";
+import { ONEPASSWORD_BLOCK_NAMES } from "./onepassword-block.js";
 import { OPENBAO_BLOCK_NAMES } from "./openbao-block.js";
 
 /**
@@ -261,7 +262,8 @@ export interface StoredConnection {
   readonly generation: number;
 }
 
-const BLOCK_NAMES: Partial<Record<KeyManagerProvider, readonly string[]>> = { openbao: OPENBAO_BLOCK_NAMES, doppler: DOPPLER_BLOCK_NAMES, bitwarden: BITWARDEN_BLOCK_NAMES };
+/** The names of each provider's block this version gives, which an injecting connection's record lists. */
+const BLOCK_NAMES: Partial<Record<KeyManagerProvider, readonly string[]>> = { openbao: OPENBAO_BLOCK_NAMES, doppler: DOPPLER_BLOCK_NAMES, onepassword: ONEPASSWORD_BLOCK_NAMES, bitwarden: BITWARDEN_BLOCK_NAMES };
 
 const storedOf = (row: ConnectionRow): StoredConnection => ({
   record: {
@@ -280,7 +282,7 @@ const storedOf = (row: ConnectionRow): StoredConnection => ({
     // Suggested in memory from the provider (`connections.ts`), never kept.
     suggestedBasePath: null,
     injects: row.injects === 1,
-    // The block names of each provider this version injects.
+    // The blocks this version gives: OpenBao's (#368), Doppler's (#377) and 1Password's (#378); Bitwarden's joins with its ticket.
     injectedVariables: row.injects === 1 ? [...(BLOCK_NAMES[row.provider] ?? [])] : [],
     status: JSON.parse(row.status) as KeyManagerStatus,
     tokenInformation: parsed<KeyManagerTokenInformation>(row.token_information),

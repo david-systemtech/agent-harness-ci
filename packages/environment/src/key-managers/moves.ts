@@ -231,6 +231,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
       if (!mode.verifyOnly) {
         // Each call's budget runs on the wall clock, never the environment's, which a test may hold still.
         const location = reference.provider === "openbao" ? { mount: reference.mount, path: reference.path }
+          : reference.provider === "onepassword" ? { mount: reference.vault, path: reference.item }
           : reference.provider === "bitwarden" && "project" in reference ? { mount: reference.project, path: reference.key }
           : reference.provider === "doppler" ? { mount: reference.project ?? "", path: reference.config ?? "" } : { mount: "", path: "" };
         const checked = await login.provider.canWrite(login.target, login.token, location, AbortSignal.timeout(budgetMs));
@@ -331,7 +332,7 @@ export const createKeyManagerMoves = (options: KeyManagerMovesOptions): KeyManag
         const held = connections.readable(connectionId);
         if (held === null) return rejecting(noConnection(connectionId));
         const { record, login } = held;
-        if (record.provider !== "openbao" && record.provider !== "doppler" && record.provider !== "bitwarden") {
+        if (record.provider !== "openbao" && record.provider !== "onepassword" && record.provider !== "doppler" && record.provider !== "bitwarden") {
           return rejecting({ code: "provider_unavailable", message: `This environment cannot move stored tokens into ${PROVIDER_NAMES[record.provider]} yet.`, data: { provider: record.provider } });
         }
         if (record.basePath === null) invalid(["connectionId"], `The key-manager connection ${record.label} has no base path: set where Move keeps the harness's secrets first.`);

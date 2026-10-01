@@ -22,6 +22,20 @@
       "minLength": 1,
       "maxLength": 1024,
       "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$"
+    },
+    "vault": {
+      "description": "The vault whose items are listed, by name or id; absent to list the vaults. 1Password only.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$"
+    },
+    "item": {
+      "description": "The item in the vault whose fields are listed, by name or id; absent to list the vault's items. 1Password only.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$"
     }
   },
   "required": [

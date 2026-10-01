@@ -409,21 +409,6 @@ posix("why a run has no token", () => {
     for (const withheld of ["BAO_", "Policies ticked", "Its CLI", "signed in"]) expect(keyManagersOf(text).join("\n\n")).not.toContain(withheld);
   });
 
-  it("says of an injecting connection whose provider this version gives no block that runs get none of its variables", async () => {
-    const { t, client } = await withOpenBao();
-    const other = await added(client, { provider: "onepassword", label: "1Password", address: "https://onepassword.example.test" });
-    expect((await setInjected(client, other.id)).receipt).toMatchObject({ status: "accepted" });
-    const session = await create(client);
-
-    const text = await runTo(t, client, session.id);
-
-    expect(keyManagersOf(text).slice(1, 4)).toEqual([
-      "1Password, injected into this run: awaiting its sign-in since 2026-09-24 00:00 UTC; runs get no token from it until the user signs it in.",
-      "This version gives runs none of its variables yet.",
-      "Its CLI: op is not installed.",
-    ]);
-  });
-
   it("says a run is given no key-manager variables or token while no connection injects", async () => {
     const { t, client } = await withOpenBao();
     await added(client, { label: "Work", address: "https://vault.work.example:8200", method: "approle" });

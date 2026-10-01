@@ -28,12 +28,14 @@ import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, Pr
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { createBackgroundWork } from "./background.js";
-import { basePathProblem, suggestBasePath } from "./base-path.js";
+import { basePathProblem, providerSuggestion } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
 import { createBitwardenProvider } from "./bitwarden.js";
 import type { BitwardenSdkLoader } from "./bitwarden-sdk.js";
 import { createDopplerProvider } from "./doppler.js";
+import { createOnePasswordProvider } from "./onepassword.js";
+import type { OnePasswordSdk } from "./onepassword-sdk.js";
 import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createRunTokens } from "./run-tokens.js";
@@ -153,6 +155,8 @@ export interface KeyManagerConnectionsOptions {
   readonly referenceHolders?: (connectionId: string) => readonly KeyManagerReferenceHolder[];
   /** The data directory's key-manager CLI directory, where the configuration the injected CLIs are pointed at is kept (#368). */
   readonly cliDirectory: string;
+  /** The 1Password SDK the 1Password provider signs in through (#378): the official one; tests give a scripted double. */
+  readonly onePasswordSdk: OnePasswordSdk;
 }
 
 /** A login the environment holds for a connection, as a reference is read with it: its token, and the provider and target it signed in through. */
@@ -247,8 +251,13 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const { log, clock, vault, scrub } = options;
   const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
-  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; the rest arrive with their tickets (#377 to #379). */
-  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: createOpenBaoProvider(), doppler: createDopplerProvider(), bitwarden: createBitwardenProvider(options.bitwardenSdk) };
+  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life. */
+  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = {
+    openbao: createOpenBaoProvider(),
+    doppler: createDopplerProvider(),
+    onepassword: createOnePasswordProvider(options.onePasswordSdk),
+    bitwarden: createBitwardenProvider(options.bitwardenSdk),
+  };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -465,11 +474,9 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return null;
   };
 
-  /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none. */
+  /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none and signs in with a token. */
   const settingsOf = (params: ParamsOf<"keyManagers.connections.add">, address: string) => {
     if (params.provider !== "openbao") {
-      if (params.provider === "bitwarden" && params.credential !== undefined && params.credential.method !== "token") invalid(["credential", "method"], "Bitwarden signs in with an access token.");
-      if (params.provider === "doppler" && params.credential !== undefined && params.credential.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with a token.`);
       for (const field of ["ca", "method", "mount", "username", "tokenRole"] as const) {
         if (params[field] !== undefined) invalid([field], `${field} is OpenBao's: a ${PROVIDER_NAMES[params.provider]} connection takes none.`);
       }
@@ -488,16 +495,43 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     };
   };
 
-  /** Where a connection signs in: token providers use their token; OpenBao uses its stored method and mount. */
-  const targetOf = (record: KeyManagerConnectionRecord, address = record.address, ca = record.ca): SignInTarget | null => {
-    if (record.provider === "bitwarden" || record.provider === "doppler") return { address, ca: null, method: "token", mount: "token", username: null };
-    if (record.method === null || record.mount === null) return null;
-    return { address, ca, method: record.method, mount: record.mount, username: record.username };
+  /**
+   * Where a connection signs in, at `address` with `ca`: OpenBao by its
+   * method at its mount, null while it has none; another provider with its
+   * token (Doppler's, #377; 1Password's service-account token, #378;
+   * Bitwarden's access token, #379), trusting no pinned CA.
+   */
+  const targetOf = (record: Pick<KeyManagerConnectionRecord, "provider" | "address" | "ca" | "method" | "mount" | "username">, address = record.address, ca = record.ca): SignInTarget | null => {
+    if (record.provider !== "openbao") return { address, ca: null, method: "token", mount: "token", username: null };
+    return record.method === null || record.mount === null ? null : { address, ca, method: record.method, mount: record.mount, username: record.username };
   };
 
-  /** The fields a first sign-in sets beside its outcome: the ticks preset to the login's policies, and whether it now injects. */
+  /**
+   * The address a credential names for itself, for a provider whose
+   * connection's address is learned at sign-in (1Password's account URL,
+   * #378): refused as the key manager would refuse it when it names none,
+   * and as another account's when it is not `expected`. Undefined for a
+   * provider whose address is given, or no credential.
+   */
+  const namedAddress = (
+    connectionId: string,
+    provider: ConnectionProvider | undefined,
+    kind: KeyManagerProvider,
+    credential: KeyManagerCredential | undefined,
+    expected: string | null,
+    nothing: string,
+  ): string | { readonly refused: CommandRejection<"verification_failed"> } | undefined => {
+    if (provider?.addressOf === undefined || credential === undefined) return undefined;
+    const named = provider.addressOf(credential);
+    const refuse = (message: string) => ({ refused: { code: "verification_failed" as const, message: `${message} ${nothing}`, data: { connectionId, reason: "rejected" } } });
+    if (named === null) return refuse(`That is no ${PROVIDER_NAMES[kind]} credential that names its account.`);
+    if (expected !== null && named !== expected) return refuse(`That token is for the ${PROVIDER_NAMES[kind]} account at ${named}, and this connection is for ${expected}: add a connection for that account.`);
+    return named;
+  };
+
+  /** The fields a first sign-in sets beside its outcome: OpenBao's ticks preset to the login's policies (another provider's login holds none), and whether it now injects. */
   const firstSignIn = (record: KeyManagerConnectionRecord, information: KeyManagerTokenInformation): Pick<KeyManagerConnectionSignedInPayload, "ticks" | "injects"> => ({
-    ...(record.ticks === null && { ticks: information.policies }),
+    ...(record.provider === "openbao" && record.ticks === null && { ticks: information.policies }),
     ...(!record.injects && !injecting(reader, record.provider) && { injects: true as const }),
   });
 
@@ -508,13 +542,28 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       // Registered as it arrives, before anything can answer with it; let go unless the add is accepted.
       const arrival = given === undefined ? null : registerCredential(connectionId, given);
       if (arrival !== null) context.onUndo(arrival);
-      const address = httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin, as https://bao.example.com:8200.");
+      const provider = providers[params.provider];
+      // Only for a provider this environment signs in to: another's credential is provider_unavailable below, whatever its method.
+      if (params.provider !== "openbao" && provider !== undefined && given !== undefined && given.method !== "token") {
+        invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with ${params.provider === "bitwarden" ? "an access token" : "a token"}.`);
+      }
+      const typed =
+        params.address === undefined ? null : (httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin, as https://bao.example.com:8200."));
+      const named = namedAddress(connectionId, provider, params.provider, given, null, "Nothing was stored.");
+      if (named !== undefined && typeof named !== "string") return rejecting<"keyManagers.connections.add">(named.refused);
+      if (named !== undefined && typed !== null && typed !== named) invalid(["address"], `The token is for the ${PROVIDER_NAMES[params.provider]} account at ${named}, not ${typed}.`);
+      const address =
+        named ??
+        typed ??
+        invalid(
+          ["address"],
+          params.provider === "onepassword" ? "A 1Password connection added without a token names its account URL, as https://my.1password.com." : "Give the key manager's address.",
+        );
       if (params.importedFrom !== undefined && params.copiedFrom !== undefined) invalid(["importedFrom"], "A connection is copied or imported, not both.");
       if (params.importedFrom !== undefined && given !== undefined) invalid(["credential"], "An imported connection signs in on this environment: the import sends no credential.");
       const settings = settingsOf(params, address);
       const basePathRefused = params.basePath === undefined ? null : basePathProblem(params.provider, params.basePath);
       if (basePathRefused !== null) invalid(["basePath"], basePathRefused);
-      const provider = providers[params.provider];
       if (given !== undefined && provider === undefined) return rejecting<"keyManagers.connections.add">(providerUnavailable(params.provider));
       /** The connection the state import made from the same source id, which a repeated import is answered with. */
       const imported = () => (params.importedFrom === undefined ? null : importedHolder(reader, params.importedFrom));
@@ -524,8 +573,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       let status = awaitingSignIn();
       let signed: Extract<SignInResult, { outcome: "signed-in" }> | null = null;
       let entry: string | null = null;
-      if (given !== undefined && provider !== undefined) {
-        const target: SignInTarget = { address, ca: settings.ca, method: settings.method ?? "token", mount: settings.mount ?? "token", username: settings.username };
+      const target = targetOf({ provider: params.provider, address, ...settings });
+      if (given !== undefined && provider !== undefined && target !== null) {
         const result = await signInWith(connectionId, provider, target, given);
         if (result.outcome === "refused") return rejecting<"keyManagers.connections.add">(verificationFailed(connectionId, result, "Nothing was stored."));
         if (result.outcome === "signed-in") {
@@ -550,7 +599,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           label: params.label,
           address,
           ...settings,
-          ticks: params.ticks ?? signed?.information.policies ?? null,
+          ticks: params.ticks ?? (params.provider === "openbao" ? signed?.information.policies : undefined) ?? null,
           basePath: params.basePath ?? null,
           injects: signed !== null && !injecting(reader, params.provider),
           status,
@@ -583,12 +632,15 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (provider === undefined) return rejecting<"keyManagers.connections.signIn">(providerUnavailable(record.provider));
       if (record.provider !== "openbao") {
         if (given.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[record.provider]} signs in with a token.`);
-        for (const field of ["mount", "username"] as const) if (params[field] !== undefined) invalid([field], `${field} is OpenBao's.`);
+        for (const field of ["mount", "username"] as const) if (params[field] !== undefined) invalid([field], `${field} is OpenBao's: a ${PROVIDER_NAMES[record.provider]} connection takes none.`);
       }
+      const named = namedAddress(connectionId, provider, record.provider, given, record.address, "Nothing was changed.");
+      if (named !== undefined && typeof named !== "string") return rejecting<"keyManagers.connections.signIn">(named.refused);
       const method = given.method;
       const mount = mountFor(method, params.mount ?? (method === record.method ? (record.mount ?? undefined) : undefined));
       const username = usernameFor(method, params.username, record.username);
-      const target: SignInTarget = { address: record.address, ca: record.ca, method, mount, username };
+      const target = targetOf({ ...record, method, mount, username });
+      if (target === null) throw new Error(`The key-manager connection ${connectionId} has no sign-in target for ${method}.`);
 
       const result = await signInWith(connectionId, provider, target, given);
       if (result.outcome === "refused") return rejecting<"keyManagers.connections.signIn">(verificationFailed(connectionId, result, "Nothing was changed."));
@@ -605,6 +657,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           status: signedInStatus(now.provider, result.information),
           tokenInformation: result.information,
           credential: entry,
+          // Only OpenBao's record keeps how it signs in; the others sign in with a token alone.
           ...(now.provider === "openbao" && method !== now.method && { method }),
           ...(now.provider === "openbao" && mount !== now.mount && { mount }),
           ...(now.provider === "openbao" && username !== now.username && { username }),
@@ -640,6 +693,9 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       if (record.provider !== "openbao") {
         if (params.ca !== undefined) invalid(["ca"], `ca is OpenBao's: a ${PROVIDER_NAMES[record.provider]} connection takes none.`);
         if (params.tokenRole !== undefined) invalid(["tokenRole"], `tokenRole is OpenBao's: a ${PROVIDER_NAMES[record.provider]} connection takes none.`);
+      }
+      if (record.provider === "onepassword" && params.address !== undefined) {
+        invalid(["address"], "A 1Password connection's address is its account's URL, which its token names: sign in with another account's token on a connection of its own.");
       }
       const address =
         params.address === undefined ? record.address : (httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin."));
@@ -895,11 +951,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       let taken = false;
       try {
         // Asked before anything is recorded, so the verification is seen whole: a client reading the records on its event reads the suggestion too (#689). On the wall clock, never the environment's, which a test may hold still.
-        let suggested: string | null | undefined;
-        if (!closed && checked.outcome === "verified" && held.record.basePath === null) {
-          if (held.record.provider === "doppler" || held.record.provider === "bitwarden") suggested = "harness";
-          else if (held.record.provider === "openbao") suggested = await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs));
-        }
+        const suggested =
+          !closed && checked.outcome === "verified" && held.record.basePath === null
+            ? await providerSuggestion(held.record.provider, provider, target, checked.login.token, AbortSignal.timeout(budgetMs))
+            : undefined;
         // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
         taken = !closed && recordFound(connectionId, subject, checked);
         if (taken) verifiedTimes.set(connectionId, verifiedAt);

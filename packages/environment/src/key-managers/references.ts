@@ -81,7 +81,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
     return { outcome: "ready", login, named: `${PROVIDER_NAMES[record.provider]} at ${record.address}` };
   };
 
-  /** The refusal a provider's failure comes to: nothing there, a read refused, or a key manager that could not be asked. */
+  /** The refusal a provider's failure comes to: nothing there, a read refused (OpenBao's saying what its refusals leave open), or a key manager that could not be asked. */
   const refusalOf = (failure: ProviderFailure, provider: KeyManagerProvider): Refused => {
     const message = scrub.scrubOutput(failure.message);
     if (failure.outcome === "provider-unavailable") return refused("provider_unavailable", message);
@@ -135,21 +135,28 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
       return { display, problem: { code: answer.code, message: answer.message, data: { connectionId: reference.connectionId } } };
     },
 
-    async browse({ connectionId, mount, path }) {
+    async browse({ connectionId, mount, path, vault, item }) {
       const id = connectionId.toLowerCase();
+      const invalid = (param: string, message: string): never => {
+        throw new ContractError(invalidParams([{ code: "custom", path: [param], message }], message));
+      };
       const held = connections.readable(id);
-      if (path !== undefined && mount === undefined && held?.record.provider !== "doppler") {
-        const message = "A path is listed under a mount: name the mount too.";
-        throw new ContractError(invalidParams([{ code: "custom", path: ["path"], message }], message));
-      }
       if (held === null) {
         throw new ContractError({ code: "not_found", message: `No key-manager connection ${id} is on this environment.`, data: { kind: "key_manager_connection", connectionId: id } });
       }
-      const ready = loginOf(held, held.record.provider);
-      const location = { mount: mount ?? null, path: path ?? null };
+      const { provider } = held.record;
+      // 1Password lists by vault and item where the others list by mount and path, Doppler's a project and config and Bitwarden's mount a project (`provider.ts`); a connection takes only its own.
+      const onePassword = provider === "onepassword";
+      const stray = Object.entries(onePassword ? { mount, path } : { vault, item }).find(([, given]) => given !== undefined)?.[0];
+      if (stray !== undefined) invalid(stray, `${PROVIDER_NAMES[provider]} lists by ${onePassword ? "vault and item" : "mount and path"}: its connection takes no ${stray}.`);
+      // Paired only after the stray check, so the hint names the pair this connection takes; Doppler's config (`path`) stands alone when the token fixes its project.
+      if (path !== undefined && mount === undefined && provider !== "doppler") invalid("path", "A path is listed under a mount: name the mount too.");
+      if (item !== undefined && vault === undefined) invalid("item", "An item's fields are listed in its vault: name the vault too.");
+      const ready = loginOf(held, provider);
+      const location = onePassword ? { mount: vault ?? null, path: item ?? null } : { mount: mount ?? null, path: path ?? null };
       const answer = ready.outcome === "unavailable" ? ready : await withinBudget(ready.named, "list", (signal) => ready.login.provider.list(ready.login.target, ready.login.token, location, signal));
       if (answer.outcome === "listed") return { names: [...answer.names] };
-      const problem = answer.outcome === "unavailable" ? answer : refusalOf(answer, held.record.provider);
+      const problem = answer.outcome === "unavailable" ? answer : refusalOf(answer, provider);
       throw new ContractError({ code: problem.code, message: problem.message, data: { connectionId: id } });
     },
   };

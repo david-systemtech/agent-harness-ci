@@ -10,6 +10,7 @@ import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
 import { bitwardenHolderBlock } from "./bitwarden-block.js";
 import { dopplerBlock } from "./doppler-block.js";
+import { onePasswordBlock } from "./onepassword-block.js";
 import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
@@ -22,14 +23,15 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * starts through the same call) is given the injecting connections' blocks
  * through.
  *
- * - **What is injected**: each injecting OpenBao, Doppler or Bitwarden
- *   connection's block, at most one per provider. Doppler and Bitwarden use
- *   the kept token as it is, each with a private 0700 folder of the holder's
- *   own deleted at holder stop, which it supplies as the holder's to write,
- *   so a contained run's `doppler` can write its configuration and fallback
- *   there (#1119), and `bws` its state file, beside the configuration naming
- *   the server and that folder (#1141). 1Password's block joins with #378.
- *   With none, nothing is supplied and the key is empty.
+ * - **What is injected**: each injecting OpenBao, Doppler, 1Password or
+ *   Bitwarden connection's block, at most one per provider. Doppler,
+ *   1Password and Bitwarden use the kept token as it is, each with a private
+ *   0700 folder of the holder's own deleted at holder stop, which it supplies
+ *   as the holder's to write, so a contained run's `doppler` can write its
+ *   configuration and fallback there (#1119), `op` its configuration
+ *   (#1126), and `bws` its state file, beside the configuration naming the
+ *   server and that folder (#1141). With none, nothing is supplied and the
+ *   key is empty.
  * - **The key** names, per injected connection, its id, its credential
  *   generation and its status, and while run tokens are its login's
  *   children (no token role) its login generation (#369), never a token: a
@@ -90,6 +92,9 @@ export const OPENBAO_CONFIG_FILE = "openbao.hcl";
 
 /** The harness's token helper the configuration names, beside it (#716). */
 export const OPENBAO_TOKEN_HELPER_FILE = "openbao-token-helper";
+
+/** What each holder's 1Password configuration directory in the key-manager CLI directory is named from: `op-` and a random suffix (#378). */
+export const ONEPASSWORD_CONFIG_PREFIX = "op-";
 
 /** A connection that injects, as the supplier reads it: its record as it stands, its credential generation, and its login generation (#369). */
 export interface InjectingConnection {
@@ -158,6 +163,7 @@ const replaceFile = async (path: string, text: string, mode: number): Promise<vo
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const { source, clock, scrub, budgetMs, background } = options;
   const held = new Set<HeldRunToken>();
+  /** The holders' own CLI configuration directories (Doppler's and 1Password's), each with its token's scrub release: deleted at the holder's release or the close. */
   const directories = new Map<string, ScrubRelease>();
   const removeDirectory = (directory: string): void => {
     const unregister = directories.get(directory);
@@ -190,7 +196,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
   /** The injecting connections with a supported environment block. */
-  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler" || record.provider === "bitwarden");
+  const served = (): InjectingConnection[] =>
+    source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler" || record.provider === "onepassword" || record.provider === "bitwarden");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
@@ -325,6 +332,15 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     await waited;
     const now = source.readable(connectionId);
     if (now === null) return null;
+    if (now.record.provider === "onepassword") {
+      const folder = await holderFolder(connectionId, ONEPASSWORD_CONFIG_PREFIX);
+      if (folder === null) return null;
+      const { directory, current } = folder;
+      const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
+      directories.set(directory, token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` }));
+      // op writes its configuration there, so a contained run's commands may write it too (#1126).
+      return { variables: onePasswordBlock({ token, configDirectory: directory }), writable: [directory], release: () => removeDirectory(directory) };
+    }
     if (now.record.provider === "bitwarden") {
       const folder = await holderFolder(connectionId, "bitwarden-");
       if (folder === null) return null;
@@ -367,9 +383,14 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     key() {
       const injecting = served();
       if (injecting.length === 0) return "";
-      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it.
+      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it, and 1Password's token is the connection's own.
       return JSON.stringify(
-        injecting.map(({ record, generation, loginGeneration }) => ({ id: record.id, generation, ...(record.tokenRole === null && { login: loginGeneration }), status: record.status.kind })),
+        injecting.map(({ record, generation, loginGeneration }) => ({
+          id: record.id,
+          generation,
+          ...(record.provider === "openbao" && record.tokenRole === null && { login: loginGeneration }),
+          status: record.status.kind,
+        })),
       );
     },
 
