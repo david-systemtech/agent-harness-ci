@@ -278,18 +278,20 @@ describe("a worker that holds a credential", () => {
     expect(setup.chrome.storage.local.peek("pairing")).toEqual(pairingWith(setup.environment));
   });
 
-  it("answers a verb with a refusal until it drives pages", async () => {
-    const setup = await setUpPaired();
-    const socket = await setup.environment.nextSocket();
-    await challenged(setup, socket);
-    socket.send({ type: "ready", policy: POLICY });
+  it("answers a verb only on a live socket: a call before the proof, or on the announced socket, is out of turn, and no tab is made", async () => {
+    const call = { type: "call", id: "call-1", pageKey: "env/session", command: { verb: "open", args: { url: "https://example.com/" } } } as const;
+    const paired = await setUpPaired();
+    const proving = await paired.environment.nextSocket();
+    expect(await proving.next()).toMatchObject({ type: "hello" });
+    proving.send(call);
+    expect(await proving.next()).toEqual({ type: "refused", reason: "The extension did not expect call here." });
 
-    socket.send({ type: "call", id: "call-1", pageKey: "env/session", command: { verb: "snapshot", args: {} } });
+    const unpaired = await setUp();
+    const announcing = await unpaired.environment.nextSocket();
+    await announced(unpaired, announcing);
+    announcing.send(call);
+    expect(await announcing.next((message) => message.type === "refused")).toEqual({ type: "refused", reason: "The extension did not expect call here." });
 
-    expect(await socket.next((message) => message.type === "result")).toEqual({
-      type: "result",
-      id: "call-1",
-      result: { ok: false, reason: "This extension cannot drive pages yet." },
-    });
+    expect([...paired.chrome.tabsOpen(), ...unpaired.chrome.tabsOpen()]).toEqual([]);
   });
 });
