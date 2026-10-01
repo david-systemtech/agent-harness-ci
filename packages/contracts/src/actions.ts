@@ -428,7 +428,7 @@ export const ACTION_GROUPS = [
     guiOnly("app.pane.splitRight", "Split the focused pane to the right", inGui(["Mod+\\"])),
     guiOnly("app.pane.splitDown", "Split the focused pane downwards", inGui(["Mod+Shift+\\"])),
     guiOnly("app.settings.toggle", "Open or close Settings", inGui(["Mod+,"])),
-    guiOnly("app.runInfo.toggle", "Show or hide the run's details", inGui(["Mod+I"])),
+    key("app.runInfo.toggle", ["Alt+I"], "Show or hide the run's details", inGui(["Mod+I"])),
   ]),
   group("Writing a message", "composer", [
     key("composer.send", ["Enter"], "Send it, steer a turn, run a row, send a failed check", inGui(["Enter"])),
