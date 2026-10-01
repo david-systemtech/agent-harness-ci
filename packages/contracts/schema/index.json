@@ -643,6 +643,10 @@
       "title": "SessionHistoryImportedPayload"
     },
     {
+      "path": "sessions/events/run.suggested.json",
+      "title": "RunSuggestedPayload"
+    },
+    {
       "path": "sessions/events/run.ended.json",
       "title": "RunEndedPayload"
     },
@@ -1069,6 +1073,18 @@
     {
       "path": "key-managers/onepassword-reference.json",
       "title": "OnePasswordReference"
+    },
+    {
+      "path": "key-managers/bitwarden-move-locator.json",
+      "title": "BitwardenMoveLocator"
+    },
+    {
+      "path": "key-managers/move-locator.json",
+      "title": "KeyManagerMoveLocator"
+    },
+    {
+      "path": "key-managers/reference-provider-unavailable-error.json",
+      "title": "ReferenceProviderUnavailableError"
     },
     {
       "path": "key-managers/bitwarden-reference.json",

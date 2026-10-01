@@ -274,12 +274,10 @@ describe("keyManagers.move's refusals", () => {
     await expect(move(client, { connectionId: connection.id })).rejects.toMatchObject({ code: "invalid_params", message: expect.stringContaining("no base path") });
   });
 
-  it("is credential_source_unavailable for a connection not signed in, and provider_unavailable for a provider a Move cannot write to yet", async () => {
+  it("is credential_source_unavailable for a connection not signed in", async () => {
     const { client } = await withOpenBao();
     const waiting = await added(client, { address: "https://bao.example.com:8200", method: "approle", basePath: "personal/harness" });
     expect(rejection((await move(client, { connectionId: waiting.id })).receipt)).toMatchObject({ reason: "credential_source_unavailable", data: { connectionId: waiting.id } });
-    const other = await added(client, { provider: "onepassword", address: "https://onepassword.example.test", basePath: "harness" });
-    expect(rejection((await move(client, { connectionId: other.id })).receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "onepassword" } });
   });
 
   it("answers an item that holds no stored value not_found, and moves the others", async () => {

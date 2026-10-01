@@ -114,6 +114,20 @@ describe("a run's process environment", () => {
     expect(texts(t, session.id)).toContain("The command said matched");
   });
 
+  it("hands the process every supplier's directories for the holder to write, in the order they registered, and none from a supplier that names none (#1119)", async () => {
+    const t = await start();
+    const writing = (name: string, writable: readonly string[]): ProcessEnvironmentSupplier => ({ name, key: () => name, supply: () => ({ variables: {}, writable, release: () => undefined }) });
+    for (const supplier of [writing("first", ["/data/key-manager-cli/doppler-1a2b3c"]), testSupplier({ HARNESS_TEST: "1" }, "silent").supplier, writing("other", ["/data/other-1", "/data/other-2"])]) {
+      t.env.processEnvironments.register(supplier);
+    }
+    const client = await t.client();
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+
+    expect(await t.adapter.processesOf(session.id)[0]?.writable).toEqual(["/data/key-manager-cli/doppler-1a2b3c", "/data/other-1", "/data/other-2"]);
+  });
+
   it("is built the same way for every run, whatever started it: a client, the completions surface, a routine", async () => {
     const t = await start();
     const { supplier, asked } = testSupplier({ HARNESS_TEST_VARIABLE: "for every run" });

@@ -32,7 +32,7 @@ interface Preloaded {
 }
 
 /** Runs the bundle as a sandboxed preload, `ipcRenderer.invoke` answered by `answers`. */
-const preload = (answers: Readonly<Record<string, unknown>> = {}): Preloaded => {
+const preload = (answers: Readonly<Record<string, unknown>> = {}, devices: readonly { kind: string }[] = []): Preloaded => {
   const required: string[] = [];
   const exposed: (readonly [string, unknown])[] = [];
   const asked: (readonly [string, ...unknown[]])[] = [];
@@ -55,7 +55,7 @@ const preload = (answers: Readonly<Record<string, unknown>> = {}): Preloaded => 
     throw new Error(`A sandboxed preload cannot require ${name}.`);
   };
   const wrapped = new Script(`(function (require, process, Buffer, global, setImmediate, clearImmediate, exports, module) {\n${bundle}\n})`);
-  const run = wrapped.runInContext(createContext({})) as (...args: unknown[]) => void;
+  const run = wrapped.runInContext(createContext({ navigator: { mediaDevices: { enumerateDevices: async () => devices } } })) as (...args: unknown[]) => void;
   const module = { exports: {} };
   run(sandboxRequire, {}, undefined, {}, undefined, undefined, module.exports, module);
   return {
@@ -77,6 +77,13 @@ const shellOf = (loaded: Preloaded): Exposed => {
 };
 
 describe("the preload bundle", () => {
+  it("resolves a camera member only when the window has a video input, without opening it", async () => {
+    const present = shellOf(preload({}, [{ kind: "videoinput" }]));
+    const absent = shellOf(preload({}, [{ kind: "audioinput" }]));
+    const ready = async (shell: Exposed) => await shell["ready"]?.() as Exposed;
+    expect(await ready(present)).toHaveProperty("camera.scanQr", expect.any(Function));
+    expect(await ready(absent)).not.toHaveProperty("camera");
+  });
   it("is one script that requires electron and nothing else, as the sandbox allows", () => {
     const loaded = preload();
     expect([...new Set(loaded.required)]).toEqual(["electron"]);
@@ -96,6 +103,7 @@ describe("the preload bundle", () => {
       "notifications",
       "openExternal",
       "preview",
+      "ready",
       "secrets",
       "service",
       "system",

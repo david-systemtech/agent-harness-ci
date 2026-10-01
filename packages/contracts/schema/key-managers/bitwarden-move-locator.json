@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BitwardenMoveLocator",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "const": "bitwarden"
+    },
+    "connectionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The key-manager connection the reference is read through."
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$",
+      "description": "The base project name or id."
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}]+$",
+      "description": "The secret key Move writes."
+    }
+  },
+  "required": [
+    "provider",
+    "connectionId",
+    "project",
+    "key"
+  ]
+}

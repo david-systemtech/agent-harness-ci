@@ -262,6 +262,9 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     const refused = host.refusal("keyManagers.connections.add");
     if (refused) return refused;
     const id = String(params["connectionId"]);
+    // A 1Password add with a token gives no address: the environment learns the account URL the token names as it signs in (#378), which this fake does not,
+    // answering it as it answers a credential for any provider but OpenBao.
+    if (params["provider"] === "onepassword" && params["credential"] !== undefined && params["address"] === undefined) return unavailable("onepassword", "sign in to", " Nothing was stored.");
     const address = httpOriginOf(String(params["address"]));
     if (address === null) return invalid("address", `${String(params["address"])} is not an http or https origin.`);
     const provider = params["provider"] as KeyManagerProvider;

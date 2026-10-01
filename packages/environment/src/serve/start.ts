@@ -138,6 +138,7 @@ import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
+import { officialOnePasswordSdk, type OnePasswordSdk } from "../key-managers/onepassword-sdk.js";
 import { KEY_MANAGER_CLI_DIRECTORY } from "../key-managers/run-tokens.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { settingsInjection } from "../key-managers/injection-setting.js";
@@ -553,6 +554,10 @@ export interface EnvironmentOptions {
    * path's list (#370) may take. Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds.
    */
   readonly keyManagerTimeoutMs?: number;
+  /** The 1Password SDK the 1Password provider signs in through (#378). Preset: the official `@1password/sdk`; tests give a scripted double, so none reaches 1Password. */
+  readonly onePasswordSdk?: OnePasswordSdk;
+  /** Loads the official Bitwarden SDK; tests inject a scripted loader or a load failure. */
+  readonly bitwardenSdk?: import("../key-managers/bitwarden-sdk.js").BitwardenSdkLoader;
   /**
    * The Move sources registered at start (#371): each owning service's
    * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
@@ -952,6 +957,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => tools.close());
     const connections = createKeyManagerConnections({
+      ...(options.bitwardenSdk !== undefined && { bitwardenSdk: options.bitwardenSdk }),
       log,
       clock,
       environmentId: loaded.id,
@@ -961,6 +967,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       // Asked only by a removal, once the wire is open and the forge made below.
       referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId)],
       cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
+      onePasswordSdk: options.onePasswordSdk ?? officialOnePasswordSdk(HARNESS_VERSION),
     });
     closers.push(() => connections.close());
     await connections.start();

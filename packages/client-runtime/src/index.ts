@@ -108,6 +108,7 @@ export {
   KEY_MANAGER_ADDRESS_PRESETS,
   KEY_MANAGER_LABEL_PRESETS,
   addConnection,
+  asksAddress,
   copyValue,
   moveItems,
   previewCertificate,

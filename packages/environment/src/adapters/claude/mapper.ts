@@ -44,6 +44,8 @@ export interface MapperState {
   providerSessionId: string | null;
   /** Set by the end: nothing is mapped after it. */
   ended: boolean;
+  completed: boolean;
+  suggested: boolean;
   /** Set by an interrupt, so the ending reads as one whatever the provider calls it. */
   interruptRequested: boolean;
   readonly openTools: Map<string, OpenTool>;
@@ -63,6 +65,8 @@ export const createMapperState = (options: { readonly ledger: TaskLedger; readon
   linked: false,
   providerSessionId: null,
   ended: false,
+  completed: false,
+  suggested: false,
   interruptRequested: false,
   openTools: new Map(),
   closedTools: new Set(),
@@ -358,6 +362,7 @@ const modelUsage = (raw: unknown): ModelUsage[] => {
 export const endTurn = (state: MapperState, end: Omit<RunEnd, "type">): AdapterEvent[] => {
   if (state.ended) return [];
   state.ended = true;
+  state.completed = end.reason === "completed";
   const events: AdapterEvent[] = [];
   for (const id of [...state.openTools.keys()]) events.push(...endTool(state, id, "cancelled", null));
   for (const [itemId, item] of state.openItems) {
@@ -407,12 +412,18 @@ const tasksChanged = (state: MapperState): TranscriptEvent[] => (state.ledger.di
 /**
  * One SDK message as the transcript events it means for the turn `state`
  * belongs to. The ledger reads every message, ended turn or not, so work
- * that outlives a turn is known to the next; nothing else is mapped once the
+ * that outlives a turn is known to the next; only its prompt suggestion is mapped once the
  * turn has ended.
  */
 export const mapSdkMessage = (message: unknown, state: MapperState): AdapterEvent[] => {
   if (!isRecord(message)) return [];
   state.ledger.observe(message);
+  if (message["type"] === "prompt_suggestion") {
+    const suggestion = text(message["suggestion"]);
+    if (!state.completed || state.suggested || suggestion === null || suggestion.trim() === "") return [];
+    state.suggested = true;
+    return [event("run.suggested", { suggestion })];
+  }
   if (state.ended) return [];
   switch (message["type"]) {
     case "system":

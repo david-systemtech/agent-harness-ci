@@ -1,6 +1,7 @@
 import {
   SESSION_STREAM_KIND,
   RunBrowserResolvedPayload,
+  RunSuggestion,
   type RunBrowserResolution,
   eventTypeEntry,
   type AssistantDeltaPayload,
@@ -291,6 +292,8 @@ export interface SessionTranscript {
   readonly containment: ContainmentLevel | null;
   /** The session's own instructions, the snapshot's or the latest `session.instructions-set` heard since; empty when it has none. */
   readonly instructions: string;
+  /** The latest completed run's predicted next message, cleared by the next run or a rewind. */
+  readonly suggestion: RunSuggestion | null;
   /** Every run, oldest first. */
   readonly runs: readonly RunSummary[];
   /** The transcript, in the order its entries were opened; what a rewind cut is one `rewound` fold at the rewind point. */
@@ -439,6 +442,7 @@ const everyFold = (list: readonly Held[]): Fold[] => list.flatMap((item) => (ite
  */
 export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly EventEnvelope[]): SessionTranscript => {
   const runs = new Map<string, Mutable<RunSummary>>(snapshot.runs.map((run) => [run.runId, { ...run }]));
+  let suggestion = snapshot.suggestion ?? null;
   let items: Held[] = listOf(snapshot.items, snapshot.rewinds);
   /** The rewinds standing (not undone), the snapshot's and those heard, oldest first, each its fold: undoable until a run starts. */
   let folds: Fold[] = everyFold(items).sort(bySequence);
@@ -480,6 +484,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     const { sequence } = event;
     switch (event.type) {
       case "run.started": {
+        suggestion = null;
         const payload = event.payload as RunStartedPayload;
         runs.set(payload.runId, {
           runId: payload.runId,
@@ -507,6 +512,12 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         // A run started on a rewound session: no rewind before it can be undone any more, and each stays where it cut.
         for (const fold of folds) fold.undoable = false;
         return;
+      }
+      case "run.suggested": {
+        const offer = RunSuggestion.parse(event.payload);
+        const latest = [...runs.values()].at(-1);
+        if (latest?.runId === offer.runId && latest.reason === "completed") suggestion = offer;
+        break;
       }
       case "run.ended": {
         const payload = event.payload as RunEndedPayload;
@@ -700,6 +711,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         return;
       }
       case "session.rewound": {
+        suggestion = null;
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
         // Only a message the transcript shows is rewound to; one it does not hold, or one an earlier rewind cut, hides nothing.
@@ -755,6 +767,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   }
 
   return {
+    suggestion,
     runs: [...runs.values()],
     items: gatherSubagents(items, ledgersOf(items)),
     parkedPrompts: [...parked.values()],
@@ -846,7 +859,7 @@ export interface SessionProjectionInput {
   readonly waitingDraft: string | null | undefined;
 }
 
-const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, browserResolutions: {}, containment: null, instructions: "" };
+const NO_TRANSCRIPT: SessionTranscript = { suggestion: null, runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, browserResolutions: {}, containment: null, instructions: "" };
 
 /** The view of one session: its stream's reduction beside its freshness, its overlaid summary and its draft. `transcript` reuses a reduction of the same data. */
 export const projectSession = (input: SessionProjectionInput, transcript?: SessionTranscript): SessionProjection => {

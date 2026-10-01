@@ -118,6 +118,7 @@ export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   "terminal.leave": "Leave the pane for the transcript, where Tab would go; twice sends the key to the shell",
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",
+  "composer.suggestion.take": "1 sends the predicted next message from an empty composer; 2–4 type text",
   "composer.navigate": "The text, then history",
   // The shared list's words say "its folder"; the pin is the one pinned block across environments.
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
