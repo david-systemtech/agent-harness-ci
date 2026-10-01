@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ENVIRONMENT_STREAM_KIND, type BankRecord, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { changed, markdown, memory, PERSONAL_BANK, personalManifest, scopeFile, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
-import { restartAfter, startTestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
 import { createBankService } from "./bank-service.js";
@@ -36,6 +36,14 @@ const registered = async (client: WireClient, files: Readonly<Record<string, str
 
 const update = (client: WireClient, bank: BankRecord, changes: Omit<ParamsOf<"banks.registry.update">, "commandId" | "bankId">) =>
   client.request("banks.registry.update", { commandId: randomUUID(), bankId: bank.id, ...changes });
+
+const managedBank = async (t: TestEnvironment, client: WireClient): Promise<BankRecord> => {
+  const fixture = await registered(client, PERSONAL_BANK);
+  await client.request("banks.forget", { commandId: randomUUID(), bankId: fixture.id });
+  const bank: BankRecord = { ...fixture, id: randomUUID(), checkout: gitBank(PERSONAL_BANK, join(t.dataDir, "banks", fixture.name)), checkoutOwnership: "managed" };
+  t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, [{ type: "bank.added", payload: { bank } }], { actor: "system:banks" });
+  return bank;
+};
 
 const wideBank = (name: string): Record<string, string> => {
   const files: Record<string, string> = { "BANK.md": markdown(personalManifest({ name, entities: [{ name: "Maya", aliases: ["Maya Reyes"] }], orientation: [] })), "projects/personal/ORG.md": markdown({ line: "Personal projects" }) };
@@ -180,6 +188,44 @@ describe("bank registry settings through the wire", () => {
     await client.request("environment.rebuildProjections", { commandId: randomUUID() });
     expect(pins.sessionPins(sessionId)).toEqual([]);
     expect((await client.request("banks.get", { bankId: bank.id })).bank.pins).toEqual([pointer]);
+  });
+
+  it("keeps an owned checkout intact when the forget transaction aborts", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await managedBank(t, client);
+    t.env.log.registerProjector({ name: "abort-bank-forget", tables: {}, apply(event) { if (event.type === "bank.forgotten") throw new Error("Abort this transaction."); } });
+    await expect(client.request("banks.forget", { commandId: randomUUID(), bankId: bank.id, removeCheckout: true })).rejects.toMatchObject({ code: "internal" });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.id).toBe(bank.id);
+    expect(existsSync(join(bank.checkout, "BANK.md"))).toBe(true);
+    expect(git(bank.checkout, "rev-parse", "HEAD").trim()).not.toBe("");
+  });
+
+  it("restores a checkout staged by an interruption before the forget committed", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await managedBank(t, client);
+    const staged = join(t.dataDir, "bank-checkout-removals", bank.id);
+    mkdirSync(dirname(staged), { recursive: true });
+    renameSync(bank.checkout, staged);
+    const restarted = await restartAfter(t, 0, start);
+    expect((await (await restarted.client()).request("banks.get", { bankId: bank.id })).bank.id).toBe(bank.id);
+    expect(existsSync(join(bank.checkout, "BANK.md"))).toBe(true);
+    expect(existsSync(staged)).toBe(false);
+  });
+
+  it("finishes a staged checkout removal after its forget committed before an interruption", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await managedBank(t, client);
+    const staged = join(t.dataDir, "bank-checkout-removals", bank.id);
+    mkdirSync(dirname(staged), { recursive: true });
+    renameSync(bank.checkout, staged);
+    t.env.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: t.env.id }, [{ type: "bank.forgotten", payload: { bankId: bank.id, checkoutRemoved: true } }], { actor: "system:banks" });
+    const restarted = await restartAfter(t, 0, start);
+    expect((await (await restarted.client()).request("banks.list", {})).banks).toEqual([]);
+    expect(existsSync(bank.checkout)).toBe(false);
+    expect(existsSync(staged)).toBe(false);
   });
 
   it("retains a forgotten checkout by default and refuses explicit removal of a registered path", async () => {

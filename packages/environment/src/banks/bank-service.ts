@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import {
   BANK_INDEX_BUDGET,
@@ -228,7 +228,7 @@ export interface BankService {
   readonly register: PreparedCommand<"banks.register">;
   readonly update: PreparedCommand<"banks.registry.update">;
   readonly pin: PreparedCommand<"banks.pin">;
-  readonly forget: MethodHandler<"banks.forget">;
+  readonly forget: PreparedCommand<"banks.forget">;
   /** This session's own pins for the BankLayer and renderer, separate from every entry's registry pins. */
   sessionPins(sessionId: string): readonly string[];
   readonly git: BankCredentials["git"];
@@ -239,6 +239,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const { log, clock, forge } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
+  recoverCheckoutRemovals(reader, log, stream, options.dataDir);
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
   let verifyingAll: Promise<BankRecord[]> | null = null;
@@ -528,23 +529,42 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     },
   };
 
-  const forget: BankService["forget"] = (params, command) => {
-    const entry = liveBank(reader, params.bankId);
-    if (entry === null) return { aggregate: stream, rejected: { code: "not_found" } };
-    const remove = params.removeCheckout === true;
-    if (remove && !removableCheckout(entry, listBanks(reader), options.dataDir)) return { aggregate: stream, rejected: { code: "conflict", message: "Only a BankService-owned checkout with no registered path in it may be removed.", data: { reason: "registered_path", bankId: entry.id } } };
-    // Do not commit a checkoutRemoved verdict before removal has succeeded.
-    if (remove) {
-      try {
-        rmSync(entry.checkout, { recursive: true, force: true });
-      } catch {
-        return { aggregate: stream, rejected: { code: "internal", message: "The bank's checkout could not be removed; it remains registered." } };
-      }
-    }
-    const result = { bankId: entry.id, checkoutRemoved: remove };
-    log.append(stream, [{ type: "bank.forgotten", payload: result }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-    command.tx.afterCommit(() => readings.delete(entry.id));
-    return { aggregate: stream, result };
+  const forget: BankService["forget"] = {
+    prepare(params, context) {
+      let staged: { readonly from: string; readonly to: string } | undefined;
+      context.onUndo(() => {
+        if (staged !== undefined && existsSync(staged.to)) renameSync(staged.to, staged.from);
+      });
+      return (_params, command) => {
+        const entry = liveBank(reader, params.bankId);
+        if (entry === null) return { aggregate: stream, rejected: { code: "not_found" } };
+        const remove = params.removeCheckout === true;
+        if (remove && !removableCheckout(entry, listBanks(reader), options.dataDir)) return { aggregate: stream, rejected: { code: "conflict", message: "Only a BankService-owned checkout with no registered path in it may be removed.", data: { reason: "registered_path", bankId: entry.id } } };
+        // Rename is reversible until the receipt commits; destroy only the staged checkout after it.
+        if (remove) {
+          try {
+            if (existsSync(entry.checkout)) {
+              const root = checkoutRemovalRoot(options.dataDir);
+              mkdirSync(root, { recursive: true });
+              assertRemovalRoot(root, options.dataDir);
+              const to = join(root, entry.id);
+              if (existsSync(to)) throw new Error("A checkout removal is pending already.");
+              renameSync(entry.checkout, to);
+              staged = { from: entry.checkout, to };
+            }
+          } catch {
+            return { aggregate: stream, rejected: { code: "internal", message: "The bank's checkout could not be staged for removal; it remains registered." } };
+          }
+        }
+        const result = { bankId: entry.id, checkoutRemoved: remove };
+        log.append(stream, [{ type: "bank.forgotten", payload: result }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        command.tx.afterCommit(() => {
+          readings.delete(entry.id);
+          if (staged !== undefined) rmSync(staged.to, { recursive: true, force: true });
+        });
+        return { aggregate: stream, result };
+      };
+    },
   };
 
   return {
@@ -585,6 +605,35 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     sessionPins: (sessionId) => sessionBankPins(reader, sessionId),
     create,
   };
+};
+
+/** A durable staging name: the registry retains the original path even after forgetting. */
+const checkoutRemovalRoot = (dataDir: string): string => join(dataDir, "bank-checkout-removals");
+
+const assertRemovalRoot = (root: string, dataDir: string): void => {
+  if (lstatSync(root).isSymbolicLink() || dirname(realpathSync(root)) !== realpathSync(dataDir)) throw new Error("The bank checkout removal directory must be a direct directory in the data directory.");
+};
+
+/** A process interruption restores an uncommitted rename, or finishes a committed removal. */
+const recoverCheckoutRemovals = (reader: Reader, log: EventLog, stream: StreamRef, dataDir: string): void => {
+  const root = checkoutRemovalRoot(dataDir);
+  if (!existsSync(root)) return;
+  assertRemovalRoot(root, dataDir);
+  for (const directory of readdirSync(root, { withFileTypes: true })) {
+    if (!directory.isDirectory()) continue;
+    const [row] = reader.all<{ entry: string; forgotten_at: string | null }>("SELECT entry, forgotten_at FROM banks WHERE id = ?", directory.name);
+    if (row === undefined) continue;
+    const entry = JSON.parse(row.entry) as BankEntry;
+    if (entry.checkoutOwnership !== "managed") throw new Error("A pending checkout removal must belong to a managed bank.");
+    const staged = join(root, directory.name);
+    if (row.forgotten_at === null) {
+      if (!removableCheckout(entry, listBanks(reader), dataDir) || existsSync(entry.checkout)) throw new Error("The pending bank checkout cannot be restored into an occupied or registered path.");
+      renameSync(staged, entry.checkout);
+    } else if (log.readStream(stream).some((event) => event.type === "bank.forgotten" && event.payload.bankId === entry.id && event.payload.checkoutRemoved === true)) {
+      try { rmSync(staged, { recursive: true, force: true }); }
+      catch { console.error(`Finishing the pending checkout removal for bank ${entry.id} failed; startup will retry.`); }
+    }
+  }
 };
 
 /** Ownership is explicit; an old record or adopted path is never inferred to be ours from its location. */
