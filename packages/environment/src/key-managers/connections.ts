@@ -466,7 +466,6 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none and signs in with a token. */
   const settingsOf = (params: ParamsOf<"keyManagers.connections.add">, address: string) => {
     if (params.provider !== "openbao") {
-      if (params.credential !== undefined && params.credential.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with a token.`);
       for (const field of ["ca", "method", "mount", "username", "tokenRole"] as const) {
         if (params[field] !== undefined) invalid([field], `${field} is OpenBao's: a ${PROVIDER_NAMES[params.provider]} connection takes none.`);
       }
@@ -531,6 +530,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       // Registered as it arrives, before anything can answer with it; let go unless the add is accepted.
       const arrival = given === undefined ? null : registerCredential(connectionId, given);
       if (arrival !== null) context.onUndo(arrival);
+      if (params.provider !== "openbao" && given !== undefined && given.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with a token.`);
       const provider = providers[params.provider];
       const typed =
         params.address === undefined ? null : (httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin, as https://bao.example.com:8200."));
