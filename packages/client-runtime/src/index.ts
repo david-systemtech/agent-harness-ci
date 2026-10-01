@@ -403,6 +403,7 @@ export {
   type ForkAsked,
   type RewindAsked,
 } from "./composer/fork-rewind-commands.js";
+export { organiseUsage } from "./composer/organise-commands.js";
 export { shellLine } from "./composer/shell-line.js";
 export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
 export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";

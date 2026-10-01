@@ -12,6 +12,8 @@ import {
 } from "@agent-harness/contracts";
 import type { StateCheckAnswer } from "../permissions/step-checks.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { StepSubject } from "./mint.js";
+import type { StoppedRun } from "./minted.js";
 
 /**
  * One step's health check (ADR 0031; #141, #308, #568). A skippable step's
@@ -29,6 +31,15 @@ import type { Clock, Timer } from "../serve/clock.js";
  * step's budget class it answers that it timed out, with Check again,
  * whatever its checks answer later. A result that timed out or could not
  * check carries the step's last good result beneath it.
+ *
+ * An LLM step (ADR 0019; #584) reads its minted sessions beside its
+ * checks. Done, it offers `revise`, targeting each of its subjects, the one
+ * action a done result carries. Needing attention after its latest minted
+ * session's last run ended with an error or was stopped, its line opens
+ * with that error or "stopped" and it offers `try-again`, targeting that
+ * session, `write-it-myself` and `start-over` before its checks' own
+ * actions; after a clean end, its line names what is missing, as any
+ * step's does. A check that could not check says only that.
  */
 
 /** How the environment answers one state check: at once, or with a promise the check awaits within its step's budget. */
@@ -40,6 +51,14 @@ export type StateCheckers = { readonly [Id in StateCheckId]: StateChecker };
 /** A step `setup.check` runs: a registry entry, or a test's own step under a registered step's id. */
 export type CheckedStep = Step & { readonly id: RegisteredStepId };
 
+/** What an LLM step's check reads of its subjects and its minted sessions (#584). */
+export interface LlmStepReads {
+  /** The subjects a done step's Revise targets. */
+  subjects(): readonly StepSubject[];
+  /** How the step's latest minted session's last run ended, when it ended with an error or was stopped. */
+  stopped(): StoppedRun | null;
+}
+
 /** What a step's check reads beyond the step itself. */
 export interface CheckContext {
   readonly values: SettingsValues;
@@ -50,7 +69,15 @@ export interface CheckContext {
   readonly checkedAt: string;
   /** The step's last good result, which a result that timed out or could not check carries. */
   readonly lastGood: LastGood | undefined;
+  /** On an LLM step, its subjects and how its minted session last ended; absent on any other step. */
+  readonly llm?: LlmStepReads;
 }
+
+/** What a stopped minted session offers, before its step's checks' own actions. */
+const STOPPED_RUN_ACTIONS: readonly SetupAction[] = ["try-again", "write-it-myself", "start-over"];
+
+/** The line a stopped minted session's run opens a result with: its error, or that it was stopped. */
+const stoppedLine = ({ error }: StoppedRun): string => (error === null ? "The session's run was stopped." : `The session's run failed: ${error.replace(/\.$/, "")}.`);
 
 /** The line of a done step with no state checks. */
 const VALUES_HOLD = "Every setting it writes holds a valid value.";
@@ -97,15 +124,20 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     }
   };
 
-  /** Needs attention, naming each failure, with the items the failures named; the last good result beneath when one could not check. */
-  const failed = (failures: readonly Failure[]): StepResult => {
-    const targets = targetsOf(failures);
+  /**
+   * Needs attention, naming each failure, with the items the failures named;
+   * the last good result beneath when one could not check. After a minted
+   * session's run that stopped, its line and its actions come first.
+   */
+  const failed = (failures: readonly Failure[], stopped: StoppedRun | null = null): StepResult => {
+    const tryAgain: SetupTarget[] = stopped === null ? [] : [{ action: "try-again", kind: "session", id: stopped.sessionId, label: stopped.title }];
+    const targets = [...tryAgain, ...targetsOf(failures)];
     return {
       step: step.id,
       state: "needs-attention",
-      reason: failures.map((failure) => failure.reason).join(" "),
+      reason: [...(stopped === null ? [] : [stoppedLine(stopped)]), ...failures.map((failure) => failure.reason)].join(" "),
       failing: failures.map((failure) => failure.id),
-      actions: [...new Set(failures.flatMap((failure) => failure.actions))],
+      actions: [...new Set([...(stopped === null ? [] : STOPPED_RUN_ACTIONS), ...failures.flatMap((failure) => failure.actions)])],
       ...(targets.length > 0 && { targets }),
       checkedAt,
       ...(failures.some((failure) => failure.couldNotCheck) && lastGood !== undefined && { lastGood }),
@@ -126,9 +158,15 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     }
     const answers = await Promise.all(step.stateChecks.filter((stateCheck) => stateCheck !== skipCheck).map(ask));
     for (const answer of answers) if (answer !== true) failures.push(answer);
-    if (failures.length > 0) return failed(failures);
+    const { llm } = context;
+    if (failures.length > 0) {
+      const couldNotCheck = failures.some((failure) => failure.couldNotCheck);
+      return failed(failures, llm === undefined || couldNotCheck ? null : llm.stopped());
+    }
     const reason = step.stateChecks.length === 0 ? VALUES_HOLD : step.stateChecks.map((stateCheck) => stateCheck.holds).join(" ");
-    return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };
+    if (llm === undefined) return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };
+    const targets = llm.subjects().map((subject): SetupTarget => ({ action: "revise", ...subject }));
+    return { step: step.id, state: "done", reason, failing: [], actions: ["revise"], ...(targets.length > 0 && { targets }), checkedAt };
   };
 
   const seconds = CHECK_BUDGET_SECONDS[step.budget];
