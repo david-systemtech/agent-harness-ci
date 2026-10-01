@@ -1,6 +1,6 @@
 import type { Rule } from "eslint";
 import { rule } from "./no-literal-colour.js";
-import { gui, ruleTester, stylesheetTester } from "./rule-tester.js";
+import { gui, markupTester, ruleTester, stylesheetTester } from "./rule-tester.js";
 
 const literal = (colour: string) => ({ messageId: "literal" as const, data: { colour } });
 const named = (colour: string) => ({ messageId: "named" as const, data: { colour } });
@@ -184,6 +184,90 @@ body { background: var(--abyss); color: var(--ink); border-color: currentColor; 
     {
       code: `.a { @apply bg-[#fff] bg-(--color-red-500) text-[var(--color-white)] shadow-[0_0_0_1px_rgb(0_0_0)]; }`,
       errors: [tailwind("--color-red-500"), tailwind("--color-white"), literal("#fff"), literal("rgb(0_0_0)")],
+    },
+  ],
+});
+
+// The same refusals in a painting package's SVG assets and HTML documents, parsed by html-eslint's HTML language (#455).
+markupTester.run("no-literal-colour in an SVG asset or an HTML document", rule as unknown as Rule.RuleModule, {
+  valid: [
+    // A logo drawn with currentColor and tokens, as the spec asks (ADR 0023).
+    {
+      filename: "logo.svg",
+      code: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path fill="currentColor" stroke="var(--beam)" d="M0 0h8v8z" /><stop stop-color="currentColor" /><circle fill="none" stroke="transparent" color="inherit" /></svg>`,
+    },
+    // The prolog, the doctype, a comment, text and a reference to a fragment hold no colour.
+    {
+      filename: "logo.svg",
+      code: `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <!-- drawn in red on #fff -->
+  <defs><linearGradient id="glyph-wash"><stop offset="0" stop-color="var(--beam)" /></linearGradient></defs>
+  <rect fill="url(#glyph-wash)" /><use xlink:href="#glyph" /><text>red #abc</text>
+</svg>`,
+    },
+    // A document painting with tokens: its style element and attribute, the theme's classes, and its other metas' content.
+    {
+      filename: "index.html",
+      code: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="red" />
+    <title>Issue #454 in red</title>
+    <style>body { background: var(--abyss); color: var(--ink); } .chip { @apply bg-beam text-ink; } /* #fff red */</style>
+    <script type="module" src="./src/main.tsx"></script>
+  </head>
+  <body class="bg-abyss text-ink" style="color: var(--ink); border-color: currentColor"><a href="#main">Skip</a><div id="root"></div></body>
+</html>`,
+    },
+  ],
+  invalid: [
+    // A hex fill in an SVG asset.
+    { filename: "logo.svg", code: `<svg viewBox="0 0 8 8"><path fill="#1a1a1a" d="M0 0h8v8z" /></svg>`, errors: [literal("#1a1a1a")] },
+    // A named colour in each of an SVG element's colour attributes: logos use currentColor.
+    {
+      filename: "logo.svg",
+      code: `<svg><path fill="black" stroke="Orange" /><text color="navy" /><stop stop-color="white" /><feFlood flood-color="gold" /><feDiffuseLighting lighting-color="tomato" /></svg>`,
+      errors: [named("black"), named("Orange"), named("navy"), named("white"), named("gold"), named("tomato")],
+    },
+    // Any attribute is read as a script's every string: a hex, a colour function, Tailwind's palette and its theme variables.
+    {
+      filename: "logo.svg",
+      code: `<svg class="fill-red-500" data-tint="#abc"><rect fill="rgb(0 0 0 / 50%)" stroke="var(--color-sky-500)" style="color: hsl(0 0% 0%)" /></svg>`,
+      errors: [tailwind("fill-red-500"), literal("#abc"), literal("rgb(0 0 0 / 50%)"), tailwind("--color-sky-500"), literal("hsl(0 0% 0%)")],
+    },
+    // An SVG's style element is a stylesheet.
+    {
+      filename: "logo.svg",
+      code: `<svg><style>.a { fill: #000; stroke: red; } .b { @apply text-white; }</style><path class="a" /></svg>`,
+      errors: [literal("#000"), named("red"), tailwind("text-white")],
+    },
+    // A stylesheet a drawing program wraps in CDATA is read all the same, and reported where it stands.
+    {
+      filename: "logo.svg",
+      code: `<svg>\n  <style type="text/css"><![CDATA[\n    .st0 { fill: #1A1A1A; }\n  ]]></style>\n</svg>`,
+      errors: [{ ...literal("#1A1A1A"), line: 3, column: 18, endLine: 3, endColumn: 25 }],
+    },
+    // An inline colour in an HTML document: the theme-color meta, a style attribute, a style element and a class.
+    { filename: "index.html", code: `<head><meta name="theme-color" content="#0b0b0f" /></head>`, errors: [literal("#0b0b0f")] },
+    {
+      filename: "index.html",
+      code: `<head><meta name="Theme-Color" media="(prefers-color-scheme: dark)" content="black" /></head>`,
+      errors: [named("black")],
+    },
+    { filename: "index.html", code: `<body style="background: navy; color: #fff"></body>`, errors: [literal("#fff"), named("navy")] },
+    {
+      filename: "index.html",
+      code: `<head><style>body { background: #111; color: white; } :root { --edge: rgb(0 0 0); }</style></head>`,
+      errors: [literal("#111"), named("white"), literal("rgb(0 0 0)")],
+    },
+    {
+      filename: "index.html",
+      code: `<body class="bg-black hover:text-[red] text-ink"></body>`,
+      errors: [tailwind("bg-black"), tailwind("hover:text-[red]")],
     },
   ],
 });

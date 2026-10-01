@@ -335,7 +335,9 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
         // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.
         const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted };
         const commands = await withControlQuery(asked, (query) => query.supportedCommands());
-        return commands.filter((command) => command.name !== "").map((command) => ({ name: command.name, description: command.description }));
+        // The pinned SDK marks Claude Code's own commands `builtin` and leaves a user's, a project's or a plugin's unmarked
+        // (verified on 0.3.283, CLI 2.1.283, #503), so no list of the built-ins is kept here.
+        return commands.filter((command) => command.name !== "").map((command) => ({ name: command.name, description: command.description, builtin: command.builtin === true }));
       } catch (error) {
         diagnostic(`Listing the commands of the Claude account ${account.id} failed.`, error);
         return [];

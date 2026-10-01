@@ -5,6 +5,7 @@ import {
   SESSION_STREAM_KIND,
   lowerMode,
   type AdapterCapabilityFlag,
+  type CommandsListEntry,
   type ContainmentLevel,
   type IssueInput,
   type JsonObject,
@@ -74,6 +75,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { runContinuation } from "../sessions/fork-rewind.js";
 import { recordProviderTitle } from "../sessions/titles.js";
 import { capability, unsupported } from "./capabilities.js";
+import { commandsListing } from "./commands-listing.js";
 import type {
   AccountRef,
   Adapter,
@@ -85,7 +87,6 @@ import type {
   PromptDecision,
   PromptMessage,
   PromptRequest,
-  ProviderCommand,
   ProviderTurn,
   RunContainment,
   RunContext,
@@ -481,11 +482,13 @@ export interface AdapterHost {
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
   /**
-   * The slash commands for an account and workspace (`commands`), under the
-   * trust and the skill set a run there would have, which the adapter is
-   * handed on every call.
+   * A session's commands listing (`commands`, #503): the skill entries of
+   * the set its next run would have and the provider's own commands, listed
+   * under that set and the session's trust, which the adapter is handed on
+   * every call. A session the environment does not hold, or a deleted one,
+   * is refused `not_found`, and so is an account it does not hold.
    */
-  commands(accountId: string, workspace: Workspace): Promise<readonly ProviderCommand[]>;
+  commands(sessionId: string): Promise<{ readonly accountId: string; readonly entries: readonly CommandsListEntry[] }>;
   /** The adapters' descriptors, one per provider (`providers.list`). */
   providers(): readonly AdapterDescriptor[];
   /** The provider processes (`providers.processes.*`). */
@@ -601,6 +604,15 @@ interface ReadNow {
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Where a session's next run would go, or a new session's first: its account (null for none), workspace, repository identity and level. */
+interface RunPlace {
+  readonly sessionId: string | null;
+  readonly accountId: string | null;
+  readonly workspace: Workspace;
+  readonly repositoryIdentity: string | null;
+  readonly containment: ContainmentLevel | null;
+}
 
 /**
  * Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. Answers, when
@@ -2096,38 +2108,40 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return answer;
   };
 
-  /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
-  const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
-    let run: {
-      readonly sessionId: string | null;
-      readonly accountId: string | null;
-      readonly workspace: Workspace;
-      readonly repositoryIdentity: string | null;
-      readonly containment: ContainmentLevel | null;
-    };
-    if ("sessionId" in target) {
-      const sessionId = target.sessionId.toLowerCase();
-      const session = readSessionFacts(log, reader, sessionId);
-      if (session === null || session.deleted) {
-        throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
-      }
-      run = {
-        sessionId,
-        accountId: session.account ?? accounts.defaultId(),
-        workspace: session.workspace,
-        repositoryIdentity: session.repositoryIdentity,
-        containment: session.containment,
-      };
-    } else {
-      // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
-      run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
+  /** Where the session's next run would go, its account the environment's default when it names none; refused `not_found` when it is not held or deleted. */
+  const sessionPlace = (id: string): RunPlace => {
+    const sessionId = id.toLowerCase();
+    const session = readSessionFacts(log, reader, sessionId);
+    if (session === null || session.deleted) {
+      throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
     }
-    const { accountId } = run;
+    return {
+      sessionId,
+      accountId: session.account ?? accounts.defaultId(),
+      workspace: session.workspace,
+      repositoryIdentity: session.repositoryIdentity,
+      containment: session.containment,
+    };
+  };
+
+  /** The account a place's run would go under; refused `not_found` when it names none and the environment holds none, or one it does not hold. */
+  const placeAccount = ({ accountId }: RunPlace): AccountFacts => {
     const facts = accountId === null ? null : accounts.facts(accountId);
     if (facts === null) {
       const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
       throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
     }
+    return facts;
+  };
+
+  /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
+  const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
+    const run: RunPlace =
+      "sessionId" in target
+        ? sessionPlace(target.sessionId)
+        : // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
+          { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
+    const facts = placeAccount(run);
     // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
     const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
     const trust = trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity });
@@ -2284,17 +2298,19 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const read = capability(held.adapter.descriptor, "planUsage", held.adapter.usage, "read plan usage", "usage");
       return read.call(held.adapter, held.ref);
     },
-    async commands(accountId, workspace) {
-      const held = heldAccount(accountId);
+    async commands(sessionId) {
+      const place = sessionPlace(sessionId);
+      const facts = placeAccount(place);
+      const held = heldAccount(facts.id);
       const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands", "commands");
-      // Under what a run in the workspace would have (#495): its trust, read with no repository identity as a new session's
-      // preview is, and the skill set resolved for the account and workspace, no session named, whose generation the
-      // listing's own process loads and so holds until it has answered (#496).
-      const trust = trustOf({ workspace, repositoryIdentity: null });
-      const skillSet = await skillSetOf({ sessionId: null, accountId: held.ref.id, workspace, trust, nativeRoots: held.adapter.descriptor.nativeSkillRoots });
+      // Under what the session's next run would have (#503): its trust, read with its repository identity, and the skill set
+      // resolved for it, whose generation the listing's own process loads and so holds until it has answered (#496).
+      const trust = trustOf({ workspace: place.workspace, repositoryIdentity: place.repositoryIdentity });
+      const skillSet = await skillSetOf(skillSetScope({ ...place, account: facts, trust }));
       const release = skillSet.generation === null ? undefined : holdGeneration(skillSet.generation);
       try {
-        return await list.call(held.adapter, held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
+        const provided = await list.call(held.adapter, held.ref, place.workspace, { trusted: trust.decision === "trusted", skillSet });
+        return { accountId: facts.id, entries: commandsListing(skillSet, provided, (member) => held.adapter.invocationText(member)) };
       } finally {
         release?.();
       }

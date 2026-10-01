@@ -29,9 +29,9 @@ export interface RunSkillSetsOptions {
   readonly generations: Pick<Generations, "materialise">;
 }
 
-/** Whether a resolved member is in the set: valid, and shadowed by none. */
-const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly name: string } =>
-  member.name !== null && member.problems.length === 0 && member.shadowedBy === null;
+/** Whether a resolved member is in the set: valid, so named and described, and shadowed by none. */
+const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly name: string; readonly description: string } =>
+  member.name !== null && member.description !== null && member.problems.length === 0 && member.shadowedBy === null;
 
 /** What a set is current for: the account, the workspace and the trust it was resolved under. */
 const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.accountId, scope.workspace.path, scope.trust.key, scope.trust.decision]);
@@ -54,11 +54,14 @@ export const placeSkillSet =
     const placed = members.map(
       (member): PlacedMember => ({
         name: member.name,
+        description: member.description,
         kind: member.kind,
         target: join(own.path, ...member.path.split("/")),
         origin: member.origin,
         commit: null,
         invocation: member.invocation,
+        userInvocable: member.userInvocable,
+        argumentHint: member.argumentHint,
         native: false,
         alwaysOn: choices.alwaysOn(member.name),
       }),
@@ -74,7 +77,16 @@ export const runSkillSets = (options: RunSkillSetsOptions): SkillSetSeam => {
     return {
       generation,
       fingerprint,
-      members: set.members.map(({ name, origin, invocation, native, alwaysOn }) => ({ name, origin, invocation, native, alwaysOn })),
+      members: set.members.map(({ name, description, origin, invocation, userInvocable, argumentHint, native, alwaysOn }) => ({
+        name,
+        description,
+        origin,
+        invocation,
+        userInvocable,
+        argumentHint,
+        native,
+        alwaysOn,
+      })),
       hiddenNativeNames: [...set.hiddenNativeNames],
     };
   };

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Ceiling, registry, type ParamsOf, type ResponseOf, type ResultOf, type Scope, type WorkspaceRequest } from "@agent-harness/contracts";
+import { Ceiling, EMPTY_RUN_SKILL_SET, registry, type ParamsOf, type ResponseOf, type ResultOf, type RunSkillSetMember, type Scope, type WorkspaceRequest } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
+import type { SkillSetSeam } from "../adapter/seams.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { DAVID, TOKEN, added } from "../../test/forge.js";
@@ -259,16 +260,24 @@ describe("trust.list", () => {
   });
 });
 
-describe("a commands listing's trust (#495)", () => {
-  it("is the store's decision on the workspace's key, read with no repository identity: the adapter is handed it with the skill set", async () => {
-    const t = await start({ adapter: { commands: [] } });
+describe("a commands listing's trust (#495, #503)", () => {
+  it("is the session's, read with its repository identity: a trusted repository's members and commands are listed, and an undecided or declined one's are not", async () => {
+    // A trusted repository's own member joins the set (#502's layer, stood in for here), and the provider lists the
+    // repository's own command once its project settings load, as Claude's does.
+    const release: RunSkillSetMember = { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: true, argumentHint: null, native: true, alwaysOn: false };
+    const skillSet: SkillSetSeam = async (scope) => ({ ...EMPTY_RUN_SKILL_SET, fingerprint: "3f9a", members: scope.trust.decision === "trusted" ? [release] : [] });
+    const deploy = { name: "deploy", description: "Deploy the branch.", builtin: false };
+    const t = await start({ adapter: { commands: (scope) => (scope.trusted ? [deploy] : []) }, adapterSeams: { skillSet } });
     const client = await t.client();
-    const remoteless = repository();
-    const id = await session(client, { kind: "directory", path: remoteless });
-    await client.request("commands.list", { workspace: { kind: "directory", path: remoteless } });
+    const id = await session(client, { kind: "directory", path: repository({ origin: "git@git.systemtech.dev:david/agent-harness.git" }) });
+    const listed = async () => (await client.request("commands.list", { sessionId: id })).entries.map((entry) => `${entry.kind} ${entry.name}`);
+
+    expect(await listed()).toEqual([]);
     await decide(client, { sessionId: id, decision: "trusted" });
-    await client.request("commands.list", { workspace: { kind: "directory", path: remoteless } });
-    expect(t.adapter.commandListings.map((listing) => listing.scope.trusted)).toEqual([false, true]);
+    expect(await listed()).toEqual(["skill release", "command deploy"]);
+    await decide(client, { sessionId: id, decision: "declined" });
+    expect(await listed()).toEqual([]);
+    expect(t.adapter.commandListings.map((listing) => listing.scope.trusted)).toEqual([false, true, false]);
   });
 });
 
