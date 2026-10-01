@@ -79,7 +79,7 @@ import { liveFiringOfRoutine, liveRoutine, routineBaseline, routinesWithLiveFiri
 const ROUTINE_TAG = "routine";
 
 /** How many firings may be in a pre-check or a run at once on an environment (routines spec, "The scheduler"). */
-export const MAX_LIVE_FIRINGS = 4;
+export const FIRINGS_AT_ONCE = 4;
 
 /** A firing to start. */
 export interface FiringStart {
@@ -428,7 +428,7 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
 
   /** Takes up waiting firings, in order, while a slot is free; one whose take-up fails is logged and the next taken up. */
   const takeUp = (): void => {
-    for (let next = waiting[0]; !closing && next !== undefined && held() < MAX_LIVE_FIRINGS; next = waiting[0]) {
+    for (let next = waiting[0]; !closing && next !== undefined && held() < FIRINGS_AT_ONCE; next = waiting[0]) {
       waiting.shift();
       try {
         takeUpOne(next);
