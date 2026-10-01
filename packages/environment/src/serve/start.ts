@@ -42,7 +42,10 @@ import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
-import { NO_BANKS, type BankRecords } from "../banks/records.js";
+import { createBankService } from "../banks/bank-service.js";
+import { banksProjector } from "../banks/bank-store.js";
+import { bankMethods } from "../banks/methods.js";
+import { bankRecords, type BankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
 import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
@@ -875,6 +878,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       permissionsProjector,
       accountsProjector,
       forgeAccountsProjector,
+      banksProjector,
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
@@ -1604,7 +1608,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
-  const banks = options.banks ?? NO_BANKS;
+  // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
+  const bankService = createBankService({ log, clock, environmentId: record.id, forge });
+  capabilities.push("banks");
+  const banks = options.banks ?? bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.
   // Read the injection setting directly; health never decides a provider process or materialises its skills.
   const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
@@ -1725,6 +1732,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
+    ...bankMethods(bankService),
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).

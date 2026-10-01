@@ -6,6 +6,7 @@ export * from "./actions.js";
 export * from "./adapter.js";
 export * from "./bank-templates.js";
 export * from "./banks.js";
+export * from "./bank-registry.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
 export * from "./browser-choice.js";
@@ -97,6 +98,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
+export { BankIndexConflict, BankReadOnlyError, BankRequiredError, ValidationFailedError } from "./methods/banks.js";
 export {
   AliasIdentityMismatchError,
   ForgeAccountMissingError,

@@ -142,6 +142,10 @@ export interface ForgeOperations {
     /** The owners the forge account may create a repository under: its user, as the forge answers it now, then the organisations it is a member of. */
     owners(request: ForgeTarget): Promise<ForgeAnswer<ForgeOwner[]>>;
   };
+  readonly users: {
+    /** Reads the user `login` on the target's forge: done when the forge has one, a 404 when it has none (a team bank's owners, #1025). */
+    get(request: ForgeTarget & { readonly login: string }): Promise<ForgeAnswer<null>>;
+  };
   readonly issues: {
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgeIssue>>;
     /** Opens an issue (`writeIssues`); its title and body pass the scrub registry's check first. */
@@ -408,6 +412,10 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
           const owners: ForgeOwner[] = [{ login: user.identity.login, kind: "user" }, ...organisations.value.map((login): ForgeOwner => ({ login, kind: "organisation" }))];
           return { ...organisations, value: owners };
         }),
+    },
+
+    users: {
+      get: async (request) => read(request, ({ provider: forge, origin, token, call }) => forge.user(origin, token, request.login, call)),
     },
 
     issues: {

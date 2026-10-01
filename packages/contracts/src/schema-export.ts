@@ -580,6 +580,21 @@ import {
   SkillReadiness,
 } from "./readiness.js";
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
+import {
+  BANK_EVENT_PAYLOADS,
+  BankAccountScope,
+  BankConflictReason,
+  BankCredentialSource,
+  BankEntry,
+  BankId,
+  BankLocation,
+  BankMergeOverride,
+  BankRecord,
+  BankRepositoryScope,
+  BankRole,
+  BankStatus,
+} from "./bank-registry.js";
+import { BankIndexConflict, BankReadOnlyError, BankRequiredError, ValidationFailedError } from "./methods/banks.js";
 import { BANK_VALIDATOR_RULES, BankFinding, BankManifest, BankName, BankRuleId, BankValidatorRule, BankVerdict, MemoryFrontmatter, OrgFile, ScopeFile } from "./banks.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
@@ -1042,6 +1057,23 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "banks/validator-rule.json", title: "BankValidatorRule", schema: BankValidatorRule },
   { path: "banks/finding.json", title: "BankFinding", schema: BankFinding },
   { path: "banks/verdict.json", title: "BankVerdict", schema: BankVerdict },
+  { path: "banks/id.json", title: "BankId", schema: BankId },
+  { path: "banks/role.json", title: "BankRole", schema: BankRole },
+  { path: "banks/account-scope.json", title: "BankAccountScope", schema: BankAccountScope },
+  { path: "banks/repository-scope.json", title: "BankRepositoryScope", schema: BankRepositoryScope },
+  { path: "banks/location.json", title: "BankLocation", schema: BankLocation },
+  { path: "banks/merge-override.json", title: "BankMergeOverride", schema: BankMergeOverride },
+  { path: "banks/credential-source.json", title: "BankCredentialSource", schema: BankCredentialSource },
+  { path: "banks/status.json", title: "BankStatus", schema: BankStatus },
+  { path: "banks/entry.json", title: "BankEntry", schema: BankEntry },
+  { path: "banks/record.json", title: "BankRecord", schema: BankRecord },
+  { path: "banks/conflict-reason.json", title: "BankConflictReason", schema: BankConflictReason },
+  { path: "banks/index-conflict.json", title: "BankIndexConflict", schema: BankIndexConflict },
+  ...Object.entries(BANK_EVENT_PAYLOADS).map(([type, payload]) => ({
+    path: `banks/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: payload as z.ZodType,
+  })),
   { path: "skills/name.json", title: "SkillName", schema: SkillName },
   { path: "skills/source-url.json", title: "SkillSourceUrl", schema: SkillSourceUrl },
   { path: "skills/source-folder.json", title: "SkillSourceFolder", schema: SkillSourceFolder },
@@ -1530,6 +1562,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/reference_not_found.json", title: "ReferenceNotFoundError", schema: ReferenceNotFoundError },
   { path: "errors/reference_denied.json", title: "ReferenceDeniedError", schema: ReferenceDeniedError },
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
+  { path: "errors/bank_required.json", title: "BankRequiredError", schema: BankRequiredError },
+  { path: "errors/bank_read_only.json", title: "BankReadOnlyError", schema: BankReadOnlyError },
+  { path: "errors/validation_failed.json", title: "ValidationFailedError", schema: ValidationFailedError },
   { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
   { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
   { path: "errors/not_a_pull_request.json", title: "NotAPullRequestError", schema: NotAPullRequestError },

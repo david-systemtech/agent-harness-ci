@@ -173,6 +173,8 @@ export interface ForgeProvider {
   repository(origin: ForgeOrigin, token: string | null, fullName: string, call?: CallOptions): Promise<ForgeReply<ForgeRepository>>;
   /** Reads the organisation `name`: whether the token sees it. */
   organisation(origin: ForgeOrigin, token: string, name: string, call?: CallOptions): Promise<ForgeReply<null>>;
+  /** Reads the user `login`: whether the forge has one by that login (a team bank's owner, #1025). */
+  user(origin: ForgeOrigin, token: string | null, login: string, call?: CallOptions): Promise<ForgeReply<null>>;
   /** The names of up to `limit` organisations the token's user is a member of, page by page, in the order the forge lists them. */
   organisations(origin: ForgeOrigin, token: string, limit: number, call?: CallOptions): Promise<ForgeReply<string[]>>;
   /** Creates a repository, under the user or an organisation. */
@@ -504,6 +506,7 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
     repository: async (origin, token, fullName, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository", repositoryOn(origin)),
 
     organisation: async (origin, token, organisation, call) => acknowledged(origin, await get(origin, `/orgs/${encodeURIComponent(organisation)}`, token, call)),
+    user: async (origin, token, login, call) => acknowledged(origin, await get(origin, `/users/${encodeURIComponent(login)}`, token, call)),
 
     async organisations(origin, token, limit, call) {
       const { path, query, keep, name } = dialect.organisations;
