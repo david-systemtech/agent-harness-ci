@@ -45,7 +45,8 @@ import type { StoppedRun } from "./minted.js";
  * session's last run ended with an error or was stopped, its line opens
  * with that error or "stopped" and it offers `try-again`, targeting that
  * session, `write-it-myself` and `start-over` before its checks' own
- * actions; after a clean end, its line names what is missing, as any
+ * actions, for each subject's latest session, with the latter two targeting
+ * that session's subject; after a clean end, its line names what is missing, as any
  * step's does. A check that could not check says only that.
  */
 
@@ -71,8 +72,8 @@ export type CheckedStep = Step & { readonly id: RegisteredStepId };
 export interface LlmStepReads {
   /** The subjects a done step's Revise targets. */
   subjects(): readonly StepSubject[];
-  /** How the step's latest minted session's last run ended, when it ended with an error or was stopped. */
-  stopped(): StoppedRun | null;
+  /** Each subject's latest minted session whose last run failed or stopped. */
+  stopped(): readonly StoppedRun[];
 }
 
 /** What a step's check reads beyond the step itself. */
@@ -110,10 +111,10 @@ interface Failure {
   readonly couldNotCheck: boolean;
 }
 
-/** The failures' targets in their order, each once: a target is its action, kind and id. */
-const targetsOf = (failures: readonly Failure[]): SetupTarget[] => {
+/** The targets in their order, each once: a target is its action, kind and id. */
+const uniqueTargets = (targets: readonly SetupTarget[]): SetupTarget[] => {
   const seen = new Map<string, SetupTarget>();
-  for (const target of failures.flatMap((failure) => failure.targets)) {
+  for (const target of targets) {
     const key = JSON.stringify([target.action, target.kind, target.id]);
     if (!seen.has(key)) seen.set(key, target);
   }
@@ -148,15 +149,21 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
    * the last good result beneath when one could not check. After a minted
    * session's run that stopped, its line and its actions come first.
    */
-  const failed = (failures: readonly Failure[], stopped: StoppedRun | null = null): StepResult => {
-    const tryAgain: SetupTarget[] = stopped === null ? [] : [{ action: "try-again", kind: "session", id: stopped.sessionId, label: stopped.title }];
-    const targets = [...tryAgain, ...targetsOf(failures)];
+  const failed = (failures: readonly Failure[], stopped: readonly StoppedRun[] = []): StepResult => {
+    const mintedTargets = stopped.flatMap((run): SetupTarget[] => [
+      { action: "try-again", kind: "session", id: run.sessionId, label: run.title },
+      ...(run.subject === null ? [] : [
+        { action: "write-it-myself" as const, ...run.subject },
+        { action: "start-over" as const, ...run.subject },
+      ]),
+    ]);
+    const targets = uniqueTargets([...mintedTargets, ...failures.flatMap((failure) => failure.targets)]);
     return {
       step: step.id,
       state: "needs-attention",
-      reason: [...(stopped === null ? [] : [stoppedLine(stopped)]), ...failures.map((failure) => failure.reason)].join(" "),
+      reason: [...stopped.map(stoppedLine), ...failures.map((failure) => failure.reason)].join(" "),
       failing: failures.map((failure) => failure.id),
-      actions: [...new Set([...(stopped === null ? [] : STOPPED_RUN_ACTIONS), ...failures.flatMap((failure) => failure.actions)])],
+      actions: [...new Set([...(stopped.length === 0 ? [] : STOPPED_RUN_ACTIONS), ...failures.flatMap((failure) => failure.actions)])],
       ...(targets.length > 0 && { targets }),
       checkedAt,
       ...(failures.some((failure) => failure.couldNotCheck) && lastGood !== undefined && { lastGood }),
@@ -180,7 +187,7 @@ export const checkStep = async (step: CheckedStep, context: CheckContext): Promi
     const { llm } = context;
     if (failures.length > 0) {
       const couldNotCheck = failures.some((failure) => failure.couldNotCheck);
-      return failed(failures, llm === undefined || couldNotCheck ? null : llm.stopped());
+      return failed(failures, llm === undefined || couldNotCheck ? [] : llm.stopped());
     }
     const reason = step.stateChecks.length === 0 ? VALUES_HOLD : step.stateChecks.map((stateCheck) => stateCheck.holds).join(" ");
     if (llm === undefined) return { step: step.id, state: "done", reason, failing: [], actions: [], checkedAt };

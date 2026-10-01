@@ -6,7 +6,7 @@ import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
 import { checkStep, type CheckAsker, type CheckContext, type CheckedStep, type StateChecker } from "./check.js";
 import type { LlmSteps } from "./mint.js";
-import { stoppedMintedRun } from "./minted.js";
+import { stoppedMintedRuns } from "./minted.js";
 
 /**
  * The SetupService (the Set up specification, "Modules", "Results, the
@@ -132,7 +132,7 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
       checkedAt: clock.now().toISOString(),
       askedBy,
       lastGood: lastGoodOf(cachedResult(step.id)),
-      ...(llmStep !== undefined && { llm: { subjects: () => llmStep.subjects(), stopped: () => stoppedMintedRun(reader, step.id) } }),
+      ...(llmStep !== undefined && { llm: { subjects: () => llmStep.subjects(), stopped: () => stoppedMintedRuns(reader, step.id) } }),
     };
     let settle!: (run: Promise<StepResult>) => void;
     const current = new Promise<StepResult>((resolve) => (settle = resolve)).finally(() => running.delete(step.id));
