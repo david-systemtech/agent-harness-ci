@@ -1,4 +1,5 @@
 import { SNAPSHOT_MAX_CHARS, type PageArgs, type PageSnapshot } from "@agent-harness/contracts";
+import { opensPair } from "../paging.js";
 import { redactTokens, redactedFieldValue, secretField } from "../redaction.js";
 import { refGone } from "./refs.js";
 import { renderAriaSnapshotAsYaml } from "./vendor/aria-yaml.js";
@@ -139,8 +140,7 @@ export const withinMaxChars = (text: string, maxChars: number): SnapshotText => 
   if (text.length <= maxChars) return { text, totalChars: text.length, truncated: false };
   const lineEnd = text.lastIndexOf("\n", maxChars);
   if (lineEnd > 0) return { text: text.slice(0, lineEnd), totalChars: text.length, truncated: true };
-  const unit = text.charCodeAt(maxChars - 1);
-  const cut = text.slice(0, unit >= 0xd800 && unit <= 0xdbff ? maxChars - 1 : maxChars);
+  const cut = text.slice(0, opensPair(text, maxChars - 1) ? maxChars - 1 : maxChars);
   const openRef = OPEN_REF.exec(cut);
   return { text: openRef === null ? cut : cut.slice(0, openRef.index), totalChars: text.length, truncated: true, midLine: true };
 };
