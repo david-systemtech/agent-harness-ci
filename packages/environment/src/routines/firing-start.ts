@@ -22,7 +22,7 @@ import { createSessionIn } from "../sessions/methods.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { Resolution, WorkspaceResolver } from "../workspace/resolver.js";
-import { routineAccount, type RoutineAccounts } from "./listing.js";
+import { routineAccount, unknownSkills, type RoutineAccounts, type SkillSetNames } from "./listing.js";
 import { preCheckBlock, type BlockBaseline } from "./pre-check-block.js";
 import type { PreCheckRunner } from "./pre-check.js";
 import { appendRoutineRecord, routineActor, routineStream } from "./records.js";
@@ -55,8 +55,10 @@ import { liveFiringOfRoutine, liveRoutine, routineBaseline, routinesWithLiveFiri
  * - **Checks**, before anything is made: the routine's account, found by
  *   identity (null: the default account), is here and signed in, and offers
  *   its model (null: some model, the default family's strongest when it has
- *   one). Else the entry is a skip `cannot-start`, `account_missing`,
- *   `account_signed_out` or `model_unavailable`, with no session.
+ *   one); and that account's skill set holds each of its skills (#531).
+ *   Else the entry is a skip `cannot-start`, `account_missing`,
+ *   `account_signed_out`, `model_unavailable` or `skill_unknown` (naming
+ *   the names it lacks), with no session.
  * - **The workspace**, through the resolver in process (#321), as any
  *   session's: a directory checked, a scratch directory or a worktree made
  *   for the firing's session. A refusal is `cannot-start`
@@ -117,6 +119,8 @@ export interface FiringStarterOptions {
   readonly resolver: WorkspaceResolver;
   /** What runs a routine's pre-check (#526). */
   readonly preChecks: PreCheckRunner;
+  /** The names in an account's skill set, which a firing's skills are checked against (#531). */
+  readonly skillSetNames: SkillSetNames;
 }
 
 export interface FiringStarter {
@@ -385,6 +389,10 @@ export const createFiringStarter = (options: FiringStarterOptions): FiringStarte
     if (observation === "stop") return;
     const check = checked(firing.definition, routineAccount(firing.definition.account, { reader, accounts: options.accounts }));
     if ("refused" in check) return cannotStart(firing, check.refused, observation);
+    const unknown = await unknownSkills(firing.definition.skills, check.account.id, options.skillSetNames);
+    if (unknown.length > 0) {
+      return cannotStart(firing, { reason: "skill_unknown", detail: `The skill set of the account ${check.account.id} does not hold: ${unknown.join(", ")}.` }, observation);
+    }
     const sessionId = randomUUID();
     const placed = await placeFor(firing, sessionId);
     if ("refused" in placed) return cannotStart(firing, placed.refused, observation);

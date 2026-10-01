@@ -46,6 +46,20 @@ export const routineAccount = (identity: AccountIdentity | null, { reader, accou
   return id === null ? null : accounts.facts(id);
 };
 
+/**
+ * The names in the skill set of an account as its runs resolve them (null:
+ * the environment's, before any account's choices): what a routine's skills
+ * are checked against (#531).
+ */
+export type SkillSetNames = (accountId: string | null) => Promise<ReadonlySet<string>>;
+
+/** The names in `skills` that the skill set of `accountId` lacks, in their order; the set is not read when there are none. */
+export const unknownSkills = async (skills: readonly string[], accountId: string | null, names: SkillSetNames): Promise<string[]> => {
+  if (skills.length === 0) return [];
+  const known = await names(accountId);
+  return skills.filter((name) => !known.has(name));
+};
+
 /** What a routine's attention reads of the environment beyond its accounts: whether a file is at a path in the scripts directory. */
 export interface RoutineSurroundings extends RoutineAccounts {
   readonly scriptPresent: (path: string) => boolean;

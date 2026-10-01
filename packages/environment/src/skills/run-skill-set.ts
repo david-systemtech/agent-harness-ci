@@ -40,6 +40,30 @@ const inTheSet = (member: SkillSetMember): member is SkillSetMember & { readonly
 const scopeKey = (scope: SkillSetScope): string => JSON.stringify([scope.accountId, scope.workspace.path, scope.trust.key, scope.trust.decision]);
 
 /**
+ * The members in the set for `accountId` by precedence, each its choices
+ * leave on (null: the environment's choices alone), with the sources read
+ * for them and the choices.
+ */
+const membersFor = async (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">, accountId: string | null) => {
+  const choices = choicesFor(readSkillChoices(options.log), accountId);
+  const [ownMembers, sources] = await Promise.all([options.own.read(), options.sources.read()]);
+  const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources)
+    .filter(inTheSet)
+    .filter((member) => choices.enabled(member.name));
+  return { members, sources, choices };
+};
+
+/**
+ * The names in the skill set of `accountId` (null: before any account's
+ * choices), as a run on it resolves them, with no generation made: what a
+ * routine's skills are checked against (#531).
+ */
+export const skillSetNames =
+  (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">) =>
+  async (accountId: string | null): Promise<ReadonlySet<string>> =>
+    new Set((await membersFor(options, accountId)).members.map((member) => member.name));
+
+/**
  * The set resolved for `scope`, placed: each member in it with where its
  * files lie, before the materialiser gives it a fingerprint and a
  * generation. What the seam materialises, and what readiness checks
@@ -49,11 +73,7 @@ export const placeSkillSet =
   (options: Pick<RunSkillSetsOptions, "own" | "sources" | "log">) =>
   async (scope: SkillSetScope): Promise<PlacedSet> => {
     const { own } = options;
-    const choices = choicesFor(readSkillChoices(options.log), scope.accountId);
-    const [ownMembers, sources] = await Promise.all([own.read(), options.sources.read()]);
-    const members = resolveSkillSet([...ownMembers, ...sources.members], sources.sources)
-      .filter(inTheSet)
-      .filter((member) => choices.enabled(member.name));
+    const { members, sources, choices } = await membersFor(options, scope.accountId);
     // An own directory's member is linked live, from its folder or command file there; a source's into its current snapshot.
     const placed = members.map((member): PlacedMember => {
       const { target, commit } = member.layer.kind === "source" ? sources.place(member) : { target: join(own.path, ...member.path.split("/")), commit: null };
