@@ -20,15 +20,15 @@ import type { SessionListView } from "./session-list.js";
  * resolves to for a run of the session now; for the local environment and
  * then the session's, the plain My Chrome when more than one Chrome is
  * paired with it, then each of its Chromes, connected or dimmed with the
- * reason (a Chrome of any other environment is not listed, since only
- * those two drive one for the session); the session environment's
+ * reason; other known environments' Chromes dimmed because this client
+ * cannot drive them for the session; the session environment's
  * headless browser with its availability; and the browser dock where the
- * shell has `webView`. The labels and notes are the picker copy ADR 0024
+ * shell has `webView`. No browser is also an explicit choice. The labels and notes are the picker copy ADR 0024
  * names, with the product name as the placeholder.
  */
 
 /** Why a row is dimmed: its Chrome (or every Chrome, for the plain My Chrome) is not connected; the operator lets no run use the headless browser; the environment has none; or it has not said. */
-export type BrowserUnavailableReason = "disconnected" | "headless-not-allowed" | "headless-unavailable" | "unknown";
+export type BrowserUnavailableReason = "disconnected" | "not-drivable" | "headless-not-allowed" | "headless-unavailable" | "unknown";
 
 export interface BrowserUnavailable {
   readonly reason: BrowserUnavailableReason;
@@ -79,10 +79,10 @@ export interface BrowsersHost extends BrowserSources {
 export const localEnvironmentOf = (records: readonly ConnectionRecord[]): string | null =>
   records.find((record) => record.kind === "local" && record.environmentId !== LOCAL_PLACEHOLDER_ID)?.environmentId ?? null;
 
-/** The environments whose Chromes the picker lists: the local one, then the session's. */
+/** The local and session environments first, then every other known environment (drawn dim). */
 const chromeEnvironments = (records: readonly ConnectionRecord[], environmentId: string): string[] => {
   const local = localEnvironmentOf(records);
-  return local === null || local === environmentId ? [environmentId] : [local, environmentId];
+  return [...new Set([...(local === null ? [] : [local]), environmentId, ...records.filter((record) => record.environmentId !== LOCAL_PLACEHOLDER_ID).map((record) => record.environmentId)])];
 };
 
 /** What the rows for a session on `environmentId` follow. */
@@ -134,6 +134,12 @@ const headlessRow = (unavailable: BrowserUnavailable | null, name: string): Unma
   unavailable,
 });
 
+/** Explicitly choose no browser, independently of the default resolution. */
+const NONE_ROW: Unmarked = {
+  value: { kind: "none" }, label: "No browser",
+  note: "Read the web with web_read alone.", unavailable: null,
+};
+
 /** The browser dock, in the desktop window beside the session. */
 const DOCK_ROW: Unmarked = {
   value: { kind: "dock" },
@@ -148,6 +154,8 @@ interface ChromeGroup {
   readonly chromes: readonly PairedChrome[];
   /** What a label adds so two environments' Chromes stay apart: ` on <name>` when both list some, else nothing. */
   readonly where: string;
+  /** Only the local or session environment can drive its Chrome for this client. */
+  readonly unavailable: BrowserUnavailable | null;
 }
 
 /** The plain My Chrome of the group, where more than one Chrome is paired with its environment: whichever of them is connected. */
@@ -159,9 +167,9 @@ const plainRow = (group: ChromeGroup): Unmarked[] =>
           value: { kind: "chrome", environmentId: group.environmentId, chromeId: null },
           label: `${PLAIN_LABEL}${group.where}`,
           note: PLAIN_NOTE,
-          unavailable: group.chromes.some((chrome) => chrome.connected)
+          unavailable: group.unavailable ?? (group.chromes.some((chrome) => chrome.connected)
             ? null
-            : { reason: "disconnected", message: `No paired browser is connected. Open Chrome with the ${PRODUCT_NAME} extension enabled.` },
+            : { reason: "disconnected", message: `No paired browser is connected. Open Chrome with the ${PRODUCT_NAME} extension enabled.` }),
         },
       ];
 
@@ -171,7 +179,7 @@ const chromeRows = (group: ChromeGroup): Unmarked[] => [
     value: { kind: "chrome", environmentId: group.environmentId, chromeId: chrome.id },
     label: `${MY_CHROME}: ${chrome.name}${group.where}`,
     note: NAMED_NOTE,
-    unavailable: chrome.connected ? null : { reason: "disconnected", message: `${chrome.name} is not connected. Open it with the ${PRODUCT_NAME} extension enabled.` },
+    unavailable: group.unavailable ?? (chrome.connected ? null : { reason: "disconnected", message: `${chrome.name} is not connected. Open it with the ${PRODUCT_NAME} extension enabled.` }),
   })),
 ];
 
@@ -200,10 +208,15 @@ export const browserRows = (sources: BrowserSources, environmentId: string, chos
   const listed = chromeEnvironments(records, environmentId)
     .map((id) => ({ environmentId: id, chromes: sources.chromes(id).read().result?.chromes ?? [] }))
     .filter((group) => group.chromes.length > 0);
-  const groups = listed.map((group): ChromeGroup => ({ ...group, where: listed.length > 1 ? ` on ${nameOf(group.environmentId)}` : "" }));
+  const local = localEnvironmentOf(records);
+  const groups = listed.map((group): ChromeGroup => ({
+    ...group, where: listed.length > 1 ? ` on ${nameOf(group.environmentId)}` : "",
+    unavailable: group.environmentId === environmentId || group.environmentId === local ? null
+      : { reason: "not-drivable", message: `Chrome on ${nameOf(group.environmentId)}: no local client can drive it for this session.` },
+  }));
   const headless = headlessUnavailable(sources.status(environmentId).read(), nameOf(environmentId));
   const dock = sources.webView.status === "present" ? [DOCK_ROW] : [];
-  const rows = [defaultRow(headless), ...groups.flatMap(chromeRows), headlessRow(headless, nameOf(environmentId)), ...dock];
+  const rows = [defaultRow(headless), ...groups.flatMap(chromeRows), headlessRow(headless, nameOf(environmentId)), NONE_ROW, ...dock];
   const marked = chosen === undefined ? undefined : markedAs(chosen, groups);
   return rows.map((row) => ({ ...row, selected: marked !== undefined && sameBrowser(row.value, marked) }));
 };

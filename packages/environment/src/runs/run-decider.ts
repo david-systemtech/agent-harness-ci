@@ -20,6 +20,7 @@ import {
   type SendResponse,
   type Workspace,
 } from "@agent-harness/contracts";
+import type { SlashScope } from "../adapter/slash-resolution.js";
 import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, RunTarget } from "../adapter/contract.js";
 import type { ClientTool, PolicySeam } from "../adapter/seams.js";
@@ -108,6 +109,7 @@ export interface StartFacts {
 
 /** A message a client sends: its minted id, its text and its attachments as sent. */
 export interface SentMessage {
+  readonly skill?: MessageSentPayload["skill"];
   readonly messageId: string;
   readonly text: string;
   readonly attachments: readonly AttachmentInput[];
@@ -164,6 +166,9 @@ export const originOfActor = (actor: RunActor): RunOrigin => {
 
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
+  readonly slash?: SlashScope | undefined;
+  /** An initial message sent without slash preparation stays literal; queued messages still resolve for this run. */
+  readonly literalPromptId?: string;
   readonly runId: string;
   readonly sessionId: string;
   readonly account: AccountFacts;
@@ -365,7 +370,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   }
   if (command.message !== null) {
     const { messageId, text } = command.message;
-    events.push(sentEvent({ runId, messageId, text, attachments: attachments.records, delivery: "prompt", heldBy: null, ceiling: facts.actor.ceiling }));
+    events.push(sentEvent({ runId, messageId, text, ...(command.message.skill !== undefined && { skill: command.message.skill }), attachments: attachments.records, delivery: "prompt", heldBy: null, ceiling: facts.actor.ceiling }));
   }
   return {
     events,
@@ -426,6 +431,7 @@ export const decideSend = (facts: StartFacts, message: SentMessage, origin: RunO
     runId: live.runId,
     messageId: message.messageId,
     text: message.text,
+    ...(message.skill !== undefined && { skill: message.skill }),
     attachments: attachments.records,
     delivery: "queued",
     heldBy,
