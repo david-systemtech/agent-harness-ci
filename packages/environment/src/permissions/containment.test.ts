@@ -648,6 +648,37 @@ const handedIn = async (workspacePath: string, level: ContainmentLevel) => {
   return adapter.lastRun().input.containment;
 };
 
+describe("repositories made or repointed during a contained run (#1094)", () => {
+  it.each(["workspace", "workspace-no-network"] as const)("at %s, denies programs in a new repository in every writable directory, recorded as containment", async (level) => {
+    const { t, client, id, adapter, workspacePath } = await sessionAt(level);
+    const closed: string[] = [];
+    const runId = await runScript(t, client, id, async function* (controls) {
+      const containment = adapter.lastRun().input.containment;
+      for (const root of [workspacePath, containment.scratchDirectory, containment.temporaryDirectory]) {
+        const nested = join(root, "new-repository");
+        mkdirSync(nested);
+        git(nested, "init", "-q");
+        closed.push(...["config", "hooks/pre-commit", "config.worktree", "modules/new/config", "worktrees/new/config.worktree"].map((path) => join(nested, ".git", path)));
+      }
+      yield* calling(...closed.map((path) => write(path)), write("README.md"))(controls);
+    });
+    expect(adapter.lastRun().gated.map((entry) => entry.decision.decision)).toEqual([...closed.map(() => "deny"), "allow"]);
+    expect(decisionsOf(t, id, runId).map((event) => event.payload["decidedBy"])).toEqual(closed.map(() => "containment"));
+  });
+
+  it.each(["workspace", "workspace-no-network", "off"] as const)("at %s, gates .git files that repoint a worktree or a new submodule, while versioned hooks remain editable", async (level) => {
+    const checkout = repository();
+    const worktree = worktreePath("feature");
+    git(checkout, "worktree", "add", "-q", "-b", "feature", worktree);
+    git(checkout, "config", "core.hooksPath", ".githooks");
+    const { t, client, id, adapter } = await sessionIn(worktree, level);
+    const paths = [".git", "vendor/new/.git", "vendor/new/.git/modules/inner/config", "vendor/new/.git/commondir"];
+    const runId = await runScript(t, client, id, calling(...paths.map((path) => write(path)), write(".githooks/pre-commit", "package.json")));
+    expect(adapter.lastRun().gated.map((entry) => entry.decision.decision)).toEqual([...paths.map(() => level === "off" ? "allow" : "deny"), "allow"]);
+    expect(decisionsOf(t, id, runId).map((event) => event.payload["decidedBy"])).toEqual(level === "off" ? [] : paths.map(() => "containment"));
+  });
+});
+
 describe("the repository's git directory, which a contained run may write in beside its workspace (#322)", () => {
   it.each(["workspace", "workspace-no-network"] as const)(
     "at %s, holds a worktree's common git directory after the workspace, the scratch directory and the temporary directory, in RunContainment's own shape",
