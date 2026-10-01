@@ -3,6 +3,7 @@ import type { StepId } from "@agent-harness/contracts";
 import { createContext, use, type ComponentType } from "react";
 import { AccountStepCard } from "../accounts/account-step-card.js";
 import { AppearanceCard } from "../appearance/appearance-card.js";
+import { ForgesCard } from "../forges/forges-card.js";
 import { KeyManagerCard } from "../key-managers/key-manager-card.js";
 import { YourMachinesCard } from "../machines/your-machines-card.js";
 import { PermissionsCard } from "../permissions/permissions-card.js";
@@ -31,6 +32,7 @@ export type StepCards = Readonly<Partial<Record<StepId, ComponentType<StepCardPr
 export const STEP_CARDS: StepCards = {
   account: AccountStepCard,
   "your-machines": YourMachinesCard,
+  forges: ForgesCard,
   "key-manager": KeyManagerCard,
   permissions: PermissionsCard,
   appearance: AppearanceCard,
