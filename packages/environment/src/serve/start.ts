@@ -218,7 +218,7 @@ import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
-import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
+import { LOOPBACK, bindChoiceOf, bindPlan, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
 import { refuseMarkedRestore } from "./launcher-files.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
@@ -334,7 +334,7 @@ export interface EnvironmentOptions {
   readonly bindTailnet?: boolean;
   /** Bind `lanAddress`, which must then be given, or no LAN address, over `network.bindLan` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindLan?: boolean;
-  /** The LAN address bound when `bindLan` is on: one the machine holds, never the wildcard address. */
+  /** The LAN address bound when `bindLan` is on: one the machine holds, else the start skips it (#773); never the wildcard address. */
   readonly lanAddress?: string;
   /** Preset: the running process's user (`processUserCheck`). */
   readonly user?: UserCheck;
@@ -1596,6 +1596,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       look: () => look.read(),
       accounts: () => accounts.list(),
       status: () => lifecycle.status(),
+      lanAddresses: () => interfaces.lanAddresses(),
       banks,
       browser,
     }),
@@ -1720,6 +1721,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // into the own directory, a checkout among them offered as a source. The choices (#501), on the skills stream.
     ...skillsMethods({
       log,
+      trust: (place) => trustStore.of(place),
+      nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
       environmentId: record.id,
       own: ownSkills,
       defaultAccountId: () => accounts.defaultId(),
@@ -1839,7 +1842,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The binding keys as this start finds them (#574), which the start options override.
     const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
     const choice = bindChoiceOf({ bindTailnet: values["network.bindTailnet"], bindLan: values["network.bindLan"] }, options);
-    const binds = bindList({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
+    const { binds, skipped } = bindPlan({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
+    if (skipped !== undefined) console.error(skipped);
     closers.push(() => surface.close());
     // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
     const listening: { address: Address; interface: BoundInterface }[] = [];

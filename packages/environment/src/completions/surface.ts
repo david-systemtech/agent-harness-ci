@@ -1,3 +1,4 @@
+import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -391,6 +392,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     target: Target,
     place: Place | null,
     skills: { readonly names: readonly string[]; readonly ignored: readonly string[] },
+    slash?: SlashScope,
   ): Begun => {
     const { sessionId, fresh, forked } = target;
     const clientActor = formatActor({ kind: "client_session", id: clientSession.id });
@@ -438,7 +440,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
       if (facts.live !== null) {
         // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
-        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
+        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments, slash });
         if (sent.rejected !== undefined) throw refused(sent.rejected);
         // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
         // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
@@ -475,6 +477,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         origin: "completions",
         text,
         attachments,
+        slash,
         model: model.model.id,
         effort: turn.effort ?? undefined,
         mode: turn.extension.permissionMode ?? undefined,
@@ -635,24 +638,30 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const follower = follow(where.sessionId);
     let begun: Begun;
     try {
+      const text = where.fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
       const names: string[] = [];
       const ignored: string[] = [];
       const asked = turn.extension.alwaysOnSkills ?? [];
-      if (asked.length > 0) {
-        const live = host.startFacts(where.sessionId, actorFor(turn, clientSession)).live !== null;
-        const scope = live ? null : await host.previewScope(place === null ? { sessionId: where.sessionId } : { accountId: model.account.id, workspace: place.workspace });
-        for (const [index, name] of asked.entries()) {
-          if (scope?.skillSet.members.some((member) => member.name === name)) names.push(name);
-          else ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`);
+      let slash: PreparedSlash | undefined;
+      do {
+        slash = text.startsWith("/") ? await host.prepareSlash(place === null ? where.sessionId : {
+          accountId: model.account.id, workspace: place.workspace, repositoryIdentity: place.repositoryIdentity,
+        }) : undefined;
+        names.length = 0;
+        ignored.length = 0;
+        if (asked.length > 0) {
+          const live = host.startFacts(where.sessionId, actorFor(turn, clientSession)).live !== null;
+          // A slash turn already resolved the set its run will use; its extra names must use that same set.
+          const scope = live ? null : slash ?? await host.previewScope(place === null ? { sessionId: where.sessionId } : { accountId: model.account.id, workspace: place.workspace });
+          for (const [index, name] of asked.entries()) {
+            if (scope?.skillSet.members.some((member) => member.name === name)) names.push(name);
+            else ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`);
+          }
         }
         ready(true);
-        if (exchange.gone) {
-          follower.stop();
-          await place?.discard();
-          return;
-        }
-      }
-      begun = begin(turn, model, clientSession, where, place, { names, ignored });
+        if (exchange.gone) { follower.stop(); await place?.discard(); return; }
+      } while (slash?.isCurrent() === false);
+      begun = begin(turn, model, clientSession, where, place, { names, ignored }, slash);
     } catch (error) {
       follower.stop();
       await place?.discard();
