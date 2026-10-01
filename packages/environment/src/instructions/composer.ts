@@ -110,7 +110,7 @@ const alwaysOnParts = async (scope: InstructionScope) => {
       const cut = body.length > 60_000 ? `\n\n[Body cut at 60,000 characters; read ${file} for the rest.]` : "";
       return {
         id: name, version: member.commit ?? null, title: name,
-        text: `# Always-on skill: ${name}\n\nFollow this skill for the whole session; its files are relative to its folder in the generation (${dirname(file)}).\n\n${body.slice(0, 60_000)}${cut}`,
+        text: `# Always-on skill: ${name}\n\nFollow this skill for the whole session; its files are relative to its folder${member.native ? "" : " in the generation"} (${dirname(file)}).\n\n${body.slice(0, 60_000)}${cut}`,
         origin: member.origin, commit: member.commit ?? null,
       };
     })];

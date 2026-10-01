@@ -27,6 +27,23 @@ const run = async (t: TestEnvironment, client: WireClient, sessionId: string) =>
 };
 
 describe("always-on instructions through the environment", () => {
+  it.each([false, true])("names a native skill's own folder when a generation exists: %s", async (hasGeneration) => {
+    const folder = tempDir("agent-harness-native-skill-");
+    const file = join(folder, "SKILL.md");
+    writeFileSync(file, "---\nname: native\ndescription: A native skill.\n---\nFollow native guidance.");
+    const t = await startTestEnvironment({ adapter: fakeAdapter(), adapterSeams: { instructions: composeInstructions({}), skillSet: async () => ({
+      generation: hasGeneration ? tempDir("agent-harness-generation-") : null,
+      fingerprint: "native-skill-for-tests",
+      members: [{ name: "native", description: "A native skill.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: true, alwaysOn: true, file, commit: null }],
+      hiddenNativeNames: [],
+    }) } });
+    onCleanup(() => t.close());
+    const client = await t.client();
+    const { id } = await create(client);
+    await run(t, client, id);
+    expect(t.adapter.lastRun().input.instructions).toBe(`# Always-on skill: native\n\nFollow this skill for the whole session; its files are relative to its folder (${folder}).\n\nFollow native guidance.`);
+  });
+
   it("appends enabled account skills last, strips frontmatter and records their provenance", async () => {
     const t = await startTestEnvironment({ adapter: fakeAdapter(), accounts: [{ id: "claude-max", provider: "fake" }, { id: "other", provider: "fake" }], adapterSeams: { instructions: composeInstructions({ session: () => [{ id: "session", version: null, title: "Session", text: "SESSION" }] }) } });
     onCleanup(() => t.close());
