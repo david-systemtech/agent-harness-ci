@@ -9,9 +9,10 @@ import { THIS_MACHINE } from "./words.js";
  * "The window and the sidebar"; ADR 0023: the colour is a name, drawn with
  * the theme's token for it, the accent's cyan while the environment has said
  * no colour), which every place that shows an environment wears (the
- * sidebar's rows and headings, the header, the caption, the status line, the
- * new-session chip, the Your machines cards), so the ten icons are drawn
- * here alone (#675). The icon is the window's glyph for the name the
+ * sidebar's rows, headings and restore list, the header, the caption, the
+ * status line, the new-session chip, Parked asks, the Your machines cards
+ * and the settings' `everywhere` groups), so the ten icons are drawn here
+ * alone (#675). The icon is the window's glyph for the name the
  * environment gives, named for assistive technology by that name
  * ("laptop"), or by `label` where it stands for the environment itself (a
  * row says which environment by it alone). Until the environment names an
