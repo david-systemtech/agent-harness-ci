@@ -3,6 +3,7 @@ import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/cont
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { ChecklistAuthoringProvider } from "./authoring-run.js";
 
 /**
  * Set up as the whole window (docs/specs/gui.md, "Set up in the window";
@@ -86,5 +87,5 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   );
 
   const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leave }), [shown, step, part, open, choose, close, leave]);
-  return <ChecklistContext value={checklist}>{children}</ChecklistContext>;
+  return <ChecklistContext value={checklist}><ChecklistAuthoringProvider shown={shown}>{children}</ChecklistAuthoringProvider></ChecklistContext>;
 };
