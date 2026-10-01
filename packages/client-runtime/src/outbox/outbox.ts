@@ -30,7 +30,7 @@ import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 import { decodeOutbox, encodeOutbox, outboxDocument, type OutboxEntry } from "./entries.js";
 import { reachable, type EnvironmentOutbox, type OutboxView, type OverlayRecord } from "./overlay.js";
-import { overlayOf, reasonOf, targetOf, verbOf, type Target } from "./rules.js";
+import { overlayOf, reasonOf, routineOf, targetOf, verbOf, type Target } from "./rules.js";
 import { createStopFirst } from "./stop-first.js";
 
 export { STOP_WAIT_MS } from "./stop-first.js";
@@ -290,6 +290,8 @@ export interface OutboxHost {
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
   /** The environment's list as it shows now, overlay and all: what a command's optimistic change is reckoned against. */
   shown(environmentId: string): ListData | null;
+  /** The name of routine `routineId` (in lowercase) as the environment last listed it (the request cache's `routines.list`), read without fetching; null when it is not held. */
+  routineName(environmentId: string, routineId: string): string | null;
   /** The environment's time now. */
   now(environmentId: string): Date;
   /** What the runtime holds of a session, read without subscribing anything: its transcript, runs and draft. */
@@ -360,6 +362,7 @@ const admission = (method: CommandMethodName, record: ConnectionRecord | undefin
 const labelAtDispatch = (method: string, params: Readonly<Record<string, unknown>>, target: Target | null, shown: ListData | null): string | null => {
   if (method === "sessions.create") return typeof params["title"] === "string" ? params["title"] : "a new session";
   if (method === "groups.create") return typeof params["name"] === "string" ? normaliseGroupName(params["name"]) : null;
+  if (method === "routines.create") return (params["definition"] as ParamsOf<"routines.create">["definition"]).name;
   if (target === null) return null;
   return (target.kind === "session" ? shown?.sessions.get(target.id)?.title : shown?.groups.get(target.id)?.name) ?? null;
 };
@@ -454,12 +457,17 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   const forgottenAnswer = (commandId: string, environmentId: string): Answer =>
     failure(commandId, "forgotten", `${nameOf(environmentId)} was removed from this client, and its outbox with it.`);
 
-  /** What a notice calls the entry's target: its title or name as the list confirms it now, else as it was when dispatched. */
+  /**
+   * What a notice calls the entry's target: its title or name as the list confirms it now, else as it was when dispatched;
+   * a routine's name as last listed, else as its create named it; else the environment's name (an import making routines).
+   */
   const labelOf = (entry: OutboxEntry): string => {
     const data = host.lists.read().get(entry.environmentId)?.data;
     const { target } = entry;
     if (target?.kind === "session") return data?.sessions.get(target.id)?.title ?? entry.label ?? "a session";
     if (target?.kind === "group") return data?.groups.get(target.id)?.name ?? entry.label ?? "a group";
+    const routineId = routineOf(entry.method, entry.params);
+    if (routineId !== null) return host.routineName(entry.environmentId, routineId) ?? entry.label ?? nameOf(entry.environmentId);
     return nameOf(entry.environmentId);
   };
 
@@ -650,8 +658,10 @@ export const createOutbox = (host: OutboxHost): Outbox => {
    */
   const ownEarlierAttempt = (entry: OutboxEntry, receipt: RejectedReceipt) => {
     if (entry.attempts < 2) return false;
-    if (entry.method === "groups.create" || entry.method === "sessions.create") return receipt.reason === "conflict" && receipt.error.data?.["reason"] === "exists";
-    return (entry.method === "sessions.delete" || entry.method === "sessions.purge" || entry.method === "groups.delete") && receipt.reason === "not_found";
+    if (entry.method === "groups.create" || entry.method === "sessions.create" || entry.method === "routines.create") {
+      return receipt.reason === "conflict" && receipt.error.data?.["reason"] === "exists";
+    }
+    return (entry.method === "sessions.delete" || entry.method === "sessions.purge" || entry.method === "groups.delete" || entry.method === "routines.delete") && receipt.reason === "not_found";
   };
 
   const answered = (environmentId: string, commandId: string, response: ResponseFrame) => {
@@ -763,6 +773,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       if (closed) return answer(commandId, failure(commandId, "closed", "The client runtime closed before the command was kept."));
       const shown = host.shown(environmentId);
       const target = targetOf(method, stored);
+      const routineId = routineOf(method, stored);
       const entry: OutboxEntry = {
         commandId,
         environmentId,
@@ -774,7 +785,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         sentOn: null,
         state: "queued",
         overlay: spec.scope === "sessions:write" ? overlayOf(method, stored, shown, host.now(environmentId).toISOString()) : null,
-        label: labelAtDispatch(method, stored, target, shown),
+        label: labelAtDispatch(method, stored, target, shown) ?? (routineId === null ? null : host.routineName(environmentId, routineId)),
       };
       const kind = (SESSION_WRITE_COMMANDS as Readonly<Record<string, (typeof SESSION_WRITE_COMMANDS)[SessionWriteMethodName]>>)[method];
       const queue = outboxOf(environmentId).entries;

@@ -121,6 +121,17 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
             "description": "When the source was added."
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+            "description": "The commit of its current snapshot, whose members are the ones in the set."
+          },
+          "skillCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "How many valid members its current snapshot yields."
           }
         },
         "required": [
@@ -131,11 +142,13 @@
           "follow",
           "position",
           "addedBy",
-          "addedAt"
+          "addedAt",
+          "commit",
+          "skillCount"
         ],
-        "description": "A skill source: a repository and folder the environment tracks for skills, following a branch or pinned to a commit. The URL is as entered and passed the source URL rule; the identity is its repository identity; the folder is . for the repository's root."
+        "description": "A skill source as skills.get lists it: its URL, identity, folder, what it follows, its position and who added it when, the commit of its current snapshot and how many skills that snapshot yields."
       },
-      "description": "The skill sources the environment tracks, earliest added first."
+      "description": "The skill sources the environment tracks, earliest added first, each with its current snapshot's commit and skill count."
     },
     "choices": {
       "type": "array",

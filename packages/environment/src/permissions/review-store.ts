@@ -151,6 +151,28 @@ export const isDecided = (reader: Reader, runId: string, toolCallId: string): bo
 export const reviewWatermark = (reader: Reader): number =>
   reader.all<{ through: number }>("SELECT through FROM review_watermark WHERE id = 1")[0]?.through ?? 0;
 
+/**
+ * A run the review lists, its session's deletion aside: something was
+ * decided in it after the watermark (the condition's one parameter), and it
+ * qualifies (unattended with a tool call or a denial, or attended with a
+ * call decided by the TTL, the denylist or containment).
+ */
+const LISTED_SINCE = `review_runs.updated_sequence > ?
+  AND ((review_runs.attended = 0 AND (review_runs.tool_calls > 0 OR review_runs.denied > 0)) OR (review_runs.attended = 1 AND review_runs.flagged > 0))`;
+
+/** Whether the review lists run `runId` now: it qualifies, something was decided in it since the watermark, and its session is not deleted. */
+export const isListed = (reader: Reader, runId: string): boolean =>
+  reader.all(
+    `SELECT 1 FROM review_runs JOIN sessions ON sessions.id = review_runs.session_id
+     WHERE review_runs.run_id = ? AND sessions.deleted_at IS NULL AND ${LISTED_SINCE}`,
+    runId,
+    reviewWatermark(reader),
+  ).length > 0;
+
+/** Whether session `sessionId` holds a run the review lists, or would list were the session not deleted. */
+export const holdsListedRuns = (reader: Reader, sessionId: string): boolean =>
+  reader.all(`SELECT 1 FROM review_runs WHERE review_runs.session_id = ? AND ${LISTED_SINCE} LIMIT 1`, sessionId, reviewWatermark(reader)).length > 0;
+
 interface ReviewRow {
   run_id: string;
   session_id: string;
@@ -174,8 +196,7 @@ interface ReviewRow {
 export const reviewRuns = (reader: Reader, watermark: number, limit: number): ReviewRun[] => {
   const rows = reader.all<ReviewRow>(
     `SELECT review_runs.* FROM review_runs JOIN sessions ON sessions.id = review_runs.session_id
-     WHERE sessions.deleted_at IS NULL AND review_runs.updated_sequence > ?
-     AND ((review_runs.attended = 0 AND (review_runs.tool_calls > 0 OR review_runs.denied > 0)) OR (review_runs.attended = 1 AND review_runs.flagged > 0))
+     WHERE sessions.deleted_at IS NULL AND ${LISTED_SINCE}
      ORDER BY review_runs.started_sequence DESC LIMIT ?`,
     watermark,
     limit,

@@ -1487,8 +1487,24 @@
       "title": "SkillsAlwaysOnSetPayload"
     },
     {
+      "path": "skills/events/skills.source-added.json",
+      "title": "SkillsSourceAddedPayload"
+    },
+    {
+      "path": "skills/events/skills.source-synced.json",
+      "title": "SkillsSourceSyncedPayload"
+    },
+    {
+      "path": "skills/events/skills.source-removed.json",
+      "title": "SkillsSourceRemovedPayload"
+    },
+    {
       "path": "skills/view-member.json",
       "title": "SkillsViewMember"
+    },
+    {
+      "path": "skills/view-source.json",
+      "title": "SkillsViewSource"
     },
     {
       "path": "skills/view-account.json",
@@ -1551,6 +1567,10 @@
       "title": "SkillSource"
     },
     {
+      "path": "skills/source-member.json",
+      "title": "SkillSourceMember"
+    },
+    {
       "path": "skills/carried-item.json",
       "title": "SkillCarriedItem"
     },
@@ -1593,6 +1613,10 @@
     {
       "path": "skills/probe-unreachable.json",
       "title": "SkillProbeUnreachable"
+    },
+    {
+      "path": "skills/source-add-conflict.json",
+      "title": "SkillSourceAddConflict"
     },
     {
       "path": "skills/readiness/fix.json",
@@ -2131,6 +2155,10 @@
       "title": "DenylistTestKind"
     },
     {
+      "path": "permissions/notices/denylist.updated.json",
+      "title": "DenylistUpdatedPayload"
+    },
+    {
       "path": "permissions/listed-prompt.json",
       "title": "ListedPrompt"
     },
@@ -2149,6 +2177,10 @@
     {
       "path": "permissions/review-run.json",
       "title": "ReviewRun"
+    },
+    {
+      "path": "permissions/notices/review.updated.json",
+      "title": "ReviewUpdatedPayload"
     },
     {
       "path": "instructions/layer.json",
@@ -6191,6 +6223,38 @@
       "title": "skills.setEnabled error"
     },
     {
+      "path": "methods/skills.sources.add/params.json",
+      "title": "skills.sources.add params"
+    },
+    {
+      "path": "methods/skills.sources.add/result.json",
+      "title": "skills.sources.add result"
+    },
+    {
+      "path": "methods/skills.sources.add/response.json",
+      "title": "skills.sources.add response"
+    },
+    {
+      "path": "methods/skills.sources.add/error.json",
+      "title": "skills.sources.add error"
+    },
+    {
+      "path": "methods/skills.sources.remove/params.json",
+      "title": "skills.sources.remove params"
+    },
+    {
+      "path": "methods/skills.sources.remove/result.json",
+      "title": "skills.sources.remove result"
+    },
+    {
+      "path": "methods/skills.sources.remove/response.json",
+      "title": "skills.sources.remove response"
+    },
+    {
+      "path": "methods/skills.sources.remove/error.json",
+      "title": "skills.sources.remove error"
+    },
+    {
       "path": "methods/skills.readiness/params.json",
       "title": "skills.readiness params"
     },
@@ -8180,6 +8244,26 @@
       "result": "methods/skills.setEnabled/result.json",
       "response": "methods/skills.setEnabled/response.json",
       "error": "methods/skills.setEnabled/error.json"
+    },
+    {
+      "name": "skills.sources.add",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.sources.add/params.json",
+      "result": "methods/skills.sources.add/result.json",
+      "response": "methods/skills.sources.add/response.json",
+      "error": "methods/skills.sources.add/error.json"
+    },
+    {
+      "name": "skills.sources.remove",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.sources.remove/params.json",
+      "result": "methods/skills.sources.remove/result.json",
+      "response": "methods/skills.sources.remove/response.json",
+      "error": "methods/skills.sources.remove/error.json"
     },
     {
       "name": "skills.readiness",

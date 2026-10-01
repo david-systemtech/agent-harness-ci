@@ -5,13 +5,16 @@
  * no image is built or run here. The image runs the environment as a
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes with the drain's stop grace and the release's
- * image, and neither sets `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. What only
+ * image, and neither sets `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It
+ * passes a new environment's name and channel in from compose's own
+ * variables, which Add a machine's container snippet sets (#846). What only
  * a real build and run can show is the Container section of
  * `docs/agents/service-install-checklist.md`.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { installLines } from "../packages/client-runtime/src/setup/install-lines.js";
 
 const root = join(import.meta.dirname, "..");
 const dockerfile = readFileSync(join(root, "Dockerfile"), "utf8");
@@ -157,6 +160,26 @@ describe("the published compose file", () => {
       .filter((line) => /exec environment agent-harness /.test(line));
     expect(verbs.length).toBeGreaterThan(0);
     for (const line of verbs) expect(line, line).toMatch(new RegExp(`--data-dir ${serveDir}( |$)`));
+  });
+
+  it("passes a new environment's name and channel into the container from compose's own variables, blank when unset, which serve reads as not given (#846)", () => {
+    const lines = composeLines();
+    expect(lines).toContain("      AGENT_HARNESS_NAME: ${AGENT_HARNESS_NAME:-}");
+    expect(lines).toContain("      AGENT_HARNESS_CHANNEL: ${AGENT_HARNESS_CHANNEL:-}");
+  });
+
+  it("takes every variable Add a machine's container snippet sets on its up line", () => {
+    const releaseSource = { origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" } as const;
+    const up = installLines({ releaseSource, version: "0.4.2", channel: "beta", name: "Build box" }).compose.find((line) => line.endsWith(" docker compose up -d")) ?? "";
+    const set = [...up.matchAll(/(?:^| )([A-Z][A-Z0-9_]*)=/g)].map((match) => match[1]);
+    expect(set).toEqual(["AGENT_HARNESS_CHANNEL", "AGENT_HARNESS_NAME"]);
+    for (const variable of set) expect(composeLines(), variable).toContain(`      ${variable}: \${${variable}:-}`);
+  });
+
+  it("says, in its header, how the first start takes a name and the beta channel, and that later starts keep what it took", () => {
+    const header = composeHeader();
+    expect(header).toContain("#   AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=build-box docker compose up -d");
+    expect(header).toMatch(/later start[^.]*keeps?/i);
   });
 
   it("declares the container to the environment and asks for no privilege", () => {
