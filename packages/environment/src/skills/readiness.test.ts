@@ -412,7 +412,27 @@ describe("skills.readiness", () => {
     expect(t.adapter.runs).toEqual([]);
   });
 
-  it("keeps each answer sixty seconds per workspace, account and fingerprint: refresh, another workspace or a changed set reads again", async () => {
+  it("keeps a session's answers apart from a new session's and another session's in the same workspace, as an mcp check answers for the session", async () => {
+    const given = new Set<string>();
+    const toolServers: ToolServerFactory = (scope) => (given.has(scope.sessionId) ? [{ name: "linear", config: {} }] : []);
+    const { t, client } = await start({ adapterSeams: { toolServers } });
+    declaring(t, "tracker", [{ kind: "mcp", server: "linear" }]);
+    const workspace = tempDir();
+    const { id } = await create(client, { workspace: { kind: "directory", path: workspace } });
+    const { id: other } = await create(client, { workspace: { kind: "directory", path: workspace } });
+    given.add(id);
+    const tracker = async (params: Params): Promise<SkillReadiness | undefined> => (await readiness(client, { ...params, names: ["tracker"] }))[0];
+
+    const newSession = await tracker(at(workspace));
+    expect(newSession !== undefined && failures(newSession)).toEqual([["failed", "A new session of this account in this workspace is given no tool server named linear."]]);
+    // Within the sixty seconds, each session is asked for its own.
+    expect(await tracker({ sessionId: id })).toEqual({ name: "tracker", state: "ready", declaredBy: "sidecar" });
+    const otherSession = await tracker({ sessionId: other });
+    expect(otherSession !== undefined && failures(otherSession)).toEqual([["failed", "The session's next run is given no tool server named linear."]]);
+    expect((await tracker(at(workspace)))?.state).toBe("setup-needed");
+  });
+
+  it("keeps each answer sixty seconds per workspace, account, session and fingerprint: refresh, another workspace or a changed set reads again", async () => {
     const { t, client } = await start();
     declaring(t, "tracked", [{ kind: "file", paths: ["docs/agents/issue-tracker.md"] }]);
     const workspace = tempDir();

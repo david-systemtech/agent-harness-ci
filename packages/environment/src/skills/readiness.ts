@@ -53,9 +53,10 @@ import { readSidecar } from "./sidecar.js";
  *
  * Each check gets five seconds and the call ten, from when it is asked; a
  * check still running then fails as could not be checked in time. A
- * member's answer is kept sixty seconds per workspace, account and set
- * fingerprint, unless `refresh`; one with a check that ran out is not
- * kept, so the next read checks again. Readiness is advisory: nothing here
+ * member's answer is kept sixty seconds per workspace, account, session
+ * (none for a new session's) and set fingerprint, unless `refresh`, as an
+ * `mcp` check answers for the session; one with a check that ran out is
+ * not kept, so the next read checks again. Readiness is advisory: nothing here
  * blocks an invocation or changes the set. All git goes through the
  * hardened runner, and reads refs and paths only: nothing is diffed, so no
  * filter or textconv the repository names runs.
@@ -65,7 +66,7 @@ import { readSidecar } from "./sidecar.js";
 export const READINESS_CHECK_BUDGET_MS = 5_000;
 /** How long a whole `skills.readiness` call may take, from when it is asked (a chosen default). */
 export const READINESS_CALL_BUDGET_MS = 10_000;
-/** How long a member's answer is kept for its workspace, account and fingerprint (a chosen default). */
+/** How long a member's answer is kept for its workspace, account, session and fingerprint (a chosen default). */
 export const READINESS_CACHE_MS = 60_000;
 
 /** The most of a file a `file` check reads for its headings. */
@@ -228,7 +229,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
   const forgeAccounts = options.forgeAccounts ?? (() => []);
   const pathValue = options.hostEnv["PATH"] ?? options.hostEnv["Path"] ?? "";
 
-  /** Answers kept per workspace, account and fingerprint: each member's, with when it was checked. */
+  /** Answers kept per workspace, account, session (null for a new session's) and fingerprint: each member's, with when it was checked. */
   const kept = new Map<string, Map<string, { readonly at: number; readonly readiness: SkillReadiness }>>();
 
   /** Drops every answer older than the cache's sixty seconds, and each key left with none. */
@@ -485,7 +486,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       const facts = options.account(scope.accountId);
       if (facts === null) throw new ContractError({ code: "not_found", message: `No account ${scope.accountId} is on this environment.`, data: { kind: "account", accountId: scope.accountId } });
       const set = await options.place({ ...scope, nativeRoots: facts.descriptor.nativeSkillRoots });
-      const key = JSON.stringify([scope.workspace.path, scope.accountId, fingerprintOf(set)]);
+      const key = JSON.stringify([scope.workspace.path, scope.accountId, scope.sessionId, fingerprintOf(set)]);
       prune(clock.now().getTime());
       const answers = kept.get(key) ?? new Map<string, { readonly at: number; readonly readiness: SkillReadiness }>();
       const check = evaluation(scope, set, facts.descriptor, callEndsAt);
