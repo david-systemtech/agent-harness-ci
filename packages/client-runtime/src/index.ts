@@ -85,7 +85,6 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
-  cliRowOf,
   cliWords,
   copyLine,
   injectsWords,
@@ -611,11 +610,14 @@ export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.
 export {
   bundledClaudeCodeWords,
   bundledServerWords,
+  clientOfferAskWords,
   clientOfferWords,
   clientUpdateWords,
   desktopBuildWords,
+  environmentVersionWords,
   offersClientVersion,
   pendingUpdateWords,
   pinnedWords,
+  updatesUnreadWords,
 } from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";

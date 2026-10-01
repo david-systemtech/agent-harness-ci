@@ -20,8 +20,7 @@ import { SANDBOX_NETWORK_TOOL, claudeGatedCall } from "./gate-access.js";
 import {
   PromptClosed,
   WithdrawUnsupported,
-  inProcessToolKey,
-  isInProcess,
+  toolServersKey,
   type PromptDecision,
   type PromptDetail,
   type PromptKind,
@@ -448,7 +447,7 @@ export class ClaudeProcess implements TurnControl {
       directory: this.#deps.configDirectory(input.account),
       trusted: input.trusted,
       // An in-process server by what it shows the model: a run whose tools differ needs a process started with them.
-      toolServers: input.toolServers.map((server) => (isInProcess(server) ? inProcessToolKey(server) : server.name)).join("\n"),
+      toolServers: toolServersKey(input.toolServers),
       // The SDK's opt-in follows the run's ceiling, so a run under a bypass ceiling may later be changed to bypass.
       bypassAllowed: input.ceiling === "bypassPermissions",
       instructions: input.instructions,

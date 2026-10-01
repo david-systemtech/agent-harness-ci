@@ -153,7 +153,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
   // Each environment told of this client's other connections, after each hello and as they change (#382).
   const stopReporting = reportKnownEnvironments({ kind: platform.client.kind, records: registry.list, call, report });
-  const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
+  const requests: Requests = {
+    call,
+    cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params),
+    refresh: (environmentId, method, params) => requestCache.refresh(environmentId, method, params),
+  };
   // The desktop's own update and the server it carries (#354): through the local environment, its stage given the time a download takes.
   const desktopUpdate = createDesktopUpdate({
     clock: platform.clock,

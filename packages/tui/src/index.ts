@@ -94,6 +94,7 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
     faults,
     newCommandId: randomUUID,
     newSessionId: randomUUID,
+    version: options.version,
     stateDir,
     cwd: process.cwd(),
     // The title and the bell on this terminal, `AGENT_HARNESS_TUI_NO_TITLE` and `AGENT_HARNESS_TUI_NOTIFY` honoured.

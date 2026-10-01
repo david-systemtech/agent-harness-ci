@@ -293,9 +293,10 @@ describe("a row whose feature is not built", () => {
     expect(desk.requests("permissions.settings.set")[0]?.params).toMatchObject({ acknowledgeBypass: true });
     expect(within(field(permissions, "permissions.unattended.bypassAcknowledgedAt")).getByText("The environment records it itself; nothing sets it.")).toBeDefined();
 
-    // The idle window, one of the update keys the update controls leave to the generic editor (#424).
+    // The idle window, one of the update keys the update controls leave to the generic editor under Advanced (#424, #576).
     const machines = await openRow(app, "Your machines");
     const desks = within(machines).getByRole("region", { name: "desk" });
+    await app.user.click(within(desks).getByRole("button", { name: "Advanced" }));
     const idle = await within(field(desks, "updates.idleWindowMinutes")).findByRole("textbox");
     await app.user.clear(idle);
     await app.user.type(idle, "15");

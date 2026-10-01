@@ -461,7 +461,8 @@ describe("a step's named actions on their targets", () => {
 
     await app.user.click(within(steps()).getByRole("button", { name: "Your machines" }));
     const machines = within(checklist() as HTMLElement).getByRole("region", { name: "Your machines" });
-    await app.user.click(within(machines).getByRole("button", { name: "Update now" }));
+    // The step's action, drawn above each machine card's own (#576).
+    await app.user.click(within(machines).getAllByRole("button", { name: "Update now" })[0] as HTMLElement);
     expect(await within(machines).findByText("Updating to 1.3.0 once desk is idle.")).toBeDefined();
     expect(desk.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
   });

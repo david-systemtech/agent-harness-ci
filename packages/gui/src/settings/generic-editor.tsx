@@ -33,8 +33,8 @@ export const reachWords = (runtime: Runtime, view: EnvironmentView): string => {
 };
 
 /** Why nothing shown of an environment not ready can be written, over what this window read of it, if anything. */
-export const readOnlyLine = (runtime: Runtime, view: EnvironmentView, read: boolean): string =>
-  `${reachWords(runtime, view)}: ${read ? "the values this window last read, read-only." : "this window has read none of its values."}`;
+export const readOnlyLine = (runtime: Runtime, view: EnvironmentView, read: boolean, reach: string = reachWords(runtime, view)): string =>
+  `${reach}: ${read ? "the values this window last read, read-only." : "this window has read none of its values."}`;
 
 /** The methods that write `keys`, each once; none for a key the environment records itself. */
 export const writersOf = (keys: readonly SettingsKey[]): readonly MethodName[] => [...new Set(keys.flatMap((key) => writerOf(key) ?? []))];

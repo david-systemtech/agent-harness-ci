@@ -318,6 +318,14 @@ export const inProcessToolKey = (server: InProcessToolServer): string =>
   JSON.stringify([server.name, server.external, server.tools.map((tool) => [tool.name, tool.description, tool.inputSchema])]);
 
 /**
+ * What a run's tool servers show the model, as one string: an in-process
+ * server by its key, another by its name. A provider process started with
+ * servers of one key serves a later run handed servers of the same key with
+ * the ones it started with; another key needs a fresh process.
+ */
+export const toolServersKey = (servers: readonly ToolServer[]): string => servers.map((server) => (isInProcess(server) ? inProcessToolKey(server) : server.name)).join("\n");
+
+/**
  * A run's containment as its adapter enforces it (permissions spec,
  * "Containment": what each level means, and the enforcement for Claude):
  * the level `run.policy.resolved` recorded, never one the probe cannot

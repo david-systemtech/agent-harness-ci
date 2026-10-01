@@ -552,6 +552,7 @@ describe("the method registry", () => {
       | "skills.carryOver"
       | "skills.setAlwaysOn"
       | "skills.setEnabled"
+      | "skills.readiness"
       | "trust.get"
       | "trust.list"
       | "trust.decide"

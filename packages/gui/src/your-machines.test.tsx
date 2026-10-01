@@ -317,7 +317,8 @@ describe("Your machines' update controls", () => {
     await waitFor(() => expect(autoUpdate().getAttribute("aria-checked")).toBe("false"));
     expect(scripted.requests("updates.settings.set").map((request) => request.params["values"])).toEqual([{ "updates.channel": "beta" }, { "updates.autoUpdate": false }]);
     expect(scripted.settings()).toMatchObject({ "updates.channel": "beta", "updates.autoUpdate": false });
-    // The pin, the idle window and the deferral cap stay the generic editor's.
+    // The pin, the idle window and the deferral cap stay the generic editor's, under Advanced (#576).
+    await app.user.click(within(laptop()).getByRole("button", { name: "Advanced" }));
     for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]) expect(within(laptop()).getByRole("group", { name: key })).toBeDefined();
     expect(within(laptop()).queryByRole("group", { name: "updates.channel" })).toBeNull();
 

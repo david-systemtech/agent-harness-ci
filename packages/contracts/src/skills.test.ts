@@ -241,10 +241,11 @@ describe("the skills methods and notice", () => {
     ],
   };
 
-  it("are skills.get at read, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
+  it("are skills.get and skills.readiness at read, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("skills."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "skills.get": ["query", "read"],
+      "skills.readiness": ["query", "read"],
       "skills.own.create": ["command", "admin"],
       "skills.own.remove": ["command", "admin"],
       "skills.carryOver": ["command", "admin"],

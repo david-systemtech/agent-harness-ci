@@ -1,5 +1,4 @@
 import {
-  MANAGED_TOOLS,
   type InjectionAnswer,
   type KeyManagerCertificate,
   type KeyManagerAuthMethod,
@@ -20,7 +19,7 @@ import { whenWords } from "../transcript/format.js";
  * spec, "The connection record" and "Managed tools"; ADR 0028; #425): each
  * fact of `keyManagers.list`'s record a card or a line shows, what each
  * status asks David to do, the warning a ticked policy that writes carries,
- * and the connection's CLI row from `tools.list`. The environment's own
+ * and the CLI row a listed connection carries (#375). The environment's own
  * status line stands beside these; nothing here reads a secret, since the
  * record holds none.
  */
@@ -131,17 +130,6 @@ export const originWords = (record: Pick<KeyManagerConnectionRecord, "copiedFrom
   return record.importedFrom === null ? null : "The state import, without its credential.";
 };
 
-/**
- * The connection's CLI row: the Managed tools row of the tools that serve
- * its provider (`bao` or `vault` for OpenBao), the first installed, else the
- * first; undefined when `tools.list` holds none of them.
- */
-export const cliRowOf = (provider: KeyManagerProvider, rows: readonly ManagedToolRow[]): ManagedToolRow | undefined => {
-  const serving = MANAGED_TOOLS.filter((tool) => tool.requiredFor.kind === "key-manager" && tool.requiredFor.provider === provider).map((tool) => tool.name);
-  const held = rows.filter((row) => (serving as readonly string[]).includes(row.tool));
-  return held.find((row) => row.status !== "not-installed") ?? held[0];
-};
-
 /** What each managed tool's status says. */
 const TOOL_STATUS_WORDS: Readonly<Record<ManagedToolStatus, string>> = {
   current: "current",
@@ -151,7 +139,7 @@ const TOOL_STATUS_WORDS: Readonly<Record<ManagedToolStatus, string>> = {
   "method-unknown": "installed, but not known how",
 };
 
-/** A CLI row in one line: its label, version against its minimum, and status. */
+/** A CLI row in one line, as a listed connection's `cli` is said: its label, version against its minimum, and status. */
 export const cliWords = (row: ManagedToolRow): string => {
   if (row.status === "not-installed") return `${row.label}: ${TOOL_STATUS_WORDS[row.status]}.`;
   const version = row.version ?? "an unread version";

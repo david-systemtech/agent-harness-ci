@@ -100,6 +100,14 @@ export interface Requests {
    * beside it. Anything but a query answers `unsupported`.
    */
   cached<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): Observable<CachedAnswer<N>>;
+  /**
+   * Fetches a cached query again, as a notice that it may have changed
+   * would: at once while followed, else by its next follower. A person's
+   * Check again, where the answer can change with no notice to say so
+   * (`environment.status`'s LAN addresses, #576). Nothing for a query never
+   * asked for.
+   */
+  refresh<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): void;
 }
 
 export interface RequestsHost {
@@ -200,7 +208,8 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * `permissions.settings.get`; and the skill set changing
  * (`skills.updated`, a command or a read of the own directory, #494) or an
  * account (the view lists the accounts, and a removal drops the choices
- * naming one, #501) `skills.get`; a trust decision recorded or revoked (`trust.updated`,
+ * naming one, #501) `skills.get` and `skills.readiness` (#510: the set
+ * checked, and the account's provider); a trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; an owned instruction changing
@@ -242,6 +251,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated", "account.updated"],
+  "skills.readiness": ["skills.updated", "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
   "instructions.list": INSTRUCTION_REFRESH_NOTICES,
@@ -259,6 +269,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
 
 export interface RequestCache {
   cached: Requests["cached"];
+  refresh: Requests["refresh"];
   /** The last result held for a query, if any: never fetches, and makes no entry. */
   peek<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): ResultOf<N> | null;
   /**
@@ -462,6 +473,10 @@ export const createRequestCache = (host: {
     },
     peek(environmentId, method, params) {
       return (entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }))?.value.read().result ?? null) as never;
+    },
+    refresh(environmentId, method, params) {
+      const entry = entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }));
+      if (entry !== undefined) refresh(entry);
     },
     noticed(environmentId, type) {
       for (const entry of entries.values()) {

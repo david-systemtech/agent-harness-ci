@@ -14,7 +14,7 @@ import { certificateOf, renderApp, type RenderedApp, type ScriptedEnvironment } 
  * the scripted environment's key-manager answers.
  */
 
-/** Both flags the row reads: its connections and the CLI rows. */
+/** The flags an environment with key managers offers: `keyManagers`, which the row reads, and `managedTools`, whose `tools.list` it does not (#776). */
 const FLAGGED = ["keyManagers", "managedTools"] as const;
 
 /** The window over `desk`, this machine's environment, as `desk` scripts it, and the other environments given, paired. */
@@ -80,6 +80,24 @@ describe("a connection's card", () => {
     expect(facts(home)["Status"]).toMatch(/^Signed in since \d\d:\d\d$/);
     expect(within(home).getByText("Signed in to OpenBao as approle.")).toBeDefined();
     await waitFor(() => expect(app.environment("desk").requests("keyManagers.list").length).toBeGreaterThan(0));
+    // The CLI fact is the listed connection's own row (#375, #776): the pane asks no tools.list for it.
+    expect(app.environment("desk").requests("tools.list")).toEqual([]);
+  });
+
+  it("shows its CLI row from keyManagers.list where the environment does not offer managedTools, and its CLI not installed where none is", async () => {
+    const app = await opened({
+      capabilities: ["keyManagers"],
+      keyManagers: {
+        connections: [
+          { label: "Home OpenBao", address: "https://bao.home.test:8200" },
+          { label: "Team Doppler", address: "https://api.doppler.com", provider: "doppler", method: null, mount: null, username: null, ca: null },
+        ],
+        tools: [{ tool: "vault", version: "1.18.0", minimum: "1.15.0", status: "current" }],
+      },
+    });
+    await openKeyManagers(app);
+    expect(facts(await card("Home OpenBao"))["CLI"]).toBe("Vault CLI 1.18.0, at least 1.15.0: current.");
+    expect(facts(await card("Team Doppler"))["CLI"]).toBe("Doppler CLI: not installed: install it.");
   });
 });
 
