@@ -160,7 +160,7 @@ import { limitFiringDurations } from "../routines/firing-duration.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
-import { routinesProjector } from "../routines/routine-store.js";
+import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
 import { createRoutineScheduler } from "../routines/scheduler.js";
 import { routineAccount } from "../routines/listing.js";
 import { preCheckMethods } from "../routines/pre-check-methods.js";
@@ -204,7 +204,7 @@ import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { skillReadinessMethods } from "../skills/readiness.js";
-import { placeSkillSet, runSkillSets } from "../skills/run-skill-set.js";
+import { placeSkillSet, runSkillSets, skillSetReader } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { mintMethods } from "../setup/mint.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
@@ -1194,6 +1194,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
+  // The skill set as it is now, which a routine's skills are checked against: its attention, and its firing's start (#531).
+  const readSkillSet = skillSetReader({ own: ownSkills, sources: skillSources, log });
 
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
@@ -1298,6 +1300,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
+      // A routine's skills for a run the environment starts for it after a restart, as its firing recorded them (#531).
+      routineSkills: (sessionId) => firingSkillsOfSession({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
@@ -1538,6 +1542,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accounts,
     resolver: workspaceResolver,
     preChecks,
+    readSkillSet,
   });
   closers.push(() => firings.close());
   // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
@@ -1709,6 +1714,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
       scripts,
       denylisted: denylistedHost,
+      readSkillSet,
     }),
     ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,

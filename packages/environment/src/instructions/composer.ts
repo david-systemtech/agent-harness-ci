@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   INSTRUCTION_LAYERS,
+  type AlwaysOnChooser,
   type InstructionLayer,
   type InstructionLeftOut,
   type InstructionManifest,
@@ -97,10 +98,16 @@ const PART_SEPARATOR = "\n\n";
 
 const nothing = (): readonly LayerPart[] => [];
 
-/** Enabled account members first, then requested members, each name once. */
+/**
+ * Enabled account members first, then the run's extra names, each name
+ * once, with who made it always-on: its account, else the actor that
+ * started the run (a routine's skills, a completions request's, #531).
+ */
 const alwaysOnParts = async (scope: InstructionScope) => {
-  const names = [...new Set([...scope.skillSet.members.filter((member) => member.alwaysOn).map((member) => member.name), ...scope.alwaysOn])];
+  const accounts = scope.skillSet.members.filter((member) => member.alwaysOn).map((member) => member.name);
+  const names = [...new Set([...accounts, ...scope.alwaysOn])];
   return Promise.all(names.flatMap((name) => {
+    const chosenBy: AlwaysOnChooser = accounts.includes(name) ? "account" : scope.origin;
     const member = scope.skillSet.members.find((entry) => entry.name === name);
     if (member === undefined) return [];
     const file = member.file ?? (scope.skillSet.generation === null ? null : join(scope.skillSet.generation, "skills", name, "SKILL.md"));
@@ -111,7 +118,7 @@ const alwaysOnParts = async (scope: InstructionScope) => {
       return {
         id: name, version: member.commit ?? null, title: name,
         text: `# Always-on skill: ${name}\n\nFollow this skill for the whole session; its files are relative to its folder${member.native ? "" : " in the generation"} (${dirname(file)}).\n\n${body.slice(0, 60_000)}${cut}`,
-        origin: member.origin, commit: member.commit ?? null,
+        origin: member.origin, commit: member.commit ?? null, chosenBy,
       };
     })];
   }));
@@ -194,7 +201,7 @@ export const composeInstructions =
     const manifest: InstructionManifest = {
       channel: scope.channel.kind,
       layers: manifestLayers(parts),
-      alwaysOn: alwaysOn.filter(({ id }) => parts.some((part) => part.layer === "always-on" && part.id === id)).map(({ id, origin, commit }) => ({ name: id, origin, commit })),
+      alwaysOn: alwaysOn.filter(({ id }) => parts.some((part) => part.layer === "always-on" && part.id === id)).map(({ id, origin, commit, chosenBy }) => ({ name: id, origin, commit, chosenBy })),
       skillSetFingerprint: scope.skillSet.fingerprint,
       unreadRegistries: [...orientation.unreadRegistries],
       leftOut,

@@ -12,7 +12,7 @@ import {
 import type { ConnectionPhase, ConnectionRecord } from "../connections/records.js";
 import { derived, writable, type Observable } from "../observable.js";
 import type { Clock, Timer } from "../platform.js";
-import { REQUEST_TIMEOUT_MS, type RequestAnswer, type Requests } from "../requests.js";
+import { REQUEST_TIMEOUT_MS, canonical, type RequestAnswer, type Requests } from "../requests.js";
 import type { EnvironmentData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 import { stepHome } from "../settings/rows.js";
@@ -42,26 +42,40 @@ export const SETUP_PENDING_MS = 500;
 export const SETUP_CHECK_TIMEOUT_MS = CHECK_BUDGET_SECONDS.git * 1000 + REQUEST_TIMEOUT_MS;
 
 /**
- * How often a result's age is counted again once it is older than its
- * step's cadence, while the projection is followed, so "checked 3 h ago"
+ * How often an asked result's age is counted again once it is older than
+ * its step's cadence, while the projection is followed, so "checked 3 h ago"
  * stays true: a chosen default, the finest a renderer words an age in.
  */
 export const SETUP_AGE_TICK_MS = 60_000;
 
-/** One step's result as the projection shows it: the environment's result, its age, and whether it is stale. */
+/** One step's result as the projection shows it: the environment's result, how this client knows it, its age, and whether it is stale. */
 export interface SetupResultView extends StepResult {
   /**
-   * How long ago it was checked, on the environment's clock as this client
-   * reckons it, when the projection last computed: at each change, when a
-   * result passes its step's cadence, and every `SETUP_AGE_TICK_MS` after.
+   * The answer to this client's own `setup.check`, whose checked-at is when
+   * the environment last checked the step; false for a result this client
+   * follows, whose checked-at is only when it last heard of a check (#671).
+   * A check that finds nothing new appends no notice, so a followed result
+   * is said to be unchanged since its checked-at, never aged: the stream's
+   * result, and an answer of its own once the step's cadence has passed on
+   * an environment whose stream carries Set up, which has checked it again
+   * unasked by then. Without the `setup` flag nothing is followed, so an
+   * answer stays asked.
+   */
+  readonly asked: boolean;
+  /**
+   * How long ago its checked-at was, on the environment's clock as this
+   * client reckons it, when the projection last computed: at each change,
+   * when an asked result passes its step's cadence, and every
+   * `SETUP_AGE_TICK_MS` after.
    */
   readonly ageMs: number;
-  /** Older than its step's cadence (ADR 0031): when a renderer shows its age. */
+  /** An asked result older than its step's cadence (ADR 0031): when a renderer shows its age. Never a followed one (#671). */
   readonly olderThanCadence: boolean;
   /**
-   * Not known to hold now: the environment cannot be reached, or its stream
-   * has not caught up since this client reached it (a result read from the
-   * cursor cache after a restart). Kept with its checked-at meanwhile.
+   * Not known to hold now: the environment cannot be reached, or, for a
+   * followed result, its stream has not caught up since this client reached
+   * it (a result read from the cursor cache after a restart). Kept with its
+   * checked-at meanwhile.
    */
   readonly stale: boolean;
 }
@@ -131,11 +145,15 @@ export interface SetupView {
 const CADENCES_MS: ReadonlyMap<StepId, number> = new Map(STEP_REGISTRY.map((step) => [step.id, step.cadence.minutes * 60_000]));
 const cadenceOf = (step: StepId): number => CADENCES_MS.get(step) ?? DEFAULT_CADENCE_MINUTES * 60_000;
 
-/** When the view is next due to be computed again for its ages alone: a result passing its cadence, or the tick past it; null with no result. */
+/**
+ * When the view is next due to be computed again for its ages alone: an
+ * asked result passing its cadence, or the tick past it; null with none. A
+ * followed result's line names its checked-at, which time does not change.
+ */
 const nextAgeChange = (view: SetupView): number | null => {
   let soonest: number | null = null;
   for (const { result } of view.steps) {
-    if (result === null) continue;
+    if (result === null || !result.asked) continue;
     const due = result.olderThanCadence ? SETUP_AGE_TICK_MS : cadenceOf(result.step) - result.ageMs + 1;
     if (soonest === null || due < soonest) soonest = due;
   }
@@ -176,9 +194,26 @@ interface Ask {
   timer: Timer | undefined;
 }
 
-const resultView = (result: StepResult, now: number, stale: boolean): SetupResultView => {
+/** A step's result as this client holds it, and whether an answer to its own check gave it. */
+interface Held {
+  readonly result: StepResult;
+  readonly answered: boolean;
+}
+
+/** What the environment's stream gives the view now: whether it can be reached, whether its stream is live, and whether that stream carries Set up. */
+interface Hearing {
+  readonly reachable: boolean;
+  readonly live: boolean;
+  readonly follows: boolean;
+}
+
+/** One step's result as the view shows it: an answer of this client's own reads asked until its cadence passes on an environment that carries Set up (#671). */
+const resultView = ({ result, answered }: Held, now: number, { reachable, live, follows }: Hearing): SetupResultView => {
   const ageMs = Math.max(0, now - Date.parse(result.checkedAt));
-  return { ...result, ageMs, olderThanCadence: ageMs > cadenceOf(result.step), stale };
+  const older = ageMs > cadenceOf(result.step);
+  const asked = answered && !(follows && older);
+  // An answer is as fresh as the stream while the environment can be reached; a followed result, once the stream is live.
+  return { ...result, asked, ageMs, olderThanCadence: asked && older, stale: !reachable || (!asked && !live) };
 };
 
 const reachOf = (record: ConnectionRecord | undefined): SetupReach => {
@@ -203,11 +238,14 @@ const countsOf = (steps: readonly SetupStepView[]): SetupCounts => {
 /**
  * The later of the stream's result and an answer's for one step, by when
  * each check ran, as the environment's cache keeps the check that started
- * last; the stream's on a tie, since it is the cache's.
+ * last; the stream's on a tie, since it is the cache's. The stream's result
+ * is still the one this client asked for when its answer carried that very
+ * result, checked-at included: a check of its own that changed the result is
+ * noticed too (#671).
  */
-const latest = (streamed: StepResult | undefined, answered: StepResult | undefined): { readonly result: StepResult; readonly answered: boolean } | undefined => {
+const latest = (streamed: StepResult | undefined, answered: StepResult | undefined): Held | undefined => {
   if (answered !== undefined && (streamed === undefined || Date.parse(answered.checkedAt) > Date.parse(streamed.checkedAt))) return { result: answered, answered: true };
-  return streamed === undefined ? undefined : { result: streamed, answered: false };
+  return streamed === undefined ? undefined : { result: streamed, answered: answered !== undefined && canonical(answered) === canonical(streamed) };
 };
 
 export const createSetup = (host: SetupHost): Setup => {
@@ -223,12 +261,16 @@ export const createSetup = (host: SetupHost): Setup => {
   const wakes = new Map<string, Timer>();
   let closed = false;
   const compute = (environmentId: string, records: readonly ConnectionRecord[], environments: ReadonlyMap<string, StreamState<EnvironmentData>>): SetupView => {
-    const reach = reachOf(records.find((record) => record.environmentId === environmentId));
+    const record = records.find((r) => r.environmentId === environmentId);
+    const reach = reachOf(record);
     const stream = environments.get(environmentId);
     const streamed = new Map((stream?.data?.setup ?? []).map((result) => [result.step, result]));
     const answered = answers.get(environmentId);
-    const live = stream?.freshness === "live";
-    const reachable = reach.status === "reachable";
+    const hearing: Hearing = {
+      reachable: reach.status === "reachable",
+      live: stream?.freshness === "live",
+      follows: record?.descriptor.capabilities.includes("setup") === true,
+    };
     const now = host.now(environmentId).getTime();
     const asking = [...asks].filter((ask) => ask.environmentId === environmentId && ask.due);
     const steps = STEP_ORDER.map((id): SetupStepView => {
@@ -239,8 +281,7 @@ export const createSetup = (host: SetupHost): Setup => {
         home: stepHome(id),
         registered: held !== undefined,
         skippable: SKIPPABLE.has(id),
-        // An answer is as fresh as the stream while the environment can be reached; the stream's results, once it is live.
-        result: held === undefined ? null : resultView(held.result, now, !reachable || (!held.answered && !live)),
+        result: held === undefined ? null : resultView(held, now, hearing),
         pending: asking.some((ask) => ask.step === undefined || ask.step === id),
       };
     });
