@@ -10,7 +10,7 @@ import {
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { TEST_EXTENSION_VERSION, dialExtension, fakeChrome, type FakeChrome, type FakeConnection, type FakeExtension } from "../../test/fake-extension.js";
+import { TEST_EXTENSION_VERSION, dialExtension, fakeChrome, proofOf, type FakeChrome, type FakeConnection, type FakeExtension } from "../../test/fake-extension.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { VAULT_FILE } from "../serve/vault.js";
@@ -285,6 +285,33 @@ describe("the proof", () => {
       expect.objectContaining({ id: message.chromeId, connected: true, lastConnectedAt: t.clock.now().toISOString(), pairedAt: new Date(t.clock.now().getTime() - 60_000).toISOString() }),
     ]);
     expect(chrome.credential()).toMatchObject({ chromeId: message.chromeId });
+  });
+
+  it.each(["vault", "Chrome log"])("keeps a Chrome's pairing when the %s fails during proof, closes with 1011 without refused, and answers ready after recovery", async (failed) => {
+    const t = await start();
+    const { chrome, connection, message } = await paired(t);
+    await connection.extension.close();
+    await expect.poll(async () => (await chromes(t))[0]?.connected, { timeout: WAIT_MS }).toBe(false);
+    const credential = chrome.credential();
+    const vaultPath = join(t.dataDir, VAULT_FILE);
+    const savedVault = readFileSync(vaultPath, "utf8");
+    // The environment cannot read the pairing for this proof; it is still stored.
+    const mend = failed === "vault" ? () => writeFileSync(vaultPath, savedVault) : failReadsOf(t, /FROM chromes\b/);
+    if (failed === "vault") writeFileSync(vaultPath, "not json");
+    onCleanup(mend);
+    const extension = await dial(t);
+    const challenge = await extension.hello({ chromeId: message.chromeId, environmentId: t.env.id });
+    if (challenge.type !== "challenge") throw new Error(`No challenge: ${JSON.stringify(challenge)}`);
+
+    extension.send({ type: "proof", mac: proofOf(message.secret, challenge.nonce) });
+
+    expect((await extension.closed).code).toBe(1011);
+    expect(extension.received.map((answer) => answer.type)).toEqual(["challenge"]);
+    expect(chrome.credential()).toEqual(credential);
+    mend();
+    expect((await chromes(t))[0]).toMatchObject({ id: message.chromeId, connected: false });
+    expect((await chrome.connect()).answer).toEqual({ type: "ready", policy: message.policy });
+    expect((await chromes(t))[0]).toMatchObject({ id: message.chromeId, connected: true });
   });
 
   it("refuses a wrong proof, and a proof from a Chrome this environment does not hold, and closes the socket", async () => {
