@@ -18,7 +18,7 @@ import {
   type ResultOf,
   type ToolCommandEntry,
 } from "@agent-harness/contracts";
-import type { HostEnvironment } from "../adapters/claude/credentials.js";
+import { ambientConfigDirectory, type HostEnvironment } from "../adapters/claude/credentials.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import { baseEnvironment } from "../terminals/shell.js";
@@ -194,7 +194,7 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
   const readPath =
     options.readPath ?? (() => readLoginPath({ clock, env: base(), timeoutMs: LOOKUP_TIMEOUT_MS, signal, platform }));
   const packageOwner = options.packageOwner ?? systemPackageOwner({ clock, env: base, timeoutMs: LOOKUP_TIMEOUT_MS, signal, platform });
-  const latest = createLatestVersions({ clock, file: join(options.dataDir, LATEST_FILE), signal, ...(options.releaseOrigins !== undefined && { origins: options.releaseOrigins }) });
+  const latest = createLatestVersions({ clock, file: join(options.dataDir, LATEST_FILE), claudeSettingsFile: join(ambientConfigDirectory(hostEnv), "settings.json"), signal, ...(options.releaseOrigins !== undefined && { origins: options.releaseOrigins }) });
 
   /** What the last probe that gave rows found of each tool; null for one not installed. */
   let detected: ReadonlyMap<ManagedToolName, Detected | null> | null = null;

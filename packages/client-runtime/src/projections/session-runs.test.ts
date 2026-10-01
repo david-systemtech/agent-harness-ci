@@ -56,7 +56,7 @@ describe("each verb's availability", () => {
     expect(sessionVerbs(input()).verbs.readNow).toEqual({ status: "absent", reason: "no_queue", message: "Nothing is queued to read." });
   });
 
-  it("offers read-now and withdraw while messages are queued, and refuses a rewind while a run is live or the environment holds any", () => {
+  it("offers read-now and withdraw while messages are queued, and refuses a rewind while a run is live or messages are held", () => {
     const queued = [message("m-1", "Also the tests", "provider", 3)];
     expect(reasons({ live: true, queued })).toEqual({ readNow: "present", withdraw: "present", fork: "present", rewind: "run_active", undoRewind: "run_active" });
     // After an interrupt the environment holds them: a rewind would reach the provider before them (`queued_messages`).
@@ -72,6 +72,17 @@ describe("each verb's availability", () => {
     // The verb is the newest message a withdraw reaches, past one the provider is reading.
     const mixed = [message("m-0", "Held", "environment", 2), ...queued];
     expect(sessionVerbs(input({ queued: mixed })).verbs.withdraw).toEqual(PRESENT);
+  });
+
+  it("refuses rewind while an idle session has a provider-held message (#263)", () => {
+    const queued = [message("m-1", "Also the tests", "provider", 3)];
+    expect(sessionVerbs(input({ queued })).verbs.rewind).toEqual({
+      status: "absent",
+      reason: "queued_messages",
+      message: "Messages are queued: withdraw them, or let a run read them, before rewinding.",
+    });
+    expect(reasons({ live: true, queued }).rewind).toBe("run_active");
+    expect(reasons({ queued: [] }).rewind).toBe("present");
   });
 
   it("refuses a read now while the session's workspace is gone, whatever is queued, and leaves the rest to the session's state (#421)", () => {

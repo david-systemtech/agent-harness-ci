@@ -19,7 +19,7 @@ export interface TextPage {
 }
 
 /** Whether the code unit at `at` opens a character written as two, which a cut after it would halve. */
-const opensPair = (text: string, at: number): boolean => {
+export const opensPair = (text: string, at: number): boolean => {
   const unit = text.charCodeAt(at);
   return unit >= 0xd800 && unit <= 0xdbff;
 };

@@ -610,13 +610,15 @@ describe("sessions.rewind", () => {
       expect(events(t, id).map((event) => event.type)).not.toContain("session.rewound");
     });
 
-    it("is not refused by a message the provider held when its process has stopped: no turn can read it", async () => {
+    it("is refused by the environment-held message taken back when the process stops (#263)", async () => {
       const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdTurnOpens: gate() });
       const client = await t.client();
-      const { id, second } = await busyWithHeldMessage(t, client, async () => undefined);
+      const { id, second, messageId } = await busyWithHeldMessage(t, client, async () => undefined);
       await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: id });
-      await vi.waitFor(() => expect(t.adapter.processes.at(-1)?.stopped).toBe(true));
-      expect((await rewind(client, id, second.messageId)).receipt.status).toBe("accepted");
+      await vi.waitFor(() => expect(events(t, id).some((event) => event.type === "message.requeued" && event.payload["messageId"] === messageId)).toBe(true), { timeout: 15_000 });
+      expect((await rewind(client, id, second.messageId)).receipt).toMatchObject({
+        status: "rejected", error: { data: { reason: "queued_messages", messageIds: [messageId] } },
+      });
     });
 
     it("is refused run_active while a turn the provider opened after the run waits on its mode change", async () => {
