@@ -12,6 +12,10 @@ import {
   percent,
   pooledWords,
   readingWords,
+  countsWords,
+  setupReachWords,
+  stepLine,
+  STEP_STATE_WORDS,
   resetWords,
   reviewCountsWords,
   reviewDenialWords,
@@ -21,6 +25,7 @@ import {
   type EnvironmentView,
   type ModePicker,
   type UsageView,
+  type SetupView,
 } from "@agent-harness/client-runtime";
 import {
   BYPASS_SENTENCE,
@@ -40,7 +45,7 @@ import { meterBar, meterTone } from "../status/line.js";
 
 /**
  * The pickers and cards of `/account`, `/handoff`, `/model`, `/mode`,
- * `/containment`, `/usage`, `/review` and `/settings` (docs/specs/tui.md,
+ * `/containment`, `/usage`, `/review`, `/settings` and `/setup` (docs/specs/tui.md,
  * "Status, usage, pickers"; #147), as data: what each open card is, and the
  * rows and lines each draws from the runtime's projections and the answers
  * it read. Pure; `use-pickers.tsx` wires them to the runtime and the keys.
@@ -83,6 +88,7 @@ export type Panel =
   | { readonly kind: "models"; readonly environmentId: string; readonly accountId: string | null; readonly cursor: number; readonly model: ModelEntry | null; readonly modelCursor: number }
   | { readonly kind: "modes"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null }
   | { readonly kind: "containment"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null }
+  | { readonly kind: "setup"; readonly environmentId: string; readonly top: number; readonly checking: boolean; readonly failed: string | null }
   | { readonly kind: "usage"; readonly top: number }
   | { readonly kind: "review"; readonly environmentId: string; readonly top: number; readonly answer: ReviewAnswer | null; readonly failed: string | null }
   | {
@@ -251,4 +257,27 @@ export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) =
     [{ text: `      ${reviewCountsWords(run.counts)}`, dim: true }],
     ...run.denials.map((denial): readonly Span[] => [{ text: `      ${reviewDenialWords(denial)}`, color: TERMINAL_ROLES.warning }]),
   ]);
+};
+
+/** The Set up summary from the runtime's shared checklist, with the steps kept in registry order. */
+export const setupLines = (view: SetupView, name: string, checking: boolean, failed: string | null, live: boolean): readonly (readonly Span[])[] => {
+  const reach = setupReachWords(view.reach, name);
+  return [
+    [{ text: countsWords(view.counts) }],
+    ...(reach === undefined ? [] : [[{ text: reach, color: TERMINAL_ROLES.warning }]]),
+    ...(checking ? [[{ text: "Checking Set up…", dim: true }]] : []),
+    ...(failed === null ? [] : [[{ text: `Set up could not be checked: ${failed}`, color: TERMINAL_ROLES.warning }]]),
+    ...view.steps.map((step): readonly Span[] => {
+      const state = step.result?.state;
+      if (state === undefined) return [{ text: `${step.label}: ${stepLine(step)}`, dim: true }];
+      const attention = state === "needs-attention";
+      return [{
+        text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${stepLine(step)}` : ""}`,
+        dim: state === "skipped",
+        ...(attention && { color: TERMINAL_ROLES.warning }),
+      }];
+    }),
+    ...(!live ? [[{ text: "Live Set up updates are unavailable on this environment; /setup checks again.", dim: true }]] : []),
+    [{ text: "Run it in the desktop window.", dim: true }],
+  ];
 };
