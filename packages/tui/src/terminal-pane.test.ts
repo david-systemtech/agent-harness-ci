@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
 import { resolveKeymap, type Keymap } from "./keys.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...fs, appendFile: vi.fn(fs.appendFile) };
+});
 
 /**
  * The terminal pane (docs/specs/tui.md, "The terminal pane"; #148):
@@ -538,19 +544,38 @@ describe("a shell line", () => {
   });
 
   it("runs !! and a command in a terminal of its own and sends what it printed to the agent, closing that terminal", async () => {
+    const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let started!: () => void;
+    const appending = new Promise<void>((resolve) => (started = resolve));
+    const append = vi.mocked(appendFile).mockClear().mockImplementationOnce(async (...args) => {
+      started();
+      await held;
+      await fs.appendFile(...args);
+    });
     const { app, env } = await opened({ oneOff: (script) => ({ output: script === "echo hi" ? "hi\n" : "", exitCode: 0 }) });
-    await command(app, "!!echo hi");
-    await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
-    expect(startsOf(app)[0]).toMatchObject({ sessionId: SESSION, text: "Ran `echo hi`:\n```\nhi\n```" });
-    // The command is a run parameter; no shell line is typed.
-    const terminal = env.terminal(FIRST);
-    expect(env.requests("terminals.run")[0]?.params).toMatchObject({ command: "echo hi" });
-    expect(terminal.env).toMatchObject({ PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" });
-    expect(terminal.writes).toEqual([]);
-    await app.waitUntil(() => env.terminal(FIRST).closed, "the one-off terminal to be closed");
-    expect(app.frame()).not.toContain("terminal · desk");
-    // The prompt history holds the line typed, not the message it became.
-    expect(history(app)).toEqual(["!!echo hi"]);
+    try {
+      await command(app, "!!echo hi");
+      await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
+      expect(startsOf(app)[0]).toMatchObject({ sessionId: SESSION, text: "Ran `echo hi`:\n```\nhi\n```" });
+      // The command is a run parameter; no shell line is typed.
+      const terminal = env.terminal(FIRST);
+      expect(env.requests("terminals.run")[0]?.params).toMatchObject({ command: "echo hi" });
+      expect(terminal.env).toMatchObject({ PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" });
+      expect(terminal.writes).toEqual([]);
+      await app.waitUntil(() => env.terminal(FIRST).closed, "the one-off terminal to be closed");
+      expect(app.frame()).not.toContain("terminal · desk");
+      // Even after the terminal closes, the independent history append can still be held.
+      await appending;
+      release();
+      await append.mock.results[0]?.value;
+      // The prompt history holds the line typed, not the message it became.
+      expect(history(app)).toEqual(["!!echo hi"]);
+    } finally {
+      release();
+      await append.mock.results[0]?.value;
+    }
   });
 
   it("says how a !! command ended when it did not end cleanly", async () => {

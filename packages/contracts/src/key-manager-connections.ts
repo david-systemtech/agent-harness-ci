@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { HTTP_ORIGIN } from "./forge.js";
-import { KeyManagerConnectionId, KeyManagerProvider, type KeyManagerReference } from "./key-managers.js";
+import { KeyManagerConnectionId, KeyManagerProvider, type KeyManagerReference, type KeyManagerMoveLocator } from "./key-managers.js";
 import { ManagedToolRow } from "./managed-tools.js";
 import { EnvironmentId, Timestamp } from "./primitives.js";
 
@@ -177,10 +177,10 @@ export type KeyManagerVaultEntry = z.infer<typeof KeyManagerVaultEntry>;
 // Status ----------------------------------------------------------------------
 
 /** Where a connection stands (key-managers spec, "The connection record"; ADR 0028). */
-export const KEY_MANAGER_STATUS_KINDS = ["awaiting-sign-in", "signing-in", "signed-in", "credential-rejected", "expired", "unreachable", "sealed", "certificate-rejected"] as const;
+export const KEY_MANAGER_STATUS_KINDS = ["awaiting-sign-in", "signing-in", "signed-in", "credential-rejected", "expired", "unreachable", "sealed", "certificate-rejected", "provider-unavailable"] as const;
 export const KeyManagerStatusKind = z.enum(KEY_MANAGER_STATUS_KINDS).meta({
   description:
-    "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's).",
+    "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only), certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's), or provider-unavailable (the provider cannot load on this environment).",
 });
 export type KeyManagerStatusKind = z.infer<typeof KeyManagerStatusKind>;
 
@@ -304,7 +304,7 @@ export type ListedKeyManagerConnection = z.infer<typeof ListedKeyManagerConnecti
  * and config, 1Password's `op://` reference, a Bitwarden key with its
  * secret id. Never the value.
  */
-export const referenceLocator = (reference: KeyManagerReference): string => {
+export const referenceLocator = (reference: KeyManagerMoveLocator): string => {
   switch (reference.provider) {
     case "openbao":
       return `${reference.mount}/${reference.path} (key ${reference.key})`;
@@ -315,7 +315,7 @@ export const referenceLocator = (reference: KeyManagerReference): string => {
     case "onepassword":
       return `op://${reference.vault}/${reference.item}/${reference.field}`;
     case "bitwarden":
-      return `${reference.key} (${reference.secretId})`;
+      return "secretId" in reference ? `${reference.key} (${reference.secretId})` : `${reference.project}/${reference.key}`;
   }
 };
 

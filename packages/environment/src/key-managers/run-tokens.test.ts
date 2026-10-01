@@ -32,6 +32,7 @@ import {
   update,
   verify,
 } from "../../test/key-manager-connections.js";
+import { untilEvent } from "../../test/routines.js";
 import { create } from "../../test/sessions.js";
 import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -88,14 +89,12 @@ const connected = async (client: WireClient, bao: FakeOpenBao) => {
   return connection;
 };
 
-const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
-
 /** Starts a run on the session and waits for its end. */
 const runTo = async (t: TestEnvironment, client: WireClient, sessionId: string, text = "Fix the receipts"): Promise<void> => {
-  const before = ended(t, sessionId).length;
   const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text }));
   if (answer.result === undefined) throw new Error(`runs.start was refused: ${JSON.stringify(answer.receipt)}`);
-  await vi.waitFor(() => expect(ended(t, sessionId)).toHaveLength(before + 1));
+  const { runId } = answer.result;
+  await untilEvent(t, { kind: "session", id: sessionId }, (event) => event.type === "run.ended" && event.payload["runId"] === runId);
 };
 
 /** What the session's latest process was spawned with. */
@@ -691,8 +690,8 @@ describe("the harness-owned configuration", () => {
     expect(await matches(join(t.env.dataDir, "environment.db"))).not.toEqual([]);
     const session = await create(client);
 
-    t.env.startRun({ sessionId: session.id, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
-    await vi.waitFor(() => expect(ended(t, session.id)).toHaveLength(1));
+    const { runId } = t.env.startRun({ sessionId: session.id, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
+    await untilEvent(t, { kind: "session", id: session.id }, (event) => event.type === "run.ended" && event.payload["runId"] === runId);
 
     const projected = t.adapter.lastRun().input.denylist;
     expect(projected?.paths).toContain(t.env.dataDir);

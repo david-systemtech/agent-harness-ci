@@ -74,6 +74,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
     if (provider !== record.provider) {
       return refused("credential_source_unavailable", `The reference is ${PROVIDER_NAMES[provider]}'s, and the key-manager connection ${record.label} is ${PROVIDER_NAMES[record.provider]}.`);
     }
+    if (record.status.kind === "provider-unavailable") return refused("provider_unavailable", record.status.message);
     if (record.status.kind !== "signed-in" || login === null) {
       return refused("credential_source_unavailable", `The key-manager connection ${record.label} is not signed in (${record.status.message}), so its references cannot be read.`);
     }
@@ -83,6 +84,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
   /** The refusal a provider's failure comes to: nothing there, a read refused (OpenBao's saying what its refusals leave open), or a key manager that could not be asked. */
   const refusalOf = (failure: ProviderFailure, provider: KeyManagerProvider): Refused => {
     const message = scrub.scrubOutput(failure.message);
+    if (failure.outcome === "provider-unavailable") return refused("provider_unavailable", message);
     if (failure.outcome === "not-found") return refused("reference_not_found", message);
     if (failure.outcome === "denied") return refused("reference_denied", provider === "openbao" ? `${message} ${CHECK_THE_MOUNT}` : message);
     return refused("credential_source_unavailable", message);
@@ -143,7 +145,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
         throw new ContractError({ code: "not_found", message: `No key-manager connection ${id} is on this environment.`, data: { kind: "key_manager_connection", connectionId: id } });
       }
       const { provider } = held.record;
-      // 1Password lists by vault and item where OpenBao and Doppler list by mount and path, Doppler's a project and config (`provider.ts`); a connection takes only its own.
+      // 1Password lists by vault and item where the others list by mount and path, Doppler's a project and config and Bitwarden's mount a project (`provider.ts`); a connection takes only its own.
       const onePassword = provider === "onepassword";
       const stray = Object.entries(onePassword ? { mount, path } : { vault, item }).find(([, given]) => given !== undefined)?.[0];
       if (stray !== undefined) invalid(stray, `${PROVIDER_NAMES[provider]} lists by ${onePassword ? "vault and item" : "mount and path"}: its connection takes no ${stray}.`);

@@ -188,6 +188,9 @@ importers:
         specifier: ^4.23.15
         version: 4.23.15
     optionalDependencies:
+      '@bitwarden/sdk-napi':
+        specifier: 1.0.0
+        version: 1.0.0
       '@napi-rs/keyring':
         specifier: 2.1.0
         version: 2.1.0
@@ -446,6 +449,35 @@ packages:
   '@babel/runtime@7.29.7':
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
+
+  '@bitwarden/sdk-napi-darwin-arm64@1.0.0':
+    resolution: {integrity: sha512-0W6P2VByGFqYIf6bkI7qKWlXPGhG9KFibrN14pvllFIkbNRaz3hktMOLJ/JdWZVmdHrz0R5xmAVldbIWNMjFOA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@bitwarden/sdk-napi-darwin-x64@1.0.0':
+    resolution: {integrity: sha512-Esyg8sktE50U+g12lL/xe68hgc5y78jPPV9maNcKTO9EWdde4RIx9u3xEpbYk5fyHaeMFXdo3TK8A8qLD34X5w==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@bitwarden/sdk-napi-linux-x64-gnu@1.0.0':
+    resolution: {integrity: sha512-PBGEOq9saYuBBthCq5jAr7eQSyEmQylB+kwsuT0j666VXT124a3YjDGgobPYaR9KN/IRDQ5h2Tysuy1pojx10A==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@bitwarden/sdk-napi-win32-x64-msvc@1.0.0':
+    resolution: {integrity: sha512-cu92XYjsOWEVECyohGtLxiXcMJMVui+nDJtyNg52iGDeAzWQ7QZh0/bcjkymTCuGoqRD3sT0cCs+5PbW66K2XQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@bitwarden/sdk-napi@1.0.0':
+    resolution: {integrity: sha512-KrOXiuuQdVBvIM4l7XGrKl8otA9tSEKHjRQr0nF71eyCmIDzOV2kt/gchgLK42exGGuD/JcmmgnXx/j+U6W/+g==}
+    engines: {node: '>= 10'}
 
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
@@ -4368,6 +4400,26 @@ snapshots:
   '@babel/helper-validator-identifier@7.29.7': {}
 
   '@babel/runtime@7.29.7': {}
+
+  '@bitwarden/sdk-napi-darwin-arm64@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi-darwin-x64@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi-linux-x64-gnu@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi-win32-x64-msvc@1.0.0':
+    optional: true
+
+  '@bitwarden/sdk-napi@1.0.0':
+    optionalDependencies:
+      '@bitwarden/sdk-napi-darwin-arm64': 1.0.0
+      '@bitwarden/sdk-napi-darwin-x64': 1.0.0
+      '@bitwarden/sdk-napi-linux-x64-gnu': 1.0.0
+      '@bitwarden/sdk-napi-win32-x64-msvc': 1.0.0
+    optional: true
 
   '@bramus/specificity@2.4.2':
     dependencies:

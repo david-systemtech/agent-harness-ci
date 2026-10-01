@@ -19,6 +19,7 @@ import {
 } from "@agent-harness/contracts";
 import type { EventEnvelope, ProjectionDb, Projector } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { BITWARDEN_BLOCK_NAMES } from "./bitwarden-block.js";
 import { DOPPLER_BLOCK_NAMES } from "./doppler-block.js";
 import { ONEPASSWORD_BLOCK_NAMES } from "./onepassword-block.js";
 import { OPENBAO_BLOCK_NAMES } from "./openbao-block.js";
@@ -262,7 +263,7 @@ export interface StoredConnection {
 }
 
 /** The names of each provider's block this version gives, which an injecting connection's record lists. */
-const BLOCK_NAMES: Partial<Record<KeyManagerProvider, readonly string[]>> = { openbao: OPENBAO_BLOCK_NAMES, doppler: DOPPLER_BLOCK_NAMES, onepassword: ONEPASSWORD_BLOCK_NAMES };
+const BLOCK_NAMES: Partial<Record<KeyManagerProvider, readonly string[]>> = { openbao: OPENBAO_BLOCK_NAMES, doppler: DOPPLER_BLOCK_NAMES, onepassword: ONEPASSWORD_BLOCK_NAMES, bitwarden: BITWARDEN_BLOCK_NAMES };
 
 const storedOf = (row: ConnectionRow): StoredConnection => ({
   record: {

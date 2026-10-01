@@ -66,6 +66,7 @@ export const ProviderTile = ({ environmentId, environmentName, provider, connect
 type Fix = "sign-in" | "sign-in-again" | "verify" | "certificate";
 
 const FIXES: Readonly<Record<KeyManagerStatusKind, Fix | null>> = {
+  "provider-unavailable": "verify",
   "awaiting-sign-in": "sign-in",
   "signing-in": null,
   "signed-in": null,

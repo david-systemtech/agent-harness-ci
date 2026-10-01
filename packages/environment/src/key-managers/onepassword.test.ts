@@ -47,7 +47,7 @@ const TOKEN = serviceAccountToken();
 const VALUE = "value-for-tests";
 
 /** The variables the block sets, in its order. */
-const BLOCK_NAMES = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_HOST", "OP_CONFIG_DIR", "OP_BIOMETRIC_UNLOCK_ENABLED"];
+const BLOCK_NAMES = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_HOST", "OP_CONFIG_DIR", "OP_BIOMETRIC_UNLOCK_ENABLED", "OP_CACHE"];
 
 /** An environment beside the scripted 1Password, which accepts `TOKEN`. */
 const withOnePassword = async (options: TestEnvironmentOptions = {}): Promise<{ t: TestEnvironment; onePassword: FakeOnePassword; client: WireClient }> => {
@@ -330,7 +330,7 @@ describe("a Move into 1Password", () => {
 });
 
 describe("the 1Password block", () => {
-  it("gives a provider process the connection's own token, an empty Connect host, biometric unlock off, and a 0700 configuration directory of its own under the data directory", async () => {
+  it("gives a provider process the connection's own token, an empty Connect host, biometric unlock off, op's cache off, and a 0700 configuration directory of its own under the data directory", async () => {
     const { t, client } = await withOnePassword();
     await connected(client);
     const session = await create(client);
@@ -339,10 +339,23 @@ describe("the 1Password block", () => {
 
     const env = await spawnedWith(t, session.id);
     expect(Object.keys(env)).toEqual(BLOCK_NAMES);
-    expect(env).toMatchObject({ OP_SERVICE_ACCOUNT_TOKEN: TOKEN, OP_CONNECT_HOST: "", OP_BIOMETRIC_UNLOCK_ENABLED: "false" });
+    expect(env).toMatchObject({ OP_SERVICE_ACCOUNT_TOKEN: TOKEN, OP_CONNECT_HOST: "", OP_BIOMETRIC_UNLOCK_ENABLED: "false", OP_CACHE: "false" });
     const directory = env["OP_CONFIG_DIR"] ?? "";
     expect(dirname(directory)).toBe(join(t.env.dataDir, "key-manager-cli"));
     expect(statSync(directory).mode & 0o777).toBe(0o700);
+  });
+
+  it("hands a session's provider process its own configuration directory to write, so a contained run's op can keep its configuration there (#1126)", async () => {
+    const { t, client } = await withOnePassword();
+    await connected(client);
+    const session = await create(client);
+
+    await runTo(t, client, session.id);
+
+    const process = t.adapter.processesOf(session.id).at(-1);
+    const directory = (await process?.supplied)?.["OP_CONFIG_DIR"] ?? "";
+    expect(dirname(directory)).toBe(join(t.env.dataDir, "key-manager-cli"));
+    expect(await process?.writable).toEqual([directory]);
   });
 
   it("gives each holder a configuration directory of its own, deleted when it stops: a terminal's as it closes", async () => {
@@ -382,7 +395,7 @@ describe("the 1Password block", () => {
 
       await runTo(t, client, session.id);
 
-      expect(saw).toEqual({ OP_SERVICE_ACCOUNT_TOKEN: opHash(TOKEN), OP_CONNECT_HOST: opHash(""), OP_CONFIG_DIR: expect.any(String), OP_BIOMETRIC_UNLOCK_ENABLED: opHash("false") });
+      expect(saw).toEqual({ OP_SERVICE_ACCOUNT_TOKEN: opHash(TOKEN), OP_CONNECT_HOST: opHash(""), OP_CONFIG_DIR: expect.any(String), OP_BIOMETRIC_UNLOCK_ENABLED: opHash("false"), OP_CACHE: opHash("false") });
     });
 
     it("runs op whoami through tools.verify with the block, passes, and deletes its configuration directory once it has exited", async () => {
@@ -401,6 +414,7 @@ describe("the 1Password block", () => {
             OP_CONNECT_HOST: opHash(""),
             OP_CONFIG_DIR: expect.any(String),
             OP_BIOMETRIC_UNLOCK_ENABLED: opHash("false"),
+            OP_CACHE: opHash("false"),
           },
         },
       ]);

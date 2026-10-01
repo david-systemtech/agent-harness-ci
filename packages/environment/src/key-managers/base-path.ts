@@ -1,4 +1,4 @@
-import type { DopplerReference, KeyManagerConnectionRecord, KeyManagerProvider, OnePasswordReference, OpenBaoReference } from "@agent-harness/contracts";
+import type { KeyManagerConnectionRecord, KeyManagerProvider, KeyManagerMoveLocator } from "@agent-harness/contracts";
 import { ONEPASSWORD_MOVE_FIELD } from "./onepassword.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
@@ -27,19 +27,21 @@ export const basePathProblem = (provider: KeyManagerProvider, basePath: string):
  * mount, and `<project>/<entry>` under it; for 1Password the item titled
  * `entry` in the base vault, its value always in the concealed field
  * `credential` (#378); for Doppler the upper-case entry and key in its base
- * config, leaving the project to the token. Null for a connection with no
+ * config, leaving the project to the token; for Bitwarden the key `entry`
+ * in the base project (#379). Null for a connection with no
  * base path, or of a provider a Move cannot write to yet.
  */
-export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): OpenBaoReference | OnePasswordReference | DopplerReference | null => {
+export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): KeyManagerMoveLocator | null => {
   if (record.basePath === null) return null;
   if (record.provider === "onepassword") return { provider: "onepassword", connectionId: record.id, vault: record.basePath, item: entry, field: ONEPASSWORD_MOVE_FIELD };
+  if (record.provider === "bitwarden") return { provider: "bitwarden", connectionId: record.id, project: record.basePath, key: entry };
   if (record.provider === "doppler") return { provider: "doppler", connectionId: record.id, config: record.basePath, name: `${entry}_${key}`.replace(/[^a-zA-Z0-9_]/g, "_").toUpperCase() };
   if (record.provider !== "openbao") return null;
   const [mount = "", project = ""] = record.basePath.split("/");
   return { provider: "openbao", connectionId: record.id, mount, path: `${project}/${entry}`, key };
 };
 
-/** The project the provider's suggestion puts under a mount, and the config Doppler's and the vault 1Password's name (ADR 0028's chosen default). */
+/** The project the provider's suggestion puts under a mount, and the config Doppler's, the vault 1Password's and the project Bitwarden's name (ADR 0028's chosen default). */
 const SUGGESTED_PROJECT = "harness";
 
 /** An entry one level below a suggested base, whose path the login's capabilities are asked about: nothing is written there. */
@@ -68,10 +70,10 @@ export const suggestBasePath = async (provider: ConnectionProvider, target: Sign
  * The base path the connection's provider suggests while none is set: for
  * OpenBao the one above; for Doppler the config `harness` (#377); for
  * 1Password the vault `harness` (ADR 0028's chosen default; #378), which
- * 1Password cannot say whether the service account may write; none for
- * another provider yet.
+ * 1Password cannot say whether the service account may write; for
+ * Bitwarden the project `harness` (#379).
  */
 export const providerSuggestion = (kind: KeyManagerProvider, provider: ConnectionProvider, target: SignInTarget, token: string, signal: AbortSignal): Promise<string | null> => {
-  if (kind === "onepassword" || kind === "doppler") return Promise.resolve(SUGGESTED_PROJECT);
+  if (kind === "onepassword" || kind === "doppler" || kind === "bitwarden") return Promise.resolve(SUGGESTED_PROJECT);
   return kind === "openbao" ? suggestBasePath(provider, target, token, signal) : Promise.resolve(null);
 };

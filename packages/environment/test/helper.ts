@@ -157,6 +157,8 @@ export interface TestEnvironmentOptions {
   readonly managedTools?: EnvironmentOptions["managedTools"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's own, over its connections. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
+  /** The scripted Bitwarden SDK loader; preset: the environment's official SDK loader. */
+  readonly bitwardenSdk?: EnvironmentOptions["bitwardenSdk"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
   /** The 1Password SDK double (#378); preset: the official SDK, which no test signs in to. */
@@ -406,6 +408,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       releaseOrigins: UNREACHABLE_RELEASE_ORIGINS,
       ...options.managedTools,
     },
+    ...(options.bitwardenSdk !== undefined && { bitwardenSdk: options.bitwardenSdk }),
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
     ...(options.onePasswordSdk !== undefined && { onePasswordSdk: options.onePasswordSdk }),

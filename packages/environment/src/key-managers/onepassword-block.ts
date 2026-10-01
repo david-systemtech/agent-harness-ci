@@ -18,7 +18,11 @@
  *   directory's key-manager CLI directory, deleted when the holder stops,
  *   so `op` keeps nothing in the user's configuration;
  * - `OP_BIOMETRIC_UNLOCK_ENABLED=false`, so `op` never asks the desktop
- *   app to unlock it.
+ *   app to unlock it;
+ * - `OP_CACHE=false` (the `--cache` global flag's variable), so `op` starts
+ *   no daemon to keep its cache: the daemon's unix socket in the holder's
+ *   folder could be neither served nor reached under a contained run's
+ *   sandbox, which refuses unix sockets (#1126).
  */
 
 /** What the block is made from: the token, and the holder's configuration directory. */
@@ -33,6 +37,7 @@ export const onePasswordBlock = ({ token, configDirectory }: OnePasswordBlockVal
   OP_CONNECT_HOST: "",
   OP_CONFIG_DIR: configDirectory,
   OP_BIOMETRIC_UNLOCK_ENABLED: "false",
+  OP_CACHE: "false",
 });
 
 /** The names the block sets, in its order: what `keyManagers.list` answers for an injecting 1Password connection, names only. */

@@ -69,6 +69,7 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   run: run(overrides),
   hostEnv: { PATH: "/usr/bin", HOME: "/home/david", ANTHROPIC_API_KEY: "sk-ant-shell", IS_SANDBOX: "1", CLAUDE_CODE_BUBBLEWRAP: "1" },
   supplied: {},
+  suppliedWritable: [],
   configDirectory: "/data/accounts/work",
   executablePath: "/sdk/claude-agent-sdk-linux-x64/claude",
   autoMemoryDirectory: "/data/auto-memory/repo",

@@ -300,6 +300,7 @@ describe("keyManagers.connections.add", () => {
       [{ ...base, method: "token", basePath: "personal/harness/forge" }, ["basePath"]],
       [{ ...base, method: "token", basePath: "personal" }, ["basePath"]],
       [{ provider: "doppler", address: "https://api.doppler.com", method: "token" }, ["method"]],
+      [{ provider: "bitwarden", address: "https://vault.bitwarden.com", credential: userpass() }, ["credential", "method"]],
       [{ ...base, method: "token", copiedFrom, importedFrom: "secret-manager-1" }, ["importedFrom"]],
       [{ ...base, importedFrom: "secret-manager-1", credential: token() }, ["credential"]],
     ];
@@ -536,16 +537,8 @@ describe("a connection without a credential", () => {
     expect(bao.requests).toEqual([]);
   });
 
-  it("is how a provider this environment cannot sign in to yet is added: with a credential it is provider_unavailable", async () => {
-    const { t, client } = await withOpenBao();
-    const from = t.env.log.head();
-
-    const refused = await add(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com", credential: token() });
-    expect(rejection(refused.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "bitwarden" } });
-    const notToken = await add(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com", credential: userpass() });
-    expect(rejection(notToken.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "bitwarden" } });
-    expect(await keyManagerEvents(client, from)).toEqual([]);
-    expect(await saidBack(t, [PERSON_TOKEN])).toEqual([PERSON_TOKEN]);
+  it("is how a token provider's connection is added to sign in later: awaiting its sign-in at the address given", async () => {
+    const { client } = await withOpenBao();
 
     const waiting = await added(client, { provider: "bitwarden", label: "Bitwarden", address: "https://vault.bitwarden.com/" });
     expect(waiting).toMatchObject({ provider: "bitwarden", address: "https://vault.bitwarden.com", ca: null, method: null, mount: null, username: null, status: { kind: "awaiting-sign-in" } });

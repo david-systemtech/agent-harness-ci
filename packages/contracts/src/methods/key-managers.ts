@@ -20,6 +20,8 @@ import {
 } from "../key-manager-connections.js";
 import {
   CredentialSourceUnavailableError,
+  ReferenceProviderUnavailableError,
+  KeyManagerMoveLocator,
   KeyManagerConnectionId,
   KeyManagerProvider,
   KeyManagerReference,
@@ -114,8 +116,8 @@ export type AddressUnreachableError = z.infer<typeof AddressUnreachableError>;
 /** This environment has no provider for the key manager a credential is for. */
 export const ProviderUnavailableError = errorSchema(
   "provider_unavailable",
-  z.object({ provider: KeyManagerProvider.meta({ description: "The provider this environment cannot sign in to." }) }),
-).meta({ description: "This environment cannot sign in to the provider: nothing was stored. data names the provider." });
+  z.object({ provider: KeyManagerProvider, connectionId: KeyManagerConnectionId.optional().meta({ description: "The existing connection, when the refusal concerns one." }) }),
+).meta({ description: "This environment cannot sign in to the provider: nothing was stored. data names the provider and, when an existing connection is involved, its id." });
 export type ProviderUnavailableError = z.infer<typeof ProviderUnavailableError>;
 
 const connectionResult = z.object({ connection: KeyManagerConnectionRecord });
@@ -243,7 +245,7 @@ export const keyManagersConnectionsUpdate = defineMethod({
     tokenRole: KeyManagerTokenRole.nullable().optional().meta({ description: "The token role from now on; null for none. OpenBao only." }),
   }),
   result: connectionResult,
-  errors: [KeyManagerVerificationFailedError, UnreachableError, SealedError, CertificateRejectedError],
+  errors: [KeyManagerVerificationFailedError, UnreachableError, SealedError, CertificateRejectedError, ProviderUnavailableError],
 });
 
 /**
@@ -365,11 +367,13 @@ export const keyManagersReferencesCheck = defineMethod({
  * no mount, the KV mounts the login can see, each ending in `/`; with a
  * mount, an OpenBao list of the path under it (the mount's top without
  * one), a folder's name ending in `/`, whichever KV version the mount is.
- * For Doppler (#377), the secrets' names in the project (`mount`) and
- * config (`path`), either left to the token. For 1Password (#378), with no
- * vault, the vaults the service account can see, each ending in `/`; with a
- * vault, its items' titles, each ending in `/`; with an item too, the
- * item's fields' titles; an untitled vault, item or field by its id.
+ * Bitwarden lists bare project names without a mount, and bare keys when
+ * a project id or name is selected as the mount. Doppler lists secret names
+ * in the token's scope, or in the selected project and config.
+ * For 1Password (#378), with no vault, the vaults the service account can
+ * see, each ending in `/`; with a vault, its items' titles, each ending in
+ * `/`; with an item too, the item's fields' titles; an untitled vault, item
+ * or field by its id.
  * Refused as a resolve is: `credential_source_unavailable`,
  * `reference_not_found` for a path with nothing under it,
  * `reference_denied`. A connection the environment does not hold is
@@ -382,15 +386,15 @@ export const keyManagersReferencesBrowse = defineMethod({
   kind: "query",
   params: z.object({
     connectionId: KeyManagerConnectionId,
-    mount: OpenBaoReference.shape.mount.optional().meta({ description: "The KV mount to list in, as personal or secret/team; absent to list the mounts. OpenBao only." }),
-    path: OpenBaoReference.shape.path.optional().meta({ description: "The path under the mount to list, as harness; absent for the mount's top. OpenBao only." }),
+    mount: OpenBaoReference.shape.mount.optional().meta({ description: "The provider location: an OpenBao KV mount, a Bitwarden project id or name, or a Doppler project. Absent to list OpenBao mounts or Bitwarden projects, or use Doppler's token scope." }),
+    path: OpenBaoReference.shape.path.optional().meta({ description: "The path under an OpenBao mount, or a Doppler config name; absent for the mount's top or the token's scope. Bitwarden lists keys in the selected project." }),
     vault: OnePasswordReference.shape.vault.optional().meta({ description: "The vault whose items are listed, by name or id; absent to list the vaults. 1Password only." }),
     item: OnePasswordReference.shape.item.optional().meta({ description: "The item in the vault whose fields are listed, by name or id; absent to list the vault's items. 1Password only." }),
   }),
   result: z.object({
-    names: z.array(z.string().min(1)).meta({ description: "The names under the location, in the key manager's order: a folder's, a mount's, a 1Password vault's or item's ending in /; a key's, a Doppler secret's or a 1Password field's without. An untitled 1Password entry by its id. Never a value." }),
+    names: z.array(z.string().min(1)).meta({ description: "Names in provider order: OpenBao mount and folder names, and 1Password vault and item names, end in /; Bitwarden lists bare project names at the root and bare keys in a selected project; Doppler lists secret names and 1Password an item's field names, with no / at the end; an untitled 1Password entry by its id. Never a value." }),
   }),
-  errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
+  errors: [CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, ReferenceProviderUnavailableError],
 });
 
 /**
@@ -518,7 +522,7 @@ export const keyManagersMoveCopyValue = defineMethod({
   }),
   result: z.object({
     item: KeyManagerMoveItemRef,
-    reference: KeyManagerReference.meta({ description: "The target to paste the value at: the reference the item holds once keyManagers.move with verifyOnly has read it back." }),
+    reference: KeyManagerMoveLocator.meta({ description: "The target to paste the value at: the reference the item holds once keyManagers.move with verifyOnly has read it back." }),
     value: z.string().min(1).meta({ description: "The item's stored value, unredacted: answered here once, and in no event, receipt or log line." }),
   }),
   errors: [],

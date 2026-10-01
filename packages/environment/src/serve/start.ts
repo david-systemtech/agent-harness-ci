@@ -552,6 +552,8 @@ export interface EnvironmentOptions {
   readonly keyManagerTimeoutMs?: number;
   /** The 1Password SDK the 1Password provider signs in through (#378). Preset: the official `@1password/sdk`; tests give a scripted double, so none reaches 1Password. */
   readonly onePasswordSdk?: OnePasswordSdk;
+  /** Loads the official Bitwarden SDK; tests inject a scripted loader or a load failure. */
+  readonly bitwardenSdk?: import("../key-managers/bitwarden-sdk.js").BitwardenSdkLoader;
   /**
    * The Move sources registered at start (#371): each owning service's
    * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
@@ -957,6 +959,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => tools.close());
     const connections = createKeyManagerConnections({
+      ...(options.bitwardenSdk !== undefined && { bitwardenSdk: options.bitwardenSdk }),
       log,
       clock,
       environmentId: loaded.id,

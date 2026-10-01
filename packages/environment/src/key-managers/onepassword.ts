@@ -1,4 +1,4 @@
-import { httpOriginOf, type KeyManagerCredential, type KeyManagerReference, type KeyManagerTokenInformation } from "@agent-harness/contracts";
+import { httpOriginOf, type KeyManagerCredential, type KeyManagerMoveLocator, type KeyManagerReference, type KeyManagerTokenInformation } from "@agent-harness/contracts";
 import type { OnePasswordEntry, OnePasswordSdk, OnePasswordSession } from "./onepassword-sdk.js";
 import type { ConnectionProvider, LoginFailure, ProviderFailure, TokenLife } from "./provider.js";
 import { sameValue } from "./same-value.js";
@@ -142,7 +142,7 @@ export const createOnePasswordProvider = (sdk: OnePasswordSdk): ConnectionProvid
     return `op://${vaultId}/${found.id}/${fieldId}`;
   };
 
-  const notOnePassword = (reference: KeyManagerReference): ProviderFailure => ({
+  const notOnePassword = (reference: KeyManagerReference | KeyManagerMoveLocator): ProviderFailure => ({
     outcome: "not-found",
     message: `A ${reference.provider} reference is not read through 1Password.`,
   });

@@ -31,6 +31,8 @@ import { createBackgroundWork } from "./background.js";
 import { basePathProblem, providerSuggestion } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
+import { createBitwardenProvider } from "./bitwarden.js";
+import type { BitwardenSdkLoader } from "./bitwarden-sdk.js";
 import { createDopplerProvider } from "./doppler.js";
 import { createOnePasswordProvider } from "./onepassword.js";
 import type { OnePasswordSdk } from "./onepassword-sdk.js";
@@ -143,6 +145,7 @@ export interface KeyManagerConnectionsOptions {
   readonly clock: Clock;
   /** How long one verification may take, on the wall clock; preset `KEY_MANAGER_BUDGET_MS`. */
   readonly budgetMs?: number;
+  readonly bitwardenSdk?: BitwardenSdkLoader;
   /** The environment's id: the id of its stream, where the connections' events go. */
   readonly environmentId: string;
   /** The vault as the environment holds it: every entry registered with the scrub registry while it is held. */
@@ -220,10 +223,10 @@ type SignInResult =
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
 
 /** The wire error of a sign-in that could not ask the key manager: a key manager asking the harness to slow down could not answer now. */
-const FAILURE_CODES = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected", "rate-limited": "unreachable" } as const;
+const FAILURE_CODES = { "provider-unavailable": "provider_unavailable", unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected", "rate-limited": "unreachable" } as const;
 
 /** The status a connection the key manager could not be asked about stands in: one asking the harness to slow down is unreachable for now. */
-const STATUS_OF: Record<CouldNotAsk, KeyManagerStatus["kind"]> = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate-rejected", "rate-limited": "unreachable" };
+const STATUS_OF: Record<CouldNotAsk, KeyManagerStatus["kind"]> = { "provider-unavailable": "provider-unavailable", unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate-rejected", "rate-limited": "unreachable" };
 
 /** What one verification found: the key manager's answer with the login it asked with, or the status it found the connection in. */
 type Checked =
@@ -248,11 +251,12 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const { log, clock, vault, scrub } = options;
   const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
-  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; Bitwarden's arrives with its ticket (#379). */
+  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life. */
   const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = {
     openbao: createOpenBaoProvider(),
     doppler: createDopplerProvider(),
     onepassword: createOnePasswordProvider(options.onePasswordSdk),
+    bitwarden: createBitwardenProvider(options.bitwardenSdk),
   };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -427,8 +431,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     ({ code: "verification_failed", message: `${refused.message} ${nothing}`, data: { connectionId, reason: refused.reason } }) as const;
 
   /** The refusal of a sign-in that could not ask the key manager: `unreachable`, `sealed` or `certificate_rejected`. */
-  const couldNotAsk = (connectionId: string, result: Extract<SignInResult, { outcome: keyof typeof FAILURE_CODES }>) =>
-    ({ code: FAILURE_CODES[result.outcome], message: `${result.message} Nothing was changed.`, data: { connectionId } }) as const;
+  const couldNotAsk = (connectionId: string, result: Extract<SignInResult, { outcome: keyof typeof FAILURE_CODES }>, provider: KeyManagerProvider) => {
+    if (result.outcome === "provider-unavailable") return { code: "provider_unavailable", message: `${result.message} Nothing was changed.`, data: { connectionId, provider } } as const;
+    return { code: FAILURE_CODES[result.outcome], message: `${result.message} Nothing was changed.`, data: { connectionId } } as const;
+  };
 
   const providerUnavailable = (provider: KeyManagerProvider) =>
     ({
@@ -492,8 +498,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /**
    * Where a connection signs in, at `address` with `ca`: OpenBao by its
    * method at its mount, null while it has none; another provider with its
-   * token (Doppler's, #377; 1Password's service-account token, #378),
-   * trusting no pinned CA.
+   * token (Doppler's, #377; 1Password's service-account token, #378;
+   * Bitwarden's access token, #379), trusting no pinned CA.
    */
   const targetOf = (record: Pick<KeyManagerConnectionRecord, "provider" | "address" | "ca" | "method" | "mount" | "username">, address = record.address, ca = record.ca): SignInTarget | null => {
     if (record.provider !== "openbao") return { address, ca: null, method: "token", mount: "token", username: null };
@@ -539,7 +545,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const provider = providers[params.provider];
       // Only for a provider this environment signs in to: another's credential is provider_unavailable below, whatever its method.
       if (params.provider !== "openbao" && provider !== undefined && given !== undefined && given.method !== "token") {
-        invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with a token.`);
+        invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with ${params.provider === "bitwarden" ? "an access token" : "a token"}.`);
       }
       const typed =
         params.address === undefined ? null : (httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin, as https://bao.example.com:8200."));
@@ -638,7 +644,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
 
       const result = await signInWith(connectionId, provider, target, given);
       if (result.outcome === "refused") return rejecting<"keyManagers.connections.signIn">(verificationFailed(connectionId, result, "Nothing was changed."));
-      if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.signIn">(couldNotAsk(connectionId, result));
+      if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.signIn">(couldNotAsk(connectionId, result, record.provider));
       context.onUndo(() => letGo(connectionId, result.login));
       const entry = await store(connectionId, given, context);
 
@@ -742,7 +748,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         if (credential === null) return apply(null);
         const result = await signInWith(connectionId, provider, target, credential);
         if (result.outcome === "refused") return rejecting<"keyManagers.connections.update">(verificationFailed(connectionId, result, "Nothing was changed."));
-        if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.update">(couldNotAsk(connectionId, result));
+        if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.update">(couldNotAsk(connectionId, result, record.provider));
         context.onUndo(() => letGo(connectionId, result.login));
         return apply(result);
       })();

@@ -9,7 +9,7 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "The names under the location, in the key manager's order: a folder's, a mount's, a 1Password vault's or item's ending in /; a key's, a Doppler secret's or a 1Password field's without. An untitled 1Password entry by its id. Never a value."
+      "description": "Names in provider order: OpenBao mount and folder names, and 1Password vault and item names, end in /; Bitwarden lists bare project names at the root and bare keys in a selected project; Doppler lists secret names and 1Password an item's field names, with no / at the end; an untitled 1Password entry by its id. Never a value."
     }
   },
   "required": [
