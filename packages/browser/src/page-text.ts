@@ -4,10 +4,13 @@
  * templates, the `noscript` fallback, which a browser that runs script never
  * shows, and elements marked `hidden`), with white space collapsed. It reads
  * a fetched page in jsdom as it reads a live one, so it needs no layout.
+ * And the body itself, where every reader of a page starts, the snapshot's
+ * among them.
  *
  * The module is one function that returns what it holds, so challenge
- * detection runs from its source text in a page's isolated world too
- * (./reader-in-page.ts): it reaches for nothing outside itself.
+ * detection and the snapshot run from its source text in a page's isolated
+ * world too (./reader-in-page.ts, ./snapshot/in-page.ts): it reaches for
+ * nothing outside itself.
  */
 
 /** The page-text helpers, made afresh wherever they run: on jsdom, or in a page's isolated world. */
@@ -37,7 +40,24 @@ export function pageTextModule() {
     return parts.join("").replace(/\s+/g, " ").trim();
   };
 
-  return { shownText };
+  /**
+   * The element a reader of `document` starts from: its body, or its root
+   * element where it has none. The body is read through the `body` getter
+   * on the document's prototype chain, never as `document.body`: a page's
+   * element named `body` takes the document's own member's place (HTML's
+   * named properties, #1052). The chain is walked rather than
+   * `Document.prototype` named, since Node has no global `Document` and a
+   * jsdom document's getter is its own realm's.
+   */
+  const pageBody = (document: Document): Element => {
+    for (let prototype = Object.getPrototypeOf(document) as object | null; prototype !== null; prototype = Object.getPrototypeOf(prototype) as object | null) {
+      const getter = Object.getOwnPropertyDescriptor(prototype, "body")?.get;
+      if (getter !== undefined) return (getter.call(document) as HTMLElement | null) ?? document.documentElement;
+    }
+    return document.documentElement;
+  };
+
+  return { shownText, pageBody };
 }
 
-export const { shownText } = pageTextModule();
+export const { shownText, pageBody } = pageTextModule();

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { registry, type EventEnvelope, type EventFrame, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { end, fakeAdapter, say, type Script } from "../../test/fake-adapter.js";
+import { end, fakeAdapter, gate, say, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { fakePty, type FakeProcess } from "../../test/fake-pty.js";
 import { create } from "../../test/sessions.js";
@@ -15,6 +15,7 @@ import { HOLD_BACK_MS } from "../terminals/terminals.js";
 import { SIGNING_KEY } from "../serve/identity.js";
 import { fileVault, VAULT_FILE } from "../serve/vault.js";
 import { createScrubRegistry } from "./registry.js";
+import { DELTA_HOLD_BACK_MS } from "../adapter/delta-scrub.js";
 
 /**
  * The scrub registry through the primary seam (key-managers spec, "Testing
@@ -97,6 +98,138 @@ const readBack = (events: readonly EventEnvelope[]) => {
 };
 
 describe("the event log's append", () => {
+  it("releases a held prefix before a host interrupt ends the run and cancels its timer", async () => {
+    const held = gate();
+    onCleanup(() => held.open());
+    const t = await start({ adapter: fakeAdapter({ script: async function* () {
+      yield { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "a-value-" }] } };
+      yield say("marker");
+      await held.opened;
+      yield end();
+    } }) });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
+    const started = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Reply" }));
+    await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "assistant.text");
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: started.result?.runId });
+    const delta = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "assistant.delta");
+    const ended = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "run.ended");
+    expect(delta.event.payload["fragments"]).toEqual([{ kind: "text", text: "a-value-" }]);
+    expect(delta.event.sequence).toBeLessThan(ended.event.sequence);
+    expect(ended.event.payload["reason"]).toBe("interrupted");
+    const head = t.env.log.head();
+    t.clock.advance(DELTA_HOLD_BACK_MS);
+    expect(t.env.log.head()).toBe(head);
+    held.open();
+  });
+
+  it("scrubs thinking and mixed fragment batches independently for interleaved open items", async () => {
+    const t = await start({ adapter: fakeAdapter({ script: () => [
+      { type: "assistant.delta", payload: { itemId: "one", fragments: [{ kind: "text", text: "one: a-value-" }, { kind: "thinking", text: "think: a-value-" }] } },
+      { type: "assistant.delta", payload: { itemId: "two", fragments: [{ kind: "text", text: "two: a-value-" }] } },
+      { type: "assistant.delta", payload: { itemId: "one", fragments: [{ kind: "thinking", text: "a-forge-holds!" }, { kind: "text", text: "a-forge-holds!" }] } },
+      { type: "assistant.delta", payload: { itemId: "two", fragments: [{ kind: "text", text: "a-forge-holds!" }] } },
+      end(),
+    ] }) });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+    const events = await runAndRead(client, id, t.env.log.head());
+    const output = (itemId: string, kind: string) => events.flatMap((event) =>
+      event.type === "assistant.delta" && event.payload["itemId"] === itemId
+        ? (event.payload["fragments"] as { kind: string; text: string }[]).filter((fragment) => fragment.kind === kind).map((fragment) => fragment.text) : []).join("");
+    expect(output("one", "text")).toBe("one: [redacted]!");
+    expect(output("one", "thinking")).toBe("think: [redacted]!");
+    expect(output("two", "text")).toBe("two: [redacted]!");
+    expect(JSON.stringify(events)).not.toContain(HELD);
+  });
+
+  it.each(["settled", "completed", "error"] as const)("releases an unfinished prefix before the item or run is %s and cancels its timer", async (ending) => {
+    const t = await start({ adapter: fakeAdapter({ script: () => [
+      { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "a-value-" }] } },
+      ...(ending === "settled" ? [say("a-value-", "reply")] : []),
+      end(ending === "error" ? "error" : "completed"),
+    ] }) });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+    const events = await runAndRead(client, id, t.env.log.head());
+    const delta = events.findIndex((event) => event.type === "assistant.delta");
+    const boundary = events.findIndex((event) => event.type === (ending === "settled" ? "assistant.text" : "run.ended"));
+    expect(events[delta]?.payload["fragments"]).toEqual([{ kind: "text", text: "a-value-" }]);
+    expect(delta).toBeLessThan(boundary);
+    const head = t.env.log.head();
+    t.clock.advance(DELTA_HOLD_BACK_MS);
+    expect(t.env.log.head()).toBe(head);
+  });
+
+  it("appends a delta with no registered prefix without advancing the environment's clock", async () => {
+    const held = gate();
+    onCleanup(() => held.open());
+    const t = await start({ adapter: fakeAdapter({ script: async function* () {
+      yield { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "A plain reply!" }] } };
+      await held.opened;
+      yield end();
+    } }) });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+    const before = t.clock.now();
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Reply" });
+    const frame = await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "assistant.delta");
+    expect(frame.event.payload["fragments"]).toEqual([{ kind: "text", text: "A plain reply!" }]);
+    expect(t.clock.now()).toEqual(before);
+    held.open();
+  });
+
+  it("releases an unfinished delta prefix after fifty milliseconds from the first hold, before the run ends", async () => {
+    const more = gate();
+    const finish = gate();
+    onCleanup(() => { more.open(); finish.open(); });
+    const t = await start({ adapter: fakeAdapter({ script: async function* () {
+      yield { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "Token: a-val" }] } };
+      await more.opened;
+      yield { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "ue-" }] } };
+      yield say("marker");
+      await finish.opened;
+      yield end();
+    } }) });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { subscription } = await client.subscribe("sessions.subscribeSession", { sessionId: id, afterSequence: t.env.log.head() });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Reply" });
+    const nextDelta = () => client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "assistant.delta");
+    expect((await nextDelta()).event.payload["fragments"]).toEqual([{ kind: "text", text: "Token: " }]);
+    t.clock.advance(DELTA_HOLD_BACK_MS - 1);
+    more.open();
+    await client.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "assistant.text");
+    t.clock.advance(1);
+    expect((await nextDelta()).event.payload["fragments"]).toEqual([{ kind: "text", text: "a-value-" }]);
+    finish.open();
+  });
+
+  it("scrubs a registered value split across assistant deltas before a subscribed client can join them", async () => {
+    const t = await start({ adapter: fakeAdapter({ script: () => [
+      { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "The token is a-value-" }] } },
+      { type: "assistant.delta", payload: { itemId: "reply", fragments: [{ kind: "text", text: "a-forge-holds." }] } },
+      { type: "assistant.text", payload: { itemId: "reply", text: `The token is ${HELD}.`, aborted: false } },
+      end(),
+    ] }) });
+    t.scrub.register(HELD, { owner: "test:forge" });
+    const client = await t.client();
+    const { id } = await create(client);
+    const events = await runAndRead(client, id, t.env.log.head());
+    const deltas = events.filter((event) => event.type === "assistant.delta").map((event) =>
+      (event.payload["fragments"] as { text: string }[]).map((fragment) => fragment.text).join(""));
+    expect(deltas.join("")).toBe("The token is [redacted].");
+    for (let i = 0; i < deltas.length; i += 1) expect(deltas[i] + (deltas[i + 1] ?? "")).not.toContain(HELD);
+    expect(JSON.stringify(events)).not.toContain(HELD);
+  });
+
   it("replaces a registered value in the assistant's text and a tool's input and output, read back through sessions.subscribeSession", async () => {
     const t = await start({ adapter: fakeAdapter({ script: leakingScript(HELD) }) });
     t.scrub.register(HELD, { owner: "test:forge" });

@@ -8,7 +8,7 @@ import {
   type Observable,
   type SidebarView,
 } from "@agent-harness/client-runtime";
-import { Theme, WorkspaceRequest } from "@agent-harness/contracts";
+import { SessionBrowser, Theme, WorkspaceRequest } from "@agent-harness/contracts";
 import { readRemaps, type KeyRemaps } from "./keys/key-map.js";
 
 /**
@@ -281,11 +281,13 @@ const readChips = (stored: unknown): NewSessionChips => {
   const model = stringIn(held, "model");
   const account = { environmentId: stringIn(held["account"], "environmentId"), accountId: stringIn(held["account"], "accountId") };
   const workspaceOn = stringIn(held["workspace"], "environmentId");
+  const browser = held["browser"] === null ? null : SessionBrowser.safeParse(held["browser"]).data;
   const request = WorkspaceRequest.safeParse((held["workspace"] as Record<string, unknown> | undefined)?.["request"]).data;
   return {
     ...(environmentId !== undefined && { environmentId }),
     ...(account.environmentId !== undefined && account.accountId !== undefined && { account: { environmentId: account.environmentId, accountId: account.accountId } }),
     ...(model !== undefined && { model }),
+    ...(browser !== undefined && { browser }),
     ...(workspaceOn !== undefined && request !== undefined && { workspace: { environmentId: workspaceOn, request } }),
   };
 };
