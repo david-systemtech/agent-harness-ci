@@ -395,7 +395,7 @@ describe("the two denylists of a relayed Chrome", () => {
     const match = { section: "browserDomains" as const, entry: { id: "payments-for-tests", pattern: "payments.example", note: "Payments", preset: false, enabled: true }, matched: address };
     const { runId, answers } = await startRun(t, starter, id, ["browser_open", { address, snapshot: false }]);
     const initial = await calls.next();
-    expect(initial.payload.allowance).toBeUndefined();
+    expect(initial.payload).not.toHaveProperty("allowance");
     await answerWith(starter, { callId: initial.callId, ok: true, result: { ok: false, reason: `The page went to ${address}, which the denylist lists (payments.example), so it was stopped at about:blank.`, denylist: { frame: "top-level", match } } });
     await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "prompt.opened")).toHaveLength(1), { timeout: WAIT_MS });
     const p = eventsOf(t, id).find((event) => event.type === "prompt.opened")!.payload as PromptOpenedPayload;
@@ -408,5 +408,25 @@ describe("the two denylists of a relayed Chrome", () => {
     await answerWith(starter, { callId: allowed.callId, ok: true, result: { ok: true, value: { url: address, title: "Payments" } } });
     await untilEnded(t, id, runId);
     expect(answers[0]).toMatchObject({ isError: false, text: expect.stringContaining(address) });
+  });
+});
+
+
+describe("a Chrome name answered through the relay", () => {
+  it("keeps the person's browser choice made while the desk's Chrome list is pending", async () => {
+    const t = await start();
+    const starter = await clientNamed(t, "David's desktop");
+    const calls = await hearing(t, starter);
+    const id = await sessionWith(starter, { kind: "chrome", environmentId: DESK, chromeId: null });
+    const { runId, answers } = await startRun(t, starter, id, ["browser_open", { browser: "Work" }]);
+    const list = await calls.next();
+    expect(list.payload).toEqual({ operation: "list", environmentId: DESK, deadline: new Date(t.clock.now().getTime() + 12_000).toISOString() });
+    await starter.apply("sessions.setBrowser", { commandId: randomUUID(), sessionId: id, browser: { kind: "none" } });
+    const now = t.clock.now().toISOString();
+    expect(await answerWith(starter, { callId: list.callId, ok: true, result: { ok: true, environmentName: "desk", chromes: [{ id: CHROME, name: "Work", pairedAt: now, lastConnectedAt: now, lastReportedVersion: "0.0.0", connected: true, outdated: false }] } })).toEqual({ taken: true });
+    await untilEnded(t, id, runId);
+    expect(answers[0]).toMatchObject({ isError: true, text: expect.stringContaining("the person chose another browser") });
+    expect(eventsOf(t, id).filter((event) => event.type === "session.browser.set").at(-1)?.payload).toEqual({ browser: { kind: "none" }, chosenBy: "person" });
+    expect(environmentEvents(t).filter((event) => event.type === "client.call")).toHaveLength(1);
   });
 });

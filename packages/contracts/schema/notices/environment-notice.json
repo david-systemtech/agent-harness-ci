@@ -6282,806 +6282,836 @@
                   "description": "A verb on a Chrome paired with the client's local environment."
                 },
                 "payload": {
-                  "type": "object",
-                  "properties": {
-                    "pageKey": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "description": "A session's page: the run environment's id and the session id, which the browser reads as an opaque name; one tab or browser context per key."
-                    },
-                    "command": {
-                      "oneOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "open"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "url": {
-                                  "description": "Where to open the page; absent, the session's page as it is.",
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 8192
-                                },
-                                "snapshot": {
-                                  "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
-                                  "type": "object",
-                                  "properties": {
-                                    "filter": {
-                                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
-                                      "type": "string",
-                                      "enum": [
-                                        "interactive",
-                                        "all"
-                                      ]
-                                    },
-                                    "depth": {
-                                      "description": "How many levels of the tree to read.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 9007199254740991
-                                    },
-                                    "ref": {
-                                      "description": "Read only the subtree of the element with this ref.",
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "maxChars": {
-                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 200000
-                                    }
-                                  }
-                                }
-                              },
-                              "description": "open: the session's page, made when it has none, at an address or as it is."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "navigate"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "url": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 8192,
-                                  "description": "An address to open: an http or https URL, or a bare host with an optional port and path."
-                                },
-                                "snapshot": {
-                                  "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
-                                  "type": "object",
-                                  "properties": {
-                                    "filter": {
-                                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
-                                      "type": "string",
-                                      "enum": [
-                                        "interactive",
-                                        "all"
-                                      ]
-                                    },
-                                    "depth": {
-                                      "description": "How many levels of the tree to read.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 9007199254740991
-                                    },
-                                    "ref": {
-                                      "description": "Read only the subtree of the element with this ref.",
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "maxChars": {
-                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 200000
-                                    }
-                                  }
-                                }
-                              },
-                              "required": [
-                                "url"
-                              ],
-                              "description": "navigate: go to an address and let the load settle."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "snapshot"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "filter": {
-                                  "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
-                                  "type": "string",
-                                  "enum": [
-                                    "interactive",
-                                    "all"
-                                  ]
-                                },
-                                "depth": {
-                                  "description": "How many levels of the tree to read.",
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 9007199254740991
-                                },
-                                "ref": {
-                                  "description": "Read only the subtree of the element with this ref.",
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 128
-                                },
-                                "maxChars": {
-                                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 200000
-                                }
-                              },
-                              "description": "What a snapshot reads: its filter, depth, focus and length."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "click"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "target": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "ref": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 128,
-                                          "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
-                                        }
-                                      },
-                                      "required": [
-                                        "ref"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "The element with this ref, from the latest snapshot."
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "selector": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 4096
-                                        }
-                                      },
-                                      "required": [
-                                        "selector"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "The first element this CSS selector matches."
-                                    }
-                                  ],
-                                  "description": "An element: by ref, or by CSS selector."
-                                },
-                                "snapshot": {
-                                  "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
-                                  "type": "object",
-                                  "properties": {
-                                    "filter": {
-                                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
-                                      "type": "string",
-                                      "enum": [
-                                        "interactive",
-                                        "all"
-                                      ]
-                                    },
-                                    "depth": {
-                                      "description": "How many levels of the tree to read.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 9007199254740991
-                                    },
-                                    "ref": {
-                                      "description": "Read only the subtree of the element with this ref.",
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "maxChars": {
-                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 200000
-                                    }
-                                  }
-                                }
-                              },
-                              "required": [
-                                "target"
-                              ],
-                              "description": "click: scroll the element into view and click its centre."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "clickAt"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "x": {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "description": "Pixels from the screenshot's left edge."
-                                },
-                                "y": {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "description": "Pixels from the screenshot's top edge."
-                                },
-                                "snapshot": {
-                                  "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
-                                  "type": "object",
-                                  "properties": {
-                                    "filter": {
-                                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
-                                      "type": "string",
-                                      "enum": [
-                                        "interactive",
-                                        "all"
-                                      ]
-                                    },
-                                    "depth": {
-                                      "description": "How many levels of the tree to read.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 9007199254740991
-                                    },
-                                    "ref": {
-                                      "description": "Read only the subtree of the element with this ref.",
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "maxChars": {
-                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 200000
-                                    }
-                                  }
-                                }
-                              },
-                              "required": [
-                                "x",
-                                "y"
-                              ],
-                              "description": "clickAt: click at a point of the latest screenshot."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "type"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "target": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "ref": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 128,
-                                          "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
-                                        }
-                                      },
-                                      "required": [
-                                        "ref"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "The element with this ref, from the latest snapshot."
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "selector": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 4096
-                                        }
-                                      },
-                                      "required": [
-                                        "selector"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "The first element this CSS selector matches."
-                                    }
-                                  ],
-                                  "description": "An element: by ref, or by CSS selector."
-                                },
-                                "text": {
-                                  "type": "string",
-                                  "maxLength": 65536,
-                                  "description": "What the field holds afterwards: typing replaces its contents."
-                                },
-                                "snapshot": {
-                                  "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
-                                  "type": "object",
-                                  "properties": {
-                                    "filter": {
-                                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
-                                      "type": "string",
-                                      "enum": [
-                                        "interactive",
-                                        "all"
-                                      ]
-                                    },
-                                    "depth": {
-                                      "description": "How many levels of the tree to read.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 9007199254740991
-                                    },
-                                    "ref": {
-                                      "description": "Read only the subtree of the element with this ref.",
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 128
-                                    },
-                                    "maxChars": {
-                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 200000
-                                    }
-                                  }
-                                }
-                              },
-                              "required": [
-                                "target",
-                                "text"
-                              ],
-                              "description": "type: replace an input's, a textarea's or an editable element's contents."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "read"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "offset": {
-                                  "description": "Where the page of text starts, in characters; preset 0.",
-                                  "type": "integer",
-                                  "minimum": 0,
-                                  "maximum": 9007199254740991
-                                },
-                                "links": {
-                                  "description": "Keep link targets in the Markdown; preset false, the link text kept.",
-                                  "type": "boolean"
-                                }
-                              },
-                              "description": "read: the page's readable text, paged."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "screenshot"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {},
-                              "description": "No arguments."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "scroll"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "to": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "direction": {
-                                          "type": "string",
-                                          "enum": [
-                                            "up",
-                                            "down",
-                                            "left",
-                                            "right"
-                                          ],
-                                          "description": "Which way to scroll."
-                                        },
-                                        "amount": {
-                                          "description": "How far, in viewports; preset 1.",
-                                          "type": "number",
-                                          "exclusiveMinimum": 0,
-                                          "maximum": 100
-                                        }
-                                      },
-                                      "required": [
-                                        "direction"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "A direction and an amount."
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "ref": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 128,
-                                          "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
-                                        }
-                                      },
-                                      "required": [
-                                        "ref"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "Scroll the element with this ref into view."
-                                    }
-                                  ],
-                                  "description": "Where to scroll: a direction and an amount in viewports, or to an element."
-                                }
-                              },
-                              "required": [
-                                "to"
-                              ],
-                              "description": "scroll: by a direction and an amount, or to an element."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "waitFor"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "until": {
-                                  "anyOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "text": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 4096
-                                        },
-                                        "timeoutMs": {
-                                          "description": "How long to wait, in milliseconds; preset 10000, clamped to 30000.",
-                                          "type": "integer",
-                                          "minimum": 1,
-                                          "maximum": 9007199254740991
-                                        }
-                                      },
-                                      "required": [
-                                        "text"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "Until this text appears on the page."
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "ref": {
-                                          "type": "string",
-                                          "minLength": 1,
-                                          "maxLength": 128,
-                                          "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
-                                        },
-                                        "timeoutMs": {
-                                          "description": "How long to wait, in milliseconds; preset 10000, clamped to 30000.",
-                                          "type": "integer",
-                                          "minimum": 1,
-                                          "maximum": 9007199254740991
-                                        }
-                                      },
-                                      "required": [
-                                        "ref"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "Until an element with this ref exists."
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "ms": {
-                                          "type": "integer",
-                                          "minimum": 0,
-                                          "maximum": 9007199254740991,
-                                          "description": "Milliseconds, clamped to 30000."
-                                        }
-                                      },
-                                      "required": [
-                                        "ms"
-                                      ],
-                                      "additionalProperties": false,
-                                      "description": "For this long."
-                                    }
-                                  ],
-                                  "description": "What to wait for: text, a ref, or a number of milliseconds."
-                                }
-                              },
-                              "required": [
-                                "until"
-                              ],
-                              "description": "waitFor: text, a ref or a number of milliseconds."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "console"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {},
-                              "description": "No arguments."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "network"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "failedOnly": {
-                                  "description": "Only the requests that failed; preset false.",
-                                  "type": "boolean"
-                                }
-                              },
-                              "description": "network: the requests since the last network verb."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "cookies"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {},
-                              "description": "No arguments."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "storage"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {},
-                              "description": "No arguments."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "evaluate"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {
-                                "expression": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 65536
-                                }
-                              },
-                              "required": [
-                                "expression"
-                              ],
-                              "description": "evaluate: run a JavaScript expression in the page."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "verb": {
-                              "type": "string",
-                              "const": "close"
-                            },
-                            "args": {
-                              "type": "object",
-                              "properties": {},
-                              "description": "No arguments."
-                            }
-                          },
-                          "required": [
-                            "verb",
-                            "args"
-                          ]
-                        }
-                      ],
-                      "description": "A verb and its arguments."
-                    },
-                    "allowance": {
-                      "description": "A person's allow of a denylisted host on this call: it opens that host once.",
+                  "anyOf": [
+                    {
                       "type": "object",
                       "properties": {
-                        "host": {
+                        "pageKey": {
                           "type": "string",
                           "minLength": 1,
-                          "maxLength": 1024,
-                          "description": "The host the person allowed, in any spelling the denylist's matcher reads."
-                        }
-                      },
-                      "required": [
-                        "host"
-                      ]
-                    },
-                    "environmentId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                      "description": "The environment the Chrome is paired with, which the client reaches through its local connection."
-                    },
-                    "chromeId": {
-                      "anyOf": [
-                        {
+                          "maxLength": 256,
+                          "description": "A session's page: the run environment's id and the session id, which the browser reads as an opaque name; one tab or browser context per key."
+                        },
+                        "command": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "open"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "url": {
+                                      "description": "Where to open the page; absent, the session's page as it is.",
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 8192
+                                    },
+                                    "snapshot": {
+                                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                                      "type": "object",
+                                      "properties": {
+                                        "filter": {
+                                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                                          "type": "string",
+                                          "enum": [
+                                            "interactive",
+                                            "all"
+                                          ]
+                                        },
+                                        "depth": {
+                                          "description": "How many levels of the tree to read.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ref": {
+                                          "description": "Read only the subtree of the element with this ref.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 128
+                                        },
+                                        "maxChars": {
+                                          "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 200000
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "description": "open: the session's page, made when it has none, at an address or as it is."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "navigate"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "url": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 8192,
+                                      "description": "An address to open: an http or https URL, or a bare host with an optional port and path."
+                                    },
+                                    "snapshot": {
+                                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                                      "type": "object",
+                                      "properties": {
+                                        "filter": {
+                                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                                          "type": "string",
+                                          "enum": [
+                                            "interactive",
+                                            "all"
+                                          ]
+                                        },
+                                        "depth": {
+                                          "description": "How many levels of the tree to read.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ref": {
+                                          "description": "Read only the subtree of the element with this ref.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 128
+                                        },
+                                        "maxChars": {
+                                          "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 200000
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "url"
+                                  ],
+                                  "description": "navigate: go to an address and let the load settle."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "snapshot"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "filter": {
+                                      "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                                      "type": "string",
+                                      "enum": [
+                                        "interactive",
+                                        "all"
+                                      ]
+                                    },
+                                    "depth": {
+                                      "description": "How many levels of the tree to read.",
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "ref": {
+                                      "description": "Read only the subtree of the element with this ref.",
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    },
+                                    "maxChars": {
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 200000
+                                    }
+                                  },
+                                  "description": "What a snapshot reads: its filter, depth, focus and length."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "click"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "target": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "ref": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 128,
+                                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                                            }
+                                          },
+                                          "required": [
+                                            "ref"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The element with this ref, from the latest snapshot."
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "selector": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 4096
+                                            }
+                                          },
+                                          "required": [
+                                            "selector"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The first element this CSS selector matches."
+                                        }
+                                      ],
+                                      "description": "An element: by ref, or by CSS selector."
+                                    },
+                                    "snapshot": {
+                                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                                      "type": "object",
+                                      "properties": {
+                                        "filter": {
+                                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                                          "type": "string",
+                                          "enum": [
+                                            "interactive",
+                                            "all"
+                                          ]
+                                        },
+                                        "depth": {
+                                          "description": "How many levels of the tree to read.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ref": {
+                                          "description": "Read only the subtree of the element with this ref.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 128
+                                        },
+                                        "maxChars": {
+                                          "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 200000
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "target"
+                                  ],
+                                  "description": "click: scroll the element into view and click its centre."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "clickAt"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "x": {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "description": "Pixels from the screenshot's left edge."
+                                    },
+                                    "y": {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "description": "Pixels from the screenshot's top edge."
+                                    },
+                                    "snapshot": {
+                                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                                      "type": "object",
+                                      "properties": {
+                                        "filter": {
+                                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                                          "type": "string",
+                                          "enum": [
+                                            "interactive",
+                                            "all"
+                                          ]
+                                        },
+                                        "depth": {
+                                          "description": "How many levels of the tree to read.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ref": {
+                                          "description": "Read only the subtree of the element with this ref.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 128
+                                        },
+                                        "maxChars": {
+                                          "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 200000
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "x",
+                                    "y"
+                                  ],
+                                  "description": "clickAt: click at a point of the latest screenshot."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "type"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "target": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "ref": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 128,
+                                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                                            }
+                                          },
+                                          "required": [
+                                            "ref"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The element with this ref, from the latest snapshot."
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "selector": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 4096
+                                            }
+                                          },
+                                          "required": [
+                                            "selector"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "The first element this CSS selector matches."
+                                        }
+                                      ],
+                                      "description": "An element: by ref, or by CSS selector."
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "maxLength": 65536,
+                                      "description": "What the field holds afterwards: typing replaces its contents."
+                                    },
+                                    "snapshot": {
+                                      "description": "Answer with a snapshot of the page after the action, read as these arguments say; none when absent.",
+                                      "type": "object",
+                                      "properties": {
+                                        "filter": {
+                                          "description": "interactive (preset): the elements that can be acted on and their context; all: every element.",
+                                          "type": "string",
+                                          "enum": [
+                                            "interactive",
+                                            "all"
+                                          ]
+                                        },
+                                        "depth": {
+                                          "description": "How many levels of the tree to read.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ref": {
+                                          "description": "Read only the subtree of the element with this ref.",
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 128
+                                        },
+                                        "maxChars": {
+                                          "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 200000
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "target",
+                                    "text"
+                                  ],
+                                  "description": "type: replace an input's, a textarea's or an editable element's contents."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "read"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "offset": {
+                                      "description": "Where the page of text starts, in characters; preset 0.",
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "links": {
+                                      "description": "Keep link targets in the Markdown; preset false, the link text kept.",
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "description": "read: the page's readable text, paged."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "screenshot"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {},
+                                  "description": "No arguments."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "scroll"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "to": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "direction": {
+                                              "type": "string",
+                                              "enum": [
+                                                "up",
+                                                "down",
+                                                "left",
+                                                "right"
+                                              ],
+                                              "description": "Which way to scroll."
+                                            },
+                                            "amount": {
+                                              "description": "How far, in viewports; preset 1.",
+                                              "type": "number",
+                                              "exclusiveMinimum": 0,
+                                              "maximum": 100
+                                            }
+                                          },
+                                          "required": [
+                                            "direction"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "A direction and an amount."
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "ref": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 128,
+                                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                                            }
+                                          },
+                                          "required": [
+                                            "ref"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "Scroll the element with this ref into view."
+                                        }
+                                      ],
+                                      "description": "Where to scroll: a direction and an amount in viewports, or to an element."
+                                    }
+                                  },
+                                  "required": [
+                                    "to"
+                                  ],
+                                  "description": "scroll: by a direction and an amount, or to an element."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "waitFor"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "until": {
+                                      "anyOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "text": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 4096
+                                            },
+                                            "timeoutMs": {
+                                              "description": "How long to wait, in milliseconds; preset 10000, clamped to 30000.",
+                                              "type": "integer",
+                                              "minimum": 1,
+                                              "maximum": 9007199254740991
+                                            }
+                                          },
+                                          "required": [
+                                            "text"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "Until this text appears on the page."
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "ref": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 128,
+                                              "description": "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)."
+                                            },
+                                            "timeoutMs": {
+                                              "description": "How long to wait, in milliseconds; preset 10000, clamped to 30000.",
+                                              "type": "integer",
+                                              "minimum": 1,
+                                              "maximum": 9007199254740991
+                                            }
+                                          },
+                                          "required": [
+                                            "ref"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "Until an element with this ref exists."
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "ms": {
+                                              "type": "integer",
+                                              "minimum": 0,
+                                              "maximum": 9007199254740991,
+                                              "description": "Milliseconds, clamped to 30000."
+                                            }
+                                          },
+                                          "required": [
+                                            "ms"
+                                          ],
+                                          "additionalProperties": false,
+                                          "description": "For this long."
+                                        }
+                                      ],
+                                      "description": "What to wait for: text, a ref, or a number of milliseconds."
+                                    }
+                                  },
+                                  "required": [
+                                    "until"
+                                  ],
+                                  "description": "waitFor: text, a ref or a number of milliseconds."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "console"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {},
+                                  "description": "No arguments."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "network"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "failedOnly": {
+                                      "description": "Only the requests that failed; preset false.",
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "description": "network: the requests since the last network verb."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "cookies"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {},
+                                  "description": "No arguments."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "storage"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {},
+                                  "description": "No arguments."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "evaluate"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {
+                                    "expression": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 65536
+                                    }
+                                  },
+                                  "required": [
+                                    "expression"
+                                  ],
+                                  "description": "evaluate: run a JavaScript expression in the page."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "verb": {
+                                  "type": "string",
+                                  "const": "close"
+                                },
+                                "args": {
+                                  "type": "object",
+                                  "properties": {},
+                                  "description": "No arguments."
+                                }
+                              },
+                              "required": [
+                                "verb",
+                                "args"
+                              ]
+                            }
+                          ],
+                          "description": "A verb and its arguments."
+                        },
+                        "allowance": {
+                          "description": "A person's allow of a denylisted host on this call: it opens that host once.",
+                          "type": "object",
+                          "properties": {
+                            "host": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024,
+                              "description": "The host the person allowed, in any spelling the denylist's matcher reads."
+                            }
+                          },
+                          "required": [
+                            "host"
+                          ]
+                        },
+                        "environmentId": {
                           "type": "string",
                           "format": "uuid",
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                          "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                          "description": "The environment the Chrome is paired with, which the client reaches through its local connection."
                         },
-                        {
-                          "type": "null"
+                        "chromeId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "description": "A paired Chrome's id: a UUID its environment mints when it pairs."
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The Chrome to drive; null for the plain My Chrome of that environment, the one paired Chrome connected there."
+                        },
+                        "deadline": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the run stops waiting for the answer, on the run environment's clock: the verb's deadline after the call was made. A later answer is dropped."
                         }
+                      },
+                      "required": [
+                        "pageKey",
+                        "command",
+                        "environmentId",
+                        "chromeId",
+                        "deadline"
                       ],
-                      "description": "The Chrome to drive; null for the plain My Chrome of that environment, the one paired Chrome connected there."
+                      "description": "A verb for one session's page on a Chrome paired with another environment: the Chrome's environment and id, the page key, the verb and its arguments, a one-time allowance when a person allowed a denylisted address, and the deadline."
                     },
-                    "deadline": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-                      "description": "When the run stops waiting for the answer, on the run environment's clock: the verb's deadline after the call was made. A later answer is dropped."
+                    {
+                      "type": "object",
+                      "properties": {
+                        "operation": {
+                          "type": "string",
+                          "const": "list"
+                        },
+                        "environmentId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+                        },
+                        "deadline": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "An instant as an ISO 8601 UTC timestamp."
+                        }
+                      },
+                      "required": [
+                        "operation",
+                        "environmentId",
+                        "deadline"
+                      ]
                     }
-                  },
-                  "required": [
-                    "pageKey",
-                    "command",
-                    "environmentId",
-                    "chromeId",
-                    "deadline"
-                  ],
-                  "description": "A verb for one session's page on a Chrome paired with another environment: the Chrome's environment and id, the page key, the verb and its arguments, a one-time allowance when a person allowed a denylisted address, and the deadline."
+                  ]
                 }
               },
               "required": [

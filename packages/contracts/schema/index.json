@@ -3427,6 +3427,14 @@
       "title": "BrowserDockCall"
     },
     {
+      "path": "client-calls/browser-chrome-list.json",
+      "title": "BrowserChromeListCall"
+    },
+    {
+      "path": "client-calls/browser-chrome-list-result.json",
+      "title": "BrowserChromeListResult"
+    },
+    {
       "path": "client-calls/browser-chrome.json",
       "title": "BrowserChromeCall"
     },

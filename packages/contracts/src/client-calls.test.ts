@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CLIENT_ANSWER_MAX_BYTES,
+  BrowserChromeListCall,
+  BrowserChromeListResult,
   CLIENT_CALL_KINDS,
   ENVIRONMENT_NOTICE_TYPES,
   EnvironmentNotice,
@@ -100,6 +102,16 @@ describe("the client.call notice", () => {
     expect(parse({ ...verb, command: { verb: "focus", args: {} } }).success).toBe(false);
     expect(parse({ ...verb, chromeId: undefined }).success).toBe(false);
   });
+
+  it("carries a remote Chrome list request with its environment and deadline, and validates the list answer", () => {
+    const payload = { operation: "list", environmentId, deadline: verb.deadline };
+    expect(EnvironmentNotice.parse({ type: "client.call", payload: { ...call, payload } }).payload).toEqual({ ...call, payload });
+    expect(BrowserChromeListCall.safeParse({ ...payload, environmentId: "desk" }).success).toBe(false);
+    expect(BrowserChromeListCall.safeParse({ ...payload, deadline: undefined }).success).toBe(false);
+    expect(BrowserChromeListResult.parse({ ok: true, environmentName: "desk", chromes: [] })).toEqual({ ok: true, environmentName: "desk", chromes: [] });
+    expect(BrowserChromeListResult.safeParse({ ok: true, environmentName: "desk", chromes: [{ id: chromeId, name: "Work" }] }).success).toBe(false);
+  });
+
 });
 
 describe("client.answer", () => {

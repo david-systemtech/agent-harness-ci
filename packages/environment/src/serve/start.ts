@@ -1095,11 +1095,18 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
-    chooseChrome: (ask) =>
-      chooseChrome(
-        { log, environmentId: record.id, environmentName: () => look.read().name },
-        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
-      ),
+    chooseChrome: async (ask) => {
+      const remote = ask.environmentId.toLowerCase() !== record.id.toLowerCase()
+        ? await relay.chromesOf({ ...ask, chromeId: null })
+        : undefined;
+      if (remote !== undefined && !remote.ok) return remote;
+      const live = host.live(ask.sessionId);
+      if (live?.runId !== ask.runId) return { ok: false, reason: "This session's run changed before its Chrome could be chosen." };
+      return chooseChrome(
+        { log, environmentId: record.id, environmentName: () => remote?.environmentName ?? look.read().name, ...(remote !== undefined && { paired: remote.chromes }) },
+        { ...ask, actor: formatActor({ kind: "adapter", id: live.descriptor.provider }) },
+      );
+    },
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
