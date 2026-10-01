@@ -306,6 +306,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     const now = source.readable(connectionId);
     if (now === null) return null;
     if (now.record.provider === "bitwarden") {
+      await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
       const path = join(options.cliDirectory, "bitwarden.config");
       await replaceFile(path, "", 0o600);
       const use = now.record.status.kind === "signed-in" && now.login !== null ? now.login.use() : undefined;
