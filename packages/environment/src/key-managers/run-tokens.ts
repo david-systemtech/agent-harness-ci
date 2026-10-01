@@ -24,7 +24,9 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *
  * - **What is injected**: each injecting OpenBao or Doppler connection's
  *   block, at most one per provider. Doppler uses the kept token as it is,
- *   with a private 0700 configuration directory deleted at holder stop.
+ *   with a private 0700 configuration directory deleted at holder stop,
+ *   which it supplies as the holder's to write, so a contained run's
+ *   `doppler` can write its configuration and fallback there (#1119).
  *   The remaining providers' blocks join with #378 and #379.
  *   With none, nothing is supplied and the key is empty.
  * - **The key** names, per injected connection, its id, its credential
@@ -324,7 +326,8 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
       const unregister = token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` });
       directories.set(directory, unregister);
-      return { variables: dopplerBlock(current.record.address, token, directory), release: () => removeDirectory(directory) };
+      // The CLI writes its configuration and fallback there, so a contained run's commands may write it too (#1119).
+      return { variables: dopplerBlock(current.record.address, token, directory), writable: [directory], release: () => removeDirectory(directory) };
     }
     const run = await mintFor(now.record, now.login, scope);
     return {
@@ -358,6 +361,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       );
       return {
         variables: Object.assign({}, ...blocks.map((given) => given.variables)) as Record<string, string>,
+        writable: blocks.flatMap((given) => given.writable ?? []),
         release: () => {
           for (const given of blocks) given.release();
         },

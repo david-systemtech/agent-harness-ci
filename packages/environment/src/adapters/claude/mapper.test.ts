@@ -74,11 +74,32 @@ describe("a turn of text and thinking", () => {
     expect(mapSdkMessage(init, state)).toEqual([]);
   });
 
-  it("maps nothing after the turn's end", () => {
+  it("maps no transcript content after the turn's end", () => {
     const { state } = setup();
     const messages = fixture("text-turn");
     mapAll(messages, state);
     expect(mapAll(messages, state)).toEqual([]);
+  });
+});
+
+describe("a prompt suggestion (#251)", () => {
+  it("maps one nonempty prediction only after a completed result, without reopening the turn", () => {
+    const { state } = setup();
+    const offer = { type: "prompt_suggestion", suggestion: "Run the tests", session_id: "provider-session", uuid: "message-id" };
+    expect(mapSdkMessage(offer, state)).toEqual([]);
+    mapAll(fixture("text-turn"), state);
+    expect(mapSdkMessage({ ...offer, suggestion: "  " }, state)).toEqual([]);
+    expect(mapSdkMessage(offer, state)).toEqual([{ type: "run.suggested", payload: { suggestion: "Run the tests" } }]);
+    expect(mapSdkMessage(offer, state)).toEqual([]);
+    expect(state.ended).toBe(true);
+  });
+
+  it("offers no prediction after an interrupted or failed turn", () => {
+    for (const reason of ["interrupted", "error"] as const) {
+      const { state } = setup();
+      endTurn(state, { reason });
+      expect(mapSdkMessage({ type: "prompt_suggestion", suggestion: "Run the tests" }, state)).toEqual([]);
+    }
   });
 });
 

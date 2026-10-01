@@ -179,7 +179,7 @@ export const EMPTY_PROCESS_ENVIRONMENT: ProcessEnvironment = { key: "", supply: 
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** Asks each supplier for `scope` at once, and answers what they supplied, their release one. */
+/** Asks each supplier for `scope` at once, and answers what they supplied (the directories each gave the holder to write, #1119, in the order they registered), their release one. */
 const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope: ProcessEnvironmentScope): Promise<SuppliedVariables> => {
   const answers = await Promise.all(
     suppliers.map(async (supplier) => {
@@ -198,6 +198,7 @@ const supplyAll = async (suppliers: readonly ProcessEnvironmentSupplier[], scope
   let released = false;
   return {
     variables,
+    writable: given.flatMap(({ supplied }) => supplied.writable ?? []),
     release: () => {
       if (released) return;
       released = true;

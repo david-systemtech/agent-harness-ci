@@ -84,6 +84,17 @@ const summary = {
   draft: null,
 };
 
+describe("a prompt suggestion (#251)", () => {
+  it("survives a snapshot and compaction, clears at the next run, and ignores the old run's late suggestion", () => {
+    const suggestion = { runId, suggestion: "Add a regression test" };
+    const events = [started(runId), event("run.ended", { runId, reason: "completed", cause: null, error: null, usage: null, durationMs: 1, turnCount: 1, resultText: "Done" }), event("run.suggested", suggestion)];
+    const parts = foldTranscript(events);
+    expect(parts.suggestion).toEqual(suggestion);
+    expect(foldTranscript([], storedTranscriptParts(parts)).suggestion).toEqual(suggestion);
+    expect(foldTranscript([started(secondRun), event("run.suggested", suggestion)], parts).suggestion).toBeNull();
+  });
+});
+
 describe("the transcript fold", () => {
   it("keeps a fork's source and anchor through a stored fold and later events, without duplicating the row", () => {
     sequence = 0;

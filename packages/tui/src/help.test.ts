@@ -94,9 +94,9 @@ describe("the help lines", () => {
     expect(rowOf(lines, "pager.editor")?.state).toBe("soon");
   });
 
-  it("draw the 1–4 keys as soon, since nothing carries the follow-ups they would take, Ctrl+Enter as answered, and ↑ with what it does in this build", () => {
+  it("draw the suggestion keys with key 1 answered, Ctrl+Enter as answered, and ↑ with what it does in this build", () => {
     const built = helpLines(DEFAULT_KEYMAP, ANSWERED, BUILD_WORDS);
-    expect(rowOf(built, "composer.suggestion.take")?.state).toBe("soon");
+    expect(rowOf(built, "composer.suggestion.take")).toMatchObject({ state: "answered", description: "1 sends the predicted next message from an empty composer; 2–4 type text" });
     expect(rowOf(built, "composer.readNow")?.state).toBe("answered");
     expect(rowOf(built, "composer.navigate")).toMatchObject({ state: "answered", description: "The text, then history" });
     expect(rowOf(built, "transcript.follow")?.state).toBe("answered");
