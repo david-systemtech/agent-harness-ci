@@ -216,8 +216,9 @@ const HARNESS_DIRECTORY: string = fileURLToPath(new URL("../..", import.meta.url
  * The built extension the environment carries and unpacks for Chrome (browser
  * spec; ADR 0024): the extension package's build beside the environment
  * package, as the workspace and the server artefact lay the packages out.
+ * The workspace build writes it there (#549).
  */
-const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
+export const EXTENSION_BUILD: string = join(HARNESS_DIRECTORY, "..", "extension", "dist");
 
 /**
  * The port an environment listens on when none is given. A chosen default, not
