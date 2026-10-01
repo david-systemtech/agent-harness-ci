@@ -11,9 +11,12 @@ import { EXPIRING_WITHIN_MS, readableMinute } from "./verification.js";
  * spec, "Skipped"; ADR 0020, ADR 0031; #319), answered from the
  * ForgeService. `forges.present` is the step's skip check: with no forge
  * account the step answers skipped and asks nothing else. The checks that
- * read what a verification finds await one of every forge account, which
- * they share: a verification asked for while one runs for the same
- * credential joins it (`verifier.ts`). A failing line names each forge
+ * read what a verification finds read what the last one found while it is
+ * younger than the age their check gives, the step's cadence on the
+ * environment's own schedule and none on a client's, and otherwise await
+ * one, never past a pause the forge asked for (#680). They share it: a
+ * verification asked for while one runs for the same credential joins it
+ * (`verifier.ts`). A failing line names each forge
  * account, as its login on its origin's host, and the action that fixes it.
  */
 
@@ -190,10 +193,10 @@ export interface ForgesStateChecksOptions {
 /** How the environment answers the Forges step's state checks. */
 export const forgesStateChecks = ({ forge, clock }: ForgesStateChecksOptions): { readonly [Id in ForgesStateCheckId]: StateChecker } => ({
   "forges.present": () => forgesPresent(forge.list()),
-  "forges.identity": async () => identitiesHold(await forge.verify()),
-  "forges.reads": async () => readsHold(await forge.verify()),
+  "forges.identity": async ({ maxAgeMs }) => identitiesHold(await forge.verifiedWithin(maxAgeMs)),
+  "forges.reads": async ({ maxAgeMs }) => readsHold(await forge.verifiedWithin(maxAgeMs)),
   "forges.primary": () => onePrimary(forge.list()),
   "forges.gh": () => ghHolds(forge.list(), () => forge.probeGh()),
-  "forges.expiry": async () => nothingExpiring(await forge.verify(), clock.now()),
+  "forges.expiry": async ({ maxAgeMs }) => nothingExpiring(await forge.verifiedWithin(maxAgeMs), clock.now()),
   "forges.coverage": () => originsCovered(forge.missingOrigins()),
 });

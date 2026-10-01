@@ -156,6 +156,18 @@ describe("projections.browsers: the Chromes", () => {
   });
 });
 
+describe("projections.browsers: a stored Chrome no longer paired", () => {
+  it("keeps a known other machine's stored Chrome selected and dim with its driving refusal", async () => {
+    const w = await world();
+    w.lists.laptop.event(listEvent(2, w.sessions.laptop, "session.browser.set", {}, { browser: { kind: "chrome", environmentId: w.ids.tower, chromeId: CHROMES.spare } }));
+    const view = await picker(w, "laptop", (v) => v.rows.some((row) => row.selected && row.value?.kind === "chrome"));
+    expect(view.rows.find((row) => row.selected)).toMatchObject({
+      value: { kind: "chrome", environmentId: w.ids.tower, chromeId: CHROMES.spare },
+      unavailable: { reason: "not-drivable" },
+    });
+  });
+});
+
 describe("projections.browsers: the plain My Chrome", () => {
   const MY_CHROME_NOTE = "Your real Chrome, with your logins. The agent works in a tab group it keeps to itself, and some sites are refused. Whichever of them is open.";
 

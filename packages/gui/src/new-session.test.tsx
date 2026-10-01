@@ -101,7 +101,7 @@ const chipsOf = (surface: HTMLElement) =>
     .map((chip) => chip.getAttribute("aria-label"));
 
 /** Waits for the surface's chips to read `chips`. */
-const chipsRead = (surface: () => HTMLElement, chips: readonly string[]) => waitFor(() => expect(chipsOf(surface())).toEqual(chips));
+const chipsRead = (surface: () => HTMLElement, chips: readonly string[]) => waitFor(() => expect(chipsOf(surface())).toEqual([...chips, "Browser: Default"]));
 
 /** Opens a surface's chip, `name` its name ("Environment"), as a person tabbing to it and pressing Enter does. */
 const openChip = async (app: RenderedApp, surface: HTMLElement, name: string) => {

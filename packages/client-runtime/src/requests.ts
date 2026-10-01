@@ -358,7 +358,7 @@ interface Cached {
 const NOTHING_YET: CachedAnswer<QueryMethodName> = { result: null, fetchedAt: null, error: null, loading: false };
 
 /** A value's JSON with every object's keys in order, so params written in any order are one key. */
-const canonical = (value: unknown): string => {
+export const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (typeof value === "object" && value !== null) {
     const fields = Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== undefined);

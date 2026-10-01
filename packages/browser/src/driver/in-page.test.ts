@@ -93,6 +93,12 @@ describe("locateElement", () => {
     expect(runIn(window, locateElement, { selector: "#away" })).toEqual({ kind: "hidden" });
     expect(runIn(window, locateElement, { selector: "p[" })).toMatchObject({ kind: "invalid", message: expect.stringContaining("p[") });
   });
+
+  it("finds what a selector names on a page whose element named querySelector takes the document's method, rather than calling the selector invalid (#696)", () => {
+    const window = pageWith(`<img name="querySelector" src="/logo.png" alt=""><button id="go">Go</button>`);
+    boxed(window.document.getElementById("go"), 100, 50, 200, 40);
+    expect(runIn(window, locateElement, { selector: "#go" })).toEqual({ kind: "found", x: 200, y: 70, editable: false });
+  });
 });
 
 describe("acting by ref", () => {
@@ -173,6 +179,12 @@ describe("selectFieldContents", () => {
     const window = pageWith(`<div id="plain">text</div>`);
     expect(runIn(window, selectFieldContents, { selector: "#plain" })).toBe("not-editable");
     expect(runIn(window, selectFieldContents, { selector: "#nothing" })).toBe("gone");
+  });
+
+  it("selects the field a selector names on a page whose element named querySelector takes the document's method (#696)", () => {
+    const window = pageWith(`<img name="querySelector" src="/logo.png" alt=""><input id="name" value="old value">`);
+    expect(runIn(window, selectFieldContents, { selector: "#name" })).toBe("selected");
+    expect(window.document.activeElement).toBe(window.document.getElementById("name"));
   });
 });
 

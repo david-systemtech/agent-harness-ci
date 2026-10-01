@@ -175,6 +175,21 @@ const BAO_RUN = {
 } as const;
 
 describe("the CLI row", () => {
+  it("shares one terminal between the step's named Install and its connection's CLI row", async () => {
+    const app = await opened({
+      keyManagers: { connections: [{ label: "Home OpenBao", address: "https://bao.home.test:8200" }], tools: [{ tool: "bao", path: null, realpath: null, version: null, status: "not-installed", action: "install" }] },
+      managedTools: { runs: { bao: { exitCode: null } } },
+      setup: { "key-manager": { state: "needs-attention", reason: "bao is not installed.", failing: ["key-manager.cli"], actions: ["install"],
+        targets: [{ action: "install", kind: "tool", id: "bao", label: "bao" }],
+      } },
+    });
+    await connection("OpenBao or Vault", "Home OpenBao");
+    await app.user.click(within(step()).getByRole("button", { name: "Install bao in a tool terminal" }));
+    await within(step()).findByRole("region", { name: "Installing OpenBao CLI" });
+    expect(within(step()).getAllByRole("region", { name: "Installing OpenBao CLI" })).toHaveLength(1);
+    expect(app.environment("desk").requests("tools.run")).toHaveLength(1);
+  });
+
   it("says a CLI the injecting connection lacks, and Install runs tools.run in a tool terminal on the card, where the sudo password is typed, then shows the new probe", async () => {
     const app = await opened({
       keyManagers: {

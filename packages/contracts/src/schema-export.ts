@@ -233,6 +233,7 @@ import {
   UpdatesStatus,
 } from "./updates.js";
 import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepResults, StepState } from "./setup.js";
+import { SetupMintedPayload } from "./setup-minted.js";
 import { PromptVariant } from "./setup-prompts.js";
 import {
   ADDRESS_ROWS,
@@ -504,6 +505,7 @@ import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
 import {
   INSTRUCTION_SESSION_EVENT_TYPES,
   INSTRUCTIONS_EVENT_TYPES,
+  AlwaysOnChooser,
   InstructionAccount,
   InstructionAlwaysOnSkill,
   InstructionBody,
@@ -1223,6 +1225,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
   { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
   { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
+  { path: "instructions/always-on-chooser.json", title: "AlwaysOnChooser", schema: AlwaysOnChooser },
   { path: "instructions/always-on-skill.json", title: "InstructionAlwaysOnSkill", schema: InstructionAlwaysOnSkill },
   { path: "instructions/left-out-reason.json", title: "InstructionLeftOutReason", schema: InstructionLeftOutReason },
   { path: "instructions/left-out.json", title: "InstructionLeftOut", schema: InstructionLeftOut },
@@ -1441,6 +1444,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   { path: "setup/step-results.json", title: "StepResults", schema: StepResults },
   { path: "setup/prompt-variant.json", title: "PromptVariant", schema: PromptVariant },
+  { path: "setup/minted-payload.json", title: "SetupMintedPayload", schema: SetupMintedPayload },
   { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },
   { path: "browser/page-key.json", title: "PageKey", schema: PageKey },
   ...PAGE_VERBS.flatMap((verb) => [

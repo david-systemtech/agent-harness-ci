@@ -4,9 +4,9 @@ import { formatActor, type EventLog, type StreamRef } from "../event-log/event-l
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
-import { checkStep, type CheckContext, type CheckedStep, type StateChecker } from "./check.js";
+import { checkStep, type CheckAsker, type CheckContext, type CheckedStep, type StateChecker } from "./check.js";
 import type { LlmSteps } from "./mint.js";
-import { stoppedMintedRun } from "./minted.js";
+import { stoppedMintedRuns } from "./minted.js";
 
 /**
  * The SetupService (the Set up specification, "Modules", "Results, the
@@ -58,9 +58,10 @@ export interface SetupService {
    * Checks `step` now, or every registered step when none is named; answers
    * the results in the registry's order, each kept in the cache first. A
    * step whose check is running is not checked again: it answers that run's
-   * result.
+   * result, whoever asked for it. The environment's own schedule asks
+   * unless a client is named, as `setup.check` names one (`methods.ts`).
    */
-  check(step?: RegisteredStepId): Promise<StepResult[]>;
+  check(step?: RegisteredStepId, askedBy?: CheckAsker): Promise<StepResult[]>;
   /** Settles once `step`'s check that is running now has ended, whatever it answered; undefined when none is running. */
   running(step: RegisteredStepId): Promise<void> | undefined;
   /** Every registered step's cached result, in the registry's order: a step never checked, or whose row this build cannot read, is absent. */
@@ -120,7 +121,7 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
   };
 
   /** Checks `step`, or takes the result of its check that is running; it reads the settings and the clock as it is called. */
-  const checkOne = (step: CheckedStep): Promise<StepResult> => {
+  const checkOne = (step: CheckedStep, askedBy: CheckAsker): Promise<StepResult> => {
     const underway = running.get(step.id);
     if (underway !== undefined) return underway;
     const llmStep = step.llm === undefined ? undefined : steps.llmSteps?.[step.id];
@@ -129,8 +130,9 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
       stateChecks: steps.stateChecks,
       clock,
       checkedAt: clock.now().toISOString(),
+      askedBy,
       lastGood: lastGoodOf(cachedResult(step.id)),
-      ...(llmStep !== undefined && { llm: { subjects: () => llmStep.subjects(), stopped: () => stoppedMintedRun(reader, step.id) } }),
+      ...(llmStep !== undefined && { llm: { subjects: () => llmStep.subjects(), stopped: () => stoppedMintedRuns(reader, step.id) } }),
     };
     let settle!: (run: Promise<StepResult>) => void;
     const current = new Promise<StepResult>((resolve) => (settle = resolve)).finally(() => running.delete(step.id));
@@ -147,7 +149,7 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
 
   return {
     // Async, so a read that throws as a check starts rejects the call rather than throwing at its caller.
-    check: async (id) => Promise.all(steps.steps.filter((entry) => id === undefined || entry.id === id).map(checkOne)),
+    check: async (id, askedBy = "schedule") => Promise.all(steps.steps.filter((entry) => id === undefined || entry.id === id).map((entry) => checkOne(entry, askedBy))),
     running: (id) => running.get(id)?.then(
       () => undefined,
       () => undefined,

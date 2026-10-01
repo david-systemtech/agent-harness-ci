@@ -224,16 +224,17 @@ const PageReading = z
   .meta({ description: "A page of the page's readable text: the article as Markdown, or the snapshot's text; paged by offset." });
 export type PageReading = z.infer<typeof PageReading>;
 
-/** What a page looks like, base64 because every transport is JSON. */
+/** The page's address and what it looks like, base64 because every transport is JSON. */
 const PageImage = z
   .object({
+    url: pageLocationShape.url,
     mimeType: z.enum(["image/jpeg", "image/png"]).meta({ description: "The image's type: image/jpeg for a driver's screenshot of the viewport, or image/png." }),
     data: z
       .string()
       .regex(/^[A-Za-z0-9+/]*={0,2}$/)
       .meta({ description: "The image, base64." }),
   })
-  .meta({ description: "A screenshot of the viewport." });
+  .meta({ description: "The page's address and a screenshot of its viewport." });
 export type PageImage = z.infer<typeof PageImage>;
 
 /** One line of the console, or an error nobody caught. */
@@ -286,7 +287,9 @@ const StorageSnapshot = z
   .meta({ description: "The page origin's local and session storage." });
 export type StorageSnapshot = z.infer<typeof StorageSnapshot>;
 
-const EvaluateResult = z.object({ result: z.json().meta({ description: "The expression's value, as JSON." }) }).meta({ description: "What an expression evaluated to." });
+const EvaluateResult = z
+  .object({ url: pageLocationShape.url, result: z.json().meta({ description: "The expression's value, as JSON." }) })
+  .meta({ description: "The page's address and what an expression evaluated to." });
 
 const noArgs = z.object({}).meta({ description: "No arguments." });
 
@@ -342,12 +345,18 @@ export const PAGE_VERB_SCHEMAS = {
   screenshot: { args: noArgs, value: PageImage },
   scroll: { args: z.object({ to: ScrollTarget }).meta({ description: "scroll: by a direction and an amount, or to an element." }), value: PageLocation },
   waitFor: { args: z.object({ until: WaitCondition }).meta({ description: "waitFor: text, a ref or a number of milliseconds." }), value: PageLocation },
-  console: { args: noArgs, value: z.array(ConsoleEntry).meta({ description: "The console lines and uncaught errors since the last console verb." }) },
+  console: {
+    args: noArgs,
+    value: z.object({ url: pageLocationShape.url, entries: z.array(ConsoleEntry) }).meta({ description: "The page's address and the console lines and uncaught errors since the last console verb." }),
+  },
   network: {
     args: z.object({ failedOnly: z.boolean().optional().meta({ description: "Only the requests that failed; preset false." }) }).meta({ description: "network: the requests since the last network verb." }),
-    value: z.array(NetworkEntry).meta({ description: "The requests since the last network verb." }),
+    value: z.object({ url: pageLocationShape.url, entries: z.array(NetworkEntry) }).meta({ description: "The page's address and the requests since the last network verb." }),
   },
-  cookies: { args: noArgs, value: z.array(CookieEntry).meta({ description: "The cookies the page would send." }) },
+  cookies: {
+    args: noArgs,
+    value: z.object({ url: pageLocationShape.url, entries: z.array(CookieEntry) }).meta({ description: "The page's address and the cookies the page would send." }),
+  },
   storage: { args: noArgs, value: StorageSnapshot },
   evaluate: {
     args: z.object({ expression: z.string().min(1).max(MAX_TEXT) }).meta({ description: "evaluate: run a JavaScript expression in the page." }),

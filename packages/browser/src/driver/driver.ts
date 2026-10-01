@@ -22,7 +22,7 @@ import {
 } from "@agent-harness/contracts";
 import type { CdpSession } from "../cdp/session.js";
 import { pageText } from "../paging.js";
-import { installReader, pageChallenge, readPage, type PageReadOptions } from "../reader-in-page.js";
+import { installReader, pageChallenge, readPage, type PageArticle, type PageReadOptions } from "../reader-in-page.js";
 import { frameOwnerKey, installSnapshot, snapshotFrame } from "../snapshot/in-page.js";
 import { refGone } from "../snapshot/refs.js";
 import { serialiseSnapshot, type SnapshotText } from "../snapshot/serialiser.js";
@@ -214,21 +214,24 @@ const finding = (check: ChallengeCheck): { readonly challenge?: ChallengeKind } 
 /** The snapshot a reading gives where the page has no article: every element, uncut, since the reading pages it. */
 const READ_SNAPSHOT: PageArgs<"snapshot"> = { filter: "all", maxChars: Number.POSITIVE_INFINITY };
 
-/** The page's article as Markdown, the reader sent to the top frame's world first when the world has none; null where it finds none. */
-const pageArticle = async (page: CdpPage, options: PageReadOptions): Promise<string | null> =>
-  (await callInstalled(page, page.mainFrame(), installReader, readPage, options)).article;
+/** What the reader finds on the page, sent to the top frame's world first when the world has none. */
+const pageArticle = (page: CdpPage, options: PageReadOptions): Promise<PageArticle> => callInstalled(page, page.mainFrame(), installReader, readPage, options);
 
 /**
  * The page's readable text: its article as Markdown, or, where Readability
  * judges the page not readerable or finds no article (an app, a result
  * page), its snapshot's text with every element, and the snapshot's notice.
+ * A page that broke the reader is refused with what to do instead.
  */
 const readableText = async (
   page: CdpPage,
   options: PageReadOptions,
 ): Promise<{ readonly source: PageReading["source"]; readonly text: string; readonly notice?: string | undefined } | PageRefusal> => {
-  const article = await pageArticle(page, options);
-  if (article !== null) return { source: "article", text: article };
+  const found = await pageArticle(page, options);
+  if ("failed" in found) {
+    return refused(`${(await page.location()).url} could not be read. The reader could not read it: ${found.failed}. Take a snapshot to read its elements, or a screenshot to see what it shows.`);
+  }
+  if (found.article !== null) return { source: "article", text: found.article };
   const taken = await snapshotOf(page, READ_SNAPSHOT);
   if ("ok" in taken) return taken;
   return { source: "snapshot", text: taken.snapshot.text, notice: taken.notice };
@@ -432,7 +435,10 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       else await page.insertText(args.text);
       return arrival(page, args, load);
     },
-    screenshot: async (page) => ({ ok: true, value: { mimeType: "image/jpeg", data: await page.screenshot() } }),
+    screenshot: async (page) => {
+      const data = await page.screenshot();
+      return { ok: true, value: { url: page.mainFrame().url, mimeType: "image/jpeg", data } };
+    },
     scroll: async (page, args) => {
       if ("ref" in args.to) {
         const { ref } = args.to;
@@ -471,7 +477,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     console: async (page) => {
       await page.enableDeep();
       const { entries, dropped } = page.takeConsole();
-      return { ok: true, value: entries, ...(dropped > 0 && { notice: `The ${dropped} oldest lines were dropped: the browser keeps the latest ${KEPT} between two reads.` }) };
+      return { ok: true, value: { url: page.mainFrame().url, entries }, ...(dropped > 0 && { notice: `The ${dropped} oldest lines were dropped: the browser keeps the latest ${KEPT} between two reads.` }) };
     },
     network: async (page, args) => {
       const recording = page.recordsNetwork;
@@ -482,15 +488,15 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
         recording ? undefined : "The network is recorded from this call on: ask again after the page has done what you want to see.",
         dropped > 0 ? `The ${dropped} oldest requests were dropped: the browser keeps the latest ${KEPT} between two reads.` : undefined,
       ]);
-      return { ok: true, value, ...(notice !== undefined && { notice }) };
+      return { ok: true, value: { url: page.mainFrame().url, entries: value }, ...(notice !== undefined && { notice }) };
     },
     cookies: async (page) => {
+      await page.enableDeep();
       const { url } = page.mainFrame();
       const values = !abilities.deepReadsByPolicy || deepRead(page, url);
-      await page.enableDeep();
       const cookies = (await page.cookies(url)).map((cookie) => cookieEntry(cookie, values));
       const notice = values ? undefined : `Cookie values are left out: ${siteOf(url)} is not a dev site. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read them.`;
-      return { ok: true, value: cookies, ...(notice !== undefined && { notice }) };
+      return { ok: true, value: { url, entries: cookies }, ...(notice !== undefined && { notice }) };
     },
     storage: async (page) => {
       const { url } = page.mainFrame();
@@ -509,7 +515,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       await page.enableDeep();
       const outcome = await page.evaluate(args.expression);
       if ("threw" in outcome) return refused(`The expression threw: ${outcome.threw}`);
-      return { ok: true, value: { result: outcome.value as PageValue<"evaluate">["result"] } };
+      return { ok: true, value: { url: page.mainFrame().url, result: outcome.value as PageValue<"evaluate">["result"] } };
     },
   };
 

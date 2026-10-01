@@ -458,7 +458,7 @@ describe("/routines new and /routines import", () => {
     const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH)] } });
     const yaml = (await deskRoutines.exported([WATCH])).replace("name: Upstream watch", "name: Upstream watch copy").replace("mode: acceptEdits", "mode: bypassPermissions");
     await writeFile(join(app.stateDir, "routines.yaml"), `${yaml}---\n${yaml.replace("Upstream watch copy", "Second watch").replace("mode: bypassPermissions", "mode: plan")}`, "utf8");
-    deskRoutines.warnNext({ attention: ["script_missing"], workspace: { kind: "scratch", repositoryIdentity: null } });
+    deskRoutines.warnNext({ attention: ["script_missing"], unknownSkills: [], workspace: { kind: "scratch", repositoryIdentity: null } });
     await openRoutines(app, "/routines import routines.yaml");
     await app.waitFor(`Import from ${join(app.stateDir, "routines.yaml")} to desk`);
     expect(app.frame()).toContain("Upstream watch copy");

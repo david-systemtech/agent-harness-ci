@@ -49,7 +49,11 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     setText(next);
     typed.set(id, next);
   };
-  const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => ({ ...held, ...chosen }));
+  const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => {
+    const next = { ...held, ...chosen };
+    if (chosen.environmentId !== undefined || chosen.account !== undefined) delete next.browser;
+    return next;
+  });
 
   const start = async () => {
     const message = text.trim();
@@ -65,6 +69,7 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     const { answer } = await runtime.commands.startSession(environmentId, {
       id,
       workspace,
+      browser: view.browser,
       ...(account !== null && { account: account.id }),
       ...(model !== null && { model: model.id }),
     });

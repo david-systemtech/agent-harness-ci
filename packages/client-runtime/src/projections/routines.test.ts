@@ -26,6 +26,7 @@ const listedRoutine = (routineId: string, name: string, attention: readonly Rout
     definition: { ...structuredClone(listedFixture.definition), name },
     state: { ...structuredClone(listedFixture.state), id: routineId },
     attention: [...attention],
+    unknownSkills: [],
   }) as ListedRoutine;
 
 const ids = {

@@ -1,4 +1,5 @@
 import type { InPageSource } from "../driver/page.js";
+import { pageTextModule } from "../page-text.js";
 import { redactedFieldValue, secretField } from "../redaction.js";
 import { playwrightAriaSnapshot } from "./vendor/aria-snapshot.js";
 import { playwrightCssTokenizer } from "./vendor/css-tokenizer.js";
@@ -27,7 +28,7 @@ const FIELD_MARKERS: FieldMarkers = {
 /** Makes the world's snapshot state, once for its document: the vendored aria snapshot and the map of the refs it gives. */
 export const installSnapshot: InPageSource<[], void> = {
   declaration: `function installSnapshot() {
-  (${snapshotWorld})(() => (${installSnapshotWorld})(${secretField}, ${JSON.stringify(FIELD_MARKERS)}, ${playwrightCssTokenizer}, ${playwrightDomUtils}, ${playwrightRoleUtils}, ${playwrightAriaSnapshot}));
+  (${snapshotWorld})(() => (${installSnapshotWorld})(${secretField}, ${JSON.stringify(FIELD_MARKERS)}, ${playwrightCssTokenizer}, ${playwrightDomUtils}, ${playwrightRoleUtils}, ${playwrightAriaSnapshot}, (${pageTextModule})().pageBody));
 }`,
 };
 

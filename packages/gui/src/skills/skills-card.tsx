@@ -1,10 +1,10 @@
-import { oneLine } from "@agent-harness/client-runtime";
+import { oneLine, pullSetupSources } from "@agent-harness/client-runtime";
 import { CATALOGUE, catalogueTickStates, SKILL_SOURCE_LIMIT, type CatalogueSkillEntry, type CatalogueTickState } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { StepStatus } from "../setup/step-status.js";
 import { Button, Dialog, DialogContent } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { MemberCard } from "./members.js";
 import { SkillButton, useSkillVerb } from "./skill-verb.js";
@@ -20,43 +20,41 @@ import { TrustedRepositories } from "./trust.js";
  */
 export const SkillsCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
+  const clock = useClock();
   const view = useObservable(runtime.projections.environments).find((view) => view.environmentId === environmentId);
   const read = useObservable(useMemo(() => runtime.requests.cached(environmentId, "skills.get", {}), [runtime, environmentId]));
   const [line, setLine] = useState<string | undefined>(undefined);
   const say = (message: string) => setLine(oneLine(message));
-  const { send, sending, commandId } = useSkillVerb(say);
+  const [pulling, setPulling] = useState(false);
   const skills = read.result;
   const ticks = catalogueTickStates(CATALOGUE.skills, skills?.sources ?? []);
   const pull = runtime.capability(environmentId, "skills.sources.pull");
+  const namedPull = step.result?.targets?.some((target) => target.action === "pull-now" && target.kind === "skill-source") ?? false;
   return (
     <>
       <StepStatus
         environmentId={environmentId}
         step={step}
-        actions={{
+        actions={namedPull ? undefined : {
           "pull-now": {
-            disabled: sending || skills === null || read.error !== null || pull.status === "absent",
-            run: (targets) => {
-              const sources = (skills?.sources ?? []).filter(
-                (source) => source.follow.kind === "branch" &&
-                  (targets.length === 0 || targets.some((target) => target.kind === "skill-source" && target.id === source.id)),
-              );
+            disabled: pulling || skills === null || read.error !== null || pull.status === "absent",
+            run: () => {
+              const sources = (skills?.sources ?? []).filter((source) => source.follow.kind === "branch");
               void (async () => {
-                for (const source of sources) {
-                  const ok = await send(
-                    () => runtime.requests.call(environmentId, "skills.sources.pull", { commandId: commandId(), sourceId: source.id }),
-                    "Source pulled.",
-                  );
-                  if (!ok) return;
+                setPulling(true);
+                try {
+                  const outcome = await pullSetupSources(runtime, environmentId, sources.map((source) => ({ id: source.id, label: `${source.identity} — ${source.folder}` })), () => clock.now());
+                  say(sources.length === 0 ? "No unpinned source to pull." : outcome.line);
+                } finally {
+                  setPulling(false);
                 }
-                say(sources.length === 0 ? "No unpinned source to pull." : "Sources pulled.");
               })();
             },
           },
         }}
       />
       {view !== undefined && view.phase !== "ready" && <p className="text-sm text-amber">Stale: {reachWords(runtime, view)}. Skills as this window last read them, read-only.</p>}
-      {pull.status === "absent" && step.result?.actions.includes("pull-now") && <p className="text-sm text-ink-faint">{pull.message}</p>}
+      {!namedPull && pull.status === "absent" && step.result?.actions.includes("pull-now") && <p className="text-sm text-ink-faint">{pull.message}</p>}
       {read.error !== null && <p className="text-sm text-amber">{oneLine(read.error.message)}</p>}
       {line !== undefined && <p role="status" className="text-sm text-ink-muted">{line}</p>}
       <section aria-label="Skills catalogue" className="flex flex-col gap-3">
