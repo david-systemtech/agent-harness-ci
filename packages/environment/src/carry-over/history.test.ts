@@ -285,6 +285,21 @@ describe("an imported session's message anchors", () => {
 });
 
 describe("an imported session's runs", () => {
+  it("forks the end of an unlinked imported session into its provider conversation", async () => {
+    const session = listed();
+    const { t, adapter } = await start([session], { fake: { capabilities: { fork: true } } });
+    const client = await t.client();
+    const [sessionId = ""] = await importAll(t, client, [session]);
+    const id = randomUUID();
+
+    const fork = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId, id }));
+    expect(fork.receipt.status).toBe("accepted");
+    const run = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Go on" }));
+    expect(run.receipt.status).toBe("accepted");
+    await expect.poll(() => adapter.runs.length, { timeout: WAIT_MS }).toBe(1);
+    expect(adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: session.providerSessionId, atMessageId: null });
+  });
+
   it("resumes its provider session on the first run, and the session store's link on every later run, as any session's", async () => {
     const session = listed();
     const { t, adapter } = await start([session], {
