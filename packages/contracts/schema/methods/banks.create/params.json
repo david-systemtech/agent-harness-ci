@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.create params",
+  "type": "object",
+  "properties": {
+    "commandId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
+    },
+    "bankId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "creation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "personal"
+            },
+            "localOnly": {
+              "type": "boolean",
+              "description": "Keep the bank on this machine, else create it privately under the login on the primary forge."
+            },
+            "personName": {
+              "description": "Optional display name for the first entity; otherwise the creator's forge login, or OS username locally.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "org": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "First seed answer: what the person calls their own work, preset personal."
+            },
+            "project": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "Second seed answer: the first project, preset to the primary repository's name."
+            }
+          },
+          "required": [
+            "kind",
+            "localOnly",
+            "org",
+            "project"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "team"
+            },
+            "forgeAccountId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A forge account's id: a version 4 UUID the adding client mints, kept in lowercase."
+            },
+            "owner": {
+              "type": "object",
+              "properties": {
+                "login": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The user's login, or the organisation's name, as the forge answers it."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "organisation"
+                  ],
+                  "description": "user: the forge account's own; organisation: one it is a member of."
+                }
+              },
+              "required": [
+                "login",
+                "kind"
+              ],
+              "description": "A user or organisation from forge.orgs.list for the selected verified account."
+            },
+            "repositoryName": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+            },
+            "teamName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "org": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "The team's first org folder."
+            },
+            "projects": {
+              "minItems": 1,
+              "maxItems": 40,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "folder": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+                  }
+                },
+                "required": [
+                  "name",
+                  "folder"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "forgeAccountId",
+            "owner",
+            "repositoryName",
+            "teamName",
+            "org",
+            "projects"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "commandId",
+    "bankId",
+    "name",
+    "creation"
+  ]
+}
