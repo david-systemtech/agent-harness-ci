@@ -295,7 +295,7 @@ export const CompletionsAnswerExtension = z
     ignored: z.array(z.string().min(1)).optional().meta({ description: "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.0." }),
     activity: CompletionsActivity.optional(),
     ended: CompletionsRunEnd.optional(),
-    waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue: the run it was sent to, or the run it started, ended before reading it." }),
+    waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue: the run it was sent to, or a run launched with it, ended before reading it." }),
   })
   .meta({ description: "The harness's fields on an answer or a chunk." });
 export type CompletionsAnswerExtension = z.infer<typeof CompletionsAnswerExtension>;
