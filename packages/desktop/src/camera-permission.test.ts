@@ -29,3 +29,14 @@ it.each(["darwin", "win32", "linux"] as const)("allows camera video only for the
   expect(page.checkPermission("geolocation", frame)).toBe(false);
   expect(page.requestPermission("display-capture", frame)).toBe(false);
 });
+
+it.each([undefined, "profile-for-tests"])("refuses camera and microphone requests on the dock's own session with partition %s", async (partition) => {
+  const { electron, shell } = await start();
+  await shell().webView.create({ url: "https://example.org/", ...(partition && { partition }) });
+  const page = electron.views[0]!.webContents;
+  const frame = { isMainFrame: true, requestingUrl: "https://example.org/" };
+  for (const mediaType of ["video", "audio"]) {
+    expect(page.checkPermission("media", { ...frame, mediaType }, frame.requestingUrl)).toBe(false);
+    expect(page.requestPermission("media", { ...frame, mediaTypes: [mediaType] })).toBe(false);
+  }
+});

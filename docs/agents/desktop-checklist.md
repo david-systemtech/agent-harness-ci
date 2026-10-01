@@ -87,7 +87,7 @@ checkout, after `pnpm install`:
    `"undefined"`. `Object.keys(await desktopShell.ready())` lists `window`,
    `dialogs`, `clipboard`, `openExternal`, `system`, `http`, `network`,
    `deepLinks`, `secrets`, `localGrant`, `service`, `preview`, `update`,
-   `installer`, `gh` and `webView`, plus `camera` when a video input is present; nothing
+   `installer`, `gh`, `notifications` and `webView`, plus `camera` when a video input is present; nothing
    named `ipcRenderer` is reachable.
 4. **The content policy.** `eval("1")` throws a content-policy error;
    `document.head.append(Object.assign(document.createElement("script"), { textContent: "window.ran = 1" }))`

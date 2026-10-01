@@ -18,7 +18,6 @@
     "jsqr": "1.4.0"
   },
   "devDependencies": {
-    "@types/jsdom": "^30.0.0",
     "electron": "44.4.5",
     "electron-builder": "26.15.3",
     "uqr": "^0.1.3",
