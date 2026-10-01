@@ -100,6 +100,15 @@ const oneLine = (cap: number, what: string) => {
   return z.string({ error }).min(1, { error }).max(cap, { error }).regex(/^[^\r\n]*$/, { error });
 };
 
+/**
+ * The rendered bank index's budget for one session (ADR 0013, banks spec,
+ * "Rendering the index"): the whole trail at most 150 lines and 20 KB of
+ * UTF-8, inside Claude Code's 200 lines and 25 KB, and the fixed tiers
+ * (each bank's line, orientation and root breadcrumbs) at most 8 KB for
+ * any account and repository, which the registry refuses past.
+ */
+export const BANK_INDEX_BUDGET = { lines: 150, bytes: 20 * 1_024, fixedBytes: 8 * 1_024 } as const;
+
 /** A bank's name: a lower-case slug of 1 to 40 characters, unique per environment. */
 export const BankName = z
   .string({ error: "name is a lower-case slug of 1 to 40 characters." })
@@ -118,6 +127,57 @@ export type MemoryName = z.infer<typeof MemoryName>;
 
 /** A topic's name: a lower-case slug, the folder its memories nest in. */
 const TopicName = z.string().regex(SLUG).meta({ description: "A topic's name: a lower-case slug, the folder under memories/ its memories nest in." });
+
+/**
+ * A pointer (ADR 0013, CONTEXT.md "Pointer"): the one way the index, a
+ * search hit and a read name a place in a bank, printed the same in each.
+ * `bank` alone names a bank's root; `bank:path/` a folder, its path from
+ * `projects/` (`org/`, `org/project/`, `org/project/area/`) or a topic's
+ * (`org/project[/area]/memories/topic/`); `bank:name` a memory.
+ */
+export type BankPointer =
+  | { readonly kind: "bank"; readonly bank: string }
+  | { readonly kind: "folder"; readonly bank: string; readonly path: string }
+  | { readonly kind: "memory"; readonly bank: string; readonly name: string };
+
+/** A scope level's folder name in a pointer: anything but a slash, a colon or white space, and never `memories`, which ends the levels. */
+const LEVEL = /^[^/\s:]+$/;
+
+/** Whether `path` names a folder a pointer may: an org, a project, an area, or a topic one folder under a project's or an area's `memories/`. */
+const isFolderPath = (path: string): boolean => {
+  if (!path.endsWith("/")) return false;
+  const segments = path.slice(0, -1).split("/");
+  const memories = segments.indexOf("memories");
+  const levels = memories === -1 ? segments : segments.slice(0, memories);
+  if (levels.length < 1 || levels.length > 3 || !levels.every((segment) => LEVEL.test(segment) && segment !== "memories")) return false;
+  if (memories === -1) return true;
+  const topic = segments.slice(memories + 1);
+  return levels.length >= 2 && topic.length === 1 && SLUG.test(topic[0] ?? "");
+};
+
+/** The pointer `text` names, white space round it ignored and `bank:` read as `bank`; null for text that names no bank, folder, topic or memory. */
+export const parseBankPointer = (text: string): BankPointer | null => {
+  const trimmed = text.trim();
+  const colon = trimmed.indexOf(":");
+  const bank = colon === -1 ? trimmed : trimmed.slice(0, colon);
+  if (!BankName.safeParse(bank).success) return null;
+  const rest = colon === -1 ? "" : trimmed.slice(colon + 1);
+  if (rest === "") return { kind: "bank", bank };
+  if (rest.endsWith("/")) return isFolderPath(rest) ? { kind: "folder", bank, path: rest } : null;
+  return MemoryName.safeParse(rest).success ? { kind: "memory", bank, name: rest } : null;
+};
+
+/** `pointer` as the index, a search hit and a read print it. */
+export const formatBankPointer = (pointer: BankPointer): string => {
+  switch (pointer.kind) {
+    case "bank":
+      return pointer.bank;
+    case "folder":
+      return `${pointer.bank}:${pointer.path}`;
+    case "memory":
+      return `${pointer.bank}:${pointer.name}`;
+  }
+};
 
 /**
  * A scope folder as a pointer names it (ADR 0013, ADR 0037): `org/`,

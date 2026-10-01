@@ -14,6 +14,7 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
+import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { hostToolServer, serverRule } from "./host-tools.js";
 
@@ -165,7 +166,8 @@ const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Pa
  * directories the spawn was supplied as its holder's own (a key-manager
  * CLI's configuration directory, #1119), less what the run may not write
  * inside them (`denyWrite`, which the sandbox puts above `allowWrite`: the
- * repository git directory's hooks and config, #791). The
+ * repository git directory's hooks and config, #791, plus recursive git
+ * program paths under Seatbelt, #1094). The
  * network is open at `workspace`, local binding included; the pinned
  * sandbox cannot name "any domain", so it asks the host about each new
  * host, which the adapter answers itself once the gate lets the host
@@ -180,6 +182,7 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">, suppl
   if (containment.level === "off") return null;
   const denyRead = denylist?.paths ?? [];
   const allowRead = denyRead.length > 0 ? (denylist?.exempt ?? []) : [];
+  const denyWrite = [...containment.readOnly, ...(containment.mechanism === "seatbelt" ? GIT_PROGRAM_DENY_WRITE : [])];
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -190,7 +193,7 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">, suppl
       : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: {
       allowWrite: [...containment.writable, ...suppliedWritable],
-      ...(containment.readOnly.length > 0 && { denyWrite: [...containment.readOnly] }),
+      ...(denyWrite.length > 0 && { denyWrite }),
       ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
       ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
     },

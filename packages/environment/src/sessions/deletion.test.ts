@@ -234,6 +234,7 @@ describe("a deleted session", () => {
     "runs.withdraw": { messageId },
     "providers.processes.stop": { sessionId },
     "terminals.open": { id: randomUUID(), sessionId },
+    "terminals.run": { id: randomUUID(), sessionId, command: "pwd" },
     // A deleted session is no source to fork, and has nothing to rewind (#137).
     "sessions.fork": { sessionId, id: randomUUID() },
     "sessions.rewind": { sessionId, messageId: randomUUID() },
