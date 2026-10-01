@@ -82,7 +82,7 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
   };
 
   /** The refusal a provider's failure comes to: nothing there, a read refused, or a key manager that could not be asked. */
-  const refusalOf = (failure: ProviderFailure, provider?: KeyManagerProvider): Refused => {
+  const refusalOf = (failure: ProviderFailure, provider: KeyManagerProvider): Refused => {
     const message = scrub.scrubOutput(failure.message);
     if (failure.outcome === "provider-unavailable") return refused("provider_unavailable", message);
     if (failure.outcome === "not-found") return refused("reference_not_found", message);
@@ -137,11 +137,11 @@ export const createKeyManagerReferences = ({ connections, scrub, budgetMs = KEY_
 
     async browse({ connectionId, mount, path }) {
       const id = connectionId.toLowerCase();
-      if (path !== undefined && mount === undefined) {
+      const held = connections.readable(id);
+      if (path !== undefined && mount === undefined && held?.record.provider !== "doppler") {
         const message = "A path is listed under a mount: name the mount too.";
         throw new ContractError(invalidParams([{ code: "custom", path: ["path"], message }], message));
       }
-      const held = connections.readable(id);
       if (held === null) {
         throw new ContractError({ code: "not_found", message: `No key-manager connection ${id} is on this environment.`, data: { kind: "key_manager_connection", connectionId: id } });
       }

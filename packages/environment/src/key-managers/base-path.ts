@@ -6,25 +6,30 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * amended 2026-09-28): each Move target sits one level below the base
  * (`<base>/forge-<slug>`), and an entry sits exactly two levels under its
  * mount, so an OpenBao or Vault base is a KV mount and one project segment
- * (`personal/harness`), never deeper. The other providers' bases are theirs
- * to rule on (#377 to #379). Whatever sets a base path holds it to this: a
+ * (`personal/harness`), never deeper. Doppler's base is a config name. The remaining providers' bases
+ * are theirs to rule on (#378 and #379). Whatever sets a base path holds it to this: a
  * copy's add, and `setBasePath` (#371).
  */
-export const basePathProblem = (provider: KeyManagerProvider, basePath: string): string | null =>
-  provider === "openbao" && basePath.split("/").length !== 2
-    ? `An OpenBao base path is a KV mount and one project segment, as personal/harness, so each entry sits two levels under its mount; ${basePath} is not.`
-    : null;
+export const basePathProblem = (provider: KeyManagerProvider, basePath: string): string | null => {
+  if (provider === "openbao" && basePath.split("/").length !== 2) {
+    return `An OpenBao base path is a KV mount and one project segment, as personal/harness, so each entry sits two levels under its mount; ${basePath} is not.`;
+  }
+  if (provider === "doppler" && !/^[a-zA-Z0-9_-]+$/.test(basePath)) return "A Doppler base path is a config name, as harness.";
+  return null;
+};
 
 /**
  * Where a Move puts the entry `entry` (`forge-<slug>`) on a connection, its
  * value at `key`: one level below the base path, so for OpenBao the base's
  * mount, and `<project>/<entry>` under it. Null for a connection with no
- * base path, or of a provider a Move cannot write to yet (#377 to #379 map
- * theirs).
+ * base path, or of a provider a Move cannot write to yet. Doppler puts the upper-case
+ * entry and key in its base config, leaving the project to the token.
  */
 export const moveTarget = (record: KeyManagerConnectionRecord, entry: string, key: string): KeyManagerMoveLocator | null => {
-  if (record.provider === "bitwarden" && record.basePath !== null) return { provider: "bitwarden", connectionId: record.id, project: record.basePath, key: entry };
-  if (record.provider !== "openbao" || record.basePath === null) return null;
+  if (record.basePath === null) return null;
+  if (record.provider === "bitwarden") return { provider: "bitwarden", connectionId: record.id, project: record.basePath, key: entry };
+  if (record.provider === "doppler") return { provider: "doppler", connectionId: record.id, config: record.basePath, name: `${entry}_${key}`.replace(/[^a-zA-Z0-9_]/g, "_").toUpperCase() };
+  if (record.provider !== "openbao") return null;
   const [mount = "", project = ""] = record.basePath.split("/");
   return { provider: "openbao", connectionId: record.id, mount, path: `${project}/${entry}`, key };
 };

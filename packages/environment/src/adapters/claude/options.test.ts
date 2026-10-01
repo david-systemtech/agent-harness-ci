@@ -359,10 +359,12 @@ describe("the options a run is handed", () => {
     });
 
     it.each(["workspace", "workspace-no-network"] as const)(
-      "closes to a command at %s what the run may not write inside its writable set, the git directory's hooks and config, and names none when there is none (#791)",
+      "closes to a command at %s what the run may not write inside its writable set, the git directory's hooks and config and a submodule's under it (#933), and names none when there is none (#791)",
       (level) => {
         const worktree = "/data/worktrees/repo-3f9a2c1b";
-        const readOnly = ["hooks", "config", "config.worktree", "worktrees/repo-3f9a2c1b/config.worktree"].map((path) => `/work/repo/.git/${path}`);
+        const readOnly = ["hooks", "config", "config.worktree", "worktrees/repo-3f9a2c1b/config.worktree", "modules/vendor/lib/hooks", "modules/vendor/lib/config", "modules/vendor/lib/config.worktree"].map(
+          (path) => `/work/repo/.git/${path}`,
+        );
         const options = buildRunOptions(
           input({
             workspace: { kind: "worktree", path: worktree, repository: "/work/repo", branch: "agent-harness/3f9a2c1b" },
@@ -387,6 +389,37 @@ describe("the options a run is handed", () => {
       expect(network).toEqual({ allowLocalBinding: true });
       expect(network).not.toHaveProperty("allowedDomains");
       expect(network).not.toHaveProperty("strictAllowlist");
+    });
+
+    it.each(["workspace", "workspace-no-network"] as const)("at %s, Seatbelt closes programs below .git made during a command anywhere in the writable set (#1094)", (level) => {
+      const readOnly = ["/work/repo/.git/config"];
+      const containment: RunInput["containment"] = {
+        level,
+        mechanism: "seatbelt",
+        scratchDirectory: "/data/containment/session/scratch",
+        temporaryDirectory: "/data/containment/session/tmp",
+        writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+        readOnly,
+        network: level === "workspace",
+      };
+      expect(buildRunOptions(input({ containment })).sandbox?.filesystem?.denyWrite).toEqual([
+        ...readOnly,
+        "/**/.[gG][iI][tT]/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+      ]);
+      // Linux skips globs; its existing literal carve-outs still reach denyWrite.
+      expect(buildRunOptions(input({ containment: { ...containment, mechanism: "bubblewrap" } })).sandbox?.filesystem?.denyWrite).toEqual(readOnly);
+      expect(buildRunOptions(input({ containment: { ...containment, level: "off", mechanism: null } }))).not.toHaveProperty("sandbox");
     });
 
     it("closes the network at workspace-no-network: no domain, no unix socket, no local binding, and nothing asked about", () => {

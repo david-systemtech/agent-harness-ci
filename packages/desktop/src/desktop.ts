@@ -3,6 +3,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { APP_ID } from "./app-id.js";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
+import { allowAppCamera } from "./camera-permission.js";
 import { ANSWERED, channelOf, TOLD, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
 import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
@@ -142,6 +143,7 @@ export const startDesktop = async (
   const canvas = canvasStore(platform.paths.data);
   const window = electron.openWindow(windowOptions(platform, (await canvas.read()) ?? presetCanvas(electron.nativeTheme.shouldUseDarkColors)));
   shown.window = window;
+  allowAppCamera(window.webContents);
   lockNavigation(window.webContents, (url) => void electron.shell.openExternal(url).catch(reportError));
   // The renderer's platform reports what it has no caller for to its console: its errors are the window's faults.
   window.webContents.on("console-message", ({ level, message, sourceId, lineNumber }) => {

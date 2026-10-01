@@ -4,7 +4,7 @@ import { scriptedWorld, type ScriptedWorld } from "@agent-harness/client-runtime
 import { IDBFactory } from "fake-indexeddb";
 import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { desktopPlatform, desktopShellOf, windowDesktopPlatform, type DesktopPlatform } from "./platform/desktop-platform.js";
+import { desktopPlatform, desktopShellOf, readyDesktopShellOf, windowDesktopPlatform, type DesktopPlatform } from "./platform/desktop-platform.js";
 
 /**
  * The desktop platform (docs/specs/gui.md, "Packages and the platform";
@@ -148,6 +148,17 @@ describe("the desktop platform", () => {
 });
 
 describe("the desktop platform in the window", () => {
+  it("waits for camera discovery before the runtime reads its shell capabilities", async () => {
+    const shell = fakeShell();
+    const ready = { ...shell, camera: { scanQr: async () => "pairing link" } };
+    Object.defineProperty(window, "desktopShell", { value: { ...shell, camera: undefined, ready: async () => ready }, configurable: true });
+    try {
+      expect(await readyDesktopShellOf(window)).toBe(ready);
+    } finally {
+      Reflect.deleteProperty(window, "desktopShell");
+    }
+    expect(await readyDesktopShellOf(window)).toBeUndefined();
+  });
   it("is the desktop's only when its preload exposed the shell the platform is built on", () => {
     expect(desktopShellOf(window)).toBeUndefined();
     const shell = fakeShell();

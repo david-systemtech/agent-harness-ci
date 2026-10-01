@@ -174,6 +174,22 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Forgejo decides mergeability with `git merge-tree`, which runs no custom merge
   driver and does apply the built-in `union`, which joins both sides' lines into
   invalid JSON and reports no conflict.
+- The bank validator is the contracts' `./bank-validator` entry (pure functions,
+  kept out of the index so no client bundles the YAML library). `pnpm --filter
+  @agent-harness/contracts build-validator` bundles it with Vite into the one
+  Node file each bank vendors, `packages/contracts/dist/bank-validator/validate.mjs`,
+  whose first line is the stamp `// bank-validator <version>` (`BANK_VALIDATOR`).
+  Its test (`scripts/bank-validator/build.test.ts`) builds it into a scratch
+  folder and runs it with Node inside every fixture bank of
+  `test/fixture-banks.ts`, which has one bank per rule; a new rule needs its
+  fixture there.
+- The IndexRenderer (`packages/environment/src/banks/index-renderer.ts`) is the
+  one source of the bank trail, of a bank's fixed-tier bytes (the registry's
+  8 KB admission) and of what a pointer reads (`memory_read`): admission,
+  placement and the memory tools call it rather than render a bank themselves.
+  It reads a bank through `bank-files.ts` (`BANK.md` and `projects/**/*.md` as
+  committed at the checkout's head) and `indexBank`, which uses the validator's
+  own tree, so the index and the verdict agree on what a memory and a topic are.
 - `agent-harness serve` refuses root (ADR 0006), and the agent box and possibly
   CI run as root: the environment's tests inject a non-privileged user check,
   and the CLI's end-to-end `serve` tests split on the runner's uid (the

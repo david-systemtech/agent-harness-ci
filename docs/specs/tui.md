@@ -532,3 +532,10 @@ Things a build session must verify first:
   - **`/routines test-precheck <name>`** finds the routine by name ignoring case, on the header's environment first, and runs `routines.testPreCheck` once, drawing what it found in words with twelve lines of its output and standard error.
   - **`/notices`** is a list: Enter opens the session a notice is about (a routine's firing, a parked prompt's session), else says the notice is about no session. A `routine-delivery-failed` notice is the runtime's to raise (#529); the activity line and `/notices` draw every kind.
   - **Tests**: `packages/tui/src/routines.test.ts` over scripted environments answering the routine methods (`packages/tui/test/routines.ts`, whose YAML is the contracts' codec, as the environment's), with an editor the test injects; `routines/document.test.ts` places the comments.
+
+
+- From #265: `!` and `!!` now use `terminals.run` (env spec, "Terminals"), superseding
+  #148's variable, marker and typed-line protocol and its Windows/startup-query gaps.
+  One-offs have closed stdin and no controlling terminal; `/terminal` remains the
+  interactive path. A shell newly opened by either pane has a one-second startup
+  answer window, including its first snapshot, even when the pane lacks focus.

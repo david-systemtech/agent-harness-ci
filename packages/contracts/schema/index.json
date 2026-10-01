@@ -1427,6 +1427,42 @@
       "title": "RepositoryIdentity"
     },
     {
+      "path": "banks/name.json",
+      "title": "BankName"
+    },
+    {
+      "path": "banks/manifest.json",
+      "title": "BankManifest"
+    },
+    {
+      "path": "banks/org-file.json",
+      "title": "OrgFile"
+    },
+    {
+      "path": "banks/scope-file.json",
+      "title": "ScopeFile"
+    },
+    {
+      "path": "banks/memory.json",
+      "title": "MemoryFrontmatter"
+    },
+    {
+      "path": "banks/rule-id.json",
+      "title": "BankRuleId"
+    },
+    {
+      "path": "banks/validator-rule.json",
+      "title": "BankValidatorRule"
+    },
+    {
+      "path": "banks/finding.json",
+      "title": "BankFinding"
+    },
+    {
+      "path": "banks/verdict.json",
+      "title": "BankVerdict"
+    },
+    {
       "path": "skills/name.json",
       "title": "SkillName"
     },
@@ -5707,6 +5743,22 @@
       "title": "terminals.open error"
     },
     {
+      "path": "methods/terminals.run/params.json",
+      "title": "terminals.run params"
+    },
+    {
+      "path": "methods/terminals.run/result.json",
+      "title": "terminals.run result"
+    },
+    {
+      "path": "methods/terminals.run/response.json",
+      "title": "terminals.run response"
+    },
+    {
+      "path": "methods/terminals.run/error.json",
+      "title": "terminals.run error"
+    },
+    {
       "path": "methods/terminals.write/params.json",
       "title": "terminals.write params"
     },
@@ -6602,6 +6654,11 @@
       "path": "data/catalogue-instructions.json",
       "title": "Catalogue instructions",
       "schema": "catalogue/instruction-entry.json"
+    },
+    {
+      "path": "data/bank-validator-rules.json",
+      "title": "Bank validator rules",
+      "schema": "banks/validator-rule.json"
     }
   ],
   "methods": [
@@ -7965,6 +8022,16 @@
       "result": "methods/terminals.open/result.json",
       "response": "methods/terminals.open/response.json",
       "error": "methods/terminals.open/error.json"
+    },
+    {
+      "name": "terminals.run",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.run/params.json",
+      "result": "methods/terminals.run/result.json",
+      "response": "methods/terminals.run/response.json",
+      "error": "methods/terminals.run/error.json"
     },
     {
       "name": "terminals.write",

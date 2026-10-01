@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseEnvironment, loginShell, processUser, throughShell, type ShellUser } from "./shell.js";
+import { baseEnvironment, loginShell, oneOffShell, processUser, throughShell, type ShellUser } from "./shell.js";
 
 const user = (shell: string | null): ShellUser => ({ username: "david", homedir: "/home/david", shell });
 const everyFile = () => true;
@@ -84,5 +84,13 @@ describe("the passwd entry", () => {
     expect(processUser(missing, { LOGNAME: "seth" }, 1234)).toEqual({ username: "seth", homedir: "/", shell: null });
     expect(processUser(missing, {}, 1234)).toEqual({ username: "1234", homedir: "/", shell: null });
     expect(loginShell("linux", processUser(missing, {}, 1234))).toEqual({ file: "/bin/sh", args: ["-l"] });
+  });
+});
+
+
+describe("the one-off shell", () => {
+  it("runs a command without login startup on POSIX and PowerShell profiles on Windows", () => {
+    expect(oneOffShell("echo hi", "linux")).toEqual({ file: "/bin/sh", args: ["-c", "echo hi"] });
+    expect(oneOffShell("Write-Output hi; exit 7", "win32")).toEqual({ file: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", "Write-Output hi; exit 7"] });
   });
 });

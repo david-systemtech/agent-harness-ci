@@ -1437,6 +1437,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     scrub,
     availability,
+    runPath: async () => (await managedTools.commandEnvironment())["PATH"] ?? "",
     ...options.terminals,
     processEnvironment: (sessionId) => {
       const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import type { SuppliedVariables } from "../adapter/contract.js";
@@ -9,6 +9,7 @@ import type { Clock, Timer } from "../serve/clock.js";
 import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
 import { bitwardenBlock } from "./bitwarden-block.js";
+import { dopplerBlock } from "./doppler-block.js";
 import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
@@ -21,9 +22,10 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * starts through the same call) is given the injecting connections' blocks
  * through.
  *
- * - **What is injected**: each injecting OpenBao connection's block
- *   (`openbao-block.ts`), at most one per provider (the connections' rule);
- *   the other providers' blocks join with their tickets (#377 to #379).
+ * - **What is injected**: each injecting OpenBao or Doppler connection's
+ *   block, at most one per provider. Doppler uses the kept token as it is,
+ *   with a private 0700 configuration directory deleted at holder stop.
+ *   The remaining providers' blocks join with #378 and #379.
  *   With none, nothing is supplied and the key is empty.
  * - **The key** names, per injected connection, its id, its credential
  *   generation and its status, and while run tokens are its login's
@@ -153,6 +155,14 @@ const replaceFile = async (path: string, text: string, mode: number): Promise<vo
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const { source, clock, scrub, budgetMs, background } = options;
   const held = new Set<HeldRunToken>();
+  const directories = new Map<string, ScrubRelease>();
+  const removeDirectory = (directory: string): void => {
+    const unregister = directories.get(directory);
+    if (unregister === undefined) return;
+    directories.delete(directory);
+    unregister();
+    background.run(rm(directory, { recursive: true, force: true }).catch((error: unknown) => console.error("Deleting a Doppler CLI directory failed:", error)));
+  };
   /** How many times each connection's run tokens were all revoked (its sign-outs and removal): a mint under way across one is revoked as it lands. */
   const revocations = new Map<string, number>();
   let closed = false;
@@ -160,7 +170,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
   /** The injecting connections with a supported environment block. */
-  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "bitwarden");
+  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler" || record.provider === "bitwarden");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
@@ -301,6 +311,20 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       const use = now.record.status.kind === "signed-in" && now.login !== null ? now.login.use() : undefined;
       return { variables: bitwardenBlock(now.record.address, use === undefined ? "" : now.login?.token ?? "", path), release: () => use?.() };
     }
+    if (now.record.provider === "doppler") {
+      await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
+      const directory = await mkdtemp(join(options.cliDirectory, "doppler-"));
+      const current = source.readable(connectionId);
+      if (current === null || !current.record.injects || closed) {
+        directories.set(directory, () => {});
+        removeDirectory(directory);
+        return null;
+      }
+      const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
+      const unregister = token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` });
+      directories.set(directory, unregister);
+      return { variables: dopplerBlock(current.record.address, token, directory), release: () => removeDirectory(directory) };
+    }
     const run = await mintFor(now.record, now.login, scope);
     return {
       variables: openBaoBlock({ address: now.record.address, ca: now.record.ca, token: run?.token ?? "", configPath }),
@@ -327,7 +351,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       if (injecting.length === 0) return NOTHING;
       // The five seconds run from the spawn: each wait starts before anything is awaited.
       const waits = injecting.map(({ record }) => waitForSignIn(record.id, scope));
-      const configPath = await configuration();
+      const configPath = injecting.some(({ record }) => record.provider === "openbao") ? await configuration() : "";
       const blocks = (await Promise.all(injecting.map(({ record }, index) => blockFor(record.id, waits[index] ?? Promise.resolve(), scope, configPath)))).filter(
         (given) => given !== null,
       );
@@ -355,6 +379,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
 
     close() {
       closed = true;
+      for (const directory of directories.keys()) removeDirectory(directory);
       for (const run of held) {
         run.renewal.cancel();
         run.unregister();

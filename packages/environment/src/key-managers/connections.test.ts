@@ -540,13 +540,13 @@ describe("a connection without a credential", () => {
     const { t, client } = await withOpenBao();
     const from = t.env.log.head();
 
-    const refused = await add(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com", credential: token() });
-    expect(rejection(refused.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "doppler" } });
+    const refused = await add(client, { provider: "onepassword", label: "1Password", address: "https://onepassword.example.test", credential: token() });
+    expect(rejection(refused.receipt)).toMatchObject({ reason: "provider_unavailable", data: { provider: "onepassword" } });
     expect(await keyManagerEvents(client, from)).toEqual([]);
     expect(await saidBack(t, [PERSON_TOKEN])).toEqual([PERSON_TOKEN]);
 
-    const waiting = await added(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com/" });
-    expect(waiting).toMatchObject({ provider: "doppler", address: "https://api.doppler.com", ca: null, method: null, mount: null, username: null, status: { kind: "awaiting-sign-in" } });
+    const waiting = await added(client, { provider: "onepassword", label: "1Password", address: "https://onepassword.example.test/" });
+    expect(waiting).toMatchObject({ provider: "onepassword", address: "https://onepassword.example.test", ca: null, method: null, mount: null, username: null, status: { kind: "awaiting-sign-in" } });
   });
 });
 
