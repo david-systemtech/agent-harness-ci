@@ -5,9 +5,15 @@
  *
  * - `OP_SERVICE_ACCOUNT_TOKEN`, the connection's own token (a service
  *   account mints no run tokens), empty while it is not signed in;
- * - `OP_CONNECT_HOST` and `OP_CONNECT_TOKEN` set empty: `op` uses a Connect
- *   server before a service account when both are set, so a user's would
- *   otherwise take over;
+ * - `OP_CONNECT_HOST` set empty, and `OP_CONNECT_TOKEN` not set at all:
+ *   `op` uses a Connect server, before a service account, whenever both
+ *   variables are present, even empty (measured on `op` 2.30.3: with both
+ *   empty, `op read` asks a Connect server at an empty host), and ignores
+ *   either alone. A provider process never inherits `OP_CONNECT_TOKEN` (the
+ *   Claude adapter's scrub drops every name holding `_TOKEN`), and a
+ *   terminal or a verify command starts from a clean base, so a user's
+ *   `OP_CONNECT_HOST` reaches `op` only as this empty value and Connect is
+ *   never used;
  * - `OP_CONFIG_DIR`, a 0700 directory of the holder's own under the data
  *   directory's key-manager CLI directory, deleted when the holder stops,
  *   so `op` keeps nothing in the user's configuration;
@@ -25,7 +31,6 @@ export interface OnePasswordBlockValues {
 export const onePasswordBlock = ({ token, configDirectory }: OnePasswordBlockValues): Record<string, string> => ({
   OP_SERVICE_ACCOUNT_TOKEN: token,
   OP_CONNECT_HOST: "",
-  OP_CONNECT_TOKEN: "",
   OP_CONFIG_DIR: configDirectory,
   OP_BIOMETRIC_UNLOCK_ENABLED: "false",
 });

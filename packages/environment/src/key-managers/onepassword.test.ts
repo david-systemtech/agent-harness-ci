@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { registry, type OnePasswordReference, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { isScrubbed } from "../adapters/claude/credentials.js";
 import { end, runCommand } from "../../test/fake-adapter.js";
 import {
   FAKE_ACCOUNT_URL,
@@ -46,7 +47,7 @@ const TOKEN = serviceAccountToken();
 const VALUE = "value-for-tests";
 
 /** The variables the block sets, in its order. */
-const BLOCK_NAMES = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_HOST", "OP_CONNECT_TOKEN", "OP_CONFIG_DIR", "OP_BIOMETRIC_UNLOCK_ENABLED"];
+const BLOCK_NAMES = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_HOST", "OP_CONFIG_DIR", "OP_BIOMETRIC_UNLOCK_ENABLED"];
 
 /** An environment beside the scripted 1Password, which accepts `TOKEN`. */
 const withOnePassword = async (options: TestEnvironmentOptions = {}): Promise<{ t: TestEnvironment; onePassword: FakeOnePassword; client: WireClient }> => {
@@ -318,7 +319,7 @@ describe("a Move into 1Password", () => {
 });
 
 describe("the 1Password block", () => {
-  it("gives a provider process the connection's own token, Connect shadowed, biometric unlock off, and a 0700 configuration directory of its own under the data directory", async () => {
+  it("gives a provider process the connection's own token, an empty Connect host, biometric unlock off, and a 0700 configuration directory of its own under the data directory", async () => {
     const { t, client } = await withOnePassword();
     await connected(client);
     const session = await create(client);
@@ -327,7 +328,7 @@ describe("the 1Password block", () => {
 
     const env = await spawnedWith(t, session.id);
     expect(Object.keys(env)).toEqual(BLOCK_NAMES);
-    expect(env).toMatchObject({ OP_SERVICE_ACCOUNT_TOKEN: TOKEN, OP_CONNECT_HOST: "", OP_CONNECT_TOKEN: "", OP_BIOMETRIC_UNLOCK_ENABLED: "false" });
+    expect(env).toMatchObject({ OP_SERVICE_ACCOUNT_TOKEN: TOKEN, OP_CONNECT_HOST: "", OP_BIOMETRIC_UNLOCK_ENABLED: "false" });
     const directory = env["OP_CONFIG_DIR"] ?? "";
     expect(dirname(directory)).toBe(join(t.env.dataDir, "key-manager-cli"));
     expect(statSync(directory).mode & 0o777).toBe(0o700);
@@ -353,24 +354,24 @@ describe("the 1Password block", () => {
   });
 
   posix("reaching op", () => {
-    it("lets a host's OP_CONNECT_HOST and OP_CONNECT_TOKEN reach op in a provider process only as the block's empty values", async () => {
+    it("lets a host's OP_CONNECT_HOST reach op in a provider process only as the block's empty value, and its OP_CONNECT_TOKEN not at all, so op never uses Connect", async () => {
       const { t, client } = await withOnePassword();
       await connected(client);
       const op = installFakeOp(join(tempDir(), "bin"));
       const session = await create(client);
       let saw: Record<string, string> = {};
+      // The machine's own variables, the fake op's PATH and a Connect server's, as a Claude process inherits them: through the adapter's scrub.
+      const host = { PATH: `${dirname(op.path)}:/usr/bin:/bin`, OP_CONNECT_HOST: "https://connect.example.test", OP_CONNECT_TOKEN: "connect-token-for-tests" };
+      const inherited = Object.fromEntries(Object.entries(host).filter(([name]) => !isScrubbed(name)));
       t.adapter.nextScripts.push(async function* (controls) {
-        // The machine's own variables, as a Claude process inherits them: the fake op's PATH, and a Connect server's.
-        const result = yield* runCommand(controls, "op whoami", {
-          env: { PATH: `${dirname(op.path)}:/usr/bin:/bin`, OP_CONNECT_HOST: "https://connect.example.test", OP_CONNECT_TOKEN: "connect-token-for-tests" },
-        });
+        const result = yield* runCommand(controls, "op whoami", { env: inherited });
         saw = JSON.parse(result.stdout.trim()) as Record<string, string>;
         yield end();
       });
 
       await runTo(t, client, session.id);
 
-      expect(saw).toMatchObject({ OP_CONNECT_HOST: opHash(""), OP_CONNECT_TOKEN: opHash(""), OP_SERVICE_ACCOUNT_TOKEN: opHash(TOKEN), OP_BIOMETRIC_UNLOCK_ENABLED: opHash("false") });
+      expect(saw).toEqual({ OP_SERVICE_ACCOUNT_TOKEN: opHash(TOKEN), OP_CONNECT_HOST: opHash(""), OP_CONFIG_DIR: expect.any(String), OP_BIOMETRIC_UNLOCK_ENABLED: opHash("false") });
     });
 
     it("runs op whoami through tools.verify with the block, passes, and deletes its configuration directory once it has exited", async () => {
@@ -387,7 +388,6 @@ describe("the 1Password block", () => {
           saw: {
             OP_SERVICE_ACCOUNT_TOKEN: opHash(TOKEN),
             OP_CONNECT_HOST: opHash(""),
-            OP_CONNECT_TOKEN: opHash(""),
             OP_CONFIG_DIR: expect.any(String),
             OP_BIOMETRIC_UNLOCK_ENABLED: opHash("false"),
           },
