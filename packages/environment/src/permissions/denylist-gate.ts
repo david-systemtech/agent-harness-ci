@@ -256,7 +256,7 @@ export const denylistRule = (context: DenylistContext): ToolGateRule => ({
   decider: "denylist",
   check: async (call, run, signal) => {
     if (!(context.readsCall ?? denylistReadsCall)(call)) return null;
-    const { matches, unresolvable } = readDenylistCall(context, denylistCall(call), run.workspace);
+    const { matches, unresolvable } = readDenylistCall({ ...context, exempt: [...context.exempt, ...(run.readableDirectories ?? [])] }, denylistCall(call), run.workspace);
     if (call.access.kind === "browse" && call.access.match !== undefined) {
       const browserMatch = call.access.match;
       // The browser's list is authoritative too, even when this environment lists no such entry.

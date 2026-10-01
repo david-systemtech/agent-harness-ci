@@ -43,6 +43,7 @@ import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
 import { createBankService } from "../banks/bank-service.js";
+import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
 import { banksProjector, listBanks } from "../banks/bank-store.js";
 import { bankMethods } from "../banks/methods.js";
 import { banksSection } from "../banks/orientation.js";
@@ -1042,6 +1043,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ownSkillsPath,
       join(dataDir, SNAPSHOTS_DIRECTORY),
       join(dataDir, GENERATIONS_DIRECTORY),
+      join(dataDir, BANKS_DIRECTORY),
     ],
     ...(user !== undefined && { user }),
   };
@@ -1336,6 +1338,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      bankCheckouts: (scope) => bankCheckouts(bankService.entries().map(({ entry }) => entry), scope),
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
       // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
       // it reads as it runs (#705), where the denylist covers them, are exempt too, so the sandbox lets the helper run.

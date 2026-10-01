@@ -1373,6 +1373,27 @@ describe("the process across turns", () => {
     expect(fake.queries).toHaveLength(3);
   });
 
+  it("spawns fresh when the attached bank directories change, including with containment off, and reuses an unchanged attachment", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const first = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/personal"] }));
+    await first.finish(sdk.tasks({ task_id: "task_1" }));
+    expect(() => adapter.createRun(runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), contextWith())).toThrow(/still has work running/);
+    first.query.emit(sdk.tasks());
+    await vi.waitFor(() => expect(port).toContain("unhold task:task_1"));
+    const second = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.additionalDirectories).toEqual(["/data/banks/team"]);
+    await second.finish();
+    const third = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), second.query);
+    await third.finish();
+    expect(fake.queries).toHaveLength(2);
+    const fourth = await oneTurn(adapter, runInput({ additionalDirectories: [], target: resume }));
+    expect(second.query.closed).toBe(true);
+    expect(fourth.query.options.additionalDirectories).toBeUndefined();
+    await fourth.finish();
+  });
+
   it("spawns fresh for a run whose containment closes other paths, a worktree made since the last, since the sandbox's denyWrite is fixed at spawn (#791)", async () => {
     const adapter = adapterWith();
     const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;

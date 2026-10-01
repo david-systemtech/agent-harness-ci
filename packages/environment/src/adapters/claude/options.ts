@@ -284,6 +284,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   }, input.supplied);
   return {
     cwd: run.workspace.path,
+    ...(run.additionalDirectories !== undefined && run.additionalDirectories.length > 0 && { additionalDirectories: [...run.additionalDirectories] }),
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
     ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
     env,
