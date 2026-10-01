@@ -23,17 +23,24 @@ const readIn = (window: Window, links = false) => {
   return runIn(window, readPage, { links });
 };
 
+/** The article the reader finds, failing the test where the page broke the reader. */
+const articleIn = (window: Window, links = false): string | null => {
+  const read = readIn(window, links);
+  if (read === null || "failed" in read) throw new Error(`The reader answered ${JSON.stringify(read)}.`);
+  return read.article;
+};
+
 describe("the reader in the page", () => {
   it("reads the page's article as Markdown with Readability on a copy of the document, leaving the live page as it was", () => {
     const window = realmOf(fixtureHtml("plain-article"));
     const before = window.document.documentElement.outerHTML;
 
-    const read = readIn(window);
+    const article = articleIn(window);
 
-    expect(read?.article?.startsWith("# Keeping a homelab's backups honest\n\n")).toBe(true);
-    expect(read?.article).toContain("A backup nobody has restored is a hope, not a backup.");
-    expect(read?.article).toContain("## The drill");
-    for (const boilerplate of ["Archive", "Your comment", "Written on a homelab"]) expect(read?.article).not.toContain(boilerplate);
+    expect(article?.startsWith("# Keeping a homelab's backups honest\n\n")).toBe(true);
+    expect(article).toContain("A backup nobody has restored is a hope, not a backup.");
+    expect(article).toContain("## The drill");
+    for (const boilerplate of ["Archive", "Your comment", "Written on a homelab"]) expect(article).not.toContain(boilerplate);
     expect(window.document.documentElement.outerHTML).toBe(before);
   });
 
@@ -48,8 +55,8 @@ describe("the reader in the page", () => {
 
   it("keeps link targets in the Markdown only when asked for them", () => {
     const html = `<!doctype html><title>Restore drills</title><body><article><h1>Restore drills</h1>${`<p>${"A restore proves a backup in a way no checksum can, so the drill is run every month. ".repeat(3)}See <a href="/runbook">the runbook</a> for the steps.</p>`.repeat(4)}</article></body>`;
-    expect(readIn(realmOf(html))?.article).toContain("See the runbook for the steps.");
-    expect(readIn(realmOf(html), true)?.article).toContain("See [the runbook](https://blog.example/runbook) for the steps.");
+    expect(articleIn(realmOf(html))).toContain("See the runbook for the steps.");
+    expect(articleIn(realmOf(html), true)).toContain("See [the runbook](https://blog.example/runbook) for the steps.");
   });
 
   it("finds no article on a page Readability judges not readerable: an index of links and short lines", () => {
