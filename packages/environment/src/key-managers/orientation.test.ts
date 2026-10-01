@@ -396,16 +396,16 @@ posix("why a run has no token", () => {
 
   it("says of an injecting connection whose provider this version gives no block that runs get none of its variables", async () => {
     const { t, client } = await withOpenBao();
-    const doppler = await added(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com" });
-    expect((await setInjected(client, doppler.id)).receipt).toMatchObject({ status: "accepted" });
+    const other = await added(client, { provider: "onepassword", label: "1Password", address: "https://onepassword.example.test" });
+    expect((await setInjected(client, other.id)).receipt).toMatchObject({ status: "accepted" });
     const session = await create(client);
 
     const text = await runTo(t, client, session.id);
 
     expect(keyManagersOf(text).slice(1, 4)).toEqual([
-      "Doppler, injected into this run: awaiting its sign-in since 2026-09-24 00:00 UTC; runs get no token from it until the user signs it in.",
+      "1Password, injected into this run: awaiting its sign-in since 2026-09-24 00:00 UTC; runs get no token from it until the user signs it in.",
       "This version gives runs none of its variables yet.",
-      "Its CLI: doppler is not installed.",
+      "Its CLI: op is not installed.",
     ]);
   });
 

@@ -1,5 +1,5 @@
 import { toHex, derive } from "@agent-harness/theme";
-import { DEFAULT_THEME, ONE_OFF_LINE } from "@agent-harness/contracts";
+import { DEFAULT_THEME } from "@agent-harness/contracts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { FitAddon } from "@xterm/addon-fit";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -79,6 +79,21 @@ const fitsIn = (size: { readonly cols: number; readonly rows: number }) => {
 const writesTo = (app: RenderedApp, id: string) => app.environment("desk").terminal(id).writes;
 
 describe("the Terminal pane", () => {
+  it("answers startup snapshot queries without focus, then stops once the startup window ends", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(100);
+    onTestFinished(() => now.mockRestore());
+    const { app, env } = await opened({ terminalStartup: "\x1b[6n" });
+    await app.user.click(action());
+    act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+    await waitFor(() => expect(env.terminals()).toHaveLength(1));
+    const id = env.terminals()[0]?.id as string;
+    await waitFor(() => expect(writesTo(app, id)).toEqual(["\x1b[1;1R"]));
+    now.mockReturnValue(1100);
+    env.terminalOutput(id, "\x1b[6ndone");
+    await waitFor(() => expect(rows().join("\n")).toContain("done"));
+    expect(writesTo(app, id)).toEqual(["\x1b[1;1R"]);
+  });
+
   it("draws the newest terminal the session has running: the scrollback's snapshot, then live chunks in order, opening none", async () => {
     const { app, env } = await opened({
       terminals: [
@@ -275,8 +290,8 @@ describe("a shell line in the composer", () => {
     const box = await typed(app, "!ls");
     await waitFor(() => expect(env.terminals()).toHaveLength(2));
     const own = env.terminals()[1];
-    expect(own?.env).toEqual({ AGENT_HARNESS_ONE_OFF: "ls" });
-    await waitFor(() => expect(writesTo(app, own?.id as string)).toEqual([ONE_OFF_LINE]));
+    expect(env.requests("terminals.run")[0]?.params).toMatchObject({ command: "ls" });
+    await waitFor(() => expect(writesTo(app, own?.id as string)).toEqual([]));
     await waitFor(() => expect(rows()).toContain("notes.txt"));
     expect(within(pane()).getByText("!ls")).toBeDefined();
     expect(writesTo(app, FIRST)).toEqual([]);
