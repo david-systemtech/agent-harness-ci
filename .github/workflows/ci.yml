@@ -31,16 +31,18 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  # Only to delete this run's ci/<id> ref at the end.
+  # Only for the cleanup job, which deletes this run's ci/<id> ref.
   contents: write
 
 jobs:
-  ci:
+  # Everything but the suite: the secret scan, typecheck, lint, the schema
+  # export drift check.
+  checks:
     runs-on: ubuntu-24.04
     # The image and the user the Forgejo `ci` runners use (node:24-bookworm, as
     # root), so the same tests run and skip as they did there. Some cli tests
-    # run only as an ordinary user; run on the bare runner and they run too
-    # (agent-harness issue: non-root tests never ran in CI).
+    # run only as an ordinary user and have never run in CI (agent-harness
+    # issue 877); without `container:` they would run too.
     container: node:24-bookworm
     timeout-minutes: 25
     # A container job's default shell is sh; the steps are bash.
@@ -49,18 +51,15 @@ jobs:
         shell: bash
     env:
       SHA: ${{ github.event.client_payload.sha }}
-      RUN_REF: ci/${{ github.event.client_payload.id }}
     steps:
       - name: Check the payload
         run: |
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha: $SHA"; exit 1; }
-          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id: $RUN_REF"; exit 1; }
           echo "Forgejo run: ${{ github.event.client_payload.forgejo_run }}"
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.client_payload.sha }}
-          # The secret scan reads every commit.
+          # The secret scan reads every commit; tests that read history get it too.
           fetch-depth: 0
           persist-credentials: false
       # The workspace belongs to the runner's user and the job runs as root, so
@@ -91,15 +90,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/agent-harness-pwsh
-          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
-      - name: PowerShell 7 for the install.ps1 tests
-        run: bash .forgejo/scripts/pwsh.sh
-      # Four workers for four vCPUs.
-      - run: pnpm test --maxWorkers=4
-
       - name: The JSON Schema export is current
         run: |
           set -euo pipefail
@@ -110,11 +100,71 @@ jobs:
             exit 1
           fi
 
-      # The relay pushed this ref only so the commit could be checked out.
+  # The suite in three shards on three runners: one 4-vCPU runner took 601 s
+  # for it on 2026-10-01, and runners for a public repository cost nothing.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-24.04
+    # The image and the user the Forgejo `ci` runners use (node:24-bookworm, as
+    # root), so the same tests run and skip as they did there. Some cli tests
+    # run only as an ordinary user and have never run in CI (agent-harness
+    # issue 877); without `container:` they would run too.
+    container: node:24-bookworm
+    timeout-minutes: 25
+    # A container job's default shell is sh; the steps are bash.
+    defaults:
+      run:
+        shell: bash
+    env:
+      SHA: ${{ github.event.client_payload.sha }}
+    steps:
+      - name: Check the payload
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad sha: $SHA"; exit 1; }
+          echo "Forgejo run: ${{ github.event.client_payload.forgejo_run }}"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          # The secret scan reads every commit; tests that read history get it too.
+          fetch-depth: 0
+          persist-credentials: false
+      # The workspace belongs to the runner's user and the job runs as root, so
+      # git refuses the checkout as dubious ownership until it is marked safe;
+      # tests that run git in it need this.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: corepack enable && corepack prepare --activate
+      - name: Where pnpm keeps its store
+        id: pnpm-store
+        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.dir }}
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/agent-harness-pwsh
+          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
+      - name: PowerShell 7 for the install.ps1 tests
+        run: bash .forgejo/scripts/pwsh.sh
+      # Four workers for four vCPUs.
+      - run: pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/3
+
+  # The relay pushed ci/<id> only so the commit could be checked out.
+  cleanup:
+    needs: [checks, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
       - name: Delete this run's ref
-        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_REF: ci/${{ github.event.client_payload.id }}
         run: |
-          curl -sS -o /dev/null -w 'delete %{http_code}\n' -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
+          [[ "$RUN_REF" =~ ^ci/[A-Za-z0-9._-]+$ ]] || { echo "::error::bad id: $RUN_REF"; exit 1; }
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RUN_REF" || true
