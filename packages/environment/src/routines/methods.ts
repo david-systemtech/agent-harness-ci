@@ -127,7 +127,7 @@ const unreadable = (documents: readonly ImportDocument[], routineIds: readonly s
 };
 
 /** The refusal of a routine the environment does not hold, or has deleted. */
-const routineNotFound = (routineId: string) => ({ code: "not_found" as const, message: `No routine ${routineId} is on this environment.`, data: { kind: "routine", routineId } });
+export const routineNotFound = (routineId: string) => ({ code: "not_found" as const, message: `No routine ${routineId} is on this environment.`, data: { kind: "routine", routineId } });
 
 const notFound = (routineId: string): Decision<"not_found"> => ({ rejected: routineNotFound(routineId) });
 

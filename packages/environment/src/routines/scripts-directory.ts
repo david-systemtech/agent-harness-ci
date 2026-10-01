@@ -70,7 +70,7 @@ export interface ScriptProblem {
 export interface ScriptsDirectory {
   /** The directory's absolute path. */
   readonly path: string;
-  /** Its regular files that stay inside it once links are followed, by path relative to it in code-point order, each executable or not. */
+  /** Its regular files that stay inside it once links are followed, by path relative to it in code-point order, each executable or not; none once it is gone. */
   list(): Promise<{ readonly path: string; readonly executable: boolean }[]>;
   /** Whether a file is at `path` in it, links followed: what the list's `script_missing` attention reads. */
   present(path: string): boolean;
@@ -84,19 +84,11 @@ export const scriptsDirectory = (path: string, executability: Executability): Sc
   /** The directory's real path: links in the data directory's own path followed, so a script's real path compares with it. */
   const root = async (): Promise<string> => realpath(path);
 
-  const resolve = async (named: string): Promise<ResolvedScript | ScriptProblem> => {
-    const base = await root();
-    let real: string;
-    try {
-      real = await realpath(join(base, named));
-    } catch (error) {
-      const code = errorCode(error);
-      if (code === "ENOENT") return { reason: "script_missing", detail: `No script is at ${named} in the scripts directory ${path}.` };
-      return { reason: "script_unusable", detail: `The script ${named} cannot be read (${code ?? String(error)}).` };
-    }
+  /** The script `named` names inside `base`, the directory's real path, or why it cannot run; throws what the file system throws. */
+  const resolveIn = async (base: string, named: string): Promise<ResolvedScript | ScriptProblem> => {
+    const real = await realpath(join(base, named));
     if (!inside(base, real)) return { reason: "script_unusable", detail: `The script ${named} leads out of the scripts directory, to ${real}, once its links are followed.` };
-    const stats = await stat(real);
-    if (!stats.isFile()) return { reason: "script_unusable", detail: `The script ${named} is not a regular file.` };
+    if (!(await stat(real)).isFile()) return { reason: "script_unusable", detail: `The script ${named} is not a regular file.` };
     if (!(await executable(real, executability))) {
       const why = executability.platform === "win32" ? "its extension is not one Windows runs" : "it is not executable";
       return { reason: "script_unusable", detail: `The script ${named} cannot be run: ${why}.` };
@@ -104,7 +96,19 @@ export const scriptsDirectory = (path: string, executability: Executability): Sc
     return { path: real };
   };
 
+  /** Never rejects: nothing there is `script_missing`, anything else the file system refuses `script_unusable`. */
+  const resolve = async (named: string): Promise<ResolvedScript | ScriptProblem> => {
+    try {
+      return await resolveIn(await root(), named);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === "ENOENT") return { reason: "script_missing", detail: `No script is at ${named} in the scripts directory ${path}.` };
+      return { reason: "script_unusable", detail: `The script ${named} cannot be read (${code ?? String(error)}).` };
+    }
+  };
+
   const list = async (): Promise<{ readonly path: string; readonly executable: boolean }[]> => {
+    if (!existsSync(path)) return [];
     const base = await root();
     const found: { path: string; executable: boolean }[] = [];
     const walk = async (folder: string): Promise<void> => {

@@ -80,6 +80,7 @@ export interface PreCheckRun {
 }
 
 export interface PreCheckRunner {
+  /** Runs `preCheck` once for `subject`; never rejects: what went wrong is the record's failure. */
   run(preCheck: PreCheck, subject: PreCheckSubject, options: PreCheckRunOptions): Promise<PreCheckRun>;
 }
 

@@ -2,6 +2,7 @@ import { ContractError, MAX_PRE_CHECK_OUTPUT_BYTES, invalidParams, type ParamsOf
 import type { EventLog } from "../event-log/event-log.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
+import { routineNotFound } from "./methods.js";
 import { MAX_PRE_CHECK_SHOWN_OUTPUT } from "./pre-check-block.js";
 import type { PreCheckRunner, PreCheckSubject } from "./pre-check.js";
 import { liveRoutine, routineBaseline } from "./routine-store.js";
@@ -35,10 +36,6 @@ export interface PreCheckMethodsOptions {
 
 type PreCheckMethodName = "routines.scripts.list" | "routines.testPreCheck";
 
-/** The refusal of a routine the environment does not hold. */
-const routineNotFound = (routineId: string): ContractError =>
-  new ContractError({ code: "not_found", message: `No routine ${routineId} is on this environment.`, data: { kind: "routine", routineId } });
-
 export const preCheckMethods = (options: PreCheckMethodsOptions): Required<Pick<MethodHandlers, PreCheckMethodName>> => {
   const reader: Reader = { all: (sql, ...params) => options.log.read(sql, ...params) };
 
@@ -50,7 +47,7 @@ export const preCheckMethods = (options: PreCheckMethodsOptions): Required<Pick<
     }
     const id = params.routineId.toLowerCase();
     const routine = liveRoutine(reader, id);
-    if (routine === null) throw routineNotFound(id);
+    if (routine === null) throw new ContractError(routineNotFound(id));
     const { preCheck, name, workspace } = routine.definition;
     if (preCheck === null) {
       throw new ContractError(invalidParams([{ code: "custom", path: ["routineId"], message: `The routine ${id} has no pre-check to run.` }], "The routine has no pre-check."));

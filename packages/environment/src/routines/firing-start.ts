@@ -159,7 +159,7 @@ export const minuteIn = (at: string, zone: string): string => {
  * automatically, and that the marker alone sends nothing; then the
  * instructions; then, when a pre-check ran, its block.
  */
-export const firingMessage = (firing: FiringStart, environmentName: string, observation: Observation | null = null): string => {
+export const firingMessage = (firing: FiringStart, environmentName: string, observation: Observation | null): string => {
   const { name, timezone, silenceMarker, instructions } = firing.definition;
   const block = observation === null ? [] : ["", preCheckBlock(observation.record.output ?? "", observation.record.startedAt, observation.baseline)];
   return [
