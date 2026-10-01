@@ -290,6 +290,8 @@ describe("projections.routines", () => {
     expect(runtime.projections.environments.read()[0]).toMatchObject({ pendingCommands: 0 });
     expect(runtime.projections.routines.read().groups[0]?.routines[2]).toEqual({ environmentId: deskId, routineId: fresh, definition, listed: null, pending: false });
 
+    // The notice comes later than the receipt, so the list it asks for is asked after it while the earlier one is still held.
+    clock.advance(1_000);
     lists.set(deskId, [...(lists.get(deskId) ?? []), listedRoutine(fresh, "Nightly triage")]);
     desk.notices.event(noticeEvent(1, deskId, "routine.updated", { routineId: fresh, change: "created" }));
     await flush();
