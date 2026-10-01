@@ -252,6 +252,8 @@ describe("the method registry", () => {
       "forge.pullRequests.unlink",
       "banks.join",
       "banks.register",
+      "banks.credential.set",
+      "banks.credential.swap",
       "banks.create",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
@@ -486,6 +488,8 @@ describe("the method registry", () => {
       | "banks.list"
       | "banks.get"
       | "banks.register"
+      | "banks.credential.set"
+      | "banks.credential.swap"
       | "banks.create"
       | "banks.verify"
       | "banks.sync"

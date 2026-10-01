@@ -109,7 +109,7 @@ import {
   instructionsSetScope,
   sessionsSetInstructions,
 } from "./methods/instructions.js";
-import { banksCreate, banksGet, banksJoin, banksJoinPreview, banksList, banksRegister, banksSync, banksVerify } from "./methods/banks.js";
+import { banksCreate, banksCredentialSet, banksCredentialSwap, banksGet, banksJoin, banksJoinPreview, banksList, banksRegister, banksSync, banksVerify } from "./methods/banks.js";
 import {
   forgeAccountsAdd,
   forgeAccountsList,
@@ -310,6 +310,8 @@ export const methods = [
   banksDraftsList,
   banksGet,
   banksRegister,
+  banksCredentialSet,
+  banksCredentialSwap,
   banksCreate,
   banksVerify,
   banksSync,

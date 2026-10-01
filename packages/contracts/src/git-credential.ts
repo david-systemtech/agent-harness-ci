@@ -54,8 +54,8 @@ const ProtocolValue = z.string().min(1).regex(/^[^\n\r\0]+$/);
 /** What the route answers a `get` (`erase` is answered 204, with nothing). */
 export const GitCredentialAnswer = z
   .object({
-    username: ProtocolValue.meta({ description: "git's username, derived per kind: x-access-token for GitHub, the login for Forgejo and Gitea." }),
-    password: ProtocolValue.meta({ description: "The forge account's token, read for this request." }),
+    username: ProtocolValue.meta({ description: "git's username: x-access-token for GitHub, the account login for Forgejo and Gitea, or git for a bank fallback without an account." }),
+    password: ProtocolValue.meta({ description: "The forge account's token or the BankService operation's fallback, read for this request." }),
   })
   .meta({ description: "The credential git gets for the origin: the derived username and the token." });
 export type GitCredentialAnswer = z.infer<typeof GitCredentialAnswer>;

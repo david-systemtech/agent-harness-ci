@@ -7,13 +7,13 @@
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\n\\r\\0]+$",
-      "description": "git's username, derived per kind: x-access-token for GitHub, the login for Forgejo and Gitea."
+      "description": "git's username: x-access-token for GitHub, the account login for Forgejo and Gitea, or git for a bank fallback without an account."
     },
     "password": {
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\n\\r\\0]+$",
-      "description": "The forge account's token, read for this request."
+      "description": "The forge account's token or the BankService operation's fallback, read for this request."
     }
   },
   "required": [
