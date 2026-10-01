@@ -15,14 +15,20 @@ import { layOutVersion } from "./launcher-fixtures.js";
 /** Answers one command, or leaves it to the preset: exit 0, no output. */
 export type Answer = (command: string, args: readonly string[]) => Partial<CommandResult> | undefined;
 
-/** A runner that records each command as one space-joined line and answers it from `answer`. */
+/**
+ * A runner that records each command as one space-joined line, and the
+ * timeout it was last run with by that line, and answers it from `answer`.
+ */
 export const stubRunner = (answer: Answer = () => undefined) => {
   const calls: string[] = [];
-  const runner: CommandRunner = async (command, args) => {
-    calls.push([command, ...args].join(" "));
+  const timeouts = new Map<string, number>();
+  const runner: CommandRunner = async (command, args, timeoutMs) => {
+    const line = [command, ...args].join(" ");
+    calls.push(line);
+    timeouts.set(line, timeoutMs);
     return { code: 0, stdout: "", stderr: "", ...answer(command, args) };
   };
-  return { runner, calls };
+  return { runner, calls, timeouts };
 };
 
 /** A temporary directory the returned cleanup removes. */
