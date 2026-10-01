@@ -12,7 +12,8 @@ import { DescribeGitError, describeRepositoryAt, prepareDescribeRepository } fro
  * subjects are the enabled banks. A session `setup.mint` mints for one
  * works in a writable worktree of a separate copy of the bank on a new branch
  * `setup/describe-<date>` (the environment's day, in UTC), `-2`, `-3` and on
- * when that day's is taken, made from the checkout's main by the resolver.
+ * when that day's is taken, reserved from the copy's refreshed main before
+ * the resolver makes its worktree.
  * The copy's git metadata is outside the attached checkout and writable,
  * so nothing touches the checkout, which runs see read-only, until the
  * change is reviewed and landed. A bank whose checkout is not there, and a
