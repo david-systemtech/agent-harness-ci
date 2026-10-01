@@ -70,26 +70,32 @@ const fixture = (options: Partial<GenerationsOptions> = {}) => {
   const generations = createGenerations({ dataDir, clock, ...options });
   const tdd: PlacedMember = {
     name: "tdd",
+    description: "Test-driven development.",
     kind: "skill",
     target: join(own, "skills", "tdd"),
     origin: null,
     commit: null,
     invocation: "model+slash",
+    userInvocable: true,
+    argumentHint: null,
     native: false,
     alwaysOn: false,
   };
-  const review: PlacedMember = { ...tdd, name: "review", kind: "command", target: join(own, "commands", "review.md") };
+  const review: PlacedMember = { ...tdd, name: "review", description: "Review the branch.", kind: "command", target: join(own, "commands", "review.md") };
   return { dataDir, own, clock, generations, tdd, review, root: join(dataDir, GENERATIONS_DIRECTORY) };
 };
 
 /** A native member: a trusted repository's `.claude/skills` member, which the adapter loads itself. */
 const native = (name: string): PlacedMember => ({
   name,
+  description: `The repository's ${name}.`,
   kind: "skill",
   target: `/work/repo/.claude/skills/${name}`,
   origin: { kind: "repository", repository: "github.com/david/repo", path: `.claude/skills/${name}` },
   commit: null,
   invocation: "model+slash",
+  userInvocable: true,
+  argumentHint: null,
   native: true,
   alwaysOn: false,
 });

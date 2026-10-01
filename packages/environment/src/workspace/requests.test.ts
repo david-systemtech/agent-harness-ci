@@ -407,7 +407,7 @@ describe("a workspace of any kind", () => {
     const pty = fakePty();
     const t = await start({
       workspaceResolver: scriptedResolver(() => ({ workspace: worktree, repositoryIdentity: null })),
-      adapter: fakeAdapter({ commands: [{ name: "review", description: "Review the branch." }] }),
+      adapter: fakeAdapter({ commands: [{ name: "review", description: "Review the branch.", builtin: false }] }),
       terminals: { shell: () => ({ file: "/bin/sh", args: [] }), pty },
     });
     const client = await t.client();
@@ -417,7 +417,7 @@ describe("a workspace of any kind", () => {
     const forked = await client.apply("sessions.fork", { commandId: randomUUID(), sessionId: id, id: randomUUID() });
     expect(forked.summary.workspace).toEqual(worktree);
 
-    expect(await client.request("commands.list", { workspace: worktree })).toMatchObject({ commands: [{ name: "review" }] });
+    expect(await client.request("commands.list", { sessionId: forked.summary.id })).toMatchObject({ entries: [{ name: "review" }] });
     expect(t.adapter.commandListings.map((listing) => listing.workspace)).toEqual([root]);
 
     await openTerminal(client, id);
