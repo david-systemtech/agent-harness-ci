@@ -91,6 +91,7 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
 
 /** The slash commands the harness adds (the tui spec's "The composer"), and the one rename. */
 const ADDED_COMMANDS = [
+  "browser",
   "account",
   "environment",
   "pair",

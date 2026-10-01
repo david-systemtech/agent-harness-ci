@@ -25,6 +25,10 @@
       "type": "boolean",
       "description": "The provider holds messages sent during a turn; without it the environment holds them and starts the next run with them when the turn ends."
     },
+    "withdraw": {
+      "type": "boolean",
+      "description": "The adapter can take back a queued message its provider holds, by id; messages the environment holds can always be withdrawn."
+    },
     "steering": {
       "type": "boolean",
       "description": "The provider folds a queued message into the running turn at its next boundary; presupposes providerQueue."
@@ -216,6 +220,7 @@
     "interactivePrompts",
     "partialMessages",
     "providerQueue",
+    "withdraw",
     "steering",
     "resume",
     "fork",

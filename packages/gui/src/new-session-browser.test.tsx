@@ -40,8 +40,8 @@ describe("the new-session browser chip", () => {
     const browser = await screen.findByRole("button", { name: "Browser: My Chrome: Work Chrome" });
     act(() => browser.focus());
     await app.user.keyboard("{Enter}");
-    await app.user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^None/ }));
-    await screen.findByRole("button", { name: "Browser: None" });
+    await app.user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^No browser/ }));
+    await screen.findByRole("button", { name: "Browser: No browser" });
     const account = screen.getByRole("button", { name: /^Account: Work/ });
     act(() => account.focus());
     await app.user.keyboard("{Enter}");
@@ -54,10 +54,10 @@ describe("the new-session browser chip", () => {
     const chip = await screen.findByRole("button", { name: "Browser: My Chrome: Work Chrome" });
     act(() => chip.focus());
     await app.user.keyboard("{Enter}");
-    await app.user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^None/ }));
-    expect(await screen.findByRole("button", { name: "Browser: None" })).toBeDefined();
+    await app.user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: /^No browser/ }));
+    expect(await screen.findByRole("button", { name: "Browser: No browser" })).toBeDefined();
     await app.remount();
-    expect(await screen.findByRole("button", { name: "Browser: None" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Browser: No browser" })).toBeDefined();
   });
 
   it("shows the account reach preset, lets the keyboard choose the dock, and keeps that choice on reopening", async () => {

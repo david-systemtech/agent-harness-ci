@@ -73,6 +73,7 @@ export const CAPABILITY_FLAGS = [
   "interactivePrompts",
   "partialMessages",
   "providerQueue",
+  "withdraw",
   "steering",
   "resume",
   "fork",
@@ -94,7 +95,7 @@ export const CAPABILITY_FLAGS = [
 export type AdapterCapabilityFlag = (typeof CAPABILITY_FLAGS)[number];
 export const AdapterCapabilityFlag = z.enum(CAPABILITY_FLAGS).meta({
   description:
-    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed), containment (the adapter enforces a run's containment level through its provider's sandbox).",
+    "One optional power of the adapter contract: interactivePrompts, partialMessages, providerQueue (the provider holds messages sent during a turn), withdraw (it can take back a message its provider holds), steering (it folds one into the running turn), resume, fork, rewind, sessionListing, subagents (delegated work it can stop), subagentTranscripts, titleRead, titleWrite, transcriptDelete, planUsage, liveModels, commands, imageInput, fileInput, modeChange (a live run's mode can be changed), containment (the adapter enforces a run's containment level through its provider's sandbox).",
 });
 
 const flag = (description: string) => z.boolean().meta({ description });
@@ -116,6 +117,7 @@ export const AdapterCapabilities = z
     providerQueue: flag(
       "The provider holds messages sent during a turn; without it the environment holds them and starts the next run with them when the turn ends.",
     ),
+    withdraw: flag("The adapter can take back a queued message its provider holds, by id; messages the environment holds can always be withdrawn."),
     steering: flag("The provider folds a queued message into the running turn at its next boundary; presupposes providerQueue."),
     resume: flag("A session's next run resumes the provider's own session."),
     fork: flag("A session can be forked, from its end or from a user message."),

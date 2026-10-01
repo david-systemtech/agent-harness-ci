@@ -125,11 +125,11 @@ const picker = (w: Awaited<ReturnType<typeof world>>, name: Name, condition: (vi
 const chromeRows = (view: BrowsersView): BrowserRow[] => view.rows.filter((row) => row.value?.kind === "chrome");
 
 describe("projections.browsers: the Chromes", () => {
-  it("lists each Chrome paired with the local environment and with the session's, connected or dimmed with the reason, and no other environment's", async () => {
+  it("lists each Chrome paired with the local environment and with the session's, connected or dimmed with the reason, and other machines dimmed with their reason", async () => {
     const w = await world({
       chromes: { desk: [chrome(CHROMES.work, "Work")], laptop: [chrome(CHROMES.studio, "Studio", false)], tower: [chrome(CHROMES.spare, "Spare")] },
     });
-    const view = await picker(w, "laptop", (v) => chromeRows(v).length === 2);
+    const view = await picker(w, "laptop", (v) => chromeRows(v).length === 3);
 
     expect(chromeRows(view)).toEqual([
       {
@@ -146,7 +146,25 @@ describe("projections.browsers: the Chromes", () => {
         unavailable: { reason: "disconnected", message: "Studio is not connected. Open it with the agent-harness extension enabled." },
         selected: false,
       },
+      {
+        value: { kind: "chrome", environmentId: w.ids.tower, chromeId: CHROMES.spare },
+        label: "My Chrome: Spare on tower", note: "Always this browser, whatever else is open.",
+        unavailable: { reason: "not-drivable", message: "Chrome on tower: no local client can drive it for this session." },
+        selected: false,
+      },
     ]);
+  });
+});
+
+describe("projections.browsers: a stored Chrome no longer paired", () => {
+  it("keeps a known other machine's stored Chrome selected and dim with its driving refusal", async () => {
+    const w = await world();
+    w.lists.laptop.event(listEvent(2, w.sessions.laptop, "session.browser.set", {}, { browser: { kind: "chrome", environmentId: w.ids.tower, chromeId: CHROMES.spare } }));
+    const view = await picker(w, "laptop", (v) => v.rows.some((row) => row.selected && row.value?.kind === "chrome"));
+    expect(view.rows.find((row) => row.selected)).toMatchObject({
+      value: { kind: "chrome", environmentId: w.ids.tower, chromeId: CHROMES.spare },
+      unavailable: { reason: "not-drivable" },
+    });
   });
 });
 
@@ -195,7 +213,7 @@ describe("projections.browsers: the headless browser and the default", () => {
     expect(laptop.rows.map(({ value, label, note, unavailable }) => ({ value, label, note, unavailable }))).toEqual([
       { value: null, label: "Default", note: "Currently the headless browser.", unavailable: null },
       { value: { kind: "headless" }, label: "Headless browser", note: "A browser on laptop that nobody can see. Signed in to nothing, and the agent can read, click and type in it.", unavailable: null },
-      { value: { kind: "none" }, label: "None", note: "No browser. The run can read the web with web_read alone.", unavailable: null },
+      { value: { kind: "none" }, label: "No browser", note: "Read the web with web_read alone.", unavailable: null },
     ]);
     const notAllowedLine = "desk lets no run use its headless browser: browser.headless.allowRuns is off.";
     expect([rowOf(desk, "headless")?.unavailable, rowOf(desk, null)?.note]).toEqual([{ reason: "headless-not-allowed", message: notAllowedLine }, `Currently no browser. ${notAllowedLine}`]);

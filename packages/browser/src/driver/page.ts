@@ -109,7 +109,21 @@ export interface InPageSource<A extends unknown[], R> {
 /** What the driver runs in a page: a function, sent as its own source text, or a composed declaration. */
 export type InPageFunction<A extends unknown[], R> = ((...args: A) => R) | InPageSource<A, R>;
 
-const declarationOf = (fn: InPageFunction<never, unknown>): string => (typeof fn === "function" ? fn.toString() : fn.declaration);
+/**
+ * The naming helper of a transform that keeps function names, esbuild's (tsx's, when the package runs from source): the transform
+ * declares it in the module, so an in-page function's source text calls a helper no page has (#966). Defined here as esbuild defines it.
+ */
+const NAMING_HELPER = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });`;
+
+/**
+ * What the driver sends a page for an in-page function: a function of the same name that declares the naming helper, then calls the
+ * in-page function, from its source text, with its own `this` and arguments; so it runs in the page whatever transform loaded this package.
+ */
+const declarationOf = (fn: InPageFunction<never, unknown>): string => {
+  const source = typeof fn === "function" ? fn.toString() : fn.declaration;
+  const name = /^\s*(?:async\s+)?function\s*\*?\s*([\w$]+)/.exec(source)?.[1] ?? "";
+  return `function ${name}() {\n${NAMING_HELPER}\nreturn (${source}).apply(this, arguments);\n}`;
+};
 
 /** An in-page function's answer in one frame. */
 export type FrameOutcome<R> = { readonly frame: PageFrame; readonly ok: true; readonly value: R } | { readonly frame: PageFrame; readonly ok: false; readonly error: string };
@@ -399,7 +413,7 @@ export class CdpPage {
     const { object } = await this.session.send("DOM.resolveNode", { backendNodeId, executionContextId }, parent.sessionId);
     const { objectId } = object as { objectId: string };
     try {
-      const reply = await this.session.send("Runtime.callFunctionOn", { functionDeclaration: fn.toString(), objectId, returnByValue: true, awaitPromise: true }, parent.sessionId);
+      const reply = await this.session.send("Runtime.callFunctionOn", { functionDeclaration: declarationOf(fn), objectId, returnByValue: true, awaitPromise: true }, parent.sessionId);
       if (reply.exceptionDetails) throw new Error(`The page's script failed: ${exceptionText(reply.exceptionDetails as ExceptionDetails)}`);
       return (reply.result as { value?: unknown }).value as Awaited<R>;
     } finally {

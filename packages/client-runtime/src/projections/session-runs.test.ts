@@ -56,7 +56,7 @@ describe("each verb's availability", () => {
     expect(sessionVerbs(input()).verbs.readNow).toEqual({ status: "absent", reason: "no_queue", message: "Nothing is queued to read." });
   });
 
-  it("offers read-now and withdraw while messages are queued, and refuses a rewind while a run is live or the environment holds any", () => {
+  it("offers read-now and withdraw while messages are queued, and refuses a rewind while a run is live or messages are held", () => {
     const queued = [message("m-1", "Also the tests", "provider", 3)];
     expect(reasons({ live: true, queued })).toEqual({ readNow: "present", withdraw: "present", fork: "present", rewind: "run_active", undoRewind: "run_active" });
     // After an interrupt the environment holds them: a rewind would reach the provider before them (`queued_messages`).
@@ -72,6 +72,49 @@ describe("each verb's availability", () => {
     // The verb is the newest message a withdraw reaches, past one the provider is reading.
     const mixed = [message("m-0", "Held", "environment", 2), ...queued];
     expect(sessionVerbs(input({ queued: mixed })).verbs.withdraw).toEqual(PRESENT);
+  });
+
+  it("dims withdraw for the newest provider-held message when the adapter cannot take it back, until interrupt re-owns it", () => {
+    const adapter = { ...capabilities, withdraw: false };
+    const queued = [message("m-0", "Held", "environment", 2), message("m-1", "Also the tests", "provider", 3)];
+    const before = sessionVerbs(input({ adapter, live: true, queued }));
+    const absent = { status: "absent", reason: "adapter", message: "Claude cannot withdraw a message its provider holds." };
+    expect(before.queue.map((entry) => entry.withdraw)).toEqual([PRESENT, absent]);
+    expect(before.verbs.withdraw).toEqual(absent);
+    expect(before.withdrawTarget).toBe("m-1");
+    expect(before.verbs.readNow).toEqual(PRESENT);
+
+    const after = sessionVerbs(input({ adapter, queued: queued.map((entry) => ({ ...entry, heldBy: "environment" })) }));
+    expect(after.verbs.withdraw).toEqual(PRESENT);
+    expect(after.withdrawTarget).toBe("m-1");
+    expect(after.verbs.readNow).toEqual(PRESENT);
+  });
+
+  it.each(["unreachable", "scope", "not-ready"] as const)("puts %s before the adapter's withdraw flag", (reason) => {
+    const refused: CapabilityAnswer = { status: "absent", reason, message: "The connection refuses this command." };
+    const answer = sessionVerbs(input({
+      adapter: { ...capabilities, withdraw: false },
+      live: true,
+      queued: [message("m-1", "Also the tests", "provider", 3)],
+      connection: () => refused,
+    }));
+    expect(answer.queue[0]?.withdraw).toEqual(refused);
+    expect(answer.verbs.withdraw).toEqual(refused);
+  });
+
+  it("leaves a provider-held withdraw to the environment while the adapter is unknown", () => {
+    expect(sessionVerbs(input({ adapter: null, live: true, queued: [message("m-1", "Also the tests", "provider", 3)] })).verbs.withdraw).toEqual(PRESENT);
+  });
+
+  it("refuses rewind while an idle session has a provider-held message (#263)", () => {
+    const queued = [message("m-1", "Also the tests", "provider", 3)];
+    expect(sessionVerbs(input({ queued })).verbs.rewind).toEqual({
+      status: "absent",
+      reason: "queued_messages",
+      message: "Messages are queued: withdraw them, or let a run read them, before rewinding.",
+    });
+    expect(reasons({ live: true, queued }).rewind).toBe("run_active");
+    expect(reasons({ queued: [] }).rewind).toBe("present");
   });
 
   it("refuses a read now while the session's workspace is gone, whatever is queued, and leaves the rest to the session's state (#421)", () => {

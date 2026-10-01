@@ -48,7 +48,7 @@
       ]
     },
     "alwaysOnSkills": {
-      "description": "Accepted and reported as ignored on the first chunk until the skill set (ticket 89) honours it.",
+      "description": "Extra always-on skill names for this turn, after the account’s choices; only enabled names join the run, and other names are reported in agent-harness.ignored at their array paths.",
       "anyOf": [
         {
           "type": "array",
