@@ -1066,6 +1066,56 @@ describe("session continuity", () => {
     expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
   });
 
+  it("names a prompt turn's message waiting when its run is interrupted before its adapter had the prompt, by an interrupt or a read-now (#833)", async () => {
+    /** Instructions held until `held` opens, and `composing` open once the first run began composing them. */
+    const holding = () => {
+      const held = gate();
+      const composing = gate();
+      const instructions = composeInstructions({
+        orientation: async () => {
+          composing.open();
+          await held.opened;
+          return { text: "COMPOSED", unreadRegistries: [] };
+        },
+      });
+      return { held, composing, instructions };
+    };
+    // An interrupt: the message waits in the environment's queue for the session's next run.
+    const interrupted = holding();
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: interrupted.instructions } });
+    const { token } = await program(t);
+    const client = await t.client();
+    const first = await stream(t, token, turn("First"));
+    const opening = await first.chunk();
+    await interrupted.composing.opened;
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
+    const last = chunksOf(await first.rest()).at(-1);
+    expect(last?.choices[0]?.finish_reason).toBe("error");
+    expect(last?.["agent-harness"]).toMatchObject({ waiting: opening["agent-harness"].messageId, ended: { reason: "interrupted", cause: "user" } });
+    expect(t.adapter.runs).toHaveLength(0);
+    interrupted.held.open();
+
+    // A read-now: its run reads the message with the queued turn's, and that turn's answer carries the reply.
+    const readNow = holding();
+    const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: readNow.instructions } });
+    const { token: readNowToken } = await program(u);
+    const second = await stream(u, readNowToken, turn("First"));
+    const head = await second.chunk();
+    const sessionId = head["agent-harness"].sessionId as string;
+    const queued = await stream(u, readNowToken, turn("Then this", { "agent-harness": { sessionId } }));
+    await queued.chunk();
+    await readNow.composing.opened;
+    await (await u.client()).request("runs.readNow", { commandId: randomUUID(), sessionId });
+    const ended = chunksOf(await second.rest()).at(-1);
+    expect(ended?.choices[0]?.finish_reason).toBe("error");
+    expect(ended?.["agent-harness"]).toMatchObject({ waiting: head["agent-harness"].messageId, ended: { reason: "interrupted", cause: "read-now" } });
+    readNow.held.open();
+    const chunks = chunksOf(await queued.rest());
+    expect(contentOf(chunks)).toBe("Done: First / Then this");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
+  });
+
   it("ends a queued turn's answer when its message is withdrawn, which no run will read: an error chunk, withdrawn, and 409 for a whole answer", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
     const { token } = await program(t);
