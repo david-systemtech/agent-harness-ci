@@ -237,6 +237,38 @@ describe("Instructions", () => {
     expect(await within(editor).findByRole("status")).toHaveProperty("textContent", "Not saved: This instruction id is already used.");
     expect((within(editor).getByRole("textbox", { name: "Markdown body" }) as HTMLTextAreaElement).value).toBe("The typed text.");
   });
+  it("preserves typed session instructions while reconnecting and catching up", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts" }] }] });
+    const environment = app.environment("desk");
+    app.open("desk");
+    await screen.findByRole("region", { name: "Transcript" });
+    const sessionRow = within(screen.getByRole("navigation", { name: "Sessions" })).getByRole("button", { name: /Receipts/ });
+    await app.user.pointer({ keys: "[MouseRight]", target: sessionRow });
+    await app.user.click(within(await screen.findByRole("menu", { name: "Organise “Receipts”" })).getByRole("menuitem", { name: "Session instructions…" }));
+    const editor = await screen.findByRole("dialog", { name: "Instructions for Receipts" });
+    await app.user.type(await within(editor).findByRole("textbox", { name: "Markdown body" }), "Keep my unsaved draft.");
+    const subscription = "resuming-instructions";
+    environment.wire.answer("sessions.subscribeSession", (_params, request) => {
+      environment.server.send({ type: "subscribed", id: request.id, subscription });
+      return undefined;
+    });
+    await act(async () => {
+      environment.discovery("nothing");
+      environment.server.drop();
+    });
+    await within(editor).findByText(/Cached session instructions, stale/);
+    await act(async () => {
+      environment.discovery("ready");
+      app.clock.advance(5_000);
+      await environment.server.request("sessions.subscribeSession");
+    });
+    const body = within(editor).getByRole("textbox", { name: "Markdown body" }) as HTMLTextAreaElement;
+    expect(body.value).toBe("Keep my unsaved draft.");
+    expect(body.disabled).toBe(true);
+    await act(async () => environment.server.send({ type: "synchronized", subscription, sequence: environment.events(environment.sessionId()).at(-1)?.sequence ?? 1 }));
+    await waitFor(() => expect(body.disabled).toBe(false));
+    expect(body.value).toBe("Keep my unsaved draft.");
+  });
   it("reads an unopened session's instructions after its stream catches up", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", sessions: [{ title: "Unopened" }] }] });
     const environment = app.environment("desk");

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SessionProjection } from "@agent-harness/client-runtime";
 import { Button, Dialog, DialogContent } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
@@ -20,7 +20,7 @@ export const SessionInstructionsDialog = ({
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent title={`Instructions for ${title}`} description="These instructions apply from this session's next run. A run already live keeps what it began with.">
-        {session.summary === null || session.freshness === "catching-up" ? (
+        {session.summary === null ? (
           <p className="text-sm text-ink-muted">{session.deleted ? "This session was removed." : "Reading the session instructions…"}</p>
         ) : (
           <SessionInstructionsForm key={`${environmentId}/${sessionId}`} environmentId={environmentId} sessionId={sessionId} session={session} close={close} />
@@ -42,7 +42,10 @@ const SessionInstructionsForm = ({
   close(): void;
 }) => {
   const runtime = useRuntime();
-  const [text, type] = useState(session.instructions);
+  const [text, type] = useState<string | null>(session.freshness === "catching-up" ? null : session.instructions);
+  useEffect(() => {
+    if (text === null && session.freshness !== "catching-up") type(session.instructions);
+  }, [text, session.freshness, session.instructions]);
   const [line, say] = useState<string | undefined>(undefined);
   const [sending, setSending] = useState(false);
   const offer = runtime.commands.admits(environmentId, "sessions.setInstructions");
@@ -58,6 +61,7 @@ const SessionInstructionsForm = ({
       setSending(false);
     }
   };
+  if (text === null) return <p className="text-sm text-ink-muted">Reading the session instructions…</p>;
   return (
     <form
       className="flex flex-col gap-3"
