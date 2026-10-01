@@ -622,6 +622,7 @@ export {
   pendingUpdateWords,
   pinnedWords,
   updatesUnreadWords,
+  type WaitingUpdate,
 } from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";
 export {
