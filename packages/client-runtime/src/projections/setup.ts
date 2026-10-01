@@ -42,8 +42,8 @@ export const SETUP_PENDING_MS = 500;
 export const SETUP_CHECK_TIMEOUT_MS = CHECK_BUDGET_SECONDS.git * 1000 + REQUEST_TIMEOUT_MS;
 
 /**
- * How often a result's age is counted again once it is older than its
- * step's cadence, while the projection is followed, so "checked 3 h ago"
+ * How often an asked result's age is counted again once it is older than
+ * its step's cadence, while the projection is followed, so "checked 3 h ago"
  * stays true: a chosen default, the finest a renderer words an age in.
  */
 export const SETUP_AGE_TICK_MS = 60_000;
