@@ -1,7 +1,9 @@
 import type { SetupStepView } from "@agent-harness/client-runtime";
 import type { StepId } from "@agent-harness/contracts";
 import { createContext, use, type ComponentType } from "react";
+import { AppearanceCard } from "../appearance/appearance-card.js";
 import { YourMachinesCard } from "../machines/your-machines-card.js";
+import { PermissionsCard } from "../permissions/permissions-card.js";
 
 /**
  * The step cards of the full checklist, registered by step id (the Set up
@@ -23,9 +25,11 @@ export interface StepCardProps {
 
 export type StepCards = Readonly<Partial<Record<StepId, ComponentType<StepCardProps>>>>;
 
-/** The cards this build registers, each step's arriving with its card ticket: Your machines (#576). */
+/** The cards this build registers, each step's arriving with its card ticket: Your machines (#576), Permissions and Appearance (#594). */
 export const STEP_CARDS: StepCards = {
   "your-machines": YourMachinesCard,
+  permissions: PermissionsCard,
+  appearance: AppearanceCard,
 };
 
 /** The cards the window draws: this build's, or a test's (`renderApp`'s `stepCards`). */
