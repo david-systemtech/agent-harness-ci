@@ -123,6 +123,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     report,
     lists: made.lists,
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
+    routineName: (environmentId, routineId) =>
+      requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,
     now: (environmentId) => made.now(environmentId),
     // What the runtime holds of the session, read without subscribing anything.
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
