@@ -46,6 +46,7 @@ describe("environment notices", () => {
       "forge.account.removed",
       "forge.origin-missing",
       "bank.added",
+      "bank.draft-queued",
       "bank.updated",
       "bank.pinned",
       "bank.forgotten",
