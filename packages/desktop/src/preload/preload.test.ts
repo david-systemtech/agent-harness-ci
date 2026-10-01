@@ -93,6 +93,7 @@ describe("the preload bundle", () => {
       "installer",
       "localGrant",
       "network",
+      "notifications",
       "openExternal",
       "preview",
       "secrets",
@@ -106,6 +107,7 @@ describe("the preload bundle", () => {
     expect(Object.keys(shell["clipboard"] ?? {}).sort()).toEqual(["readImage", "readText", "writeText"]);
     expect(Object.keys(shell["network"] ?? {})).toEqual(["allow"]);
     expect(Object.keys(shell["deepLinks"] ?? {})).toEqual(["onOpen"]);
+    expect(Object.keys(shell["notifications"] ?? {}).sort()).toEqual(["onActivate", "show"]);
     expect(Object.keys(shell["secrets"] ?? {}).sort()).toEqual(["delete", "get", "protection", "set"]);
     expect(Object.keys(shell["localGrant"] ?? {})).toEqual(["read"]);
     expect(Object.keys(shell["service"] ?? {}).sort()).toEqual(["install", "start", "status"]);

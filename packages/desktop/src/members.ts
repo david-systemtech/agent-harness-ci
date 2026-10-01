@@ -9,6 +9,7 @@ import type { DesktopElectron, ElectronBrowserWindow, ElectronWindow } from "./e
 import type { computerGh } from "./gh.js";
 import { environmentHttp } from "./http.js";
 import type { NetworkLockdown } from "./lockdown.js";
+import type { DesktopNotifications } from "./notifications.js";
 import type { DesktopPlatform } from "./platform.js";
 import type { Previews } from "./preview.js";
 import { isWebLink } from "./schemes.js";
@@ -68,11 +69,12 @@ export interface MemberParts {
   readonly canvas: CanvasStore;
   readonly network: NetworkLockdown;
   readonly links: DeepLinkInbox;
+  readonly notifications: DesktopNotifications;
   readonly preview: Previews;
   readonly gh: ReturnType<typeof computerGh>;
 }
 
-export const shellMembers = ({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, preview, gh }: MemberParts): Members => {
+export const shellMembers = ({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh }: MemberParts): Members => {
   const { dialog, clipboard } = electron;
   const openFile = async (given: unknown): Promise<string[]> => {
     const chosen = options(given, "The open dialog's options");
@@ -136,6 +138,7 @@ export const shellMembers = ({ electron, secrets, localGrant, service, update, i
     system: (): ShellSystem => ({ platform: platform.os, architecture: platform.architecture, hostname: platform.hostname, user: platform.user }),
     http: environmentHttp,
     "network.allow": (addresses) => network.allow(texts(addresses, "The addresses")),
+    "notifications.show": (notification) => notifications.show(notification),
     "deepLinks.listen": () => links.listen(window.webContents),
     "secrets.get": (name) => secrets.get(text(name, "A secret's name")),
     "secrets.set": (name, secret) => secrets.set(text(name, "A secret's name"), text(secret, "A secret")),

@@ -8,10 +8,12 @@ import type {
   ElectronContents,
   ElectronDialog,
   ElectronIpcMain,
+  ElectronNotification,
   ElectronProtocol,
   ElectronSafeStorage,
   ElectronWindow,
   IpcCaller,
+  NotificationOptions,
   RequestListener,
   SchemeRegistration,
   WindowOptions,
@@ -21,7 +23,8 @@ import { APP_URL } from "../src/schemes.js";
 /**
  * Electron's main-process modules, faked for the desktop's tests: every
  * call recorded, and what Electron or the OS would start (a second launch, a
- * navigation, a request, an IPC message) fired by the test. No Electron
+ * navigation, a request, an IPC message, a click on a notification) fired by
+ * the test. No Electron
  * binary is needed, so the tests run on any runner and drive any platform's
  * behaviour (`fakeElectron({ os })`).
  */
@@ -125,6 +128,16 @@ export interface FakeSafeStorage extends ElectronSafeStorage {
   changeKey(): void;
 }
 
+/** An OS notification the desktop made: what it shows, whether it was shown, and the OS's clicks and closes, which the test fires. */
+export interface FakeNotification extends ElectronNotification {
+  readonly options: NotificationOptions;
+  readonly shown: boolean;
+  /** Clicks it, as a person does in the OS's notification centre. */
+  click(): void;
+  /** The OS takes it off, dismissed or timed out. */
+  close(): void;
+}
+
 export interface FakeElectron extends DesktopElectron {
   readonly app: FakeApp;
   readonly protocol: FakeProtocol;
@@ -134,6 +147,10 @@ export interface FakeElectron extends DesktopElectron {
   readonly shell: { openExternal(url: string): Promise<void>; readonly opened: string[] };
   readonly nativeTheme: { shouldUseDarkColors: boolean };
   readonly safeStorage: FakeSafeStorage;
+  /** Whether this OS shows notifications (`Notification.isSupported()`): preset true. */
+  notificationsSupported: boolean;
+  /** Every notification made, oldest first. */
+  readonly notifications: FakeNotification[];
   /** Every window opened, oldest first. */
   readonly windows: FakeWindow[];
   /** The one window; throws when none is open. */
@@ -180,6 +197,9 @@ const fakeApp = (os: ShellPlatform, ready: boolean, version: string): FakeApp =>
       return os !== "win32";
     },
     dock: os === "darwin" ? { setBadge: (text: string) => void calls.push(["dock.setBadge", text]) } : undefined,
+    setAppUserModelId(id) {
+      calls.push(["setAppUserModelId", id]);
+    },
     on: heard.on,
     emit: heard.emit,
     becomeReady: () => makeReady(),
@@ -385,6 +405,21 @@ const fakeSafeStorage = (os: ShellPlatform): FakeSafeStorage => {
   return storage;
 };
 
+const fakeNotification = (options: NotificationOptions): FakeNotification => {
+  const heard = listeners();
+  const notification = {
+    options,
+    shown: false,
+    on: heard.on,
+    show() {
+      notification.shown = true;
+    },
+    click: () => heard.emit("click"),
+    close: () => heard.emit("close"),
+  };
+  return notification;
+};
+
 /**
  * Electron on `os`, ready at once unless `ready` is false (then
  * `app.becomeReady()`), preferring dark unless `dark` is false, the app at
@@ -394,7 +429,8 @@ const fakeSafeStorage = (os: ShellPlatform): FakeSafeStorage => {
 export const fakeElectron = ({ os = "linux", ready = true, dark = true, version = "0.5.0" }: { os?: ShellPlatform; ready?: boolean; dark?: boolean; version?: string } = {}): FakeElectron => {
   const windows: FakeWindow[] = [];
   const opened: string[] = [];
-  return {
+  const notifications: FakeNotification[] = [];
+  const electron: FakeElectron = {
     app: fakeApp(os, ready, version),
     protocol: fakeProtocol(),
     ipcMain: fakeIpcMain(),
@@ -408,6 +444,16 @@ export const fakeElectron = ({ os = "linux", ready = true, dark = true, version 
     },
     nativeTheme: { shouldUseDarkColors: dark },
     safeStorage: fakeSafeStorage(os),
+    notificationsSupported: true,
+    notifications,
+    notification: {
+      isSupported: () => electron.notificationsSupported,
+      create(options) {
+        const made = fakeNotification(options);
+        notifications.push(made);
+        return made;
+      },
+    },
     windows,
     openWindow(options) {
       const window = fakeWindow(options);
@@ -420,4 +466,5 @@ export const fakeElectron = ({ os = "linux", ready = true, dark = true, version 
       return only;
     },
   };
+  return electron;
 };
