@@ -127,24 +127,35 @@ export const createRunRegistry = (options: { readonly clock: Pick<Clock, "now"> 
 /** The reasons a window of time holds the environment busy, rather than a run under way. */
 type WindowReason = Extract<BusyReason, "parked-prompt" | "recent-activity">;
 
+/** What holds the environment busy beside its runs, as the idle rule reads it. */
+export interface ActivityBesideRuns {
+  /** Whether a terminal's shell runs a command in its foreground (#343). */
+  readonly terminalRunning?: boolean;
+  /** When the environment's start was noted (`environment.started`), which counts as activity as a run's start does (#445); none before. */
+  readonly startedAt?: Date | undefined;
+}
+
 /**
  * The idle rule (ADR 0007, the glossary's Idle), a pure function of the
- * runs, the time, the idle window and whether a terminal runs a command:
- * busy while a run is starting or running, then while a terminal's shell
- * runs a command in its foreground (`terminal-running`, #343: a build or a
- * watcher counts as a run does, with no end known; a shell at its prompt
- * counts for nothing); otherwise busy until the window has passed since the
- * latest start or end of any run (`recent-activity`, which a parked run
- * holds too, from its start) or since the parking of a run still parked
- * (`parked-prompt`), with `busyUntil` the later of them and the reason the
- * one that holds longest (a parked prompt on a tie); otherwise idle. A
- * window ends at its instant: once it has passed, the run no longer counts.
+ * runs, the time, the idle window, whether a terminal runs a command and
+ * when the environment started: busy while a run is starting or running,
+ * then while a terminal's shell runs a command in its foreground
+ * (`terminal-running`, #343: a build or a watcher counts as a run does,
+ * with no end known; a shell at its prompt counts for nothing); otherwise
+ * busy until the window has passed since the latest start or end of any
+ * run, or since the environment's own start (`recent-activity`, which a
+ * parked run holds too, from its start; the start holds it as the runs the
+ * stop before it cut are in the log, not the registry, #445), or since the
+ * parking of a run still parked (`parked-prompt`), with `busyUntil` the
+ * later of them and the reason the one that holds longest (a parked prompt
+ * on a tie); otherwise idle. A window ends at its instant: once it has
+ * passed, the run or the start no longer counts.
  */
 export const activityOf = (
   runs: Iterable<RunRecord>,
   now: Date,
   windowMs: number,
-  terminalRunning = false,
+  { terminalRunning = false, startedAt }: ActivityBesideRuns = {},
 ): Exclude<EnvironmentActivity, { state: "draining" }> => {
   const at = now.getTime();
   let starting = false;
@@ -159,6 +170,7 @@ export const activityOf = (
       reason = why;
     }
   };
+  if (startedAt) hold(startedAt, "recent-activity");
   for (const run of runs) {
     if (run.state === "starting") starting = true;
     if (run.state === "running") running = true;

@@ -829,6 +829,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const interfaces = options.interfaces ?? tailscaleDetector();
 
   let readiness: EnvironmentReadiness = "starting";
+  // When this start was noted (`environment.started`): activity for the idle window, as a run's start is (#445).
+  let startedAt: Date | undefined;
   let address: Address | undefined;
   const closers = createCloserStack();
   // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
@@ -1449,6 +1451,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
+    // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
+    startedAt: () => startedAt,
     readiness: () => readiness,
     binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
     lookAgain: async () => {
@@ -1903,11 +1907,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   readiness = "ready";
   // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
-    log.append(
+    const [started] = log.append(
       environmentStream,
       [{ type: "environment.started", payload: { harnessVersion, protocolVersion: PROTOCOL_VERSION } }],
       { actor: formatActor({ kind: "system", id: "lifecycle" }) },
-    );
+    ).events;
+    startedAt = started && new Date(started.occurredAt);
   } catch (error) {
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
