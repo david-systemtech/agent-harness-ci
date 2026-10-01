@@ -4,6 +4,7 @@ import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, STEP_ORDER, denylistPresets } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../test/harness.js";
+import { StepStatus } from "./setup/step-status.js";
 import type { StepCardProps } from "./setup/cards.js";
 
 /**
@@ -469,7 +470,7 @@ describe("a step's named actions on their targets", () => {
     expect(desk.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
   });
 
-  it("opens the step's home row for a verb whose method is not on the wire yet, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
+  it("opens the step's home row for a verb whose card is not registered in this build, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
     const app = await renderApp({
       environments: [
         {
@@ -493,7 +494,7 @@ describe("a step's named actions on their targets", () => {
           },
         },
       ],
-    });
+    }, { stepCards: { skills: StepStatus } });
     await screen.findByText(NO_SESSION);
 
     const skills = await cardOf(app, "Skills");
