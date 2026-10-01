@@ -1,13 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { SCOPES, type BridgeCall, type ParamsOf, type ResultOf } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
 import { answeringFrom, fakeChrome, type ExtensionScript, type FakeChrome, type FakeExtension } from "../../test/fake-extension.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { scriptedPageDriver, type ScriptedPageDriver } from "../../test/scripted-page-driver.js";
 import { refusal } from "../../test/sessions.js";
-import type { WireClient } from "../../test/wire-client.js";
+import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
  * Driving a paired Chrome (browser spec, "The browser relay", "The browser
@@ -110,5 +111,127 @@ describe("browser.chromes.perform", () => {
 
     expect(await refusal(perform(paired, work.id, { verb: "snapshot", args: {} }))).toMatchObject({ code: "forbidden", data: { scope: "runs:drive", reason: "local" } });
     expect(work.extension.calls).toEqual([]);
+  });
+});
+
+/** Waits until the environment lists the Chrome as `connected`. */
+const untilConnected = async (t: TestEnvironment, chromeId: string, connected: boolean): Promise<void> => {
+  const client = await clientOf(t);
+  await vi.waitFor(async () => expect((await client.apply("browser.chromes.list", {})).chromes.find((chrome) => chrome.id === chromeId)?.connected).toBe(connected), { timeout: WAIT_MS });
+};
+
+const SNAPSHOT: PerformParams["command"] = { verb: "snapshot", args: {} };
+
+describe("the plain My Chrome", () => {
+  it("uses the one connected Chrome", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+
+    const answer = await perform(await clientOf(t), null, SNAPSHOT);
+
+    expect(answer.outcome).toMatchObject({ ok: true, value: { title: "A fixture page" } });
+    expect(work.extension.calls.map(asked)).toEqual([{ pageKey: PAGE_KEY, command: SNAPSHOT }]);
+  });
+
+  it("with none connected answers that the extension only runs while Chrome is open, and with none paired says so", async () => {
+    const t = await start();
+    const client = await clientOf(t);
+    expect((await perform(client, null, SNAPSHOT)).outcome).toEqual({
+      ok: false,
+      reason: `No Chrome is paired with ${t.env.name}. Ask the person to pair their Chrome in the Browser step of Set up, or to choose another browser for this session.`,
+    });
+
+    const work = await pair(t, "Work");
+    await work.extension.close();
+    await untilConnected(t, work.id, false);
+
+    expect((await perform(client, null, SNAPSHOT)).outcome).toEqual({
+      ok: false,
+      reason: `None of the person's Chromes is connected to ${t.env.name}: the extension only runs while Chrome is open. Ask the person to open Chrome, then try again.`,
+    });
+    expect((await perform(client, work.id, SNAPSHOT)).outcome).toEqual({
+      ok: false,
+      reason: `The Chrome Work is not connected to ${t.env.name}: the extension only runs while Chrome is open. Ask the person to open it, then try again.`,
+    });
+  });
+
+  it("with several connected refuses the first verb naming them and telling the model to ask the person, and reaches none of them", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const personal = await pair(t, "Personal");
+
+    expect((await perform(await clientOf(t), null, { verb: "open", args: { url: "https://example.com/" } })).outcome).toEqual({
+      ok: false,
+      reason: `Several of the person's Chromes are connected to ${t.env.name}: Work, Personal. Ask the person which one this session should use, then call browser_open with browser set to its name.`,
+    });
+    expect([...work.extension.calls, ...personal.extension.calls]).toEqual([]);
+  });
+});
+
+describe("a named Chrome", () => {
+  it("that disconnects during a verb answers a sentence, and once it reconnects the next verb reaches it", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const client = await clientOf(t);
+    work.driver.next("snapshot", () => {
+      void work.extension.close();
+      return new Promise(() => undefined);
+    });
+
+    expect((await perform(client, work.id, SNAPSHOT)).outcome).toEqual({
+      ok: false,
+      reason: "The Chrome Work disconnected before it answered: the extension only runs while Chrome is open. Ask the person to open it again if it closed, then try again.",
+    });
+
+    await reconnect(work);
+    expect((await perform(client, work.id, SNAPSHOT)).outcome).toMatchObject({ ok: true, value: { title: "A fixture page" } });
+    expect(work.extension.calls.map(asked)).toEqual([{ pageKey: PAGE_KEY, command: SNAPSHOT }]);
+  });
+
+  it("that runs another version of the extension than the folder's, outdated, still answers verbs", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    await work.extension.close();
+    await reconnect(work, { extensionVersion: "0.0.1-older" });
+    const client = await clientOf(t);
+    expect((await client.apply("browser.chromes.list", {})).chromes).toMatchObject([{ id: work.id, connected: true, outdated: true }]);
+
+    expect((await perform(client, work.id, SNAPSHOT)).outcome).toMatchObject({ ok: true, value: { title: "A fixture page" } });
+  });
+
+  it("that does not answer within the verb's deadline answers a sentence, and its late answer is dropped", async () => {
+    const t = await start();
+    let answer: (() => void) | undefined;
+    const work = await pair(t, "Work");
+    work.driver.next("snapshot", () => new Promise((resolve) => (answer = () => resolve({ ok: true, value: { url: "about:blank", title: "", text: "", totalChars: 0, truncated: false } }))));
+    const client = await clientOf(t);
+
+    let settled = false;
+    const performing = perform(client, work.id, SNAPSHOT).finally(() => (settled = true));
+    await vi.waitFor(() => expect(answer).toBeDefined(), { timeout: WAIT_MS });
+    t.clock.advance(11_999);
+    // A round trip on the same socket: an answer sent before it arrives before its own.
+    await client.apply("browser.chromes.list", {});
+    expect(settled).toBe(false);
+    t.clock.advance(1);
+
+    expect((await performing).outcome).toEqual({
+      ok: false,
+      reason: "The Chrome Work did not answer within 12 seconds. Try again; if it still does not answer, ask the person to look at that Chrome.",
+    });
+    answer?.();
+    expect((await perform(client, work.id, SNAPSHOT)).outcome).toMatchObject({ ok: true, value: { title: "A fixture page" } });
+  });
+
+  it("that is no longer paired answers that the session's Chrome is gone", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const client = await clientOf(t);
+    await client.apply("browser.chromes.unpair", { commandId: randomUUID(), chromeId: work.id });
+
+    expect((await perform(client, work.id, SNAPSHOT)).outcome).toEqual({
+      ok: false,
+      reason: `The Chrome this session names is no longer paired with ${t.env.name}. Ask the person to choose another browser for this session, or to pair that Chrome again.`,
+    });
   });
 });
