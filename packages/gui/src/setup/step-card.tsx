@@ -71,7 +71,7 @@ const useSetupActions = (environmentId: string, say: (line: string) => void, sig
  * step, or of every step for one this build cannot ask about alone), and a
  * link to its home row. Sign in again opens the sign-in card over it.
  */
-const FallbackCard = ({ environmentId, step }: StepCardProps) => {
+export const FallbackCard = ({ environmentId, step }: StepCardProps) => {
   const runtime = useRuntime();
   const { leave } = useChecklist();
   const [line, say] = useState<string | undefined>(undefined);
