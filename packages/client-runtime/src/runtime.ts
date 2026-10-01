@@ -27,6 +27,7 @@ import type { SessionDocument } from "./projections/documents.js";
 import type { KnownDirectory } from "./projections/known-directories.js";
 import type { NewSessionContext, NewSessionView } from "./projections/new-session.js";
 import type { ModePicker } from "./projections/modes.js";
+import type { RoutineMoves } from "./routine-moves.js";
 import type { RoutineHistory, RoutinesView } from "./projections/routines.js";
 import type { RunsProjection } from "./projections/runs.js";
 import type { SessionProjection } from "./projections/session.js";
@@ -144,7 +145,8 @@ export interface Runtime {
      * reached kept and marked stale, each routine a waiting command names
      * flagged pending, a create shown from the definition it sent until a
      * list asked for after its receipt is held, and the routines needing
-     * attention counted.
+     * attention counted. Following both environments also settles a moved
+     * copy whose untouched original has not heard its disable.
      */
     readonly routines: Observable<RoutinesView>;
     /**
@@ -205,7 +207,7 @@ export interface Runtime {
     hide(environmentId: string, path: string): Promise<void>;
   };
   /** The `sessions:write` and `runs:drive` commands through the outbox, and copies through direct admin requests. */
-  readonly commands: Commands & SkillsCopies;
+  readonly commands: Commands & SkillsCopies & RoutineMoves;
   /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */
   readonly drafts: Drafts;
   /** Direct requests, never queued: the queries and the `admin` calls. */

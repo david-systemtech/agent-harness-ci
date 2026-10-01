@@ -76,6 +76,7 @@ describe("the JSON Schema export", () => {
       { path: "data/catalogue-skills.json", title: "Catalogue skills", schema: "catalogue/skill-entry.json" },
       { path: "data/catalogue-instruction-groups.json", title: "Catalogue instruction groups", schema: "catalogue/instruction-group.json" },
       { path: "data/catalogue-instructions.json", title: "Catalogue instructions", schema: "catalogue/instruction-entry.json" },
+      { path: "data/bank-validator-rules.json", title: "Bank validator rules", schema: "banks/validator-rule.json" },
     ]);
     const tablePaths = new Set([...index.cases, ...index.data].map((c) => c.path));
     expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !tablePaths.has(p)));
@@ -272,6 +273,14 @@ describe("the JSON Schema export", () => {
     expect(tables["data/catalogue-instruction-groups.json"]).toEqual(contracts.CATALOGUE.instructions.groups);
     expect(tables["data/catalogue-instructions.json"]).toEqual(contracts.CATALOGUE.instructions.entries);
     expect(readJson("data/catalogue-skills.json").description).toContain("repository identity");
+  });
+
+  it("publishes the bank validator's rules as data, every rule id once in a verdict's order, each valid against the rule schema", () => {
+    const table = readJson("data/bank-validator-rules.json") as { schema: string; entries: { id: string; severity: string; summary: string }[] };
+    expect(table.entries.map((rule) => rule.id)).toEqual([...contracts.BANK_RULE_IDS]);
+    expect(table.entries.filter((rule) => rule.severity === "warning").map((rule) => rule.id)).toEqual(["description_trigger", "unresolved_link"]);
+    const validate = validator().compile(readJson(table.schema));
+    for (const rule of table.entries) expect(validate(rule), rule.id).toBe(true);
   });
 
   it("publishes the row, scope and address shapes", () => {

@@ -4,7 +4,7 @@ import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { ContainmentLevel, ContainmentReport, PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
 import type { PermissionUpdate, SDKPromptSuggestionMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { PolicySeam, PromptAutoAnswer, ToolGateRule } from "../../adapter/seams.js";
+import type { PolicySeam, PromptAutoAnswer, ToolGateRule, ToolServerFactory } from "../../adapter/seams.js";
 import type { RunDenylist } from "../../adapter/contract.js";
 import type { RunActor } from "../../permissions/resolver.js";
 
@@ -99,7 +99,7 @@ const setup = async (
   policy?: PolicySeam,
   gateRules?: readonly ToolGateRule[],
   account: { readonly sessionStore?: boolean; readonly signedIn?: () => boolean } = {},
-  hostOptions: { readonly autoAnswer?: PromptAutoAnswer; readonly providerDenylist?: () => RunDenylist } = {},
+  hostOptions: { readonly autoAnswer?: PromptAutoAnswer; readonly providerDenylist?: () => RunDenylist; readonly toolServers?: ToolServerFactory } = {},
 ) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
@@ -665,12 +665,32 @@ describe("a Claude run through the adapter host", () => {
       expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
     });
 
-    it("gates a client tool's call (mcp__client__*, #139), which the provider lets through by its allow rule, like any other: its arguments meet the denylist", async () => {
-      const t = await setup(undefined, denylisted(), {}, { autoAnswer });
+    it.each(["configured", "in-process"])("a %s environment server named client is denied at the hook (#281)", async (kind) => {
+      const t = await setup(undefined, denylisted(), {}, {
+        autoAnswer,
+        toolServers: () => kind === "configured"
+          ? [{ name: "client", config: {} }]
+          : [{ name: "client", external: false, tools: [{ name: "read_file", description: "Read", inputSchema: {}, call: async () => ({ text: "", isError: false }) }] }],
+      });
       const { query } = await opened(t, routineActor);
-      const answer = await query.preToolUse("mcp__client__read_file", { path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_client" });
-      expect(answer).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
-      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__client__read_file", toolCallId: "toolu_client" })]);
+      const denied = await query.preToolUse("mcp__client__read_file", { path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_local_client" });
+      expect(denied).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__client__read_file", toolCallId: "toolu_local_client" })]);
+    });
+
+    it("lets a client tool's denylisted arguments past the hook while still denying the environment tool (#281)", async () => {
+      const t = await setup(undefined, denylisted(), {}, {
+        autoAnswer,
+        toolServers: () => [{ name: "client", external: true, tools: [{ name: "read_file", description: "Read", inputSchema: {}, call: async () => ({ text: "", isError: false }) }] }],
+      });
+      const { query } = await opened(t, routineActor);
+      const input = { path: "~/.ssh/id_rsa" };
+      const allowed = await query.preToolUse("mcp__client__read_file", input, { toolUseID: "toolu_client" });
+      expect(allowed).toEqual({});
+      expect(openedOf(t)).toEqual([]);
+      const denied = await query.preToolUse("mcp__memory__read_file", input, { toolUseID: "toolu_memory" });
+      expect(denied).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__memory__read_file", toolCallId: "toolu_memory" })]);
     });
 
     it("denies a write outside the workspace from the hook at workspace, recorded by containment, asking nobody, in bypassPermissions too", async () => {

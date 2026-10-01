@@ -253,6 +253,18 @@ describe("the per-session snapshot", () => {
     expectTypeOf<z.infer<typeof StandingRewind>>().toEqualTypeOf<StandingRewind>();
   });
 
+  it("keeps an update cut's outcome, reason and continuation as a known item, refusing inconsistent outcomes", () => {
+    const cut = { kind: "update-interrupted", sequence: 7, runId, updateId: messageId, toVersion: "0.5.0" };
+    for (const outcome of [
+      { outcome: "continued", reason: null, continuationRunId: runId },
+      { outcome: "waiting-on-prompt", reason: null, continuationRunId: null },
+      { outcome: "next-message", reason: "account", continuationRunId: null },
+    ]) expect(TranscriptItem.parse({ ...cut, ...outcome })).toEqual({ ...cut, ...outcome });
+    expect(TranscriptItem.safeParse({ ...cut, outcome: "continued", reason: null, continuationRunId: null }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ ...cut, outcome: "next-message", reason: null, continuationRunId: null }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ ...cut, outcome: "waiting-on-prompt", reason: "account", continuationRunId: runId }).success).toBe(false);
+  });
+
   it("keeps an item of a kind it does not know opaque, every field of it kept, rather than failing", () => {
     const unknown = { kind: "plan-card", sequence: 7, plan: "Step one", steps: [1, 2] };
     expect(TranscriptItem.parse(unknown)).toEqual(unknown);
@@ -263,7 +275,7 @@ describe("the per-session snapshot", () => {
     expect(TranscriptItem.safeParse({ kind: "plan-card" }).success).toBe(false);
     // A known kind is never opaque: a malformed one fails, in zod and in the exported JSON Schema's pattern.
     expect(TranscriptItem.safeParse({ kind: "assistant-text", sequence: 7 }).success).toBe(false);
-    expect(KNOWN_ITEM_KINDS).toEqual(TranscriptItem.options.slice(0, -1).map((option) => (option.shape.kind as z.ZodLiteral<string>).value));
+    expect(KNOWN_ITEM_KINDS).toEqual([...new Set(TranscriptItem.options.slice(0, -1).map((option) => (option.shape.kind as z.ZodLiteral<string>).value))]);
     const exported = exportedSchemas().find((entry) => entry.path === "transcript/transcript-item.json");
     expect(JSON.stringify(exported && z.toJSONSchema(exported.schema))).toContain("(?!(?:user-message|");
   });
