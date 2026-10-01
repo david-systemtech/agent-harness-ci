@@ -216,9 +216,10 @@
                   "type": "string",
                   "enum": [
                     ".claude/skills",
-                    ".agents/skills"
+                    ".agents/skills",
+                    ".claude/commands"
                   ],
-                  "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+                  "description": "The repository root the member lies under: .claude/skills before .agents/skills, then .claude/commands."
                 },
                 "directory": {
                   "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",

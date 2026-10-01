@@ -1,3 +1,4 @@
+import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { AttachmentInput, Mode, RunOrigin, RunPolicy, SendResponse } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
@@ -57,6 +58,7 @@ type WorkspaceCommand = "runs.start" | "runs.send" | "runs.readNow";
 
 /** A run to start with a message: on which session, for whom, from where, and what it asks for. */
 export interface RunStart {
+  readonly slash?: SlashScope | undefined;
   readonly sessionId: string;
   readonly actor: RunActor;
   readonly origin: RunOrigin;
@@ -67,6 +69,7 @@ export interface RunStart {
   readonly mode?: Mode | undefined;
   /** What the run's instructions carry after the composed ones: a completions request's own (#138). */
   readonly appendedInstructions?: string | undefined;
+  readonly alwaysOn?: readonly string[] | undefined;
   /** The tools a completions request declared for the caller to run, served to the run (#139). */
   readonly clientTools?: readonly ClientTool[] | undefined;
 }
@@ -95,23 +98,26 @@ export const startRunIn = (
   const facts = host.startFacts(sessionId, request.actor);
   if (facts.session !== null && !facts.session.deleted) host.admit();
   const messageId = randomUUID();
+  const skill = request.slash === undefined ? undefined : host.resolveMessage(request.text, request.slash).skill;
   const decision = decideStart(facts, {
     origin: request.origin,
-    message: { messageId, text: request.text, attachments: request.attachments ?? [] },
+    message: { messageId, text: request.text, attachments: request.attachments ?? [], ...(skill !== undefined && { skill }) },
     model: request.model,
     effort: request.effort,
     mode: request.mode,
     appendedInstructions: request.appendedInstructions,
+    alwaysOn: request.alwaysOn,
     clientTools: request.clientTools,
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.run.runId });
-  tx.afterCommit(() => host.launch(decision.run));
+  tx.afterCommit(() => host.launch({ ...decision.run, ...(request.slash === undefined ? { literalPromptId: messageId } : { slash: request.slash }) }));
   return { runId: decision.run.runId, messageId, policy: decision.run.policy };
 };
 
 /** A message to send a session: on which session, for whom, from where a run it starts comes, and the message. */
 export interface RunSend {
+  readonly slash?: SlashScope | undefined;
   readonly sessionId: string;
   readonly actor: RunActor;
   readonly origin: RunOrigin;
@@ -143,13 +149,14 @@ export const sendIn = (
   const facts = host.startFacts(sessionId, request.actor);
   // Only a send that starts a run is a new run; one queued during a live run passes a drain.
   if (facts.session !== null && !facts.session.deleted && facts.live === null) host.admit();
-  const decision = decideSend(facts, { messageId: randomUUID(), text: request.text, attachments: request.attachments ?? [] }, request.origin);
+  const skill = request.slash === undefined ? undefined : host.resolveMessage(request.text, request.slash).skill;
+  const decision = decideSend(facts, { messageId: randomUUID(), text: request.text, attachments: request.attachments ?? [], ...(skill !== undefined && { skill }) }, request.origin);
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   if (decision.queued !== undefined) host.stageAttachments(decision.queued.message);
   appendRunEvents(log, sessionId, decision.events, { tx, ...attribution, correlationId: decision.result.runId });
   if (decision.run !== undefined) {
     const run = decision.run;
-    tx.afterCommit(() => host.launch(run));
+    tx.afterCommit(() => host.launch({ ...run, ...(request.slash !== undefined && { slash: request.slash }) }));
     return { result: decision.result, startedPolicy: run.policy };
   }
   const queued = decision.queued;
@@ -170,11 +177,20 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
    * deleted, needs no look: its refusal is answered at once, keeping the
    * command's place among its socket's requests.
    */
-  const lookingFirst = <N extends WorkspaceCommand>(handler: MethodHandler<N>): PreparedCommand<N> => ({
-    prepare: (params) => {
+  const lookingFirst = <N extends WorkspaceCommand>(handler: (params: Parameters<MethodHandler<N>>[0], context: CommandContext, slash?: SlashScope) => ReturnType<MethodHandler<N>>): PreparedCommand<N> => ({
+    prepare: async (params) => {
       const sessionId = params.sessionId.toLowerCase();
       if (sessionWorkspace(log, sessionId) === null) return handler;
-      return availability.check(sessionId).then(() => handler);
+      await availability.check(sessionId);
+      const text = "text" in params ? params.text : null;
+      let slash: PreparedSlash | undefined;
+      if (typeof text === "string" && text.startsWith("/")) {
+        const facts = host.startFacts(sessionId, { kind: "client", ceiling: "acceptEdits", clientSessionId: null });
+        if ((facts.live !== null || facts.account?.signedIn === true) && facts.session?.workspaceMissingSince === null) slash = await host.prepareSlash(sessionId);
+      }
+      return Object.assign((prepared: Parameters<MethodHandler<N>>[0], context: CommandContext) => handler(prepared, context, slash), {
+        isCurrent: () => slash?.isCurrent() !== false,
+      });
     },
   });
 
@@ -203,13 +219,14 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
   const verbs = queueVerbMethods({ log, host, actorOf });
 
   return {
-    "runs.start": lookingFirst((params, context) => {
+    "runs.start": lookingFirst((params, context, slash) => {
       const aggregate = sessionStream(params.sessionId.toLowerCase());
       const started = startRunIn(log, host, context.tx, { actor: context.actor, commandId: context.commandId }, {
         sessionId: params.sessionId,
         actor: actorOf(context),
         origin: "client",
         text: params.text,
+        slash,
         attachments: params.attachments,
         model: params.model,
         effort: params.effort,
@@ -219,13 +236,14 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       return { aggregate, result: { runId: started.runId, messageId: started.messageId } };
     }),
 
-    "runs.send": lookingFirst((params, context) => {
+    "runs.send": lookingFirst((params, context, slash) => {
       const aggregate = sessionStream(params.sessionId.toLowerCase());
       const sent = sendIn(log, host, context.tx, { actor: context.actor, commandId: context.commandId }, {
         sessionId: params.sessionId,
         actor: actorOf(context),
         origin: "client",
         text: params.text,
+        slash,
         attachments: params.attachments,
       });
       if (sent.rejected !== undefined) return { aggregate, rejected: sent.rejected };

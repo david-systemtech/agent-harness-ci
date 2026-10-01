@@ -46,7 +46,7 @@ it("moves from the cached list while the source is stopped and delivers its queu
   await runtime.commands.dispatch(desk.env.id, "routines.create", { routineId: id, definition: RoutineDefinitionInput.parse(written({ name: "Monday", schedule: { kind: "manual" }, enabled: false })) });
   const view = runtime.projections.routines;
   const stop = view.subscribe(() => undefined);
-  await holds(view, v => v.groups.some(g => g.routines.some(r => r.routineId === id)));
+  await holds(view, v => v.groups.some(g => g.routines.some(r => r.routineId === id && r.listed !== null)));
   await desk.close();
   await holds(runtime.connections.list, records => !reachable(records.find(r => r.environmentId === desk.env.id)));
   const move = await runtime.commands.moveRoutine(desk.env.id, id, laptop.env.id);

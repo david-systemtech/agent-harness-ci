@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import {
@@ -40,6 +40,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import type { StartupStep } from "../serve/start.js";
 import type { Address } from "../serve/http.js";
 import { accountSlug } from "./models.js";
+import { WAIT_MS } from "../../test/wire-client.js";
 import { create, workspace } from "../../test/sessions.js";
 import { scriptedResolver } from "../../test/workspaces.js";
 import { isInProcess, type AdapterEvent, type HostToolResult } from "../adapter/contract.js";
@@ -899,18 +900,54 @@ describe("session continuity", () => {
     expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
   });
 
-  it("carries a completions run's own instructions to the run started from its queue", async () => {
+  it("carries a completions run's own instructions and extra skills to its queue, ignoring new skills on a live run", async () => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: composed } });
+    const client = await t.client();
+    for (const name of ["filing", "later"]) {
+      await client.request("skills.own.create", { commandId: randomUUID(), name, description: "File by year." });
+      writeFileSync(join(t.dataDir, "skills", "own", "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: File by year.\n---\nSKILL BODY ${name}`);
+    }
     const { token } = await program(t);
     const held = gate();
     t.adapter.nextScripts.push(heldScript(held.opened));
-    const first = await stream(t, token, turn("First", { "agent-harness": { systemPrompt: "Persona: tidy." } }));
+    const first = await stream(t, token, turn("First", { "agent-harness": { systemPrompt: "Persona: tidy.", alwaysOnSkills: ["filing"] } }));
+    const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
+    const second = await stream(t, token, turn("Then this", { "agent-harness": { sessionId, alwaysOnSkills: ["later"] } }));
+    expect((await second.chunk())["agent-harness"].ignored).toEqual(["agent-harness.alwaysOnSkills.0"]);
+    held.open();
+    await second.rest();
+    await first.rest();
+    expect(t.adapter.runs).toHaveLength(2);
+    const instructions = t.adapter.runs.map((run) => run.input.instructions);
+    expect(instructions[0]).toBe(instructions[1]);
+    expect(instructions[1]).toContain("SKILL BODY filing\n\nPersona: tidy.");
+    expect(instructions[1]).not.toContain("SKILL BODY later");
+  });
+
+  it("does not restore a completions run's extra skills when the queue is read after restart", async () => {
+    const dataDir = join(tempDir("agent-harness-extra-skills-"), "data");
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { dataDir, adapterSeams: { instructions: composed } });
+    const client = await t.client();
+    await client.request("skills.own.create", { commandId: randomUUID(), name: "filing", description: "File by year." });
+    writeFileSync(join(dataDir, "skills", "own", "skills", "filing", "SKILL.md"), "---\nname: filing\ndescription: File by year.\n---\nSKILL BODY filing");
+    const { token } = await program(t);
+    const held = gate();
+    t.adapter.nextScripts.push(heldScript(held.opened));
+    const first = await stream(t, token, turn("First", { "agent-harness": { alwaysOnSkills: ["filing"] } }));
     const sessionId = (await first.chunk())["agent-harness"].sessionId as string;
     const second = await stream(t, token, turn("Then this", { "agent-harness": { sessionId } }));
     await second.chunk();
+    await t.close();
     held.open();
+    await first.rest();
     await second.rest();
-    expect(t.adapter.runs.map((run) => run.input.instructions)).toEqual(["COMPOSED\n\nPersona: tidy.", "COMPOSED\n\nPersona: tidy."]);
+    const restarted = await start({}, { dataDir, adapterSeams: { instructions: composed } });
+    const after = await restarted.client();
+    const read = registry["runs.readNow"].response.parse(await after.request("runs.readNow", { commandId: randomUUID(), sessionId }));
+    expect(read.result).toHaveProperty("runId");
+    await vi.waitFor(() => expect(restarted.adapter.runs).toHaveLength(1), { timeout: 10_000 });
+    expect(restarted.adapter.lastRun().input.prompt.map((message) => message.text)).toContain("Then this");
+    expect(restarted.adapter.lastRun().input.instructions).toBe("COMPOSED");
   });
 
   it("reports the usage of the run the answer ended with, not of a run it followed before", async () => {
@@ -1025,6 +1062,56 @@ describe("session continuity", () => {
     answered.open();
     const chunks = chunksOf(await queued.rest());
     expect(contentOf(chunks)).toBe("Done: Then this");
+    expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
+    expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
+  });
+
+  it("names a prompt turn's message waiting when its run is interrupted before its adapter had the prompt, by an interrupt or a read-now (#833)", async () => {
+    /** Instructions held until `held` opens, and `composing` open once the first run began composing them. */
+    const holding = () => {
+      const held = gate();
+      const composing = gate();
+      const instructions = composeInstructions({
+        orientation: async () => {
+          composing.open();
+          await held.opened;
+          return { text: "COMPOSED", unreadRegistries: [] };
+        },
+      });
+      return { held, composing, instructions };
+    };
+    // An interrupt: the message waits in the environment's queue for the session's next run.
+    const interrupted = holding();
+    const t = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: interrupted.instructions } });
+    const { token } = await program(t);
+    const client = await t.client();
+    const first = await stream(t, token, turn("First"));
+    const opening = await first.chunk();
+    await interrupted.composing.opened;
+    await client.request("runs.interrupt", { commandId: randomUUID(), runId: opening["agent-harness"].runId as string });
+    const last = chunksOf(await first.rest()).at(-1);
+    expect(last?.choices[0]?.finish_reason).toBe("error");
+    expect(last?.["agent-harness"]).toMatchObject({ waiting: opening["agent-harness"].messageId, ended: { reason: "interrupted", cause: "user" } });
+    expect(t.adapter.runs).toHaveLength(0);
+    interrupted.held.open();
+
+    // A read-now: its run reads the message with the queued turn's, and that turn's answer carries the reply.
+    const readNow = holding();
+    const u = await start({ capabilities: { providerQueue: false, steering: false } }, { adapterSeams: { instructions: readNow.instructions } });
+    const { token: readNowToken } = await program(u);
+    const second = await stream(u, readNowToken, turn("First"));
+    const head = await second.chunk();
+    const sessionId = head["agent-harness"].sessionId as string;
+    const queued = await stream(u, readNowToken, turn("Then this", { "agent-harness": { sessionId } }));
+    await queued.chunk();
+    await readNow.composing.opened;
+    await (await u.client()).request("runs.readNow", { commandId: randomUUID(), sessionId });
+    const ended = chunksOf(await second.rest()).at(-1);
+    expect(ended?.choices[0]?.finish_reason).toBe("error");
+    expect(ended?.["agent-harness"]).toMatchObject({ waiting: head["agent-harness"].messageId, ended: { reason: "interrupted", cause: "read-now" } });
+    readNow.held.open();
+    const chunks = chunksOf(await queued.rest());
+    expect(contentOf(chunks)).toBe("Done: First / Then this");
     expect(chunks.at(-1)?.choices[0]?.finish_reason).toBe("stop");
     expect(chunks.at(-1)?.["agent-harness"].waiting).toBeUndefined();
   });
@@ -1305,8 +1392,15 @@ describe("the mode, the ceiling and attendance", () => {
 });
 
 describe("the request's instructions, parameters and fields", () => {
-  it("appends systemPrompt and the system and developer messages after the composed instructions, and reports alwaysOnSkills ignored", async () => {
+  it("appends systemPrompt and the system and developer messages after the composed instructions, and honours enabled alwaysOnSkills, reporting disabled and unknown names by path", async () => {
     const t = await start({}, { adapterSeams: { instructions: composed } });
+    const client = await t.client();
+    for (const name of ["filing", "off", "account"]) {
+      await client.request("skills.own.create", { commandId: randomUUID(), name, description: "File by year." });
+      writeFileSync(join(t.dataDir, "skills", "own", "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: File by year.\n---\nSKILL BODY ${name}`);
+    }
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "off", accountId: "claude-max", enabled: false });
+    await client.request("skills.setAlwaysOn", { commandId: randomUUID(), name: "account", accountId: "claude-max", on: true });
     const { token } = await program(t);
     const reading = await stream(t, token, {
       model: "claude-max/opus",
@@ -1315,13 +1409,18 @@ describe("the request's instructions, parameters and fields", () => {
         { role: "developer", content: [{ type: "text", text: "File by year." }] },
         { role: "user", content: "File this" },
       ],
-      "agent-harness": { systemPrompt: "Persona: tidy.", alwaysOnSkills: ["filing"] },
+      "agent-harness": { systemPrompt: "Persona: tidy.", alwaysOnSkills: ["filing", "missing", "off", "filing"] },
     });
     const first = await reading.chunk();
     await reading.rest();
-    expect(t.adapter.lastRun().input.instructions).toBe("COMPOSED\n\nPersona: tidy.\n\nYou are the librarian.\n\nFile by year.");
+    const instructions = t.adapter.lastRun().input.instructions ?? "";
+    expect(instructions).toContain("COMPOSED\n\n# Always-on skill: account");
+    expect(instructions.indexOf("SKILL BODY account")).toBeLessThan(instructions.indexOf("# Always-on skill: filing"));
+    expect(instructions).toContain("SKILL BODY filing\n\nPersona: tidy.\n\nYou are the librarian.\n\nFile by year.");
+    expect(instructions.match(/# Always-on skill: filing/g)).toHaveLength(1);
+    expect(instructions).not.toContain("SKILL BODY off");
     expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["File this"]);
-    expect(first["agent-harness"].ignored).toEqual(["agent-harness.alwaysOnSkills"]);
+    expect(first["agent-harness"].ignored).toEqual(["agent-harness.alwaysOnSkills.1", "agent-harness.alwaysOnSkills.2"]);
   });
 
   it("refuses the parameters it cannot honour 400, and ignores and reports them under ignoreUnsupported", async () => {
@@ -1921,4 +2020,92 @@ describe("client-tool passthrough (#139)", () => {
     const differing = await stream(t, token, turn("Then this", { tools: [TIME], "agent-harness": { sessionId: otherSession } }));
     expect((await differing.chunk())["agent-harness"].ignored).toEqual(["tools"]);
   });
+});
+
+// The completions surface shares the host's provider-neutral slash invocation.
+describe("completions slash resolution", () => {
+  it("uses the run started during its provider listing for attribution and provider text", async () => {
+    const listing = gate();
+    const listed = gate();
+    const running = gate();
+    const adapter = fakeAdapter({ commands: [] });
+    vi.spyOn(adapter, "commands").mockImplementationOnce(async () => {
+      listed.open();
+      await listing.opened;
+      return [];
+    });
+    const t = await start(adapter);
+    onCleanup(() => { listing.open(); running.open(); });
+    const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: tdd\ndescription: Test first.\n---\nTest first.\n");
+    const client = await t.client();
+    const { id } = await create(client);
+    const { token } = await program(t);
+    const answer = complete(t, token, turn("/tdd pending", { "agent-harness": { sessionId: id, alwaysOnSkills: ["tdd"] } }));
+    await listed.opened;
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "tdd", accountId: null, enabled: false });
+    adapter.nextScripts.push(async function* ({ nextSent }) {
+      await running.opened;
+      yield say((await nextSent()).text);
+      yield end();
+    });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await adapter.reached(1);
+    listing.open();
+    try {
+      await vi.waitFor(() => expect(adapter.lastRun().sent[0]?.text).toBe("/tdd pending"), { timeout: WAIT_MS });
+      expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "message.sent").at(-1)?.payload).not.toHaveProperty("skill");
+    } finally {
+      running.open();
+    }
+    expect((await answer)["agent-harness"].ignored).toContain("agent-harness.alwaysOnSkills.0");
+  });
+
+  it("rewrites a skill on a fresh turn and records its typed text and origin", async () => {
+    const t = await start({ commands: [] });
+    const file = join(t.dataDir, "skills", "own", "skills", "tdd", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: tdd\ndescription: Test first.\n---\nTest first.\n");
+    const { token } = await program(t);
+    const answer = await complete(t, token, turn("/tdd the feature", { "agent-harness": { alwaysOnSkills: ["tdd"] } }));
+    expect(t.adapter.lastRun().input.prompt[0]?.text).toBe("/agent-harness:tdd the feature");
+    expect(t.adapter.lastRun().input.instructions).toContain("# Always-on skill: tdd");
+    expect(answer["agent-harness"].ignored).toEqual([]);
+    const sessionId = answer["agent-harness"].sessionId;
+    if (sessionId === undefined) throw new Error("The completion did not name its session.");
+    expect(t.env.log.readStream({ kind: "session", id: sessionId }).find((event) => event.type === "message.sent")?.payload).toMatchObject({
+      text: "/tdd the feature", skill: { name: "tdd", origin: null },
+    });
+  });
+  it("resolves a completions message queued on a live run using its set", async () => {
+    const held = gate();
+    const t = await start({ commands: [] });
+    const file = join(t.dataDir, "skills", "own", "skills", "compact", "SKILL.md");
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, "---\nname: compact\ndescription: Test skill.\n---\nFollow this skill.\n");
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(async function* ({ nextSent }) {
+      yield say("Working");
+      await held.opened;
+      const sent = await nextSent();
+      yield say(sent.text);
+      yield end();
+    });
+    await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Start" });
+    await vi.waitFor(() => expect(t.adapter.runs).toHaveLength(1), { timeout: WAIT_MS });
+    const { token } = await program(t);
+    const answer = complete(t, token, turn("/skill:compact more", { "agent-harness": { sessionId: id, alwaysOnSkills: ["compact"] } }));
+    try {
+      await vi.waitFor(() => expect(t.adapter.lastRun().sent[0]?.text).toBe("/agent-harness:compact more"), { timeout: WAIT_MS });
+      expect(t.env.log.readStream({ kind: "session", id }).filter((event) => event.type === "message.sent").at(-1)?.payload).toMatchObject({
+        text: "/skill:compact more", skill: { name: "compact", origin: null },
+      });
+    } finally {
+      held.open();
+    }
+    expect((await answer)["agent-harness"].ignored).toContain("agent-harness.alwaysOnSkills.0");
+  });
+
 });

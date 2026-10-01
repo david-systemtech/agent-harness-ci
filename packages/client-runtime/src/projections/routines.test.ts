@@ -26,6 +26,7 @@ const listedRoutine = (routineId: string, name: string, attention: readonly Rout
     definition: { ...structuredClone(listedFixture.definition), name },
     state: { ...structuredClone(listedFixture.state), id: routineId },
     attention: [...attention],
+    unknownSkills: [],
   }) as ListedRoutine;
 
 const ids = {
@@ -269,6 +270,52 @@ describe("projections.routines", () => {
         { routineId: fresh, definition: { name: "Nightly triage", enabled: false }, listed: { state: { id: fresh } }, pending: false },
       ],
     });
+  });
+
+  it("keeps a create's row from its receipt until a routines.list asked for after it holds the routine, and drops a refused create at once", async () => {
+    const { runtime, clock, desk, lists } = await twoEnvironments();
+    const deskId = desk.wire.environmentId;
+    onTestFinished(runtime.projections.routines.subscribe(() => undefined));
+    await flush();
+    const rows = () => runtime.projections.routines.read().groups[0]?.routines.map((row) => [row.routineId, row.listed === null ? "sent" : "listed"]);
+    clock.advance(1_000);
+
+    // The list asked for once the create is in is held until the test lets it go.
+    let letGo: (() => void) | undefined;
+    desk.wire.answer("routines.list", () => new Promise((resolve) => (letGo = () => resolve({ result: { routines: lists.get(deskId) ?? [] } }))));
+    desk.wire.answer("routines.create", () => ({ result: { receipt: accepted(40) } }));
+    const fresh = "3f2b8c1d-5e6a-4b7c-9d8e-0f1a2b3c4d07";
+    const definition = RoutineDefinitionInput.parse({ ...written, name: "Nightly triage" });
+    expect(await runtime.commands.dispatch(deskId, "routines.create", { routineId: fresh, definition })).toMatchObject({ ok: true });
+    // The receipt is in and the entry left the outbox; the list held was asked for before it, so the row stays from what the create sent.
+    expect(runtime.projections.environments.read()[0]).toMatchObject({ pendingCommands: 0 });
+    expect(runtime.projections.routines.read().groups[0]?.routines[2]).toEqual({ environmentId: deskId, routineId: fresh, definition, listed: null, pending: false });
+
+    // The notice comes later than the receipt, so the list it asks for is asked after it while the earlier one is still held.
+    clock.advance(1_000);
+    lists.set(deskId, [...(lists.get(deskId) ?? []), listedRoutine(fresh, "Nightly triage")]);
+    desk.notices.event(noticeEvent(1, deskId, "routine.updated", { routineId: fresh, change: "created" }));
+    await flush();
+    expect(runtime.projections.routines.read().groups[0]?.loading).toBe(true);
+    expect(rows()).toEqual([[ids.watch, "listed"], [ids.digest, "listed"], [fresh, "sent"]]);
+    letGo?.();
+    await flush();
+    expect(rows()).toEqual([[ids.watch, "listed"], [ids.digest, "listed"], [fresh, "listed"]]);
+
+    // Another client deletes it: the list asked for after that no longer holds it, and nothing the create sent brings it back.
+    clock.advance(1_000);
+    lists.set(deskId, (lists.get(deskId) ?? []).filter((routine) => routine.state.id !== fresh));
+    desk.notices.event(noticeEvent(2, deskId, "routine.updated", { routineId: fresh, change: "deleted" }));
+    await flush();
+    letGo?.();
+    await flush();
+    expect(rows()).toEqual([[ids.watch, "listed"], [ids.digest, "listed"]]);
+
+    // A refused create goes with its receipt: no notice will bring a list for it.
+    desk.wire.answer("routines.create", () => ({ result: { receipt: rejected(41, "conflict", { reason: "name_taken" }) } }));
+    const refused = "3f2b8c1d-5e6a-4b7c-9d8e-0f1a2b3c4d08";
+    expect(await runtime.commands.dispatch(deskId, "routines.create", { routineId: refused, definition: RoutineDefinitionInput.parse({ ...written, name: "Morning digest" }) })).toMatchObject({ ok: false });
+    expect(rows()).toEqual([[ids.watch, "listed"], [ids.digest, "listed"]]);
   });
 
   it("raises command-rejected for a refused routine command, naming the command and the routine", async () => {

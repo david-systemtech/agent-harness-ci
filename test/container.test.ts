@@ -5,9 +5,10 @@
  * no image is built or run here. The image runs the environment as a
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes with the drain's stop grace and the release's
- * image, and neither sets `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It
- * passes a new environment's name and channel in from compose's own
- * variables, which Add a machine's container snippet sets (#846). What only
+ * image, the image ships ssh for the skill probe (#874), and neither sets
+ * `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It passes a new environment's
+ * name and channel in from compose's own variables, which Add a machine's
+ * container snippet sets (#846). What only
  * a real build and run can show is the Container section of
  * `docs/agents/service-install-checklist.md`.
  */
@@ -117,6 +118,13 @@ describe("the container image", () => {
     expect(header).toContain(".forgejo/workflows/release.yml");
     expect(header).toContain("git.systemtech.dev:5526/david/agent-harness:<version>");
     expect(header).toContain("linux/amd64");
+  });
+
+  it("installs openssh-client in its last stage, so an ssh or scp URL no forge account covers is probed over ssh as written (#874)", () => {
+    const installed = finalStage()
+      .filter((line) => /^RUN .*\bapt-get install\b/.test(line))
+      .flatMap((line) => line.split(/\s+/));
+    expect(installed).toContain("openssh-client");
   });
 
   it("starts the environment with serve on /data, as that user", () => {

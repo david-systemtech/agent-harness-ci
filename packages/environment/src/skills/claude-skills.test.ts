@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { lstatSync, readdirSync, readlinkSync } from "node:fs";
+import { lstatSync, readdirSync, readlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { registry } from "@agent-harness/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../test/fake-claude-sdk.js";
+import { skill, testGit, write } from "../../test/skill-repositories.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 /**
@@ -47,7 +48,7 @@ afterEach(() => {
 });
 
 /** An environment whose one account is a Claude account, signed in, on the scripted SDK. */
-const start = async () => {
+const start = async (workspace = tempDir("agent-harness-workspace-")) => {
   const claude = createClaudeAdapter({
     executablePath: "/sdk/claude",
     hostEnv: { PATH: "/usr/bin" },
@@ -57,7 +58,7 @@ const start = async () => {
   const t = await startTestEnvironment({ otherAdapters: [claude], accounts: [{ id: "work", provider: "claude", directory: tempDir("agent-harness-claude-") }] });
   onCleanup(() => t.close());
   const client = await t.client();
-  const { id } = await create(client, { account: "work", workspace: { kind: "directory", path: tempDir("agent-harness-workspace-") } });
+  const { id } = await create(client, { account: "work", workspace: { kind: "directory", path: workspace } });
   return { t, client, sessionId: id };
 };
 
@@ -122,4 +123,77 @@ describe("the run's skill set with the Claude adapter", () => {
     expect(pluginOf(fresh)).not.toBe(generation);
     expect(readdirSync(join(pluginOf(fresh), "skills")).sort()).toEqual(["handoff", "tdd"]);
   });
+
+  it("loads trusted skills and commands natively, hides disabled native names through the SDK, and replaces the process on revoke", async () => {
+    const root = tempDir("agent-harness-repository-");
+    testGit(root, "init", "-q");
+    write(join(root, ".claude/skills/native/SKILL.md"), skill("native"));
+    write(join(root, ".claude/commands/release.md"), skill("release"));
+    write(join(root, ".agents/skills/linked/SKILL.md"), skill("linked"));
+    const { t, client, sessionId } = await start(root);
+    await client.request("trust.decide", { commandId: randomUUID(), sessionId, decision: "trusted" });
+    const first = await runOn(client, sessionId, "One", () => runQuery(1), 1);
+    await ended(t, sessionId, 1);
+    expect(first.options.settingSources).toEqual(["project"]);
+    expect(readdirSync(join(pluginOf(first), "skills"))).toEqual(["linked"]);
+    expect(readlinkSync(join(pluginOf(first), "skills/linked"))).toBe(join(root, ".agents/skills/linked"));
+    for (const name of ["native", "release"]) await client.request("skills.setEnabled", { commandId: randomUUID(), name, accountId: "work", enabled: false });
+    const disabled = await runOn(client, sessionId, "Two", () => runQuery(2), 1);
+    await ended(t, sessionId, 2);
+    expect(first.closed).toBe(true);
+    expect(disabled.options.settings).toMatchObject({ skillOverrides: { native: "off", release: "off" } });
+    expect(disabled.options.resume).toBe(PROVIDER_SESSION);
+    const decision = await client.request("trust.get", { sessionId });
+    await client.request("trust.revoke", { commandId: randomUUID(), key: decision.key });
+    const revoked = await runOn(client, sessionId, "Three", () => runQuery(3), 1);
+    await ended(t, sessionId, 3);
+    expect(disabled.closed).toBe(true);
+    expect(revoked.options.settingSources).toEqual([]);
+    expect(revoked.options.plugins ?? []).toEqual([]);
+    expect(revoked.options.settings ?? {}).not.toHaveProperty("skillOverrides");
+    expect(revoked.options.resume).toBe(PROVIDER_SESSION);
+  });
+
+  it("links a worktree's skill when project configuration loads from its main checkout", async () => {
+    const checkout = tempDir("agent-harness-main-");
+    testGit(checkout, "init", "-q");
+    testGit(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+    const worktree = join(tempDir("agent-harness-worktrees-"), "branch");
+    testGit(checkout, "worktree", "add", "-q", "-b", "branch", worktree);
+    write(join(worktree, ".claude/skills/branch-only/SKILL.md"), skill("branch-only"));
+    write(join(checkout, ".claude/commands/release.md"), skill("release"));
+    const { t, client, sessionId } = await start(worktree);
+    await client.request("trust.decide", { commandId: randomUUID(), sessionId, decision: "trusted" });
+    const members = registry["skills.get"].result.parse(await client.request("skills.get", { sessionId })).members;
+    expect(members.find((m) => m.name === "branch-only")).toMatchObject({ native: false });
+    expect(members.find((m) => m.name === "release")).toMatchObject({ native: true });
+    const first = await runOn(client, sessionId, "One", () => runQuery(1), 1);
+    await ended(t, sessionId, 1);
+    expect(first.options.projectConfigRoot).toBe(checkout);
+    expect(readdirSync(join(pluginOf(first), "skills"))).toEqual(["branch-only"]);
+    expect(readlinkSync(join(pluginOf(first), "skills/branch-only"))).toBe(join(worktree, ".claude/skills/branch-only"));
+  });
+
+
+  it("hides a native command shadowed by a linked skill and restores it when the skill is removed", async () => {
+    const root = tempDir("agent-harness-shadowed-");
+    testGit(root, "init", "-q");
+    write(join(root, ".agents/skills/shared/SKILL.md"), skill("shared", "Winning skill."));
+    write(join(root, ".claude/commands/shared.md"), skill("shared", "Shadowed command."));
+    const { t, client, sessionId } = await start(root);
+    await client.request("trust.decide", { commandId: randomUUID(), sessionId, decision: "trusted" });
+    const members = registry["skills.get"].result.parse(await client.request("skills.get", { sessionId })).members;
+    expect(members.find((m) => m.kind === "command")).toMatchObject({ shadowedBy: { path: ".agents/skills/shared" }, native: true, enabled: true });
+    const first = await runOn(client, sessionId, "One", () => runQuery(1), 1);
+    await ended(t, sessionId, 1);
+    expect(first.options.settings).toMatchObject({ skillOverrides: { shared: "off" } });
+    expect(readlinkSync(join(pluginOf(first), "skills/shared"))).toBe(join(root, ".agents/skills/shared"));
+    rmSync(join(root, ".agents/skills/shared"), { recursive: true });
+    const restored = await runOn(client, sessionId, "Two", () => runQuery(2), 1);
+    await ended(t, sessionId, 2);
+    expect(first.closed).toBe(true);
+    expect(restored.options.settings ?? {}).not.toHaveProperty("skillOverrides");
+    expect(restored.options.plugins ?? []).toEqual([]);
+  });
+
 });

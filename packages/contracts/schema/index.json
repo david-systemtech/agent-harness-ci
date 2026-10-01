@@ -2215,6 +2215,10 @@
       "title": "InstructionManifestLayer"
     },
     {
+      "path": "instructions/always-on-chooser.json",
+      "title": "AlwaysOnChooser"
+    },
+    {
       "path": "instructions/always-on-skill.json",
       "title": "InstructionAlwaysOnSkill"
     },
@@ -3121,6 +3125,10 @@
     {
       "path": "setup/prompt-variant.json",
       "title": "PromptVariant"
+    },
+    {
+      "path": "setup/minted-payload.json",
+      "title": "SetupMintedPayload"
     },
     {
       "path": "browser/page-driver-kind.json",

@@ -4934,7 +4934,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry for npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
+                    "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
                   },
                   "minimum": {
                     "anyOf": [
@@ -6333,7 +6333,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -6390,7 +6390,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -6440,7 +6440,7 @@
                                   "maxLength": 128
                                 },
                                 "maxChars": {
-                                  "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                   "type": "integer",
                                   "minimum": 1,
                                   "maximum": 200000
@@ -6525,7 +6525,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -6589,7 +6589,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -6685,7 +6685,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -7162,7 +7162,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -7219,7 +7219,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -7269,7 +7269,7 @@
                                   "maxLength": 128
                                 },
                                 "maxChars": {
-                                  "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                  "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                   "type": "integer",
                                   "minimum": 1,
                                   "maximum": 200000
@@ -7354,7 +7354,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -7418,7 +7418,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000
@@ -7514,7 +7514,7 @@
                                       "maxLength": 128
                                     },
                                     "maxChars": {
-                                      "description": "The most characters to answer, cut at a line boundary; preset 30000, at most 200000.",
+                                      "description": "The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset 30000, at most 200000.",
                                       "type": "integer",
                                       "minimum": 1,
                                       "maximum": 200000

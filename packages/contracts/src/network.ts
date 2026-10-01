@@ -7,8 +7,8 @@ import type { SettingDefinition } from "./settings.js";
  * writes, applied at the environment's next start, and what `environment.status`
  * says it binds and could bind. Loopback is always bound; the tailnet address
  * when one is found and `network.bindTailnet` is on; the LAN address
- * `network.bindLan` names, which must be one the machine holds; the wildcard
- * address never.
+ * `network.bindLan` names, which must be one the machine holds, else the start
+ * skips it, saying so (#773); the wildcard address never.
  */
 
 /**
@@ -38,7 +38,7 @@ export const BindTailnet = z.boolean().meta({
 /** `network.bindLan`: the LAN address the environment binds, or null for none. */
 export const BindLan = BindAddress.nullable().meta({
   description:
-    "The LAN address the environment binds beside loopback from its next start, or null for none (off, the preset). It must be an address the machine holds, one environment.status lists as a LAN address it could bind; a start asked for one it does not hold fails, saying so. Anyone on that network could try to reach the environment; it still needs a paired client.",
+    "The LAN address the environment binds beside loopback from its next start, or null for none (off, the preset). It must be an address the machine holds, one environment.status lists as a LAN address it could bind; a start that finds the machine does not hold it binds loopback and the tailnet without it, saying so on standard error, and the Your machines step needs attention naming it. Anyone on that network could try to reach the environment; it still needs a paired client.",
 });
 
 /** A key's definition, its preset checked against its schema by the compiler. */
@@ -77,6 +77,12 @@ export const EnvironmentBinding = z
       })
       .nullable()
       .meta({ description: "The tailnet address the environment binds and its tailnet name; null when it binds none: no Tailscale address was found at its start, or network.bindTailnet is off." }),
+    tailnetFound: BindAddress.nullable()
+      .optional()
+      .meta({
+        description:
+          "A Tailscale address the machine holds that the environment does not bind, which it binds at its next start while network.bindTailnet is on: one found since its start (Tailscale installed or started since), or one found at its start with network.bindTailnet off. Looked for at the start and again at each environment.status while no tailnet address is bound; null when one is bound or none is found; absent from an environment that predates it.",
+      }),
     lan: BindAddress.nullable().meta({ description: "The LAN address the environment binds; null when it binds none." }),
     lanAddresses: z.array(BindAddress).meta({
       description:

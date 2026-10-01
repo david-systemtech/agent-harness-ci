@@ -27,11 +27,11 @@ import { writeFileAtomic } from "../serve/files.js";
 export interface ReleaseOrigins {
   /** The Homebrew API: a formula's `formula/<name>.json`, a cask's `cask/<name>.json`. */
   readonly homebrew: string;
-  /** The npm registry: `<package>/latest`. */
+  /** The npm registry: `<package>/<dist-tag>`. */
   readonly npm: string;
   /** GitHub's REST API: a repository's releases, and the contents of WinGet's manifests repository. */
   readonly github: string;
-  /** Claude Code's release channels: `latest`, the version the channel points at. */
+  /** Claude Code's release channels: `latest`, `stable` or `rc`, the version the channel points at. */
   readonly claude: string;
   /** 1Password's update feed. */
   readonly onePassword: string;
@@ -49,15 +49,29 @@ export const RELEASE_ORIGINS: ReleaseOrigins = {
   hashicorp: "https://api.releases.hashicorp.com",
 };
 
+/** The update channels the user's settings may select. */
+type ClaudeChannel = "latest" | "stable" | "rc";
+
+/** A missing, unreadable or invalid user setting follows the default channel. */
+const claudeChannel = (file: string): ClaudeChannel => {
+  try {
+    const settings: unknown = JSON.parse(readFileSync(file, "utf8"));
+    const channel = field(settings, "autoUpdatesChannel");
+    return channel === "stable" || channel === "rc" ? channel : "latest";
+  } catch {
+    return "latest";
+  }
+};
+
 /** One place a tool's releases are published. */
 export type ReleaseSource =
   | { readonly kind: "homebrew-formula"; readonly name: string }
   | { readonly kind: "homebrew-cask"; readonly name: string }
-  | { readonly kind: "npm"; readonly name: string }
+  | { readonly kind: "npm"; readonly name: string; readonly tag?: ClaudeChannel }
   | { readonly kind: "winget"; readonly id: string }
   /** A repository's GitHub releases whose tags are `prefix`, an optional `v`, and the version. */
   | { readonly kind: "github"; readonly repository: string; readonly prefix: string }
-  | { readonly kind: "claude-channel"; readonly channel: "latest" }
+  | { readonly kind: "claude-channel"; readonly channel: ClaudeChannel }
   | { readonly kind: "onepassword"; readonly product: "CLI2" }
   | { readonly kind: "hashicorp"; readonly product: string };
 
@@ -107,10 +121,13 @@ export const TOOL_RELEASES: Readonly<Record<ManagedToolName, ToolReleases>> = {
 };
 
 /** The source a tool installed by `method` reads its latest version from: its method's own, else the vendor's feed. */
-export const releaseSourceOf = (tool: ManagedToolName, method: ManagedToolInstallMethod): ReleaseSource => {
+export const releaseSourceOf = (tool: ManagedToolName, method: ManagedToolInstallMethod, channel: ClaudeChannel = "latest"): ReleaseSource => {
   const releases = TOOL_RELEASES[tool];
   const own = method === "homebrew" ? releases.homebrew : method === "winget" ? releases.winget : method === "npm" ? releases.npm : undefined;
-  return own ?? releases.feed;
+  const source = own ?? releases.feed;
+  if (source.kind === "claude-channel") return { ...source, channel };
+  if (tool === "claude" && source.kind === "npm" && channel !== "latest") return { ...source, tag: channel };
+  return source;
 };
 
 /** A source as the cache names it, so a version fetched from one source never stands for another's. */
@@ -118,8 +135,9 @@ const keyOf = (source: ReleaseSource): string => {
   switch (source.kind) {
     case "homebrew-formula":
     case "homebrew-cask":
-    case "npm":
       return `${source.kind} ${source.name}`;
+    case "npm":
+      return `npm ${source.name}${source.tag === undefined || source.tag === "latest" ? "" : ` ${source.tag}`}`;
     case "winget":
       return `winget ${source.id}`;
     case "github":
@@ -132,17 +150,17 @@ const keyOf = (source: ReleaseSource): string => {
   }
 };
 
-/** A version a source published, with an optional leading `v`; null when it is not one, or is a prerelease. */
-const releaseVersion = (text: unknown): string | null => {
+/** A version a source published, with an optional leading `v`; null when it is not one, or is an unrequested prerelease. */
+const releaseVersion = (text: unknown, allowPrerelease = false): string | null => {
   if (typeof text !== "string") return null;
   const version = text.trim().replace(/^v/, "");
-  return ManagedToolVersion.safeParse(version).success && !version.includes("-") ? version : null;
+  return ManagedToolVersion.safeParse(version).success && (allowPrerelease || !version.includes("-")) ? version : null;
 };
 
 /** The newest of `versions`, passing over any that is not a release version; null for none. */
 const newest = (versions: readonly unknown[]): string | null =>
   versions
-    .map(releaseVersion)
+    .map((version) => releaseVersion(version))
     .filter((version): version is string => version !== null)
     .reduce<string | null>((best, version) => (best === null || compareToolVersions(version, best) > 0 ? version : best), null);
 
@@ -173,7 +191,7 @@ const fetchLatest = async (source: ReleaseSource, origins: ReleaseOrigins, get: 
       return releaseVersion(typeof version === "string" ? version.split(",")[0] : version);
     }
     case "npm":
-      return releaseVersion(field(await readJson(`${origins.npm}/${source.name.replace("/", "%2F")}/latest`), "version"));
+      return releaseVersion(field(await readJson(`${origins.npm}/${source.name.replace("/", "%2F")}/${source.tag ?? "latest"}`), "version"), source.tag === "rc");
     case "winget": {
       const entries = await readJson(`${origins.github}/repos/microsoft/winget-pkgs/contents/${wingetDirectory(source.id)}`, GITHUB_TYPE);
       if (!Array.isArray(entries)) return null;
@@ -191,7 +209,7 @@ const fetchLatest = async (source: ReleaseSource, origins: ReleaseOrigins, get: 
       );
     }
     case "claude-channel":
-      return releaseVersion(await get(`${origins.claude}/${source.channel}`, "text/plain"));
+      return releaseVersion(await get(`${origins.claude}/${source.channel}`, "text/plain"), source.channel === "rc");
     case "onepassword":
       // The feed offers the newest to a version older than every release.
       return releaseVersion(field(await readJson(`${origins.onePassword}/check/1/0/${source.product}/en/2.0.0/N`), "version"));
@@ -228,6 +246,8 @@ export interface LatestVersionsOptions {
   readonly clock: Clock;
   /** Where the cache is kept, so a restart keeps it. */
   readonly file: string;
+  /** The PATH install's user settings, independent of the bundled adapter's accounts. */
+  readonly claudeSettingsFile: string;
   /** Preset `RELEASE_ORIGINS`; tests point each at a fake. */
   readonly origins?: Partial<ReleaseOrigins>;
   /** Preset `LATEST_TIMEOUT_MS`. */
@@ -299,39 +319,46 @@ export const createLatestVersions = (options: LatestVersionsOptions): LatestVers
     }
   };
 
+  const sourceOf = (tool: ManagedToolName, method: ManagedToolInstallMethod): ReleaseSource =>
+    releaseSourceOf(tool, method, tool === "claude" ? claudeChannel(options.claudeSettingsFile) : "latest");
+
   const known = (tool: ManagedToolName, method: ManagedToolInstallMethod): string | null => {
     const cached = cache.get(tool);
-    return cached !== undefined && cached.source === keyOf(releaseSourceOf(tool, method)) ? cached.version : null;
+    return cached !== undefined && cached.source === keyOf(sourceOf(tool, method)) ? cached.version : null;
   };
 
   const refresh = async (installed: readonly InstalledTool[]): Promise<boolean> => {
     const now = clock.now();
-    const due = installed.filter(({ tool, method }) => {
-      const cached = cache.get(tool);
-      return cached === undefined || cached.source !== keyOf(releaseSourceOf(tool, method)) || now.getTime() - Date.parse(cached.fetchedAt) >= LATEST_INTERVAL_MS;
-    });
+    // Resolve each source once: settings can change while its request is under way.
+    const due = installed
+      .map(({ tool, method }) => ({ tool, source: sourceOf(tool, method) }))
+      .filter(({ tool, source }) => {
+        const cached = cache.get(tool);
+        return cached === undefined || cached.source !== keyOf(source) || now.getTime() - Date.parse(cached.fetchedAt) >= LATEST_INTERVAL_MS;
+      });
     if (due.length === 0 || signal.aborted) return false;
     const failures: string[] = [];
     const answers = await Promise.all(
-      due.map(async ({ tool, method }) => {
-        const source = releaseSourceOf(tool, method);
+      due.map(async ({ tool, source }) => {
         try {
           const version = await fetchLatest(source, origins, get);
           if (version === null) failures.push(`${tool} (${keyOf(source)}: no version in its answer)`);
-          return { tool, method, source, version };
+          return { tool, source, version };
         } catch (error) {
           failures.push(`${tool} (${keyOf(source)}: ${whyNot(error)})`);
-          return { tool, method, source, version: null };
+          return { tool, source, version: null };
         }
       }),
     );
     if (signal.aborted) return false;
     let changed = false;
-    for (const { tool, method, source, version } of answers) {
-      const before = known(tool, method);
+    for (const { tool, source, version } of answers) {
+      const previous = cache.get(tool);
+      const before = previous?.source === keyOf(source) ? previous.version : null;
       // A fetch that read nothing leaves the last version known from this source, or none.
       cache.set(tool, { source: keyOf(source), version: version ?? before, fetchedAt: now.toISOString() });
-      if (known(tool, method) !== before) changed = true;
+      // Losing the other channel's version changes rows even when this fetch failed.
+      if ((version !== null && version !== before) || (previous !== undefined && previous.version !== null && previous.source !== keyOf(source))) changed = true;
     }
     keep();
     if (failures.length > 0) console.error(`The latest version of ${failures.join(", ")} could not be fetched; each row keeps the one last known.`);

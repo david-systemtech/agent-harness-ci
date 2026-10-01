@@ -286,6 +286,17 @@
       "minimum": 1,
       "maximum": 1440,
       "description": "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile."
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "maxLength": 64
+      },
+      "uniqueItems": true,
+      "description": "The skills its runs load always-on, which a run the environment starts to continue it after a restart reads back: its routine's when it was asked for, whatever an edit changes meanwhile."
     }
   },
   "required": [
@@ -299,7 +310,8 @@
     "preCheck",
     "targets",
     "silenceMarker",
-    "maxDurationMinutes"
+    "maxDurationMinutes",
+    "skills"
   ],
-  "description": "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker and its maximum duration, whatever an edit changes meanwhile."
+  "description": "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker, its maximum duration and its skills, whatever an edit changes meanwhile."
 }

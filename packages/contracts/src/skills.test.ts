@@ -236,7 +236,7 @@ describe("the skills methods and notice", () => {
   const offForLocal = { kind: "enabled", name: "tdd", accountId: "local", enabled: false } as const;
   const alwaysOn = { kind: "always-on", name: "tdd", accountId: "claude-max", on: true } as const;
   const inert = { kind: "enabled", name: "unslop", accountId: null, enabled: false } as const;
-  const choices = { enabled: true, alwaysOn: true, choices: [offForLocal, alwaysOn] };
+  const choices = { native: false, enabled: true, alwaysOn: true, choices: [offForLocal, alwaysOn] };
   const unslop: SkillsViewSourceType = {
     id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
     url: "https://github.com/theclaymethod/unslop",
@@ -272,6 +272,7 @@ describe("the skills methods and notice", () => {
         size: 0,
         tokens: 0,
         shadowedBy: null,
+        native: false,
         enabled: true,
         alwaysOn: false,
         choices: [],

@@ -1,6 +1,7 @@
-import { RunEndedPayload, SESSION_STREAM_KIND } from "@agent-harness/contracts";
+import { RunEndedPayload, SESSION_STREAM_KIND, SetupMintedPayload } from "@agent-harness/contracts";
 import type { EventEnvelope } from "../event-log/envelope.js";
 import type { Reader } from "../sessions/session-reads.js";
+import type { StepSubject } from "./mint.js";
 
 /**
  * Minted sessions as Set up reads them (ADR 0019; the Set up
@@ -8,7 +9,7 @@ import type { Reader } from "../sessions/session-reads.js";
  * tagged `setup` and a step's id, as `setup.mint` tags the sessions it
  * mints and as anyone may tag one by hand. A run end of one checks that
  * step again (`scheduler.ts`), and an LLM step's check reads how the
- * latest of them last ended (`check.ts`).
+ * latest of them per subject last ended (`check.ts`).
  */
 
 /** The tag every minted session carries, beside its step's id. */
@@ -19,6 +20,8 @@ export interface StoppedRun {
   readonly sessionId: string;
   /** The session's title, as a result's target names it. */
   readonly title: string;
+  /** The recorded subject; null for a subjectless mint or a session tagged by hand or minted before provenance was recorded. */
+  readonly subject: StepSubject | null;
   /** The error it ended with; null for a run that was stopped (interrupted, drained or let go). */
   readonly error: string | null;
 }
@@ -43,28 +46,41 @@ const errorOf = (reader: Reader, sessionId: string, runId: string): string | nul
 };
 
 /**
- * The last run of `step`'s latest minted session, the one created last that
- * is not deleted, when it ended other than completed: an error, with its
- * message ("The run ended with an error." when the log no longer holds
- * it), or stopped. Null while no minted session has a run, while its run is
- * live, and after a clean end.
+ * Each subject's latest undeleted minted session, when its last run failed
+ * or stopped. A newer draft, live run or clean end supersedes older runs
+ * only for its own subject. Sessions without recorded provenance share a
+ * subjectless bucket, retaining the pre-provenance behaviour without
+ * guessing a subject from a title or workspace.
  */
-export const stoppedMintedRun = (reader: Reader, step: string): StoppedRun | null => {
-  const [session] = reader.all<{ id: string; title: string }>(
-    `SELECT s.id, s.title FROM sessions s
+export const stoppedMintedRuns = (reader: Reader, step: string): StoppedRun[] => {
+  const sessions = reader.all<{ id: string; title: string; minted: string | null }>(
+    `SELECT s.id, s.title, m.payload AS minted FROM sessions s
        JOIN session_tags setup ON setup.session_id = s.id AND setup.tag_key = ?
        JOIN session_tags step ON step.session_id = s.id AND step.tag_key = ?
+       LEFT JOIN events m ON m.stream_kind = ? AND m.stream_id = s.id
+         AND m.type = 'setup.minted' AND json_extract(m.payload, '$.step') = ?
      WHERE s.deleted_at IS NULL
-     ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1`,
+     ORDER BY s.created_at DESC, s.rowid DESC`,
     SETUP_TAG,
     step,
+    SESSION_STREAM_KIND,
+    step,
   );
-  if (session === undefined) return null;
-  const [run] = reader.all<{ run_id: string; state: string; reason: string | null }>(
-    "SELECT run_id, state, reason FROM runs WHERE session_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
-    session.id,
-  );
-  if (run === undefined || run.state !== "ended" || run.reason === "completed") return null;
-  const error = run.reason === "error" ? (errorOf(reader, session.id, run.run_id) ?? "The run ended with an error.") : null;
-  return { sessionId: session.id, title: session.title, error };
+  const seen = new Set<string>();
+  const stopped: StoppedRun[] = [];
+  for (const session of sessions) {
+    const minted = session.minted === null ? undefined : SetupMintedPayload.safeParse(JSON.parse(session.minted));
+    const subject = minted?.success === true ? minted.data.subject : null;
+    const key = JSON.stringify(subject === null ? null : [subject.kind, subject.id]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [run] = reader.all<{ run_id: string; state: string; reason: string | null }>(
+      "SELECT run_id, state, reason FROM runs WHERE session_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
+      session.id,
+    );
+    if (run === undefined || run.state !== "ended" || run.reason === "completed") continue;
+    const error = run.reason === "error" ? (errorOf(reader, session.id, run.run_id) ?? "The run ended with an error.") : null;
+    stopped.push({ sessionId: session.id, title: session.title, subject, error });
+  }
+  return stopped;
 };

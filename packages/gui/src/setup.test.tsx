@@ -1,10 +1,11 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { SETUP_PENDING_MS } from "@agent-harness/client-runtime";
+import { SETUP_PENDING_MS, clockTime } from "@agent-harness/client-runtime";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, STEP_ORDER, denylistPresets } from "@agent-harness/contracts";
 import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../test/harness.js";
+import { StepStatus } from "./setup/step-status.js";
 import type { StepCardProps } from "./setup/cards.js";
 
 /**
@@ -470,7 +471,7 @@ describe("a step's named actions on their targets", () => {
     expect(desk.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
   });
 
-  it("opens the step's home row for a verb whose method is not on the wire yet, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
+  it("opens the step's home row for a verb whose card is not registered in this build, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
     const app = await renderApp({
       environments: [
         {
@@ -494,7 +495,7 @@ describe("a step's named actions on their targets", () => {
           },
         },
       ],
-    });
+    }, { stepCards: { skills: StepStatus } });
     await screen.findByText(NO_SESSION);
 
     const skills = await cardOf(app, "Skills");
@@ -610,7 +611,7 @@ describe("health dots", () => {
 });
 
 describe("a result this window did not ask for", () => {
-  it("turns the rail's dot, the pane's row and the header's line as the environment publishes it, with no call and no pending", async () => {
+  it("turns the rail's dot, the pane's row and the header's line as the environment publishes it, with no call and no pending, the row saying since when it is unchanged", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: onlySteps(PASSING) }] });
     await screen.findByText(NO_SESSION);
     const desk = app.environment("desk");
@@ -623,10 +624,12 @@ describe("a result this window did not ask for", () => {
     desk.setSetup({ permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] } });
     act(() => app.clock.advance(SETUP_PENDING_MS));
     desk.passSetup(["permissions"]);
+    const passed = clockTime(app.clock.now().toISOString());
     await waitFor(() => expect(railDots()).toContain("Permissions: needs attention"));
     expect(railDots()[0]).toBe("Set up: needs attention");
     expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
-    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", "The denylist lost 2 presets."]);
+    // A re-check that finds nothing new is never heard, so the line says since when it is unchanged rather than how old it is.
+    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", `The denylist lost 2 presets. (unchanged since ${passed})`]);
     expect(screen.getByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" })).toBeDefined();
     expect(screen.queryByText("Checking…")).toBeNull();
     expect(desk.requests("setup.check")).toHaveLength(asked);

@@ -129,8 +129,13 @@ export interface PrepareContext extends MethodContext {
  * applied meanwhile: a client that must have one command applied before the
  * next waits for its receipt, as the outbox does.
  */
+export type PreparedMethodHandler<N extends MethodName> = MethodHandler<N> & {
+  /** Checked immediately before the transaction; false prepares again without applying this handler. */
+  readonly isCurrent?: () => boolean;
+};
+
 export interface PreparedCommand<N extends MethodName> {
-  readonly prepare: (params: ParamsOf<N>, context: PrepareContext) => MethodHandler<N> | Promise<MethodHandler<N>>;
+  readonly prepare: (params: ParamsOf<N>, context: PrepareContext) => PreparedMethodHandler<N> | Promise<PreparedMethodHandler<N>>;
 }
 
 /** Handlers by contracts method name, as the environment starts with them; a command's may be prepared first. */
@@ -143,7 +148,9 @@ type StreamHandler = (params: unknown, context: MethodContext) => StreamSource |
 /** A query's handler as dispatch calls it. */
 type QueryHandler = (params: unknown, context: MethodContext) => unknown;
 /** A command's handler as dispatch calls it, inside the command's transaction. */
-export type CommandHandler = (params: unknown, context: CommandContext) => CommandAnswer<unknown>;
+export type CommandHandler = ((params: unknown, context: CommandContext) => CommandAnswer<unknown>) & {
+  readonly isCurrent?: () => boolean;
+};
 /** A prepared command as dispatch calls it: `prepare`, then the handler it answers, inside the command's transaction. */
 export interface PreparedCommandHandler {
   readonly prepare: (params: unknown, context: PrepareContext) => CommandHandler | Promise<CommandHandler>;

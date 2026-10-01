@@ -29,6 +29,7 @@ export const SetupPane = () => {
   const [line, setLine] = useState<string | undefined>(undefined);
   if (picked === undefined || view === undefined) return null;
   const { environmentId } = picked;
+  const now = runtime.environmentNow(environmentId);
 
   const rerun = async () => {
     setLine(undefined);
@@ -60,7 +61,7 @@ export const SetupPane = () => {
             <Button className={classes("w-36 shrink-0 justify-start", !step.registered && "text-ink-faint")} onClick={() => openRow(step.home, environmentId)}>
               {step.label}
             </Button>
-            <span className="text-sm text-ink-muted">{stepLine(step)}</span>
+            <span className="text-sm text-ink-muted">{stepLine(step, now)}</span>
           </li>
         ))}
       </ol>

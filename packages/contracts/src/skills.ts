@@ -8,7 +8,7 @@ import { Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
 import { PRODUCT_NAME } from "./product.js";
 import {
-  SKILL_REPOSITORY_ROOTS,
+  NATIVE_SKILL_ROOTS,
   SkillInvocation,
   SkillMemberProblem,
   SkillMemberWarning,
@@ -158,7 +158,7 @@ export const SkillLayer = z
     z
       .object({
         kind: z.literal("repository"),
-        root: z.enum(SKILL_REPOSITORY_ROOTS).meta({ description: "The root the member lies under: .claude/skills, which wins a name over .agents/skills." }),
+        root: z.enum(NATIVE_SKILL_ROOTS).meta({ description: "The repository root the member lies under: .claude/skills before .agents/skills, then .claude/commands." }),
         directory: SkillSourceFolder.meta({
           description: "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
         }),
@@ -434,6 +434,7 @@ export const SkillsEventType = z
  * problem, nothing shadows it and it is on.
  */
 export const SkillsViewMember = SkillSetMember.extend({
+  native: z.boolean().default(false).meta({ description: "Whether the session account's adapter loads this repository member itself under trust." }),
   enabled: z.boolean().meta({
     description: "Whether its name is on for the view's account: the whole environment's choice, else the account's, else on. Off leaves it out of the set.",
   }),
@@ -811,6 +812,8 @@ export const RunSkillSetMember = z
       description: "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation.",
     }),
     alwaysOn: z.boolean().meta({ description: "Whether the run's account made it always-on, so its body rides the run's standing instructions." }),
+    file: AbsolutePath.optional().meta({ description: "The member’s Markdown file, through its generation when linked, else its native file; used to read always-on bodies." }),
+    commit: GitCommit.nullable().optional().meta({ description: "The source snapshot commit; null for members linked live." }),
   })
   .meta({
     description:

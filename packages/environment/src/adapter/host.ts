@@ -1,3 +1,4 @@
+import { resolveSlash, type PreparedSlash, type SlashScope } from "./slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
@@ -52,11 +53,13 @@ import {
   latestRun,
   messageCeilings,
   providerHeld,
+  providerQueue,
   readRun,
   readSessionFacts,
   type QueuedMessage,
 } from "../runs/run-reads.js";
 import {
+  carriedAlwaysOn,
   decideStart,
   originOfActor,
   policyResolvedEvent,
@@ -281,6 +284,13 @@ export interface AdapterHostOptions {
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
   /**
+   * The skills a routine's firing made the session with (#531): the extra
+   * always-on names a run the environment starts for the routine takes when
+   * the run before it is known only from the log, after a restart. Preset:
+   * none.
+   */
+  readonly routineSkills?: (sessionId: string) => readonly string[];
+  /**
    * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
    * read each time a wait begins. Preset: the setting's preset; the
    * environment passes the settings store's value.
@@ -363,6 +373,9 @@ export interface AdapterHost {
    * adapter, its events consumed from there on.
    */
   launch(run: PlannedRun): void;
+  /** Prepares slash resolution before message.sent commits, using a live run's set when present. */
+  prepareSlash(target: string | { readonly accountId: string; readonly workspace: Workspace; readonly repositoryIdentity: string | null }): Promise<PreparedSlash>;
+  resolveMessage(text: string, scope: SlashScope): ReturnType<typeof resolveSlash>;
   /**
    * What a run would be handed now (`instructions.preview`): composed as a
    * launch composes it, for a run a client starts, on the session's next run
@@ -535,7 +548,7 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
  * and client tools (a completions request's, #138, #139), which the log does
  * not hold, so a run started after a restart carries neither.
  */
-export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions" | "clientTools">;
+export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions" | "alwaysOn" | "clientTools">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -564,6 +577,8 @@ interface LiveRun {
   run: AdapterRun | undefined;
   /** Set from its launch until its adapter is asked for it: its instructions are being composed, and no provider process is begun for it. */
   composing: boolean;
+  slash: Promise<SlashScope | null>;
+  resolvedSlash: SlashScope | null;
   /**
    * Set once the host ends it, synchronously and first thing in `finish`,
    * before any await or append, so a second end (the adapter's end racing a
@@ -659,6 +674,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const trustOf = options.trust ?? undecidedTrust;
   const skillSetOf = options.skillSet ?? noSkillSet;
   const holdGeneration = options.holdGeneration ?? holdNothing;
+  const routineSkills = options.routineSkills ?? (() => []);
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -765,6 +781,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const adapter = adapters.get(provider);
       if (adapter === undefined) throw new Error(`No adapter serves the provider ${provider}.`);
       return stopOptions === undefined ? adapter.stopProcess(sessionId) : adapter.stopProcess(sessionId, stopOptions);
+    },
+    onStopped: (sessionId) => {
+      if (runActive(sessionId) !== null || (adoptions.get(sessionId)?.length ?? 0) > 0) return;
+      safely(
+        () => requeueReported(sessionId, providerQueue(reader, sessionId)),
+        (error) => console.error(`Taking back the stopped process's messages of session ${sessionId} failed; startup recovery tries again:`, error),
+      );
     },
     onParkedTooLong: (sessionId) => {
       const entry = live.get(sessionId);
@@ -920,7 +943,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
     pending.started = true;
     // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
-    startFromQueue({ ...entry.plan, actor: pending.actor });
+    startFromQueue({ ...entry.plan, actor: pending.actor, alwaysOn: carriedAlwaysOn(entry.plan, pending.actor) });
   };
 
   /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
@@ -1353,6 +1376,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
       run: undefined,
       composing,
+      slash: Promise.resolve(plan.slash ?? null),
+      resolvedSlash: plan.slash ?? null,
       ended: false,
       unrecorded: false,
       running: false,
@@ -1428,28 +1453,30 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     nativeRoots: run.account.descriptor.nativeSkillRoots,
   });
 
-  /** What a run's instructions are composed for: its session, account, workspace, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and repository identity, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
+    readonly repositoryIdentity: string | null;
     readonly trust: RunTrust;
     readonly skillSet: RunSkillSet;
     readonly origin: RunActorKind;
+    readonly alwaysOn?: readonly string[];
     readonly containment: ContainmentLevel;
     readonly injection: InjectionDecision;
   }): InstructionScope => ({
     sessionId: run.sessionId,
     accountId: run.account.id,
     workspace: run.workspace,
+    repositoryIdentity: run.repositoryIdentity,
     trust: run.trust,
     skillSet: run.skillSet,
     origin: run.origin,
     containment: run.containment,
     injection: run.injection,
     bot: null,
-    // The always-on layer (#507) fills a run's extra names.
-    alwaysOn: [],
+    alwaysOn: run.alwaysOn ?? [],
     channel: run.account.descriptor.instructionChannel,
     nativeProjectInstructions: run.account.descriptor.nativeProjectInstructions,
   });
@@ -1555,6 +1582,20 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     };
   };
 
+  const slashScope = async (account: AccountFacts, workspace: Workspace, trust: RunTrust, skillSet: RunSkillSet, listCommands = true): Promise<SlashScope> => {
+    if (!listCommands) return { accountId: account.id, skillSet, trust, provided: null };
+    if (skillSet.members.length === 0) return { accountId: account.id, skillSet, trust, provided: [] };
+    const held = heldAccount(account.id);
+    const release = skillSet.generation === null ? undefined : holdGeneration(skillSet.generation);
+    try {
+      const provided = !held.adapter.descriptor.commands || held.adapter.commands === undefined
+        ? [] : await held.adapter.commands(held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
+      return { accountId: account.id, skillSet, trust, provided };
+    } finally {
+      release?.();
+    }
+  };
+
   const launch = (plan: PlannedRun): void => {
     const prompt: PromptMessage[] = [
       ...keptAnswers(plan.runId),
@@ -1567,7 +1608,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     // One injection answer for the run: what its instructions tell it and what its process is given.
     const injection = processEnvironments.decide(holderOf(plan));
     // Its trust, read once as it launches: its skill set, its instructions and its `trusted` all take it.
-    const trust = trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
+    const trust = plan.slash?.trust ?? trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
     // Its tool servers, built as it launches rather than once it has composed: a message queued while it resolves its skill
     // set and composes (#493, #496) is judged against the tools it is served (a completions caller's own, #139).
     const servers = toolServers({
@@ -1575,9 +1616,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: plan.runId,
       accountId: plan.account.id,
       workspace: plan.workspace,
+      repositoryIdentity: plan.repositoryIdentity,
       clientTools: plan.clientTools,
       browser: plan.browser.browser,
     });
+    let slash: SlashScope;
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1606,7 +1649,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             denylist: runDenylist(plan.policy.attended),
             processEnvironment: processEnvironmentOf(plan, injection, skillSet),
             skillSet,
-            prompt,
+            prompt: prompt.map((message) => message.messageId === plan.literalPromptId ? message : ({ ...message, text: resolveSlash(message.text, slash, (member) => adapterOf(plan.account).invocationText(member)).text })),
           },
           contextFor(entry),
         );
@@ -1614,10 +1657,16 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         for (const message of prompt) unstage(message.messageId);
         return run;
       });
+    let settleSlash!: (scope: SlashScope | null) => void;
+    entry.slash = new Promise((resolve) => { settleSlash = resolve; });
     // Its skill set, then its instructions, whose manifest carries the set's fingerprint (#496); then its adapter.
     const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
-      const skillSet = await skillSetFor(entry, skillSetScope({ ...plan, trust }));
-      if (skillSet === null) return null;
+      const skillSet = plan.slash?.skillSet ?? await skillSetFor(entry, skillSetScope({ ...plan, trust }));
+      if (skillSet === null) { settleSlash(null); return null; }
+      const scope = plan.slash ?? await slashScope(plan.account, plan.workspace, trust, skillSet, prompt.some((message) => message.messageId !== plan.literalPromptId && message.text.startsWith("/")));
+      slash = scope;
+      entry.resolvedSlash = scope;
+      settleSlash(scope);
       const composed = await composeFor(entry, instructionScope({ ...plan, trust, skillSet, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection }));
       return composed === null ? null : [composed, skillSet];
     };
@@ -1625,7 +1674,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       (ready) => {
         if (ready !== null && !entry.ended) safely(() => start(...ready), (error) => console.error(`Starting run ${entry.runId} failed:`, error));
       },
-      (error: unknown) => console.error(`Ending run ${entry.runId}, which could not be prepared, failed:`, error),
+      (error: unknown) => {
+        settleSlash(null);
+        if (!entry.ended) finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, { by: "host", stop: null });
+      },
     );
   };
 
@@ -1635,8 +1687,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * last ended it, else as the log records it (after a restart), for the
    * actor its policy names, under the ceiling it was resolved under (the
    * client session behind it is not in the log, so a ceiling lowered since
-   * is not read), in its model with the model's own effort. Null when the
-   * session has never run.
+   * is not read), in its model with the model's own effort, with no extra
+   * always-on names but a routine's skills, which its firing recorded
+   * (#531). Null when the session has never run.
    */
   const basisOf = (sessionId: string): NextRunBasis | null => {
     const held = lastPlans.get(sessionId);
@@ -1644,7 +1697,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
+    const actor = actorOfPolicy(policy);
+    const alwaysOn = actor.kind === "routine" ? routineSkills(sessionId) : [];
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, alwaysOn, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1673,7 +1728,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * the turn does not run in.
    */
   const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
-    const previous = followed.plan;
+    const previous = { ...followed.plan, ...(followed.resolvedSlash !== null && { slash: followed.resolvedSlash }) };
     /** The turn is not run, and no run starts for it: it is disposed, and what it was to read comes back to the environment's queue for the next start. */
     const letGo = (why: string, stop: ProcessStopReason = "failed"): void => letTurnGo(previous, turn, why, stop);
     let session: ReturnType<typeof readSessionFacts>;
@@ -1852,7 +1907,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
 
   const adopt = (followed: LiveRun, turn: ProviderTurn): void => {
-    const previous = followed.plan;
+    const previous = { ...followed.plan, ...(followed.resolvedSlash !== null && { slash: followed.resolvedSlash }) };
     if (closing) {
       safely(() => turn.dispose(), (e) => console.error("Disposing a turn adopted while closing failed:", e));
       requeueTurn(previous, turn);
@@ -1901,6 +1956,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         ...(previous.effort !== null && { effort: previous.effort }),
         ...(forAnswers && { keptAnswers: true }),
         ...(previous.appendedInstructions !== null && { appendedInstructions: previous.appendedInstructions }),
+        alwaysOn: previous.alwaysOn ?? [],
         clientTools: previous.clientTools,
       });
       if (decision.rejected !== undefined) {
@@ -2097,7 +2153,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /** Asks `run`, the live run `entry` as `withdraw` found it, to take message `messageId` back (#228). */
   const withdrawThrough = async (entry: LiveRun, run: AdapterRun, messageId: string): Promise<{ readonly withdrawn: boolean }> => {
-    const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
+    const withdraw = capability(entry.descriptor, "withdraw", run.withdraw, "withdraw a queued message", "withdraw");
     const interruption = entry.interruption;
     // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
     // starts from the queue once the message is back in it, or the run of a read-now whose interrupt took it.
@@ -2108,7 +2164,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     } catch (error) {
       withdrawing.delete(messageId);
       if (error instanceof WithdrawUnsupported) {
-        throw unsupported(entry.descriptor, "providerQueue", ["messageId"], "withdraw a queued message", error.message);
+        throw unsupported(entry.descriptor, "withdraw", ["messageId"], "withdraw a queued message", error.message);
       }
       console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
       throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });
@@ -2192,7 +2248,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     previewScope,
     orientationScope(accountId, workspace, injection) {
       const account = placeAccount({ sessionId: null, accountId, workspace, repositoryIdentity: null, containment: null });
-      return instructionScope({ sessionId: null, account, workspace, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
+      return instructionScope({ sessionId: null, account, workspace, repositoryIdentity: null, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
     },
     async previewInstructions(target) {
       return instructions(await previewScope(target));
@@ -2238,8 +2294,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return;
       }
       const run = entry.run;
+      const scope = entry.resolvedSlash;
+      const sendResolved = (resolved: SlashScope | null): void | Promise<void> => run.send({
+        ...send.message,
+        text: resolved === null ? send.message.text : resolveSlash(send.message.text, resolved, (member) => adapterOf(entry.plan.account).invocationText(member)).text,
+      });
       const handing = safely(
-        () => run?.send(send.message),
+        () => scope !== null && scope.provided === null && send.message.text.startsWith("/")
+          ? slashScope(entry.plan.account, entry.plan.workspace, scope.trust, scope.skillSet).then(sendResolved)
+          : sendResolved(scope),
         (error) => {
           // The provider did not take it, so the environment holds it: the next run reads it (ADR 0022).
           console.error(`Handing message ${send.message.messageId} to run ${send.runId} failed; the environment holds it:`, error);
@@ -2327,6 +2390,33 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const held = heldAccount(accountId);
       const read = capability(held.adapter.descriptor, "planUsage", held.adapter.usage, "read plan usage", "usage");
       return read.call(held.adapter, held.ref);
+    },
+    resolveMessage(text, scope) {
+      return resolveSlash(text, scope, (member) => heldAccount(scope.accountId).adapter.invocationText(member));
+    },
+    async prepareSlash(target) {
+      if (typeof target === "string") {
+        const entry = live.get(target.toLowerCase());
+        if (entry !== undefined && !entry.ended) {
+          const isCurrent = (): boolean => live.get(target.toLowerCase()) === entry && !entry.ended;
+          const scope = await entry.slash;
+          if (scope !== null && !entry.ended) {
+            if (scope.provided !== null) return { ...scope, isCurrent };
+            const listed = slashScope(entry.plan.account, entry.plan.workspace, scope.trust, scope.skillSet);
+            entry.slash = listed;
+            const resolved = await listed;
+            entry.resolvedSlash = resolved;
+            if (!entry.ended) return { ...resolved, isCurrent };
+          }
+        }
+      }
+      const place = typeof target === "string" ? sessionPlace(target.toLowerCase()) : { ...target, sessionId: null, containment: null };
+      const previous = typeof target === "string" ? lastPlans.get(target.toLowerCase()) : undefined;
+      const account = placeAccount(place);
+      const trust = trustOf({ workspace: place.workspace, repositoryIdentity: place.repositoryIdentity });
+      const skillSet = await skillSetOf(skillSetScope({ ...place, account, trust }));
+      const scope = await slashScope(account, place.workspace, trust, skillSet);
+      return { ...scope, isCurrent: () => typeof target !== "string" || (runActive(target.toLowerCase()) === null && lastPlans.get(target.toLowerCase()) === previous) };
     },
     async commands(sessionId) {
       const place = sessionPlace(sessionId);

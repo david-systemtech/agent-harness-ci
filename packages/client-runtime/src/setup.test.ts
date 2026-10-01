@@ -7,7 +7,9 @@ import { attentionResult, doneResult, skippedResult } from "../test/setup.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Runtime } from "./runtime.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
-import { fakeShell, inMemoryDocuments, inMemoryPlatform, inMemorySecrets, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
+import { stepLine } from "./setup/checklist.js";
+import { fakeShell, inMemoryDocuments, inMemoryPlatform, inMemorySecrets, MANUAL_CLOCK_START, manualClock, type InMemoryDocumentStore } from "./testing/in-memory-platform.js";
+import { whenWords } from "./transcript/format.js";
 
 /**
  * `projections.setup` through the fake wire (#570; the Set up
@@ -270,6 +272,26 @@ describe("this client's own check", () => {
     expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", checkedAt: after(1), stale: false });
   });
 
+  it("reads as asked a result its check changed, which the environment notices too, and as followed one a later check noticed with the same checked-at (#671)", async () => {
+    const { runtime, wire, env, environment } = await withResults();
+    const checks = heldChecks(wire);
+    const fixed = doneResult("permissions", { reason: "The denylist holds its presets.", checkedAt: after(1) });
+    const checking = runtime.setup.check(env, "permissions");
+    await flush();
+    // The check put the denylist right: the environment notices it, and answers it.
+    environment.event(noticeEvent(4, env, "setup.result-changed", fixed));
+    await flush();
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "done", asked: false });
+    checks.answer([fixed]);
+    expect(await checking).toMatchObject({ ok: true });
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "done", checkedAt: after(1), asked: true });
+
+    // Another client's check, on a clock that has not moved: the stream's shows, followed.
+    environment.event(noticeEvent(5, env, "setup.result-changed", attentionResult("permissions", "permissions.denylist", ["restore"], { checkedAt: after(1) })));
+    await flush();
+    expect(resultOf(runtime, env, "permissions")).toMatchObject({ state: "needs-attention", checkedAt: after(1), asked: false });
+  });
+
   it("applies a newer environment's answer whole, its results of steps this build does not register beside the rest, each aged against the preset cadence (#672)", async () => {
     const { runtime, wire, clock, env } = await withResults();
     const checks = heldChecks(wire);
@@ -293,16 +315,17 @@ describe("this client's own check", () => {
       ["permissions", true, "done"],
       ["appearance", true, "done"],
     ]);
-    expect(resultOf(runtime, env, "skills")).toMatchObject({ ...skills, stale: false, olderThanCadence: false });
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ ...skills, asked: true, stale: false, olderThanCadence: false });
     expect(view.counts).toEqual({ registered: 11, done: 10, needsAttention: 1, skipped: 0, attention: ["skills"] });
 
-    // No cadence of this build's own for it: it ages against the hour a step has unless it gives another.
+    // No cadence of this build's own for it: it ages against the hour a step has unless it gives another, past which
+    // the environment has checked it again unasked, so it reads as followed (#671).
     clock.advance(60 * 60_000);
     await flush();
-    expect(resultOf(runtime, env, "skills")).toMatchObject({ olderThanCadence: false });
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ asked: true, olderThanCadence: false });
     clock.advance(2);
     await flush();
-    expect(resultOf(runtime, env, "skills")).toMatchObject({ olderThanCadence: true });
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ asked: false, olderThanCadence: false });
   });
 
   it("applies a newer environment's answer whole, leaving out only what its vocabulary has and this build's lacks: a verb, a kind of item, a later milestone's step (#693)", async () => {
@@ -539,11 +562,17 @@ describe("an environment this client cannot reach", () => {
 describe("each result's age", () => {
   const MINUTE = 60_000;
 
-  /** Each registered step's id, its result's age and whether that is older than the step's cadence. */
+  /** Each registered step's id, its result's age, whether this client asked for it, and whether it is older than the step's cadence. */
   const ages = (runtime: Runtime, env: string) =>
-    runtime.projections.setup(env).read().steps.flatMap((step) => (step.result === null ? [] : [[step.id, step.result.ageMs, step.result.olderThanCadence]]));
+    runtime.projections.setup(env).read().steps.flatMap((step) => (step.result === null ? [] : [[step.id, step.result.ageMs, step.result.asked, step.result.olderThanCadence]]));
 
-  it("is counted on the environment's clock, and passes the step's cadence as that time passes, with no event", async () => {
+  /** One registered step's line as a renderer words it now. */
+  const lineOf = (runtime: Runtime, env: string, id: string) => {
+    const step = runtime.projections.setup(env).read().steps.find((one) => one.id === id);
+    return step === undefined ? undefined : stepLine(step, runtime.environmentNow(env));
+  };
+
+  it("is counted on the environment's clock for a followed result, which reads unchanged since its checked-at and never older than its cadence, as nothing is heard of a re-check that finds nothing new (#671)", async () => {
     const { runtime, clock, env, environment, adding } = await paired({ skewMs: 10 * MINUTE });
     // Checked ten minutes ago as the environment tells the time, which runs ten minutes ahead of this client's.
     environment.snapshot(3, { status: STATUS, setup: [doneResult("your-machines"), skippedResult("forges")] });
@@ -552,29 +581,72 @@ describe("each result's age", () => {
     onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["your-machines", 10 * MINUTE, false],
-      ["forges", 10 * MINUTE, false],
+      ["your-machines", 10 * MINUTE, false, false],
+      ["forges", 10 * MINUTE, false, false],
     ]);
+    const unchanged = `(unchanged since ${whenWords(MANUAL_CLOCK_START, runtime.environmentNow(env))})`;
+    expect(lineOf(runtime, env, "your-machines")).toBe(`your-machines holds. ${unchanged}`);
+
+    // Past Forges' fifteen minutes and Your machines' hour, with no event, each says the same.
+    clock.advance(60 * MINUTE);
+    await flush();
+    expect(lineOf(runtime, env, "your-machines")).toBe(`your-machines holds. ${unchanged}`);
+    expect(runtime.projections.setup(env).read().steps.find((step) => step.id === "forges")?.result).toMatchObject({ asked: false, olderThanCadence: false });
+  });
+
+  it("is counted on the environment's clock for an answer of this client's own, which past its step's cadence reads its age, counted again a minute at a time, on an environment without the setup flag", async () => {
+    const { runtime, clock, env, environment, adding, wire } = await paired({ capabilities: [], skewMs: 10 * MINUTE });
+    environment.snapshot(2, { status: STATUS });
+    environment.synchronized(2);
+    await adding;
+    // Checked ten minutes ago as the environment tells the time, which runs ten minutes ahead of this client's.
+    wire.answer("setup.check", () => ({ result: { results: [doneResult("your-machines"), skippedResult("forges")] } }));
+    onTestFinished(runtime.projections.setup(env).subscribe(() => undefined));
+    await flush();
+    expect(ages(runtime, env)).toEqual([
+      ["your-machines", 10 * MINUTE, true, false],
+      ["forges", 10 * MINUTE, true, false],
+    ]);
+    expect(lineOf(runtime, env, "your-machines")).toBe("your-machines holds.");
 
     // Forges' cadence is fifteen minutes (its forge accounts' status); Your machines' the hour.
     clock.advance(5 * MINUTE + 1);
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["your-machines", 15 * MINUTE + 1, false],
-      ["forges", 15 * MINUTE + 1, true],
+      ["your-machines", 15 * MINUTE + 1, true, false],
+      ["forges", 15 * MINUTE + 1, true, true],
     ]);
     // Past its cadence, the age keeps being counted, a minute at a time.
     clock.advance(MINUTE);
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["your-machines", 16 * MINUTE + 1, false],
-      ["forges", 16 * MINUTE + 1, true],
+      ["your-machines", 16 * MINUTE + 1, true, false],
+      ["forges", 16 * MINUTE + 1, true, true],
     ]);
+    expect(lineOf(runtime, env, "forges")).toBe("Nothing is set up for forges. (checked 16 min ago)");
     clock.advance(44 * MINUTE);
     await flush();
     expect(ages(runtime, env)).toEqual([
-      ["your-machines", 60 * MINUTE + 1, true],
-      ["forges", 60 * MINUTE + 1, true],
+      ["your-machines", 60 * MINUTE + 1, true, true],
+      ["forges", 60 * MINUTE + 1, true, true],
     ]);
+    expect(lineOf(runtime, env, "your-machines")).toBe("your-machines holds. (checked 1 h ago)");
+  });
+
+  it("reads an answer of this client's own as followed once its step's cadence has passed on an environment with the setup flag, which has checked it again unasked by then (#671)", async () => {
+    const { runtime, clock, env, wire } = await withResults();
+    wire.answer("setup.check", () => ({ result: { results: [doneResult("forges", { checkedAt: after(MINUTE) })] } }));
+    clock.advance(MINUTE);
+    expect(await runtime.setup.check(env, "forges")).toMatchObject({ ok: true });
+    expect(resultOf(runtime, env, "forges")).toMatchObject({ asked: true, olderThanCadence: false, stale: false });
+    expect(lineOf(runtime, env, "forges")).toBe("forges holds.");
+
+    clock.advance(15 * MINUTE);
+    await flush();
+    expect(resultOf(runtime, env, "forges")).toMatchObject({ asked: true, olderThanCadence: false });
+    clock.advance(1);
+    await flush();
+    expect(resultOf(runtime, env, "forges")).toMatchObject({ asked: false, olderThanCadence: false, stale: false });
+    expect(lineOf(runtime, env, "forges")).toBe(`forges holds. (unchanged since ${whenWords(after(MINUTE), runtime.environmentNow(env))})`);
   });
 });

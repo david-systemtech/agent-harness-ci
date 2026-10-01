@@ -62,7 +62,8 @@ import type { Reader } from "../sessions/session-tables.js";
  * deleted. Each `routine.delivery-attempted` joins its target's delivery on
  * the entry, which the history lists in the targets' order. A firing keeps
  * the silence marker and the maximum duration it finishes under (#524),
- * the presets for one recorded before they were.
+ * the presets for one recorded before they were, and its session with the
+ * skills its runs load (#531), none for one recorded before them.
  */
 
 export const ROUTINES_PROJECTOR = "routines";
@@ -95,10 +96,13 @@ export const ROUTINES_TABLES = {
     targets TEXT NOT NULL,
     silence_marker TEXT,
     max_duration_minutes INTEGER,
+    session_id TEXT,
+    skills TEXT,
     entry TEXT NOT NULL
   ) STRICT;
   CREATE INDEX routine_entries_by_routine ON routine_entries (routine_id, position);
-  CREATE INDEX routine_entries_by_run ON routine_entries (run_id) WHERE run_id IS NOT NULL`,
+  CREATE INDEX routine_entries_by_run ON routine_entries (run_id) WHERE run_id IS NOT NULL;
+  CREATE INDEX routine_entries_by_session ON routine_entries (session_id) WHERE session_id IS NOT NULL`,
 } as const;
 
 /** A routine's name as the one-name-per-environment rule compares it: trimmed, case folded. */
@@ -202,8 +206,8 @@ const settle = (db: ProjectionDb, routineId: string, outcome: RoutineLastOutcome
 
 const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineFiringStartedPayload): void => {
   const { firingId, trigger, count, preCheck, dueAt, sessionId, runId, requestedBy, targets } = payload;
-  // A firing recorded before #524 names neither.
-  const { silenceMarker = null, maxDurationMinutes = null } = payload as Partial<RoutineFiringStartedPayload>;
+  // A firing recorded before #524 names neither, and one before #531 no skills.
+  const { silenceMarker = null, maxDurationMinutes = null, skills = [] } = payload as Partial<RoutineFiringStartedPayload>;
   const entry: FiringEntry = {
     kind: "firing",
     id: firingId,
@@ -226,7 +230,7 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
     baselineAdvanced: null,
   };
   db.run(
-    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, silence_marker, max_duration_minutes, entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO routine_entries (id, routine_id, position, run_id, targets, silence_marker, max_duration_minutes, session_id, skills, entry) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     firingId,
     event.streamId,
     event.sequence,
@@ -234,6 +238,8 @@ const firingStarted = (db: ProjectionDb, event: EventEnvelope, payload: RoutineF
     json(targets),
     silenceMarker,
     maxDurationMinutes,
+    sessionId,
+    json(skills),
     json(entry),
   );
   db.run("UPDATE routines SET live_firing = ? WHERE id = ?", firingId, event.streamId);
@@ -456,6 +462,16 @@ export const liveFiringOfRun = (reader: Reader, runId: string): LiveFiringRecord
 
 /** The routine's live firing; null when none is live. */
 export const liveFiringOfRoutine = (reader: Reader, routineId: string): LiveFiringRecord | null => liveFiringWhere(reader, "e.routine_id", routineId);
+
+/**
+ * The skills the firing whose session `sessionId` is started with, which a
+ * run the environment starts to continue it after a restart loads always-on
+ * (#531); none when no firing made the session.
+ */
+export const firingSkillsOfSession = (reader: Reader, sessionId: string): readonly string[] => {
+  const skills = reader.all<{ skills: string | null }>("SELECT skills FROM routine_entries WHERE session_id = ?", sessionId)[0]?.skills ?? null;
+  return skills === null ? [] : (JSON.parse(skills) as string[]);
+};
 
 /** The ids of the routines with a live firing. */
 export const routinesWithLiveFirings = (reader: Reader): string[] =>

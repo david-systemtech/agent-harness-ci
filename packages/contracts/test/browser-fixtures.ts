@@ -35,7 +35,10 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   snapshot: {
     args: { valid: [{}, { filter: "all", depth: 2, ref: "f1e4", maxChars: 200_000 }], invalid: [{ filter: "visible" }, { maxChars: 200_001 }, { depth: 0 }] },
-    value: { valid: [{ ...location, ...snapshotText }, { ...location, ...snapshotText, truncated: true, challenge: "hcaptcha" }], invalid: [location, { ...location, ...snapshotText, totalChars: -1 }] },
+    value: {
+      valid: [{ ...location, ...snapshotText }, { ...location, ...snapshotText, truncated: true, challenge: "hcaptcha" }, { ...location, ...snapshotText, truncated: true, midLine: true }],
+      invalid: [location, { ...location, ...snapshotText, totalChars: -1 }, { ...location, ...snapshotText, truncated: true, midLine: false }],
+    },
   },
   click: {
     args: { valid: [{ target: { ref: "e12" } }, { target: { selector: "button.buy" }, snapshot: {} }], invalid: [{ target: { ref: "e12", selector: "a" } }, { target: {} }, {}] },
@@ -61,7 +64,7 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   screenshot: {
     args: { valid: [{}], invalid: [null, "now", []] },
-    value: { valid: [{ mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" }, { mimeType: "image/png", data: "" }], invalid: [{ mimeType: "image/gif", data: "R0lG" }, { mimeType: "image/jpeg", data: "not base64!" }] },
+    value: { valid: [{ url: location.url, mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" }, { url: location.url, mimeType: "image/png", data: "" }], invalid: [{ url: location.url, mimeType: "image/gif", data: "R0lG" }, { url: location.url, mimeType: "image/jpeg", data: "not base64!" }] },
   },
   scroll: {
     args: { valid: [{ to: { direction: "down" } }, { to: { direction: "left", amount: 0.5 } }, { to: { ref: "e9" } }], invalid: [{ to: { direction: "sideways" } }, { to: { direction: "up", amount: 0 } }, { to: { direction: "down", ref: "e9" } }, {}] },
@@ -77,22 +80,22 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   console: {
     args: { valid: [{}], invalid: [null] },
     value: {
-      valid: [[], [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }, { level: "log", text: "ready", at }]],
-      invalid: [[{ level: "fatal", text: "x", at }], [{ level: "log", text: "x", at: 1_700_000_000 }], {}],
+      valid: [{ url: location.url, entries: [] }, { url: location.url, entries: [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }, { level: "log", text: "ready", at }] }],
+      invalid: [{ url: location.url, entries: [{ level: "fatal", text: "x", at }] }, { url: location.url, entries: [{ level: "log", text: "x", at: 1_700_000_000 }] }, { entries: [] }, []],
     },
   },
   network: {
     args: { valid: [{}, { failedOnly: true }], invalid: [{ failedOnly: "yes" }] },
     value: {
-      valid: [[], [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }, { method: "POST", url: "https://example.com/x", failure: "net::ERR_FAILED", at }]],
-      invalid: [[{ method: "GET", url: "https://example.com/", status: 200.5, at }], [{ url: "https://example.com/", at }]],
+      valid: [{ url: location.url, entries: [] }, { url: location.url, entries: [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }, { method: "POST", url: "https://example.com/x", failure: "net::ERR_FAILED", at }] }],
+      invalid: [{ url: location.url, entries: [{ method: "GET", url: "https://example.com/", status: 200.5, at }] }, { url: location.url, entries: [{ url: "https://example.com/", at }] }, { entries: [] }, []],
     },
   },
   cookies: {
     args: { valid: [{}], invalid: ["cookies"] },
     value: {
-      valid: [[], [{ name: "session", value: "v", domain: ".example.com", path: "/", expires: at, httpOnly: true, secure: true, sameSite: "Lax" }, { name: "id", domain: "example.com", path: "/", httpOnly: false, secure: false }]],
-      invalid: [[{ name: "session", domain: "example.com", path: "/", httpOnly: true, secure: true, sameSite: "lax" }], [{ name: "id" }]],
+      valid: [{ url: location.url, entries: [] }, { url: location.url, entries: [{ name: "session", value: "v", domain: ".example.com", path: "/", expires: at, httpOnly: true, secure: true, sameSite: "Lax" }, { name: "id", domain: "example.com", path: "/", httpOnly: false, secure: false }] }],
+      invalid: [{ url: location.url, entries: [{ name: "session", domain: "example.com", path: "/", httpOnly: true, secure: true, sameSite: "lax" }] }, { url: location.url, entries: [{ name: "id" }] }, { entries: [] }, []],
     },
   },
   storage: {
@@ -101,7 +104,7 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   evaluate: {
     args: { valid: [{ expression: "document.title" }], invalid: [{ expression: "" }, {}] },
-    value: { valid: [{ result: "Example" }, { result: null }, { result: { a: [1, "two", false] } }], invalid: [{}, "Example"] },
+    value: { valid: [{ url: location.url, result: "Example" }, { url: location.url, result: null }, { url: location.url, result: { a: [1, "two", false] } }], invalid: [{}, "Example"] },
   },
   close: {
     args: { valid: [{}], invalid: [null] },

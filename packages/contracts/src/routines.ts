@@ -377,9 +377,12 @@ export const ROUTINE_ATTENTION = [
 ] as const;
 export const RoutineAttention = z.enum(ROUTINE_ATTENTION).meta({
   description:
-    "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a skill is not in the skill set), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally).",
+    "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a name in its skills is not in the skill set of the account it resolves to; unknownSkills names each), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally).",
 });
 export type RoutineAttention = z.infer<typeof RoutineAttention>;
+
+/** The names in a routine's skills that the skill set of the account it resolves to does not hold (#531). */
+const unknownSkills = setOf(SkillName);
 
 /** A routine as `routines.list` answers it. */
 export const ListedRoutine = z
@@ -391,8 +394,11 @@ export const ListedRoutine = z
       description: "Its effective mode: its mode, else permissions.unattended.mode, clamped to the ceiling it was saved under and the account's modes, as the policy resolver clamps a firing's run.",
     }),
     attention: setOf(RoutineAttention).meta({ description: "What needs attention on it, each code once; empty when nothing does." }),
+    unknownSkills: unknownSkills.meta({
+      description: "The names in its skills that the skill set of the account it resolves to does not hold, in their order: what skill_unknown names; empty when the set holds each.",
+    }),
   })
-  .meta({ description: "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, and what needs attention." });
+  .meta({ description: "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, what needs attention, and the skills its account's skill set lacks." });
 export type ListedRoutine = z.infer<typeof ListedRoutine>;
 
 /** The longest final text a firing keeps, in characters. */
@@ -587,10 +593,13 @@ export const RoutineFiringStartedPayload = z
     maxDurationMinutes: maxDurationMinutes.meta({
       description: "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile.",
     }),
+    skills: setOf(SkillName).meta({
+      description: "The skills its runs load always-on, which a run the environment starts to continue it after a restart reads back: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
   })
   .meta({
     description:
-      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker and its maximum duration, whatever an edit changes meanwhile.",
+      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker, its maximum duration and its skills, whatever an edit changes meanwhile.",
   });
 export type RoutineFiringStartedPayload = z.infer<typeof RoutineFiringStartedPayload>;
 
@@ -836,6 +845,7 @@ export type RoutineConflictReason = z.infer<typeof RoutineConflictReason>;
 export const RoutineImportWarnings = z
   .object({
     attention: setOf(RoutineAttention).meta({ description: "What the routine would need attention for here: an account, model, skill, script or endpoint this environment lacks." }),
+    unknownSkills: unknownSkills.meta({ description: "The names in its skills that the skill set of the account it would resolve to here does not hold, in their order: what skill_unknown names." }),
     workspace: RoutineWorkspace.nullable().meta({
       description: "The workspace as re-resolved here, when the document's path is not usable on this environment: the most recently used checkout with its repository identity, else scratch; null when it is used as written.",
     }),

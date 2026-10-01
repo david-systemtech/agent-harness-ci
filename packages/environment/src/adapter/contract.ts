@@ -382,7 +382,7 @@ export interface RunContainment {
 export interface RunDenylist {
   /** The path section's enabled entries, absolute: `~` read as the environment's home directory. */
   readonly paths: readonly string[];
-  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces. */
+  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces; a file among them (the launcher's service state, which git's credential helper reads, #705) is left out alone. */
   readonly exempt: readonly string[];
   /** The command-pattern section's enabled entries, as written. */
   readonly commandPatterns: readonly string[];
@@ -792,7 +792,7 @@ export interface AdapterRun {
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
   /**
    * Takes back one message the provider holds in its queue, by the id it was
-   * handed under (`providerQueue`; Claude's cancel-by-id control, ADR 0022):
+   * handed under (`withdraw`; Claude's cancel-by-id control, ADR 0022):
    * `withdrawn` when the provider cancelled it, so no turn will read it;
    * false when the provider no longer holds it, having read it (or never
    * had it). The host calls it only for a message the log says the provider

@@ -143,9 +143,15 @@ export const createDispatch =
               throw new Error(`${method} was answered from its receipt; its handler does not run.`);
             };
           } else {
-            const prepared = registered.prepare(commandParams, { ...context, onUndo: (undo) => void undos.push(undo) });
-            // Waited for only when it must be, so a prepare that answers at once keeps the command's place on its socket.
-            handler = prepared instanceof Promise ? await prepared : prepared;
+            do {
+              const prepared = registered.prepare(commandParams, { ...context, onUndo: (undo) => void undos.push(undo) });
+              // Waited for only when it must be, so a prepare that answers at once keeps the command's place on its socket.
+              handler = prepared instanceof Promise ? await prepared : prepared;
+              // No await between this check and the transaction: a run transition during preparation must be read again.
+              if (log.receipt(actor, commandId) !== null || handler.isCurrent?.() !== false) break;
+              await undoAll(method, undos);
+              undos.length = 0;
+            } while (log.receipt(actor, commandId) === null);
           }
           run = log.command({ actor, commandId }, (tx) => {
             const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });

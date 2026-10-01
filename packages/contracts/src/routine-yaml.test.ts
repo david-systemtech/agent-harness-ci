@@ -263,7 +263,7 @@ describe("the routine YAML codec", () => {
       effort: "high",
       mode: "acceptEdits",
       preCheck: { kind: "script", path: "upstream-watch-probe.sh", timeoutSeconds: 60 },
-      delivery: [{ kind: "client-notice", on: "both" }],
+      delivery: [{ kind: "client-notice", on: "both" }, { kind: "webhook", target: "hermes", on: "success" }],
       enabled: false,
     });
     expect(documents[0]?.definition?.instructions).toMatch(/^You are the weekly upstream watch[\s\S]*8\. Reply with a two-line summary\./);

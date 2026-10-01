@@ -20,6 +20,7 @@ import {
   type SendResponse,
   type Workspace,
 } from "@agent-harness/contracts";
+import type { SlashScope } from "../adapter/slash-resolution.js";
 import { requireCapability } from "../adapter/capabilities.js";
 import type { AdapterDescriptor, AttachmentData, ModelOption, PromptMessage, RunTarget } from "../adapter/contract.js";
 import type { ClientTool, PolicySeam } from "../adapter/seams.js";
@@ -108,6 +109,7 @@ export interface StartFacts {
 
 /** A message a client sends: its minted id, its text and its attachments as sent. */
 export interface SentMessage {
+  readonly skill?: MessageSentPayload["skill"];
   readonly messageId: string;
   readonly text: string;
   readonly attachments: readonly AttachmentInput[];
@@ -127,6 +129,7 @@ export interface StartCommand {
    * the queue after it carries them too (the host's `NextRunBasis`).
    */
   readonly appendedInstructions?: string | undefined;
+  readonly alwaysOn?: readonly string[] | undefined;
   /**
    * The tools a completions request declared for the caller to run (#139),
    * which the run's tool servers serve; a run of the queue takes the run
@@ -161,8 +164,20 @@ export const originOfActor = (actor: RunActor): RunOrigin => {
   }
 };
 
+/**
+ * The extra always-on names a run of the queue takes from the run before it
+ * (#507): that run's, but a routine's or a bot's skills ride only its own
+ * runs, so a run for anyone else, such as a person's read-now, takes none
+ * of them (#531).
+ */
+export const carriedAlwaysOn = (before: { readonly actor: RunActor; readonly alwaysOn?: readonly string[] }, actor: RunActor): readonly string[] =>
+  originOfActor(before.actor) === "routine" && originOfActor(actor) !== "routine" ? [] : (before.alwaysOn ?? []);
+
 /** A run the host is to start once its events commit. */
 export interface PlannedRun {
+  readonly slash?: SlashScope | undefined;
+  /** An initial message sent without slash preparation stays literal; queued messages still resolve for this run. */
+  readonly literalPromptId?: string;
   readonly runId: string;
   readonly sessionId: string;
   readonly account: AccountFacts;
@@ -182,6 +197,8 @@ export interface PlannedRun {
   readonly browser: RunBrowserResolution;
   /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
   readonly appendedInstructions: string | null;
+  /** Extra always-on names; kept in memory, inherited by runs of the queue. */
+  readonly alwaysOn: readonly string[];
   /** The tools the caller runs (`StartCommand.clientTools`); empty for none. */
   readonly clientTools: readonly ClientTool[];
   /**
@@ -362,7 +379,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
   }
   if (command.message !== null) {
     const { messageId, text } = command.message;
-    events.push(sentEvent({ runId, messageId, text, attachments: attachments.records, delivery: "prompt", heldBy: null, ceiling: facts.actor.ceiling }));
+    events.push(sentEvent({ runId, messageId, text, ...(command.message.skill !== undefined && { skill: command.message.skill }), attachments: attachments.records, delivery: "prompt", heldBy: null, ceiling: facts.actor.ceiling }));
   }
   return {
     events,
@@ -380,6 +397,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       policy,
       browser,
       appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
+      alwaysOn: command.alwaysOn ?? [],
       clientTools: command.clientTools ?? [],
       prompt: command.messageFirst === true ? [...sent, ...queued] : [...queued, ...sent],
     },
@@ -422,6 +440,7 @@ export const decideSend = (facts: StartFacts, message: SentMessage, origin: RunO
     runId: live.runId,
     messageId: message.messageId,
     text: message.text,
+    ...(message.skill !== undefined && { skill: message.skill }),
     attachments: attachments.records,
     delivery: "queued",
     heldBy,
@@ -491,14 +510,16 @@ export interface ReadNowFacts {
   readonly providerHeld: readonly string[];
   /**
    * The run before, whose model and effort the run of the queue takes, and
-   * its own instructions and client tools (a completions request's, #138,
-   * #139), as the queue's run after it would; null before the session's
-   * first run.
+   * its own instructions, client tools and extra always-on names (a
+   * completions request's, #138, #139, #507; never a routine's, #531), as
+   * the queue's run after it would; null before the session's first run.
    */
   readonly basis: {
+    readonly actor: RunActor;
     readonly model: string;
     readonly effort: string | null;
     readonly appendedInstructions: string | null;
+    readonly alwaysOn?: readonly string[];
     readonly clientTools: readonly ClientTool[];
   } | null;
 }
@@ -538,7 +559,7 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
     ...(basis !== null && { model: basis.model }),
     ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
     ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
-    ...(basis !== null && { clientTools: basis.clientTools }),
+    ...(basis !== null && { clientTools: basis.clientTools, alwaysOn: carriedAlwaysOn(basis, start.actor) }),
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };
