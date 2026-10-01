@@ -21,13 +21,16 @@ import type { DomUtils } from "./dom-utils.js";
 // Vendored from Playwright (https://github.com/microsoft/playwright) at commit
 // 1b025d7e20a026371cd5f98ba0cdce48892737c8 (v1.63.0): packages/injected/src/roleUtils.ts, under the
 // Apache License 2.0 above, whose text is LICENSE beside this file, with Playwright's NOTICE.
-// Changed for agent-harness: the module is one function, given the tokenizer, the DOM helpers and the
-// value of a field that is never read, that returns what the snapshot uses, so the snapshot runs from
-// its source text in a page's isolated world (../in-page.ts); a field that is never read (a password,
-// a card detail, a one-time code) gives its marker, never its value, where a name takes the value of
-// a control embedded in a label; what the snapshot does not use (descriptions, error messages,
-// read-only and the checked variants) is left out; types are tightened for this repository's
-// compiler settings.
+// Changed for agent-harness: the module is one function, given the tokenizer, the DOM helpers and
+// `secretValue` (the marker of a field that is never read, or null for any other element), that
+// returns what the snapshot uses, so the snapshot runs from its source text in a page's isolated
+// world (../in-page.ts); a field that is never read (a password, a card detail, a one-time code)
+// gives its marker, never its value, where a name takes the value of a control embedded in a label;
+// what the snapshot does not use is left out: the accessible description, the error message and its
+// validity check, read-only (getReadonly, kAriaReadonlyRoles), the name's text-only form, and the
+// two checked helpers beside getAriaChecked (getCheckedAllowMixed, getCheckedWithoutMixed), while
+// getAriaChecked and getAriaInvalid stay as the snapshot's states; types are tightened for this
+// repository's compiler settings.
 
 /**
  * Playwright's role and accessible-name computation. `secretValue` answers the marker for a field

@@ -16,7 +16,10 @@
 // CC0 licence above. Changed for agent-harness: the module is one function that returns the tokenizer
 // and the token classes the snapshot's role and name computation reads, so the snapshot runs from its
 // source text in a page's isolated world (../in-page.ts); types are tightened for this repository's
-// compiler settings.
+// compiler settings; and each token class's `toJSON` starts from `super.toJSON()`, where Playwright's
+// reached for its base through `this.constructor.prototype.constructor.prototype`, which under class
+// semantics finds the calling method again and recurses until the stack runs out (NumberToken alone
+// already called `super`).
 
 /** A token, as the tokenizer answers it. */
 export interface CSSTokenInterface {
@@ -702,7 +705,7 @@ export function playwrightCssTokenizer() {
     override toString() { return 'DELIM(' + this.value + ')'; }
 
     override toJSON() {
-      const json = this.constructor.prototype.constructor.prototype.toJSON.call(this);
+      const json = super.toJSON();
       json.value = this.value;
       return json;
     }
@@ -722,7 +725,7 @@ export function playwrightCssTokenizer() {
     }
 
     override toJSON() {
-      const json = this.constructor.prototype.constructor.prototype.toJSON.call(this);
+      const json = super.toJSON();
       json.value = this.value;
       return json;
     }
@@ -781,7 +784,7 @@ export function playwrightCssTokenizer() {
     override toString() { return 'HASH(' + this.value + ')'; }
 
     override toJSON() {
-      const json = this.constructor.prototype.constructor.prototype.toJSON.call(this);
+      const json = super.toJSON();
       json.value = this.value;
       json.type = this.type;
       return json;
@@ -856,7 +859,7 @@ export function playwrightCssTokenizer() {
     }
     override toString() { return 'PERCENTAGE(' + this.value + ')'; }
     override toJSON() {
-      const json = this.constructor.prototype.constructor.prototype.toJSON.call(this);
+      const json = super.toJSON();
       json.value = this.value;
       json.repr = this.repr;
       return json;
@@ -879,7 +882,7 @@ export function playwrightCssTokenizer() {
 
     override toString() { return 'DIM(' + this.value + ',' + this.unit + ')'; }
     override toJSON() {
-      const json = this.constructor.prototype.constructor.prototype.toJSON.call(this);
+      const json = super.toJSON();
       json.value = this.value;
       json.type = this.type;
       json.repr = this.repr;

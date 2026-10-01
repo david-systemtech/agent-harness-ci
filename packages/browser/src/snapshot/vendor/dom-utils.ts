@@ -19,8 +19,10 @@
 // Apache License 2.0 above, whose text is LICENSE beside this file, with Playwright's NOTICE.
 // Changed for agent-harness: the module is one function that returns what the snapshot uses, so the
 // snapshot runs from its source text in a page's isolated world (../in-page.ts); what the snapshot
-// does not use is left out, and so is the WebKit workaround (every browser here is Chromium); types
-// are tightened for this repository's compiler settings.
+// does not use is left out; the visibility check no longer asks the browser's name to send WebKit
+// to its fallback (every browser here is Chromium), and the fallback stays for a browser without
+// `checkVisibility`, which jsdom is in the tests; types are tightened for this repository's compiler
+// settings.
 
 /** Playwright's DOM helpers, made afresh in each isolated world that runs the snapshot. */
 export function playwrightDomUtils() {

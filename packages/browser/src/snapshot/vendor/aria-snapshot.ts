@@ -24,7 +24,7 @@ import type { RoleUtils } from "./role-utils.js";
 // packages/isomorphic/stringUtils.ts and hasPointerCursor of packages/isomorphic/ariaSnapshot.ts,
 // under the Apache License 2.0 above, whose text is LICENSE beside this file, with Playwright's NOTICE.
 // Changed for agent-harness: the modules are one function, given the DOM helpers, the role
-// utilities and the value of a field that is never read, that returns the tree's generation and its
+// utilities and the marker of a field that is never read, that returns the tree's generation and its
 // rendering as JSON, so the snapshot runs from its source text in a page's isolated world
 // (../in-page.ts). Only the `ai` mode is kept (no template matching, no boxes, no other mode), and
 // its depth is the serialiser's (../serialiser.ts). A field that is never read (a password, a card
