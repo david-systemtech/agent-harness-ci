@@ -112,6 +112,8 @@ export interface FakeChrome extends ExtensionChrome {
   ungroup(tabId: number): void;
   /** The person clicks Cancel on the debugging banner: the debugger lets go, and the extension hears `canceled_by_user`. */
   cancelDebugging(tabId: number): void;
+  /** The tab's page is one Chrome keeps extensions from: every attach to it is refused as Chrome refuses one. */
+  refuseDebugger(tabId: number): void;
   /** Lets go of the browser's connection. */
   close(): void;
 }
@@ -169,6 +171,8 @@ const fakeBrowser = (address: string | undefined, debuggerBlocked: boolean) => {
   const parents = new Map<string, string>();
   /** Root sessions the extension is letting go of: Chrome says nothing of its own detach. */
   const letGo = new Set<string>();
+  /** The tabs whose page Chrome keeps the debugger from. */
+  const refused = new Set<number>();
   let nextTab = 101;
   let nextGroup = 7;
 
@@ -222,6 +226,7 @@ const fakeBrowser = (address: string | undefined, debuggerBlocked: boolean) => {
         if (debuggerBlocked) throw new Error("Cannot attach to this target.");
         const tab = tabs.get(tabId ?? -1);
         if (!tab) throw new Error(`No tab with given id ${String(tabId)}.`);
+        if (refused.has(tab.id)) throw new Error("Cannot attach to this target.");
         if (roots.has(tab.id)) throw new Error(`Another debugger is already attached to the tab with id: ${tab.id}.`);
         const { sessionId } = await link.send("Target.attachToTarget", { targetId: tab.targetId, flatten: true });
         roots.set(tab.id, sessionId as string);
@@ -293,6 +298,7 @@ const fakeBrowser = (address: string | undefined, debuggerBlocked: boolean) => {
       void link.send("Target.detachFromTarget", { sessionId: root }).catch(() => undefined);
       for (const listener of [...onDetach.listeners]) listener({ tabId }, "canceled_by_user");
     },
+    refuseDebugger: (tabId: number) => void refused.add(tabId),
     close: () => link.close(),
   };
 };

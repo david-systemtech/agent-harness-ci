@@ -38,11 +38,11 @@ const PROTOCOL_VERSION = "1.3";
 const ALREADY_ATTACHED = /already attached/i;
 
 /**
- * Chrome's answer to an attach it refuses for the profile rather than the
- * page: what it says when a policy (DeveloperToolsAvailability) takes the
- * developer tools away, which takes the debugger from every extension. The
- * extension's own tabs are made at about:blank, which no other rule keeps a
- * debugger from.
+ * Chrome's answer to an attach it refuses: what it says when a policy
+ * (DeveloperToolsAvailability) takes the developer tools away, which takes
+ * the debugger from every extension, and for some pages it keeps from
+ * extensions. Read as the profile's on a tab just made at about:blank, which
+ * no page rule keeps a debugger from.
  */
 const REFUSED_FOR_THE_PROFILE = /Cannot attach to this target/i;
 
@@ -147,28 +147,43 @@ export const chromePages = ({ chrome, policy }: { readonly chrome: ExtensionChro
     return made;
   };
 
-  /** Attaches the debugger to `tabId`, taking it again from this extension's own earlier session. */
-  const attachDebugger = async (tabId: number): Promise<void> => {
-    try {
-      await chrome.debugger.attach({ tabId }, PROTOCOL_VERSION);
-      return;
-    } catch (error) {
-      const message = messageOf(error);
-      if (REFUSED_FOR_THE_PROFILE.test(message)) {
-        blocked = DEBUGGER_BLOCKED;
-        throw new Error(DEBUGGER_BLOCKED, { cause: error });
+  /**
+   * Attaches the debugger to the page key's tab, taking it again from this
+   * extension's own earlier session. A refusal on a tab just made at
+   * about:blank is the profile's; on one the page key held, it is the page's
+   * (somewhere Chrome lets no extension go), and the tab is forgotten, so
+   * the next `open` makes another.
+   */
+  const attachDebugger = async (pageKey: PageKey, tabId: number, fresh: boolean): Promise<void> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await chrome.debugger.attach({ tabId }, PROTOCOL_VERSION);
+        return;
+      } catch (error) {
+        const message = messageOf(error);
+        if (attempt === 1 && ALREADY_ATTACHED.test(message)) {
+          await chrome.debugger.detach({ tabId }).catch(() => undefined);
+          continue;
+        }
+        if (fresh && REFUSED_FOR_THE_PROFILE.test(message)) {
+          blocked = DEBUGGER_BLOCKED;
+          throw new Error(DEBUGGER_BLOCKED, { cause: error });
+        }
+        const held = await readBook();
+        if (held.tabs.get(pageKey) === tabId && held.tabs.delete(pageKey)) await writeBook(held);
+        throw new Error(`Chrome would not let the extension's debugger attach to this session's tab (${message}), so the tab is left to the person. Open the page again with browser_open.`, {
+          cause: error,
+        });
       }
-      if (!ALREADY_ATTACHED.test(message)) throw new Error(`Chrome would not let the extension's debugger attach to this session's tab: ${message}`, { cause: error });
     }
-    await chrome.debugger.detach({ tabId }).catch(() => undefined);
-    await chrome.debugger.attach({ tabId }, PROTOCOL_VERSION);
   };
 
   const host: PageHost = {
     async attach(pageKey, make) {
-      const tabId = (await ownTab(pageKey)) ?? (make ? await makeTab(pageKey) : undefined);
+      const held = await ownTab(pageKey);
+      const tabId = held ?? (make ? await makeTab(pageKey) : undefined);
       if (tabId === undefined) return null;
-      await attachDebugger(tabId);
+      await attachDebugger(pageKey, tabId, held === undefined);
       const session = debuggerSession(chrome, tabId);
       sessions.set(pageKey, session);
       session.onDetach(() => {

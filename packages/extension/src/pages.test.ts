@@ -128,6 +128,29 @@ describe("the worker's pages", () => {
   });
 });
 
+describe("the debugger", () => {
+  it("leaves to the person a tab Chrome keeps the debugger from, without taking that for the profile's block: the verb says so, and open makes another tab", async () => {
+    const { chrome, perform } = await live();
+    await perform({ verb: "open", args: { url: "https://example.com/" } });
+    const [held] = chrome.tabsOpen();
+    chrome.cancelDebugging(held?.id ?? -1);
+    expect(await perform({ verb: "screenshot", args: {} })).toEqual({
+      ok: false,
+      reason: "The page this session had is gone (the person cancelled the debugging on Chrome's banner). Open it again with browser_open.",
+    });
+
+    chrome.refuseDebugger(held?.id ?? -1);
+    expect(await perform({ verb: "open", args: {} })).toEqual({
+      ok: false,
+      reason:
+        "Chrome would not let the extension's debugger attach to this session's tab (Cannot attach to this target.), so the tab is left to the person. Open the page again with browser_open.",
+    });
+    expect(await perform({ verb: "open", args: { url: "https://example.com/" } })).toEqual({ ok: true, value: { url: "https://example.com/", title: "" } });
+    expect(chrome.tabsOpen()).toHaveLength(2);
+    expect(chrome.attachedTabs()).toEqual([chrome.tabsOpen()[1]?.id]);
+  });
+});
+
 describe("the debugger's domains and child targets", () => {
   /** The domains enabled on the tab's own target and on its cross-site frame's, in the order the peer was asked. */
   const enabledOn = (peer: ScriptedCdpPeer, tabTarget: string | undefined) =>
