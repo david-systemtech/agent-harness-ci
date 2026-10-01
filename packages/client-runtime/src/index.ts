@@ -206,6 +206,8 @@ export {
 export type {
   AccountChip,
   AccountPresetReason,
+  BrowserChip,
+  BrowserPresetReason,
   EnvironmentChip,
   EnvironmentOption,
   EnvironmentPresetReason,

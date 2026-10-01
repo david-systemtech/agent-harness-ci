@@ -17,7 +17,7 @@ import { documentsProjection, type SessionDocument } from "./projections/documen
 import { environmentsProjection } from "./projections/environments.js";
 import { hideKnownDirectory, knownDirectoriesProjection, type KnownDirectoriesHost, type KnownDirectory } from "./projections/known-directories.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
-import { ACCOUNT_DEFAULT_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
+import { PRESET_SETTING_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
 import { createKeyManagers } from "./key-managers.js";
@@ -319,15 +319,14 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     return browsersProjection(browsersHost, environmentId, sessionId);
   });
   const newSessionHost: NewSessionHost = {
-    records: registry.list,
+    ...browsersHost,
     environments,
-    sessionList: sessionList.view,
     preferences: registry.preferences,
     usage,
     accounts: accountsProjections,
     models: modelsProjections,
     knownDirectories,
-    defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...ACCOUNT_DEFAULT_KEYS] }),
+    defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...PRESET_SETTING_KEYS] }),
   };
 
   const runtime: Runtime = {

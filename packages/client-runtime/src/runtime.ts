@@ -110,7 +110,8 @@ export interface Runtime {
     /**
      * The new-session card's chips for what is in focus and the chips already
      * set (ADR 0005): each chip's preset, the reason for it and its options,
-     * in the card's order, environment, account, model, workspace. A new
+     * in the card's order, environment, account, model, workspace, browser
+     * (the account's `browser.reach`, #561). A new
      * observable on every call: a renderer keeps the one it follows while
      * its context holds.
      */
