@@ -101,6 +101,19 @@ describe("without truecolour", () => {
     // Without truecolour the theme is never drawn, so it is never read.
     expect(app.environment("desk").requests("settings.get").filter((r) => JSON.stringify(r.params).includes("appearance.theme"))).toEqual([]);
   });
+
+  it("draws no colour anew when another client sets a theme", async () => {
+    const app = await launch();
+    await openDiff(app);
+    app.environment("desk").setSettings({ "appearance.theme": SLATE });
+    await app.tick(5);
+    expect(rowWith(app, "+export const app = 1;")).toContain("\u001B[32m+export const app = 1;");
+    expect(truecolourIn(app.frame())).toEqual([]);
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !plain(app).includes("What this session changed"), "the diff closed");
+    expect(app.frame()).toContain(`\u001B[33mDE${END}`);
+    expect(truecolourIn(app.frame())).toEqual([]);
+  });
 });
 
 describe("under truecolour", () => {
