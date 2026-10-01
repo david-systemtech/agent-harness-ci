@@ -60,6 +60,7 @@ describe("the update Drain and update now takes", () => {
     expect(drainableUpdate({ state: "staging", updateId: PENDING.updateId, toVersion: "0.6.0", source: "request" })).toBeNull();
     expect(drainableUpdate({ state: "ready", ...PENDING })).toBeNull();
     expect(drainableUpdate({ state: "draining", ...PENDING, cause: "requested" })).toBeNull();
+    expect(drainableUpdate({ state: "switching", ...PENDING, cause: "requested" })).toBeNull();
     expect(drainableUpdate({ state: "blocked", reason: "launcher", toVersion: "0.6.0", message: "It needs a newer launcher." })).toBeNull();
   });
 });
