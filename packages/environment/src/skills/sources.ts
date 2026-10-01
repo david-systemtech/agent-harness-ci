@@ -127,6 +127,9 @@ const sourceOf = (row: SourceRow): SkillsViewSource => ({
 export const readSkillSources = (log: Pick<EventLog, "read">): SkillsViewSource[] =>
   log.read<SourceRow>("SELECT * FROM skill_sources WHERE snapshot_commit IS NOT NULL ORDER BY position").map(sourceOf);
 
+/** Where a source added now stands: after every source held, from 1. */
+const nextPosition = (log: Pick<EventLog, "read">): number => (log.read<{ last: number | null }>("SELECT MAX(position) AS last FROM skill_sources")[0]?.last ?? 0) + 1;
+
 /** The repository identities of the sources tracked, each once: repositories this environment knows (#311). */
 export const readSkillSourceIdentities = (log: Pick<EventLog, "read">): string[] =>
   log.read<{ identity: string }>("SELECT identity FROM skill_sources GROUP BY identity ORDER BY MIN(position)").map((row) => row.identity);
@@ -251,8 +254,7 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
         // Checked again as of the transaction: another add may have committed since the first check.
         const late = refusalFor(identity, folder);
         if (late !== null) return { aggregate: stream, rejected: late };
-        const position = (log.read<{ last: number | null }>("SELECT MAX(position) AS last FROM skill_sources")[0]?.last ?? 0) + 1;
-        const added: SkillsSourceAddedPayload = { id: sourceId, url, identity, folder, follow, position };
+        const added: SkillsSourceAddedPayload = { id: sourceId, url, identity, folder, follow, position: nextPosition(log) };
         const attribution = { tx: command.tx, actor: command.actor, commandId: command.commandId };
         const [event] = log.append(
           stream,
@@ -262,8 +264,8 @@ export const createSkillSources = (options: SkillSourcesOptions): SkillSources =
           ],
           attribution,
         ).events;
-        log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [UPDATED], attribution);
         if (event === undefined) throw new Error("skills.source-added was appended as no event.");
+        log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [UPDATED], attribution);
         const source: SkillsViewSource = { ...added, addedBy: parseActor(event.actor), addedAt: event.occurredAt, commit: synced.commit, skillCount: members.filter(valid).length };
         return { aggregate: stream, result: { source } };
       };
