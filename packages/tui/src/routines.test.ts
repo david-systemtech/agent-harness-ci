@@ -4,7 +4,7 @@ import { BYPASS_SENTENCE } from "@agent-harness/contracts";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExternalEditResult } from "./composer/external-editor.js";
-import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
+import { KEY, renderApp, settle, type EnvironmentHandle, type RenderedApp, type RenderOptions } from "../test/harness.js";
 import { ZONE, firingEntry, listedRoutine, preCheckRecord, scriptRoutines, skipEntry, type RoutinesScript, type ScriptedRoutines } from "../test/routines.js";
 
 /**
@@ -209,6 +209,23 @@ describe("/routines: the row verbs", () => {
     const written = await readFile(path, "utf8");
     expect(written).toContain("# Routines exported from desk at 2026-10-01T08:00:00.000Z.");
     expect(readRoutineYaml(written, ZONE).map((document) => document.definition)).toEqual([deskRoutines.definitionOf(WATCH)]);
+  });
+
+  it("closes only the export that asked: one whose answer comes back after it was left leaves another routine's export open (PR review)", async () => {
+    const { app, deskRoutines } = await launch({ desk: { routines: [listedRoutine(WATCH), listedRoutine(DIGEST, { definition: { name: "Morning digest" } })] } });
+    await openRoutines(app);
+    await app.waitFor("Morning digest");
+    const release = deskRoutines.holdNext("routines.export");
+    await app.press("x");
+    await app.waitFor("Export Upstream watch to: upstream-watch.yaml");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => deskRoutines.heard("routines.export").length === 1, "the export asked for");
+    await app.press(KEY.esc);
+    await app.press(KEY.down, "x");
+    await app.waitFor("Export Morning digest to: morning-digest.yaml");
+    release();
+    await app.waitFor(`Exported Upstream watch to ${join(app.stateDir, "upstream-watch.yaml")}.`);
+    expect(app.frame()).toContain("Export Morning digest to: morning-digest.yaml");
   });
 });
 
@@ -523,6 +540,55 @@ describe("/routines endpoints and /routines test-precheck (David, 2026-09-28)", 
     await app.waitUntil(() => !app.frame().includes("Pre-check of"), "the card closed");
     await openRoutines(app, "/routines test-precheck nightly");
     await app.waitFor("No routine is named nightly.");
+  });
+
+  it("draws a pre-check's answer only on the card that asked: one that comes back after it was closed leaves another routine's card as it is (PR review)", async () => {
+    const { app, deskRoutines } = await launch({
+      desk: {
+        routines: [listedRoutine(WATCH), listedRoutine(DIGEST, { definition: { name: "Morning digest" } })],
+        preChecks: { [WATCH]: preCheckRecord("v1.2.3\nv1.2.4\n"), [DIGEST]: preCheckRecord("three new posts\n", { differs: false }) },
+      },
+    });
+    const release = deskRoutines.holdNext("routines.testPreCheck");
+    await openRoutines(app, "/routines test-precheck upstream watch");
+    await app.waitFor("Running its pre-check once");
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("Pre-check of"), "the card closed");
+    await openRoutines(app, "/routines test-precheck morning digest");
+    await app.waitFor("three new posts");
+    release();
+    await settle();
+    await app.tick(2);
+    expect(deskRoutines.heard("routines.testPreCheck").map((h) => h.params["routineId"])).toEqual([WATCH, DIGEST]);
+    expect(app.frame()).toContain("Pre-check of Morning digest on desk");
+    expect(app.frame()).toContain("exited 0 in 1.2s, 16 bytes, unchanged");
+    expect(app.frame()).not.toContain("v1.2.4");
+  });
+
+  it("closes only the endpoint form that asked: a save whose answer comes back after it was left leaves the form opened since (PR review)", async () => {
+    const { app, deskRoutines } = await launch({ desk: { endpoints: [hermes] } });
+    await openRoutines(app, "/routines endpoints");
+    await app.waitFor("hermes-home");
+    await app.press("a");
+    await app.waitFor("Name (lower-case letters, digits and hyphens):");
+    await app.type("matrix-relay");
+    await app.press(KEY.enter);
+    await app.waitFor("URL:");
+    await app.type("https://relay.example.com/hook");
+    await app.press(KEY.enter);
+    await app.waitFor("Secret, pasted (Enter for none):");
+    const release = deskRoutines.holdNext("routines.endpoints.set");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => deskRoutines.heard("routines.endpoints.set").length === 1, "the save sent");
+    await app.press(KEY.esc);
+    await app.waitUntil(() => !app.frame().includes("Secret, pasted"), "the form left");
+    await app.press("a");
+    await app.waitFor("Name (lower-case letters, digits and hyphens):");
+    await app.type("ntfy");
+    release();
+    await app.waitFor("Saved the endpoint matrix-relay on desk.");
+    expect(app.frame()).toContain("Name (lower-case letters, digits and hyphens):");
+    expect(app.frame()).toContain("ntfy");
   });
 });
 

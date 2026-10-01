@@ -97,6 +97,9 @@ const routineNamed = (view: RoutinesView, name: string, preferred: string | unde
   return rows.find((row) => row.definition.name.toLowerCase() === wanted);
 };
 
+/** The export being typed on the list. */
+type Exporting = NonNullable<RoutineListCard["exporting"]>;
+
 /** A pre-check's test shows this many lines of its output. */
 const TESTED_OUTPUT_LINES = 12;
 
@@ -194,6 +197,19 @@ export const useRoutines = (host: RoutinesHost): Routines => {
   const changeAdding = (update: (adding: AddingEndpoint) => AddingEndpoint | null) =>
     host.change((shown) => (shown.kind === "endpoints" && shown.adding !== null ? { ...shown, adding: update(shown.adding) } : shown));
 
+  /**
+   * The answer to the save of `saved` on `environmentId`, drawn on the form
+   * that sent it while that form is still open on its secret, the endpoint's
+   * name and URL as sent: an answer that comes back after it was left, or
+   * after another was opened, is dropped.
+   */
+  const changeSaving = (environmentId: string, saved: AddingEndpoint, update: (adding: AddingEndpoint) => AddingEndpoint | null) =>
+    host.change((shown) =>
+      shown.kind === "endpoints" && shown.environmentId === environmentId && shown.adding?.step === "secret" && shown.adding.name === saved.name && shown.adding.url === saved.url
+        ? { ...shown, adding: update(shown.adding) }
+        : shown,
+    );
+
   /** `routines.endpoints.set`, an `admin` command sent directly: the endpoint with its URL, and a pasted secret when one was typed. */
   const setEndpoint = async (environmentId: string, adding: AddingEndpoint, secret: string) => {
     const answer = await runtime.requests.call(environmentId, "routines.endpoints.set", {
@@ -203,8 +219,8 @@ export const useRoutines = (host: RoutinesHost): Routines => {
       ...(secret !== "" && { secret: { kind: "pasted" as const, secret } }),
     });
     const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : null;
-    if (refused !== null) return changeAdding((held) => ({ ...held, error: `Not saved: ${refused}` }));
-    changeAdding(() => null);
+    if (refused !== null) return changeSaving(environmentId, adding, (held) => ({ ...held, error: `Not saved: ${refused}` }));
+    changeSaving(environmentId, adding, () => null);
     host.say(`Saved the endpoint ${adding.name} on ${environmentName(environmentId)}.`);
   };
 
@@ -243,10 +259,17 @@ export const useRoutines = (host: RoutinesHost): Routines => {
   /** The endpoint under the endpoints card's cursor, while nothing is typed into it. */
   const endpointOn = () => (card?.kind === "endpoints" && card.adding === null ? endpoints()[clamp(card.cursor, endpoints().length)] : undefined);
 
-  /** `routines.testPreCheck` of the routine found, a query at `runs:drive`, never queued. */
+  /**
+   * `routines.testPreCheck` of the routine found, a query at `runs:drive`,
+   * never queued. Its answer is drawn only on the card that asked, the one
+   * holding this very `routine` as found: one that comes back after that
+   * card was closed, for this routine or another, is dropped.
+   */
   const testPreCheck = async (routine: RoutineRef) => {
     const answer = await runtime.requests.call(routine.environmentId, "routines.testPreCheck", { routineId: routine.routineId });
-    host.change((shown) => (shown.kind === "precheck" ? (answer.ok ? { ...shown, record: answer.result } : { ...shown, failed: `Not run: ${answer.error.message}` }) : shown));
+    host.change((shown) =>
+      shown.kind === "precheck" && shown.routine === routine ? (answer.ok ? { ...shown, record: answer.result } : { ...shown, failed: `Not run: ${answer.error.message}` }) : shown,
+    );
   };
 
   // `/routines test-precheck <name>`: once the lists are read, the routine named, and its pre-check run once.
@@ -266,18 +289,25 @@ export const useRoutines = (host: RoutinesHost): Routines => {
     host.say(`No routine is named ${finding}.`);
   });
 
-  /** The export typed: the routine's YAML as its environment exports it, written to the path, relative to the working directory. */
+  /**
+   * The export typed: the routine's YAML as its environment exports it,
+   * written to the path, relative to the working directory. What it came to
+   * is drawn only on the export that asked, the one holding this very
+   * `routine`: once that was left, for this routine or another, it is dropped.
+   */
   const exportTo = async (routine: RoutineRef, typed: string) => {
     const path = resolve(host.cwd, expandHome(typed.trim(), homedir()));
     const answer = await runtime.requests.call(routine.environmentId, "routines.export", { routineIds: [routine.routineId] });
-    const failed = (line: string) => host.change((shown) => (shown.kind === "list" && shown.exporting !== null ? { ...shown, exporting: { ...shown.exporting, error: line } } : shown));
+    const changeAsking = (update: (exporting: Exporting) => Exporting | null) =>
+      host.change((shown) => (shown.kind === "list" && shown.exporting?.routine === routine ? { ...shown, exporting: update(shown.exporting) } : shown));
+    const failed = (line: string) => changeAsking((exporting) => ({ ...exporting, error: line }));
     if (!answer.ok) return failed(`Not exported: ${answer.error.message}`);
     try {
       await writeFile(path, answer.result.yaml, "utf8");
     } catch (error) {
       return failed(`Not written: ${messageOf(error)}`);
     }
-    host.change((shown) => (shown.kind === "list" ? { ...shown, exporting: null } : shown));
+    changeAsking(() => null);
     host.say(`Exported ${routine.name} to ${path}.`);
   };
 

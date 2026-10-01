@@ -165,6 +165,8 @@ export interface ScriptedRoutines {
   heard(method?: string): readonly Heard[];
   /** The next request of `method` is answered with `answer` instead. */
   answerNext(method: string, answer: FakeAnswer): void;
+  /** The next request of `method` waits for the release this returns, then is answered as it would have been; the ones after it are not held. */
+  holdNext(method: string): () => void;
   /** The next `routines.checkImport` warns of these for each document. */
   warnNext(warnings: RoutineImportWarnings): void;
   /** The routines' YAML as `routines.export` answers it. */
@@ -184,6 +186,7 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
   const endpoints: WebhookEndpoint[] = [...(script.endpoints ?? [])];
   const heard: Heard[] = [];
   const next = new Map<string, FakeAnswer>();
+  const holds = new Map<string, Promise<void>>();
   let warnings: RoutineImportWarnings = { attention: [], workspace: null };
   let entries = 0;
   const find = (routineId: unknown) => routines.findIndex((routine) => routine.state.id === String(routineId).toLowerCase());
@@ -192,7 +195,9 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
       heard.push({ method, params });
       const scripted = next.get(method);
       next.delete(method);
-      return scripted ?? respond(params);
+      const held = holds.get(method);
+      holds.delete(method);
+      return held ? held.then(() => scripted ?? respond(params)) : (scripted ?? respond(params));
     });
   /** The documents as the environment reads them, a name another routine holds an issue at `name`. */
   const read = (yaml: string, replacing: string | null) =>
@@ -288,6 +293,11 @@ export const scriptRoutines = (env: EnvironmentHandle, script: RoutinesScript = 
     endpoints,
     heard: (method) => heard.filter((h) => method === undefined || h.method === method),
     answerNext: (method, scripted) => void next.set(method, scripted),
+    holdNext: (method) => {
+      let release = () => {};
+      holds.set(method, new Promise<void>((settle) => (release = settle)));
+      return () => release();
+    },
     warnNext: (warned) => void (warnings = warned),
     exported: async (ids) => exported(ids),
     definitionOf: (routineId) => (routines[find(routineId)] as ListedRoutine).definition,
