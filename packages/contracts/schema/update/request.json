@@ -9,7 +9,7 @@
       "description": "The version to update to: the asking client's own, for a newer client's offer."
     },
     "artefactPath": {
-      "description": "The path of an artefact of that version on the environment's machine; from a local client session only.",
+      "description": "The path of an artefact of that version on the environment's machine, an archive or the folder one is unpacked in; from a local client session only.",
       "type": "string",
       "minLength": 1
     }

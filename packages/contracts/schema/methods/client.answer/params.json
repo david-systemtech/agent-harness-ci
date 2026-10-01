@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "client.answer params",
+  "type": "object",
+  "properties": {
+    "callId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "A client-addressed call's id: a UUID the run's environment mints, which the answer names."
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "true with result: the client did what the call asked; false with error: it could not."
+    },
+    "result": {
+      "description": "With ok: what the client's handler answered (null for nothing); for browser.chrome, the verb's outcome.",
+      "$ref": "#/$defs/__schema0"
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "unsupported: the client has no handler for the call's kind; handler_failed: its handler failed; or a code a client names."
+        },
+        "message": {
+          "type": "string",
+          "description": "What went wrong, a sentence the run reads."
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "description": "Why the client could not do what the call asked."
+    }
+  },
+  "required": [
+    "callId",
+    "ok"
+  ],
+  "description": "A client's answer to a call addressed to it: ok with the result, or not ok with the error; at most 8388608 bytes of either.",
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillSourceFollowConflict",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "const": "unreachable"
+        },
+        "problem": {
+          "type": "string",
+          "enum": [
+            "authentication",
+            "not_found",
+            "network",
+            "git_failed"
+          ],
+          "description": "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line)."
+        },
+        "line": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What git said, its fatal: line where it wrote one, scrubbed of every secret."
+        },
+        "origin": {
+          "type": "string",
+          "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+          "description": "The URL's forge origin (an ssh URL's is https on its host): where a forge account would authenticate the probe."
+        }
+      },
+      "required": [
+        "reason",
+        "problem",
+        "line",
+        "origin"
+      ],
+      "description": "The data of skills.probe's conflict, reason unreachable: the problem, what git said, and the origin."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "const": "no_skills"
+        },
+        "folders": {
+          "type": "array",
+          "items": {
+            "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+            "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+            "type": "string"
+          },
+          "description": "The folders at the commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none."
+        }
+      },
+      "required": [
+        "reason",
+        "folders"
+      ],
+      "description": "The folder yields no valid member at the commit; the folders that would."
+    }
+  ],
+  "description": "The data of skills.sources.setFollow's conflict when it pins at a commit: unreachable (the commit could not be fetched, as the probe says) or no_skills (the source's folder yields no skill at it; the folders that would)."
+}
