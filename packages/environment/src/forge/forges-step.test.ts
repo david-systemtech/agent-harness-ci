@@ -495,6 +495,24 @@ describe("the Forges step beside the verifier's own schedule (#680)", () => {
     await verifiedAt(client, steady, after(4 * QUARTER));
     expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([4, 2]);
   });
+
+  it("checks fresh when a client asks, so Check again verifies a forge account verified a moment ago, but asks a forge that paused it nothing", async () => {
+    const { t, forge, client } = await withForge();
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    t.clock.advance(0);
+    await verifiedAt(client, forge, MANUAL_CLOCK_START);
+    const asked = askedWho(forge);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(60 * 60) } });
+
+    const unreachable = { state: "needs-attention", reason: `${davidOn(forge)} did not answer its verification: Check again once its forge is reachable.`, failing: ["forges.identity"] };
+    expect(await checkForges(client)).toMatchObject(unreachable);
+    expect(askedWho(forge)).toBe(asked + 1);
+
+    // The forge asked for an hour: a client's check reads what that verification found until then, however the forge would answer now.
+    forge.user(TOKEN, DAVID);
+    expect(await checkForges(client)).toMatchObject(unreachable);
+    expect(askedWho(forge)).toBe(asked + 1);
+  });
 });
 
 describe("the verification setup.check awaits (ADR 0031's ten seconds)", () => {
