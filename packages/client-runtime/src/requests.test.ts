@@ -402,6 +402,9 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
     await flush();
     expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
   });
 
   it("fetches skills.readiness again when skills, accounts or repository trust change, and no other query (#517)", async () => {
