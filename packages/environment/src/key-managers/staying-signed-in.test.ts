@@ -8,7 +8,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { PERSON_TOKEN, ROLE_ID, SECRET_ID, added, approle, keyManagerEvents, list, signIn, signOut, token, verify } from "../../test/key-manager-connections.js";
 import { create } from "../../test/sessions.js";
 import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
-import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import type { WireClient } from "../../test/wire-client.js";
 
 /**
  * Staying signed in (#369; key-managers spec, "Providers" and "Run tokens";
@@ -19,6 +19,12 @@ import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
  * asserted is what the fake OpenBao issued, renewed, revoked and was asked,
  * what holders were given, and what `keyManagers.list` answers; never the
  * registry's own state.
+ *
+ * The clock is held (#745): each move of it waits until what the key
+ * managers took up on the way has settled, so what a test reads is what the
+ * environment did by then, never what it managed within a time budget; what
+ * a holder's stop or a sign-out sets off is waited on as the fake OpenBao
+ * sees it, and a run's end as the log hears it.
  */
 
 const { onCleanup } = useCleanups();
@@ -28,11 +34,19 @@ const MINUTE = 60_000;
 /** The manual clock's start, moved on by `ms`, as a timestamp. */
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
 
-/** Moves the clock on to `minutes` past its start. */
-const advanceTo = (t: TestEnvironment, minutes: number): void => t.clock.advance(Date.parse(after(minutes * MINUTE)) - t.clock.now().getTime());
+/**
+ * Moves the clock on by `ms`, running every timer that falls due on the way,
+ * and waits until what the key managers took up has settled: each renewal
+ * answered and the next planned, each verification recorded, a login due
+ * signed in again and the one it replaced revoked.
+ */
+const advance = async (t: TestEnvironment, ms: number): Promise<void> => {
+  t.clock.advance(ms);
+  await t.env.keyManagerConnections.settled();
+};
 
-/** Waits for something the environment does in the background, with the test's own timeout as the real bound: never a short wall-clock budget. */
-const eventually = (assertion: () => void): Promise<void> => vi.waitFor(assertion, { timeout: WAIT_MS });
+/** Moves the clock on to `minutes` past its start, as `advance` does. */
+const advanceTo = (t: TestEnvironment, minutes: number): Promise<void> => advance(t, Date.parse(after(minutes * MINUTE)) - t.clock.now().getTime());
 
 /** The fake's policy that lets a login mint run tokens, at the token-create path and the role `runs`'s. */
 const MINTER = `path "auth/token/create" { capabilities = ["update"] }
@@ -59,12 +73,24 @@ const connected = (client: WireClient, bao: FakeOpenBao) => added(client, { addr
 
 const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
 
+/** Once the session's log holds `count` run ends: heard as each commits, or read when they are there already. */
+const untilEnded = (t: TestEnvironment, sessionId: string, count: number): Promise<void> =>
+  new Promise((resolve) => {
+    const settle = (): void => {
+      if (ended(t, sessionId).length < count) return;
+      stop();
+      resolve();
+    };
+    const stop = t.env.log.subscribe(settle);
+    settle();
+  });
+
 /** Starts a run on the session and waits for its end. */
 const runTo = async (t: TestEnvironment, client: WireClient, sessionId: string, text = "Fix the receipts"): Promise<void> => {
   const before = ended(t, sessionId).length;
   const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text }));
   if (answer.result === undefined) throw new Error(`runs.start was refused: ${JSON.stringify(answer.receipt)}`);
-  await eventually(() => expect(ended(t, sessionId)).toHaveLength(before + 1));
+  await untilEnded(t, sessionId, before + 1);
 };
 
 /** The run token the session's latest process was spawned with. */
@@ -80,10 +106,10 @@ describe("a login", () => {
     await connected(client, bao);
     const [login = ""] = bao.minted;
 
-    t.clock.advance(40 * MINUTE);
-    await eventually(() => expect(bao.renewals(login)).toEqual([after(40 * MINUTE)]));
-    t.clock.advance(40 * MINUTE);
-    await eventually(() => expect(bao.renewals(login)).toEqual([after(40 * MINUTE), after(80 * MINUTE)]));
+    await advance(t, 40 * MINUTE);
+    expect(bao.renewals(login)).toEqual([after(40 * MINUTE)]);
+    await advance(t, 40 * MINUTE);
+    expect(bao.renewals(login)).toEqual([after(40 * MINUTE), after(80 * MINUTE)]);
 
     expect(bao.live(login)).toBe(true);
     expect(bao.minted).toEqual([login]);
@@ -100,16 +126,17 @@ describe("a login's renewal that OpenBao does not answer", () => {
     const renewing = () => bao.requests.filter((request) => request.path === "auth/token/renew-self").length;
     bao.answer("POST auth/token/renew-self", { status: 500, error: "internal error" });
 
-    t.clock.advance(40 * MINUTE);
-    await eventually(() => expect(errors.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("failed; it is tried again")));
+    await advance(t, 40 * MINUTE);
+    expect(errors.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("failed; it is tried again"));
     bao.answer("POST auth/token/renew-self", null);
     // Two thirds of the twenty minutes left: at 53:20.
-    t.clock.advance(13 * MINUTE + 19_000);
+    await advance(t, 13 * MINUTE + 19_000);
     expect(renewing()).toBe(1);
-    t.clock.advance(1_000);
 
-    await eventually(() => expect(bao.renewals(login)).toEqual([after(53 * MINUTE + 20_000)]));
-    t.clock.advance(20 * MINUTE);
+    await advance(t, 1_000);
+
+    expect(bao.renewals(login)).toEqual([after(53 * MINUTE + 20_000)]);
+    await advance(t, 20 * MINUTE);
     expect(bao.live(login)).toBe(true);
   });
 });
@@ -122,9 +149,9 @@ describe("a periodic login", () => {
 
     const renewedAt: string[] = [];
     for (let round = 1; round <= 7; round += 1) {
-      t.clock.advance(40 * MINUTE);
+      await advance(t, 40 * MINUTE);
       renewedAt.push(after(round * 40 * MINUTE));
-      await eventually(() => expect(bao.renewals(login)).toEqual(renewedAt));
+      expect(bao.renewals(login)).toEqual(renewedAt);
     }
 
     expect(bao.minted).toEqual([login]);
@@ -142,13 +169,11 @@ describe("a login the environment made", () => {
     const [first = ""] = bao.minted;
     const from = t.env.log.head();
 
-    t.clock.advance(40 * MINUTE);
+    await advance(t, 40 * MINUTE);
 
-    await eventually(() => expect(bao.minted).toHaveLength(2));
+    expect(bao.minted).toHaveLength(2);
     const second = bao.minted[1] ?? "";
-    await eventually(async () =>
-      expect((await list(client)).find((each) => each.id === connection.id)).toMatchObject({ status: { kind: "signed-in" }, tokenInformation: { expiresAt: after(100 * MINUTE) } }),
-    );
+    expect((await list(client)).find((each) => each.id === connection.id)).toMatchObject({ status: { kind: "signed-in" }, tokenInformation: { expiresAt: after(100 * MINUTE) } });
     expect((await keyManagerEvents(client, from)).filter((event) => event.type === "key-manager.connection.signed-in").map((event) => [event.actor, event.commandId])).toEqual([
       [{ kind: "system", id: "key-manager" }, null],
     ]);
@@ -158,8 +183,8 @@ describe("a login the environment made", () => {
     const run = await tokenOf(t, session.id);
     expect(bao.issued(run)?.parent).toBe(second);
     expect(bao.live(run)).toBe(true);
-    // No run token of the old login was held: it is revoked at once, twenty minutes before its end.
-    await eventually(() => expect(bao.live(first)).toBe(false));
+    // No run token of the old login was held: it was revoked at once, twenty minutes before its end.
+    expect(bao.live(first)).toBe(false);
   });
 
   it("with an hour to live and eight at most, as the agent box's AppRole has, is signed in again when a renewal shows its end near, and the next login is planned from its start with that maximum, a run in flight keeping its token for the third it leaves", async () => {
@@ -168,28 +193,28 @@ describe("a login the environment made", () => {
     const [first = ""] = bao.minted;
     // Renewed every forty minutes; at 7:20 its renewal gives only the forty minutes left of its eight hours.
     for (let round = 1; round <= 11; round += 1) {
-      t.clock.advance(40 * MINUTE);
-      await eventually(() => expect(bao.renewals(first)).toHaveLength(round));
+      await advance(t, 40 * MINUTE);
+      expect(bao.renewals(first)).toHaveLength(round);
     }
-    await eventually(() => expect(bao.minted).toHaveLength(2));
+    expect(bao.minted).toHaveLength(2);
     const second = bao.minted[1] ?? "";
-    // Held once its verification ends, which revokes the first, no run token holding it: its renewals are planned from then.
-    await eventually(() => expect(bao.live(first)).toBe(false));
+    // Held once its verification ended, which revoked the first, no run token holding it: its renewals are planned from then.
+    expect(bao.live(first)).toBe(false);
 
     for (let round = 1; round <= 7; round += 1) {
-      t.clock.advance(40 * MINUTE);
-      await eventually(() => expect(bao.renewals(second)).toHaveLength(round));
+      await advance(t, 40 * MINUTE);
+      expect(bao.renewals(second)).toHaveLength(round);
     }
     const session = await create(client);
-    advanceTo(t, 12 * 60 + 30);
+    await advanceTo(t, 12 * 60 + 30);
     await runTo(t, client, session.id);
     const inFlight = await tokenOf(t, session.id);
-    advanceTo(t, 12 * 60 + 39);
+    await advanceTo(t, 12 * 60 + 39);
     expect(bao.minted).toHaveLength(2);
-    advanceTo(t, 12 * 60 + 40);
+    await advanceTo(t, 12 * 60 + 40);
 
     // At 12:40, with a third of its eight hours left.
-    await eventually(() => expect(bao.minted).toHaveLength(3));
+    expect(bao.minted).toHaveLength(3);
     // The run in flight keeps its token to the end of the old login's eight hours: it is renewed every twenty minutes, and the old login every forty.
     const renewals: [number, string][] = [
       [12 * 60 + 50, inFlight],
@@ -206,11 +231,11 @@ describe("a login the environment made", () => {
     ];
     for (const [minutes, renewedToken] of renewals) {
       const renewed = bao.renewals(renewedToken).length;
-      advanceTo(t, minutes);
-      await eventually(() => expect(bao.renewals(renewedToken)).toHaveLength(renewed + 1));
+      await advanceTo(t, minutes);
+      expect(bao.renewals(renewedToken)).toHaveLength(renewed + 1);
     }
     expect([inFlight, second].map((token) => bao.live(token))).toEqual([true, true]);
-    advanceTo(t, 15 * 60 + 20);
+    await advanceTo(t, 15 * 60 + 20);
     expect([inFlight, second].map((token) => bao.live(token))).toEqual([false, false]);
   });
 
@@ -220,25 +245,26 @@ describe("a login the environment made", () => {
     await connected(client, bao);
     const [first = ""] = bao.minted;
     const session = await create(client);
-    t.clock.advance(5 * MINUTE);
+    await advance(t, 5 * MINUTE);
     await runTo(t, client, session.id);
     const held = await tokenOf(t, session.id);
-    t.clock.advance(35 * MINUTE);
-    await eventually(() => expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]));
+    await advance(t, 35 * MINUTE);
+    expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]);
+    const replacedFrom = bao.requests.length;
 
-    t.clock.advance(20 * MINUTE);
+    await advance(t, 20 * MINUTE);
 
-    await eventually(() => expect(bao.minted).toHaveLength(2));
-    const replacedAt = bao.requests.length;
-    await eventually(async () => expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE)));
+    expect(bao.minted).toHaveLength(2);
+    expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE));
     expect(bao.live(first)).toBe(true);
     expect(bao.live(held)).toBe(true);
-    expect(bao.requests.slice(replacedAt).filter((request) => request.path === "auth/token/revoke-self")).toEqual([]);
+    expect(bao.requests.slice(replacedFrom).filter((request) => request.path === "auth/token/revoke-self")).toEqual([]);
 
     const stopped = await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: session.id });
 
     expect(stopped.receipt.status).toBe("accepted");
-    await eventually(() => expect([held, first].map((token) => bao.live(token))).toEqual([false, false]));
+    // Revoked once the process has let go of its run token, as the fake OpenBao sees it.
+    await bao.until(() => [held, first].every((token) => !bao.live(token)));
     expect(bao.live(bao.minted[1] ?? "")).toBe(true);
   });
 });
@@ -277,9 +303,9 @@ describe("a re-login that fails", () => {
       const connection = await connected(client, bao);
       refuse(bao);
 
-      t.clock.advance(40 * MINUTE);
+      await advance(t, 40 * MINUTE);
 
-      await eventually(async () => expect((await list(client)).find((each) => each.id === connection.id)?.status).toEqual({ ...status(bao), since: after(40 * MINUTE) }));
+      expect((await list(client)).find((each) => each.id === connection.id)?.status).toEqual({ ...status(bao), since: after(40 * MINUTE) });
       expect(bao.minted).toHaveLength(1);
     });
   }
@@ -288,8 +314,8 @@ describe("a re-login that fails", () => {
     const { t, bao, client } = await withOpenBao({ ttlSeconds: 3600, explicitMaxTtlSeconds: 3600 });
     const connection = await connected(client, bao);
     bao.answer("POST auth/approle/login", { status: 500, error: "internal error" });
-    t.clock.advance(40 * MINUTE);
-    await eventually(async () => expect((await list(client))[0]?.status.kind).toBe("unreachable"));
+    await advance(t, 40 * MINUTE);
+    expect((await list(client))[0]?.status.kind).toBe("unreachable");
 
     bao.answer("POST auth/approle/login", null);
     const [again] = await verify(client, connection.id);
@@ -313,14 +339,14 @@ describe("after a re-login", () => {
     await verify(client, connection.id);
     const [first = ""] = bao.minted;
     const [one, other] = [await create(client), await create(client)];
-    t.clock.advance(5 * MINUTE);
+    await advance(t, 5 * MINUTE);
     for (const session of [one, other]) await runTo(t, client, session.id);
     const [held, otherHeld] = [await tokenOf(t, one.id), await tokenOf(t, other.id)];
-    t.clock.advance(35 * MINUTE);
-    await eventually(() => expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]));
-    t.clock.advance(20 * MINUTE);
-    await eventually(() => expect(bao.minted).toHaveLength(2));
-    await eventually(async () => expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE)));
+    await advance(t, 35 * MINUTE);
+    expect(bao.renewals(first)).toEqual([after(40 * MINUTE)]);
+    await advance(t, 20 * MINUTE);
+    expect(bao.minted).toHaveLength(2);
+    expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE));
     return { t, bao, client, connection, first, second: bao.minted[1] ?? "", one, other, held, otherHeld };
   };
 
@@ -330,21 +356,22 @@ describe("after a re-login", () => {
 
     const renewed = bao.renewals(otherHeld).length;
     // Its twenty-minute renewal, five minutes after the re-login.
-    t.clock.advance(5 * MINUTE);
-    await eventually(() => expect(bao.renewals(otherHeld)).toHaveLength(renewed + 1));
+    await advance(t, 5 * MINUTE);
+    expect(bao.renewals(otherHeld)).toHaveLength(renewed + 1);
     expect(bao.renewals(otherHeld).at(-1)).toBe(after(65 * MINUTE));
     await runTo(t, client, one.id, "After the re-login");
 
     expect(t.adapter.processesOf(one.id)).toHaveLength(2);
     const fresh = await tokenOf(t, one.id);
     expect(bao.issued(fresh)?.parent).toBe(second);
-    await eventually(() => expect(bao.live(held)).toBe(false));
+    // Revoked once the process it replaced has let go of it.
+    await bao.until(() => !bao.live(held));
     expect(t.adapter.processesOf(other.id)).toHaveLength(1);
     expect([otherHeld, first].map((token) => bao.live(token))).toEqual([true, true]);
 
     await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: other.id });
 
-    await eventually(() => expect([otherHeld, first].map((token) => bao.live(token))).toEqual([false, false]));
+    await bao.until(() => [otherHeld, first].every((token) => !bao.live(token)));
     const keys = t.adapter.runs.map((run) => run.input.processEnvironment.key);
     for (const token of [...bao.minted, ...bao.created]) for (const key of keys) expect(key).not.toContain(token);
   });
@@ -361,10 +388,10 @@ describe("after a re-login", () => {
     // Past the old login's ninety minutes, on its twenty-minute renewals.
     for (const minutes of [65, 85]) {
       const renewed = bao.renewals(held).length;
-      advanceTo(t, minutes);
-      await eventually(() => expect(bao.renewals(held)).toHaveLength(renewed + 1));
+      await advanceTo(t, minutes);
+      expect(bao.renewals(held)).toHaveLength(renewed + 1);
     }
-    advanceTo(t, 100);
+    await advanceTo(t, 100);
     expect(bao.live(first)).toBe(false);
     expect(bao.live(held)).toBe(true);
   });
@@ -376,19 +403,19 @@ describe("a sign-out after a re-login", () => {
     const connection = await connected(client, bao);
     const [first = ""] = bao.minted;
     const session = await create(client);
-    t.clock.advance(5 * MINUTE);
+    await advance(t, 5 * MINUTE);
     await runTo(t, client, session.id);
     const held = await tokenOf(t, session.id);
-    advanceTo(t, 40);
-    await eventually(() => expect(bao.renewals(first)).toHaveLength(1));
-    advanceTo(t, 60);
-    await eventually(() => expect(bao.minted).toHaveLength(2));
-    await eventually(async () => expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE)));
+    await advanceTo(t, 40);
+    expect(bao.renewals(first)).toHaveLength(1);
+    await advanceTo(t, 60);
+    expect(bao.minted).toHaveLength(2);
+    expect((await list(client))[0]?.tokenInformation?.expiresAt).toBe(after(120 * MINUTE));
     expect(bao.live(first)).toBe(true);
 
     await signOut(client, connection.id);
 
-    await eventually(() => expect([first, bao.minted[1] ?? "", held].map((token) => bao.live(token))).toEqual([false, false, false]));
+    await bao.until(() => [first, bao.minted[1] ?? "", held].every((token) => !bao.live(token)));
   });
 });
 
@@ -401,24 +428,22 @@ describe("a token a person gave", () => {
     const recordOf = async () => (await list(client)).find((each) => each.id === connection.id);
     const statusOf = async () => (await recordOf())?.status;
 
-    t.clock.advance(20 * MINUTE);
-    await eventually(() => expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE)]));
-    t.clock.advance(20 * MINUTE);
-    await eventually(() => expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE), after(40 * MINUTE)]));
-    t.clock.advance(16 * MINUTE);
-    // The fifteen-minute verification under way by now has settled, the token alive, so the next is a quarter of an hour off.
-    await eventually(async () => expect(await recordOf()).toMatchObject({ status: { kind: "signed-in" }, verifiedAt: after(56 * MINUTE) }));
+    await advance(t, 20 * MINUTE);
+    expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE)]);
+    await advance(t, 20 * MINUTE);
+    expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE), after(40 * MINUTE)]);
+    await advance(t, 16 * MINUTE);
+    // The fifteen-minute verification at fifty-five has found the token alive to the end of its life, so the next is a quarter of an hour off.
+    expect(await recordOf()).toMatchObject({ status: { kind: "signed-in" }, verifiedAt: after(56 * MINUTE), tokenInformation: { expiresAt: after(57 * MINUTE) } });
 
-    t.clock.advance(MINUTE);
+    await advance(t, MINUTE);
 
-    await eventually(async () =>
-      expect(await statusOf()).toEqual({
-        kind: "expired",
-        since: after(57 * MINUTE),
-        message: "The token this connection signed in with expired at 2026-09-24 00:57 UTC, the end of its life: sign in again with a new token in Set up, Key manager.",
-      }),
-    );
-    t.clock.advance(60 * MINUTE);
+    expect(await statusOf()).toEqual({
+      kind: "expired",
+      since: after(57 * MINUTE),
+      message: "The token this connection signed in with expired at 2026-09-24 00:57 UTC, the end of its life: sign in again with a new token in Set up, Key manager.",
+    });
+    await advance(t, 60 * MINUTE);
     const [still] = await verify(client, connection.id);
     expect(still?.status.kind).toBe("expired");
     expect(bao.renewals(PERSON_TOKEN)).toEqual([after(20 * MINUTE), after(40 * MINUTE)]);
@@ -441,13 +466,11 @@ describe("with no person present", () => {
     const sessions = [await create(client), await create(client), await create(client)];
 
     for (let step = 1; step * 7 <= 182; step += 1) {
-      t.clock.advance(7 * MINUTE);
+      await advance(t, 7 * MINUTE);
       // The login the connection stands on has a quarter of an hour left at least: a re-login due has been made.
-      await eventually(async () => {
-        const record = (await list(client)).find((each) => each.id === connection.id);
-        expect(record?.status.kind).toBe("signed-in");
-        expect(Date.parse(record?.tokenInformation?.expiresAt ?? "")).toBeGreaterThan(t.clock.now().getTime() + 15 * MINUTE);
-      });
+      const record = (await list(client)).find((each) => each.id === connection.id);
+      expect(record?.status.kind, `step ${step}, ${step * 7} minutes in`).toBe("signed-in");
+      expect(Date.parse(record?.tokenInformation?.expiresAt ?? ""), `step ${step}, ${step * 7} minutes in`).toBeGreaterThan(t.clock.now().getTime() + 15 * MINUTE);
       const session = sessions[step % sessions.length];
       if (session === undefined) throw new Error("No session.");
       await runTo(t, client, session.id, `Step ${step}`);
@@ -462,6 +485,6 @@ describe("with no person present", () => {
     expect(events.every((event) => event.commandId === null && event.actor.kind === "system")).toBe(true);
     // Once every holder has stopped, only the current login is left.
     for (const session of sessions) await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: session.id });
-    await eventually(() => expect(bao.minted.filter((login) => bao.live(login))).toEqual(bao.minted.slice(-1)));
+    await bao.until(() => bao.minted.every((login, index) => bao.live(login) === (index === bao.minted.length - 1)));
   });
 });
