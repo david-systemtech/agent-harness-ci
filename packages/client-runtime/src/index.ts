@@ -548,6 +548,7 @@ export {
   labelProblem,
   sendSignInCode,
   signInEnd,
+  signInLeftWords,
   startSignIn,
   type AccountAdded,
   type AttendedSignIn,
@@ -570,7 +571,7 @@ export {
   resetWords,
   type FamilyChoice,
 } from "./accounts/words.js";
-export { adoptAccount, relabelAccount, removeAccount, type AccountOutcome } from "./accounts/actions.js";
+export { adoptAccount, modelPreset, presetModelDefaults, relabelAccount, removeAccount, type AccountOutcome, type ModelPreset } from "./accounts/actions.js";
 export {
   DENYLIST_SECTION_NAMES,
   DENYLIST_TEST_KIND_NAMES,

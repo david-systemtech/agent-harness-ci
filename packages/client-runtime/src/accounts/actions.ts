@@ -1,7 +1,8 @@
-import type { AccountRecord } from "@agent-harness/contracts";
+import type { AccountCatalogue, AccountRecord } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { adminCall } from "../status/actions.js";
 import { LABEL_RULE, labelProblem } from "../status/sign-in.js";
+import { familyChoices } from "./words.js";
 
 /**
  * What the Accounts pane sends, as both renderers send it and say it
@@ -11,6 +12,7 @@ import { LABEL_RULE, labelProblem } from "../status/sign-in.js";
  * never the outbox's, so one made while the environment cannot be reached
  * fails at once. Adding and signing in are the sign-in card's
  * (`status/sign-in.ts`). Each answers what it did, or why not, in one line.
+ * The Account step's preset of the default model (#575) is here too.
  */
 
 /** What a command did, in one line. */
@@ -66,4 +68,47 @@ export const removeAccount = async (
     ok: true,
     line: deleted ? `Removed ${account.label} from ${environment} and deleted its sign-in and history.` : `Removed ${account.label} from ${environment}; its directory stays at ${account.directory.path}.`,
   };
+};
+
+/** The default model family and effort the Account step presets (ADR 0018). */
+export interface ModelPreset {
+  readonly family: string;
+  readonly effort: "high";
+}
+
+/**
+ * What the Account step presets once an account is the first signed in
+ * (ADR 0018; claude-adapter spec, "The defaults"): the family of the
+ * strongest model `accountId`'s catalogue offers, by tier, at `high`;
+ * undefined while its catalogue offers none (not read yet, or empty).
+ */
+export const modelPreset = (catalogues: readonly AccountCatalogue[], accountId: string): ModelPreset | undefined => {
+  const strongest = familyChoices(catalogues.filter((catalogue) => catalogue.accountId === accountId))[0];
+  return strongest === undefined ? undefined : { family: strongest.family, effort: "high" };
+};
+
+/**
+ * Writes the preset (`settings.update`, both keys in one command) when the
+ * default model family and effort are both unset as `settings.get` reads
+ * them just before, so it never writes over a value set; undefined when one
+ * was set and nothing was written. `label` is the account's whose catalogue
+ * it came from.
+ */
+export const presetModelDefaults = async (
+  runtime: Pick<Runtime, "requests">,
+  environmentId: string,
+  preset: ModelPreset,
+  label: string,
+  commandId: string,
+): Promise<AccountOutcome | undefined> => {
+  const notPreset = (why: string): AccountOutcome => ({ ok: false, line: `The model family and effort were not preset: ${why}` });
+  const read = await runtime.requests.call(environmentId, "settings.get", { keys: ["accounts.defaultModelFamily", "accounts.defaultEffort"] });
+  if (!read.ok) return notPreset(read.error.message);
+  const { values } = read.result;
+  if ((values["accounts.defaultModelFamily"] ?? null) !== null || (values["accounts.defaultEffort"] ?? null) !== null) return undefined;
+  const written = await adminCall(() =>
+    runtime.requests.call(environmentId, "settings.update", { commandId, values: { "accounts.defaultModelFamily": preset.family, "accounts.defaultEffort": preset.effort } }),
+  );
+  if (!written.ok) return notPreset(written.line);
+  return { ok: true, line: `Model family set to ${preset.family} at ${preset.effort} effort, the strongest ${label} offers.` };
 };
