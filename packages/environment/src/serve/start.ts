@@ -176,7 +176,8 @@ import { detectSource, type SourceMachine } from "../state-import/source/folders
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
-import { runSkillSets } from "../skills/run-skill-set.js";
+import { skillReadinessMethods } from "../skills/readiness.js";
+import { placeSkillSet, runSkillSets } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
 import { createSetupService, type SetupSteps } from "../setup/service.js";
@@ -1500,6 +1501,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       defaultAccountId: () => accounts.defaultId(),
       accounts: listedAccounts,
       carryOver: carrySkills,
+    }),
+    // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
+    // overlay, a tool on the PATH runs get, which is the host environment's.
+    ...skillReadinessMethods({
+      scopeOf: (target) => host.previewScope(target),
+      account: (id) => host.account(id),
+      place: placeSkillSet({ own: ownSkills, log }),
+      hostEnv: options.managedTools?.hostEnv ?? process.env,
+      clock,
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
