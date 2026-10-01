@@ -7,10 +7,11 @@ import type { SetupService } from "./service.js";
  * order once each has answered or run out of its budget, each result kept in
  * the result cache before the answer goes out; a step whose check is already
  * running, asked for by another call or started by the environment itself,
- * answers that run's result. A `read` query: it writes
+ * answers that run's result. A client's check is fresh: a state check reads
+ * no finding of a feature's own schedule in place of asking it (#680). A `read` query: it writes
  * nothing a check checks, and appends nothing but the `setup.result-changed`
  * of a result that changed, which Set up appends (`service.ts`).
  */
 export const setupMethods = (setup: SetupService): Required<Pick<MethodHandlers, "setup.check">> => ({
-  "setup.check": async ({ step }) => ({ results: await setup.check(step) }),
+  "setup.check": async ({ step }) => ({ results: await setup.check(step, "client") }),
 });

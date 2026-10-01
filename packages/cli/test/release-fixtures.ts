@@ -90,7 +90,7 @@ const writeWorkspace = (root: string): void => {
       type: "module",
       exports: { ".": { default: "./dist/index.js" } },
       dependencies: { "@agent-harness/contracts": "workspace:*", "@anthropic-ai/claude-agent-sdk": "0.3.283" },
-      optionalDependencies: { "node-pty": "1.1.0" },
+      optionalDependencies: { "@napi-rs/keyring": "2.1.0", "node-pty": "1.1.0" },
     },
     gui: { name: "@agent-harness/gui", version: "0.0.0", private: true, type: "module", dependencies: { "@agent-harness/contracts": "workspace:*" } },
   };
@@ -203,6 +203,11 @@ export const fixtureInstall = async ({ repoRoot, workspace, packages, target, ru
   // Its install script compiles it where its npm package has no prebuild for the platform it runs on: every Linux.
   if (runScripts && target.os === "linux") {
     write(join(pty, "build", "Release", "pty.node"), `elf pty for ${target.platform}\n`, 0o755);
+  }
+  if (target.os === "darwin" || target.os === "win32") {
+    const prebuild = target.os === "win32" ? `${target.platform}-msvc` : target.platform;
+    write(join(modules, "@napi-rs", "keyring", "package.json"), json({ name: "@napi-rs/keyring", version: "2.1.0" }));
+    write(join(modules, "@napi-rs", `keyring-${prebuild}`, `keyring.${prebuild}.node`), "fixture keychain prebuild\n");
   }
   const sdk = join(modules, "@anthropic-ai");
   write(join(sdk, "claude-agent-sdk", "package.json"), json({ name: "@anthropic-ai/claude-agent-sdk", version: "0.3.283" }));

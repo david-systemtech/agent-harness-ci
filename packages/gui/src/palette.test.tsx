@@ -113,6 +113,7 @@ describe("its entries", () => {
       "New session in a new paneCtrl+Shift+N",
       "Show or hide the sidebarCtrl+B",
       "Show or hide the terminalCtrl+J",
+      "Choose the session browser for the next run",
       "Show or hide the browserCtrl+Shift+B",
       "Split the focused pane to the rightCtrl+\\",
       "Split the focused pane downwardsCtrl+Shift+\\",
@@ -286,6 +287,8 @@ describe("choosing an entry", () => {
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
     await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("Choose the session browser for the next run");
+    await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the browserCtrl+Shift+B");
     await app.user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
     expect(highlighted()).toBe("Open or close SettingsCtrl+,");
@@ -293,7 +296,7 @@ describe("choosing an entry", () => {
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });

@@ -3,15 +3,20 @@
   "title": "EvaluateValue",
   "type": "object",
   "properties": {
+    "url": {
+      "type": "string",
+      "description": "The address the page has now."
+    },
     "result": {
       "description": "The expression's value, as JSON.",
       "$ref": "#/$defs/__schema0"
     }
   },
   "required": [
+    "url",
     "result"
   ],
-  "description": "What an expression evaluated to.",
+  "description": "The page's address and what an expression evaluated to.",
   "$defs": {
     "__schema0": {
       "anyOf": [

@@ -1,5 +1,7 @@
 import {
   SESSION_STREAM_KIND,
+  RunBrowserResolvedPayload,
+  type RunBrowserResolution,
   eventTypeEntry,
   type AssistantDeltaPayload,
   type AssistantTextPayload,
@@ -278,6 +280,8 @@ export interface SessionTranscript {
    * holds has none here.
    */
   readonly policies: Readonly<Record<string, RunPolicy>>;
+  /** Browsers resolved at run start after the snapshot, fixed for each run. */
+  readonly browserResolutions: Readonly<Record<string, RunBrowserResolution>>;
   /**
    * The session's own containment level, as its latest `session.containment.set`
    * gave it or the latest run's policy asked for it; null while neither was
@@ -440,6 +444,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   let folds: Fold[] = everyFold(items).sort(bySequence);
   const parked = new Map<string, ParkedPrompt>(snapshot.parkedPrompts.map((prompt) => [prompt.promptId, prompt]));
   const policies: Record<string, RunPolicy> = {};
+  const browserResolutions: Record<string, RunBrowserResolution> = {};
   let containment: ContainmentLevel | null = null;
   let instructions = snapshot.instructions;
   /** The latest rewind standing: the one `sessions.undoRewind` would undo. */
@@ -519,6 +524,11 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         }
         // What the run left open streams no more: its partial text stays, as ADR 0022 keeps it.
         for (const entry of assistant.values()) if (entry.runId === payload.runId) entry.streaming = false;
+        return;
+      }
+      case "run.browser.resolved": {
+        const { runId, ...resolution } = RunBrowserResolvedPayload.parse(event.payload);
+        browserResolutions[runId] = resolution;
         return;
       }
       case "run.policy.resolved": {
@@ -751,6 +761,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
     queued: queuedOf(messages),
     rewound: rewound(),
     policies,
+    browserResolutions,
     containment,
     instructions,
   };
@@ -835,7 +846,7 @@ export interface SessionProjectionInput {
   readonly waitingDraft: string | null | undefined;
 }
 
-const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, containment: null, instructions: "" };
+const NO_TRANSCRIPT: SessionTranscript = { runs: [], items: [], parkedPrompts: [], queued: [], rewound: null, policies: {}, browserResolutions: {}, containment: null, instructions: "" };
 
 /** The view of one session: its stream's reduction beside its freshness, its overlaid summary and its draft. `transcript` reuses a reduction of the same data. */
 export const projectSession = (input: SessionProjectionInput, transcript?: SessionTranscript): SessionProjection => {
