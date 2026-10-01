@@ -97,6 +97,12 @@ export const throughShell = (shell: ShellCommand, line: string): ShellCommand =>
   return { file: shell.file, args: [...(LOGIN_FLAG_ALONE.has(basename(shell.file)) ? [] : shell.args), "-c", line] };
 };
 
+/** A one-off has no login startup, profile, prompt or terminal (#265). */
+export const oneOffShell = (command: string, platform: NodeJS.Platform = process.platform): ShellCommand =>
+  platform === "win32"
+    ? { file: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", command] }
+    : { file: "/bin/sh", args: ["-c", command] };
+
 /** What Windows needs of the environment to run anything, carried when present. */
 const WINDOWS_KEPT = [
   "SystemRoot",
