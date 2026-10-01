@@ -48,7 +48,7 @@ describe("the Browser card in Set up", () => {
     expect(within(card()).getByText("Open chrome://extensions. Turn on Developer mode. Click Load unpacked and choose this folder.")).toBeDefined();
     await app.user.click(within(card()).getByRole("button", { name: "Copy" }));
     expect(app.shell.calls).toContainEqual(["clipboard.writeText", status.folder.path]);
-    expect(within(card()).getByRole("checkbox", { name: "Load the extension" }).hasAttribute("checked")).toBe(false);
+    expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(false);
     status.unpairedConnected = true;
     act(() => desk.notice("extension.seen", { protocolVersion: PROTOCOL_VERSION, extensionVersion: "0.1.0" }));
     await waitFor(() => expect((within(card()).getByRole("checkbox", { name: "Load the extension" }) as HTMLInputElement).checked).toBe(true));
