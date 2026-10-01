@@ -16,8 +16,8 @@ import { isGitProgramPath } from "./git-program-paths.js";
  * outside the workspace, the session's scratch directory and the session's
  * temporary directory, one that names no path, or one to what the run's
  * containment closes inside them (the repository git directory's hooks and
- * config, #791, and the .git programs and indirection paths of a repository
- * made during a run, #1094); at `workspace-no-network`
+ * config, #791, and the .git programs and indirection paths of existing or
+ * newly made/repointed repositories, #1094); at `workspace-no-network`
  * that, and every fetch and search. Shell commands are the sandbox's
  * (Claude's `sandbox` option, #140), reads are free at every level (the
  * denylist's paths are #132's), a browser verb and a tool server's call are
