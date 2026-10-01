@@ -93,16 +93,16 @@ const undoAll = async (method: string, undos: readonly Undo[]): Promise<void> =>
  * `prepare` first, outside the transaction and only when no receipt is
  * stored, and then the handler it answers; what `prepare` made is removed
  * when the command is not accepted (#321). A request under a key whose
- * `prepare` still runs, its client's resend after a dropped socket, waits
- * for that request to finish and is answered from the receipt it stored,
+ * `prepare` still runs, on any socket (its client's resend after a dropped
+ * one), waits for that request and is answered from the receipt it stored,
  * its own `prepare` never run (#448); it prepares only when the first
- * stored none (an error answer, which a retry runs again). The answer is `{receipt, result}`, the
- * result only when this request applied the command; a rejection is a
- * receipt too, not an error, since the receipt is what the client's outbox
- * retires a command on.
+ * stored none (an error answer, which a retry runs again). The answer is
+ * `{receipt, result}`, the result only when this request applied the
+ * command; a rejection is a receipt too, not an error, since the receipt is
+ * what the client's outbox retires a command on.
  */
 export const createDispatch = (methods: MethodTable, log: Pick<EventLog, "command" | "receipt">) => {
-  /** The prepared commands still preparing, by their key: each settles once its command is answered and what it made is removed. */
+  /** The prepared commands still preparing, by their key: each settles once its command has a receipt, or failed, and what it made is removed. */
   const preparing = new Map<string, Promise<void>>();
   /** Marks the command under `key` as preparing; answers how to mark it done. */
   const startPreparing = (key: string): (() => void) => {
@@ -155,8 +155,8 @@ export const createDispatch = (methods: MethodTable, log: Pick<EventLog, "comman
           let handler: CommandHandler;
           if (typeof registered === "function") handler = registered;
           else {
-            // The same key while its prepare still runs, a resend after a dropped socket, waits for that request (#448): preparing too,
-            // each would find what the other made. Waited for only when one runs, so this request otherwise keeps its place.
+            // A request under a key whose prepare still runs (a resend after a dropped socket) waits for it (#448): were both to
+            // prepare, each would find what the other made. It waits only when one runs, so a request otherwise keeps its place.
             const key = JSON.stringify([actor, commandId]);
             for (let first = preparing.get(key); first !== undefined; first = preparing.get(key)) await first;
             if (log.receipt(actor, commandId) !== null) {
