@@ -53,6 +53,12 @@ export interface BankValidation {
    */
   readonly registeredValues?: readonly string[];
   /**
+   * Files that are there but could not be read, by path, each with why (an
+   * error's code), as `validate.mjs`'s walk of a checkout finds them: each is
+   * refused as `file_unreadable` and otherwise left out of the verdict.
+   */
+  readonly unreadable?: Readonly<Record<string, string>>;
+  /**
    * A write to judge (a draft, a retirement, a promote): files by path, each
    * its new text or null for a removal. The verdict is on the bank after the
    * write, and holds what the write touches (its files, the folders and
@@ -63,17 +69,19 @@ export interface BankValidation {
 }
 
 /** The validator's verdict on a bank, or on a write to it. */
-export const validateBank = ({ files, registeredValues = [], writes }: BankValidation): BankVerdict => {
-  if (writes === undefined) return verdict(findingsOf(files, registeredValues));
+export const validateBank = ({ files, registeredValues = [], unreadable = {}, writes }: BankValidation): BankVerdict => {
+  if (writes === undefined) return verdict(findingsOf(files, unreadable, registeredValues));
   const after: Record<string, string> = { ...files };
   for (const [path, text] of Object.entries(writes)) {
     if (text === null) delete after[path];
     else after[path] = text;
   }
-  const before = new Set(findingsOf(files, registeredValues).map(key));
+  // A file the write gives is read from the write.
+  const unreadableAfter = Object.fromEntries(Object.entries(unreadable).filter(([path]) => !Object.hasOwn(writes, path)));
+  const before = new Set(findingsOf(files, unreadable, registeredValues).map(key));
   const written = Object.keys(writes);
   const touched = (finding: BankFinding): boolean => written.some((path) => path === finding.path || (finding.path.endsWith("/") && path.startsWith(finding.path)));
-  return verdict(findingsOf(after, registeredValues).filter((finding) => touched(finding) || !before.has(key(finding))));
+  return verdict(findingsOf(after, unreadableAfter, registeredValues).filter((finding) => touched(finding) || !before.has(key(finding))));
 };
 
 const key = ({ rule, path, field }: BankFinding): string => `${rule}\0${path}\0${field ?? ""}`;
@@ -157,12 +165,18 @@ interface Tree {
 
 const PROJECTS = "projects/";
 
+const isScopeFile = (name: string | undefined): boolean => Object.values(SCOPE_FILES).some((file) => file === name);
+
 const treeOf = (paths: readonly string[]): Tree => {
   const tree: Tree = { orgs: new Set(), projects: new Set(), areas: new Set(), memories: [], misplaced: [] };
   for (const path of paths) {
     if (!path.startsWith(PROJECTS) || !path.endsWith(".md")) continue;
     const segments = path.slice(PROJECTS.length).split("/");
-    if (segments.length < 2) continue;
+    if (segments.length < 2) {
+      // Directly under projects/: a folder file there is at no level, and anything else is a document.
+      if (isScopeFile(segments[0])) tree.misplaced.push(path);
+      continue;
+    }
     const folder = (depth: number): string => `${PROJECTS}${segments.slice(0, depth).join("/")}/`;
     const memories = segments.indexOf("memories");
     // A `memories/` folder ends the scope levels: none of its segments is an org or a project.
@@ -172,7 +186,7 @@ const treeOf = (paths: readonly string[]): Tree => {
       const name = segments.at(-1);
       if (name === SCOPE_FILES.area && segments.length === 4) tree.areas.add(folder(3));
       const level = segments.length === 2 ? SCOPE_FILES.org : segments.length === 3 ? SCOPE_FILES.project : segments.length === 4 ? SCOPE_FILES.area : null;
-      if (Object.values(SCOPE_FILES).some((file) => file === name) && name !== level) tree.misplaced.push(path);
+      if (isScopeFile(name) && name !== level) tree.misplaced.push(path);
       continue;
     }
     const rest = segments.slice(memories + 1);
@@ -215,6 +229,8 @@ type ReadMemory = MemoryFile & { readonly file: Read };
 /** What every part of the validation reads and how it reports. */
 interface Context {
   readonly files: BankFiles;
+  /** The files that could not be read, each refused as such and not again as missing. */
+  readonly unreadable: Readonly<Record<string, string>>;
   readonly tree: Tree;
   readonly memories: readonly ReadMemory[];
   /** Each memory name in the bank, with the files that carry it. */
@@ -228,7 +244,7 @@ const fieldsOf = (file: Read): Record<string, string> => (file.ok ? { frontmatte
 
 const NO_IDENTITY = "which is no repository identity: write https://<host>/<owner>/<name> in lower case.";
 
-const findingsOf = (files: BankFiles, registeredValues: readonly string[]): BankFinding[] => {
+const findingsOf = (files: BankFiles, unreadable: Readonly<Record<string, string>>, registeredValues: readonly string[]): BankFinding[] => {
   const found: BankFinding[] = [];
   const add: Context["add"] = (rule, path, message, field, secret) => {
     found.push(finding(rule, path, message, field, secret));
@@ -243,6 +259,7 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
       return;
     }
   };
+  for (const [path, why] of Object.entries(unreadable)) add("file_unreadable", path, `${path} could not be read (${why}): make it a readable file, or remove it.`);
   const tree = treeOf(Object.keys(files).sort(compare));
   // The memories are read first: the manifest's orientation and the links name them.
   const memories = tree.memories.map((memory): ReadMemory => ({ ...memory, file: read(files[memory.path] ?? "") }));
@@ -250,7 +267,7 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
   for (const { path, file } of memories) {
     if (file.ok && typeof file.data.name === "string") names.set(file.data.name, [...(names.get(file.data.name) ?? []), path]);
   }
-  const context: Context = { files, tree, memories, names, add, scan };
+  const context: Context = { files, unreadable, tree, memories, names, add, scan };
   const root = manifestFindings(context);
   const topics = folderFindings(context);
   memoryFindings(context, topics);
@@ -259,10 +276,10 @@ const findingsOf = (files: BankFiles, registeredValues: readonly string[]): Bank
 };
 
 /** `BANK.md`: its facts, the retired keys, the templates' labels, the entities' folders and the orientation; answers its `root`. */
-const manifestFindings = ({ files, tree, memories, add, scan }: Context): unknown => {
+const manifestFindings = ({ files, unreadable, tree, memories, add, scan }: Context): unknown => {
   const text = files["BANK.md"];
   if (text === undefined) {
-    add("manifest_missing", "BANK.md", "The bank has no BANK.md at its root: write one with its name, kind, purpose, entities, orientation, memories, docs and write.");
+    if (!Object.hasOwn(unreadable, "BANK.md")) add("manifest_missing", "BANK.md", "The bank has no BANK.md at its root: write one with its name, kind, purpose, entities, orientation, memories, docs and write.");
     return undefined;
   }
   const manifest = read(text);
@@ -324,14 +341,14 @@ const manifestFindings = ({ files, tree, memories, add, scan }: Context): unknow
 };
 
 /** The folder files, each level's in its place; answers the topics each project and area declares. */
-const folderFindings = ({ files, tree, add, scan }: Context): Map<string, readonly string[]> => {
+const folderFindings = ({ files, unreadable, tree, add, scan }: Context): Map<string, readonly string[]> => {
   const topicsOf = new Map<string, readonly string[]>();
   for (const scope of [...tree.orgs, ...tree.projects, ...tree.areas].sort(compare)) {
     const path = scopeFileOf(scope);
     const name = path.slice(scope.length);
     const text = files[path];
     if (text === undefined) {
-      add("scope_file_missing", scope, `${scope} has no ${name}: add one with line:${name === SCOPE_FILES.org ? "" : ", topics: ({} for none) and repos:"}.`);
+      if (!Object.hasOwn(unreadable, path)) add("scope_file_missing", scope, `${scope} has no ${name}: add one with line:${name === SCOPE_FILES.org ? "" : ", topics: ({} for none) and repos:"}.`);
       continue;
     }
     const file = read(text);

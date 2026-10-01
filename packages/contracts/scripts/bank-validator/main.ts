@@ -16,14 +16,27 @@ import { BANK_VALIDATOR } from "../../src/banks.js";
 
 const USAGE = "Usage: node validate.mjs [bank directory] [--json] [--version]";
 
-/** The files the validator reads, by path from the bank's root: `BANK.md` and the Markdown under `projects/`. */
-const bankFiles = (root: string): Record<string, string> => {
+/** An error's code (ENOENT, EACCES), or the error itself where it has none. */
+const codeOf = (error: unknown): string => (error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : String(error));
+
+/**
+ * What the validator reads, by path from the bank's root: `BANK.md` and the
+ * Markdown under `projects/`, and those of them that are there but could
+ * not be read, each with its error's code, which the verdict refuses.
+ */
+const readBank = (root: string): { readonly files: Record<string, string>; readonly unreadable: Record<string, string> } => {
   const files: Record<string, string> = {};
-  try {
-    files["BANK.md"] = readFileSync(join(root, "BANK.md"), "utf8");
-  } catch {
-    // No BANK.md: the verdict refuses it.
-  }
+  const unreadable: Record<string, string> = {};
+  const read = (path: string): void => {
+    const name = relative(root, path).split(sep).join("/");
+    try {
+      files[name] = readFileSync(path, "utf8");
+    } catch (error) {
+      const code = codeOf(error);
+      // No BANK.md: the verdict refuses it as missing.
+      if (name !== "BANK.md" || code !== "ENOENT") unreadable[name] = code;
+    }
+  };
   const walk = (directory: string): void => {
     let entries;
     try {
@@ -34,11 +47,13 @@ const bankFiles = (root: string): Record<string, string> => {
     for (const entry of entries) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (entry.isFile() && entry.name.endsWith(".md")) files[relative(root, path).split(sep).join("/")] = readFileSync(path, "utf8");
+      // A link is read as the file it points at, as a reader of the checkout follows it.
+      else if ((entry.isFile() || entry.isSymbolicLink()) && entry.name.endsWith(".md")) read(path);
     }
   };
+  read(join(root, "BANK.md"));
   walk(join(root, "projects"));
-  return files;
+  return { files, unreadable };
 };
 
 const main = (): number => {
@@ -58,7 +73,7 @@ const main = (): number => {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
-  const verdict = validateBank({ files: bankFiles(resolve(positionals[0] ?? ".")) });
+  const verdict = validateBank(readBank(resolve(positionals[0] ?? ".")));
   if (values.json) {
     process.stdout.write(`${JSON.stringify(verdict)}\n`);
   } else {

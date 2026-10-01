@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PERSONAL_BANK, RULE_FIXTURES, TEAM_BANK, type FixtureBank } from "../../test/fixture-banks.js";
+import { memory, PERSONAL_BANK, RULE_FIXTURES, TEAM_BANK, type FixtureBank } from "../../test/fixture-banks.js";
 import { validateBank } from "../../src/bank-validator.js";
 import { BANK_VALIDATOR, readBankValidatorStamp, STEP_PROMPTS } from "../../src/index.js";
 import { BANK_VALIDATOR_FILE, buildBankValidator } from "./build.js";
@@ -26,12 +26,20 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 beforeAll(() => buildBankValidator({ outFile: built }), BUILD_MS);
 
 let banks = 0;
-/** `bank` on disk with the built validator vendored at `.agent-harness/validate.mjs`, as a bank's CI checks it out. */
-const onDisk = (bank: FixtureBank): string => {
+/**
+ * `bank` on disk with the built validator vendored at
+ * `.agent-harness/validate.mjs`, as a bank's CI checks it out, and each of
+ * its `unreadable` files a link to nothing.
+ */
+const onDisk = (bank: FixtureBank, unreadable: Readonly<Record<string, string>> = {}): string => {
   const root = join(scratch, `bank-${(banks += 1)}`);
   for (const [path, text] of Object.entries({ ...bank, ".agent-harness/validate.mjs": readFileSync(built, "utf8") })) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text);
+  }
+  for (const path of Object.keys(unreadable)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    symlinkSync(join(root, "nowhere.md"), join(root, path));
   }
   return root;
 };
@@ -56,14 +64,14 @@ describe("the bank validator's validate.mjs", () => {
     expect(await validate(onDisk(PERSONAL_BANK), "--version")).toEqual({ code: 0, stdout: "bank-validator 1\n" });
   });
 
-  const cases: readonly (readonly [string, FixtureBank])[] = [
-    ["the personal bank", PERSONAL_BANK],
-    ["the team bank", TEAM_BANK],
-    ...Object.entries(RULE_FIXTURES).map(([rule, { bank }]) => [`the bank breaking ${rule}`, bank] as const),
+  const cases: readonly (readonly [string, FixtureBank, Readonly<Record<string, string>>])[] = [
+    ["the personal bank", PERSONAL_BANK, {}],
+    ["the team bank", TEAM_BANK, {}],
+    ...Object.entries(RULE_FIXTURES).map(([rule, { bank, unreadable = {} }]) => [`the bank breaking ${rule}`, bank, unreadable] as const),
   ];
-  it.each(cases)("gives %s the verdict the functions give, exiting 1 only on a refusal", async (_, bank) => {
-    const expected = validateBank({ files: bank });
-    const { code, stdout } = await validate(onDisk(bank), "--json");
+  it.each(cases)("gives %s the verdict the functions give, exiting 1 only on a refusal", async (_, bank, unreadable) => {
+    const expected = validateBank({ files: bank, unreadable });
+    const { code, stdout } = await validate(onDisk(bank, unreadable), "--json");
     expect(JSON.parse(stdout)).toEqual(expected);
     expect(code).toBe(expected.valid ? 0 : 1);
   });
@@ -81,6 +89,17 @@ describe("the bank validator's validate.mjs", () => {
     const warned = await validate(onDisk(RULE_FIXTURES.description_trigger.bank));
     expect(warned.code).toBe(0);
     expect(warned.stdout).toMatch(/^warning description_trigger: .*\nbank-validator 1: valid, 1 warning\n$/);
+  });
+
+  it("gives a verdict on a Markdown file it cannot read, not a stack trace, and reads a link to a file as the file", async () => {
+    const { bank, unreadable, path } = RULE_FIXTURES.file_unreadable;
+    const root = onDisk(bank, unreadable);
+    expect(await validate(root)).toEqual({
+      code: 1,
+      stdout: `refused file_unreadable: ${path} could not be read (ENOENT): make it a readable file, or remove it.\nbank-validator 1: 1 refused\n`,
+    });
+    writeFileSync(join(root, "nowhere.md"), memory("restore-drill"));
+    expect(await validate(root)).toEqual({ code: 0, stdout: "bank-validator 1: valid\n" });
   });
 
   it("validates the bank a path names, from anywhere", async () => {

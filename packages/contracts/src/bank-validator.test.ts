@@ -12,11 +12,31 @@ describe("the bank validator", () => {
   });
 
   it.each(BANK_VALIDATOR_RULES.map((rule) => [rule.id, rule] as const))("finds %s in the bank that breaks it once, with the path, the rule's severity and a message", (id, rule) => {
-    const { bank, path } = RULE_FIXTURES[id];
-    const { valid, findings } = validateBank({ files: bank });
+    const { bank, path, unreadable = {} } = RULE_FIXTURES[id];
+    const { valid, findings } = validateBank({ files: bank, unreadable });
     expect(findings.map((each) => each.rule)).toEqual(findings.map(() => id));
     expect(findings).toContainEqual(expect.objectContaining({ rule: id, severity: rule.severity, path, message: expect.stringMatching(/\S/) }));
     expect(valid).toBe(rule.severity === "warning");
+  });
+
+  it.each(["projects/ORG.md", "projects/PROJECT.md", "projects/AREA.md", "projects/personal/homelab/ORG.md"])("refuses %s, a folder file at no level, directly under projects/ as deeper", (path) => {
+    expect(validateBank({ files: { ...PERSONAL_BANK, [path]: markdown({ line: "A folder file out of place" }) } }).findings).toEqual([expect.objectContaining({ rule: "unknown_scope", severity: "refusal", path })]);
+  });
+
+  it("leaves a document directly under projects/ alone", () => {
+    expect(validateBank({ files: { ...PERSONAL_BANK, "projects/README.md": "# Projects\n" } })).toMatchObject({ valid: true, findings: [] });
+  });
+
+  it("refuses a file it could not read by its error, not again as missing, and reads a write to it", () => {
+    const org = "projects/personal/ORG.md";
+    const files = changed(PERSONAL_BANK, { "BANK.md": null, [org]: null });
+    const unreadable = { "BANK.md": "EACCES", [org]: "EACCES" };
+    expect(validateBank({ files, unreadable }).findings).toEqual([
+      { rule: "file_unreadable", severity: "refusal", path: "BANK.md", message: "BANK.md could not be read (EACCES): make it a readable file, or remove it." },
+      { rule: "file_unreadable", severity: "refusal", path: org, message: `${org} could not be read (EACCES): make it a readable file, or remove it.` },
+    ]);
+    // The write gives ORG.md back: read from it, and BANK.md, wrong before, is not the write's.
+    expect(validateBank({ files, unreadable, writes: { [org]: PERSONAL_BANK[org] ?? "" } })).toMatchObject({ valid: true, findings: [] });
   });
 
   it("refuses a write over a folder's 40 lines with the folder's existing topics, and passes it filed under a topic", () => {

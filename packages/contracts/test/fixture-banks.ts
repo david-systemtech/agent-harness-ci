@@ -157,8 +157,10 @@ const rootOf = (count: number): Record<string, string> =>
     }).flat(),
   );
 
-/** One bank per rule, each breaking it once, and the path the finding names. */
-export const RULE_FIXTURES: Record<BankRuleId, { readonly bank: FixtureBank; readonly path: string }> = {
+/** One bank per rule, each breaking it once, and the path the finding names; with the files in it that could not be read, by path, each with why. */
+export const RULE_FIXTURES: Record<BankRuleId, { readonly bank: FixtureBank; readonly path: string; readonly unreadable?: Readonly<Record<string, string>> }> = {
+  // A link to nothing, as validate.mjs finds one in a checkout: no file to read, even for root.
+  file_unreadable: { bank: PERSONAL_BANK, unreadable: { [`${HOMELAB}/memories/restore-drill.md`]: "ENOENT" }, path: `${HOMELAB}/memories/restore-drill.md` },
   manifest_missing: { bank: changed(PERSONAL_BANK, { "BANK.md": null }), path: "BANK.md" },
   manifest_malformed: { bank: changed(PERSONAL_BANK, { "BANK.md": "---\nname: [unclosed\n---\n" }), path: "BANK.md" },
   manifest_fact_missing: { bank: personalWith({ purpose: undefined }), path: "BANK.md" },
