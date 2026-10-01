@@ -320,10 +320,10 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, triggers: ["bank.*", "bank.landed"] }])).toEqual(["appearance: triggers on bank.landed, which names no event or notice type"]);
   });
 
-  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its orientation state check and bank.* triggers (#586), its other triggers left to #588", () => {
+  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its orientation state check and the instruction and orientation registry triggers (#588)", () => {
     const instructions = stepOf("instructions");
     expect((STEP_ORDER as readonly string[]).indexOf("instructions")).toBe(7);
-    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [{ id: "instructions.orientation-renders", actions: [] }], links: [], skippable: false, budget: "local", triggers: ["bank.*"] });
+    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [{ id: "instructions.orientation-renders", actions: [] }], links: [], skippable: false, budget: "local", triggers: ["bank.*", "instructions.*", "account.updated", "key-manager.*", "forge.account.*", "environment.renamed"] });
     expect(instructions).not.toHaveProperty("skip");
     expect(instructions.writesState?.map((write) => write.method)).toEqual([
       "instructions.create",
@@ -714,7 +714,7 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Instructions on every bank.* event, the rest of its triggers left to #588, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Skills on skills.updated, Instructions on its own events and every registry its orientation block reads, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
@@ -722,12 +722,26 @@ describe("the step registry", () => {
       ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
       ["memory-bank", ["bank.*"]],
-      ["skills", []],
-      ["instructions", ["bank.*"]],
+      ["skills", ["skills.updated"]],
+      ["instructions", ["bank.*", "instructions.*", "account.updated", "key-manager.*", "forge.account.*", "environment.renamed"]],
       ["browser", ["chrome.updated", "extension.seen"]],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],
     ]);
+  });
+
+  it("keeps the four feature steps' budgets and cadences, and resolves each trigger from #588 to a registered type", () => {
+    for (const [id, budget, minutes] of [
+      ["forges", "network", 15], ["key-manager", "network", 15], ["skills", "local", 60], ["instructions", "local", 60],
+    ] as const) {
+      const step = STEP_REGISTRY.find((entry) => entry.id === id)!;
+      expect(step).toMatchObject({ budget, cadence: { minutes } });
+      for (const trigger of step.triggers) {
+        // #586 reserves bank.* for the bank event vocabulary arriving in #937.
+        if (trigger === "bank.*") continue;
+        expect(KNOWN_TYPES.some((type) => triggerMatches(trigger, type)), `${id}: ${trigger}`).toBe(true);
+      }
+    }
   });
 
   it("matches a trigger to its own type, and a family ending in * to every type it prefixes", () => {
