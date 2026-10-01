@@ -627,6 +627,8 @@ export type ToolAccess =
  * receive).
  */
 export interface GatedToolCall {
+  /** The adapter verified this call belongs to an in-process server whose tools run outside the environment. */
+  readonly external?: boolean;
   readonly toolCallId: string;
   readonly tool: string;
   readonly summary: string;

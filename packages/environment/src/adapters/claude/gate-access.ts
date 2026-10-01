@@ -1,5 +1,5 @@
 import type { JsonObject } from "@agent-harness/contracts";
-import { inProcessToolAccess, toolCallSummary, type GatedToolCall, type ToolAccess, type ToolServer } from "../../adapter/contract.js";
+import { inProcessToolAccess, inProcessToolName, isInProcess, toolCallSummary, type GatedToolCall, type ToolAccess, type ToolServer } from "../../adapter/contract.js";
 
 /**
  * Claude's tools as the tool gate reads them (permissions spec, "Modules":
@@ -83,11 +83,13 @@ export interface GatedCallContext {
 /**
  * The gate's call for a Claude tool call: its id, name, a summary, and what
  * it does, as a call to one of the run's in-process tools declares it
- * (#540), else as Claude's tool map reads it.
+ * (#540), else as Claude's tool map reads it. Only a declared tool of an
+ * external in-process server is marked as running outside the environment.
  */
 export const claudeGatedCall = (toolName: string, input: Readonly<Record<string, unknown>>, toolCallId: string, context: GatedCallContext = {}): GatedToolCall => {
   // The input as the model gave it, as JSON: a denylist prompt records it, and the denylist reads an `other` call's (#132).
   const json = JSON.parse(JSON.stringify(input)) as JsonObject;
   const access = inProcessToolAccess(context.servers ?? [], toolName, json) ?? claudeToolAccess(toolName, input);
-  return { toolCallId, tool: toolName, summary: toolCallSummary(toolName, access, context.title), access, input: json };
+  const external = context.servers?.some((server) => isInProcess(server) && server.external && server.tools.some((tool) => inProcessToolName(server.name, tool.name) === toolName)) === true;
+  return { toolCallId, tool: toolName, summary: toolCallSummary(toolName, access, context.title), access, input: json, ...(external && { external }) };
 };
