@@ -173,3 +173,106 @@ describe("the debugger's domains and child targets", () => {
     expect(enabledOn(peer, tab).slice(4)).toEqual(["tab Page.enable", "tab Runtime.enable", "tab Log.enable", "tab Network.enable"]);
   });
 });
+
+describe("the page policy in the browser", () => {
+  /** A denylist browser-section entry, enabled, as the policy carries it. */
+  const listed = (pattern: string) => ({ id: `test:${pattern}`, pattern, note: "", preset: false, enabled: true });
+
+  it("judges the tab's address by the policy the environment sent last, before every verb and after every load, and a verb on a listed page answers the address and the entry", async () => {
+    const { peer, socket, perform } = await live();
+    peer.document("https://shop.example/pay", { redirect: "https://www.paypal.com/checkout" });
+    await perform({ verb: "open", args: { url: "https://shop.example/" } });
+
+    socket.send({ type: "policy", policy: { ...POLICY, browserDomains: [listed("shop.example")] } });
+    expect(await perform({ verb: "screenshot", args: {} })).toEqual({
+      ok: false,
+      reason: "The page is at https://shop.example/, which the denylist's browser section lists (shop.example), so it was stopped at about:blank. Only the person can allow it.",
+      denylist: { frame: "top-level", match: { section: "browserDomains", entry: listed("shop.example"), matched: "https://shop.example/" } },
+    });
+
+    socket.send({ type: "policy", policy: { ...POLICY, browserDomains: [listed("*.paypal.com")] } });
+    expect(await perform({ verb: "navigate", args: { url: "https://shop.example/pay" } })).toEqual({
+      ok: false,
+      reason: "The page went to https://www.paypal.com/checkout, which the denylist's browser section lists (*.paypal.com), so it was stopped at about:blank. Only the person can allow it.",
+      denylist: { frame: "top-level", match: { section: "browserDomains", entry: listed("*.paypal.com"), matched: "https://www.paypal.com/checkout" } },
+    });
+    expect(await perform({ verb: "open", args: {} })).toEqual({ ok: true, value: { url: "about:blank", title: "" } });
+  });
+
+  it("refuses the page whole for a sub-frame into a listed domain, and opens a listed host once with the allowance a call carries", async () => {
+    const { peer, perform } = await live({ policy: { ...POLICY, browserDomains: [listed("*.paypal.com")] } });
+    peer.document("https://shop.example/checkout", { frames: [{ url: "https://www.paypal.com/sdk", crossSite: true }] });
+    expect(await perform({ verb: "open", args: { url: "https://shop.example/checkout" } })).toEqual({
+      ok: false,
+      reason: "A frame of the page loaded https://www.paypal.com/sdk, which the denylist's browser section lists (*.paypal.com), so the whole page was stopped at about:blank.",
+      denylist: { frame: "sub-frame", match: { section: "browserDomains", entry: listed("*.paypal.com"), matched: "https://www.paypal.com/sdk" } },
+    });
+
+    peer.document("https://www.paypal.com/signin", { title: "Log in" });
+    const allowance = { host: "www.paypal.com" };
+    expect(await perform({ verb: "navigate", args: { url: "https://www.paypal.com/signin" } }, { allowance })).toEqual({
+      ok: true,
+      value: { url: "https://www.paypal.com/signin", title: "Log in" },
+    });
+    expect(await perform({ verb: "navigate", args: { url: "https://www.paypal.com/signin" } })).toMatchObject({ ok: false, denylist: { frame: "top-level" } });
+  });
+
+  it("counts loopback and private addresses as dev sites without listing them, where storage and evaluate answer, and names the setting that would allow them elsewhere", async () => {
+    const { peer, perform } = await live();
+    peer.inPage("readStorage", () => ({ origin: "http://192.168.1.20", local: { theme: "dark" }, session: {} }));
+    peer.answer("Runtime.evaluate", () => ({ result: { type: "number", value: 2 } }));
+    peer.document("https://example.com/", { cookies: [{ name: "sid", value: "token-for-tests" }] });
+
+    await perform({ verb: "open", args: { url: "http://192.168.1.20/" } });
+    expect(await perform({ verb: "evaluate", args: { expression: "1 + 1" } })).toEqual({ ok: true, value: { result: 2 } });
+    expect(await perform({ verb: "storage", args: {} })).toEqual({ ok: true, value: { origin: "http://192.168.1.20", local: { theme: "dark" }, session: {} } });
+
+    await perform({ verb: "navigate", args: { url: "https://example.com/" } });
+    expect(await perform({ verb: "evaluate", args: { expression: "1 + 1" } })).toEqual({
+      ok: false,
+      reason: "evaluate runs only on dev sites, and example.com is not one. Add it to browser.devSites, or turn on browser.evaluateEverywhere, to run it.",
+    });
+    expect(await perform({ verb: "storage", args: {} })).toEqual({
+      ok: false,
+      reason: "Storage is read only on dev sites, and example.com is not one. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read it.",
+    });
+    const cookies = await perform({ verb: "cookies", args: {} });
+    expect(cookies).toMatchObject({
+      ok: true,
+      value: [{ name: "sid", domain: "example.com" }],
+      notice: "Cookie values are left out: example.com is not a dev site. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read them.",
+    });
+    expect(JSON.stringify(cookies)).not.toContain("token-for-tests");
+  });
+
+  it("refuses the Chrome Web Store under every policy, a policy that lists it as a dev site too", async () => {
+    const { perform } = await live({ policy: { ...POLICY, devSites: ["chromewebstore.google.com"], evaluateEverywhere: true, deepReadEverywhere: true } });
+    await perform({ verb: "open", args: {} });
+    expect(await perform({ verb: "navigate", args: { url: "https://chromewebstore.google.com/" } })).toEqual({
+      ok: false,
+      reason: "https://chromewebstore.google.com/ is on the Chrome Web Store, where Chrome lets no extension read or act, so the browser did not open it.",
+    });
+  });
+});
+
+describe("a managed profile whose policy blocks the debugger", () => {
+  it("answers every verb with its sentence, and makes no tab after the first", async () => {
+    const { chrome, perform } = await live({ debuggerBlocked: true });
+    const blocked = {
+      ok: false,
+      reason:
+        "This Chrome does not let extensions use its debugger, which is how the agent-harness extension drives pages: a policy of the organisation that manages this Chrome profile (DeveloperToolsAvailability) turns it off. Use the headless browser for this session, or a Chrome profile the policy does not cover.",
+    };
+    expect(await perform({ verb: "open", args: { url: "https://example.com/" } })).toEqual(blocked);
+    for (const command of [
+      { verb: "open", args: {} },
+      { verb: "snapshot", args: {} },
+      { verb: "screenshot", args: {} },
+      { verb: "close", args: {} },
+    ] as const) {
+      expect(await perform(command), command.verb).toEqual(blocked);
+    }
+    expect(chrome.tabsOpen()).toHaveLength(1);
+    expect(chrome.attachedTabs()).toEqual([]);
+  });
+});
