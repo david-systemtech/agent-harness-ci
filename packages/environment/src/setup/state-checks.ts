@@ -6,6 +6,8 @@ import type { BankRecords } from "../banks/records.js";
 import { memoryBankStateChecks } from "../banks/step-checks.js";
 import type { BrowserService } from "../browser/service.js";
 import { carryOverStateChecks } from "../carry-over/step-checks.js";
+import { instructionsStateChecks } from "../instructions/step-checks.js";
+import type { OrientationAnswer } from "../instructions/composer.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { forgesStateChecks } from "../forge/step-checks.js";
@@ -19,6 +21,7 @@ import { containmentDefaultHolds, denylistHoldsPresets, runsAsNonRoot, type Stat
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { readSettings } from "../settings/settings-store.js";
+import { skillsStateChecks, type SkillsStateChecksOptions } from "../skills/step-checks.js";
 import type { StateCheckers } from "./check.js";
 
 /**
@@ -31,7 +34,8 @@ import type { StateCheckers } from "./check.js";
  * not draining past its cap (#574), the Forges step's seven (#319), the Key
  * manager step's skip check (#367) and four others (#383), the Memory bank
  * step's six (#586), the Browser step's three (#559), the Permissions
- * step's three checks, and the Appearance step's contrast (#391), each read
+ * step's three checks, the Skills step's local reads and state-derived skip
+ * and the Instructions step's orientation read (#514), and the Appearance step's contrast (#391), each read
  * when it runs.
  * Not-root and the containment default are read from what
  * `permissions.settings.get` answers (`readPermissionsReport`), the
@@ -55,6 +59,10 @@ import type { StateCheckers } from "./check.js";
 
 export interface StateChecksOptions {
   readonly log: EventLog;
+  /** Source standings, the own directory and the clock, all read locally. */
+  readonly skills: SkillsStateChecksOptions;
+  /** The same preview the Instructions row reads, null without an account. */
+  readonly orientation: () => Promise<OrientationAnswer | null>;
   /** The adapters, by provider: an adopted account's lists its directory's sessions. */
   readonly adapters: Pick<AdapterRegistry, "get">;
   /** Whether a source data folder or terminal-client state folder is on this machine (`stateImport.detect`). */
@@ -111,6 +119,8 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
   const report = () => readPermissionsReport(reader, options.containment, options.isRoot);
   const presets = denylistPresets(options.dataDir);
   return {
+    ...skillsStateChecks(options.skills),
+    ...instructionsStateChecks(options.orientation),
     ...accountStateChecks({ accounts: options.accounts }),
     ...carryOverStateChecks({ accounts: options.accounts, adapters: options.adapters, reader, detect: options.detectStateImport }),
     "your-machines.not-root": () => runsAsNonRoot(report().isRoot),

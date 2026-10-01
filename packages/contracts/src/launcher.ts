@@ -354,6 +354,9 @@ export const STAGING_DIRECTORY = "staging";
  */
 export const OUTCOME_RECORD_FILE = "update-outcome.json";
 
+/** The outcome record held while a database snapshot is being restored; nothing may open the database until it is cleared. */
+export const RESTORE_MARKER_FILE = "restore-marker.json";
+
 /** Where an update failed and was rolled back: its trial (the startup gate), or the crash-loop watch after its commit. */
 export const OUTCOME_STAGES = ["trial", "crash-loop"] as const;
 export type OutcomeStage = (typeof OUTCOME_STAGES)[number];

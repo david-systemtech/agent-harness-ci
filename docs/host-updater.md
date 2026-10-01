@@ -210,6 +210,12 @@ AGENT_HARNESS_IMAGE=<previous image> docker compose run --rm environment \
   restore is marked. Run the restore again; once it succeeds, set
   `AGENT_HARNESS_IMAGE=<previous image>` in `.env` and run
   `docker compose up -d`.
+- **The container was started while a restore was marked**: `serve` refuses to
+  open the database, with this line in `docker compose logs environment`:
+  `agent-harness could not start: Startup failed at the database step: The restore of update <id> is unfinished; run agent-harness update restore to finish it before starting the environment.`
+  The database, its WAL and shm files, and `restore-marker.json` stay untouched.
+  Stop the container, run the restore command above on the previous image to
+  finish the restore, then set that image in `.env` and run `docker compose up -d`.
 - **`.env` could not be written, `docker compose up -d` failed, or the previous
   version did not say ready**: the restore has finished. Put the previous image
   in `.env` if it is not there, then `docker compose ps` and
