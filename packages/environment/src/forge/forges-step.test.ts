@@ -4,7 +4,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { installFakeGh, type FakeGh, type FakeGhState } from "../../test/fake-gh.js";
-import { DAVID, TOKEN, added, remove, setPrimary } from "../../test/forge.js";
+import { DAVID, TOKEN, added, list, remove, setPrimary } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
@@ -397,6 +397,88 @@ describe("forges.coverage", () => {
     uncovered.repositories(TOKEN, []);
     await added(client, { url: uncovered.origin, kind: "forgejo" });
     expect(await checkForges(client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+  });
+});
+
+describe("the Forges step beside the verifier's own schedule (#680)", () => {
+  const MINUTE = 60_000;
+  const QUARTER = 15 * MINUTE;
+
+  /** How many times `forge` has been asked who the token is: once by its add, then once per verification of its forge account. */
+  const askedWho = (forge: FakeForge): number => forge.requests.filter((request) => request.path === "/api/v1/user").length;
+
+  /** The forge account on `forge`, as `forge.accounts.list` answers it. */
+  const accountOn = async (client: WireClient, forge: FakeForge) => (await list(client)).find((account) => account.origin === forge.origin);
+
+  /** Resolves once the forge account on `forge` holds what a verification at `at` found, its next one scheduled from then. */
+  const verifiedAt = (client: WireClient, forge: FakeForge, at: string) =>
+    vi.waitFor(async () => expect((await accountOn(client, forge))?.capabilities.readRepository.verifiedAt).toBe(at), { timeout: WAIT_MS });
+
+  /** The Forges step's cached result, as the snapshot a client subscribing now is sent. */
+  const cachedForges = async (t: TestEnvironment, client: WireClient): Promise<StepResult | undefined> => {
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
+    const { payload } = await client.next((frame): frame is SnapshotFrame => frame.type === "snapshot" && frame.subscription === subscription);
+    return registry["environment.subscribe"].result.parse(payload).setup?.find((cached) => cached.step === "forges");
+  };
+
+  /** Moves the clock a second on, to the step's check its cadence or a trigger holds there, and resolves once that check is cached. */
+  const checkedASecondOn = async (t: TestEnvironment, client: WireClient): Promise<StepResult | undefined> => {
+    t.clock.advance(1_000);
+    const at = t.clock.now().toISOString();
+    await vi.waitFor(async () => expect((await cachedForges(t, client))?.checkedAt).toBe(at), { timeout: WAIT_MS });
+    return cachedForges(t, client);
+  };
+
+  it("over an hour reads what the verifier found on its cadence and triggers: each forge account verified once every fifteen minutes, and one the forge paused asked nothing until its time", async () => {
+    const steady = await fakeForge();
+    const limited = await fakeForge();
+    for (const forge of [steady, limited]) {
+      forge.user(TOKEN, DAVID);
+      forge.repositories(TOKEN, []);
+    }
+    const t = await start();
+    await t.env.setup.startPass;
+    const client = await t.client();
+    await added(client, { url: steady.origin, kind: "forgejo" });
+    await added(client, { url: limited.origin, kind: "forgejo" });
+    // Each is verified at once, as a forge account given a credential is, and the additions check the step a second on.
+    t.clock.advance(0);
+    await verifiedAt(client, steady, MANUAL_CLOCK_START);
+    await verifiedAt(client, limited, MANUAL_CLOCK_START);
+    const steadyAsked = askedWho(steady);
+    const limitedAsked = askedWho(limited);
+    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([0, 0]);
+
+    // Fifteen minutes on, the verifier's schedule: the forge limits the second forge account's credential for forty minutes.
+    limited.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(40 * 60) } });
+    t.clock.advance(QUARTER - 1_000);
+    await verifiedAt(client, steady, after(QUARTER));
+    await vi.waitFor(async () => expect((await accountOn(client, limited))?.problem).toMatchObject({ kind: "unreachable", since: after(QUARTER) }), { timeout: WAIT_MS });
+    limited.user(TOKEN, DAVID);
+    // Its verification, a forge.account.* event, checks the step a second on, as the step's cadence falls due then too: it reads what was found.
+    expect(await checkedASecondOn(t, client)).toMatchObject({
+      state: "needs-attention",
+      reason: `${davidOn(limited)} did not answer its verification: Check again once its forge is reachable.`,
+      failing: ["forges.identity"],
+    });
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([1, 1]);
+
+    // Thirty and forty-five minutes on, the verifier's schedule and a second later the step's cadence: the paused forge account is asked nothing.
+    for (const quarter of [2, 3]) {
+      t.clock.advance(QUARTER - 1_000);
+      await verifiedAt(client, steady, after(quarter * QUARTER));
+      expect(await checkedASecondOn(t, client)).toMatchObject({ state: "needs-attention", failing: ["forges.identity"] });
+    }
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([3, 1]);
+
+    // Its time, fifty-five minutes on, it is verified again, and the step reads it so a second later; an hour on, the steady one is verified the fourth time.
+    t.clock.advance(10 * MINUTE - 1_000);
+    await vi.waitFor(async () => expect((await accountOn(client, limited))?.problem).toBeNull(), { timeout: WAIT_MS });
+    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    t.clock.advance(5 * MINUTE - 1_000);
+    await verifiedAt(client, steady, after(4 * QUARTER));
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([4, 2]);
   });
 });
 
