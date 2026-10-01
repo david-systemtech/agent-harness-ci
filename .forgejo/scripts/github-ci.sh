@@ -4,14 +4,19 @@
 # .github/workflows/ci.yml has the steps and the reasons); this job only hands
 # the commit over and waits, so it uses almost no CPU on the homelab.
 #
-# 1. Push the checked-out commit to GitHub as refs/heads/ci/<id>, together with
-#    origin/main as `main`, so each push sends only the objects GitHub lacks.
+# 1. Scan the commit's history for secrets here, before anything leaves the
+#    homelab: agent-harness-ci is public, and a pushed commit stays fetchable.
+#    Then push it to GitHub as refs/heads/ci/<id>, with origin/main as
+#    `mirror/main` so each push sends only the objects GitHub lacks. Never
+#    `main`: repository_dispatch reads its workflow from the default branch,
+#    `workflows`, and must never be pointed at a copy of this tree.
 # 2. Send a repository_dispatch carrying the sha, the id and a concurrency group.
 # 3. Find the run by its title, wait for it, and exit with its verdict. A failed
 #    run's failed steps are printed here, so the Forgejo log stays readable.
+#    The run's last job deletes ci/<id>.
 #
-# Needs GH_CI_TOKEN: a fine-grained token for agent-harness-ci alone, with
-# Contents read/write and Actions read. GROUP is the pull request number or
+# Needs GH_CI_TOKEN: a fine-grained token for agent-harness-ci, with Contents
+# read/write (the push, and repository_dispatch) and Actions read (the run). GROUP is the pull request number or
 # the ref, so a newer push cancels the older run on GitHub as it does here.
 set -euo pipefail
 
@@ -27,10 +32,24 @@ gh_api() {
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 
+# The same gitleaks pin as david/ci scripts/secret-scan.sh; only HEAD's history.
+case "$(uname -m)" in
+  x86_64) gl_arch=x64 gl_sum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb ;;
+  aarch64 | arm64) gl_arch=arm64 gl_sum=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 ;;
+  *) echo "::error::No gitleaks build pinned for $(uname -m)"; exit 1 ;;
+esac
+gl=$(mktemp -d)
+trap 'rm -rf "$gl"' EXIT
+curl -sSfL --retry 3 -o "$gl/g.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_${gl_arch}.tar.gz"
+echo "$gl_sum  $gl/g.tgz" | sha256sum -c - >/dev/null
+tar -xzf "$gl/g.tgz" -C "$gl" gitleaks
+"$gl/gitleaks" git --no-banner --redact --exit-code 1 --log-opts="HEAD" . ||
+  { echo "::error::gitleaks found a secret; nothing was pushed to GitHub"; exit 1; }
+
 echo "Pushing $sha to $repo as ci/$id"
 refs=("+$sha:refs/heads/ci/$id")
 if git rev-parse -q --verify origin/main >/dev/null; then
-  refs+=("+$(git rev-parse origin/main):refs/heads/main")
+  refs+=("+$(git rev-parse origin/main):refs/heads/mirror/main")
 fi
 git -c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_CI_TOKEN" | base64 -w0)" \
   push --quiet "https://github.com/$repo.git" "${refs[@]}"

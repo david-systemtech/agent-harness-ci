@@ -5,7 +5,7 @@
 # the pull request page read is still this job's.
 #
 # Why (David, 2026-10-01): on 2026-09-30 this repository was 97% of all `ci`
-# minutes on the shared pool, and SYSTEM-MNL ran at load 20-45 with the Artemis
+# minutes on the shared pool, and SYSTEM-MNL ran at load 20-45 with the agent
 # sessions and the pool's VM competing for its 16 threads. The checks
 # themselves - the secret scan, install, typecheck, lint, the suite and the
 # schema export drift check - are in agent-harness-ci's
