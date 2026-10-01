@@ -127,6 +127,7 @@ export interface StartCommand {
    * the queue after it carries them too (the host's `NextRunBasis`).
    */
   readonly appendedInstructions?: string | undefined;
+  readonly alwaysOn?: readonly string[] | undefined;
   /**
    * The tools a completions request declared for the caller to run (#139),
    * which the run's tool servers serve; a run of the queue takes the run
@@ -182,6 +183,8 @@ export interface PlannedRun {
   readonly browser: RunBrowserResolution;
   /** What the run's instructions carry after the composed ones (`StartCommand.appendedInstructions`); null for nothing. */
   readonly appendedInstructions: string | null;
+  /** Extra always-on names; kept in memory, inherited by runs of the queue. */
+  readonly alwaysOn: readonly string[];
   /** The tools the caller runs (`StartCommand.clientTools`); empty for none. */
   readonly clientTools: readonly ClientTool[];
   /**
@@ -380,6 +383,7 @@ export const decideStart = (facts: StartFacts, command: StartCommand): StartDeci
       policy,
       browser,
       appendedInstructions: command.appendedInstructions === undefined || command.appendedInstructions.trim() === "" ? null : command.appendedInstructions,
+      alwaysOn: command.alwaysOn ?? [],
       clientTools: command.clientTools ?? [],
       prompt: command.messageFirst === true ? [...sent, ...queued] : [...queued, ...sent],
     },
@@ -499,6 +503,7 @@ export interface ReadNowFacts {
     readonly model: string;
     readonly effort: string | null;
     readonly appendedInstructions: string | null;
+    readonly alwaysOn?: readonly string[];
     readonly clientTools: readonly ClientTool[];
   } | null;
 }
@@ -538,7 +543,7 @@ export const decideReadNow = (facts: ReadNowFacts): ReadNowDecision => {
     ...(basis !== null && { model: basis.model }),
     ...(basis?.effort !== null && basis?.effort !== undefined && { effort: basis.effort }),
     ...(basis !== null && basis.appendedInstructions !== null && { appendedInstructions: basis.appendedInstructions }),
-    ...(basis !== null && { clientTools: basis.clientTools }),
+    ...(basis !== null && { clientTools: basis.clientTools, alwaysOn: basis.alwaysOn ?? [] }),
   });
   if (decision.rejected !== undefined) return { rejected: decision.rejected };
   return { events: decision.events, run: decision.run };
