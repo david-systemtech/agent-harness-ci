@@ -115,6 +115,23 @@ describe("asking the terminal", () => {
     expect(String(keyboard.read())).toBe("hi");
   });
 
+  it("hands back keys typed before and between the answers too, in order, without the answers", async () => {
+    const keyboard = new FakeKeyboard();
+    const { asked } = ask(keyboard, `ab\u001B]11;rgb:0000/0000/0000\u001B\\c${ATTRIBUTES}d`);
+    await expect(asked).resolves.toBe("dark");
+    expect(String(keyboard.read())).toBe("abcd");
+  });
+
+  it("hands back keys typed while a terminal that answers nothing is waited on", async () => {
+    const keyboard = new FakeKeyboard();
+    const { asked, timer } = ask(keyboard, undefined);
+    keyboard.write("hi");
+    await new Promise((resolve) => setImmediate(resolve));
+    timer.fire();
+    await expect(asked).resolves.toBeUndefined();
+    expect(String(keyboard.read())).toBe("hi");
+  });
+
   it("asks nothing of an input that cannot be put in raw mode", async () => {
     const terminal = terminalAnswering(new FakeKeyboard(), ATTRIBUTES);
     const piped = new PassThrough() as unknown as NodeJS.ReadStream;

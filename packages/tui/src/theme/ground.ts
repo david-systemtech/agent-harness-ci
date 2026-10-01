@@ -59,7 +59,8 @@ const systemTimer = (callback: () => void, ms: number): (() => void) => {
  * keys, and answers the ground it names: undefined when it gave none, or
  * when its input cannot be put in raw mode, in which case nothing is
  * written. The input is in raw mode while asked and goes back as it was;
- * keys typed after the answers are handed back to it for the screen.
+ * keys typed while it waits, before, between or after the answers, are
+ * handed back to it in order for the screen, the answers taken out.
  */
 export const askGround = (terminal: GroundTerminal): Promise<LadderName | undefined> => {
   const { stdin, stdout } = terminal;
@@ -71,9 +72,8 @@ export const askGround = (terminal: GroundTerminal): Promise<LadderName | undefi
       cancel();
       stdin.off("readable", read);
       const ground = groundOf(heard);
-      const after = ATTRIBUTES_ANSWER.exec(heard);
-      const rest = after === null ? "" : heard.slice(after.index + after[0].length);
-      if (rest.length > 0) stdin.unshift(Buffer.from(rest, "utf8"));
+      const keys = heard.replace(BACKGROUND_ANSWER, "").replace(ATTRIBUTES_ANSWER, "");
+      if (keys.length > 0) stdin.unshift(Buffer.from(keys, "utf8"));
       stdin.setRawMode(wasRaw);
       resolve(ground);
     };
