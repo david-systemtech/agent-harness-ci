@@ -135,10 +135,11 @@ describe("banks.register and banks.list", () => {
     expect(await list(client)).toHaveLength(1);
   });
 
-  it("refuses a path that holds no git repository, invalid_params", async () => {
+  it("refuses a path that holds no git repository, or is not absolute, invalid_params", async () => {
     const client = await (await start()).client();
     const answer = await register(client, { path: tempDir("agent-harness-not-a-bank-") });
     expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "invalid_params" } });
+    expect((await register(client, { path: "banks/maya-memory" })).receipt).toMatchObject({ status: "rejected", error: { code: "invalid_params" } });
     expect(await list(client)).toEqual([]);
   });
 });

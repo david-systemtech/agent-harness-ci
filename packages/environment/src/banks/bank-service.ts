@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import {
   BANK_INDEX_BUDGET,
   BankName,
@@ -347,6 +347,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
         const answer = (await records()).find((bank) => bank.id === imported) ?? null;
         return () => (answer === null ? { aggregate: stream, rejected: { code: "not_found" } } : { aggregate: stream, result: { bank: answer } });
       }
+      if (!isAbsolute(params.path)) return rejecting({ code: "invalid_params", message: `The path ${params.path} is not absolute: name the checkout from the root.`, data: { issues: [] } });
       const read = await readCheckout(params.path, { name: "unnamed", role: params.role });
       if ("problem" in read) return rejecting({ code: "invalid_params", message: `The path ${params.path} holds no git repository a bank can be read from: ${read.problem}`, data: { issues: [] } });
       const manifest = manifestOf(read.reading.files);

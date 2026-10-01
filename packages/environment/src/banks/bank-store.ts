@@ -105,9 +105,6 @@ export const liveBank = (reader: Reader, bankId: string): BankEntry | null => {
   return row === undefined ? null : (JSON.parse(row.entry) as BankEntry);
 };
 
-/** Whether a bank was ever registered as `bankId`, forgotten or not. */
-export const bankEver = (reader: Reader, bankId: string): boolean => reader.all("SELECT 1 AS found FROM banks WHERE id = ?", bankId).length > 0;
-
 /** The live bank named `name`; null for none. */
 export const nameHolder = (reader: Reader, name: string): string | null =>
   reader.all<{ id: string }>("SELECT id FROM banks WHERE name = ? AND forgotten_at IS NULL", name)[0]?.id ?? null;
