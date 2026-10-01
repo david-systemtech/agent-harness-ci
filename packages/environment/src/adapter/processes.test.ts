@@ -935,7 +935,8 @@ describe("the recovery sweep", () => {
     const snapshot = SessionSnapshot.parse(frame.type === "snapshot" && frame.payload);
     expect(snapshot.runs).toEqual([expect.objectContaining({ runId, state: "ended", reason: "interrupted", cause: "restart" })]);
     expect(snapshot.parkedPrompts).toEqual([expect.objectContaining({ prompt: expect.objectContaining({ kind: "permission" }) })]);
-    expect(await later.request("environment.status", {})).toMatchObject({ activity: { state: "idle" } });
+    // The run it ended is in the log, not the run registry: the start holds the environment busy for the idle window (#445).
+    expect(await later.request("environment.status", {})).toMatchObject({ activity: { state: "busy", reason: "recent-activity", busyUntil: at(13 * MINUTE) } });
 
     // The next run starts cold, resumes the provider's session, and reads the message the provider held first.
     const next = await startRun(later, id, "Carry on");

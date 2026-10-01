@@ -1,5 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { VERSIONS_DIRECTORY } from "./launch/versions.js";
 import { scriptKind } from "./service/entry.js";
 import { SHIM_DIRECTORY, SHIM_FILES, shimReads } from "./service/shim.js";
 
@@ -47,12 +48,14 @@ export interface HarnessCommand {
  * files go when the launcher prunes it while a provider process started from
  * it still runs; it reads the service state and the versions directory,
  * which a contained run's sandbox must let it read (#705). A `serve` in the
- * foreground, or under a launcher with no shim (one started by hand), names
- * the command line it runs as, and nothing it reads.
+ * foreground names the command line it runs as, and nothing it reads. Under
+ * a launcher with no shim (one started by hand), that same command reads
+ * the versions directory so Node can load the CLI and its dependencies
+ * beyond the command's own directories (#1080).
  */
 export const harnessCommand = (dataDir: string, underLauncher: boolean, seams: HarnessCommandSeams = {}): HarnessCommand => {
   const shim = join(dataDir, SHIM_DIRECTORY, SHIM_FILES[scriptKind(seams.platform ?? process.platform)]);
   return underLauncher && (seams.exists ?? existsSync)(shim)
     ? { command: [shim], reads: shimReads(dataDir) }
-    : { command: (seams.program ?? resolveProgram)(), reads: [] };
+    : { command: (seams.program ?? resolveProgram)(), reads: underLauncher ? [join(dataDir, VERSIONS_DIRECTORY)] : [] };
 };

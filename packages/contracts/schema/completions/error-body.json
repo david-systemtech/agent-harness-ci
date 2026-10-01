@@ -44,7 +44,7 @@
       "description": "What went wrong, as OpenAI shapes it."
     },
     "agent-harness": {
-      "description": "The session and run a failed turn ran on, when it got that far.",
+      "description": "The session and run a failed turn ran on, when it got that far, and its message when it still waits.",
       "type": "object",
       "properties": {
         "sessionId": {
@@ -97,6 +97,12 @@
             "cause"
           ],
           "description": "How the run ended: its run.ended reason and, for an interrupted one, the cause."
+        },
+        "waiting": {
+          "description": "The turn's message still waits in the session's queue, for a run to read it: do not send it again.",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"
         }
       }
     }

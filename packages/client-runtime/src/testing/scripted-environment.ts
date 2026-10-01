@@ -28,6 +28,7 @@ import {
   presetSettings,
   type AccountChange,
   type AccountUsage,
+  type Actor,
   type ContainmentLevel,
   type EnvironmentColour,
   type EnvironmentIcon,
@@ -331,7 +332,7 @@ export interface EnvironmentHandle
    * `patch`). The payload is held to its type's schema when the contracts
    * know the type; an unknown type goes as it is.
    */
-  emit(sessionId: string, type: string, payload: Record<string, unknown>, change?: { readonly fields?: Partial<SessionSummary>; readonly patch?: SummaryPatch }): EventEnvelope;
+  emit(sessionId: string, type: string, payload: Record<string, unknown>, change?: { readonly fields?: Partial<SessionSummary>; readonly patch?: SummaryPatch; readonly actor?: Actor }): EventEnvelope;
   /** Starts a run as `runs.start` does: `message.sent` (a prompt) then `run.started`, the session running. */
   startRun(
     sessionId: string,
@@ -699,7 +700,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       commandId: null,
       causationId: null,
       correlationId: null,
-      actor: { kind: "system", id: "script" },
+      actor: change.actor ?? (type === "message.sent" ? { kind: "client_session", id: "script" } : { kind: "system", id: "script" }),
       payload: checkedPayload,
       metadata: patch ? { [LIST_PATCH_KEY]: patch } : {},
     };

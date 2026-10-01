@@ -8,6 +8,7 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
+import { bankSchemaFixtures } from "./bank-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
 import { clientCallMethodFixtures, clientCallSchemaFixtures } from "./client-call-fixtures.js";
 import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
@@ -1021,6 +1022,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...managedToolSchemaFixtures,
   ...networkSchemaFixtures,
   ...skillSchemaFixtures,
+  ...bankSchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,

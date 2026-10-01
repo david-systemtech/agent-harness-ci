@@ -1,4 +1,4 @@
-import type { SessionProjection, TranscriptEntry } from "@agent-harness/client-runtime";
+import type { RewoundEntry, SessionProjection, TranscriptEntry } from "@agent-harness/client-runtime";
 import type { RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./export.js";
@@ -79,6 +79,14 @@ describe("the text of a session", () => {
     expect(text).toContain("_Interrupted · 3.0s_");
   });
 
+  it("names a sent picture with its size, as the transcript's chip does, since the log never holds its bytes (#473)", () => {
+    const [first, ...rest] = items;
+    if (first?.kind !== "user-message") throw new Error("no prompt");
+    const sent = { ...first, attachments: [{ kind: "image" as const, name: "screen.png", mediaType: "image/png", size: 1024 }] };
+    const text = exportMarkdown({ ...view, items: [sent, ...rest] }, { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z") });
+    expect(text).toContain("_attached image screen.png · 1 KB_");
+  });
+
   it("gives /timeline one line per turn: what was asked, how long, what it touched, how it ended", () => {
     const [turn] = turnsOf(view);
     expect(turn).toMatchObject({ asked: "Fix the parser", files: ["src/parser.ts"], commands: 1 });
@@ -102,8 +110,48 @@ describe("what a rewind cut, in /export (#232)", () => {
   });
   const reply = (sequence: number, text: string, runId = RUN): TranscriptEntry => ({ kind: "assistant-text", sequence, runId, itemId: `i-${sequence}`, text, aborted: false, streaming: false });
   /** A rewind to `toMessageId`, the first message its cut holds, as the environment cuts its target with the rest. */
-  const fold = (sequence: number, toMessageId: string, text: string, cut: readonly TranscriptEntry[]): TranscriptEntry => ({ kind: "rewound", sequence, toMessageId, text, undoable: false, items: [...cut] });
+  const fold = (sequence: number, toMessageId: string, text: string, cut: readonly TranscriptEntry[]): RewoundEntry => ({ kind: "rewound", sequence, toMessageId, text, undoable: false, items: [...cut] });
   const exported = (entries: readonly TranscriptEntry[]) => exportMarkdown({ items: [...entries], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z") });
+
+  it("keeps a cut run's prompt and work in /timeline and marks it cut (#274)", () => {
+    const cut = fold(9, "m-1", "Fix the parser", items);
+    const later = { ...run, runId: RUN_2, promptMessageId: "m-10", reason: "completed" as const };
+    const turns = turnsOf({ items: [cut, said(10, "Try again", RUN_2)], runs: [run, later] });
+    expect(turns).toMatchObject([
+      { runId: RUN, asked: "Fix the parser", files: ["src/parser.ts"], commands: 1, cut: true },
+      { runId: RUN_2, asked: "Try again", files: [], commands: 0, cut: false },
+    ]);
+    const [first, second] = turns;
+    if (!first || !second) throw new Error("missing turns");
+    expect(timelineLine(first)).toMatch(/Fix the parser · 3\.0s · 1 file · 1 command · interrupted · cut$/);
+    expect(timelineLine(second)).not.toContain(" · cut");
+    expect(exported([cut])).toContain("> Fix the parser");
+  });
+
+  it("reads queued prompts and delegated calls through nested cuts without counting them twice (#274)", () => {
+    const prompt = items[0];
+    const edit = items[2];
+    const command = items[3];
+    if (!prompt || edit?.kind !== "tool-call" || command?.kind !== "tool-call") throw new Error("missing prompt or calls");
+    const delegated: TranscriptEntry = { kind: "subagent", sequence: 6, runId: RUN, agentId: "agent-1", parentToolCallId: null, calls: [edit, command], task: null, running: false };
+    const queued = { ...said(5, "Then the tests"), delivery: "steered" as const };
+    const nested = fold(8, "m-5", "Then the tests", [queued, delegated]);
+    const outer = fold(9, "m-1", "Fix the parser", [prompt, nested]);
+    const [turn] = turnsOf({ items: [outer], runs: [{ ...run, queuedMessageIds: ["m-5"] }] });
+    expect(turn).toMatchObject({ asked: "Fix the parser / Then the tests", files: ["src/parser.ts"], commands: 1, cut: true });
+  });
+
+  it("marks a partially cut run and clears the marker when its entries are restored (#274)", () => {
+    const [prompt, ...work] = items;
+    if (!prompt) throw new Error("missing prompt");
+    const cut = fold(9, "m-5", "Then the tests", [said(5, "Then the tests"), ...work]);
+    const [partlyCut] = turnsOf({ items: [prompt, cut], runs: [run] });
+    expect(partlyCut).toMatchObject({ asked: "Fix the parser", files: ["src/parser.ts"], commands: 1, cut: true });
+    const [restored] = turnsOf({ items: [prompt, ...cut.items], runs: [run] });
+    expect(restored).toMatchObject({ asked: "Fix the parser", files: ["src/parser.ts"], commands: 1, cut: false });
+    if (!restored) throw new Error("missing restored turn");
+    expect(timelineLine(restored)).not.toContain(" · cut");
+  });
 
   it("quotes the cut rows under a line saying what the session went back to", () => {
     const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [said(2, "Add the tests", RUN_2), reply(3, "Added two.", RUN_2)])]);
@@ -134,5 +182,18 @@ describe("what a rewind cut, in /export (#232)", () => {
     const text = exported([said(1, "Fix the parser"), fold(9, "m-2", "Add the tests", [])]);
     expect(text.trimEnd().endsWith("_Rewound to Add the tests: what the rewind cut follows._")).toBe(true);
     expect(text).not.toContain(">");
+  });
+});
+
+describe("update cuts in /export", () => {
+  it("keeps the update outcome and credits the continuation to the environment", () => {
+    const cut: TranscriptEntry = { kind: "update-interrupted", sequence: 2, runId: RUN, updateId: RUN, toVersion: "0.5.0", outcome: "waiting-on-prompt", reason: null, continuationRunId: null };
+    const continuation: TranscriptEntry = { kind: "user-message", sequence: 3, runId: RUN, messageId: "continuation", text: "Check the current state, then continue.", delivery: "prompt", heldBy: null, sentAt: "2026-09-25T10:00:00.000Z", sender: { kind: "system", id: "updates" }, attachments: [{ kind: "image", name: "state.png", mediaType: "image/png", size: 2048 }] };
+    const exported = exportMarkdown({ items: [cut, continuation], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T10:00:00.000Z") });
+    expect(exported).toContain("_Updated to 0.5.0 while this ran; waits for your answer to the parked prompt_");
+    expect(exported).toContain("### Environment · ");
+    expect(exported).toContain("_attached image state.png · 2 KB_");
+    expect(exported).not.toContain("### You · ");
+    expect(exported).toContain("Check the current state, then continue.");
   });
 });

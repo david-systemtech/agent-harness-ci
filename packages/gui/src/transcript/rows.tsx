@@ -1,8 +1,11 @@
 import {
+  attachmentChip,
   endWords,
+  environmentMessage,
   oneLine,
   promptsIn,
   turnFacts,
+  updateInterruptedText,
   type AssistantEntry,
   type PromptEntry,
   type SubagentEntry,
@@ -95,6 +98,8 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <RewoundFold row={row} facts={facts} />;
     case "forked":
       return <ForkedRow entry={row.entry} />;
+    case "update-interrupted":
+      return <p className="text-[0.85em] text-ink-muted"><Marked text={updateInterruptedText(row.entry)} /></p>;
     case "history-unreadable":
       // An imported session whose history the account's directory no longer gave (#579): one line saying so, and why.
       return (
@@ -136,21 +141,26 @@ const RewoundFold = ({ row, facts }: { readonly row: Extract<TranscriptRow, { ki
 };
 
 /**
- * A message David sent, on the right: its text, and each attachment by name
- * and size (the log records what was attached, never its bytes, so a sent
- * picture is named, not drawn). Focusable where it has actions to reveal.
+ * A message David sent, on the right: its text, and each attachment as its
+ * chip, by name and size (the log records what was attached, never its bytes,
+ * so a sent picture is named, not drawn: #473). Focusable where it has
+ * actions to reveal.
  */
 const UserMessage = ({ entry, focusable = false }: { readonly entry: UserMessageEntry; readonly focusable?: boolean }) => (
   <article
-    aria-label="Your message"
+    aria-label={environmentMessage(entry) ? "Environment message" : "Your message"}
     tabIndex={focusable ? 0 : undefined}
-    className="flex max-w-[85%] flex-col gap-1.5 self-end rounded-lg bg-wash-user px-3 py-2 text-ink outline-none focus-visible:outline-2 focus-visible:outline-beam"
+    className={classes(
+      "flex max-w-[85%] flex-col gap-1.5 rounded-lg px-3 py-2 text-ink outline-none focus-visible:outline-2 focus-visible:outline-beam",
+      environmentMessage(entry) ? "self-start border border-hairline" : "self-end bg-wash-user",
+    )}
   >
+    {environmentMessage(entry) && <span className="text-[0.85em] text-ink-muted">Environment</span>}
     {entry.attachments.length > 0 && (
       <ul className="flex flex-wrap justify-end gap-1.5 text-[0.85em] text-ink-muted">
         {entry.attachments.map((attachment, index) => (
           <li key={index} className="rounded-md border border-hairline px-2 py-0.5 font-mono">
-            {`${attachment.name} · ${Math.max(1, Math.round(attachment.size / 1024))} KB`}
+            {attachmentChip(attachment)}
           </li>
         ))}
       </ul>

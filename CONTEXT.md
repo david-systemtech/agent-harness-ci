@@ -185,7 +185,7 @@ A permission prompt or question a run is waiting on with nobody having answered 
 _Avoid_: pending approval, ask (already a UI word for permission prompts; fine for the "Parked asks" view name)
 
 **Idle**:
-The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
+The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended, nor the environment itself started, within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
 _Avoid_: quiet, inactive, free
 
 **Drain**:
