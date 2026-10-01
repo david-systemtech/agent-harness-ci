@@ -2751,6 +2751,14 @@
       "title": "RoutineTimeZone"
     },
     {
+      "path": "routines/written-time-zone.json",
+      "title": "WrittenTimeZone"
+    },
+    {
+      "path": "routines/schedule-issue-params.json",
+      "title": "ScheduleIssueParams"
+    },
+    {
       "path": "routines/if-missed.json",
       "title": "RoutineIfMissed"
     },
@@ -6271,6 +6279,14 @@
     {
       "path": "cases/bridge-proof.json",
       "title": "Bridge proof"
+    },
+    {
+      "path": "cases/schedule-validation.json",
+      "title": "Schedule validation"
+    },
+    {
+      "path": "cases/schedule-due-times.json",
+      "title": "Schedule due times"
     }
   ],
   "data": [

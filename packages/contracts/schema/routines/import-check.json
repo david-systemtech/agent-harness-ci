@@ -201,24 +201,24 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 200,
-                      "description": "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form."
+                      "description": "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form (cases/schedule-validation.json)."
                     }
                   },
                   "required": [
                     "kind",
                     "expression"
                   ],
-                  "description": "Due when a five-field cron expression matches; both day fields restricted combine with OR, as Vixie cron's do."
+                  "description": "Due when a five-field cron expression matches; both day fields restricted, neither beginning with *, combine with OR, as Vixie cron's do."
                 }
               ],
-              "description": "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression."
+              "description": "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression. Refused as invalid_params, the issue's params naming the rule schedule and its reason, when the schedule maths refuses it (cases/schedule-validation.json): a cron expression it cannot read or that is never due, or due times that can fall under five minutes apart."
             },
             "timezone": {
               "type": "string",
               "minLength": 1,
               "maxLength": 64,
               "pattern": "^[A-Za-z][A-Za-z0-9_+\\-/]*$",
-              "description": "An IANA time zone's name, such as Europe/London or UTC; whether the environment's zone data knows it is the schedule's to check."
+              "description": "An IANA time zone's name, such as Europe/London or UTC; one a client writes must be a zone the environment's zone data knows (WrittenTimeZone)."
             },
             "ifMissed": {
               "type": "string",

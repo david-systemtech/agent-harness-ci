@@ -5,5 +5,5 @@
   "minLength": 1,
   "maxLength": 64,
   "pattern": "^[A-Za-z][A-Za-z0-9_+\\-/]*$",
-  "description": "An IANA time zone's name, such as Europe/London or UTC; whether the environment's zone data knows it is the schedule's to check."
+  "description": "An IANA time zone's name, such as Europe/London or UTC; one a client writes must be a zone the environment's zone data knows (WrittenTimeZone)."
 }
