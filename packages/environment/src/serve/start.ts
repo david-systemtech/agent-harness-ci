@@ -192,7 +192,7 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
-import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
@@ -218,6 +218,7 @@ import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./ht
 import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
 import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
+import { refuseMarkedRestore } from "./launcher-files.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
@@ -844,6 +845,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   const log: EventLog = await step("database", () => {
+    refuseMarkedRestore(dataDir);
     const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
     closers.push(() => opened.close());
     return opened;
@@ -1545,10 +1547,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   const banks = options.banks ?? NO_BANKS;
+  // One local preview for the Instructions row and its health check, even when the orientation switch is off.
+  // Read the injection setting directly; health never decides a provider process or materialises its skills.
+  const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
+  const readOrientation = async () => {
+    const accountId = accounts.defaultId();
+    return accountId === null ? null : orientationSeam(host.orientationScope(accountId, { kind: "scratch", path: roots.scratch }, orientationInjection({ sessionId: null, accountId, origin: "client", holder: "provider-process", override: null })));
+  };
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
       log,
+      orientation: readOrientation,
+      skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
       containment,
@@ -1651,10 +1662,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       orientationOn,
       catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
-      orientation: async () => {
-        const accountId = accounts.defaultId();
-        return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
-      },
+      orientation: readOrientation,
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),

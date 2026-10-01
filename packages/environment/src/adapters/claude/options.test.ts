@@ -256,6 +256,10 @@ describe("the options a run is handed", () => {
       expect(buildRunOptions(input({ target }, { resumePoint: { resumeSessionAt: "entry-before" } })).sessionStore).toBe(store);
     });
 
+    it.each(targets)("keeps local persistence on a %s run so the session store can mirror it", (_kind, target) => {
+      expect(buildRunOptions(input({ target }, { resumePoint: { resumeSessionAt: "entry-before" } })).persistSession).toBe(true);
+    });
+
     it("starts a fresh run with nothing to resume", () => {
       const options = buildRunOptions(input());
       expect(options).not.toHaveProperty("resume");
