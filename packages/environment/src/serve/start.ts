@@ -1596,6 +1596,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       look: () => look.read(),
       accounts: () => accounts.list(),
       status: () => lifecycle.status(),
+      lanAddresses: () => interfaces.lanAddresses(),
       banks,
       browser,
     }),

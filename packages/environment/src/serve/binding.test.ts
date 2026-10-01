@@ -137,7 +137,7 @@ describe("binding", () => {
     expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({ state: "done", failing: [] });
   });
 
-  it("starts without the LAN address network.bindLan names once the machine no longer holds it, on loopback, saying so in one line on standard error", async () => {
+  it("starts without the LAN address network.bindLan names once the machine no longer holds it, on loopback, saying so on standard error and on the Your machines step until LAN binding is off", async () => {
     const dataDir = join(tempDir(), "data");
     await written(dataDir, detector(undefined, undefined, ["192.0.2.10"]), { "network.bindLan": "192.0.2.10" });
     const lines = standardError();
@@ -148,6 +148,18 @@ describe("binding", () => {
     expect(lines.filter((line) => line.includes("192.0.2.10"))).toEqual([
       "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20), so the environment starts without it: pick one it holds on the Your machines step, or turn LAN binding off.",
     ]);
+
+    const client = await t.client();
+    // With auto-update off, the release channel's check holds without a read (#346).
+    await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
+    expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({
+      state: "needs-attention",
+      reason: "The LAN address 192.0.2.10 is not an address this machine holds (it holds 192.168.1.20): pick one it holds, or turn LAN binding off.",
+      failing: ["your-machines.lan"],
+      actions: ["check-again"],
+    });
+    await write(client, { "network.bindLan": null });
+    expect((await client.request("setup.check", { step: "your-machines" })).results[0]).toMatchObject({ state: "done", failing: [] });
   });
 
   it("never binds the wildcard address: a start asked to fails at the listen step", async () => {
