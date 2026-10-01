@@ -8,6 +8,7 @@ import { PERMISSION_SESSION_EVENT_TYPES } from "./permissions.js";
 import { PROMPT_EVENT_TYPES } from "./prompts.js";
 import { ROUTINE_EVENT_TYPES, ROUTINE_STREAM_KIND } from "./routines.js";
 import { BROWSER_SESSION_EVENT_TYPES } from "./session-browser.js";
+import { SETUP_SESSION_EVENT_TYPES } from "./setup-minted.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
 import { SKILLS_EVENT_TYPES, SKILLS_STREAM_KIND } from "./skills.js";
 import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
@@ -62,7 +63,8 @@ const accessEventTypes = unlisted(ACCESS_EVENT_TYPES, (type) => ACCESS_EVENT_PAY
  * policy, the session's mode), the instruction types (a run's composed
  * instructions, `run.instructions.composed`, and the session's own,
  * `session.instructions-set`), and the browser's (the session's browser
- * set, a run's resolved), on the one stream so a purge takes them all.
+ * set, a run's resolved), and Set up's minted-session provenance, on the
+ * one stream so a purge takes them all.
  */
 const sessionEventTypes = {
   ...SESSION_EVENT_TYPES,
@@ -71,6 +73,7 @@ const sessionEventTypes = {
   ...PERMISSION_SESSION_EVENT_TYPES,
   ...INSTRUCTION_SESSION_EVENT_TYPES,
   ...BROWSER_SESSION_EVENT_TYPES,
+  ...SETUP_SESSION_EVENT_TYPES,
 } as const;
 
 /** Every event type, by the kind of stream it goes on. */
