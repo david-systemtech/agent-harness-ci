@@ -59,6 +59,7 @@ import {
   type QueuedMessage,
 } from "../runs/run-reads.js";
 import {
+  carriedAlwaysOn,
   decideStart,
   originOfActor,
   policyResolvedEvent,
@@ -934,7 +935,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
     pending.started = true;
     // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
-    startFromQueue({ ...entry.plan, actor: pending.actor });
+    startFromQueue({ ...entry.plan, actor: pending.actor, alwaysOn: carriedAlwaysOn(entry.plan, pending.actor) });
   };
 
   /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
