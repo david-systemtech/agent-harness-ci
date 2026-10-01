@@ -40,8 +40,8 @@ const walk = (t: TestEnvironment, minutes: number): void => {
   for (let minute = 0; minute < minutes; minute += 1) t.clock.advance(MINUTE);
 };
 
-/** The routine's firings and skips as its stream records them, in order. */
-const records = (t: TestEnvironment, routineId: string) =>
+/** The routine's firings and skips as its stream records them, in order: each record's type and time beside its payload's fields. */
+const records = (t: TestEnvironment, routineId: string): Readonly<Record<string, unknown>>[] =>
   t.env.log
     .readStream({ kind: "routine", id: routineId })
     .filter((event) => event.type === "routine.firing-started" || event.type === "routine.skipped")
