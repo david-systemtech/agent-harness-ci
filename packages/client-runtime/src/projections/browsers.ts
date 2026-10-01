@@ -235,7 +235,7 @@ export const browserRows = (sources: BrowserSources, environmentId: string, chos
     unavailable: group.environmentId !== environmentId && group.environmentId !== local
       ? { reason: "not-drivable", message: `Chrome on ${nameOf(group.environmentId)}: no local client can drive it for this session.` }
       : records.find((record) => record.environmentId === group.environmentId)?.phase !== "ready"
-        ? { reason: "unreachable", message: "The Chrome’s environment cannot be reached. This list is cached and stale." }
+        ? { reason: "unreachable", message: "The Chrome's environment cannot be reached. This list is cached and stale." }
         : null,
   }));
   const headless = headlessUnavailable(sources.status(environmentId).read(), nameOf(environmentId));
