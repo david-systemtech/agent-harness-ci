@@ -1431,6 +1431,30 @@
       "title": "RepositoryIdentity"
     },
     {
+      "path": "banks/scope-segment.json",
+      "title": "MemoryScopeSegment"
+    },
+    {
+      "path": "banks/draft-scope.json",
+      "title": "MemoryDraftScope"
+    },
+    {
+      "path": "banks/tools/draft.json",
+      "title": "MemoryDraftInput"
+    },
+    {
+      "path": "banks/tools/retire.json",
+      "title": "MemoryRetireInput"
+    },
+    {
+      "path": "banks/draft.json",
+      "title": "BankDraft"
+    },
+    {
+      "path": "banks/events/bank.draft-queued.json",
+      "title": "BankDraftQueuedPayload"
+    },
+    {
       "path": "banks/name.json",
       "title": "BankName"
     },
@@ -5275,6 +5299,18 @@
       "title": "banks.list error"
     },
     {
+      "path": "methods/banks.drafts.list/params.json",
+      "title": "banks.drafts.list params"
+    },
+    {
+      "path": "methods/banks.drafts.list/result.json",
+      "title": "banks.drafts.list result"
+    },
+    {
+      "path": "methods/banks.drafts.list/error.json",
+      "title": "banks.drafts.list error"
+    },
+    {
       "path": "methods/banks.get/params.json",
       "title": "banks.get params"
     },
@@ -7865,6 +7901,15 @@
       "params": "methods/banks.list/params.json",
       "result": "methods/banks.list/result.json",
       "error": "methods/banks.list/error.json"
+    },
+    {
+      "name": "banks.drafts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.drafts.list/params.json",
+      "result": "methods/banks.drafts.list/result.json",
+      "error": "methods/banks.drafts.list/error.json"
     },
     {
       "name": "banks.get",

@@ -482,6 +482,7 @@ describe("the method registry", () => {
       | "forge.pullRequests.link"
       | "forge.pullRequests.unlink"
       | "forge.pullRequests.refresh"
+      | "banks.drafts.list"
       | "banks.list"
       | "banks.get"
       | "banks.register"

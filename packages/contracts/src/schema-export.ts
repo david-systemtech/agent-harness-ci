@@ -1,3 +1,4 @@
+import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload } from "./memory-drafts.js";
 import { z } from "zod";
 import { Action, ActionCondition, ActionContext } from "./actions.js";
 import {
@@ -1059,6 +1060,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
+  { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
+  { path: "banks/tools/draft.json", title: "MemoryDraftInput", schema: MemoryDraftInput },
+  { path: "banks/tools/retire.json", title: "MemoryRetireInput", schema: MemoryRetireInput },
+  { path: "banks/draft.json", title: "BankDraft", schema: BankDraft },
+  { path: "banks/events/bank.draft-queued.json", title: "BankDraftQueuedPayload", schema: BankDraftQueuedPayload },
   { path: "banks/name.json", title: "BankName", schema: BankName },
   { path: "banks/manifest.json", title: "BankManifest", schema: BankManifest },
   { path: "banks/org-file.json", title: "OrgFile", schema: OrgFile },
