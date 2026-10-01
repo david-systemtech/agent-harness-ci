@@ -62,6 +62,8 @@ export * from "./routines.js";
 export * from "./schedule.js";
 export * from "./schedule-cases.js";
 export * from "./shape-rules.js";
+export * from "./silence.js";
+export * from "./silence-cases.js";
 export * from "./skill-rule-cases.js";
 export * from "./skill-rules.js";
 export * from "./skills.js";
