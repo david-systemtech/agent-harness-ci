@@ -65,6 +65,7 @@ const VOCABULARY = [
   "session.forked",
   "session.rewound",
   "session.rewind-undone",
+  "run.suggested",
   "run.ended",
 ];
 
@@ -204,7 +205,7 @@ describe("the per-session snapshot", () => {
   const item = { kind: "assistant-text", sequence: 4, runId, itemId: "i-1", text: "Done.", aborted: false };
 
   it("is the summary, the runs, the items, the parked prompts, the rewinds standing and the session's own instructions at a sequence", () => {
-    expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts", "rewinds", "instructions"]);
+    expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "suggestion", "runs", "items", "parkedPrompts", "rewinds", "instructions"]);
     expect(registry["sessions.subscribeSession"].result).toBe(SessionSnapshot);
     expect(SessionSnapshot.safeParse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [], rewinds: [] }).success).toBe(true);
   });

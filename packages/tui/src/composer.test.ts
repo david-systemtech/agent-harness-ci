@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveKeymap } from "./keys.js";
 import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -55,6 +56,61 @@ const send = async (app: RenderedApp, text: string) => {
   await app.type(text);
   await app.press(KEY.enter);
 };
+
+describe("prompt suggestions (#251)", () => {
+  it("can retry the offer after a refused send restores its text to the draft", async () => {
+    const { app, env } = await launch();
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Run the tests" });
+    env.wire.answer("runs.start", () => ({ error: { code: "conflict", message: "Refused for test", data: {} } }));
+    await app.waitFor("[1] Run the tests");
+    await app.press("1");
+    await app.waitFor("› Run the tests");
+    await app.press(KEY.ctrlU);
+    await app.press("1");
+    await app.waitUntil(() => paramsOf(app, "runs.start").length === 2, "the offer to be retried");
+  });
+
+  it("uses the remapped suggestion action and sends slash text literally", async () => {
+    const { app, env } = await launch({}, { keymap: resolveKeymap({ "composer.suggestion.take": ["Ctrl+X"] }).keymap });
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "/help me check the fix" });
+    await app.waitFor("[Ctrl+X] /help me check the fix");
+    await app.press("\u0018");
+    await app.waitFor("▌ /help me check the fix");
+    expect(paramsOf(app, "runs.start")[0]).toMatchObject({ text: "/help me check the fix" });
+  });
+
+  it("leaves 1 without an offer and 2–4 as text, and never replaces a typed draft", async () => {
+    const { app, env } = await launch();
+    await app.press("1");
+    await app.waitFor("› 1");
+    await app.press(KEY.ctrlU);
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Add a regression test" });
+    await app.waitFor("[1] Add a regression test");
+    await app.type("234");
+    await app.press("1");
+    await app.waitFor("› 2341");
+    expect(paramsOf(app, "runs.start")).toEqual([]);
+    expect(paramsOf(app, "runs.send")).toEqual([]);
+  });
+
+  it("shows the completed run's offer and sends it with 1 from an empty composer, then clears it", async () => {
+    const { app, env } = await launch();
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Add a regression test" });
+    await app.waitFor("[1] Add a regression test");
+    await app.press("1");
+    await app.waitFor("▌ Add a regression test");
+    expect(paramsOf(app, "runs.start")).toEqual([expect.objectContaining({ text: "Add a regression test" })]);
+    expect(app.frame()).not.toContain("[1] Add a regression test");
+  });
+});
 
 describe("sending", () => {
   it("starts a run with runs.start when none is live, and draws the message", async () => {

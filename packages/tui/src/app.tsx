@@ -825,6 +825,8 @@ export const App = (props: AppProps) => {
       void stores.mentions?.save().catch(() => undefined);
     },
     active: focused === "composer" && !cardOpen,
+    suggestion: projection?.suggestion,
+    sendSuggestion: (text, onRefused) => sendText({ text, attachments: [] }, { onRefused }),
   });
   // The workspace is listed once the text names a file with `@`, or `/files` is open, and kept for five minutes by the request cache.
   useFollow(composer.text.includes("@") || screen.card.kind === "files" ? files : undefined, request);
@@ -947,7 +949,7 @@ export const App = (props: AppProps) => {
   });
 
   /** Sends `message` to the open session; `remember` false keeps it out of the prompt history (preset in it). */
-  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean } = {}): boolean => {
+  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean; readonly onRefused?: () => void } = {}): boolean => {
     if (!opened) {
       say("There is no session open to send to: /resume opens one, /new starts one.");
       return false;
@@ -973,6 +975,7 @@ export const App = (props: AppProps) => {
     setView((v) => ({ ...v, offset: 0 }));
     void sendMessage(runtime, environmentId, sessionId, message, live, pickers.choice(opened)).then((outcome) => {
       if (!outcome.ok) {
+        options.onRefused?.();
         setSending((s) => s.filter((one) => one.id !== id));
         say(outcome.line);
         // What was not sent comes back into an empty box, so it is not lost.
@@ -2666,6 +2669,8 @@ export const App = (props: AppProps) => {
         highlight={popup ? highlighted(composer.state, popup) : -1}
         search={composer.state.search && searchScope !== undefined ? { query: composer.state.search.query, scope: searchScope, found: composer.state.editor !== composer.state.search.saved } : undefined}
         note={composerNote(composer.state, keys("composer.complete"))}
+        suggestion={projection?.suggestion?.suggestion}
+        suggestionKey={keymap.keys["composer.suggestion.take"].includes("1–4") ? "1" : keymap.keys["composer.suggestion.take"][0]}
       />
       <StatusLine one={status.one} two={status.two} />
       <HintLine hint={promptsHint ?? hint} activity={activity} fallback=" " />

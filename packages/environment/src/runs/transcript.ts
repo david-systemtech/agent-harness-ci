@@ -11,6 +11,7 @@ import {
   type ParkedPrompt,
   type PromptAnsweredPayload,
   type PromptOpenedPayload,
+  RunSuggestion,
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
@@ -48,6 +49,7 @@ import { sessionStream } from "../sessions/streams.js";
  */
 
 export interface TranscriptParts {
+  readonly suggestion?: RunSuggestion | null;
   readonly runs: RunSummary[];
   readonly items: TranscriptItem[];
   readonly parkedPrompts: ParkedPrompt[];
@@ -210,6 +212,7 @@ export const readCompactedTranscript = (log: Pick<EventLog, "read">, snapshot: S
 export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts): TranscriptParts => {
   const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[]; rewinds: StandingRewind[] });
   const runs = new Map<string, Mutable<RunSummary>>(start?.runs.map((run) => [run.runId, run]));
+  let suggestion = from?.suggestion ?? null;
   let items: Item[] = start === undefined ? [] : listOf(start.items, start.rewinds);
   /** The rewinds standing, oldest first, each its fold. */
   let folds: Fold[] = everyFold(items).sort(bySequence);
@@ -255,6 +258,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
     const { sequence } = event;
     switch (event.type) {
       case "run.started": {
+        suggestion = null;
         const payload = event.payload as RunStartedPayload;
         runs.set(payload.runId, {
           runId: payload.runId,
@@ -276,6 +280,12 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         });
         // A run started on the session: no rewind standing can be undone any more (ADR 0022), and each stays where it cut.
         for (const fold of folds) fold.undoable = false;
+        break;
+      }
+      case "run.suggested": {
+        const offer = RunSuggestion.parse(event.payload);
+        const latest = [...runs.values()].at(-1);
+        if (latest?.runId === offer.runId && latest.reason === "completed") suggestion = offer;
         break;
       }
       case "run.ended": {
@@ -405,6 +415,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         break;
       }
       case "session.rewound": {
+        suggestion = null;
         // The rewound message and every item after it go into the rewind's fold, a fold among them nested; they stay in the log.
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
@@ -456,5 +467,5 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
     }
   }
   const parts = partsOf(items);
-  return { runs: [...runs.values()], items: parts.items, parkedPrompts: [...parked.values()], rewinds: parts.rewinds };
+  return { suggestion, runs: [...runs.values()], items: parts.items, parkedPrompts: [...parked.values()], rewinds: parts.rewinds };
 };

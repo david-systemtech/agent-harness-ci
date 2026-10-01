@@ -41,6 +41,7 @@ import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
 import type { PlanLimitVerdict } from "./plan-usage.js";
 import { TaskLedger } from "./tasks.js";
+import { mapSdkMessage } from "./mapper.js";
 import { ClaudeTurn, type TurnControl } from "./turn.js";
 import { worktreeCheckout } from "./workspace.js";
 
@@ -377,6 +378,8 @@ export class ClaudeProcess implements TurnControl {
 
   /** The turn the CLI is serving now. */
   #current: ClaudeTurn | undefined;
+  /** The completed turn whose result the next prompt_suggestion follows. Cleared by the next init. */
+  #suggestionTurn: ClaudeTurn | undefined;
   /** Runs whose prompt is queued at the CLI, not yet opened, in order. */
   readonly #waiting: ClaudeTurn[] = [];
   /** The messages of a turn whose owner is not known yet, from its `init`. */
@@ -797,6 +800,19 @@ export class ClaudeProcess implements TurnControl {
   }
 
   #route(message: unknown): void {
+    if (isRecord(message) && message["type"] === "prompt_suggestion") {
+      const turn = this.#suggestionTurn;
+      if (turn !== undefined) {
+        for (const event of mapSdkMessage(message, turn.state)) {
+          if (event.type !== "run.suggested") continue;
+          void turn.adoptedRunId().then((runId) => {
+            if (runId !== null) this.#context.reportSuggestion?.({ runId, ...event.payload });
+          }).catch((error: unknown) => this.#deps.diagnostic(`Recording a prompt suggestion failed: ${describe(error)}`));
+        }
+      }
+      return;
+    }
+    if (isInit(message)) this.#suggestionTurn = undefined;
     if (this.#undecided !== undefined) {
       this.#undecided.push(message);
       const owners = ownersOf(message);
@@ -892,6 +908,7 @@ export class ClaudeProcess implements TurnControl {
     // Work that changed between turns is reported by the next turn to hear anything.
     if (!turn.ended && this.#ledger.dirty) turn.emit({ type: "tasks.changed", payload: { tasks: this.#ledger.snapshot() } });
     if (turn.ended && this.#current === turn) {
+      this.#suggestionTurn = turn.state.completed ? turn : undefined;
       this.#current = undefined;
       // A tool call still parked on the ended turn is denied, never allowed later: the adapter denies its run's prompts as
       // the run ends, since the host, which then refuses an answer run_ended, has no run left to ask.

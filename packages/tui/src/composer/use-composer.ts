@@ -1,6 +1,6 @@
 import { useReducer, useRef } from "react";
 import { attachmentFromBytes } from "@agent-harness/client-runtime";
-import type { AttachmentInput } from "@agent-harness/contracts";
+import type { AttachmentInput, RunSuggestion } from "@agent-harness/contracts";
 import type { KeyActionId } from "@agent-harness/contracts";
 import { direction, type Handler, type Keymap } from "../keys.js";
 import type { ClipboardImage } from "./clipboard.js";
@@ -71,6 +71,7 @@ import {
 
 /** The composer's actions this build answers: every one has its handler below (the table is typed by this list). */
 export const COMPOSER_KEYS = [
+  "composer.suggestion.take",
   "composer.send",
   "composer.newline",
   "composer.continueLine",
@@ -133,6 +134,9 @@ export interface ComposerHost {
   readonly picked: (path: string) => void;
   /** Whether the composer takes keys now (it has the focus and no card does). */
   readonly active: boolean;
+  /** The latest completed run's offer, sent only by a deliberate key on an empty composer. */
+  readonly suggestion?: RunSuggestion | null | undefined;
+  readonly sendSuggestion?: ((text: string, onRefused: () => void) => boolean) | undefined;
 }
 
 export interface Composer {
@@ -205,7 +209,17 @@ export const useComposer = (host: ComposerHost): Composer => {
     return true;
   };
 
+  const takingSuggestion = useRef<string | undefined>(undefined);
   const handlers: Record<ComposerKey, Handler> = {
+    "composer.suggestion.take": (name) => {
+      const state = box.current;
+      const { suggestion, sendSuggestion } = latest.current;
+      if (["2", "3", "4"].includes(name) || suggestion == null || sendSuggestion === undefined) return false;
+      if (state.editor.text !== "" || state.attached.length > 0 || state.search !== null) return false;
+      if (takingSuggestion.current === suggestion.runId) return;
+      takingSuggestion.current = suggestion.runId;
+      if (!sendSuggestion(suggestion.suggestion, () => { takingSuggestion.current = undefined; })) takingSuggestion.current = undefined;
+    },
     "composer.send": () => {
       const state = box.current;
       if (state.search !== null) {
