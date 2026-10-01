@@ -6,6 +6,7 @@ import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
 import { keyManagerRecord, listedConnection, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
+import { addForgeAlias } from "./forges/actions.js";
 import { forgeProblemAction, forgeRowProblem, machineGhAbsence, machineGhLogin } from "./forges/words.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Shell } from "./shell.js";
@@ -663,5 +664,27 @@ describe("the Forges step's row (#589)", () => {
     expect(machineGhLogin(signedIn, "github.com")).toBe("david");
     expect(machineGhLogin(signedIn, "ghe.example.test:8443")).toBe("dvd");
     expect(machineGhLogin(signedIn, "git.example.test")).toBeNull();
+  });
+
+  it("sends an alias with the aliases the environment holds when it is sent, so one added before the row's record is read again is kept", async () => {
+    const { runtime, clock, wire, env } = await paired();
+    // The row's record as the request cache held it before either alias: the cache reads the list again only once it hears the update's event.
+    const shown = forgeRecord({ origin: "https://git.example.test", kind: "forgejo", slug: "git_example_test" });
+    let held = shown;
+    let sequence = 0;
+    wire.answer("forge.accounts.list", () => ({ result: { accounts: [held] } }));
+    wire.answer("forge.accounts.update", (params) => {
+      held = { ...held, aliases: (params["aliases"] as readonly string[]).map((origin) => ({ origin, verifiedAt: clock.now().toISOString() })) };
+      return { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { account: held } } };
+    });
+    const sender = { runtime, clock };
+
+    expect(await addForgeAlias(sender, env, shown, "http://forge.tail.test:3000")).toMatchObject({ ok: true });
+    expect(await addForgeAlias(sender, env, shown, "http://forge.lan.test:3000/david/agent-harness.git")).toMatchObject({ ok: true });
+    expect(held.aliases.map((alias) => alias.origin)).toEqual(["http://forge.tail.test:3000", "http://forge.lan.test:3000"]);
+
+    // One the environment holds already is refused, sending no update, though the row's record does not list it yet.
+    expect(await addForgeAlias(sender, env, shown, "http://forge.tail.test:3000")).toEqual({ ok: false, line: "Not added: http://forge.tail.test:3000 is an alias of it already." });
+    expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "forge.accounts.update")).toHaveLength(2);
   });
 });

@@ -113,27 +113,42 @@ export const addFromMachineGh = async (
   return addOutcome(answer, given);
 };
 
+/** Why `origin` cannot be an alias of the forge account as `account` shows it: its own origin, or an alias it has already; null when it can. */
+const aliasRefusal = (account: ForgeAccountRecord, origin: string): string | null => {
+  if (origin === account.origin) return `Not added: ${origin} is the forge account's own origin.`;
+  return account.aliases.some((alias) => alias.origin === origin) ? `Not added: ${origin} is an alias of it already.` : null;
+};
+
 /**
  * Adds an alias to a forge account (`forge.accounts.update` with its
  * aliases and the one typed; ADR 0020): the environment asks the alias's own
  * origin who the credential is before it is used, accepting it verified when
  * it answers as the same login and user id, and keeping it unverified, not
  * used, while it does not answer. A URL that names no forge, the forge
- * account's own origin and an alias it has already are refused here,
+ * account's own origin and an alias the row shows already are refused here,
  * sending nothing; the environment's refusal (another identity, an origin
- * another forge account holds) is one line.
+ * another forge account holds) is one line. The update replaces the
+ * aliases, and the row's record is read again only once the update's event
+ * is heard, so the aliases sent are the ones `forge.accounts.list` answers
+ * just before: an alias added a moment earlier is kept, not dropped.
  */
 export const addForgeAlias = async ({ runtime, clock }: ForgeSender, environmentId: string, account: ForgeAccountRecord, typed: string): Promise<ForgeOutcome> => {
   const given = typed.trim();
   const origin = normaliseRemote(given)?.origin;
   if (origin === undefined) return { ok: false, line: `Not added: ${given} names no forge: give its https or http address.` };
-  if (origin === account.origin) return { ok: false, line: `Not added: ${origin} is the forge account's own origin.` };
-  if (account.aliases.some((alias) => alias.origin === origin)) return { ok: false, line: `Not added: ${origin} is an alias of it already.` };
+  const shown = aliasRefusal(account, origin);
+  if (shown !== null) return { ok: false, line: shown };
+  const listed = await runtime.requests.call(environmentId, "forge.accounts.list", {});
+  if (!listed.ok) return { ok: false, line: `Not added: ${listed.error.message}` };
+  // One the environment no longer holds is sent as the row shows it, for the environment to refuse.
+  const held = listed.result.accounts.find((candidate) => candidate.id === account.id) ?? account;
+  const refused = aliasRefusal(held, origin);
+  if (refused !== null) return { ok: false, line: refused };
   const answer = await adminCall(() =>
     runtime.requests.call(environmentId, "forge.accounts.update", {
       commandId: uuidv7(clock.now()),
       forgeAccountId: account.id,
-      aliases: [...account.aliases.map((alias) => alias.origin), origin],
+      aliases: [...held.aliases.map((alias) => alias.origin), origin],
     }),
   );
   if (!answer.ok) return { ok: false, line: `Not added: ${answer.line}` };
