@@ -31,7 +31,7 @@ import {
   type Subscribing,
   type SubscriptionMessage,
 } from "./connection.js";
-import { askOverRoute, answeredByMethod, failed, type UpdateEnvironmentOutcome } from "./environment-update.js";
+import { askOverRoute, answeredByMethod, carriedArtefact, failed, type UpdateEnvironmentOutcome } from "./environment-update.js";
 import {
   LOCAL_ENVIRONMENT_DOCUMENT,
   LOCAL_PLACEHOLDER_ID,
@@ -105,9 +105,12 @@ export interface Connections {
    * to this client's version, under the idle rules, and answers the update
    * it took or why not. A connection blocked `protocol-mismatch`, which the
    * wire refuses, asks over `POST /api/update` with its client session's
-   * token and then shows `updating` through the environment's restart until
-   * `hello` agrees and clears the block; any other sends `updates.apply` on
-   * its socket, and follows the `bye: updating` the restart brings. An
+   * token (and, to the local environment from a desktop that carries the
+   * server of that version, the server's path, for the environment to stage
+   * rather than download) and then shows `updating` through the
+   * environment's restart until `hello` agrees and clears the block; any
+   * other sends `updates.apply` on its socket, and follows the
+   * `bye: updating` the restart brings. An
    * environment that refuses raises the notice `update-refused` naming why.
    * Rejects for an unknown environment.
    */
@@ -1154,7 +1157,13 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       let outcome: UpdateEnvironmentOutcome;
       if (overRoute) {
         const token = await routeToken(environmentId, entry, machine.name);
-        outcome = token.ok ? await askOverRoute(platform.fetch, entry.saved.address, token.token, version) : token.outcome;
+        if (token.ok) {
+          // The local environment stages the server this desktop carries, when it is the version asked, rather than downloading it (#918).
+          const artefactPath = entry.saved.kind === "local" ? await carriedArtefact(platform.shell, version) : undefined;
+          outcome = await askOverRoute(platform.fetch, entry.saved.address, token.token, { version, ...(artefactPath !== undefined && { artefactPath }) });
+        } else {
+          outcome = token.outcome;
+        }
       } else {
         // The connection's own socket: `updates.apply` of this client's version, when idle.
         outcome = await registry.seams
