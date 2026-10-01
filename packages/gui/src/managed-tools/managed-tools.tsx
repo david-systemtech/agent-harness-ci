@@ -1,22 +1,17 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
-import { DEFAULT_TERMINAL_SIZE, managedTool, type MethodName, type ToolRunStartedPayload } from "@agent-harness/contracts";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { managedTool, type MethodName } from "@agent-harness/contracts";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettings } from "../settings/settings-window.js";
-import { useFollowed, useObservable, useRuntime } from "../window-context.js";
+import { useFollowed, useRuntime } from "../window-context.js";
 import { ToolRow } from "./tool-row.js";
-import { ToolTerminal, type ShownRun } from "./tool-terminal.js";
+import { ToolTerminal, useToolTerminal } from "./tool-terminal.js";
+
+/** About draws the run under way of any tool. */
+const everyTool = (): boolean => true;
 
 /** What About's Managed tools send at `admin`: a run and a verification. Without `admin` both are dim, with the capability's line said once on About. */
 export const MANAGED_TOOLS_SENT: readonly MethodName[] = ["tools.run", "tools.verify"];
-
-/** A run the environment's stream says is under way, as the section holds it: at the size the environment opens a tool terminal at unless asked another. */
-const shownFrom = (running: ToolRunStartedPayload): ShownRun => ({
-  terminal: { id: running.terminalId, ...DEFAULT_TERMINAL_SIZE },
-  tool: running.tool,
-  action: running.action,
-  command: running.command,
-});
 
 /**
  * About's Managed tools (key-managers spec, "Managed tools"; ADR 0026;
@@ -43,10 +38,7 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
   const flagged = runtime.capability(environmentId, "managedTools");
   const offered = !(flagged.status === "absent" && flagged.reason === "unsupported");
   const listed = useFollowed(useMemo(() => (offered ? runtime.requests.cached(environmentId, "tools.list", {}) : undefined), [runtime, environmentId, offered]));
-  const { running, finished } = useObservable(useMemo(() => runtime.projections.toolRuns(environmentId), [runtime, environmentId]));
-  /** The run drawn here until its Close: one this window started, or one under way the stream told of; and the terminals closed here, which a run still under way does not bring back. */
-  const [drawn, open] = useState<ShownRun | null>(null);
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const { drawn, started, close, finishedOf } = useToolTerminal(environmentId, everyTool);
 
   // Opening About asks the environment to probe again, behind the cached rows it shows meanwhile.
   useEffect(() => {
@@ -55,15 +47,6 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
   useEffect(() => {
     if (part === "managed-tools") region.current?.focus();
   }, [part]);
-  // A run under way, while none is drawn and its terminal was not closed here, is held as drawn: one object, kept past its finish.
-  useEffect(() => {
-    if (running !== null && !closed.has(running.terminalId)) open((shown) => shown ?? shownFrom(running));
-  }, [running, closed]);
-
-  const close = () => {
-    if (drawn !== null) setClosed((held) => new Set(held).add(drawn.terminal.id));
-    open(null);
-  };
   const writable = ready && MANAGED_TOOLS_SENT.every((method) => runtime.capability(environmentId, method).status === "present");
   const rows = listed?.result?.tools ?? null;
   const unread = listed?.error ?? null;
@@ -89,8 +72,8 @@ export const ManagedTools = ({ view }: { readonly view: EnvironmentView }) => {
                   row={row}
                   writable={writable}
                   readable={ready}
-                  finished={row.tool === "vault" ? undefined : finished[row.tool]}
-                  started={open}
+                  finished={finishedOf(row.tool)}
+                  started={started}
                 />
               ))}
           {drawn !== null && <ToolTerminal key={drawn.terminal.id} environmentId={environmentId} run={drawn} label={managedTool(drawn.tool).label} close={close} />}
