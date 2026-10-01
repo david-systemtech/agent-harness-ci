@@ -259,7 +259,9 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * ending (`state-import.finished`, #581) the state import's detection; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
- * `browser.status`, whose unpaired flag a pairing clears; a drain
+ * `browser.status`, whose unpaired flag a pairing clears, as settings
+ * changing do its headless part (`browser.headless.*`, which the browser
+ * picker's default reads, #561); a drain
  * beginning (`environment.draining`, #417) `environment.status`; a
  * routine changing (`routine.updated`, #532) every `routines.history` and
  * `routines.list`, as does what its listing's mode and attention are read
@@ -299,7 +301,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
   "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
-  "browser.status": ["extension.seen", "chrome.updated"],
+  "browser.status": ["extension.seen", "chrome.updated", "settings.changed"],
   "browser.chromes.list": ["chrome.updated"],
   "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated"],
   "stateImport.detect": ["state-import.finished"],

@@ -1,9 +1,10 @@
-import type { AccountRecord, ModelEntry, SessionSummary, WorkspaceRequest } from "@agent-harness/contracts";
+import type { AccountRecord, ModelEntry, SessionBrowser, SessionSummary, WorkspaceRequest } from "@agent-harness/contracts";
 import { answerCapability } from "../capabilities.js";
-import { LOCAL_PLACEHOLDER_ID, type ClientPreferences, type ConnectionRecord } from "../connections/records.js";
+import type { ClientPreferences, ConnectionRecord } from "../connections/records.js";
 import { dynamic, type Observable } from "../observable.js";
 import type { CachedAnswer } from "../requests.js";
 import { identityKey, type AccountsAnswer, type ModelsAnswer, type UsageGauge, type UsageView } from "./accounts.js";
+import { browserInputs, browserRows, localEnvironmentOf, type BrowserRow, type BrowserSources } from "./browsers.js";
 import type { EnvironmentView } from "./environments.js";
 import { directoryUsedBy, type KnownDirectory } from "./known-directories.js";
 import type { SessionListView, SessionRow } from "./session-list.js";
@@ -15,7 +16,7 @@ import type { SessionListView, SessionRow } from "./session-list.js";
  * the request cache and the client-local `environments.lastUsed`, given what
  * the renderer has in focus and the chips already set. It answers each
  * chip's preset, the reason for it and its options, in the card's order:
- * environment, account, model, workspace.
+ * environment, account, model, workspace, browser.
  */
 
 /** What the new-session card is opened on: what the sidebar or the rail has in focus. */
@@ -43,6 +44,8 @@ export interface NewSessionChips {
   readonly model?: string;
   /** The workspace chosen, with the environment it was chosen on: another environment keeps its repository, or scratch. */
   readonly workspace?: { readonly environmentId: string; readonly request: WorkspaceRequest };
+  /** The browser chosen: what the session starts with, null for the default (none chosen, which each run resolves). */
+  readonly browser?: SessionBrowser | null;
 }
 
 export interface NewSessionContext {
@@ -134,16 +137,34 @@ export interface WorkspaceChip {
   readonly options: readonly KnownDirectory[];
 }
 
+/**
+ * Why the browser chip holds what it holds: `chosen` (set, and a Chrome
+ * only while it is of the local environment or of the one chosen), `reach`
+ * (the account's `browser.reach` names a Chrome of the local environment or
+ * of the one chosen, which drive it directly); `none` otherwise: the
+ * account's reach is `per-session` (or not set), it names another
+ * environment's Chrome, or no account or reach is read yet.
+ */
+export type BrowserPresetReason = "chosen" | "reach" | "none";
+
+export interface BrowserChip {
+  /** The browser the session starts with (`sessions.create`'s `browser`); null for none chosen, which each run resolves. */
+  readonly value: SessionBrowser | null;
+  readonly reason: BrowserPresetReason;
+  /** The picker's rows for a session on the environment chosen (`projections.browsers`), the chip's value marked. */
+  readonly options: readonly BrowserRow[];
+}
+
 export interface NewSessionView {
   readonly environment: EnvironmentChip;
   readonly account: AccountChip;
   readonly model: ModelChip;
   readonly workspace: WorkspaceChip;
+  readonly browser: BrowserChip;
 }
 
-export interface NewSessionHost {
-  /** Every connection, in the saved sequence: the first is the primary environment. */
-  readonly records: Observable<readonly ConnectionRecord[]>;
+/** The card's sources, the browser picker's among them: its connection list, each environment's paired Chromes and browser status, and the shell's `webView`. */
+export interface NewSessionHost extends BrowserSources {
   readonly environments: Observable<readonly EnvironmentView[]>;
   readonly sessionList: Observable<SessionListView>;
   readonly preferences: Observable<ClientPreferences>;
@@ -155,12 +176,12 @@ export interface NewSessionHost {
   models(environmentId: string): Observable<ModelsAnswer>;
   /** The environment's known directories, less those this client hides (`projections.knownDirectories`). */
   knownDirectories(environmentId: string): Observable<readonly KnownDirectory[]>;
-  /** The environment's account defaults, `accounts.defaultAccount` and `accounts.defaultModelFamily`, from the request cache. */
+  /** The settings the presets read (`PRESET_SETTING_KEYS`), from the request cache. */
   defaults(environmentId: string): Observable<CachedAnswer<"settings.get">>;
 }
 
-/** The settings the account and model presets read. */
-export const ACCOUNT_DEFAULT_KEYS = ["accounts.defaultAccount", "accounts.defaultModelFamily"] as const;
+/** The settings the account, model and browser presets read. */
+export const PRESET_SETTING_KEYS = ["accounts.defaultAccount", "accounts.defaultModelFamily", "browser.reach"] as const;
 
 /** Why no session can start on the environment now: the first capability a new session needs that is absent, in its line. */
 const unusableReason = (record: ConnectionRecord | undefined): string | null => {
@@ -213,9 +234,9 @@ const environmentSteps = (focus: NewSessionFocus, records: readonly ConnectionRe
     const holders = byRecentSession(list.rows.filter((row) => row.summary.repositoryIdentity === identity));
     steps.push({ reason: "repository", candidates: [focused?.environmentId, holders.find((holder) => holder === lastUsed), ...holders] });
   }
-  const local = records.find((record) => record.kind === "local" && record.environmentId !== LOCAL_PLACEHOLDER_ID);
+  const local = localEnvironmentOf(records);
   steps.push({ reason: "last-used", candidates: [lastUsed ?? undefined] });
-  steps.push({ reason: "local", candidates: [local?.environmentId] });
+  steps.push({ reason: "local", candidates: [local ?? undefined] });
   steps.push({ reason: "first-enabled", candidates: records.filter((record) => record.enabled).map((record) => record.environmentId) });
   return steps;
 };
@@ -237,6 +258,7 @@ const environmentChip = (context: NewSessionContext, records: readonly Connectio
 const NO_ACCOUNT: AccountChip = { value: null, reason: "none", gauge: null, options: [] };
 const NO_MODEL: ModelChip = { value: null, reason: "none", options: [] };
 const NO_WORKSPACE: WorkspaceChip = { value: null, reason: "none", options: [] };
+const NO_BROWSER: BrowserChip = { value: null, reason: "none", options: [] };
 
 /** What the chips after the environment read: the card's context, the session lists, the focused session's row, and the environment chosen. */
 interface Card {
@@ -338,6 +360,24 @@ const workspaceChip = ({ host, context, list, focused, environmentId }: Card): W
   return { value: { kind: "scratch" }, reason: "scratch", options };
 };
 
+/** Whether a session on `environmentId` can be started with `browser`: a Chrome only of the local environment or of that one, either of which drives it directly. */
+const drivable = (browser: SessionBrowser | null, environmentId: string, local: string | null): boolean =>
+  browser?.kind !== "chrome" || [environmentId, local].some((id) => id?.toLowerCase() === browser.environmentId.toLowerCase());
+
+const browserChip = ({ host, context, environmentId }: Card, account: AccountRecord | null): BrowserChip => {
+  const local = localEnvironmentOf(host.records.read());
+  const pick = (): Pick<BrowserChip, "value" | "reason"> => {
+    const chosen = context.chips?.browser;
+    if (chosen !== undefined && drivable(chosen, environmentId, local)) return { value: chosen, reason: "chosen" };
+    const reach = account === null ? undefined : host.defaults(environmentId).read().result?.values["browser.reach"]?.[account.id];
+    if (reach === undefined || reach === "per-session") return { value: null, reason: "none" };
+    const chrome: SessionBrowser = { kind: "chrome", ...reach.chrome };
+    return drivable(chrome, environmentId, local) ? { value: chrome, reason: "reach" } : { value: null, reason: "none" };
+  };
+  const { value, reason } = pick();
+  return { value, reason, options: browserRows(host, environmentId, value) };
+};
+
 /** `projections.newSession(context)`: the card's chips, recomputed as what they read changes, following only what they read. */
 export const newSessionProjection = (host: NewSessionHost, context: NewSessionContext): Observable<NewSessionView> => {
   const environment = (): EnvironmentChip => environmentChip(context, host.records.read(), host.environments.read(), host.sessionList.read(), host.preferences.read());
@@ -353,14 +393,21 @@ export const newSessionProjection = (host: NewSessionHost, context: NewSessionCo
       const card = cardOn(environment().value);
       if (card === null) return base;
       const { environmentId } = card;
-      return [...base, ...accountSources(card).map((id) => host.accounts(id)), host.models(environmentId), host.defaults(environmentId), host.knownDirectories(environmentId)];
+      return [
+        ...base,
+        ...accountSources(card).map((id) => host.accounts(id)),
+        host.models(environmentId),
+        host.defaults(environmentId),
+        host.knownDirectories(environmentId),
+        ...browserInputs(host, environmentId),
+      ];
     },
     (): NewSessionView => {
       const where = environment();
       const card = cardOn(where.value);
-      if (card === null) return { environment: where, account: NO_ACCOUNT, model: NO_MODEL, workspace: NO_WORKSPACE };
+      if (card === null) return { environment: where, account: NO_ACCOUNT, model: NO_MODEL, workspace: NO_WORKSPACE, browser: NO_BROWSER };
       const account = accountChip(card);
-      return { environment: where, account, model: modelChip(card, account.value), workspace: workspaceChip(card) };
+      return { environment: where, account, model: modelChip(card, account.value), workspace: workspaceChip(card), browser: browserChip(card, account.value) };
     },
   );
 };

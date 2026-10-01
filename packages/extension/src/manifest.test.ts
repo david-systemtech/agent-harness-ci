@@ -21,7 +21,14 @@ describe("the manifest", () => {
     const manifest: Record<string, unknown> = extensionManifest("1.2.3");
     expect(manifest).not.toHaveProperty("host_permissions");
     expect(manifest).not.toHaveProperty("optional_host_permissions");
-    expect(manifest.permissions).toEqual(["alarms", "storage"]);
+  });
+
+  it("asks for the debugger and tab groups to drive pages on tabs of its own, and not for tabs, which would let it read every tab's address", () => {
+    expect(extensionManifest("1.2.3").permissions).toEqual(["alarms", "storage", "debugger", "tabGroups"]);
+  });
+
+  it("needs Chrome 125, whose debugger gives an extension the child sessions of a tab's cross-site frames", () => {
+    expect(extensionManifest("1.2.3").minimum_chrome_version).toBe("125");
   });
 
   it("admits only the extension itself and loopback in its content policy", () => {
