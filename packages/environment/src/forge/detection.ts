@@ -1,4 +1,4 @@
-import { GITHUB_ORIGIN, PRODUCT_NAME, type ForgeKind, type ForgeOrigin } from "@agent-harness/contracts";
+import { GITHUB_ORIGIN, PRODUCT_NAME, type ForgeKind, type ForgeOrigin, type KindUnsupportedError, type NotAForgeError } from "@agent-harness/contracts";
 import { forgeGet, type CallOptions, type ForgeHttpOptions, type Reply } from "./forge-http.js";
 import { field, nonEmpty } from "./providers.js";
 
@@ -33,6 +33,19 @@ export type Detection =
   | { readonly outcome: "not-a-forge" }
   /** A route did not answer, or answered that it could not now: one line saying which. */
   | { readonly outcome: "unreachable"; readonly message: string };
+
+/** A detection that answered, naming no kind the harness reads a forge with: GitLab's, or none. */
+export type Unreadable = Extract<Detection, { outcome: "unsupported" | "not-a-forge" }>;
+
+/** Why `origin` cannot be read as detection found it: GitLab, whose forge accounts are milestone 2's, or no forge the harness knows. */
+export const unreadable = (origin: ForgeOrigin, found: Unreadable): KindUnsupportedError | NotAForgeError =>
+  found.outcome === "unsupported"
+    ? { code: "kind_unsupported", message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`, data: { origin, kind: found.kind } }
+    : {
+        code: "not_a_forge",
+        message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
+        data: { origin },
+      };
 
 type Answered = Extract<Reply, { outcome: "answered" }>;
 

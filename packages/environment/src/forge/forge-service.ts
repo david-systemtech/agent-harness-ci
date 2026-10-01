@@ -58,7 +58,7 @@ import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./h
 import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
-import { detectForge, type Detection } from "./detection.js";
+import { detectForge, unreadable, type Detection } from "./detection.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 import { createForgeMoveSource } from "./move-source.js";
 import { createForgeInjection } from "./injection.js";
@@ -456,6 +456,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     reader,
     scrub,
     provider: (kind) => forgeProvider(kind, providerOptions),
+    detect: (origin) => detectForge(origin, providerOptions),
     readCredential: readHeld,
     verifier,
     originMissing: (origin, operation) => missing.record(origin, operation),
@@ -744,20 +745,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   };
 
   /** Why detection found no forge a forge account is added for at `origin`: GitLab's, none, or none that answered. */
-  const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) => {
-    switch (found.outcome) {
-      case "unsupported":
-        return { code: "kind_unsupported", message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`, data: { origin, kind: found.kind } } as const;
-      case "not-a-forge":
-        return {
-          code: "not_a_forge",
-          message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
-          data: { origin },
-        } as const;
-      case "unreachable":
-        return { code: "unreachable", message: found.message, data: { origin } } as const;
-    }
-  };
+  const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) =>
+    found.outcome === "unreachable" ? ({ code: "unreachable", message: found.message, data: { origin } } as const) : unreadable(origin, found);
 
   const add: ForgeAdd = {
     async prepare(params, context) {
