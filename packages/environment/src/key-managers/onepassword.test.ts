@@ -224,10 +224,13 @@ describe("1Password references", () => {
     const { onePassword, client } = await withOnePassword();
     onePassword.vault("harness", { "forge-github": { credential: VALUE, username: VALUE } });
     onePassword.vault("empty");
+    const [untitled] = onePassword.vault("untitled", { "api-key": { "": VALUE } }).items.flatMap((item) => item.fields);
     const connection = await connected(client);
     const connectionId = connection.id;
 
-    expect(await browse(client, { connectionId })).toEqual({ names: ["harness/", "empty/"] });
+    expect(await browse(client, { connectionId })).toEqual({ names: ["harness/", "empty/", "untitled/"] });
+    // An untitled field is listed by its id, which a reference names it by too.
+    expect(await browse(client, { connectionId, vault: "untitled", item: "api-key" })).toEqual({ names: [untitled?.id] });
     expect(await browse(client, { connectionId, vault: "harness" })).toEqual({ names: ["forge-github/"] });
     expect(await browse(client, { connectionId, vault: "harness", item: "forge-github" })).toEqual({ names: ["credential", "username"] });
     await expect(browse(client, { connectionId, vault: "empty" })).rejects.toMatchObject({ code: "reference_not_found", message: "Nothing to list: the vault empty holds no item." });

@@ -92,6 +92,9 @@ const asLoginFailure = (failure: ProviderFailure): LoginFailure =>
 /** What a lookup by name or id found nothing for. */
 class NotFound extends Error {}
 
+/** The name a list gives an entry: its title, or its id when it has none (1Password allows an untitled field), which `named` finds it by too. */
+const nameOf = ({ id, title }: OnePasswordEntry): string => (title === "" ? id : title);
+
 /** The entry named `name`, by title or id: one titled so, else the one with that id. */
 const named = (entries: readonly OnePasswordEntry[], name: string, what: string, where: string): OnePasswordEntry => {
   const titled = entries.filter((entry) => entry.title === name);
@@ -197,10 +200,10 @@ export const createOnePasswordProvider = (sdk: OnePasswordSdk): ConnectionProvid
 
     async list(_target, token, { mount: vault, path: item }, signal) {
       const names = await using(token, "Listing 1Password's names", signal, async (session): Promise<readonly string[]> => {
-        if (vault === null) return (await session.vaults()).map(({ title }) => `${title}/`);
+        if (vault === null) return (await session.vaults()).map((entry) => `${nameOf(entry)}/`);
         const vaultId = (await vaultNamed(session, vault)).id;
-        if (item === null) return (await session.items(vaultId)).map(({ title }) => `${title}/`);
-        return (await session.item(vaultId, (await itemNamed(session, vaultId, item, vault)).id)).fields.map(({ title }) => title);
+        if (item === null) return (await session.items(vaultId)).map((entry) => `${nameOf(entry)}/`);
+        return (await session.item(vaultId, (await itemNamed(session, vaultId, item, vault)).id)).fields.map(nameOf);
       });
       if ("outcome" in names) return names;
       if (names.length === 0) {
