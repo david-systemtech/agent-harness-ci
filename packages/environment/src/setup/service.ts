@@ -62,8 +62,8 @@ export interface SetupService {
    * unless a client is named, as `setup.check` names one (`methods.ts`).
    */
   check(step?: RegisteredStepId, askedBy?: CheckAsker): Promise<StepResult[]>;
-  /** Whether `step`'s check is running now. */
-  checking(step: RegisteredStepId): boolean;
+  /** Settles once `step`'s check that is running now has ended, whatever it answered; undefined when none is running. */
+  running(step: RegisteredStepId): Promise<void> | undefined;
   /** Every registered step's cached result, in the registry's order: a step never checked, or whose row this build cannot read, is absent. */
   cached(): StepResult[];
 }
@@ -150,7 +150,10 @@ export const createSetupService = (options: SetupServiceOptions): SetupService =
   return {
     // Async, so a read that throws as a check starts rejects the call rather than throwing at its caller.
     check: async (id, askedBy = "schedule") => Promise.all(steps.steps.filter((entry) => id === undefined || entry.id === id).map((entry) => checkOne(entry, askedBy))),
-    checking: (id) => running.has(id),
+    running: (id) => running.get(id)?.then(
+      () => undefined,
+      () => undefined,
+    ),
     cached() {
       const rows = new Map(log.setupResults.all().map((row) => [row.step, row.result]));
       return steps.steps.flatMap((entry) => readResult(rows.get(entry.id)) ?? []);
