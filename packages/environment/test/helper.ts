@@ -167,6 +167,8 @@ export interface TestEnvironmentOptions {
   readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
   /** Configuration the harness's git is given after its own (`insteadOf` to a local bare repository); preset none. */
   readonly harnessGitConfig?: EnvironmentOptions["harnessGitConfig"];
+  /** What the skills' git calls go through (#499); preset none. */
+  readonly skillsGit?: EnvironmentOptions["skillsGit"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
   /**
@@ -396,6 +398,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
     ...(options.harnessGitConfig !== undefined && { harnessGitConfig: options.harnessGitConfig }),
+    ...(options.skillsGit !== undefined && { skillsGit: options.skillsGit }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),

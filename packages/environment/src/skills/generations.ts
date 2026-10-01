@@ -92,8 +92,8 @@ export interface Generations {
   hold(generation: string): () => void;
   /** Deletes every generation nothing keeps; one that cannot be deleted is left for the next sweep. */
   sweep(): Promise<void>;
-  /** Sweeps now, then hourly; answers the stop. */
-  start(): () => void;
+  /** Sweeps now, then hourly, each sweep followed by `then` (the snapshots' sweep, which reads what links the generations left); answers the stop. */
+  start(then?: () => Promise<void>): () => void;
 }
 
 export interface GenerationsOptions {
@@ -312,8 +312,11 @@ export const createGenerations = (options: GenerationsOptions): Generations => {
 
     sweep,
 
-    start() {
-      const run = () => void sweep().catch((error: unknown) => console.error("The skill-set generations' sweep failed:", error));
+    start(then) {
+      const run = () =>
+        void sweep()
+          .then(then)
+          .catch((error: unknown) => console.error("The skill-set generations' sweep, or the sweep after it, failed:", error));
       run();
       const timer = clock.setInterval(run, GENERATION_SWEEP_INTERVAL_MS);
       return () => timer.cancel();
