@@ -53,6 +53,7 @@ import {
   latestRun,
   messageCeilings,
   providerHeld,
+  providerQueue,
   readRun,
   readSessionFacts,
   type QueuedMessage,
@@ -771,6 +772,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const adapter = adapters.get(provider);
       if (adapter === undefined) throw new Error(`No adapter serves the provider ${provider}.`);
       return stopOptions === undefined ? adapter.stopProcess(sessionId) : adapter.stopProcess(sessionId, stopOptions);
+    },
+    onStopped: (sessionId) => {
+      if (runActive(sessionId) !== null || (adoptions.get(sessionId)?.length ?? 0) > 0) return;
+      safely(
+        () => requeueReported(sessionId, providerQueue(reader, sessionId)),
+        (error) => console.error(`Taking back the stopped process's messages of session ${sessionId} failed; startup recovery tries again:`, error),
+      );
     },
     onParkedTooLong: (sessionId) => {
       const entry = live.get(sessionId);
