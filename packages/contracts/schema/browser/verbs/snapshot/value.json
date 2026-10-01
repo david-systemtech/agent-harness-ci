@@ -23,7 +23,12 @@
     },
     "truncated": {
       "type": "boolean",
-      "description": "Whether the text was cut at maxChars, at a line boundary."
+      "description": "Whether the text was cut at maxChars: at the last line boundary within them, or mid-line when no line ends within them."
+    },
+    "midLine": {
+      "description": "Present when the text was cut mid-line, as no line ends within maxChars: at maxChars, or short of a character written as two code units or a ref the cut would split.",
+      "type": "boolean",
+      "const": true
     },
     "challenge": {
       "description": "The challenge the page shows, when it shows one.",
