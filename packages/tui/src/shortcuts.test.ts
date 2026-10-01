@@ -49,7 +49,7 @@ const launchWith = async (path: string, inStateDir = false) => {
 };
 
 const rowsWith = (frame: string, text: string) => frame.split("\n").filter((row) => row.includes(text));
-const HELP_ROW = "Round the composer, the rail, the pane and the transcript";
+const HELP_ROW = "Round the composer, rail, delegated strip, pane and transcript";
 
 /** Types a slash command and sends it. */
 const run = async (app: RenderedApp, typed: string) => {

@@ -1,12 +1,23 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { GrantReader, ShellContent, ShellFile, ShellInstaller, ShellSecrets, ShellService, ShellSystem, ShellUpdate } from "@agent-harness/client-runtime";
+import type {
+  GrantReader,
+  ShellContent,
+  ShellFile,
+  ShellInstaller,
+  ShellSecrets,
+  ShellService,
+  ShellSystem,
+  ShellUpdate,
+  ShellWebView,
+} from "@agent-harness/client-runtime";
 import { optionalCount, optionalFilters, optionalFlag, optionalText, options, text, texts } from "./arguments.js";
 import { isCanvasColour, type CanvasStore } from "./canvas.js";
 import type { Answered, Told } from "./channels.js";
 import type { DeepLinkInbox } from "./deep-links.js";
 import type { DesktopElectron, ElectronBrowserWindow, ElectronWindow } from "./electron.js";
 import type { computerGh } from "./gh.js";
+import { viewBounds } from "./web-view.js";
 import { environmentHttp } from "./http.js";
 import type { NetworkLockdown } from "./lockdown.js";
 import type { DesktopNotifications } from "./notifications.js";
@@ -72,9 +83,26 @@ export interface MemberParts {
   readonly notifications: DesktopNotifications;
   readonly preview: Previews;
   readonly gh: ReturnType<typeof computerGh>;
+  readonly webView: ShellWebView;
 }
 
-export const shellMembers = ({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh }: MemberParts): Members => {
+export const shellMembers = ({
+  electron,
+  secrets,
+  localGrant,
+  service,
+  update,
+  installer,
+  platform,
+  window,
+  canvas,
+  network,
+  links,
+  notifications,
+  preview,
+  gh,
+  webView,
+}: MemberParts): Members => {
   const { dialog, clipboard } = electron;
   const openFile = async (given: unknown): Promise<string[]> => {
     const chosen = options(given, "The open dialog's options");
@@ -137,6 +165,19 @@ export const shellMembers = ({ electron, secrets, localGrant, service, update, i
     },
     system: (): ShellSystem => ({ platform: platform.os, architecture: platform.architecture, hostname: platform.hostname, user: platform.user }),
     http: environmentHttp,
+    "webView.create": (given) => {
+      const chosen = options(given, "A page's options");
+      const partition = optionalText(chosen["partition"], "A page's partition");
+      return webView.create({ url: text(chosen["url"], "A page's URL"), ...(partition !== undefined && { partition }) });
+    },
+    "webView.attach": (id, bounds) => webView.attach(text(id, "A view's id"), viewBounds(bounds)),
+    "webView.hide": (id) => webView.hide(text(id, "A view's id")),
+    "webView.navigate": (id, url) => webView.navigate(text(id, "A view's id"), text(url, "A page's URL")),
+    "webView.back": (id) => webView.back(text(id, "A view's id")),
+    "webView.forward": (id) => webView.forward(text(id, "A view's id")),
+    "webView.reload": (id) => webView.reload(text(id, "A view's id")),
+    "webView.state": (id) => webView.state(text(id, "A view's id")),
+    "webView.destroy": (id) => webView.destroy(text(id, "A view's id")),
     "network.allow": (addresses) => network.allow(texts(addresses, "The addresses")),
     "notifications.show": (notification) => notifications.show(notification),
     "deepLinks.listen": () => links.listen(window.webContents),

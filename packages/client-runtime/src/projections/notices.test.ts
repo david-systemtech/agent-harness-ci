@@ -43,6 +43,17 @@ const delivered = (sequence: number, environmentId: string, fields: Record<strin
   });
 
 describe("the notices from the environment's stream", () => {
+  it("say a final webhook delivery failed once, naming the routine, environment, endpoint and error", async () => {
+    const { runtime, desk, env } = await oneEnvironment();
+    const event = noticeEvent(1, env, "routine.delivery-failed", { routineId: randomUUID(), name: "Upstream watch", entryId: randomUUID(), endpoint: "hermes", error: "The endpoint answered 400." });
+    desk.notices.event(event);
+    desk.notices.event(event);
+    await flush();
+    expect(runtime.projections.notices.read().map(({ environmentId, kind, message, action, about }) => ({ environmentId, kind, message, action, about }))).toEqual([
+      { environmentId: env, kind: "routine-delivery-failed", message: "Upstream watch on desk could not deliver to hermes: The endpoint answered 400.", action: null, about: null },
+    ]);
+  });
+
   it("say it is draining, an account's warning and a prompt parked, each once, as news", async () => {
     const { runtime, desk, env } = await oneEnvironment();
     desk.notices.event(noticeEvent(1, env, "environment.draining", { drainingSince: "2026-09-24T00:00:01.000Z", trigger: "launcher" }));
