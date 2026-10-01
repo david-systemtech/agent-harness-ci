@@ -713,7 +713,7 @@ describe("environment.subscribe", () => {
       },
     });
     const { setup } = registry["environment.subscribe"].result.parse(snapshot.payload);
-    expect(setup?.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "skills", "instructions", "browser", "permissions", "appearance"]);
+    expect(setup?.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);
   });

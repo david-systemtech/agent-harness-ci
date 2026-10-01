@@ -9,6 +9,12 @@ import { EXTENSION_MANIFEST_KEY, PRODUCT_NAME } from "@agent-harness/contracts";
  * loopback, which its content policy admits; and it names the harness
  * version it was built with as its version name, which the environment
  * reads as the folder's version.
+ *
+ * Its permissions are the smallest that drive pages (#553): `debugger`, the
+ * DevTools protocol on the tabs it makes, and `tabGroups`, to title their
+ * group with the product name. Not `tabs`, which would let it read the
+ * address of every tab the person has open: making, grouping and finding
+ * its own tabs needs none, and it reads its pages through the debugger.
  */
 
 /** The service worker's bundle in the built folder. */
@@ -56,10 +62,11 @@ export const extensionManifest = (harnessVersion: string) => ({
   version: chromeVersion(harnessVersion),
   version_name: harnessVersion,
   key: EXTENSION_MANIFEST_KEY,
-  // Chrome 116 lets a WebSocket's traffic keep a worker alive, and Chrome 120 lets an alarm fire every 30 seconds.
-  minimum_chrome_version: "120",
+  // Chrome 116 lets a WebSocket's traffic keep a worker alive, Chrome 120 lets an alarm fire every 30 seconds, and Chrome 125
+  // gives the debugger the child sessions of a tab's cross-site frames.
+  minimum_chrome_version: "125",
   background: { service_worker: WORKER_FILE, type: "module" },
   options_ui: { page: OPTIONS_PAGE, open_in_tab: true },
-  permissions: ["alarms", "storage"],
+  permissions: ["alarms", "storage", "debugger", "tabGroups"],
   content_security_policy: { extension_pages: CONTENT_POLICY },
 });

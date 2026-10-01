@@ -91,14 +91,14 @@ describe("projections.setup from the snapshot and the notices", () => {
     await adding;
     await flush();
 
-    // Skippable as this build's registry says: Carry over, Forges, Key manager and Skills; a step it lacks is not (#573).
+    // Skippable as this build's registry says: Carry over, Forges, Key manager, Memory bank and Skills; a step it lacks is not (#573).
     expect(setup.read().steps.map(({ id, label, home, skippable }) => [id, label, home, skippable])).toEqual([
       ["account", "Account", "accounts.accounts", false],
       ["carry-over", "Carry over", "accounts.accounts", true],
       ["your-machines", "Your machines", "environments.machines", false],
       ["forges", "Forges", "access.forges", true],
       ["key-manager", "Key manager", "access.key-managers", true],
-      ["memory-bank", "Memory bank", "knowledge.banks", false],
+      ["memory-bank", "Memory bank", "knowledge.banks", true],
       ["skills", "Skills", "knowledge.skills", true],
       ["instructions", "Instructions", "knowledge.instructions", false],
       ["browser", "Browser", "access.browser", false],
@@ -146,22 +146,22 @@ describe("the environment stream's results", () => {
 
   it("read a newer environment's results of steps this build does not register, from the snapshot and the notices, and leave out one this build cannot read (#672)", async () => {
     const { runtime, platform, env, environment, adding } = await paired();
-    // Memory bank and Skills have no entry in this build's registry; a step past the milestone-1 order is no step it knows.
-    const bank = doneResult("memory-bank", { reason: "Every bank is reachable." });
+    // Skills has no entry in this build's registry; a step past the milestone-1 order is no step it knows.
+    const sources = doneResult("skills", { reason: "Every source is pulled." });
     const later = { ...doneResult("account"), step: "housekeeping", reason: "Nothing to sweep." };
-    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), bank, later] });
+    environment.snapshot(3, { status: STATUS, setup: [doneResult("account"), sources, later] });
     environment.synchronized(3);
     await adding;
     await flush();
     expect(rows(runtime, env).filter((row) => row.registered)).toEqual([
       { id: "account", registered: true, result: { state: "done", reason: "account holds.", stale: false } },
-      { id: "memory-bank", registered: true, result: { state: "done", reason: "Every bank is reachable.", stale: false } },
+      { id: "skills", registered: true, result: { state: "done", reason: "Every source is pulled.", stale: false } },
     ]);
 
     environment.event(noticeEvent(4, env, "setup.result-changed", attentionResult("skills", "skills.pulled", ["pull-now"], { checkedAt: after(4_000) })));
     await flush();
     expect(resultOf(runtime, env, "skills")).toMatchObject({ state: "needs-attention", actions: ["pull-now"], stale: false });
-    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 3, done: 2, needsAttention: 1, skipped: 0, attention: ["skills"] });
+    expect(runtime.projections.setup(env).read().counts).toEqual({ registered: 2, done: 1, needsAttention: 1, skipped: 0, attention: ["skills"] });
     expect(platform.reported).toEqual([]);
   });
 
@@ -276,8 +276,8 @@ describe("this client's own check", () => {
     const all = runtime.setup.check(env);
     await flush();
     // An environment that registers every step of the order, the ones this build's registry lacks included.
-    const memoryBank = attentionResult("memory-bank", "memory-bank.reachable", ["check-again"], { checkedAt: after(1) });
-    checks.answer(STEP_ORDER.map((step) => (step === "memory-bank" ? memoryBank : doneResult(step, { checkedAt: after(1) }))));
+    const skills = attentionResult("skills", "skills.pulled", ["pull-now"], { checkedAt: after(1) });
+    checks.answer(STEP_ORDER.map((step) => (step === "skills" ? skills : doneResult(step, { checkedAt: after(1) }))));
     expect(await all).toMatchObject({ ok: true });
     const view = runtime.projections.setup(env).read();
     expect(view.steps.map((step) => [step.id, step.registered, step.result?.state])).toEqual([
@@ -286,23 +286,23 @@ describe("this client's own check", () => {
       ["your-machines", true, "done"],
       ["forges", true, "done"],
       ["key-manager", true, "done"],
-      ["memory-bank", true, "needs-attention"],
-      ["skills", true, "done"],
+      ["memory-bank", true, "done"],
+      ["skills", true, "needs-attention"],
       ["instructions", true, "done"],
       ["browser", true, "done"],
       ["permissions", true, "done"],
       ["appearance", true, "done"],
     ]);
-    expect(resultOf(runtime, env, "memory-bank")).toMatchObject({ ...memoryBank, stale: false, olderThanCadence: false });
-    expect(view.counts).toEqual({ registered: 11, done: 10, needsAttention: 1, skipped: 0, attention: ["memory-bank"] });
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ ...skills, stale: false, olderThanCadence: false });
+    expect(view.counts).toEqual({ registered: 11, done: 10, needsAttention: 1, skipped: 0, attention: ["skills"] });
 
     // No cadence of this build's own for it: it ages against the hour a step has unless it gives another.
     clock.advance(60 * 60_000);
     await flush();
-    expect(resultOf(runtime, env, "memory-bank")).toMatchObject({ olderThanCadence: false });
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ olderThanCadence: false });
     clock.advance(2);
     await flush();
-    expect(resultOf(runtime, env, "memory-bank")).toMatchObject({ olderThanCadence: true });
+    expect(resultOf(runtime, env, "skills")).toMatchObject({ olderThanCadence: true });
   });
 
   it("applies a newer environment's answer whole, leaving out only what its vocabulary has and this build's lacks: a verb, a kind of item, a later milestone's step (#693)", async () => {

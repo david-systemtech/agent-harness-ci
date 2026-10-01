@@ -45,7 +45,7 @@ const check = async (client: WireClient, step: RegisteredStepId): Promise<StepRe
 };
 
 describe("setup.check", () => {
-  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Carry over, Forges, Key manager and Skills, skipped with nothing to carry, no forge account and no connection, with its line and the environment's clock", async () => {
+  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Carry over, Forges, Key manager, Memory bank and Skills, skipped with nothing to carry, no forge account, no connection and no bank, with its line and the environment's clock", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
@@ -55,6 +55,7 @@ describe("setup.check", () => {
       ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
       ["forges", "skipped", [], []],
       ["key-manager", "skipped", [], []],
+      ["memory-bank", "skipped", [], []],
       ["skills", "skipped", [], []],
       ["instructions", "done", [], []],
       ["browser", "done", [], []],
@@ -82,7 +83,7 @@ describe("setup.check", () => {
     expect((await reader.request("setup.check", { step: "permissions" })).results).toHaveLength(1);
     const driver = await t.client({ token: (await t.pair({ scopes: ["runs:drive"] })).token });
     expect(await refusal(driver.request("setup.check", {}))).toMatchObject({ code: "forbidden", data: { scope: "read" } });
-    expect(await refusal(reader.request("setup.check", { step: "memory-bank" } as never))).toMatchObject({ code: "invalid_params" });
+    expect(await refusal(reader.request("setup.check", { step: "unknown-step" } as never))).toMatchObject({ code: "invalid_params" });
   });
 });
 

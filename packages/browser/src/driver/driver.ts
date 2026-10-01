@@ -305,6 +305,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     if (typeof page === "string") return refused(page);
     page.beginVerb(allowance);
     try {
+      page.judgeStanding();
       const held = page.takeHeld();
       if (held) return held;
       await page.settleLoading();
