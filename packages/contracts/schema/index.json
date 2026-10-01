@@ -3027,6 +3027,10 @@
       "title": "StepResults"
     },
     {
+      "path": "setup/prompt-variant.json",
+      "title": "PromptVariant"
+    },
+    {
       "path": "browser/page-driver-kind.json",
       "title": "PageDriverKind"
     },
@@ -5455,6 +5459,22 @@
       "title": "setup.check error"
     },
     {
+      "path": "methods/setup.mint/params.json",
+      "title": "setup.mint params"
+    },
+    {
+      "path": "methods/setup.mint/result.json",
+      "title": "setup.mint result"
+    },
+    {
+      "path": "methods/setup.mint/response.json",
+      "title": "setup.mint response"
+    },
+    {
+      "path": "methods/setup.mint/error.json",
+      "title": "setup.mint error"
+    },
+    {
       "path": "methods/carryOver.inventory/params.json",
       "title": "carryOver.inventory params"
     },
@@ -7629,6 +7649,16 @@
       "params": "methods/setup.check/params.json",
       "result": "methods/setup.check/result.json",
       "error": "methods/setup.check/error.json"
+    },
+    {
+      "name": "setup.mint",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/setup.mint/params.json",
+      "result": "methods/setup.mint/result.json",
+      "response": "methods/setup.mint/response.json",
+      "error": "methods/setup.mint/error.json"
     },
     {
       "name": "carryOver.inventory",

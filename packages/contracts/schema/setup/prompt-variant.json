@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PromptVariant",
+  "type": "string",
+  "enum": [
+    "first",
+    "revise"
+  ],
+  "description": "Which of an LLM step's prompts a minted session starts with: first, which authors the step's artefact, or revise, which revises the one there."
+}

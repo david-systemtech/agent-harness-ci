@@ -10,6 +10,9 @@ interface Fixtures {
   readonly invalid: readonly unknown[];
 }
 
+/** The command id of `setup.mint`'s fixtures. */
+const mintCommandId = "5a0f9a3e-6b1e-4b47-9d4c-0f1f6f2b8d11";
+
 const done = {
   step: "your-machines",
   state: "done",
@@ -134,6 +137,10 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
     ],
     invalid: [done, [{ ...done, state: "pending" }], [done, { ...done, step: "" }], [{ ...done, step: "Housekeeping" }], [{ state: "done", reason: "x", failing: [], actions: [], checkedAt: done.checkedAt }]],
   },
+  "setup/prompt-variant.json": {
+    valid: ["first", "revise"],
+    invalid: ["again", "", "First"],
+  },
 };
 
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
@@ -148,6 +155,25 @@ export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { results: [done, { ...done, step: "housekeeping" }, { ...needsAttention, actions: ["reboot"] }] },
       ],
       invalid: [{}, { results: [{ ...done, state: "skipped?" }] }, { results: done }, { results: [done, { ...done, step: "" }] }],
+    },
+  },
+  "setup.mint": {
+    params: {
+      valid: [
+        { commandId: mintCommandId, step: "instructions", variant: "first" },
+        { commandId: mintCommandId, step: "instructions", subject: "bank-1", variant: "revise", account: "claude-max", model: "opus", effort: "high" },
+      ],
+      invalid: [
+        { step: "instructions", variant: "first" },
+        { commandId: mintCommandId, step: "instructions" },
+        { commandId: mintCommandId, step: "instructions", variant: "again" },
+        { commandId: mintCommandId, step: "memory-bank", variant: "first" },
+        { commandId: mintCommandId, step: "instructions", subject: "", variant: "first" },
+      ],
+    },
+    result: {
+      valid: [{ sessionId: "0b8a3c52-2f5e-4c09-9a6f-1c2d3e4f5a6b" }],
+      invalid: [{}, { sessionId: "" }],
     },
   },
 };
