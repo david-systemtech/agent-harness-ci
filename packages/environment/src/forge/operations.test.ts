@@ -264,27 +264,29 @@ describe("an origin no forge account covers", () => {
     expect(forge.requests.map((request) => request.path)).toEqual(["/api/v3/repos/someone/tool", "/api/v3/repos/someone/tool"]);
   });
 
-  it("refuses a read where detection finds no forge not_a_forge and a GitLab kind_unsupported, counting neither missing, and answers one detection could not reach unreachable, detecting again on the next read", async () => {
-    const nothing = await fakeForge();
+  it("reads on the Gitea API where detection finds no forge, as for a forge walled to anonymous callers, refuses a GitLab kind_unsupported without counting it missing, and answers one detection could not reach unreachable, detecting again on the next read", async () => {
+    const walled = await fakeForge();
     const gitlab = await fakeForge();
     gitlab.answer(null, "GET /api/v4/version", { status: 401, body: { message: "401 Unauthorized" } });
     const busy = await fakeForge();
     busy.answer(null, "GET /api/forgejo/v1/version", { status: 503, body: { message: "Service Unavailable" } });
-    const t = await start({ forgeFetch: nothing.fetch });
+    const t = await start({ forgeFetch: walled.fetch });
     const read = (origin: string) => t.env.forge.repositories.get({ origin, repository: "someone/tool", purpose: "read a skill source" });
 
-    expect(await read(nothing.origin)).toEqual({
+    expect(await read(walled.origin)).toEqual({
       outcome: "refused",
       error: {
-        code: "not_a_forge",
-        message: `${nothing.origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
-        data: { origin: nothing.origin },
+        code: "forge_account_missing",
+        message: `No forge account on this environment covers ${walled.origin}, and it refused an anonymous read (HTTP 401): add one in Set up, Forges.`,
+        data: { origin: walled.origin, step: "forges" },
       },
     });
     expect(await read(gitlab.origin)).toMatchObject({ outcome: "refused", error: { code: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } } });
     expect(await read(busy.origin)).toEqual({ outcome: "unreachable", message: `The forge at ${busy.origin} answered HTTP 503.` });
-    expect([nothing, gitlab, busy].flatMap((forge) => forge.requests.filter((request) => request.path.includes("/repos/")))).toEqual([]);
-    expect(t.env.forge.missingOrigins()).toEqual([]);
+    expect([walled, gitlab, busy].flatMap((forge) => forge.requests.filter((request) => request.path.includes("/repos/")).map((request) => `${forge.origin}${request.path}`))).toEqual([
+      `${walled.origin}/api/v1/repos/someone/tool`,
+    ]);
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: walled.origin, operation: "read a skill source", recordedAt: MANUAL_CLOCK_START }]);
 
     busy.detectable("forgejo", "16.0.3+gitea-1.22.0");
     busy.answer(null, "GET /api/v1/repos/someone/tool", { status: 200, body: repositoryBody(busy, "someone/tool", false) });

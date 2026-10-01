@@ -10,7 +10,6 @@ import {
   type ForgeOrigin,
   type ForgeOwner,
   type KindUnsupportedError,
-  type NotAForgeError,
   type SecretShapedError,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
@@ -19,7 +18,7 @@ import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { ForgeCredential } from "./forge-service.js";
-import { unreadable, type Detection } from "./detection.js";
+import { kindUnsupported, type Detection } from "./detection.js";
 import type { CallOptions } from "./forge-http.js";
 import { listForgeAccounts, liveForgeAccount } from "./forge-store.js";
 import { servingAccount } from "./git-helper.js";
@@ -56,10 +55,11 @@ import { FORGE_ACTOR, type Verifier } from "./verifier.js";
  *   detection finds (#470), kept for the process once found; the forge
  *   refusing it (401, 403, or a 404, behind which both APIs hide a private
  *   repository) is `forge_account_missing` and records the origin as
- *   missing (#314). Detection finding no forge refuses the read
- *   `not_a_forge`, and a GitLab `kind_unsupported`, neither for want of a
- *   forge account; one it cannot finish answers the read unreachable. A
- *   write there is refused `forge_account_missing` at once.
+ *   missing (#314). Detection finding no forge, as for a forge walled to
+ *   anonymous callers, reads on the Gitea API; a GitLab is refused
+ *   `kind_unsupported`, not for want of a forge account; one detection
+ *   cannot finish answers the read unreachable. A write there is refused
+ *   `forge_account_missing` at once.
  * - **A credential per operation.** The forge account's credential is read
  *   for each operation and let go when it ends; one that cannot be read, or
  *   that answers as another user, is `credential_unavailable`.
@@ -126,7 +126,7 @@ export interface NoPrimaryForgeRefusal {
 }
 
 /** Why an operation did not reach the forge. */
-export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | NotAForgeError | KindUnsupportedError;
+export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError;
 
 /** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
 export type ForgeAnswer<T> = ForgeReply<T> | { readonly outcome: "refused"; readonly error: ForgeRefusal };
@@ -312,8 +312,9 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     if (account !== null) return withCredential(account, target, work);
     const found: Detection = target.kind === undefined ? await detect(origin) : { outcome: "detected", kind: target.kind, version: null };
     if (found.outcome === "unreachable") return { outcome: "unreachable", message: found.message };
-    if (found.outcome !== "detected") return refused(unreadable(origin, found));
-    const answer = await work({ account: null, origin, provider: provider(found.kind), token: null, call: {} });
+    if (found.outcome === "unsupported") return refused(kindUnsupported(origin, found.kind));
+    const kind = found.outcome === "detected" ? found.kind : "forgejo";
+    const answer = await work({ account: null, origin, provider: provider(kind), token: null, call: {} });
     if (answer.outcome !== "failed" || !ASKS_FOR_A_CREDENTIAL.has(answer.status)) return answer;
     options.originMissing(origin, target.purpose);
     return refused(forgeAccountMissing(origin, `it refused an anonymous read (HTTP ${answer.status})`));

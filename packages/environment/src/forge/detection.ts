@@ -37,10 +37,17 @@ export type Detection =
 /** A detection that answered, naming no kind the harness reads a forge with: GitLab's, or none. */
 export type Unreadable = Extract<Detection, { outcome: "unsupported" | "not-a-forge" }>;
 
+/** Why GitLab at `origin` cannot be read: its forge accounts are milestone 2's. */
+export const kindUnsupported = (origin: ForgeOrigin, kind: "gitlab"): KindUnsupportedError => ({
+  code: "kind_unsupported",
+  message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`,
+  data: { origin, kind },
+});
+
 /** Why `origin` cannot be read as detection found it: GitLab, whose forge accounts are milestone 2's, or no forge the harness knows. */
 export const unreadable = (origin: ForgeOrigin, found: Unreadable): KindUnsupportedError | NotAForgeError =>
   found.outcome === "unsupported"
-    ? { code: "kind_unsupported", message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`, data: { origin, kind: found.kind } }
+    ? kindUnsupported(origin, found.kind)
     : {
         code: "not_a_forge",
         message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
