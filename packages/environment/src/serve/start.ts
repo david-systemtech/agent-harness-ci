@@ -154,6 +154,7 @@ import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
 import { followDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
+import { limitFiringDurations } from "../routines/firing-duration.js";
 import { followFiringEnds } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
@@ -1505,6 +1506,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     preChecks,
   });
   closers.push(() => firings.close());
+  // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
+  closers.push(limitFiringDurations({ log, clock, host }));
   // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
   // committed, below.
   const browser = createBrowserService({

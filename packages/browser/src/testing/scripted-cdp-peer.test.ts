@@ -5,8 +5,9 @@ import { scriptedCdpPeer } from "./index.js";
 
 /**
  * The scripted CDP peer as the tests of other packages meet it: its
- * DevTools address found as a browser's is, and in-page functions answered
- * by name in the world and frame they were called in.
+ * DevTools address found as a browser's is, in-page functions answered by
+ * name in the world and frame they were called in, and a frame's owner
+ * element resolved into its parent's world.
  */
 
 const listening = async () => {
@@ -82,6 +83,30 @@ describe("the scripted CDP peer", () => {
       "Page.frameNavigated about:blank",
       "Page.frameStoppedLoading",
     ]);
+  });
+
+  it("names a frame's owner element in its parent's target and resolves it into the parent's world, where a function called on it hears which frame it holds", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    const page = peer.createPage("https://shop.example/");
+    const reviews = page.addFrame("https://shop.example/reviews");
+    const pay = page.addCrossSiteFrame("https://pay.example/embed");
+    const session = await connection.attach(page.targetId);
+    peer.inPage("ownedUrl", ({ frame, owner }) => `${owner?.url} in ${frame.url}`);
+    const { executionContextId } = await session.send("Page.createIsolatedWorld", { frameId: page.targetId, worldName: "tests" });
+    const ownedUrl = async (frameId: string) => {
+      const { backendNodeId } = await session.send("DOM.getFrameOwner", { frameId });
+      const { object } = await session.send("DOM.resolveNode", { backendNodeId, executionContextId });
+      const { objectId } = object as { objectId: string };
+      const { result } = await session.send("Runtime.callFunctionOn", { functionDeclaration: "function ownedUrl() { return this.src; }", objectId, returnByValue: true });
+      await session.send("Runtime.releaseObject", { objectId });
+      await expect(session.send("Runtime.callFunctionOn", { functionDeclaration: "function ownedUrl() {}", objectId })).rejects.toThrow("Could not find object with given id");
+      return (result as { value: string }).value;
+    };
+    expect(await ownedUrl(reviews.id)).toBe("https://shop.example/reviews in https://shop.example/");
+    expect(await ownedUrl(pay.targetId)).toBe("https://pay.example/embed in https://shop.example/");
+    await expect(session.send("DOM.getFrameOwner", { frameId: page.targetId })).rejects.toThrow("Frame with the given id was not found.");
   });
 
   it("keeps the cookies a document sets in the browser context of the page that loaded it, so another context reads none of them", async () => {
