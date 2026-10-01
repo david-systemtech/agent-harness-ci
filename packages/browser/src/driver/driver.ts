@@ -432,7 +432,10 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       else await page.insertText(args.text);
       return arrival(page, args, load);
     },
-    screenshot: async (page) => ({ ok: true, value: { mimeType: "image/jpeg", data: await page.screenshot() } }),
+    screenshot: async (page) => {
+      const data = await page.screenshot();
+      return { ok: true, value: { url: page.mainFrame().url, mimeType: "image/jpeg", data } };
+    },
     scroll: async (page, args) => {
       if ("ref" in args.to) {
         const { ref } = args.to;
@@ -471,7 +474,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
     console: async (page) => {
       await page.enableDeep();
       const { entries, dropped } = page.takeConsole();
-      return { ok: true, value: entries, ...(dropped > 0 && { notice: `The ${dropped} oldest lines were dropped: the browser keeps the latest ${KEPT} between two reads.` }) };
+      return { ok: true, value: { url: page.mainFrame().url, entries }, ...(dropped > 0 && { notice: `The ${dropped} oldest lines were dropped: the browser keeps the latest ${KEPT} between two reads.` }) };
     },
     network: async (page, args) => {
       const recording = page.recordsNetwork;
@@ -482,15 +485,15 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
         recording ? undefined : "The network is recorded from this call on: ask again after the page has done what you want to see.",
         dropped > 0 ? `The ${dropped} oldest requests were dropped: the browser keeps the latest ${KEPT} between two reads.` : undefined,
       ]);
-      return { ok: true, value, ...(notice !== undefined && { notice }) };
+      return { ok: true, value: { url: page.mainFrame().url, entries: value }, ...(notice !== undefined && { notice }) };
     },
     cookies: async (page) => {
+      await page.enableDeep();
       const { url } = page.mainFrame();
       const values = !abilities.deepReadsByPolicy || deepRead(page, url);
-      await page.enableDeep();
       const cookies = (await page.cookies(url)).map((cookie) => cookieEntry(cookie, values));
       const notice = values ? undefined : `Cookie values are left out: ${siteOf(url)} is not a dev site. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read them.`;
-      return { ok: true, value: cookies, ...(notice !== undefined && { notice }) };
+      return { ok: true, value: { url, entries: cookies }, ...(notice !== undefined && { notice }) };
     },
     storage: async (page) => {
       const { url } = page.mainFrame();
@@ -509,7 +512,7 @@ export const cdpPageDriver = (options: CdpPageDriverOptions): PageDriver => {
       await page.enableDeep();
       const outcome = await page.evaluate(args.expression);
       if ("threw" in outcome) return refused(`The expression threw: ${outcome.threw}`);
-      return { ok: true, value: { result: outcome.value as PageValue<"evaluate">["result"] } };
+      return { ok: true, value: { url: page.mainFrame().url, result: outcome.value as PageValue<"evaluate">["result"] } };
     },
   };
 
