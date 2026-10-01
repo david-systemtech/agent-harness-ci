@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.join.preview result",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "personal",
+        "team"
+      ],
+      "description": "A bank's kind: personal (one person's own) or team (shared, reviewed by its owners)."
+    },
+    "line": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The bank line (T0) with the role this account's push access allows."
+    },
+    "orgs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "line"
+        ]
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "line"
+        ]
+      },
+      "description": "The project folders, relative to projects/, including those without memories."
+    },
+    "entities": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aliases": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "folder": {
+            "type": "string",
+            "pattern": "^[^/\\s:]+\\/(?:[^/\\s:]+\\/){0,2}$",
+            "description": "A scope folder as a pointer names it, relative to projects/: org/, org/project/ or org/project/area/, ending in a slash."
+          }
+        },
+        "required": [
+          "name",
+          "aliases"
+        ],
+        "description": "An entity a bank holds facts about: its name, its aliases (matched whole-word and case-insensitive against the first message and the repository identity) and, optionally, the scope folder a match expands."
+      }
+    },
+    "orientation": {
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 60,
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+      },
+      "description": "The memories every session always sees, at most five, each body at most 600 bytes and 1,500 bytes in all."
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "merge": {
+      "type": "object",
+      "properties": {
+        "memories": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "review"
+          ],
+          "description": "How a change of only memories lands: auto merges once the bank's check passes; review waits for an owner."
+        },
+        "reviewed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "orientation",
+              "decisions",
+              "status",
+              "manifest"
+            ],
+            "description": "A class of change held for review: orientation, decisions, a status, or the manifest."
+          }
+        }
+      },
+      "required": [
+        "memories",
+        "reviewed"
+      ],
+      "description": "A bank's own merge rule: memories auto or review, and the reviewed classes, every one of orientation, decisions, status and manifest, which always wait for review."
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Shared-bank rules: no personal facts and no secrets; empty for a personal bank."
+    },
+    "canRead": {
+      "type": "boolean"
+    },
+    "canPush": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name",
+    "kind",
+    "line",
+    "orgs",
+    "projects",
+    "entities",
+    "orientation",
+    "owners",
+    "merge",
+    "rules",
+    "canRead",
+    "canPush"
+  ],
+  "description": "What the bank contains, its review and shared-bank rules, and whether the forge account can read or push; preview attaches nothing."
+}

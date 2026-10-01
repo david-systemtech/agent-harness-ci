@@ -1,0 +1,544 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.join error",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unauthorized"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session's token is missing, invalid, foreign or expired."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "forbidden"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "read",
+                "sessions:write",
+                "runs:drive",
+                "terminal",
+                "admin"
+              ],
+              "description": "The scope the method requires; with reason scope, the requested pairing scope the caller does not hold."
+            },
+            "reason": {
+              "description": "Present when the method's scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), scope (a pairing would grant a scope the caller does not hold, named in data.scope), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage), program (a program client session may not ask it: the known-environments report, whose text reaches every run) or addressed (only the client session a call is addressed to may answer it: client.answer).",
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "scope",
+                "local",
+                "program",
+                "addressed"
+              ]
+            },
+            "ceiling": {
+              "description": "With reason ceiling: the caller's own ceiling, the highest it may grant.",
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ]
+            }
+          },
+          "required": [
+            "scope"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason scope, a pairing would grant a scope the caller does not hold, named in data.scope; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not; or, with data.reason addressed, the call is addressed to another client session."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "readiness": {
+              "type": "string",
+              "enum": [
+                "starting",
+                "draining"
+              ],
+              "description": "Why the environment cannot answer: it is not ready yet, or it is draining."
+            }
+          },
+          "required": [
+            "readiness"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment is starting or draining; data.readiness says which."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "invalid_params"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "path",
+                  "message"
+                ],
+                "additionalProperties": {},
+                "description": "One schema issue: a code, the path to the offending value and a message."
+              }
+            }
+          },
+          "required": [
+            "issues"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The params or the frame did not match the schema; data.issues lists the schema's issues."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "not_found"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The method's target does not exist."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "conflict"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The target's state does not allow the method now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "internal"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment failed; nothing the client sent is at fault."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "validation_failed"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "rules": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "unreadable",
+                  "manifest_missing",
+                  "manifest_malformed",
+                  "manifest_fact_missing",
+                  "manifest_fact_invalid",
+                  "retired_key",
+                  "unknown_scope_label",
+                  "orientation_over_cap",
+                  "orientation_missing",
+                  "orientation_too_large",
+                  "scope_file_missing",
+                  "scope_file_malformed",
+                  "scope_line",
+                  "scope_topics",
+                  "unknown_scope",
+                  "undeclared_topic",
+                  "repository_identity",
+                  "index_over_cap",
+                  "root_over_cap",
+                  "memory_malformed",
+                  "memory_name",
+                  "memory_name_taken",
+                  "memory_type",
+                  "description_length",
+                  "description_is_name",
+                  "description_duplicate",
+                  "body_too_long",
+                  "secret_shaped",
+                  "description_trigger",
+                  "unresolved_link"
+                ],
+                "description": "A bank validator rule's id; data/bank-validator-rules.json says what each refuses or warns of."
+              },
+              "description": "The validator rules the write fails."
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rule": {
+                    "type": "string",
+                    "enum": [
+                      "unreadable",
+                      "manifest_missing",
+                      "manifest_malformed",
+                      "manifest_fact_missing",
+                      "manifest_fact_invalid",
+                      "retired_key",
+                      "unknown_scope_label",
+                      "orientation_over_cap",
+                      "orientation_missing",
+                      "orientation_too_large",
+                      "scope_file_missing",
+                      "scope_file_malformed",
+                      "scope_line",
+                      "scope_topics",
+                      "unknown_scope",
+                      "undeclared_topic",
+                      "repository_identity",
+                      "index_over_cap",
+                      "root_over_cap",
+                      "memory_malformed",
+                      "memory_name",
+                      "memory_name_taken",
+                      "memory_type",
+                      "description_length",
+                      "description_is_name",
+                      "description_duplicate",
+                      "body_too_long",
+                      "secret_shaped",
+                      "description_trigger",
+                      "unresolved_link"
+                    ],
+                    "description": "A bank validator rule's id; data/bank-validator-rules.json says what each refuses or warns of."
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "refusal",
+                      "warning"
+                    ],
+                    "description": "refusal: the bank or the write is refused; warning: reported, nothing refused."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "The file or folder it is about, relative to the bank's root: BANK.md, projects/acme/web/, or a memory's file."
+                  },
+                  "field": {
+                    "description": "The field of the file it is about, where it is one: purpose, orientation, topics, description, body.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "secret": {
+                    "description": "secret_shaped only: the shape rule that found it, or registered-value; never the value.",
+                    "type": "string",
+                    "enum": [
+                      "anthropic",
+                      "openai-style",
+                      "aws",
+                      "google",
+                      "github",
+                      "private-key",
+                      "bearer",
+                      "key-assignment",
+                      "openbao",
+                      "doppler",
+                      "onepassword",
+                      "bitwarden",
+                      "registered-value"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "What is wrong and what to do, for the bank's author; never a secret's value."
+                  }
+                },
+                "required": [
+                  "rule",
+                  "severity",
+                  "path",
+                  "message"
+                ],
+                "description": "One finding of the bank validator: the rule's id, refusal or warning, the path and field it is about, and an actionable message."
+              },
+              "description": "Every finding of the verdict, refusals and warnings."
+            }
+          },
+          "required": [
+            "rules",
+            "findings"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The bank validator refused the write: data names the rules and each finding, never a secret's value."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "forge_account_missing"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The origin no forge account covers."
+            },
+            "step": {
+              "type": "string",
+              "const": "forges",
+              "description": "The Set up step that adds a forge account for it, for the deep link."
+            }
+          },
+          "required": [
+            "origin",
+            "step"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The forge asked for a credential on an origin no forge account on this environment covers, after an anonymous read: data names the origin, and the Forges step that adds one."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "credential_unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The origin git asked about."
+            }
+          },
+          "required": [
+            "origin"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The forge account serving the origin has no credential to give now (gh or the key manager signed out, the vault entry missing, a copy awaiting one, its login not known yet); the message says which and what to do."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unreachable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The origin that did not answer."
+            }
+          },
+          "required": [
+            "origin"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The forge could not be reached, or answered that it could not answer now (its own error, HTTP 5xx; a rate limit; no answer within ten seconds): the message says which; data names the origin."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "kind_unsupported"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "A forge origin: https, or http for a LAN or tailnet instance, then the host in lower case and a port only when it is not the scheme's default (https://git.example.com:5526); no userinfo, path or trailing slash."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "github",
+                "forgejo",
+                "gitea",
+                "gitlab"
+              ],
+              "description": "The kind detection found: gitlab, which no forge account may be added for before milestone 2."
+            }
+          },
+          "required": [
+            "origin",
+            "kind"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The URL is on a kind of forge the harness cannot add a forge account for yet (GitLab, milestone 2): data names the origin and the kind."
+    }
+  ]
+}

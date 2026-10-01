@@ -89,3 +89,18 @@ describe("the banks capability flag", () => {
     expect(CAPABILITY_FLAG_LIST).toContain("banks");
   });
 });
+
+
+describe("the bank join contract", () => {
+  it("previews as a read query and joins at admin with explicit accounts and client-minted ids", () => {
+    expect(registry["banks.join.preview"]).toMatchObject({ scope: "read", kind: "query" });
+    expect(registry["banks.join"]).toMatchObject({ scope: "admin", kind: "command" });
+    const params = { commandId: bankId, bankId, url: "https://git.example.test/acme/memory", accounts: ["work"], repositories: "all" };
+    expect(registry["banks.join"].params.parse(params)).toEqual(params);
+    expect(registry["banks.join"].params.safeParse({ ...params, accounts: "all" }).success).toBe(false);
+    expect(registry["banks.join"].params.safeParse({ ...params, accounts: undefined }).success).toBe(false);
+    expect(registry["banks.join"].params.safeParse({ ...params, bankId: undefined }).success).toBe(false);
+    expect(registry["banks.join"].params.safeParse({ ...params, commandId: undefined }).success).toBe(false);
+    expect(registry["banks.join"].params.safeParse({ ...params, accounts: [] }).success).toBe(true);
+  });
+});

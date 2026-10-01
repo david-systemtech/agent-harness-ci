@@ -1042,7 +1042,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (options.moveSources === undefined) moves.register(createBankMoveSource(log, vault, bankCredentials));
   closers.push(() => bankCredentials.close());
   const bankService = createBankService({
-    log, clock, environmentId: record.id, forge, credentials: bankCredentials,
+    log, clock, environmentId: record.id, forge, dataDir, scrub, credentials: bankCredentials,
     creation: {
       dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
       keyManager: () => {
