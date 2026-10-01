@@ -8,11 +8,11 @@ import { useObservable, usePresentation, useRuntime, useShell } from "../window-
  * Settings as the window holds it (docs/specs/gui.md, "Settings: the rail,
  * the rows and the addresses"; ADR 0027): whether it is open, the row it
  * shows, and the environment the last `environment` pane picked. Mod+,
- * (`app.settings.toggle`) opens and closes it; the palette, a step's link and
- * a settings deep link open it on a row. The row last opened is presentation,
- * kept as its id (`settingsRow`) and read against the registry, so an id it
- * no longer holds opens Set up; the environment picked lives as long as the
- * window does.
+ * (`app.settings.toggle`) opens and closes it; the palette, a step's link,
+ * a settings deep link and `/settings [row]` open it on a row. The row last
+ * opened is presentation, kept as its id (`settingsRow`) and read against
+ * the registry, so an id it no longer holds opens Set up; the environment
+ * picked lives as long as the window does.
  */
 export interface SettingsWindow {
   /** Whether Settings is open over the window. */
