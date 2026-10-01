@@ -286,4 +286,38 @@ describe("banks.verify", () => {
     expect(await second).toEqual(await first);
     expect(reads()).toBe(before + 1);
   });
+
+  it("keeps an owner last found unresolved, and a pull request last found holding BANK.md, while the forge does not answer: nothing is recorded", async () => {
+    const t = await start();
+    const client = await t.client();
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    const onForge = (files: Readonly<Record<string, string>>, name: string): string => {
+      const checkout = gitBank(files);
+      git(checkout, "remote", "add", "origin", `${forge.origin}/acme/${name}.git`);
+      forge.repository(TOKEN, `acme/${name}`);
+      return checkout;
+    };
+    forge.answer(TOKEN, "GET /api/v1/users/maya-reyes", { status: 404, body: { message: "user does not exist" } });
+    forge.answer(TOKEN, "GET /api/v1/users/sam-ortiz", { status: 200, body: { id: 7, login: "sam-ortiz" } });
+    const team = await registered(client, { path: onForge(TEAM_BANK, "team") });
+    const reviewed = onForge(changed(TEAM_BANK, { "BANK.md": null }), "reviewed");
+    git(reviewed, "switch", "--quiet", "--create", "setup/describe-2026-09-24");
+    writeFileSync(join(reviewed, "BANK.md"), TEAM_BANK["BANK.md"] ?? "");
+    git(reviewed, "add", "BANK.md");
+    git(reviewed, "commit", "--quiet", "-m", "Describe the bank.");
+    git(reviewed, "switch", "--quiet", "main");
+    forge.pullRequest(TOKEN, "acme/reviewed", 7, { head: "setup/describe-2026-09-24", state: "open" });
+    const awaiting = await registered(client, { path: reviewed });
+    expect([team.status.owners.unresolved, awaiting.status.manifest.state]).toEqual([["maya-reyes"], "awaiting-review"]);
+    const from = t.env.log.head();
+
+    const down = { status: 503, body: { message: "The forge is down for maintenance." } };
+    for (const route of ["GET /api/v1/users/maya-reyes", "GET /api/v1/users/sam-ortiz", "GET /api/v1/repos/acme/reviewed/pulls"]) forge.answer(TOKEN, route, down);
+    t.clock.advance(60_000);
+    expect((await client.request("banks.verify", {})).banks.map((bank) => bank.status)).toEqual([team.status, awaiting.status]);
+    expect(await bankEvents(client, from)).toEqual([]);
+  });
 });

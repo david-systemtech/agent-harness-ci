@@ -257,38 +257,52 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     }
   };
 
-  /** The web address of an open pull request from a describe branch whose head holds `BANK.md`; null for none. */
-  const manifestAwaitingReview = async (checkout: string, location: BankLocation): Promise<string | null> => {
-    if (location.kind !== "remote") return null;
+  /**
+   * The web address of an open pull request from a describe branch whose head holds `BANK.md`, null for none, and
+   * whether the forge answered for every such branch: one it did not answer for may hold one.
+   */
+  const manifestAwaitingReview = async (checkout: string, location: BankLocation): Promise<{ readonly pullRequest: string | null; readonly answered: boolean }> => {
+    if (location.kind !== "remote") return { pullRequest: null, answered: true };
     const listing = await runGit(checkout, ["for-each-ref", "--sort=-refname", "--format=%(refname:short)", DESCRIBE_BRANCHES], { maxBytes: 64 * 1024 });
     const branches = listing.ok ? listing.stdout.toString("utf8").split("\n").filter((branch) => branch !== "") : [];
+    let answered = true;
     for (const branch of branches) {
       const holds = await runGit(checkout, ["cat-file", "-e", `${branch}:BANK.md`], { maxBytes: 1024 });
       if (!holds.ok) continue;
       const answer = await forge.pullRequests.listByHead({ origin: location.origin, repository: location.repository, branch, limit: 5, purpose: VERIFY_PURPOSE });
+      if (answer.outcome !== "done") answered = false;
       const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open") : undefined;
-      if (open !== undefined) return open.url;
+      if (open !== undefined) return { pullRequest: open.url, answered };
     }
-    return null;
+    return { pullRequest: null, answered };
   };
 
-  /** `BANK.md` on main: valid, missing or failing a rule, unless an open pull request holds one. */
-  const manifestStatus = async (entry: Pick<BankEntry, "checkout" | "location">, files: BankFiles, since: string): Promise<BankManifestStatus> => {
+  /**
+   * `BANK.md` on main: valid, missing or failing a rule, unless an open pull request holds one. A forge that does not
+   * answer leaves a pull request last found holding one as found: it says nothing of whether that one is still open.
+   */
+  const manifestStatus = async (entry: Pick<BankEntry, "checkout" | "location" | "status">, files: BankFiles, since: string): Promise<BankManifestStatus> => {
     const refusal = files["BANK.md"] === undefined ? null : validateBank({ files }).findings.find((finding) => finding.severity === "refusal" && finding.path === "BANK.md");
     if (files["BANK.md"] !== undefined && refusal === undefined) return { state: "valid", since };
-    const pullRequest = await manifestAwaitingReview(entry.checkout, entry.location);
+    const { pullRequest, answered } = await manifestAwaitingReview(entry.checkout, entry.location);
     if (pullRequest !== null) return { state: "awaiting-review", pullRequest, since };
+    if (!answered && entry.status.manifest.state === "awaiting-review") return entry.status.manifest;
     if (refusal === null || refusal === undefined) return { state: "missing", since };
     return { state: "invalid", rule: refusal.rule, message: refusal.message, since };
   };
 
-  /** A team bank's owners its forge has no user for. */
-  const unresolvedOwners = async (location: BankLocation, manifest: Manifest): Promise<string[]> => {
+  /**
+   * A team bank's owners its forge has no user for: a 404. An owner the forge does not answer for stays as `held`
+   * last found it, unresolved or not, since the forge said nothing of it.
+   */
+  const unresolvedOwners = async (location: BankLocation, manifest: Manifest, held: readonly string[]): Promise<string[]> => {
     if (manifest.kind !== "team" || location.kind !== "remote") return [];
     const unresolved: string[] = [];
     for (const login of manifest.owners) {
       const answer = await forge.users.get({ origin: location.origin, login, purpose: VERIFY_PURPOSE });
-      if (answer.outcome === "failed" && answer.status === 404) unresolved.push(login);
+      const missing = answer.outcome === "failed" && answer.status === 404;
+      const unanswered = !missing && answer.outcome !== "done";
+      if (missing || (unanswered && held.includes(login))) unresolved.push(login);
     }
     return unresolved;
   };
@@ -309,7 +323,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       reachable,
       manifest: await manifestStatus(entry, reading.files, since),
       orientation: { missing: manifest.orientation.filter((name) => !present.has(name)), since },
-      owners: { unresolved: await unresolvedOwners(entry.location, manifest), since },
+      owners: { unresolved: await unresolvedOwners(entry.location, manifest, entry.status.owners.unresolved), since },
       lastSync: entry.status.lastSync,
       landing: entry.status.landing,
     };
@@ -373,13 +387,16 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const { status, reading } = await inspect(draft);
       const entry: BankEntry = { ...draft, status };
       const held = await readAll();
-      const weighed = held.filter(({ entry: bank }) => bank.enabled).map(({ entry: bank, reading: its }): Weighed => ({ ...bank, bytes: fixedBytes(its) }));
-      const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
       const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
       return (_params, command) => {
         if (nameHolder(reader, entry.name) !== null) {
           return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
         }
+        // Weighed against the banks registered now, as the name is: one registered or forgotten while this one was read counts.
+        const weighed = listBanks(reader)
+          .filter((bank) => bank.enabled)
+          .map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
+        const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
         if (conflict !== null) {
           const [first] = conflict.scopes;
           const message = `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`;

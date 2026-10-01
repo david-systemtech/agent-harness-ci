@@ -175,8 +175,8 @@ const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.accoun
 /** Every forge account event: an account added, updated, verified or removed. */
 const FORGE_ACCOUNT_EVENTS: readonly string[] = Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account."));
 
-/** Every bank event that changes a record (#1025): all but a session's pin, which no record holds. */
-const BANK_RECORD_EVENTS: readonly string[] = Object.keys(BANK_EVENT_PAYLOADS).filter((type) => type !== "bank.pinned");
+/** Every bank event that changes a record (#1025): all but a session's pin and a landing awaiting review, which no record holds. */
+const BANK_RECORD_EVENTS: readonly string[] = Object.keys(BANK_EVENT_PAYLOADS).filter((type) => type !== "bank.pinned" && type !== "bank.awaiting-review");
 
 /**
  * What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), an
