@@ -13,6 +13,7 @@ import {
   type PromptKind,
   type RunActorKind,
   type RunSkillSet,
+  type SessionBrowser,
   type TrustState,
   type Workspace,
 } from "@agent-harness/contracts";
@@ -43,7 +44,7 @@ export interface ClientTool {
   readonly parameters: JsonObject;
 }
 
-/** What a run's tool servers close over: the account, the workspace and the session, and the tools its request declared for the caller to run. */
+/** What a run's tool servers close over: the account, the workspace and the session, the tools its request declared for the caller to run, and its browser. */
 export interface ToolServerScope {
   readonly sessionId: string;
   readonly runId: string;
@@ -51,6 +52,8 @@ export interface ToolServerScope {
   readonly workspace: Workspace;
   /** A completions request's own tools (#139), or those of the run before a run of the queue; empty for none. */
   readonly clientTools: readonly ClientTool[];
+  /** The browser the run resolved at its start (#550), whose kind's verbs the `browser` server offers (#551); none for none. */
+  readonly browser: SessionBrowser;
 }
 
 /**

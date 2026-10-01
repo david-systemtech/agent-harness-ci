@@ -770,7 +770,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const byRunId = (runId: string): LiveRun | undefined => [...live.values()].find((entry) => entry.runId === runId && isLive(entry));
 
   const liveFacts = (entry: LiveRun | undefined): LiveRunFacts | null =>
-    entry === undefined || !isLive(entry) ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy };
+    entry === undefined || !isLive(entry) ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy, browser: entry.plan.browser };
 
   const append = (sessionId: string, runId: string, actor: string, events: readonly EventInput[], commandId?: string): void => {
     if (events.length > 0) log.append(sessionStream(sessionId), events, { actor, correlationId: runId, ...(commandId !== undefined && { commandId }) });
@@ -1541,7 +1541,14 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const trust = trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
     // Its tool servers, built as it launches rather than once it has composed: a message queued while it resolves its skill
     // set and composes (#493, #496) is judged against the tools it is served (a completions caller's own, #139).
-    const servers = toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools });
+    const servers = toolServers({
+      sessionId: plan.sessionId,
+      runId: plan.runId,
+      accountId: plan.account.id,
+      workspace: plan.workspace,
+      clientTools: plan.clientTools,
+      browser: plan.browser.browser,
+    });
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1696,7 +1703,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`);
       }
       if (answer instanceof Promise) {
-        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy });
+        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy, browser: previous.browser });
         // Runs once the change has answered, in a promise callback: nothing it does may throw out of it, or the rejection would be nobody's.
         const settled = (work: () => void): void => {
           changingMode.delete(previous.sessionId);
