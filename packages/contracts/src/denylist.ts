@@ -51,16 +51,38 @@ const IPV6 = [
   ...[1, 2, 3, 4, 5].map((before) => `(?:${H16}:){${before - 1}}${H16}::(?:${H16}:){0,${5 - before}}${V4}`),
 ].join("|");
 
+/** One to `max.length` digits, bounded by `max`, in decimal or octal. Kept as a regex so the exported grammar refuses unusable numeric entries too. */
+const boundedDigits = (max: string, radix: 8 | 10): string => {
+  const alternatives = [`[0-${radix - 1}]{1,${max.length - 1}}`, max];
+  for (let index = 0; index < max.length; index++) {
+    const digit = Number(max[index]);
+    if (digit === 0) continue;
+    const lower = digit === 1 ? "0" : `[0-${digit - 1}]`;
+    alternatives.push(`${max.slice(0, index)}${lower}[0-${radix - 1}]{${max.length - index - 1}}`);
+  }
+  return `(?:${alternatives.join("|")})`;
+};
+
+/** All-digit IPv4 spellings: one to four decimal or octal parts, the last filling the bytes left (as `ipv4Of` reads them). */
+const numericIpv4Part = (bytes: number): string => {
+  const max = 256 ** bytes - 1;
+  return `(?:(?!0[0-9])${boundedDigits(String(max), 10)}|0+${boundedDigits(max.toString(8), 8)})`;
+};
+const NUMERIC_IPV4 = [1, 2, 3, 4].map((parts) => `${numericIpv4Part(1)}\\.`.repeat(parts - 1) + numericIpv4Part(5 - parts)).join("|");
+const NUMERIC_HOST = new RegExp(`^(?!(?:\\*\\.)?[0-9.]+$)|^(?:\\*\\.)?(?:${NUMERIC_IPV4})$`);
+
 /**
  * A domain or host pattern: a host name, an IPv4 address or an IPv6 literal,
  * with an optional leading wildcard label (`*.paypal.com`: the domain and
- * every subdomain). No scheme, port, path or other wildcard. The browser's
+ * every subdomain). All-digit names must be valid decimal or octal IPv4
+ * spellings. No scheme, port, path or other wildcard. The browser's
  * host lists (`browser.devSites`, `browser.internalHosts`) take it too.
  */
 export const HostPattern = z
   .string()
   .regex(new RegExp(`^(?:(?:\\*\\.)?${LABEL}(?:\\.${LABEL})*|${IPV6})$`))
-  .meta({ description: "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path." });
+  .regex(NUMERIC_HOST, { error: (issue) => `Host entry ${String(issue.input)} is not a valid IPv4 address.` })
+  .meta({ description: "A host name, IPv4 address or IPv6 literal, with an optional leading wildcard label (*.example.com): no scheme, port or path. All-digit names must be valid IPv4 spellings." });
 
 /**
  * A path pattern: absolute, or `~`-relative (the home directory of the
@@ -920,7 +942,7 @@ const ipv6Text = (groups: readonly number[]): string => {
 };
 
 /** A host as the network reads it: lower case, percent-decoded, no trailing dot, IPv4 and IPv6 in one spelling each. Null when it is none. */
-const canonicalHost = (host: string, special: boolean): string | null => {
+const canonicalHost = (host: string): string | null => {
   let text = host;
   if (text.startsWith("[") && text.endsWith("]")) text = text.slice(1, -1);
   if (text.includes(":")) {
@@ -935,7 +957,6 @@ const canonicalHost = (host: string, special: boolean): string | null => {
   // Full-width letters and digits and the ideographic full stops read as ASCII, as a browser maps a host (UTS 46).
   text = asciiHost(text).toLowerCase().replace(/\.$/, "");
   if (text === "" || /[\s/\\?#@]/.test(text) || [...text].some(isControl)) return null;
-  if (!special) return text;
   const v4 = ipv4Of(text);
   return v4 === undefined ? text : v4;
 };
@@ -1008,7 +1029,7 @@ const readAddress = (address: string): Address | null => {
     const authority = remote === null ? "" : (remote[1] as string);
     const written = remote === null ? (/^[^?#]*/.exec(original)?.[0] ?? "") : (remote[2] ?? "/");
     const path = written.startsWith("/") ? written : `/${written}`;
-    if (authority !== "" && authority.toLowerCase() !== "localhost") return { scheme, host: canonicalHost(authority, true), filePath: null };
+    if (authority !== "" && authority.toLowerCase() !== "localhost") return { scheme, host: canonicalHost(authority), filePath: null };
     try {
       return { scheme, host: null, filePath: decodeURIComponent(path) };
     } catch {
@@ -1027,7 +1048,7 @@ const readAddress = (address: string): Address | null => {
   } else {
     host = hostAndPort.replace(/:\d*$/, "");
   }
-  return { scheme, host: canonicalHost(host, special), filePath: null };
+  return { scheme, host: canonicalHost(host), filePath: null };
 };
 
 /**
@@ -1056,7 +1077,7 @@ export const addressOf = (address: string): { readonly scheme: string | null; re
 /** A host pattern read into its wildcard and its host. */
 const hostPatternOf = (pattern: string): { readonly wildcard: boolean; readonly host: string | null } => {
   const wildcard = pattern.startsWith("*.");
-  return { wildcard, host: canonicalHost(wildcard ? pattern.slice(2) : pattern, true) };
+  return { wildcard, host: canonicalHost(wildcard ? pattern.slice(2) : pattern) };
 };
 
 /** Whether a host pattern matches a host: `*.x` matches `x` and every subdomain of it, anything else the host alone. */

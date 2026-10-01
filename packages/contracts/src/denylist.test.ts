@@ -83,6 +83,17 @@ describe("the denylist's sections", () => {
     for (const section of DENYLIST_SECTIONS) for (const held of presets[section]) expect(Object.keys(held).sort()).toEqual(["enabled", "id", "note", "pattern", "preset"]);
   });
 
+  it("refuses numeric-only host entries that cannot match, while keeping valid IPv4 spellings and numeric labels in names", () => {
+    for (const section of ["hosts", "browserDomains"] as const) {
+      for (const pattern of ["1.2.3.4.5", "1.2.3.256", "4294967296", "256.1", "1.16777216", "1.2.65536", "08", "*.1.2.3.256"]) {
+        expect(Denylist.safeParse({ ...presets, [section]: [entry("bad", pattern)] }).success, pattern).toBe(false);
+      }
+      for (const pattern of ["2852039166", "0xa9fea9fe", "0251.0376.0251.0376", "169.254.169.254", "4294967295", "255.16777215", "1.2.65535", "1.2.3.255", "037777777777", "*.127.1", "123.example", "example.123"]) {
+        expect(Denylist.safeParse({ ...presets, [section]: [entry("good", pattern)] }).success, pattern).toBe(true);
+      }
+    }
+  });
+
   it("take a pattern each in its own grammar: a host with an optional leading wildcard label, an absolute or ~-relative path, a command with something in it", () => {
     const accepts = (section: DenylistSection, pattern: string) => Denylist.safeParse({ ...presets, [section]: [entry("x", pattern)] }).success;
     for (const pattern of ["paypal.com", "*.paypal.com", "169.254.169.254", "::1", "localhost"]) {
@@ -405,6 +416,15 @@ describe("domains and hosts", () => {
     expect(hostOf("https://paypal.com@evil.test/login")).toBe("evil.test");
     expect(hostOf("javascript:alert(1)")).toBeNull();
     expect(hostOf("")).toBeNull();
+  });
+
+  it.each(["gopher://2852039166/", "git://2852039166/repo", "sftp://0xa9fea9fe/x", "ldap://2852039166/"])("matches a numeric host after any scheme: %s", (address) => {
+    expect(hostOf(address)).toBe("169.254.169.254");
+    expect(first({ hosts: [address] })?.[1]).toBe("169.254.169.254");
+    expect(first({ browserDomains: [address] })?.[1]).toBe("169.254.169.254");
+    expect(first({ commands: [`curl ${address}`] })?.[1]).toBe("169.254.169.254");
+    const numericEntry = { ...presets, hosts: [entry("numeric", "2852039166")] };
+    expect(matchDenylist(numericEntry, { hosts: [address] }, context).map((found) => found.entry.id)).toEqual(["numeric"]);
   });
 
   it("send a browser verb's address to the hosts too, and a file: URL to the paths", () => {

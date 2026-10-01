@@ -268,6 +268,19 @@ describe("permissions.denylist.set", () => {
     expect(await getDenylist(client)).toMatchObject({ hosts: reordered, commandPatterns: held.commandPatterns });
   });
 
+  it("refuses a numeric-only host entry that cannot match with invalid_params naming the entry and no change", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = await getDenylist(client);
+    for (const section of ["hosts", "browserDomains"] as const) {
+      for (const pattern of ["1.2.3.4.5", "1.2.3.256"]) {
+        const error = await refusal(client.request("permissions.denylist.set", { commandId: randomUUID(), sections: { [section]: [{ id: "bad", pattern }] } }));
+        expect(error).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["sections", section, 0, "pattern"], message: expect.stringContaining(pattern) })] } });
+      }
+    }
+    expect(await getDenylist(client)).toEqual(held);
+  });
+
   it("refuses a pattern outside its section's grammar, two entries under one id, and a call naming no section: invalid_params, nothing changed", async () => {
     const t = await start();
     const client = await t.client();
@@ -925,6 +938,18 @@ describe("a tool server's input", () => {
       ["mcp__deep__read", "allowed", "mode"],
     ]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("mcp__deep__read"));
+  });
+
+  it.each(["gopher://2852039166/", "git://2852039166/repo", "sftp://0xa9fea9fe/x", "ldap://2852039166/"])("denies a numeric host after any scheme in a tool server's input: %s", async (url) => {
+    const t = await start();
+    const client = await t.client();
+    await send(client, "permissions.denylist.set", { sections: { hosts: [{ id: "metadata", pattern: "169.254.169.254" }] } });
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls({ tool: "mcp__web__get", summary: "Get", access: { kind: "other" }, input: { target: { url } } }));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ tool: "mcp__web__get", decision: "denied", decidedBy: "denylist" })]);
+    expect(opened(t, id)).toEqual([expect.objectContaining({ kind: "denylist", summary: expect.stringContaining("169.254.169.254") })]);
   });
 
   it("reads a special scheme's address with fewer slashes than two as a URL, as the matcher does", () => {
