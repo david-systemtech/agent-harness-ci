@@ -1,4 +1,4 @@
-import type { StepResult } from "@agent-harness/contracts";
+import { EnvironmentNotice, registry, type Frame, type SnapshotFrame, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -67,6 +67,20 @@ const checkForges = async (client: WireClient): Promise<StepResult> => {
   const { results } = await client.request("setup.check", { step: "forges" });
   expect(results.map((result) => result.step)).toEqual(["forges"]);
   return results[0] as StepResult;
+};
+
+/** The Forges step's result in a `setup.result-changed` on `subscription`, when `frame` is one. */
+const forgesNotice = (subscription: string, frame: Frame): StepResult | undefined => {
+  if (frame.type !== "event" || frame.subscription !== subscription) return undefined;
+  const notice = EnvironmentNotice.safeParse(frame.event);
+  return notice.success && notice.data.type === "setup.result-changed" && notice.data.payload.step === "forges" ? notice.data.payload : undefined;
+};
+
+/** The Forges step's next changed result `client` hears on `subscription`, an environment stream it subscribed to. */
+const nextForgesResult = async (client: WireClient, subscription: string): Promise<StepResult> => {
+  const result = forgesNotice(subscription, await client.next((frame) => forgesNotice(subscription, frame) !== undefined));
+  if (result === undefined) throw new Error("The frame waited for carries no Forges result.");
+  return result;
 };
 
 describe("the Forges step with no forge account", () => {
@@ -270,6 +284,54 @@ describe("forges.gh", () => {
     expect(result).toMatchObject({ state: "needs-attention", failing: ["forges.identity", "forges.gh"] });
     expect(result.reason).toContain(`gh is not installed on this environment for david on ${first.host}: Install gh 2.40.0 or later.`);
     expect(result.targets).toContainEqual({ action: "install", kind: "tool", id: "gh", label: "gh" });
+  });
+
+  it("is checked again a second after tools.updated, so a gh updated past 2.40 and read on a refresh fifteen minutes on changes the step's cached result and raises setup.result-changed with no setup.check asked (#677)", async () => {
+    const forge = await fakeForge();
+    forge.user(GH_TOKEN, DAVID);
+    forge.repositories(GH_TOKEN, []);
+    const host = forge.origin.replace("http://", "");
+    const gh = fakeGh({ version: "2.39.1", accounts: [{ host, login: "david", token: GH_TOKEN }] });
+    const t = await start({ managedTools: gh.managedTools });
+    await t.env.setup.startPass;
+    const client = await t.client();
+    // The start probe has ended: finding gh, it appended tools.updated, which checks the step a second on. With no forge account
+    // yet that check answers skipped at once, as the start pass did, so it changes nothing.
+    await client.request("tools.list", {});
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    t.clock.advance(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Added five minutes on, so the step's cadence, counted from the check the addition triggers, falls due only after the refresh below.
+    t.clock.advance(5 * 60_000 - 1_000);
+    await added(client, { url: forge.origin, kind: "github", credential: { kind: "gh", login: "david" } });
+    t.clock.advance(1_000);
+    const before = await nextForgesResult(client, subscription);
+    expect(before).toEqual({
+      step: "forges",
+      state: "needs-attention",
+      reason: `The credential of ${host} could not be read: Sign in again to give it a new one. gh 2.39.1 on this environment is older than 2.40.0 for ${host}: Update gh.`,
+      failing: ["forges.identity", "forges.gh"],
+      actions: ["sign-in-again", "check-again", "install", "update"],
+      targets: [
+        { action: "sign-in-again", kind: "forge-account", id: forge.origin, label: host },
+        { action: "update", kind: "tool", id: "gh", label: "gh" },
+      ],
+      checkedAt: after(5 * 60_000 + 1_000),
+    });
+
+    // gh updated from a terminal: the registry's row, which forges.gh reads, changes on the refresh fifteen minutes after its start probe.
+    gh.set({ version: "2.63.2", accounts: [{ host, login: "david", token: GH_TOKEN }] });
+    t.clock.advance(10 * 60_000);
+    await client.request("tools.list", { refresh: true });
+    t.clock.advance(1_000);
+    const result = await nextForgesResult(client, subscription);
+    expect(result).toEqual({ step: "forges", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: after(15 * 60_000 + 2_000) });
+
+    // The cache holds it: the snapshot a client subscribing now is sent.
+    const { subscription: later } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
+    const { payload } = await client.next((f): f is SnapshotFrame => f.type === "snapshot" && f.subscription === later);
+    expect(registry["environment.subscribe"].result.parse(payload).setup?.find((cached) => cached.step === "forges")).toEqual(result);
   });
 });
 
