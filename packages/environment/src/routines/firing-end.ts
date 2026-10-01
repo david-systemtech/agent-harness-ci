@@ -1,4 +1,5 @@
 import {
+  isSilent,
   MAX_ROUTINE_TEXT,
   SESSION_STREAM_KIND,
   type FiringFailureReason,
@@ -8,7 +9,11 @@ import {
   type RunEndedPayload,
 } from "@agent-harness/contracts";
 import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
-import type { Reader } from "../sessions/session-reads.js";
+import { appendDecided } from "../sessions/companions.js";
+import { stampedAt } from "../sessions/decider.js";
+import { readSessionState, type Reader } from "../sessions/session-reads.js";
+import { decideSettle } from "../sessions/shelf-decider.js";
+import { sessionStream } from "../sessions/streams.js";
 import { appendRoutineRecord, routineActor } from "./records.js";
 import { liveFiringOfRun, type LiveFiringRecord } from "./routine-store.js";
 
@@ -23,7 +28,8 @@ import { liveFiringOfRun, type LiveFiringRecord } from "./routine-store.js";
  *
  * | `run.ended` | outcome |
  * |---|---|
- * | `completed` | `succeeded`, empty text too |
+ * | `completed`, its final text silent for the firing's marker | `silent` |
+ * | `completed`, otherwise | `succeeded`, empty text too |
  * | `error` | `failed`, `run_error` |
  * | interrupted by a person (`user`, `read-now`) | `cancelled` |
  * | interrupted, cause `timeout` | `failed`, `timed_out` |
@@ -32,8 +38,11 @@ import { liveFiringOfRun, type LiveFiringRecord } from "./routine-store.js";
  * | `disposed`, otherwise | `failed`, `restart` |
  * | `drained` | `failed`, `drained` |
  *
- * The silence rule's `silent` is #524's, and a drained firing's wait for
- * its continuation #535's.
+ * A silent firing (the silence rule, `isSilent`, over its whole final text
+ * and the marker it started with; #524) delivers nothing, and the
+ * transaction that ends it also settles its session, `settledBy`
+ * `routine`, so the session leaves the active list. A drained firing's wait
+ * for its continuation is #535's.
  */
 
 /** How a firing ended, and why when it failed. */
@@ -44,15 +53,21 @@ export interface FiringEnd {
 
 const failed = (reason: FiringFailureReason): FiringEnd => ({ outcome: "failed", reason });
 
+/** What a firing's end turns on besides its run's: whether its session was deleted by then, and whether its final text is silent. */
+export interface FiringEndFacts {
+  readonly sessionDeleted: boolean;
+  readonly silent: boolean;
+}
+
 /** The outcomes whose pre-check output becomes the baseline. */
 const ADVANCING: ReadonlySet<FiringOutcome> = new Set(["succeeded", "silent"]);
 const cancelled: FiringEnd = { outcome: "cancelled", reason: null };
 
-/** The firing's end, from how its run ended and whether its session was deleted by then. */
-export const firingEndOf = (ended: Pick<RunEndedPayload, "reason" | "cause">, sessionDeleted: boolean): FiringEnd => {
+/** The firing's end, from how its run ended, whether its session was deleted by then and whether its final text is silent. */
+export const firingEndOf = (ended: Pick<RunEndedPayload, "reason" | "cause">, { sessionDeleted, silent }: FiringEndFacts): FiringEnd => {
   switch (ended.reason) {
     case "completed":
-      return { outcome: "succeeded", reason: null };
+      return { outcome: silent ? "silent" : "succeeded", reason: null };
     case "error":
       return failed("run_error");
     case "disposed":
@@ -84,14 +99,12 @@ const lastAssistantText = (reader: Reader, sessionId: string, runId: string): st
     runId,
   )[0]?.text ?? null;
 
-/**
- * A firing's final text: its run's result text, else its last assistant
- * text, at most 16,000 characters; empty when it had neither.
- */
-export const firingText = (reader: Reader, firing: LiveFiringRecord, resultText: string | null): string => {
-  const text = resultText !== null && resultText !== "" ? resultText : (lastAssistantText(reader, firing.entry.sessionId, firing.entry.runId) ?? "");
-  return text.slice(0, MAX_ROUTINE_TEXT);
-};
+/** A firing's final text: its run's result text, else its last assistant text; empty when it had neither. */
+const finalText = (reader: Reader, firing: LiveFiringRecord, resultText: string | null): string =>
+  resultText !== null && resultText !== "" ? resultText : (lastAssistantText(reader, firing.entry.sessionId, firing.entry.runId) ?? "");
+
+/** A firing's final text as its end records it: at most 16,000 characters. */
+export const firingText = (reader: Reader, firing: LiveFiringRecord, resultText: string | null): string => finalText(reader, firing, resultText).slice(0, MAX_ROUTINE_TEXT);
 
 /** Whether the session is deleted, or purged since. */
 const sessionDeleted = (reader: Reader, sessionId: string): boolean => {
@@ -139,8 +152,21 @@ export interface FiringEndsOptions {
 }
 
 /**
+ * Settles a silent firing's session in the open transaction, at `at`, as
+ * the routine, `settledBy` `routine`, with the settle's companions; a
+ * session settled already is left as it is, and one deleted meanwhile has
+ * nothing to settle.
+ */
+const settleSession = (log: EventLog, reader: Reader, sessionId: string, at: string, attribution: AppendOptions & { readonly tx: Tx }): void => {
+  const decision = stampedAt(decideSettle(readSessionState(reader, sessionId), { sessionId, at, by: "routine" }), at);
+  if (decision.rejected !== undefined) return;
+  appendDecided(log, sessionStream(sessionId), decision, attribution);
+};
+
+/**
  * Follows every run's end, ending the live firing whose run it is, once
- * its `run.ended` has committed, in a transaction of its own caused by it.
+ * its `run.ended` has committed, in a transaction of its own caused by it;
+ * a silent firing's session is settled in the same transaction.
  * Subscribed before the adapter host starts, so it hears the recovery
  * sweep's end of a run a crash cut, and the host's ends as the environment
  * closes. Answers the unsubscribe.
@@ -153,14 +179,14 @@ export const followFiringEnds = ({ log, clock, environmentId }: FiringEndsOption
     const firing = liveFiringOfRun(reader, ended.runId);
     if (firing === null) return;
     try {
-      const end = firingEndOf(ended, sessionDeleted(reader, firing.entry.sessionId));
-      log.atomically((tx) =>
-        endFiring(log, environmentId, firing, { ...end, text: firingText(reader, firing, ended.resultText), usage: ended.usage }, clock().toISOString(), {
-          tx,
-          causationId: event.eventId,
-          correlationId: ended.runId,
-        }),
-      );
+      const text = finalText(reader, firing, ended.resultText);
+      const end = firingEndOf(ended, { sessionDeleted: sessionDeleted(reader, firing.entry.sessionId), silent: isSilent(text, firing.silenceMarker) });
+      const at = clock().toISOString();
+      log.atomically((tx) => {
+        const attribution = { tx, causationId: event.eventId, correlationId: ended.runId };
+        endFiring(log, environmentId, firing, { ...end, text: text.slice(0, MAX_ROUTINE_TEXT), usage: ended.usage }, at, attribution);
+        if (end.outcome === "silent") settleSession(log, reader, firing.entry.sessionId, at, { ...attribution, actor: routineActor(firing.routineId) });
+      });
     } catch (error) {
       console.error(`Ending the firing ${firing.entry.id} of the routine ${firing.routineId} failed; it stays live:`, error);
     }

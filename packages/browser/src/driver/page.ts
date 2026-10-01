@@ -615,27 +615,32 @@ export class CdpPage {
    * frame or a sub-frame reached it. The Chrome Web Store, and the host's
    * own rule, refuse the same way. A top-level arrival the verb's one-time
    * allowance opened spends it, and that document's frames in the allowed
-   * host stand while it is the page's.
+   * host stand while it is the page's. A frame judged where it already is
+   * (`arriving` false, before a verb) is read the same way, and spends no
+   * allowance: the verb's is for the load it opens.
    */
-  private judge(url: string, topLevel: boolean, frameId: string): void {
+  private judge(url: string, topLevel: boolean, frameId: string, arriving = true): void {
     if (this.held !== undefined || this.gone !== undefined) return;
     const main = this.frames.get(this.mainFrameId);
     const opened = this.allowedLoad !== undefined && main?.loaderId === this.allowedLoad.loaderId ? { host: this.allowedLoad.host } : undefined;
-    const allowance = topLevel ? (this.verbAllowance ?? opened) : opened;
+    const allowance = topLevel && arriving ? (this.verbAllowance ?? opened) : opened;
     const standing = this.standing(url, allowance);
     if (standing.kind === "denylisted") {
       const { entry } = standing.match;
       this.refuse({
         ok: false,
         reason: topLevel
-          ? `The page went to ${url}, which the denylist's browser section lists (${entry.pattern}), so it was stopped at about:blank. Only the person can allow it.`
-          : `A frame of the page loaded ${url}, which the denylist's browser section lists (${entry.pattern}), so the whole page was stopped at about:blank.`,
+          ? `The page ${arriving ? "went to" : "is at"} ${url}, which the denylist's browser section lists (${entry.pattern}), so it was stopped at about:blank. Only the person can allow it.`
+          : `A frame of the page ${arriving ? "loaded" : "is at"} ${url}, which the denylist's browser section lists (${entry.pattern}), so the whole page was stopped at about:blank.`,
         denylist: { frame: topLevel ? "top-level" : "sub-frame", match: standing.match },
       });
       return;
     }
     if (standing.kind === "web-store" && topLevel && this.options.kind === "chrome") {
-      this.refuse({ ok: false, reason: `The page went to ${url}, on the Chrome Web Store, where Chrome lets no extension read or act, so it was stopped at about:blank.` });
+      this.refuse({
+        ok: false,
+        reason: `The page ${arriving ? "went to" : "is at"} ${url}, on the Chrome Web Store, where Chrome lets no extension read or act, so it was stopped at about:blank.`,
+      });
       return;
     }
     // A response for another document of the frame (the one before, or one that never committed) says nothing of this one.
@@ -646,10 +651,20 @@ export class CdpPage {
       this.refuse({ ok: false, reason: `${ruled} The page was stopped at about:blank.` });
       return;
     }
-    if (topLevel && (standing.kind === "dev-site" || standing.kind === "ordinary") && standing.spendsAllowance && allowance === this.verbAllowance && allowance) {
+    if (arriving && topLevel && (standing.kind === "dev-site" || standing.kind === "ordinary") && standing.spendsAllowance && allowance === this.verbAllowance && allowance) {
       this.allowedLoad = { host: hostOf(allowance.host) as string, loaderId: main?.loaderId ?? "" };
       this.verbAllowance = undefined;
     }
+  }
+
+  /**
+   * Puts the address each frame has now to the host's policy as it is now,
+   * before a verb reads or acts: a policy that came to list the page, or a
+   * frame of it, since it arrived refuses it as an arrival would, its
+   * refusal held for the verb.
+   */
+  judgeStanding(): void {
+    for (const frame of this.framesInOrder()) this.judge(frame.url, frame.id === this.mainFrameId, frame.id, false);
   }
 
   private refuse(refusal: PageRefusal): void {

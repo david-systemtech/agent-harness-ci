@@ -274,6 +274,18 @@
         "description": "Where a firing's result goes, and which results it takes: a client notice, or a signed webhook to a named endpoint."
       },
       "description": "The delivery targets it started with, which an edit meanwhile does not change."
+    },
+    "silenceMarker": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "The marker its final text is read against by the silence rule (isSilent): its routine's when it was asked for, whatever an edit changes meanwhile."
+    },
+    "maxDurationMinutes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1440,
+      "description": "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile."
     }
   },
   "required": [
@@ -285,7 +297,9 @@
     "runId",
     "requestedBy",
     "preCheck",
-    "targets"
+    "targets",
+    "silenceMarker",
+    "maxDurationMinutes"
   ],
-  "description": "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to whatever an edit changes meanwhile."
+  "description": "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker and its maximum duration, whatever an edit changes meanwhile."
 }
