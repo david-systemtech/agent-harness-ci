@@ -32,6 +32,13 @@ import type { StoppedRun } from "./minted.js";
  * whatever its checks answer later. A result that timed out or could not
  * check carries the step's last good result beneath it.
  *
+ * Each state check is told how old a finding of its feature's own schedule
+ * may be for it to read that finding rather than ask the feature again
+ * (#680): the step's cadence when the environment checks the step itself,
+ * so a step whose feature keeps its own schedule adds no work beside it;
+ * none when a client asked, which checks fresh (ADR 0031: opening Set up or
+ * the step's pane, Check now, Check again and re-run).
+ *
  * An LLM step (ADR 0019; #584) reads its minted sessions beside its
  * checks. Done, it offers `revise`, targeting each of its subjects, the one
  * action a done result carries. Needing attention after its latest minted
@@ -43,8 +50,17 @@ import type { StoppedRun } from "./minted.js";
  * step's does. A check that could not check says only that.
  */
 
+/** Who asked for a step's check: a client, through `setup.check`, or the environment's own schedule, its start pass, cadence and triggers (#571). */
+export type CheckAsker = "client" | "schedule";
+
+/** What a state check is told of the check that asks it. */
+export interface StateCheckRequest {
+  /** How old a finding of the feature's own schedule may be to be read as it is: the step's cadence on the schedule's check, 0 on a client's. */
+  readonly maxAgeMs: number;
+}
+
 /** How the environment answers one state check: at once, or with a promise the check awaits within its step's budget. */
-export type StateChecker = () => StateCheckAnswer | Promise<StateCheckAnswer>;
+export type StateChecker = (request: StateCheckRequest) => StateCheckAnswer | Promise<StateCheckAnswer>;
 
 /** How the environment answers each state check the registry names: the type makes a missing one a compile error. */
 export type StateCheckers = { readonly [Id in StateCheckId]: StateChecker };
@@ -68,6 +84,8 @@ export interface CheckContext {
   /** The clock the budget runs on. */
   readonly clock: Clock;
   readonly checkedAt: string;
+  /** Who asked for the check. */
+  readonly askedBy: CheckAsker;
   /** The step's last good result, which a result that timed out or could not check carries. */
   readonly lastGood: LastGood | undefined;
   /** On an LLM step, its subjects and how its minted session last ended; absent on any other step. */
@@ -107,13 +125,14 @@ const TIMED_OUT = Symbol("timed out");
 
 export const checkStep = async (step: CheckedStep, context: CheckContext): Promise<StepResult> => {
   const { checkedAt, lastGood } = context;
+  const request: StateCheckRequest = { maxAgeMs: context.askedBy === "client" ? 0 : step.cadence.minutes * 60_000 };
   /** The state checks called and not answered yet: what a timeout names. */
   const unanswered = new Set<string>();
 
   const ask = async ({ id, actions }: StateCheck): Promise<true | Failure> => {
     unanswered.add(id);
     try {
-      const answer = await (context.stateChecks[id] as StateChecker)();
+      const answer = await (context.stateChecks[id] as StateChecker)(request);
       if (answer === true) return true;
       const targets = (answer.targets ?? []).filter((target) => actions.includes(target.action));
       return { id, reason: answer.reason, actions, targets, couldNotCheck: false };
