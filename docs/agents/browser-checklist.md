@@ -1,7 +1,8 @@
 # Browser: manual checklist
 
-The half of the CDP page driver (`packages/browser`, ticket #543) that only a
-real Chromium can prove. The automated tests drive the driver over the
+The half of the CDP page driver (`packages/browser`, ticket #543) and its
+snapshot (#544: the vendored aria snapshot and acting by ref) that only a real
+Chromium can prove. The automated tests drive the driver over the
 scripted CDP peer (`@agent-harness/browser/testing`) on a loopback WebSocket
 and a pipe, and run the in-page functions in jsdom; the fixture-page suite
 (`packages/browser/src/driver/chromium.test.ts`) proves the same against a
@@ -58,6 +59,17 @@ Every case passes:
    WebSocket to its address.
 8. A page whose cross-site frame the denylist lists is refused whole, naming
    the sub-frame, and left at about:blank.
+9. A snapshot of the frames page reads as one tree: the heading, then the
+   same-site frame's text under its iframe with `f1` refs, then the cross-site
+   frame's under its own with the next prefix.
+10. A click by the cross-site frame's Pay button's ref lands in that frame (its
+    text turns to "Paid in full"), and once the page has navigated the same
+    ref is refused with "Take a new snapshot".
+11. A snapshot of the Lit-style card shows its slotted title as a heading and
+    its temperature from inside its shadow root.
+12. A snapshot of the fields page shows the password's and the card number's
+    markers and neither value, and a click and a typing by ref land on the
+    Buy button and the password field.
 
 Record the date, the machine and its platform, the browser and its version
 (`chromium --version`), and each case's result in the pull request.
@@ -68,7 +80,7 @@ What the browser relay adds per verb (the browser spec's "Verify first", item
 5): a run on SYSTEM-SERVER started from the desktop window drives David's
 Chrome, paired with his desktop's environment, through the window's runtime.
 The relay's tests run two in-process environments and the fake extension; only
-David's machines time it. It waits for the extension to drive pages (#553).
+David's machines time it.
 
 With the Chrome paired with the desktop's environment and connected, and one
 fixed page open in it:
@@ -122,6 +134,48 @@ click Load unpacked and choose the folder the environment made,
    throughout, its socket's pings keeping it; if it ever shows STOPPED, it is
    RUNNING again within the 30 seconds its alarm takes. Do not open the
    worker's DevTools for this: an open inspector keeps any worker alive.
+
+## The extension driving pages (#553)
+
+The extension's tests run its worker against the fake `chrome` API, whose
+tabs and debugger are the scripted CDP peer's, and the environment's end to
+end runs the built worker from the folder on a Node thread; none of them
+loads it in Chrome. What only a real Chrome answers is the browser spec's
+"Verify first", items 2 and 4, and the managed profile's sentence. Set up as
+for the extension's section above, pair the Chrome from its options page with
+a code from the Browser card (or `agent-harness browser pair`), and make a
+session whose browser is that Chrome.
+
+1. **The tab group and the banner.** `browser_open` on `https://example.com/`
+   opens a tab in the background, in a tab group titled `agent-harness`, with
+   Chrome's debugging banner on it, and the answer names the page. A second
+   session's `browser_open` puts its tab in the same group. `browser_close`
+   takes the banner away and leaves the tab open. Drag a session's tab out of
+   the group: its next verb answers that its page is gone, and `browser_open`
+   makes a new tab in the group.
+2. **Frames and isolated worlds** (item 2). Open a page with a cross-site
+   frame (a page embedding a video from another site) and `browser_wait_for`
+   text only the frame shows: it is found, which needs `chrome.debugger` to
+   attach to the out-of-process frame as a child target and to allow
+   `Page.createIsolatedWorld` there. A refusal naming either is the answer.
+3. **Runtime enabled lazily** (item 4; #292, section 5.3, step 5), with David
+   in his own Chrome: open a Cloudflare-fronted, a DataDome-fronted and a
+   Reddit page twice each, once before any deep verb (Page alone enabled) and
+   once after `browser_console` turned `Runtime`, `Log` and `Network` on.
+   Note what each served each time (the page, or a challenge), and check
+   History afterwards for reCAPTCHA entries.
+4. **A managed profile.** In a throwaway profile whose policy turns the
+   developer tools off (on Linux, `{"DeveloperToolsAvailability": 2}` in a file
+   under `/etc/opt/chrome/policies/managed/`; `chrome://policy` shows it),
+   `browser_open` answers that this Chrome does not let extensions use its
+   debugger, and so does every verb after. If it answers anything else, read
+   the error Chrome itself gives: in the worker's DevTools (from
+   `chrome://extensions`), run `const { id } = await chrome.tabs.create({});
+   await chrome.debugger.attach({ tabId: id }, "1.3")`. The extension reads
+   `Cannot attach to this target.` as the block.
+
+Record the date, the platform, Chrome's version and each answer in the pull
+request that changes the extension's pages, or in the issue that asked for it.
 
 ## The headless browser's launch (#555)
 

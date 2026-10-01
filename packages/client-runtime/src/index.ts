@@ -208,6 +208,8 @@ export {
 export type {
   AccountChip,
   AccountPresetReason,
+  BrowserChip,
+  BrowserPresetReason,
   EnvironmentChip,
   EnvironmentOption,
   EnvironmentPresetReason,
@@ -220,6 +222,7 @@ export type {
   WorkspaceChip,
   WorkspacePresetReason,
 } from "./projections/new-session.js";
+export type { BrowserRow, BrowsersView, BrowserUnavailable, BrowserUnavailableReason } from "./projections/browsers.js";
 export {
   SETUP_AGE_TICK_MS,
   SETUP_CHECK_TIMEOUT_MS,

@@ -222,9 +222,10 @@ export const anyValidValue =
  * and the binding keys (#574); Forges, whose forge
  * accounts go through the forge account commands (#319); Key manager, for
  * the injection setting (#367), whose connections go through the
- * key-manager commands; Instructions, for the orientation switch, whose
- * owned instructions go through their commands (#505); Browser, for the
- * browser keys (#541); Permissions
+ * key-manager commands; Memory bank, which writes no key and checks the
+ * banks the environment registers (#586); Instructions, for the
+ * orientation switch, whose owned instructions go through their commands
+ * (#505); Browser, for the browser keys (#541); Permissions
  * (#129's keys, #141's entry); and Appearance, for the theme (ADR 0023,
  * #391), whose contrast it checks. The other steps arrive as their features are built,
  * each with its budget class, cadence, triggers and skip check as the Set
@@ -464,10 +465,51 @@ export const STEP_REGISTRY = [
     triggers: ["key-manager.*", "tools.updated"],
   },
   {
+    // The Memory bank step (setup spec, "6. Memory bank"; banks spec, "The Memory bank step and the orientation block";
+    // ADR 0010, ADR 0013, ADR 0019, ADR 0034, ADR 0035, ADR 0037; #586), sixth, after Key manager (ADR 0034), at home on
+    // the Knowledge band's Memory banks row (ADR 0027), linking the Key manager and Forges steps, whose connections and
+    // forge accounts a bank's credential and repository come from. It writes no settings key: its banks go through the
+    // banks spec's methods, which the banks build registers (#937). Skippable: with no registered bank it answers skipped.
+    // Its checks await a verification of every bank, a git probe, and answer from what the records' status says; every
+    // bank.* notice re-runs it, and so does every run end of its minted describe session (ADR 0019), whose prompt it
+    // names.
+    id: "memory-bank",
+    home: "knowledge.banks",
+    writes: [],
+    writesState: [
+      { method: "banks.create", parts: ["banks"] },
+      { method: "banks.join", parts: ["banks"] },
+      { method: "banks.publish", parts: ["banks"] },
+      { method: "banks.registry.update", parts: ["banks"] },
+    ],
+    checks: [],
+    stateChecks: [
+      { id: "memory-bank.present", holds: "At least one memory bank is registered on this environment.", actions: [] },
+      { id: "memory-bank.reachable", holds: "Each enabled bank's remote answers, or its local repository exists.", actions: ["check-again"] },
+      // ADR 0019: an open pull request holding BANK.md on a bank whose merges are reviewed counts as landed, awaiting review.
+      {
+        id: "memory-bank.manifest",
+        holds: "Each enabled bank's BANK.md on main passes the validator, or waits for review in an open pull request on a bank whose merges are reviewed.",
+        actions: ["revise"],
+      },
+      { id: "memory-bank.orientation", holds: "Every orientation memory each enabled bank names exists.", actions: [] },
+      { id: "memory-bank.owners", holds: "Each enabled team bank's owners resolve on its forge.", actions: [] },
+      { id: "memory-bank.landing", holds: "No landing on an enabled bank has failed.", actions: ["check-again"] },
+    ],
+    links: [{ step: "key-manager" }, { step: "forges" }],
+    skippable: true,
+    skip: "memory-bank.present",
+    budget: "git",
+    cadence: { minutes: 60 },
+    triggers: ["bank.*"],
+    llm: "describe-bank",
+  },
+  {
     // The Instructions step (skills spec, "Set up"; ADR 0030; #505), at home on the Knowledge band's Instructions row
     // (ADR 0027): the orientation switch, which settings.update writes and which passes on any valid value, as a
     // preference's does, and the owned instructions and the dismissed suggestions (#509) through their commands. Never
-    // skipped. Its state check (the block rendered with no failed registry read) is #514's, and its triggers #588's.
+    // skipped. Its state check (the block rendered with no failed registry read) is #514's. The block renders each bank,
+    // so every bank.* notice re-runs it (#586); its other triggers are #588's.
     id: "instructions",
     home: "knowledge.instructions",
     writes: ["instructions.orientation"],
@@ -489,7 +531,7 @@ export const STEP_REGISTRY = [
     skippable: false,
     budget: "local",
     cadence: { minutes: 60 },
-    triggers: [],
+    triggers: ["bank.*"],
   },
   {
     // The Browser step (ADR 0024; browser spec, "The Browser step's environment side"), at home on the Access band's
