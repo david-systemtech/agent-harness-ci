@@ -49,6 +49,7 @@ export const ANSWERED_COMMANDS = [
   "files",
   "diff",
   "documents",
+  "browser",
   "trust",
   ...RAIL_COMMANDS,
   "fork",
@@ -85,6 +86,7 @@ export type Command =
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
   | { readonly kind: "documents" }
+  | { readonly kind: "browser" }
   | { readonly kind: "trust"; readonly decision: "trusted" | "declined" }
   /** `/rewind [n]`: to the prompt `back` prompts from the end (1, the latest). */
   | { readonly kind: "rewind"; readonly back: number }
@@ -183,6 +185,8 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "terminal" }, "/terminal");
     case "diff":
       return bare(rest, { kind: "diff" }, "/diff");
+    case "browser":
+      return bare(rest, { kind: "browser" }, "/browser");
     case "documents":
       return bare(rest, { kind: "documents" }, "/documents");
     case "files":
