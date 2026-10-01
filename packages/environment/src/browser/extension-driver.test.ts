@@ -447,6 +447,20 @@ describe("browser_open's browser argument", () => {
     expect(payloadsOf(t, id, "session.browser.set")).toHaveLength(2);
   });
 
+  it("is refused in a session that names a Chrome, whose browser_open takes none, and the session keeps its Chrome", async () => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const personal = await pair(t, "Personal");
+    const client = await clientOf(t);
+    const id = await sessionWith(client, chromeOf(t, work.id));
+
+    const [answer] = await run(t, client, id, ["browser_open", { browser: "Personal", address: "example.com" }]);
+
+    expect(answer).toEqual({ text: "browser_open has no argument browser; it takes address, snapshot.", isError: true });
+    expect([...work.extension.calls, ...personal.extension.calls]).toEqual([]);
+    expect(payloadsOf(t, id, "session.browser.set")).toEqual([{ browser: chromeOf(t, work.id), chosenBy: "person" }]);
+  });
+
   it("naming no paired Chrome is refused with the names the person gave them, and nothing is recorded", async () => {
     const t = await start();
     const work = await pair(t, "Work");

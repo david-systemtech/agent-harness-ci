@@ -674,9 +674,9 @@ export const pageTools = (kind: PageDriverKind, options: PageToolsOptions): Host
         const args = argsOf(name, spec, input);
         if (typeof args === "string") return refused(args);
         // Only browser_open of the plain My Chrome takes browser: no other tool's input fits with it.
-        const asked = input["browser"];
-        if (typeof asked !== "string" || choose === undefined) return drive(input, args, options.live());
-        const browser = choose(asked);
+        const chromeName = input["browser"];
+        if (typeof chromeName !== "string" || choose === undefined) return drive(input, args, options.live());
+        const browser = choose(chromeName);
         const answer = await drive(input, args, browser);
         return "chosen" in browser ? { ...answer, text: `This session uses the Chrome ${browser.chosen} from now on.\n${answer.text}` } : answer;
       },

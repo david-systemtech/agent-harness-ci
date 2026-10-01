@@ -47,9 +47,10 @@ export interface ExtensionDriver {
 
 const refusal = (reason: string): PageOutcome => ({ ok: false, reason });
 
-
 /** What the model reads where a Chrome is closed: the extension only runs while Chrome is open. */
 const CLOSED = "the extension only runs while Chrome is open";
+
+const notConnected = (chrome: DrivenChrome, env: string): string => `The Chrome ${chrome.name} is not connected to ${env}: ${CLOSED}. Ask the person to open it, then try again.`;
 
 export const createExtensionDriver = (options: ExtensionDriverOptions): ExtensionDriver => {
   /** The Chrome a verb goes to, or the sentence why there is none. */
@@ -59,7 +60,7 @@ export const createExtensionDriver = (options: ExtensionDriverOptions): Extensio
     if (chromeId !== null) {
       const chrome = paired.find((candidate) => candidate.id === chromeId.toLowerCase());
       if (chrome === undefined) return `The Chrome this session names is no longer paired with ${env}. Ask the person to choose another browser for this session, or to pair that Chrome again.`;
-      if (!options.isConnected(chrome.id)) return `The Chrome ${chrome.name} is not connected to ${env}: ${CLOSED}. Ask the person to open it, then try again.`;
+      if (!options.isConnected(chrome.id)) return notConnected(chrome, env);
       return chrome;
     }
     if (paired.length === 0) return `No Chrome is paired with ${env}. Ask the person to pair their Chrome in the Browser step of Set up, or to choose another browser for this session.`;
@@ -73,7 +74,12 @@ export const createExtensionDriver = (options: ExtensionDriverOptions): Extensio
   };
 
   const perform = async (chromeId: string | null, call: PageCall): Promise<PageOutcome> => {
-    const chrome = target(chromeId);
+    let chrome: DrivenChrome | string;
+    try {
+      chrome = target(chromeId);
+    } catch (error) {
+      return refusal(`The environment could not read its paired Chromes: ${error instanceof Error ? error.message : String(error)}.`);
+    }
     if (typeof chrome === "string") return refusal(chrome);
     const deadlineMs = pageCallDeadlineMs(call.command);
     const answer = await options.call(chrome.id, call, deadlineMs);
@@ -81,7 +87,7 @@ export const createExtensionDriver = (options: ExtensionDriverOptions): Extensio
       case "answered":
         return answer.outcome;
       case "not-connected":
-        return refusal(`The Chrome ${chrome.name} is not connected to ${options.environmentName()}: ${CLOSED}. Ask the person to open it, then try again.`);
+        return refusal(notConnected(chrome, options.environmentName()));
       case "disconnected":
         return refusal(`The Chrome ${chrome.name} disconnected before it answered: ${CLOSED}. Ask the person to open it again if it closed, then try again.`);
       case "timed-out":
