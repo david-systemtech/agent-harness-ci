@@ -401,7 +401,6 @@ export const OWED_HANDLERS = {
   // commands, run now (#523) routines.runNow and routines.history, and the endpoints (#522) routines.endpoints.*.
   "routines.testPreCheck": "#526",
   "routines.scripts.list": "#526",
-  "routines.import": "#528",
   // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
   "stateImport.run": "#94",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };

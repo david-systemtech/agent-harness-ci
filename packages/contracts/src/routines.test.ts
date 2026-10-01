@@ -530,7 +530,6 @@ describe("the routines methods", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
       "routines.testPreCheck": "#526",
       "routines.scripts.list": "#526",
-      "routines.import": "#528",
     });
   });
 

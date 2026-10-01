@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { registry } from "@agent-harness/contracts";
+import { registry, type Ceiling, type SchemaIssue } from "@agent-harness/contracts";
 import { readRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -247,6 +247,114 @@ describe("a document's workspace", () => {
       [scratch, scratch],
       [{ kind: "directory", path: elsewhere, repositoryIdentity: null }, null],
     ]);
+  });
+});
+
+/** A client of a client session paired under `ceiling` with the routine commands' scope, as a phone would be. */
+const paired = async (t: TestEnvironment, ceiling: Ceiling): Promise<WireClient> =>
+  t.client({ token: (await t.pair({ kind: "web", label: "a phone", ceiling, scopes: ["read", "sessions:write"] })).token, clientKind: "web" });
+
+/** The paths of the issues an `invalid_params` names. */
+const pathsOf = (data: Record<string, unknown>): SchemaIssue["path"][] => (data["issues"] as SchemaIssue[]).map((issue) => issue.path);
+
+describe("routines.import", () => {
+  it("makes each document a routine under the ids given, as the client session, saved under its ceiling and linked to the routine it was moved from, answering the routines and checkImport's warnings", async () => {
+    const t = await start();
+    const phone = await paired(t, "acceptEdits");
+    const checkout = clone();
+    await create(await t.client(), { workspace: { kind: "directory", path: checkout } });
+    const elsewhere = join(tempDir(), "elsewhere", "agent-harness");
+    const yaml = yamlOf(
+      documentYaml({ name: "First", enabled: "true", workspace: `{ kind: directory, path: "${elsewhere}", repository-identity: ${IDENTITY} }` }),
+      documentYaml({ name: "Second", account: "{ provider: fake, email: nobody@example.com, organisation: null }" }),
+    );
+    const [first, second] = [randomUUID(), randomUUID()];
+    const original = { environmentId: randomUUID(), routineId: randomUUID() };
+
+    const answer = await routineCommand(phone, "routines.import", { yaml, routineIds: [first.toUpperCase(), second], movedFrom: { ...original, routineId: original.routineId.toUpperCase() } });
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    const resolved = { kind: "directory", path: checkout, repositoryIdentity: IDENTITY };
+    const movedFrom = { ...original, at: MANUAL_CLOCK_START };
+    expect(answer.result?.warnings).toEqual([
+      { attention: [], workspace: resolved },
+      { attention: ["account_missing"], workspace: null },
+    ]);
+    expect(answer.result?.routines.map((routine) => [routine.state.id, routine.definition, routine.state.savedUnderCeiling, routine.state.savedBy, routine.state.movedFrom])).toEqual([
+      [first, { ...importedDefinition, name: "First", enabled: true, workspace: resolved }, "acceptEdits", phone.hello.clientSessionId, movedFrom],
+      [second, { ...importedDefinition, name: "Second", account: { provider: "fake", email: "nobody@example.com", organisation: null } }, "acceptEdits", phone.hello.clientSessionId, movedFrom],
+    ]);
+    expect(routineEvents(t).map((event) => [event.type, event.actor])).toEqual([
+      ["routine.created", `client_session:${phone.hello.clientSessionId}`],
+      ["routine.created", `client_session:${phone.hello.clientSessionId}`],
+    ]);
+    expect(await listRoutines(phone)).toEqual(answer.result?.routines);
+  });
+
+  it("mints the routines' ids when none are given", async () => {
+    const t = await start();
+    const client = await t.client();
+    const answer = await routineCommand(client, "routines.import", { yaml: yamlOf(documentYaml({ name: "First" }), documentYaml({ name: "Second" })) });
+    const ids = answer.result?.routines.map((routine) => routine.state.id) ?? [];
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect((await listRoutines(client)).map((routine) => routine.state.id)).toEqual(ids);
+  });
+
+  it("with routineId replaces that routine's definition from one document, keeping its id, state and links, saved under the caller's ceiling; refuses a second document and a routine not here", async () => {
+    const t = await start();
+    const client = await t.client();
+    const watch = await created(client);
+    const phone = await paired(t, "plan");
+    t.clock.advance(60_000);
+
+    const yaml = documentYaml({ name: "upstream watch", mode: "acceptEdits", schedule: "{ kind: daily, at: \"06:00\" }" });
+    const answer = await routineCommand(phone, "routines.import", { yaml, routineId: watch.state.id, movedFrom: { environmentId: randomUUID(), routineId: randomUUID() } });
+    const definition = { ...importedDefinition, name: "upstream watch", mode: "acceptEdits", schedule: { kind: "daily", at: "06:00" } };
+    expect(answer.result).toEqual({ routines: [expect.objectContaining({ definition })], warnings: [{ attention: ["clamped"], workspace: null }] });
+    expect(answer.result?.routines[0]?.state).toMatchObject({ id: watch.state.id, savedUnderCeiling: "plan", movedFrom: null, createdAt: watch.state.createdAt, editedAt: t.clock.now().toISOString() });
+    expect(routineEvents(t, watch.state.id).at(-1)).toEqual({ type: "routine.edited", payload: { fields: definition, savedUnderCeiling: "plan" }, actor: `client_session:${phone.hello.clientSessionId}` });
+
+    const two = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: yamlOf(documentYaml(), documentYaml({ name: "Other" })), routineId: watch.state.id }));
+    expect(two.code).toBe("invalid_params");
+    expect(pathsOf(two.data)).toEqual([["yaml"]]);
+    const missing = randomUUID();
+    const notHere = await routineCommand(client, "routines.import", { yaml, routineId: missing });
+    expect(notHere.receipt).toMatchObject({ status: "rejected", reason: "not_found", error: { data: { kind: "routine", routineId: missing } } });
+    expect(routineEvents(t).map((event) => event.type)).toEqual(["routine.created", "routine.edited"]);
+  });
+
+  it("is all or nothing: a document with an issue refuses the whole import invalid_params at its path under yaml, and so does a count of ids other than the documents' or a YAML with none", async () => {
+    const t = await start();
+    const client = await t.client();
+    const broken = yamlOf(documentYaml({ name: "Fine" }), documentYaml({ name: "Broken", schedule: "{ kind: hourly, minute: 60 }" }));
+    const refused = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: broken }));
+    expect(refused.code).toBe("invalid_params");
+    expect(pathsOf(refused.data)).toEqual([["yaml", 1, "schedule", "minute"]]);
+
+    const counted = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: yamlOf(documentYaml({ name: "A" }), documentYaml({ name: "B" })), routineIds: [randomUUID()] }));
+    expect(pathsOf(counted.data)).toEqual([["routineIds"]]);
+    const empty = await refusal(client.request("routines.import", { commandId: randomUUID(), yaml: "# nothing to import\n" }));
+    expect(pathsOf(empty.data)).toEqual([["yaml"]]);
+    expect(await listRoutines(client)).toEqual([]);
+  });
+
+  it("fails the whole import conflict name_taken naming the document when a routine here or an earlier document holds its name, and conflict exists for an id used before; nothing is saved", async () => {
+    const t = await start();
+    const client = await t.client();
+    const watch = await created(client);
+
+    const held = await routineCommand(client, "routines.import", { yaml: yamlOf(documentYaml({ name: "Fine" }), documentYaml({ name: "UPSTREAM WATCH" })) });
+    expect(held.receipt).toMatchObject({
+      status: "rejected",
+      reason: "conflict",
+      error: { data: { reason: "name_taken", document: 1, name: "UPSTREAM WATCH", heldName: "Upstream watch", routineId: watch.state.id } },
+    });
+    const twice = await routineCommand(client, "routines.import", { yaml: yamlOf(documentYaml({ name: "Twice" }), documentYaml({ name: "twice" })) });
+    expect(twice.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "name_taken", document: 1, name: "twice", heldName: "Twice", heldByDocument: 0 } } });
+    const used = await routineCommand(client, "routines.import", { yaml: yamlOf(documentYaml({ name: "Fresh" }), documentYaml({ name: "Fresher" })), routineIds: [randomUUID(), watch.state.id] });
+    expect(used.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "exists", routineId: watch.state.id } } });
+    expect(await listRoutines(client)).toEqual([watch]);
+    expect(routineEvents(t).map((event) => event.type)).toEqual(["routine.created"]);
   });
 });
 

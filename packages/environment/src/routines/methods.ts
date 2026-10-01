@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   ContractError,
   ROUTINE_HISTORY_LIMIT,
+  invalidParams,
   lowerMode,
   type Ceiling,
   type ListedRoutine,
@@ -14,6 +15,7 @@ import {
   type RoutineFields,
   type RoutineMoveLink,
   type RoutineWorkspace,
+  type SchemaIssue,
 } from "@agent-harness/contracts";
 import { renderRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
@@ -24,7 +26,7 @@ import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, Me
 import type { Reader } from "../sessions/session-tables.js";
 import { endFiring, firingText } from "./firing-end.js";
 import type { FiringStart, FiringStarter } from "./firing-start.js";
-import { nameHolders, nameTakenIssue, oneDocumentIssue, readImport } from "./import-documents.js";
+import { heldBy, nameHolders, nameTakenIssue, oneDocumentIssue, readImport, type ImportDocument } from "./import-documents.js";
 import { listRoutine, routineAttention, type RoutineAccounts } from "./listing.js";
 import { appendRoutineRecord, routineStream } from "./records.js";
 import { entryPosition, listStoredRoutines, liveFiringOfRoutine, liveRoutine, routineEntries, routineEver, routineNamed, type StoredRoutine } from "./routine-store.js";
@@ -80,10 +82,36 @@ type RoutineMethodName =
   | "routines.delete"
   | "routines.runNow"
   | "routines.export"
-  | "routines.checkImport";
+  | "routines.checkImport"
+  | "routines.import";
 
 /** What a command on one routine decides: the event to append for it, with the change its notice names, or its refusal. */
 type Decision = { readonly event: EventInput; readonly change: RoutineChange; readonly rejected?: undefined } | { readonly rejected: CommandRejection<"not_found" | "conflict"> };
+
+/** `then` over a value a seam answers at once or later: at once when it is there, so a command keeps its place among its socket's requests. */
+const whenReady = <T, R>(value: T | Promise<T>, then: (ready: T) => R): R | Promise<R> => (value instanceof Promise ? value.then(then) : then(value));
+
+/** Whether a document read with no issue, so it holds its definition. */
+const isRead = (document: ImportDocument): document is ImportDocument & { readonly definition: RoutineDefinition } => document.definition !== null;
+
+/** An `invalid_params` issue about the import's params as a whole, at `path`. */
+const importIssue = (path: (string | number)[], message: string): SchemaIssue => ({ code: "custom", path, message });
+
+/**
+ * Why an import cannot be read, before any routine is looked at: a document
+ * with an issue (each at its path under `yaml` and the document's place),
+ * none at all, more than one replacing a routine, or ids for another count.
+ */
+const unreadable = (documents: readonly ImportDocument[], routineIds: readonly string[] | undefined, replacing: boolean): SchemaIssue[] => {
+  const issues = documents.flatMap((document) => document.issues.map((issue) => ({ ...issue, path: ["yaml", document.index, ...issue.path] })));
+  if (issues.length > 0) return issues;
+  if (documents.length === 0) return [importIssue(["yaml"], "The YAML holds no routine document.")];
+  if (replacing && documents.length > 1) return [importIssue(["yaml"], oneDocumentIssue(documents.length).message)];
+  if (routineIds !== undefined && routineIds.length !== documents.length) {
+    return [importIssue(["routineIds"], `${routineIds.length} ids were given for ${documents.length} routine documents; one is needed for each.`)];
+  }
+  return [];
+};
 
 /** The refusal of a routine the environment does not hold, or has deleted. */
 const routineNotFound = (routineId: string) => ({ code: "not_found" as const, message: `No routine ${routineId} is on this environment.`, data: { kind: "routine", routineId } });
@@ -111,15 +139,12 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
     };
   };
 
-  /** The refusal of a routine made under `id`: one was made under it before, or another live routine holds `name`; null when it may be made. */
-  const createRefusal = (id: string, name: string): CommandRejection<"conflict"> | null =>
-    routineEver(reader, id) ? { code: "conflict", message: `A routine ${id} was made on this environment already.`, data: { reason: "exists", routineId: id } } : nameTaken(name, id);
+  /** The refusal of a routine made under `id` when one was made under it before, deleted since or not; null when none was. */
+  const usedId = (id: string): CommandRejection<"conflict"> | null =>
+    routineEver(reader, id) ? { code: "conflict", message: `A routine ${id} was made on this environment already.`, data: { reason: "exists", routineId: id } } : null;
 
-  /** `then` over a workspace as a save records it (`workspace.ts`): at once when placing it asks nothing, else once it is placed. */
-  const placed = <R>(workspace: RoutineWorkspace, reresolve: boolean, then: (placement: PlacedWorkspace) => R): R | Promise<R> => {
-    const placement = options.workspaces.place(workspace, reresolve);
-    return placement instanceof Promise ? placement.then(then) : then(placement);
-  };
+  /** `then` over a workspace as a create or an edit records it (`workspace.ts`): at once when placing it asks nothing, else once it is placed. */
+  const placed = <R>(workspace: RoutineWorkspace, then: (placement: PlacedWorkspace) => R): R | Promise<R> => whenReady(options.workspaces.place(workspace, false), then);
 
   /**
    * Appends a decision's event to the routine's stream as the command, and
@@ -207,6 +232,77 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
       };
     },
 
+    /**
+     * Imports routine documents, all or nothing (#528): read, and each
+     * workspace placed, before the command's transaction, where a document
+     * with an issue refuses the whole import `invalid_params`. In it, each
+     * document becomes a routine under the id given for it (minted when
+     * none are), linked to the routine `movedFrom` names; or, with
+     * `routineId`, the one document replaces that routine's definition,
+     * the routine keeping its id, state and links. Saved under the calling
+     * client session's ceiling. A name another routine or an earlier
+     * document holds, or an id a routine was made under before, refuses
+     * it before anything is appended. Answered with the routines and
+     * `routines.checkImport`'s warnings.
+     */
+    "routines.import": {
+      prepare: (params) =>
+        whenReady(readImport(params.yaml, options.timeZone, options.workspaces), (documents): MethodHandler<"routines.import"> => {
+          const replacing = params.routineId === undefined ? null : params.routineId.toLowerCase();
+          const issues = unreadable(documents, params.routineIds, replacing !== null);
+          if (issues.length > 0) throw new ContractError(invalidParams(issues, "The YAML cannot be imported as it is."));
+          const read = documents.filter(isRead);
+          return (_params, context) => {
+            const at = clock().toISOString();
+            const holders = nameHolders(reader, read, replacing);
+            /** The refusal of the document at `index` when a routine or an earlier document holds its name; null when none does. */
+            const nameRefusal = (index: number): CommandRejection<"conflict"> | null => {
+              const holder = holders[index] ?? null;
+              if (holder === null) return null;
+              const name = read[index]?.definition.name ?? "";
+              const held = holder.kind === "routine" ? { routineId: holder.routineId } : { heldByDocument: holder.document };
+              return { code: "conflict", message: `Document ${index} names its routine ${JSON.stringify(name)}. ${heldBy(holder)}.`, data: { reason: "name_taken", document: index, name, heldName: holder.heldName, ...held } };
+            };
+            const warningsOf = (document: ImportDocument, routine: ListedRoutine) => ({ attention: routine.attention, workspace: document.reresolved });
+
+            const [replacement] = read;
+            if (replacing !== null && replacement !== undefined) {
+              return onRoutine(
+                replacing,
+                context,
+                () => {
+                  const taken = nameRefusal(0);
+                  if (taken !== null) return { rejected: taken };
+                  const payload: RoutineEditedPayload = { fields: replacement.definition, savedUnderCeiling: ceilingOf(context.clientSession) };
+                  return { event: { type: "routine.edited", payload }, change: "edited" };
+                },
+                (id) => {
+                  const { routine } = listedAfter(id);
+                  return { routines: [routine], warnings: [warningsOf(replacement, routine)] };
+                },
+              );
+            }
+
+            const made = read.map((document, index) => ({ document, id: (params.routineIds?.[index] ?? randomUUID()).toLowerCase() }));
+            const aggregate = routineStream(made[0]?.id ?? "");
+            for (const [index, { id }] of made.entries()) {
+              const refused = usedId(id) ?? nameRefusal(index);
+              if (refused !== null) return { aggregate, rejected: refused };
+            }
+            const { movedFrom } = params;
+            const link = movedFrom === undefined ? null : { environmentId: movedFrom.environmentId, routineId: movedFrom.routineId.toLowerCase(), at };
+            const listedMade = made.map(({ document, id }) => {
+              appendCreated(id, document.definition, link, context, at);
+              return { document, routine: listedAfter(id).routine };
+            });
+            return {
+              aggregate,
+              result: { routines: listedMade.map(({ routine }) => routine), warnings: listedMade.map(({ document, routine }) => warningsOf(document, routine)) },
+            };
+          };
+        }),
+    },
+
     /** The routines as YAML (#528), every one or those named, in the list's order, under a comment naming the environment and the time. */
     "routines.export": (params) => {
       const routines = listStoredRoutines(reader);
@@ -267,11 +363,11 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
      */
     "routines.create": {
       prepare: (params) =>
-        placed(params.definition.workspace, false, ({ workspace }): MethodHandler<"routines.create"> => (_params, context) => {
+        placed(params.definition.workspace, ({ workspace }): MethodHandler<"routines.create"> => (_params, context) => {
           const id = params.routineId.toLowerCase();
           const { timezone, ...written } = params.definition;
           const definition: RoutineDefinition = { ...written, workspace, name: written.name.trim(), timezone: timezone ?? options.timeZone };
-          const refused = createRefusal(id, definition.name);
+          const refused = usedId(id) ?? nameTaken(definition.name, id);
           if (refused !== null) return { aggregate: routineStream(id), rejected: refused };
           appendCreated(id, definition, null, context, clock().toISOString());
           return { aggregate: routineStream(id), result: listedAfter(id) };
@@ -300,7 +396,7 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
             },
             listedAfter,
           );
-        return params.fields.workspace === undefined ? edit(undefined) : placed(params.fields.workspace, false, (placement) => edit(placement.workspace));
+        return params.fields.workspace === undefined ? edit(undefined) : placed(params.fields.workspace, (placement) => edit(placement.workspace));
       },
     },
 
