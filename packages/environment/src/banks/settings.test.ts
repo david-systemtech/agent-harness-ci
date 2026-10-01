@@ -127,7 +127,8 @@ describe("bank registry settings through the wire", () => {
     const otherSession = randomUUID();
     await client.request("sessions.create", { commandId: randomUUID(), id: otherSession, workspace: { kind: "scratch" } });
     expect((await client.request("banks.pin", { commandId: randomUUID(), sessionId: otherSession, pointer, pinned: false })).result).toEqual({ sessionId: otherSession, pins: [] });
-    expect((await client.request("banks.pin", { commandId: randomUUID(), sessionId: randomUUID(), pointer, pinned: true })).receipt).toMatchObject({ status: "rejected", error: { code: "not_found" } });
+    const missingSession = randomUUID();
+    expect((await client.request("banks.pin", { commandId: randomUUID(), sessionId: missingSession, pointer, pinned: true })).receipt).toMatchObject({ status: "rejected", error: { code: "not_found", data: { kind: "session", sessionId: missingSession } } });
     expect((await update(client, bank, { pins: ["maya-memory:personal/missing/"] })).receipt).toMatchObject({ status: "rejected", error: { code: "not_found" } });
     await client.request("banks.forget", { commandId: randomUUID(), bankId: bank.id });
     const replacement = await registered(client, PERSONAL_BANK);

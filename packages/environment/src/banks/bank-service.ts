@@ -473,8 +473,11 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       const entry = listBanks(reader).find((bank) => bank.name === named?.bank);
       const reading = entry === undefined ? null : await readingOf(entry);
       const apply: MethodHandler<"banks.pin"> = (_params, command) => {
-        if (entry === undefined || liveBank(reader, entry.id) === null || readSummary(reader, params.sessionId) === null || !readPointer(reading?.index == null ? [] : [reading.index], params.pointer).found) {
-          return { aggregate: stream, rejected: { code: "not_found", message: "The session or bank folder is not present." } };
+        if (readSummary(reader, params.sessionId) === null) {
+          return { aggregate: stream, rejected: { code: "not_found", message: "The session is not present.", data: { kind: "session", sessionId: params.sessionId } } };
+        }
+        if (entry === undefined || liveBank(reader, entry.id) === null || !readPointer(reading?.index == null ? [] : [reading.index], params.pointer).found) {
+          return { aggregate: stream, rejected: { code: "not_found", message: "The bank folder is not present." } };
         }
         const pins = sessionBankPins(reader, params.sessionId);
         if (pins.includes(params.pointer) !== params.pinned) {
