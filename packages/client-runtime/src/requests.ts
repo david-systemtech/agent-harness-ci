@@ -306,7 +306,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "instructions.preview": INSTRUCTION_REFRESH_NOTICES,
   "instructions.diff": ["instructions.updated"],
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
-  "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
+  "keyManagers.move.list": [...BANK_RECORD_EVENTS, ...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
   "browser.status": ["extension.seen", "chrome.updated", "settings.changed"],
   "browser.chromes.list": ["chrome.updated"],

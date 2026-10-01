@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AccountId } from "./accounts.js";
 import { BANK_KINDS, BankName } from "./banks.js";
+import { KeyManagerReference } from "./key-managers.js";
 import { ForgeOrigin } from "./forge.js";
 import { EnvironmentId, Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
@@ -166,6 +167,8 @@ export const BankEntry = z
     mergeOverride: BankMergeOverride,
     privateCopy: z.boolean().meta({ description: "Whether a team fact may also be kept in the personal bank beside it (ADR 0034); off unless set." }),
     credential: BankCredentialSource,
+    credentialEntry: z.string().min(1).nullable().optional().meta({ description: "The vault entry holding a stored fallback, never its value; null after a swap." }),
+    credentialReference: KeyManagerReference.nullable().optional().meta({ description: "The fallback's key-manager reference, resolved for each bank git operation; never its value." }),
     status: BankStatus,
     importedFrom: z.string().min(1).nullable().meta({ description: "What the state import registered the bank from: a repeated register naming it answers this bank; null otherwise." }),
     copiedFrom: BankCopiedFrom.nullable(),
@@ -210,6 +213,8 @@ export const BankUpdatedPayload = z
     mergeOverride: BankMergeOverride.optional(),
     privateCopy: z.boolean().optional(),
     credential: BankCredentialSource.optional(),
+    credentialEntry: z.string().min(1).nullable().optional(),
+    credentialReference: KeyManagerReference.nullable().optional(),
   })
   .meta({ description: "bank.updated: a bank's registry settings or what its BANK.md names changed; the fields that changed. Also a notice a client refreshes banks.list and banks.get on." });
 export type BankUpdatedPayload = z.infer<typeof BankUpdatedPayload>;
