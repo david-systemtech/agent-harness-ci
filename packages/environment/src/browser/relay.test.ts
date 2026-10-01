@@ -185,7 +185,7 @@ describe("the call", () => {
     const answers: HostToolResult[] = [];
     adapterOf(t).nextScripts.push(calling([["browser_snapshot"]], answers));
     await starter.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Wait for more" });
-    // Sent once the provider has the run, the order the flake lost.
+    // Sent once the provider has the run, the order in which a provider queue would take the message.
     await adapterOf(t).reached(2);
     await first.request("runs.send", { commandId: randomUUID(), sessionId: id, text: "And look at the page" });
     sent.open();
