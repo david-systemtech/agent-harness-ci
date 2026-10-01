@@ -217,6 +217,7 @@ import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./ht
 import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
 import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
+import { refuseMarkedRestore } from "./launcher-files.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
@@ -844,6 +845,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
 
   const log: EventLog = await step("database", () => {
+    refuseMarkedRestore(dataDir);
     const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
     closers.push(() => opened.close());
     return opened;
