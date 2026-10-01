@@ -18,6 +18,7 @@ import {
   ContainmentReport,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
+  SIGN_IN_ENDED_STATES,
   UPDATE_SETTINGS_KEYS,
   type ReviewRun,
   SignIn,
@@ -173,7 +174,10 @@ export interface ScriptedEnvironment {
   readonly review?: readonly Partial<ReviewRun>[];
   /** What `accounts.handoff.recommend` answers, over no recommendation. */
   readonly recommendation?: Partial<HandoffRecommendation>;
-  /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
+  /**
+   * What `accounts.add` says of the sign-in it starts: preset it starts one, unless a sign-in that has not ended holds
+   * the environment, which `accounts.signin.start` is refused for too (`signin_running`), as the director runs one at a time.
+   */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
   /**
    * What `accounts.probe` reads of the machine's own Claude directory, `/home/seth/.claude`, which `accounts.adopt`
@@ -1560,18 +1564,32 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     later(() => notice("signin.updated", { ...started }));
     return signIn;
   };
+  /** The sign-in that has not ended, which holds the environment: one at a time, as the director runs them. */
+  const runningSignIn = (): SignIn | null => (signIn !== null && !(SIGN_IN_ENDED_STATES as readonly SignInState[]).includes(signIn.state) ? signIn : null);
+  /** What the director says of a sign-in held by `running`'s account. */
+  const heldMessage = (running: SignIn) =>
+    `A sign-in is already running for ${accounts.find((a) => a.id === running.accountId)?.label ?? running.accountId}; cancel it, or wait for it to end.`;
   wire.answer("accounts.signin.get", () => ({ result: { signIn } }));
   wire.answer("accounts.add", (params) => {
     const refused = rejection("accounts.add");
     if (refused) return refused;
     const id = ++accountsMinted;
-    const account = accountOf({ id: `account-${id}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const label = String(params["label"]);
+    const running = runningSignIn();
+    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
-    const start = spec.addSignIn ?? { started: true, message: null };
+    const start =
+      spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });
     if (start.started) startSignIn(account.id);
     return acceptedWith({ account, signIn: start });
   });
-  wire.answer("accounts.signin.start", (params) => rejection("accounts.signin.start") ?? acceptedWith({ signIn: startSignIn(String(params["accountId"])) }));
+  wire.answer("accounts.signin.start", (params) => {
+    const refused = rejection("accounts.signin.start");
+    if (refused) return refused;
+    const running = runningSignIn();
+    if (running !== null) return accountRefusal("signin_running", heldMessage(running), { accountId: running.accountId });
+    return acceptedWith({ signIn: startSignIn(String(params["accountId"])) });
+  });
   wire.answer("accounts.signin.code", (params) => {
     const refused = rejection("accounts.signin.code");
     if (refused) return refused;

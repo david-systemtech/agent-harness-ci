@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { cursorPosition, editorWindow, lines as editorLines, type EditorState } from "../composer/editor.js";
 import type { CommandRow, Popup } from "../composer/state.js";
 
@@ -109,7 +110,7 @@ export const ComposerView = (props: ComposerViewProps) => {
   const empty = editor.text.length === 0;
   const barred = props.locked !== undefined || props.gone !== undefined;
   const glyph = barred ? "✕ " : "› ";
-  const glyphColor = barred ? "yellow" : focused ? "cyan" : undefined;
+  const glyphColor = barred ? TERMINAL_ROLES.warning : focused ? TERMINAL_ROLES.machine : undefined;
   return (
     <Box flexDirection="column" flexShrink={0}>
       {window.top > 0 && (
@@ -120,7 +121,7 @@ export const ComposerView = (props: ComposerViewProps) => {
       {empty && props.gone !== undefined ? (
         <Box flexShrink={0}>
           <Text wrap="truncate-end">
-            <Text color="yellow">{glyph}</Text>
+            <Text color={TERMINAL_ROLES.warning}>{glyph}</Text>
             {props.gone} is gone
           </Text>
         </Box>
@@ -150,19 +151,19 @@ export const ComposerView = (props: ComposerViewProps) => {
         </Text>
       )}
       {props.locked !== undefined && (
-        <Text color="yellow" wrap="truncate-end">
+        <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">
           {"  "}Locked: {props.locked}
         </Text>
       )}
       {props.gone !== undefined && (
-        <Text color="yellow" wrap="truncate-end">
+        <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">
           {"  "}Choose a workspace: /cwd
         </Text>
       )}
       {props.search && (
         <Text wrap="truncate-end">
           {"  "}
-          <Text color="cyan">(search {props.search.scope})</Text> {props.search.query}
+          <Text color={TERMINAL_ROLES.machine}>(search {props.search.scope})</Text> {props.search.query}
           {!props.search.found && props.search.query.length > 0 && <Text dimColor> · no match</Text>}
         </Text>
       )}

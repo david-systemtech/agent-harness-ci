@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Badge } from "../rail/badge.js";
 import { headingState, nameOf } from "../view.js";
 
@@ -32,7 +33,7 @@ export const Header = (props: {
 }) => {
   const { current, badge } = props;
   const state = current && headingState(current, props.startingService);
-  const phase = current?.phase === "ready" ? "green" : "yellow";
+  const phase = current?.phase === "ready" ? TERMINAL_ROLES.success : TERMINAL_ROLES.warning;
   return (
     <Box height={1}>
       <Text wrap="truncate-end">
@@ -81,7 +82,7 @@ export const HintLine = (props: { readonly hint: string | undefined; readonly ac
     <Text wrap="wrap">
       {props.hint !== undefined && <Text dimColor>{props.hint}</Text>}
       {props.hint !== undefined && props.activity !== undefined && <Text dimColor> · </Text>}
-      {props.activity !== undefined && <Text color="red">{props.activity}</Text>}
+      {props.activity !== undefined && <Text color={TERMINAL_ROLES.danger}>{props.activity}</Text>}
       {props.hint === undefined && props.activity === undefined && <Text dimColor>{props.fallback}</Text>}
     </Text>
   </Box>
@@ -91,7 +92,7 @@ export const HintLine = (props: { readonly hint: string | undefined; readonly ac
 export const Composer = (props: { readonly text: string; readonly focused: boolean }) => (
   <Box height={1}>
     <Text wrap="truncate-start" dimColor={!props.focused}>
-      <Text {...(props.focused && { color: "cyan" })}>› </Text>
+      <Text {...(props.focused && { color: TERMINAL_ROLES.machine })}>› </Text>
       {props.text}
       {props.focused && <Text inverse> </Text>}
     </Text>

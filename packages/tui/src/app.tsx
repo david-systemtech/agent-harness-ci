@@ -59,6 +59,7 @@ import {
   type PromptAnswerInput,
   type PromptKind,
 } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
 import { RECAP_FLASH_MS } from "./attention/policy.js";
@@ -81,7 +82,7 @@ import {
 } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
-import { updateCard, updateNow, updateToClient } from "./commands/updates.js";
+import { drainAndUpdateQuestionLine, updateCard, updateNow, updateRefusal, updateToClient } from "./commands/updates.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
@@ -143,6 +144,8 @@ import { heldApart, keyBytes } from "./terminal/keys.js";
 import { createScreen } from "./terminal/screen.js";
 import { useRawInput } from "./terminal/raw-input.js";
 import { useTerminalPane } from "./terminal/use-terminal.js";
+import { SIXTEEN, ThemeColoursContext, type ColourDepth } from "./theme/colours.js";
+import { useThemeColours } from "./theme/use-theme-colours.js";
 import {
   activityLine,
   clockTime,
@@ -261,6 +264,8 @@ export interface AppProps {
   readonly chrome?: TerminalChrome;
   /** The client-local presentation (the rail's folds): the state directory's; preset, held in memory. */
   readonly presentation?: Presentation;
+  /** How this terminal draws colour (`colourDepth`): preset the sixteen alone, so the theme is not drawn. */
+  readonly depth?: ColourDepth;
 }
 
 type Card =
@@ -470,7 +475,9 @@ export const App = (props: AppProps) => {
   const known = knownEnvironments(views);
   const down = started && localIsDown(views, local);
   const names = new Map(views.map((view) => [view.environmentId, nameOf(view)]));
-  const badges = useMemo(() => badgesOf(views), [views]);
+  // The colours the theme gives this terminal: the home environment's under truecolour, else the sixteen alone.
+  const colours = useThemeColours(runtime, views, props.depth ?? SIXTEEN, request);
+  const badges = useMemo(() => badgesOf(views, colours), [views, colours]);
 
   // The session on screen.
   const session = useSession(runtime, clock, request);
@@ -1357,12 +1364,36 @@ export const App = (props: AppProps) => {
   useFollow(cardStatus, request);
   const cardView = cardEnvironmentId !== undefined ? viewOf(cardEnvironmentId) : undefined;
   const cardUpdate = cardView ? updateCard(cardView, cardStatus?.read(), props.version, clock.now()) : undefined;
-  const cardActions = cardView ? actionsFor(cardView, cardUpdate?.offered ?? null) : [];
+  const cardActions = cardView && cardUpdate ? actionsFor(cardView, cardUpdate) : [];
+
+  // Drain and update now's question and the update it asks about (#878): it goes, unanswered, once the card no longer
+  // shows that update waiting on work (it went, was replaced or withdrawn, or the card closed), and the work coming
+  // back does not bring it back.
+  const drainAsked = useRef<{ readonly question: Question; readonly updateId: string } | undefined>(undefined);
+  const cardDrainableId = cardUpdate?.drainable?.updateId;
+  useEffect(() => {
+    const asked = drainAsked.current;
+    if (asked === undefined || asked.updateId === cardDrainableId) return;
+    drainAsked.current = undefined;
+    setScreen((s) => (s.question === asked.question ? { ...s, question: undefined } : s));
+  }, [cardDrainableId]);
+
+  /** Drain and update now (#878): asked once on the confirm line, unless the connection cannot send it; a yes sends `updates.apply` now. */
+  const drainAndUpdate = (environment: EnvironmentView) => {
+    const drainable = cardUpdate?.drainable;
+    if (!drainable) return;
+    const refusal = updateRefusal(runtime, environment);
+    if (refusal !== undefined) return say(refusal);
+    const question: Question = { text: drainAndUpdateQuestionLine(environment, drainable), yes: () => void updateNow(runtime, environment, props.newCommandId(), "now").then(say) };
+    drainAsked.current = { question, updateId: drainable.updateId };
+    update({ question });
+  };
 
   const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
   const rail = useRail({
     runtime,
     views,
+    colours,
     keymap,
     presentation,
     startingService,
@@ -1462,6 +1493,7 @@ export const App = (props: AppProps) => {
       if (action === "sessions") return openClientSessions(environment);
       if (action === "name" || action === "icon" || action === "colour") return changeLook(environment, action, null);
       if (action === "update") return void updateNow(runtime, environment, props.newCommandId()).then(say);
+      if (action === "drain-and-update") return drainAndUpdate(environment);
       if (action === "update-to-client") return void updateToClient(runtime, environment).then(say);
       if (action === "remove") {
         return update({
@@ -1602,7 +1634,7 @@ export const App = (props: AppProps) => {
           : tasksLines(projection)
       : [];
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
-  const askList = card.kind === "asks" ? askRows(asks, views, opened) : [];
+  const askList = card.kind === "asks" ? askRows(asks, views, opened, colours) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
   const bulk = bulkAsks(askList.map((row) => row.ask));
   /** `y` or `n` on the row under the cursor: a permission or denylist prompt answered in place; any other is opened to answer. */
@@ -2222,8 +2254,8 @@ export const App = (props: AppProps) => {
   const marker =
     opened && freshness !== "live"
       ? freshness === "cached"
-        ? { text: `◌ cached: what this terminal last saw of it; ${names.get(opened.environmentId) ?? "its environment"} is not answering`, color: "yellow" }
-        : { text: "⟳ catching up…", color: "cyan" }
+        ? { text: `◌ cached: what this terminal last saw of it; ${names.get(opened.environmentId) ?? "its environment"} is not answering`, color: TERMINAL_ROLES.warning }
+        : { text: "⟳ catching up…", color: TERMINAL_ROLES.machine }
       : undefined;
   const placeholder = !opened
     ? "no session open: /resume opens one, /new starts one"
@@ -2242,7 +2274,7 @@ export const App = (props: AppProps) => {
   const popup = composer.popup;
   const searchScope = composer.state.search ? (scopes[composer.state.search.scope]?.name ?? "everywhere") : undefined;
 
-  return (
+  const drawn = (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Header
         current={headerView}
@@ -2431,7 +2463,7 @@ export const App = (props: AppProps) => {
         </Box>
       </Box>
       <Line text={screen.line} />
-      <Line text={promptLine} color="yellow" />
+      <Line text={promptLine} color={TERMINAL_ROLES.warning} />
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
@@ -2447,6 +2479,8 @@ export const App = (props: AppProps) => {
       <HintLine hint={promptsHint ?? hint} activity={activity} fallback=" " />
     </Box>
   );
+  // What draws deep in the tree takes the theme's colours from here: a diff's bands.
+  return <ThemeColoursContext.Provider value={colours}>{drawn}</ThemeColoursContext.Provider>;
 };
 
 const clampCursor = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
@@ -2477,11 +2511,11 @@ const noticesLines = (notices: readonly Notice[], names: ReadonlyMap<string, str
 
 /** The notices worth a colour in `/notices`: what blocks a connection or a command in red, a prompt waiting in yellow. */
 const NOTICE_COLOURS: Readonly<Partial<Record<Notice["kind"], string>>> = {
-  revoked: "red",
-  expired: "red",
-  "command-rejected": "red",
-  "command-dropped": "red",
-  "prompt-parked": "yellow",
+  revoked: TERMINAL_ROLES.danger,
+  expired: TERMINAL_ROLES.danger,
+  "command-rejected": TERMINAL_ROLES.danger,
+  "command-dropped": TERMINAL_ROLES.danger,
+  "prompt-parked": TERMINAL_ROLES.warning,
 };
 
 /**
@@ -2539,7 +2573,7 @@ const tasksLines = (projection: { readonly items: readonly { readonly kind: stri
         { text: `${clockTime(task.startedAt)}  ` , dim: true },
         { text: `${task.subagentType ?? task.kind}: `, bold: true },
         { text: task.description },
-        { text: ` · ${task.status}${task.error ? `: ${task.error}` : ""}`, dim: true, ...(task.status === "failed" && { color: "red" }) },
+        { text: ` · ${task.status}${task.error ? `: ${task.error}` : ""}`, dim: true, ...(task.status === "failed" && { color: TERMINAL_ROLES.danger }) },
       ],
     })),
   );

@@ -118,7 +118,33 @@ const report = {
 const nothingCarried = { accountId: "claude-max", dryRun: true, copied: [], kept: [], offered: [], invalid: [], notCarried: [] };
 
 /** Params and result instances for the skills methods. */
+const probeId = "9b2e6f1c-3a4d-4e5f-8a7b-1c2d3e4f5a6b";
+const probeMember = { name: "tdd", path: "tdd", description: "Test-driven development.", invocation: "model+slash", problems: [] };
+const invalidProbeMember = { name: null, path: "TDD", description: null, invocation: "model+slash", problems: invalidMember.problems };
+const probeFolder = { folder: "skills/engineering", members: [probeMember, invalidProbeMember], count: 1, licence: "skills/engineering/LICENSE" };
+const rootFolder = { folder: ".", members: [{ ...probeMember, name: "unslop", path: "." }], count: 1, licence: null };
+const probe = { probeId, identity: "https://github.com/mattpocock/skills", branch: "main", commit, root: null, folders: [probeFolder], truncated: false };
+const probeUnreachable = { reason: "unreachable", problem: "authentication", line: "fatal: Authentication failed", origin: "https://github.com" };
+
 export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "skills.probe": {
+    params: {
+      valid: [{ url: "https://github.com/mattpocock/skills" }, { url: "git@github.com:mattpocock/skills.git", branch: "main" }, { url: "ssh://git@git.example.com:2222/david/skills" }],
+      invalid: [{}, { url: "-https://github.com/a/b" }, { url: "https://github.com/a/b?x=1" }, { url: "https://github.com/a/b", branch: "-f" }, { url: "https://github.com/a/b", branch: null }],
+    },
+    result: {
+      valid: [probe, { ...probe, root: rootFolder, folders: [], truncated: true }],
+      invalid: [
+        { ...probe, probeId: "p-1" },
+        { ...probe, identity: "git@github.com:mattpocock/skills.git" },
+        { ...probe, commit: "main" },
+        { ...probe, branch: null },
+        { ...probe, truncated: undefined },
+        { ...probe, folders: [{ ...probeFolder, folder: "../skills" }] },
+        { ...probe, folders: [{ ...probeFolder, count: -1 }] },
+      ],
+    },
+  },
   "skills.get": {
     params: { valid: [{}, { sessionId: sourceId }], invalid: [{ sessionId: "s-1" }, { sessionId: null }, []] },
     result: {
@@ -359,6 +385,21 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
   "skills/carry-over-report.json": {
     valid: [report, nothingCarried],
     invalid: [{ ...report, notCarried: undefined }, { ...report, accountId: "" }, { ...report, kept: [{ ...copiedSkill, path: "/skills/tdd" }] }],
+  },
+  "skills/probe-id.json": { valid: [probeId], invalid: ["p-1", ""] },
+  "skills/probe-member.json": {
+    valid: [probeMember, invalidProbeMember],
+    invalid: [{ ...probeMember, path: "/tdd" }, { ...probeMember, invocation: "slash" }, { ...probeMember, problems: undefined }],
+  },
+  "skills/probe-folder.json": {
+    valid: [probeFolder, rootFolder, { ...probeFolder, members: [], count: 0, licence: null }],
+    invalid: [{ ...probeFolder, licence: "/LICENSE" }, { ...probeFolder, count: 1.5 }, { ...probeFolder, members: undefined }],
+  },
+  "skills/probe-result.json": { valid: [probe], invalid: [{ ...probe, root: undefined }, { ...probe, folders: null }] },
+  "skills/probe-problem.json": { valid: ["authentication", "not_found", "network", "git_failed"], invalid: ["timeout", ""] },
+  "skills/probe-unreachable.json": {
+    valid: [probeUnreachable, { ...probeUnreachable, problem: "git_failed", line: "fatal: bad object" }],
+    invalid: [{ ...probeUnreachable, reason: "pinned" }, { ...probeUnreachable, line: "" }, { ...probeUnreachable, origin: "github.com" }],
   },
   "skills/source-id.json": {
     valid: [sourceId],

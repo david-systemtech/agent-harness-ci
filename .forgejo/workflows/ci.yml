@@ -32,15 +32,19 @@ on:
     types: [opened, synchronize, reopened]
 
 # A push to a pull request that supersedes an earlier one cancels the old run.
-# So does a push to main, in this repository only (David, 2026-09-29): with
-# several build bots landing, main's queue held a run for every merge (40 in
-# 16 hours, about a fifth of CI), each re-testing a tree the next merge was
-# about to replace. The newest main is always tested; a merge whose run was
-# cancelled shares the verdict of the next one, and a red main is bisected
-# across the merges since the last green. The david/ci template still queues
-# main pushes, so copy a template fix over this block by hand.
+# Main's runs are each their own group, so every merge gets a verdict and a red
+# main names the merge that broke it. From 2026-09-29 a push to main cancelled
+# main's run in flight too, to spare SYSTEM-MNL a run for every merge; once the
+# checks moved to GitHub (2026-10-01) a run cost the homelab almost nothing,
+# and with merges every two to three minutes against a run of about four and a
+# half, main went untested for a whole afternoon (David, 2026-10-01). A shared
+# group without cancelling would queue main's runs one at a time behind each
+# other instead. GROUP below gives GitHub's run the same group. The relay
+# waits out each run in a slot on vm-relay-1, whose 8 slots no other
+# repository's jobs use. The david/ci template still queues main pushes in one
+# group, so copy a template fix over this block by hand.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -57,5 +61,5 @@ jobs:
         run: bash .forgejo/scripts/github-ci.sh
         env:
           GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
-          GROUP: ${{ github.event.pull_request.number || github.ref }}
+          GROUP: ${{ github.event.pull_request.number || github.sha }}
           FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}

@@ -8,6 +8,7 @@ import {
   type KeyManagerStatus,
   type KeyManagerStatusKind,
   type KeyManagerTokenInformation,
+  type ListedKeyManagerConnection,
   type ManagedToolRow,
   type ManagedToolStatus,
 } from "@agent-harness/contracts";
@@ -146,6 +147,28 @@ export const cliWords = (row: ManagedToolRow): string => {
   const minimum = row.minimum === null ? "" : `, at least ${row.minimum}`;
   return `${row.label} ${version}${minimum}: ${TOOL_STATUS_WORDS[row.status]}.`;
 };
+
+/**
+ * What a connection's CLI asks of a person while runs receive its variables
+ * (ADR 0028; key-managers spec, "The Key manager step", `key-manager.cli`):
+ * not installed, or below its minimum, with what runs lose and what keeps
+ * working without it, since the harness resolves its own references over
+ * the key manager's API; null while it is at its minimum or later, or while
+ * runs do not receive the connection's variables, when no run reads it.
+ */
+export const cliHealthWords = (connection: Pick<ListedKeyManagerConnection, "injects" | "cli">): string | null => {
+  const { cli } = connection;
+  if (!connection.injects) return null;
+  const keeps = "The harness still resolves its own references over the key manager's API without it, so forge and bank credentials keep working.";
+  if (cli.status === "not-installed") return `${cli.label} is not installed: runs receive this key manager's variables but cannot read it from their shell until it is installed. ${keeps}`;
+  if (cli.status !== "below-minimum") return null;
+  const version = cli.version === null ? "" : ` ${cli.version}`;
+  const minimum = cli.minimum === null ? "" : `, ${cli.minimum}`;
+  return `${cli.label}${version} is below its minimum${minimum}: runs may not read this key manager from their shell until it is updated. ${keeps}`;
+};
+
+/** The sentence beside the injection switch on the Key manager card (ADR 0028; the Set up specification, "5. Key manager"). */
+export const INJECTION_SWITCH_WORDS = "Every run on this environment receives this key manager's variables unless an account, routine or bot turns it off.";
 
 /** What a policy's write flag says beside its name. */
 export const POLICY_WRITES_WORDS: Readonly<Record<KeyManagerPolicyWrites, string>> = { yes: "writes", no: "reads only", possibly: "may write" };

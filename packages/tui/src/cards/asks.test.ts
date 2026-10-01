@@ -1,7 +1,9 @@
 import type { EnvironmentView, ParkedAsk } from "@agent-harness/client-runtime";
 import { PromptOpenedPayload } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
 import { abbreviationOf } from "../rail/badge.js";
+import { SIXTEEN_COLOURS } from "../theme/colours.js";
 import { askRows, asksHeading, parkedSessions } from "./asks.js";
 
 /** The asks card's rows as pure functions: the badge and the heading (which rows answer in place, and the countdown's words, are the client runtime's). */
@@ -62,6 +64,7 @@ describe("the rows", () => {
       ],
       views,
       { environmentId: "env-a", sessionId: "s-1" },
+      SIXTEEN_COLOURS,
     );
     expect(rows.map((row) => [row.badge.abbreviation, row.title, row.here, row.kindWord, row.detail, row.ttl])).toEqual([
       ["DE", "Receipts", true, "", "Bash: rm -rf build", "2h 0m left"],
@@ -72,7 +75,10 @@ describe("the rows", () => {
     expect(rows.map((row) => row.badge.colour)).toEqual(["cyan", "green", "green"]);
     expect(rows[0]?.key).toBe("env-a s-1 p-1");
     // An environment not listed wears no other environment's badge.
-    expect(askRows([ask({ environmentId: "env-gone", sessionId: "s-9", promptId: "p-9" })], views, null)[0]?.badge).toMatchObject({ abbreviation: "??", colour: "gray" });
+    expect(askRows([ask({ environmentId: "env-gone", sessionId: "s-9", promptId: "p-9" })], views, null, SIXTEEN_COLOURS)[0]?.badge).toMatchObject({
+      abbreviation: "??",
+      colour: TERMINAL_ROLES.faint,
+    });
   });
 
   it("count the prompts in the heading, and name each parked session once", () => {

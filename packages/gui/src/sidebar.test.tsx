@@ -72,7 +72,11 @@ describe("a row", () => {
   it("shows its environment's badge, its title, its activity with the parked count, and its tags", async () => {
     await settled(await two());
     const fix = row("Fix the rail");
-    expect(within(fix).getByRole("img", { name: "desk" }).style.color).toBe("var(--environment-teal)");
+    const badge = within(fix).getByRole("img", { name: "desk" });
+    expect(badge.style.color).toBe("var(--environment-teal)");
+    // The environment's icon, desktop: the glyph its heading wears, named there by the icon.
+    expect(badge.tagName).toBe("svg");
+    expect(badge.innerHTML).toBe(within(region("desk")).getByRole("img", { name: "desktop" }).innerHTML);
     expect(within(fix).getByRole("img", { name: "Running" })).toBeDefined();
     expect(within(fix).getByText("#wip")).toBeDefined();
     const train = row("Train tidy");

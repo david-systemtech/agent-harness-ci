@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { TerminalStatus } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { Span } from "../transcript/lines.js";
 import { StyledLine } from "./transcript.js";
 
@@ -51,7 +52,7 @@ export const TerminalPaneView = (props: {
   return (
     <Box flexDirection="column" flexShrink={0}>
       <Box flexShrink={0}>
-        <Text wrap="truncate-end" {...(props.focused ? { color: "cyan" } : { dimColor: true })}>
+        <Text wrap="truncate-end" {...(props.focused ? { color: TERMINAL_ROLES.machine } : { dimColor: true })}>
           {`── ${props.command === null ? "terminal" : `!${props.command}`} · `}
           {props.environment}
           {state !== undefined && ` · ${state}`}

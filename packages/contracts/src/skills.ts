@@ -3,6 +3,7 @@ import { AccountId, CommandEntry } from "./accounts.js";
 import { InstructionChannelKind } from "./adapter.js";
 import { Actor } from "./envelope.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { ForgeOrigin } from "./forge.js";
 import { Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
 import { PRODUCT_NAME } from "./product.js";
@@ -385,6 +386,102 @@ export const SkillsUpdatedPayload = z.object({}).meta({
     "skills.updated: the skill set changed, by a command that committed or a read that found the own directory changed; a client reads skills.get again.",
 });
 export type SkillsUpdatedPayload = z.infer<typeof SkillsUpdatedPayload>;
+
+// The probe ------------------------------------------------------------------------
+
+/** A probe's id, which `skills.sources.add` names to reuse its checkout. */
+export const SkillProbeId = z.uuidv4().meta({
+  description: "A probe's id: a version 4 UUID the environment mints for each skills.probe, naming its checkout while it is kept.",
+});
+export type SkillProbeId = z.infer<typeof SkillProbeId>;
+
+/** How deep the probe looks for a folder whose children hold `SKILL.md`: the root is level 0 (skills spec, "Skill sources", a chosen default). */
+export const SKILL_PROBE_DEPTH = 4;
+/** The most directories a probe reads (the Agent Skills client guidance). */
+export const SKILL_PROBE_MAX_DIRECTORIES = 2000;
+/** The directories a probe never reads (the Agent Skills client guidance). */
+export const SKILL_PROBE_SKIPPED = [".git", "node_modules"] as const;
+/** How long a probe's checkout is kept for an add to reuse, then removed (a chosen default). */
+export const SKILL_PROBE_KEPT_MS = 30 * 60_000;
+
+/** A member as the probe lists it: what the reader reads of it, and where it lies. */
+export const SkillProbeMember = SkillMember.pick({ name: true, path: true, description: true, invocation: true, problems: true }).meta({
+  description:
+    "A member the probe found: its name, its folder from the probed folder (. when the folder is itself the skill), its description, its invocation kind, and its problems, any of which leaves it out of a source.",
+});
+export type SkillProbeMember = z.infer<typeof SkillProbeMember>;
+
+/**
+ * A folder the probe found (skills spec, "Skill sources", the probe; ADR
+ * 0029): the root when it holds `SKILL.md` itself, else a folder whose
+ * children hold `SKILL.md`, read by the reader's root-skill rule as a
+ * source on it would be, with any licence file in it.
+ */
+export const SkillProbeFolder = z
+  .object({
+    folder: SkillSourceFolder.meta({ description: "The folder, from the repository's root: what skills.sources.add takes; . for the root." }),
+    members: z.array(SkillProbeMember).meta({ description: "Its members as the reader reads them: the folder itself when it holds SKILL.md, else each child folder holding SKILL.md, in name order." }),
+    count: z.int().nonnegative().meta({ description: "How many of its members are valid: the skills a source on the folder would yield." }),
+    licence: SkillSourceFolder.nullable().meta({
+      description: "The licence file in the folder (LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case), from the repository's root; null when it holds none.",
+    }),
+  })
+  .meta({
+    description:
+      "A folder the probe found: the root when it is itself a skill, else a folder whose children hold SKILL.md, with its members as a source on it would read them, the count of valid ones, and any licence file in it.",
+  });
+export type SkillProbeFolder = z.infer<typeof SkillProbeFolder>;
+
+/**
+ * What `skills.probe` answers (skills spec, "Skill sources", the probe; ADR
+ * 0029): the probe's id, the repository identity, the branch and commit
+ * cloned, the root when it is itself a skill, and every folder up to
+ * `SKILL_PROBE_DEPTH` levels down whose children hold `SKILL.md`. A
+ * repository with no skill folder answers no root and no folders.
+ */
+export const SkillsProbeResult = z
+  .object({
+    probeId: SkillProbeId,
+    identity: RepositoryIdentity.meta({ description: "The URL's repository identity, which a source on it is known by with its folder." }),
+    branch: SkillSourceBranch.meta({ description: "The branch cloned: the one named, else the remote's default, the one its HEAD names." }),
+    commit: GitCommit.meta({ description: "The commit the branch was at when it was cloned." }),
+    root: SkillProbeFolder.nullable().meta({ description: "The root, when it holds SKILL.md and so is one skill, named after the repository unless its frontmatter names it; null otherwise." }),
+    folders: z.array(SkillProbeFolder).meta({
+      description:
+        "Every folder up to four levels below the root, the root included, that does not hold SKILL.md itself and whose child folders do, in the order the walk finds them: by depth, then by name; empty when the repository has no skill folder.",
+    }),
+    truncated: z.boolean().meta({ description: "Whether the probe stopped at 2,000 directories read, so a folder further on may be missing." }),
+  })
+  .meta({
+    description:
+      "What skills.probe found in a repository: the probe's id, the identity, the branch and commit cloned, the root when it is itself a skill, and every folder whose children hold SKILL.md, each with its members, their count and any licence file.",
+  });
+export type SkillsProbeResult = z.infer<typeof SkillsProbeResult>;
+
+/**
+ * Why a probe could not reach the repository, `conflict` reason
+ * `unreachable`'s `data.problem`: the forge refused the credential or asked
+ * for one no forge account gives (`authentication`), there is no such
+ * repository or branch (`not_found`), the host could not be reached in time
+ * (`network`), or git failed otherwise (`git_failed`, with its `fatal:` line).
+ */
+export const SKILL_PROBE_PROBLEMS = ["authentication", "not_found", "network", "git_failed"] as const;
+export const SkillProbeProblem = z.enum(SKILL_PROBE_PROBLEMS).meta({
+  description:
+    "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line).",
+});
+export type SkillProbeProblem = z.infer<typeof SkillProbeProblem>;
+
+/** `conflict`'s data when a probe could not reach the repository. */
+export const SkillProbeUnreachable = z
+  .object({
+    reason: z.literal("unreachable"),
+    problem: SkillProbeProblem,
+    line: z.string().min(1).meta({ description: "What git said, its fatal: line where it wrote one, scrubbed of every secret." }),
+    origin: ForgeOrigin.meta({ description: "The URL's forge origin (an ssh URL's is https on its host): where a forge account would authenticate the probe." }),
+  })
+  .meta({ description: "The data of skills.probe's conflict, reason unreachable: the problem, what git said, and the origin." });
+export type SkillProbeUnreachable = z.infer<typeof SkillProbeUnreachable>;
 
 // Carry over ------------------------------------------------------------------------
 

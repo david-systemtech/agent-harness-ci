@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SkillProbeProblem",
+  "type": "string",
+  "enum": [
+    "authentication",
+    "not_found",
+    "network",
+    "git_failed"
+  ],
+  "description": "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line)."
+}
