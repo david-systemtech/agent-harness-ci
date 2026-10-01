@@ -14,6 +14,7 @@ import {
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type RunUpdateInterruptedPayload,
   type SessionHistoryImportedPayload,
   type SessionForkedPayload,
   type SessionRewindUndonePayload,
@@ -26,6 +27,7 @@ import {
   type TranscriptItem,
   type UsageReportedPayload,
 } from "@agent-harness/contracts";
+import { parseActor } from "../event-log/envelope.js";
 import { decodeEvent, type EventRow } from "../event-log/database.js";
 import type { EventEnvelope, EventLog, Snapshot } from "../event-log/event-log.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -299,6 +301,11 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         if (run !== undefined) run.usage = payload.models;
         break;
       }
+      case "run.update-interrupted": {
+        const payload = event.payload as RunUpdateInterruptedPayload;
+        push<ItemOf<"update-interrupted">>({ ...payload, kind: "update-interrupted", sequence });
+        break;
+      }
       case "message.sent": {
         const payload = event.payload as MessageSentPayload;
         const item = push<ItemOf<"user-message">>({
@@ -311,6 +318,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
           delivery: payload.delivery,
           heldBy: payload.heldBy,
           sentAt: event.occurredAt,
+          sender: parseActor(event.actor),
         });
         messages.set(payload.messageId, item);
         break;
