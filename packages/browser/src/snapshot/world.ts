@@ -1,3 +1,4 @@
+import type { pageTextModule } from "../page-text.js";
 import type { FieldAttributes, SecretField } from "../redaction.js";
 import type { AriaSnapshotJSON } from "./vendor/aria-types.js";
 import type { playwrightAriaSnapshot } from "./vendor/aria-snapshot.js";
@@ -49,7 +50,8 @@ export type FieldMarkers = { readonly [K in SecretField]: string };
 /**
  * Makes the world's snapshot state from the vendored modules, each made
  * afresh in this world: a field the rule names gives its marker, and its
- * value is never read.
+ * value is never read. A snapshot starts from the page's body as
+ * `pageBody` reads it.
  */
 export function installSnapshotWorld(
   secretField: (field: FieldAttributes) => SecretField | null,
@@ -58,6 +60,7 @@ export function installSnapshotWorld(
   domUtils: typeof playwrightDomUtils,
   roleUtils: typeof playwrightRoleUtils,
   ariaSnapshot: typeof playwrightAriaSnapshot,
+  pageBody: ReturnType<typeof pageTextModule>["pageBody"],
 ): SnapshotWorld {
   const secretValue = (element: Element): string | null => {
     if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return null;
@@ -71,8 +74,7 @@ export function installSnapshotWorld(
   let lastRef = 0;
   return {
     snapshot({ prefix, firstRef }) {
-      const root = document.body ?? document.documentElement;
-      const tree = aria.generateAriaTree(root, { refPrefix: prefix, firstRef });
+      const tree = aria.generateAriaTree(pageBody(document), { refPrefix: prefix, firstRef });
       refs = new Map([...tree.info].map(([ref, { element }]) => [ref, element]));
       owners = tree.frameOwners;
       for (const ref of refs.keys()) lastRef = Math.max(lastRef, Number(ref.slice(ref.lastIndexOf("e") + 1)));
