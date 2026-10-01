@@ -26,7 +26,8 @@ import { HealthDot } from "./health-dot.js";
  * `setup.check`, the step's restore and its check again, the local
  * service's start, the checklist switched to another environment, an
  * account's sign-in (through `signIn`), the environment's update, or a row of
- * Settings, which leaves the full checklist; a verb that is a step card's,
+ * Settings, which leaves the full checklist (a tool's Install or Update for
+ * About at its Managed tools, #426); a verb that is a step card's,
  * on the fallback card, which has none, opens the step's home row. What a
  * restore or an update did is said through `say`.
  */
@@ -55,6 +56,8 @@ const useSetupActions = (environmentId: string, say: (line: string) => void, sig
         return signIn(plan.account);
       case "update":
         return say((await updateEnvironment(runtime, environmentId, environment === undefined ? "the environment" : nameOf(environment), uuidv7(clock.now()))).line);
+      case "managed-tools":
+        return leave("about.about", environmentId, "managed-tools");
       case "card":
         return leave(plan.home, environmentId);
       case "row":
