@@ -294,6 +294,8 @@ describe("the method registry", () => {
       "skills.carryOver",
       "skills.setAlwaysOn",
       "skills.setEnabled",
+      "skills.sources.add",
+      "skills.sources.remove",
       "trust.decide",
       "trust.revoke",
       "browser.chromes.rename",
@@ -555,6 +557,8 @@ describe("the method registry", () => {
       | "skills.carryOver"
       | "skills.setAlwaysOn"
       | "skills.setEnabled"
+      | "skills.sources.add"
+      | "skills.sources.remove"
       | "skills.readiness"
       | "trust.get"
       | "trust.list"

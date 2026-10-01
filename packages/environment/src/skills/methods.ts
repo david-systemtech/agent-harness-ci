@@ -7,6 +7,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { choicesFor, readSkillChoices, skillsStream } from "./choices.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
+import type { SkillSources } from "./sources.js";
 
 /**
  * The skill set's methods (skills spec, "Choices" and "Wire summary"):
@@ -17,9 +18,9 @@ import { resolveSkillSet } from "./precedence.js";
  * half; `skills.probe` at `admin`, a repository URL's skill folders; and
  * `skills.setEnabled` and `skills.setAlwaysOn` at `admin`, each
  * appending its choice on the skills stream and `skills.updated` after it,
- * in the command's transaction. Sources are none until their ticket adds
- * them, and the set holds the own directory's layer alone until the source
- * and repository layers join it.
+ * in the command's transaction; and `skills.sources.add` and `.remove` at
+ * `admin`, the skill sources' (`sources.ts`). The set holds the own
+ * directory's layer and the sources' until the repository layer joins it.
  */
 
 export interface SkillsMethodsOptions {
@@ -35,6 +36,8 @@ export interface SkillsMethodsOptions {
   readonly carryOver: PreparedCommand<"skills.carryOver">;
   /** `skills.probe` (`probe.ts`). */
   readonly probe: MethodHandler<"skills.probe">;
+  /** The skill sources (`sources.ts`). */
+  readonly sources: Pick<SkillSources, "read" | "add" | "remove">;
 }
 
 /** The notice every committed choice is followed by. */
@@ -91,16 +94,16 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
   return {
     "skills.get": async ({ sessionId }) => {
       const accountId = accountOf(sessionId);
-      const members = await own.read();
+      const [members, sources] = await Promise.all([own.read(), options.sources.read()]);
       const choices = readSkillChoices(log);
       const applied = choicesFor(choices, accountId);
       return {
         ownDirectory: own.path,
-        sources: [],
+        sources: [...sources.sources],
         choices,
         accountId,
         accounts: options.accounts().map(viewAccount),
-        members: resolveSkillSet(members, []).map((member) => ({
+        members: resolveSkillSet([...members, ...sources.members], sources.sources).map((member) => ({
           ...member,
           enabled: member.name === null || applied.enabled(member.name),
           alwaysOn: member.name !== null && applied.alwaysOn(member.name),
@@ -114,5 +117,7 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
     "skills.carryOver": options.carryOver,
     "skills.setEnabled": ({ name, accountId, enabled }, context) => choose({ kind: "enabled", name, accountId, enabled }, context),
     "skills.setAlwaysOn": ({ name, accountId, on }, context) => choose({ kind: "always-on", name, accountId, on }, context),
+    "skills.sources.add": options.sources.add,
+    "skills.sources.remove": options.sources.remove,
   };
 };

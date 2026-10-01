@@ -151,7 +151,18 @@ import {
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
-import { skillsCarryOver, skillsGet, skillsOwnCreate, skillsOwnRemove, skillsProbe, skillsReadiness, skillsSetAlwaysOn, skillsSetEnabled } from "./methods/skills.js";
+import {
+  skillsCarryOver,
+  skillsGet,
+  skillsOwnCreate,
+  skillsOwnRemove,
+  skillsProbe,
+  skillsReadiness,
+  skillsSetAlwaysOn,
+  skillsSetEnabled,
+  skillsSourcesAdd,
+  skillsSourcesRemove,
+} from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
 import { browserChromesList, browserChromesPerform, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
 import {
@@ -371,6 +382,8 @@ export const methods = [
   skillsCarryOver,
   skillsSetAlwaysOn,
   skillsSetEnabled,
+  skillsSourcesAdd,
+  skillsSourcesRemove,
   skillsReadiness,
   trustGet,
   trustList,
