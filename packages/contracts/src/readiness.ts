@@ -66,7 +66,7 @@ const FileCheck = z
     kind: z.literal("file"),
     paths: z.array(ReadinessPath).min(1).max(20).meta({ description: "The paths, any one of which passes: from the repository's root, else the workspace." }),
     headings: z
-      .array(z.string().max(200).regex(ONE_LINE).meta({ description: "A heading's text, without its #s, matched ignoring case and the white space around it." }))
+      .array(z.string().max(200).regex(ONE_LINE).meta({ description: "A heading's text, without its #s, matched ignoring case and the white space around it, with each run of white space inside it read as one space." }))
       .min(1)
       .max(20)
       .optional()

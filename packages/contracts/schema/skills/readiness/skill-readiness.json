@@ -91,7 +91,7 @@
                           "type": "string",
                           "maxLength": 200,
                           "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
-                          "description": "A heading's text, without its #s, matched ignoring case and the white space around it."
+                          "description": "A heading's text, without its #s, matched ignoring case and the white space around it, with each run of white space inside it read as one space."
                         }
                       },
                       "why": {
@@ -992,7 +992,7 @@
                           "type": "string",
                           "maxLength": 200,
                           "pattern": "^[^\\p{Cc}]*\\S[^\\p{Cc}]*$",
-                          "description": "A heading's text, without its #s, matched ignoring case and the white space around it."
+                          "description": "A heading's text, without its #s, matched ignoring case and the white space around it, with each run of white space inside it read as one space."
                         }
                       },
                       "why": {
