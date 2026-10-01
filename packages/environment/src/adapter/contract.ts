@@ -792,7 +792,7 @@ export interface AdapterRun {
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
   /**
    * Takes back one message the provider holds in its queue, by the id it was
-   * handed under (`providerQueue`; Claude's cancel-by-id control, ADR 0022):
+   * handed under (`withdraw`; Claude's cancel-by-id control, ADR 0022):
    * `withdrawn` when the provider cancelled it, so no turn will read it;
    * false when the provider no longer holds it, having read it (or never
    * had it). The host calls it only for a message the log says the provider
