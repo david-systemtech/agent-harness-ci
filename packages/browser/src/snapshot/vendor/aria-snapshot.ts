@@ -33,7 +33,8 @@ import type { RoleUtils } from "./role-utils.js";
 // page reports. An iframe carries its place among the frame owners the walk met, by which the driver
 // stitches its frame in. The ref counter can be moved on, so a frame's next document never reuses a
 // ref its last one gave. The distiller keeps names that repeat content shown below them (its
-// `removeRedundantNames` is left out), since the interactive filter may leave that content out.
+// `removeRedundantNames` is left out, and with it the `pendingContentRefs` bookkeeping only it read),
+// since the interactive filter may leave that content out.
 
 /**
  * Playwright's aria snapshot in its `ai` mode: the tree of a document's
@@ -437,9 +438,6 @@ export function playwrightAriaSnapshot(dom: DomUtils, roleUtils: RoleUtils, secr
     depth: number;
     // The chain of ancestors of the current node, root first. Maintained by the traversal.
     ancestors: aria.AriaNode[];
-    // Content refs of the entered nodes' accessible names that are not yet represented in the
-    // output.
-    pendingContentRefs: Set<string>;
   };
 
   type DistillerPlugin = {
@@ -453,7 +451,7 @@ export function playwrightAriaSnapshot(dom: DomUtils, roleUtils: RoleUtils, secr
   }
 
   function runPlugins(snapshot: AriaSnapshot, plugins: DistillerPlugin[]) {
-    const ctx: DistillerContext = { snapshot, depth: -1, ancestors: [], pendingContentRefs: new Set() };
+    const ctx: DistillerContext = { snapshot, depth: -1, ancestors: [] };
     const traverse = (node: aria.AriaNode, depth: number) => {
       const children: (aria.AriaNode | string)[] = [];
       const visitChild = (child: aria.AriaNode | string) => {
@@ -575,11 +573,8 @@ export function playwrightAriaSnapshot(dom: DomUtils, roleUtils: RoleUtils, secr
         return;
       const singleTextChild = node.children.length === 1 && typeof node.children[0] === 'string' ? node.children[0] : undefined;
       const text = node.name ? (node.children.length ? undefined : node.name) : singleTextChild;
-      if (text && text === parent.name) {
-        if (node.ref)
-          ctx.pendingContentRefs.add(node.ref);
+      if (text && text === parent.name)
         return 'remove';
-      }
     },
   };
 
