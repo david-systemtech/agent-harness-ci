@@ -250,6 +250,7 @@ describe("the method registry", () => {
       "forge.accounts.setPrimary",
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
+      "banks.join",
       "banks.register",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
@@ -478,6 +479,8 @@ describe("the method registry", () => {
       | "forge.pullRequests.link"
       | "forge.pullRequests.unlink"
       | "forge.pullRequests.refresh"
+      | "banks.join"
+      | "banks.join.preview"
       | "banks.list"
       | "banks.get"
       | "banks.register"

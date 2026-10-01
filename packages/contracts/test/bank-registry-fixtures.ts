@@ -115,9 +115,19 @@ const invalidEventPayloads: Record<keyof typeof BANK_EVENT_PAYLOADS, readonly un
   "bank.awaiting-review": [without(eventPayloads["bank.awaiting-review"], "pullRequest"), { ...eventPayloads["bank.awaiting-review"], sessionId: "s-1" }],
 };
 
+const preview = {
+  name: "acme", kind: "team", line: "## acme (team, read-only) — 1 memory in 1 folder — The team's facts.",
+  orgs: [{ path: "acme/", line: "The Acme team" }], projects: [{ path: "acme/web/", line: "The web project" }],
+  entities: [{ name: "Acme", aliases: ["acme"] }], orientation: [], owners: ["maya"],
+  merge: { memories: "auto", reviewed: ["orientation", "decisions", "status", "manifest"] },
+  rules: ["No personal facts.", "No secrets."], canRead: true, canPush: false,
+};
+const joinParams = { commandId, bankId, url: repository, accounts: ["work"], repositories: "all" };
+
 const registerParams = { commandId, bankId, path: "/data/banks/maya-memory", role: "read-write", accounts: "all", repositories: "all", defaultFor: [] };
 
 export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
+  "banks/join-preview.json": { valid: [preview], invalid: [without(preview, "canRead"), { ...preview, canPush: "yes" }] },
   "banks/id.json": { valid: [bankId], invalid: ["maya-memory", ""] },
   "banks/role.json": { valid: ["read-write", "read-only"], invalid: ["write", ""] },
   "banks/account-scope.json": { valid: ["all", [], ["work", "personal"]], invalid: ["every", [""]] },
@@ -176,6 +186,14 @@ export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
 };
 
 export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "banks.join.preview": {
+    params: { valid: [{ url: repository }], invalid: [{}, { url: "" }] },
+    result: { valid: [preview], invalid: [without(preview, "merge")] },
+  },
+  "banks.join": {
+    params: { valid: [joinParams, { ...joinParams, accounts: [], repositories: [repository] }], invalid: [without(joinParams, "commandId"), without(joinParams, "bankId"), without(joinParams, "accounts"), { ...joinParams, accounts: "all" }] },
+    result: { valid: [{ bank: record }], invalid: [{}, { bank: entry }] },
+  },
   "banks.list": {
     params: { valid: [{}], invalid: [[], "banks"] },
     result: { valid: [{ banks: [] }, { banks: [record, teamRecord] }], invalid: [{}, { banks: [entry] }] },

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { BankJoinPreview } from "../bank-join.js";
+import { CredentialUnavailableError } from "../git-credential.js";
+import { ForgeAccountMissingError, ForgeUnreachableError, KindUnsupportedError } from "./forge.js";
 import { AccountId } from "../accounts.js";
 import { BankAccountScope, BankId, BankRecord, BankRepositoryScope, BankRole } from "../bank-registry.js";
 import { BankFinding, BankName, BankRuleId } from "../banks.js";
@@ -124,4 +127,29 @@ export const banksVerify = defineMethod({
   params: z.object({ bankId: BankId.optional().meta({ description: "The bank to verify; every enabled one when absent." }) }),
   result: z.object({ banks: z.array(BankRecord) }),
   errors: [],
+});
+
+/** Shallow temporary clone under the git budget: preview never registers or attaches the bank. */
+export const banksJoinPreview = defineMethod({
+  name: "banks.join.preview",
+  scope: "read",
+  kind: "query",
+  params: z.object({ url: z.string().min(1).max(2048) }),
+  result: BankJoinPreview,
+  errors: [ValidationFailedError, ForgeAccountMissingError, CredentialUnavailableError, ForgeUnreachableError, KindUnsupportedError],
+});
+
+/** Joins with exactly the selected accounts; none are preset, and a join becomes no account's default. */
+export const banksJoin = defineMethod({
+  name: "banks.join",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    bankId: BankId,
+    url: z.string().min(1).max(2048),
+    accounts: z.array(AccountId).meta({ description: "Exactly the accounts ticked by the teammate, none preset; an empty selection attaches to no account." }),
+    repositories: BankRepositoryScope,
+  }),
+  result: z.object({ bank: BankRecord }),
+  errors: [ValidationFailedError, ForgeAccountMissingError, CredentialUnavailableError, ForgeUnreachableError, KindUnsupportedError],
 });

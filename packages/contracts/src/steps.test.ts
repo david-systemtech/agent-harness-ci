@@ -76,7 +76,6 @@ const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(ta
  */
 const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {
   "banks.create": "#1028",
-  "banks.join": "#1029",
   "banks.publish": "#1033",
   "banks.registry.update": "#1026",
 };
