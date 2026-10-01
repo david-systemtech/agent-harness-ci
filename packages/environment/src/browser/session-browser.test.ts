@@ -104,6 +104,50 @@ describe("sessions.setBrowser", () => {
   });
 });
 
+describe("sessions.fork's browser", () => {
+  it("carries a named Chrome and its reach chooser as the fork's first browser event, also onto a fork of the fork", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client, { browser: { value: WORK_CHROME, chosenBy: "reach" } });
+    const forkId = randomUUID();
+    const forked = registry["sessions.fork"].response.parse(
+      await client.request("sessions.fork", { commandId: randomUUID(), sessionId: source.id, id: forkId }),
+    );
+    expect(forked.result?.summary.browser).toEqual(WORK_CHROME);
+    expect(await get(client, forkId)).toMatchObject({ browser: WORK_CHROME });
+    expect(eventsOf(t, forkId).slice(0, 2).map((event) => event.type)).toEqual(["session.created", "session.browser.set"]);
+    expect(payloadsOf<SessionBrowserSetPayload>(t, forkId, "session.browser.set")).toEqual([{ browser: WORK_CHROME, chosenBy: "reach" }]);
+
+    const nextId = randomUUID();
+    await client.request("sessions.fork", { commandId: randomUUID(), sessionId: forkId, id: nextId });
+    expect(await get(client, nextId)).toMatchObject({ browser: WORK_CHROME });
+    expect(payloadsOf<SessionBrowserSetPayload>(t, nextId, "session.browser.set")).toEqual([{ browser: WORK_CHROME, chosenBy: "reach" }]);
+  });
+
+  it.each<SessionBrowser>([MY_CHROME, { kind: "headless" }, { kind: "dock" }, { kind: "none" }])("carries the latest $kind choice and its person chooser rather than the creation choice", async (browser) => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client, { browser: { value: WORK_CHROME, chosenBy: "reach" } });
+    await command(client, "sessions.setBrowser", { sessionId: source.id, browser });
+    const id = randomUUID();
+    await client.request("sessions.fork", { commandId: randomUUID(), sessionId: source.id, id });
+    expect(await get(client, id)).toMatchObject({ browser });
+    expect(payloadsOf<SessionBrowserSetPayload>(t, id, "session.browser.set")).toEqual([{ browser, chosenBy: "person" }]);
+  });
+
+  it.each(["absent", "cleared"])("keeps a source's %s choice null without recording a browser event", async (choice) => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client, choice === "cleared" ? { browser: { value: WORK_CHROME, chosenBy: "reach" } } : {});
+    if (choice === "cleared") await command(client, "sessions.setBrowser", { sessionId: source.id, browser: null });
+    const id = randomUUID();
+    const forked = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId: source.id, id }));
+    expect(forked.result?.summary.browser).toBeNull();
+    expect(await get(client, id)).toMatchObject({ browser: null });
+    expect(payloadsOf<SessionBrowserSetPayload>(t, id, "session.browser.set")).toEqual([]);
+  });
+});
+
 describe("sessions.create's browser", () => {
   it("records the first session.browser.set after session.created, with who chose it: the reach default or a person", async () => {
     const t = await start();
@@ -372,8 +416,27 @@ describe("the completions surface's sessions", () => {
     const forked = await complete(t, token, { sessionId: named, forkSession: true, browser: "headless" });
     expect(forked.sessionId).not.toBe(named);
     expect(forked.ignored).toEqual([]);
-    expect(payloadsOf<SessionBrowserSetPayload>(t, forked.sessionId, "session.browser.set")).toEqual([{ browser: { kind: "headless" }, chosenBy: "completions" }]);
+    expect(payloadsOf<SessionBrowserSetPayload>(t, forked.sessionId, "session.browser.set")).toEqual([
+      { browser: { kind: "dock" }, chosenBy: "person" },
+      { browser: { kind: "headless" }, chosenBy: "completions" },
+    ]);
+    expect(resolvedOf(t, forked.sessionId, forked.runId)).toMatchObject({ requested: { kind: "headless" }, browser: { kind: "headless" } });
     const plain = await complete(t, token, { sessionId: named, forkSession: true });
     expect(await get(client, plain.sessionId)).toMatchObject({ browser: { kind: "none" } });
+    expect(payloadsOf<SessionBrowserSetPayload>(t, plain.sessionId, "session.browser.set").at(-1)).toEqual({ browser: { kind: "none" }, chosenBy: "completions" });
+    expect(resolvedOf(t, plain.sessionId, plain.runId)).toMatchObject({ requested: { kind: "none" }, browser: { kind: "none" } });
+  });
+
+  it.each(["none", "headless"] as const)("records the completions chooser even when the fork inherits %s from a person", async (kind) => {
+    const t = await start({}, withHeadless());
+    const token = await program(t);
+    const client = await t.client();
+    const named = await sessionWith(client, { kind });
+    const forked = await complete(t, token, { sessionId: named, forkSession: true, ...(kind === "headless" && { browser: "headless" }) });
+    expect(payloadsOf<SessionBrowserSetPayload>(t, forked.sessionId, "session.browser.set")).toEqual([
+      { browser: { kind }, chosenBy: "person" },
+      { browser: { kind }, chosenBy: "completions" },
+    ]);
+    expect(await get(client, forked.sessionId)).toMatchObject({ browser: { kind } });
   });
 });

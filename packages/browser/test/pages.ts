@@ -23,5 +23,8 @@ export type Fixture = (typeof FIXTURES)[number];
 /** HTML parsed as a document, at an address of its own. */
 export const pageOf = (html: string): Document => new JSDOM(html, { url: "https://example.com/page" }).window.document;
 
+/** A fixture page's HTML, as it was served and trimmed. */
+export const fixtureHtml = (name: Fixture): string => readFileSync(new URL(`./fixtures/${name}.html`, import.meta.url), "utf8");
+
 /** A fixture page, parsed. */
-export const fixturePage = (name: Fixture): Document => pageOf(readFileSync(new URL(`./fixtures/${name}.html`, import.meta.url), "utf8"));
+export const fixturePage = (name: Fixture): Document => pageOf(fixtureHtml(name));

@@ -11,8 +11,8 @@ export type { InjectionAnswer };
  * variables and credential helper, #315; the key managers' block and run
  * tokens, #91), none by default, from which each holder's process
  * environment is built the same way, whatever started it. A holder is a
- * run's provider process, a session's terminal, or a managed tool's verify
- * command (#375), which serves no session.
+ * run's provider process, a session's terminal, a routine's pre-check, or a
+ * managed tool's verify command (#375); the latter two serve no session.
  *
  * One injection answer is asked for each holder, with the level that
  * decided it (ADR 0011, ADR 0028; #367): the holder's own override (a
@@ -37,8 +37,8 @@ export type { InjectionAnswer };
  * The release calls each supplier's release once, a failure logged.
  */
 
-/** What a holder is (#368): a run's provider process, a session's terminal or a managed tool's verify command (#375); the key managers' run tokens name it in their metadata. */
-export type HolderKind = "provider-process" | "terminal" | "verify-command";
+/** What a holder is (#368): a run's provider process, a session's terminal, a routine's pre-check or a managed tool's verify command (#375); the key managers' run tokens name it in their metadata. */
+export type HolderKind = "provider-process" | "terminal" | "verify-command" | "pre-check";
 
 /**
  * The level that decided a holder's injection answer (#367): the

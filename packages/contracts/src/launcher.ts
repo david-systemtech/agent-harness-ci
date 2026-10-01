@@ -149,12 +149,14 @@ export type InstallAnswer = { readonly type: "installed" } | { readonly type: "r
 /** The launcher's answer to `switch?`: after `switching` the environment closes, the channel last. */
 export type SwitchAnswer = { readonly type: "switching" } | { readonly type: "refused"; readonly reason: SwitchRefusal };
 
-/** The launcher's answer to `versions?`: the versions installed, and the launcher's own version and protocol. */
+/** The launcher's answer to `versions?`: the versions installed, its own version and protocol, and any failed handover's target. */
 export interface VersionsAnswer {
   readonly type: "versions";
   readonly installed: readonly string[];
   readonly launcherVersion: string;
   readonly launcherProtocol: number;
+  /** The version whose launcher handover failed, if any; absent on older launchers. */
+  readonly failedHandoverVersion?: string;
 }
 
 /** The answer each request takes. */
@@ -235,10 +237,11 @@ export const parseLauncherMessage = (value: unknown): LauncherMessage | undefine
       return { type, id, reason };
     }
     case "versions": {
-      const { installed, launcherVersion, launcherProtocol } = value;
+      const { installed, launcherVersion, launcherProtocol, failedHandoverVersion } = value;
       if (!isCount(id) || !Array.isArray(installed) || !installed.every(isText)) return undefined;
       if (!isText(launcherVersion) || !isCount(launcherProtocol)) return undefined;
-      return { type, id, installed: [...installed], launcherVersion, launcherProtocol };
+      if (failedHandoverVersion !== undefined && !isText(failedHandoverVersion)) return undefined;
+      return { type, id, installed: [...installed], launcherVersion, launcherProtocol, ...(failedHandoverVersion === undefined ? {} : { failedHandoverVersion }) };
     }
     default:
       return undefined;

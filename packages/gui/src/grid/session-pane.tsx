@@ -1,4 +1,5 @@
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import type { ReactNode } from "react";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
@@ -40,9 +41,10 @@ export interface PaneContentsProps extends CaptionProps {
  * holds what its documents are asked (the Preview's document, the call the transcript
  * shows), which the transcript and the column both ask. Another session
  * opened in the pane brings its own column, and its own line, or the line
- * handed to it as it opened.
+ * handed to it as it opened. An authoring card may supply its own header,
+ * keeping the same session controls below it (#585).
  */
-export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps & { readonly session: PaneSession }) => {
+export const SessionPane = ({ session, focused, header, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode }) => {
   const { environmentId, sessionId } = session;
   return (
     <div className="flex min-h-0 flex-1">
@@ -53,7 +55,7 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
               <PaneDialogs environmentId={environmentId} sessionId={sessionId}>
                 <SessionForkRewindProvider environmentId={environmentId} sessionId={sessionId}>
                   <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <SessionCaption session={session} {...caption} />
+                    {header ?? <SessionCaption session={session} {...caption} />}
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
                     <QueueStrip />
                     <PromptCard environmentId={environmentId} sessionId={sessionId} />

@@ -602,10 +602,14 @@ describe("the navigation policy", () => {
   it("judges the environment's denylist browser section beside it: a redirect into a listed domain is stopped at about:blank, naming the entry", async () => {
     const { t, peer, client } = await withEndpoint();
     peer.document("https://shop.example/pay", { redirect: "https://www.paypal.com/checkout" });
-    const [refused] = await opening(t, client, "https://shop.example/pay");
-    expect(refused).toEqual({
+    const id = await sessionWith(client, HEADLESS);
+    const answers: HostToolResult[] = [];
+    adapterOf(t).nextScripts.push(calling([["browser_open", { address: "https://shop.example/pay", snapshot: false }]], answers));
+    const { runId } = t.env.startRun({ sessionId: id, text: "Use the browser", actor: { kind: "completions", attended: false, ceiling: "bypassPermissions", clientSessionId: null } });
+    await untilEnded(t, id, runId);
+    expect(answers[0]).toEqual({
       isError: true,
-      text: "The page went to https://www.paypal.com/checkout, which the denylist's browser section lists (*.paypal.com), so it was stopped at about:blank. Only the person can allow it.",
+      text: `The page went to https://www.paypal.com/checkout, which the denylist's browser section lists (*.paypal.com), so it was stopped at about:blank. Only the person can allow it. The matching entry belongs to environment ${t.env.id}.`,
     });
     expect(navigated(peer).at(-1)).toBe("about:blank");
   });
@@ -620,6 +624,7 @@ describe("the tools on the headless path", () => {
     peer.inPage("selectFieldContents", () => "selected");
     peer.inPage("showsText", () => true);
     peer.inPage("readStorage", () => ({ origin: "https://shop.example", local: { theme: "dark" }, session: {} }));
+    peer.inPage("readPage", () => ({ article: "# Shop\n\nEverything for the garden, delivered on Thursdays." }));
     peer.answer("Runtime.evaluate", () => ({ result: { type: "number", value: 2 } }));
     const id = await sessionWith(client, HEADLESS);
 
@@ -647,9 +652,9 @@ describe("the tools on the headless path", () => {
 
     const names = ["open", "navigate", "snapshot", "click", "type", "read", "screenshot", "clickAt", "scroll", "waitFor", "console", "network", "cookies", "storage", "evaluate", "close"];
     const failed = names.filter((_, index) => answers[index]?.isError === true);
-    // The reader is #545's: until then the driver answers it with its sentence.
-    expect(failed).toEqual(["read"]);
+    expect(failed).toEqual([]);
     expect(answers[2]?.text).toContain('- heading "Shop" [level=1] [ref=e1]');
+    expect(answers[5]?.text).toContain("Everything for the garden, delivered on Thursdays.");
     expect(answers[6]?.images).toHaveLength(1);
     expect(answers[12]?.text).toContain('"value":"cookie-for-tests"');
     expect(answers[13]?.text).toContain("dark");
