@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KnownEnvironmentsUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,198}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+            "description": "An environment's name as the client has it: 1 to 200 characters once trimmed, counted as code points, no control or format (zero-width) characters other than white space; kept trimmed with white space collapsed."
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^https?:\\/\\/[^\\s/\\\\?#@\\p{Cc}\\p{Cf}]+$",
+            "description": "The address the client uses for the environment, as its connection keeps it: an http or https origin, http://host:port."
+          }
+        },
+        "required": [
+          "name",
+          "address"
+        ],
+        "description": "An environment of the union: its name and the address a client uses for it."
+      },
+      "description": "The union of what the live client sessions report, this environment left out, each name and address once, sorted by name, then address: what the orientation block's other environments section lists."
+    }
+  },
+  "required": [
+    "environments"
+  ],
+  "description": "The known environments' union changed: the union as it now is."
+}

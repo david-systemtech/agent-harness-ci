@@ -107,6 +107,7 @@ import {
   EnvironmentName,
   EnvironmentRenamedPayload,
 } from "./environment-look.js";
+import { KnownEnvironment, KnownEnvironmentsUpdatedPayload, ListedEnvironment } from "./known-environments.js";
 import { Theme, ThemeName, ThemeSeed } from "./theme.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import { CredentialUnavailableError, GitCredentialAction, GitCredentialAnswer, GitCredentialError, GitCredentialRequest } from "./git-credential.js";
@@ -1070,6 +1071,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "environment/renamed.json", title: "EnvironmentRenamedPayload", schema: EnvironmentRenamedPayload },
   { path: "environment/icon-set.json", title: "EnvironmentIconSetPayload", schema: EnvironmentIconSetPayload },
   { path: "environment/colour-set.json", title: "EnvironmentColourSetPayload", schema: EnvironmentColourSetPayload },
+  { path: "environment/known-environment.json", title: "KnownEnvironment", schema: KnownEnvironment },
+  { path: "environment/listed-environment.json", title: "ListedEnvironment", schema: ListedEnvironment },
+  { path: "environment/known-environments-updated.json", title: "KnownEnvironmentsUpdatedPayload", schema: KnownEnvironmentsUpdatedPayload },
   { path: "usage/verdict.json", title: "UsageVerdict", schema: UsageVerdict },
   { path: "usage/window.json", title: "UsageWindow", schema: UsageWindow },
   { path: "usage/account-usage.json", title: "AccountUsage", schema: AccountUsage },
