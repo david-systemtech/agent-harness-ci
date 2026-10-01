@@ -180,6 +180,17 @@ export {
 } from "./desktop-update.js";
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
+export {
+  baseName,
+  heldWords,
+  presetBranch,
+  problemLine,
+  repositoryWords,
+  requestLabel,
+  resolverRefusal,
+  workspaceLabel,
+  type RefusalPlace,
+} from "./workspaces/words.js";
 export type {
   AccountChip,
   AccountPresetReason,
@@ -206,6 +217,7 @@ export {
   type SetupView,
 } from "./projections/setup.js";
 export {
+  RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
   restoreStep,

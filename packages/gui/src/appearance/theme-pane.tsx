@@ -77,30 +77,41 @@ const READING_WIDTH_WORDS: Readonly<Record<ReadingWidth, string>> = { comfortabl
 /** Every text size a person may pick, in CSS pixels. */
 const TEXT_SIZES = Array.from({ length: TEXT_SIZE_MOST - TEXT_SIZE_LEAST + 1 }, (_, at) => TEXT_SIZE_LEAST + at);
 
+/**
+ * This client's light or dark, kept in presentation at once and never
+ * read-only (client-local, no registry key; ADR 0023): on the Theme row and
+ * the Appearance step's card (#594).
+ */
+export const LightOrDarkPreference = () => {
+  const [lightOrDark, setLightOrDark] = usePresentation("lightOrDark");
+  const choice = useId();
+  return (
+    <Preference
+      name="Light or dark"
+      detail="This client's own: the theme's light or dark ladder, or the one the OS prefers, followed as it switches."
+      control={(label) => (
+        <div role="radiogroup" aria-labelledby={label} className="flex gap-3 text-sm text-ink">
+          {LIGHT_OR_DARK_CHOICES.map(([value, words]) => (
+            <label key={value} className="flex items-center gap-1.5">
+              <input type="radio" name={choice} checked={lightOrDark === value} onChange={() => setLightOrDark(value)} className="accent-beam" />
+              {words}
+            </label>
+          ))}
+        </div>
+      )}
+    />
+  );
+};
+
 /** This client's own preferences, kept in presentation and never read-only: no environment holds them. */
 const ClientPreferences = () => {
-  const [lightOrDark, setLightOrDark] = usePresentation("lightOrDark");
   const [textSize, setTextSize] = usePresentation("textSize");
   const [readingWidth, setReadingWidth] = usePresentation("readingWidth");
   const [reasoningShown, setReasoningShown] = usePresentation("reasoningShown");
   const [streamingFade, setStreamingFade] = usePresentation("streamingFade");
-  const choice = useId();
   return (
     <Part heading="This client">
-      <Preference
-        name="Light or dark"
-        detail="This client's own: the theme's light or dark ladder, or the one the OS prefers, followed as it switches."
-        control={(label) => (
-          <div role="radiogroup" aria-labelledby={label} className="flex gap-3 text-sm text-ink">
-            {LIGHT_OR_DARK_CHOICES.map(([value, words]) => (
-              <label key={value} className="flex items-center gap-1.5">
-                <input type="radio" name={choice} checked={lightOrDark === value} onChange={() => setLightOrDark(value)} className="accent-beam" />
-                {words}
-              </label>
-            ))}
-          </div>
-        )}
-      />
+      <LightOrDarkPreference />
       <Preference
         name="Text size"
         detail="The transcript's text, in CSS pixels; every size in it follows."
@@ -142,15 +153,23 @@ const ClientPreferences = () => {
 };
 
 /** The home environment's theme as it read it, and the generic editor that writes it. */
-const HomeTheme = ({ view }: { readonly view: EnvironmentView }) => {
+const HomeTheme = ({ view }: { readonly view: EnvironmentView }) => (
+  <Part heading="The home environment's theme">
+    <EnvironmentTheme view={view} />
+    <GenericEditor view={view} keys={rowKeys("appearance.theme")} />
+  </Part>
+);
+
+/**
+ * An environment's theme as this window read it (`settings.get` in the
+ * request cache): on the Theme row the home environment's, on the
+ * Appearance step's card the environment the checklist checks (#594).
+ * Nothing until a theme is read.
+ */
+export const EnvironmentTheme = ({ view }: { readonly view: EnvironmentView }) => {
   const { values } = useSettingsValues(view.environmentId);
   const theme = Theme.safeParse(values?.["appearance.theme"]).data;
-  return (
-    <Part heading="The home environment's theme">
-      {theme !== undefined && <ThemeShown theme={theme} on={view.name ?? THIS_MACHINE} />}
-      <GenericEditor view={view} keys={rowKeys("appearance.theme")} />
-    </Part>
-  );
+  return theme === undefined ? null : <ThemeShown theme={theme} on={view.name ?? THIS_MACHINE} />;
 };
 
 /** How a swatch group is named, by its ladder. */

@@ -74,11 +74,11 @@ describe("the first-launch mark", () => {
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const walked: string[] = [];
     while (within(card()).queryByRole("button", { name: "Continue" }) !== null) {
-      walked.push(within(card()).getByRole("heading").textContent ?? "");
+      walked.push(within(card()).getByRole("heading", { level: 2 }).textContent ?? "");
       await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
     }
     expect(walked).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions"]);
-    expect(within(card()).getByRole("heading").textContent).toBe("Appearance");
+    expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Appearance");
     expect(within(steps()).getByRole("button", { name: "Appearance" }).getAttribute("aria-current")).toBe("step");
 
     await app.user.click(within(card()).getByRole("button", { name: "Finish" }));
@@ -315,6 +315,8 @@ describe("a step's named actions", () => {
     const permissions = await cardOf(app, "Permissions");
     desk.setSetup({ permissions: {} });
     await app.user.click(within(permissions).getByRole("button", { name: "Restore" }));
+    // The Permissions card asks once, as a section's Restore presets does (#594).
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets the denylist lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 2 put back.")).toBeDefined();
     expect(await within(steps()).findByRole("img", { name: "Permissions: done" })).toBeDefined();
     expect(within(permissions).getByText(/^The containment default can be enforced here\./)).toBeDefined();
@@ -453,6 +455,7 @@ describe("a step's named actions on their targets", () => {
 
     const permissions = await cardOf(app, "Permissions");
     await app.user.click(within(permissions).getByRole("button", { name: "Restore: paths" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets Paths lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 1 put back.")).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets").map((request) => request.params["sections"])).toEqual([["paths"]]);
 

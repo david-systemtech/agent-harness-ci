@@ -1,10 +1,10 @@
-import { DENYLIST_SECTION_NAMES, editedSection, sectionHasPresets, sectionHolds, type DenylistEdit, type EnvironmentView } from "@agent-harness/client-runtime";
+import { DENYLIST_SECTION_NAMES, editedSection, listWords, sectionHasPresets, sectionHolds, type DenylistEdit, type EnvironmentView } from "@agent-harness/client-runtime";
 import { DENYLIST_SECTIONS, type DenylistEntry, type DenylistSection } from "@agent-harness/contracts";
 import { useId, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogClose, DialogContent, Input, Switch } from "../ui/index.js";
 import { DenylistTest } from "./denylist-test.js";
 import { Part } from "../settings/part.js";
-import { useDenylist, type DenylistValues } from "./use-denylist.js";
+import type { DenylistValues } from "./use-denylist.js";
 
 /**
  * The denylist (permissions spec, "The denylist"; #415): its four sections
@@ -13,10 +13,11 @@ import { useDenylist, type DenylistValues } from "./use-denylist.js";
  * enabled or disabled, or removed, each a write of its whole section through
  * `permissions.denylist.set` at once; a section's presets put back after one
  * confirmation (`permissions.denylist.restorePresets`); and a value tested
- * against it. What each sends and says is the client runtime's.
+ * against it. What each sends and says is the client runtime's. The
+ * denylist is the holder's (`useDenylist`), so what else it restores shows
+ * here.
  */
-export const DenylistPart = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
-  const values = useDenylist(view.environmentId);
+export const DenylistPart = ({ view, values, writable }: { readonly view: EnvironmentView; readonly values: DenylistValues; readonly writable: boolean }) => {
   const { denylist, answer } = values;
   const ready = view.phase === "ready";
   return (
@@ -71,7 +72,7 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
     setSaid(undefined);
     setWriting(true);
     void values
-      .restore(section)
+      .restore([section])
       .then((restored) => setSaid({ line: restored.line, refused: !restored.ok }))
       .finally(() => setWriting(false));
   };
@@ -104,24 +105,46 @@ const SectionCard = ({ section, entries, values, writable }: SectionCardProps) =
       )}
       <AddEntry section={name} writable={writable} writing={writing} send={send} />
       {said !== undefined && <p className={`text-xs ${said.refused ? "text-signal" : "text-ink-muted"}`}>{said.line}</p>}
-      <Dialog open={restoring} onOpenChange={setRestoring}>
-        {restoring && (
-          <DialogContent
-            title={`Restore the presets ${name} lost?`}
-            description="Each preset the section no longer holds is put back at its end, enabled; a preset edited or disabled stays as it is."
-          >
-            <div className="flex justify-end gap-2">
-              <DialogClose asChild>
-                <Button>Cancel</Button>
-              </DialogClose>
-              <Button tone="primary" onClick={restore}>
-                Restore
-              </Button>
-            </div>
-          </DialogContent>
-        )}
-      </Dialog>
+      <RestorePresetsDialog open={restoring} sections={[section]} cancel={() => setRestoring(false)} restore={restore} />
     </section>
+  );
+};
+
+interface RestorePresetsDialogProps {
+  /** Whether it is asking. */
+  readonly open: boolean;
+  /** The sections whose presets it asks to restore; undefined for every section's. */
+  readonly sections: readonly DenylistSection[] | undefined;
+  readonly cancel: () => void;
+  readonly restore: () => void;
+}
+
+/**
+ * The one confirmation a restore of the denylist's presets asks (permissions
+ * spec, "The denylist"): a section's Restore presets, and the Permissions
+ * step's Restore on its card (#594), which names its target sections or,
+ * naming none, every section.
+ */
+export const RestorePresetsDialog = ({ open, sections, cancel, restore }: RestorePresetsDialogProps) => {
+  const named = sections?.map((section) => DENYLIST_SECTION_NAMES[section]) ?? [];
+  return (
+    <Dialog open={open} onOpenChange={(opened) => !opened && cancel()}>
+      {open && (
+        <DialogContent
+          title={`Restore the presets ${named.length === 0 ? "the denylist" : listWords(named)} lost?`}
+          description={`Each preset ${named.length === 1 ? "the section" : "a section"} no longer holds is put back at its end, enabled; a preset edited or disabled stays as it is.`}
+        >
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button>Cancel</Button>
+            </DialogClose>
+            <Button tone="primary" onClick={restore}>
+              Restore
+            </Button>
+          </div>
+        </DialogContent>
+      )}
+    </Dialog>
   );
 };
 

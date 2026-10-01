@@ -1,14 +1,22 @@
-import { whenWords, writable, type DispatchFailure, type EnvironmentView, type KnownDirectory, type Observable, type RequestAnswer, type SessionRow, type Writable } from "@agent-harness/client-runtime";
 import {
-  RequestedDirectory,
-  WORKSPACES_BROWSE_CAP,
-  WORKSPACES_INSPECT_BRANCH_CAP,
-  WorkspaceProblem,
-  type InspectedBranch,
-  type InspectedRepository,
-  type Workspace,
-  type WorkspaceRequest,
-} from "@agent-harness/contracts";
+  baseName,
+  heldWords,
+  presetBranch,
+  problemLine,
+  repositoryWords,
+  resolverRefusal,
+  whenWords,
+  writable,
+  type DispatchFailure,
+  type EnvironmentView,
+  type KnownDirectory,
+  type Observable,
+  type RefusalPlace,
+  type RequestAnswer,
+  type SessionRow,
+  type Writable,
+} from "@agent-harness/client-runtime";
+import { RequestedDirectory, WORKSPACES_BROWSE_CAP, WORKSPACES_INSPECT_BRANCH_CAP, type InspectedBranch, type InspectedRepository, type WorkspaceRequest } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import { STAYS, pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { titleOf, whenBack, type RailActs } from "./pickers.js";
@@ -68,37 +76,6 @@ export interface StepCommand {
   readonly done: () => void;
 }
 
-/** The last part of a path, as the environment's operating system writes it; the path itself when it has none. */
-export const baseName = (path: string): string => path.split(/[\\/]/).filter((part) => part !== "").at(-1) ?? path;
-
-/** A recorded workspace as the header and a chip say it: its kind, its directory's name, a worktree's repository and branch. */
-export const workspaceLabel = (workspace: Workspace): string => {
-  switch (workspace.kind) {
-    case "worktree":
-      return `worktree ${baseName(workspace.repository)} on ${workspace.branch}`;
-    case "scratch":
-      return "scratch";
-    default:
-      return `directory ${baseName(workspace.path)}`;
-  }
-};
-
-/** A workspace request as its chip says it; a `session` request as the workspace it shares, found among `rows`. */
-export const requestLabel = (request: WorkspaceRequest, sessionId: string, rows: readonly SessionRow[]): string => {
-  switch (request.kind) {
-    case "directory":
-      return `directory ${baseName(request.path)}`;
-    case "scratch":
-      return "scratch";
-    case "worktree":
-      return `worktree ${baseName(request.repository)} on ${request.branch ?? request.newBranch?.name ?? presetBranch(sessionId)}`;
-    case "session": {
-      const shared = rows.find((row) => row.summary.id === request.sessionId.toLowerCase());
-      return shared ? workspaceLabel(shared.summary.workspace) : "another session's";
-    }
-  }
-};
-
 /** A workspace request in the words of the line that says it is being sent. */
 export const requestWords = (request: WorkspaceRequest, sessionId: string, rows: readonly SessionRow[]): string => {
   switch (request.kind) {
@@ -115,12 +92,6 @@ export const requestWords = (request: WorkspaceRequest, sessionId: string, rows:
   }
 };
 
-/** The name the environment gives a new worktree branch it is not given one for (the workspace-picker spec's preset). */
-export const presetBranch = (sessionId: string): string => `agent-harness/${sessionId.slice(0, 8)}`;
-
-/** A repository identity as a row shows it: without its scheme, which is always `https://`. */
-const identityWords = (identity: string): string => identity.replace(/^https:\/\//, "");
-
 /** Whether the terminal's own directory is a full path, which the local environment's step offers as it is. */
 export const isFullPath = (path: string) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path);
 
@@ -130,58 +101,25 @@ const childOf = (path: string, name: string): string => {
   return path.endsWith("/") || path.endsWith("\\") ? `${path}${name}` : `${path}${separator}${name}`;
 };
 
-/** How the environment's refusal of a directory reads on the step, by its problem (#325). */
-const PROBLEM_LINES: Readonly<Record<WorkspaceProblem, (path: string, where: string) => string>> = {
-  does_not_exist: (path, where) => `${path} does not exist on ${where}.`,
-  not_a_directory: (path, where) => `${path} is not a directory on ${where}.`,
-  not_readable: (path, where) => `${where} cannot list or enter ${path}.`,
-  reserved: (path, where) => `${path} is inside ${where}'s data directory.`,
-};
-
-/** What a refusal's data names, read as text; undefined where it names nothing. */
-const textOf = (data: Readonly<Record<string, unknown>>, key: string): string | undefined => (typeof data[key] === "string" ? data[key] : undefined);
-
-/** The session the environment names, by its title when this client lists it. */
-const sessionWords = (acts: RailActs, environmentId: string, sessionId: string): string => {
-  const row = acts.runtime.projections.sessionList.read().rows.find((r) => r.environmentId === environmentId && r.summary.id === sessionId.toLowerCase());
-  return row ? titleOf(row) : `the session ${sessionId.slice(0, 8)}`;
-};
-
-/** Where a branch is checked out, and by which session when the harness made that worktree. */
-const heldWords = (acts: RailActs, environmentId: string, worktree: string, sessionId: string | null | undefined): string =>
-  `checked out in ${worktree}${sessionId == null ? "" : ` by ${sessionWords(acts, environmentId, sessionId)}`}`;
+/** Where the step says a refusal: the environment's name and id, and the sessions listed now, which name a branch's holder by its title. */
+const refusalPlaceOf = (acts: RailActs, view: EnvironmentView): RefusalPlace => ({
+  where: nameOf(view),
+  environmentId: view.environmentId,
+  rows: acts.runtime.projections.sessionList.read().rows,
+});
 
 /**
  * A refusal of the workspace chosen, in one line: a path that is not full
- * (the contracts' own check, refused before it is sent), a directory's
- * problem, a worktree's branch or repository reason, or else what the
- * environment says after `unsent` (what did not happen).
+ * (the contracts' own check, refused before it is sent), the resolver's
+ * refusal (a directory's problem, a worktree's branch or repository
+ * reason), or else what the environment says after `unsent` (what did not
+ * happen).
  */
 const refusalLine = (place: StepPlace, failure: DispatchFailure, request: WorkspaceRequest, unsent: string): string => {
   const where = nameOf(place.view);
-  const data = failure.data ?? {};
   if (failure.code === "invalid_params" && request.kind === "directory") return `A workspace is a full path on ${where}, or one from its home (~).`;
   if (failure.code === "invalid_params" && request.kind === "worktree") return `A repository is a full path on ${where}: pick one, or browse to it.`;
-  const problem = WorkspaceProblem.safeParse(data["problem"]);
-  if (problem.success) return PROBLEM_LINES[problem.data](textOf(data, "path") ?? (request.kind === "directory" ? request.path : ""), where);
-  const branch = textOf(data, "branch") ?? "";
-  const repository = textOf(data, "repository") ?? (request.kind === "worktree" ? request.repository : "");
-  switch (textOf(data, "reason")) {
-    case "branch_checked_out":
-      return `${branch} is ${heldWords(place.acts, place.view.environmentId, textOf(data, "worktree") ?? "another worktree", textOf(data, "sessionId"))}.`;
-    case "branch_exists":
-      return `${repository} already has a branch ${branch}: pick it from the list, or name another.`;
-    case "branch_not_found":
-      return `${repository} has no local branch ${branch} on ${where}.`;
-    case "not_a_repository":
-      return `${textOf(data, "path") ?? repository} is in no git repository on ${where}.`;
-    case "no_commits":
-      return `${repository} has no commit for a new branch to start from.`;
-    case "git_unavailable":
-      return `${where} has no git to make a worktree with.`;
-    default:
-      return `${unsent}: ${failure.message}`;
-  }
+  return resolverRefusal(failure.data ?? {}, request, refusalPlaceOf(place.acts, place.view)) ?? `${unsent}: ${failure.message}`;
 };
 
 /**
@@ -374,7 +312,7 @@ const branchStep = (place: StepPlace, repository: string, back: Picker): Picker 
           (branch: InspectedBranch): PickerRow =>
             branch.worktree === null
               ? { key: `branch:${branch.name}`, text: branch.name, detail: `committed ${whenWords(new Date(branch.committedAt))}`, choose: make({ branch: branch.name }) }
-              : { key: `branch:${branch.name}`, text: branch.name, absent: heldWords(acts, view.environmentId, branch.worktree, branch.sessionId) },
+              : { key: `branch:${branch.name}`, text: branch.name, absent: heldWords(branch.worktree, branch.sessionId, refusalPlaceOf(acts, view)) },
         );
       return [...typedRows, preset, ...listed];
     },
@@ -386,7 +324,7 @@ const branchStep = (place: StepPlace, repository: string, back: Picker): Picker 
       if (answer === null) return `Reading ${name}'s branches…`;
       if (!answer.ok) return `${where} could not read ${repository}: ${answer.error.message}`;
       const { path, problem, repository: read } = answer.result;
-      if (problem !== null) return PROBLEM_LINES[problem](path, where);
+      if (problem !== null) return problemLine(problem, path, where);
       if (read === null) return `${path} is in no git repository on ${where}.`;
       return read.branchesTruncated ? `Only the ${WORKSPACES_INSPECT_BRANCH_CAP.toLocaleString("en")} most recently committed branches are listed: type another's name.` : undefined;
     },
@@ -413,7 +351,7 @@ const repositoryStep = (place: StepPlace, back: Picker): Picker => {
           (directory): PickerRow => ({
             key: `path:${directory.path}`,
             text: directory.path,
-            ...(directory.repositoryIdentity !== null && { detail: identityWords(directory.repositoryIdentity) }),
+            ...(directory.repositoryIdentity !== null && { detail: repositoryWords(directory.repositoryIdentity) }),
             choose: () => branchStep(place, directory.path, step),
           }),
         );
@@ -484,7 +422,7 @@ export const workspaceStep = (place: StepPlace, options: WorkspaceStepOptions): 
           (known): PickerRow => ({
             key: `path:${known.path}`,
             text: known.path,
-            ...(known.repositoryIdentity !== null && { detail: identityWords(known.repositoryIdentity) }),
+            ...(known.repositoryIdentity !== null && { detail: repositoryWords(known.repositoryIdentity) }),
             ...(known.missingSince === null ? { choose: directory(known.path) } : { absent: `gone since ${whenWords(new Date(known.missingSince))}` }),
             hide: () => hideDirectory(place, known.path),
           }),

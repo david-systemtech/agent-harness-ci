@@ -1,8 +1,7 @@
-import { whenWords, type EnvironmentView, type KnownDirectory } from "@agent-harness/client-runtime";
+import { repositoryWords, whenWords, type EnvironmentView, type KnownDirectory } from "@agent-harness/client-runtime";
 import { RequestedDirectory, type WorkspaceRequest } from "@agent-harness/contracts";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { nameOf } from "../connections/words.js";
-import { repositoryWords } from "../new-session/words.js";
 import { Button, Input, PopoverContent } from "../ui/index.js";
 import { useRuntime, useShell } from "../window-context.js";
 import { Branches } from "./branches.js";

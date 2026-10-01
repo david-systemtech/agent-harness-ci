@@ -1,4 +1,4 @@
-import { DenylistSection, SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
+import { DenylistSection, SETTINGS, type MethodName, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { restoreDenylistPresets } from "../permissions/actions.js";
 import { saveSetting } from "../settings/editor.js";
@@ -48,6 +48,12 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
 export type RestorableStep = Extract<StepId, "permissions" | "appearance">;
+
+/** The method each step's restore calls (`restoreStep`), whose capability says whether a connection may restore it. */
+export const RESTORE_METHODS: { readonly [Step in RestorableStep]: MethodName } = {
+  permissions: "permissions.denylist.restorePresets",
+  appearance: "settings.update",
+};
 
 /** The verbs a step's card carries out itself (the Set up specification, "Actions" and "The LLM step"): an import run again, and an authoring session's. */
 export type CardAction = Extract<SetupAction, "import-again" | "try-again" | "write-it-myself" | "start-over" | "revise">;

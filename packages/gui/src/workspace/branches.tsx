@@ -1,7 +1,6 @@
-import { whenWords, type RequestAnswer } from "@agent-harness/client-runtime";
+import { baseName, heldWords, presetBranch, problemLine, whenWords, type RefusalPlace, type RequestAnswer } from "@agent-harness/client-runtime";
 import { WORKSPACES_INSPECT_BRANCH_CAP, type InspectedRepository, type WorkspaceRequest } from "@agent-harness/contracts";
 import { useEffect, useState } from "react";
-import { baseName, heldWords, presetBranch, resolverRefusal, type RefusalPlace } from "../new-session/words.js";
 import { Button, Input } from "../ui/index.js";
 import { useRuntime } from "../window-context.js";
 import { Entry, PickerLine, ViewTitle } from "./parts.js";
@@ -76,7 +75,7 @@ export const Branches = ({ place, repository, sessionId, choose, back, line, wai
     if (answer === null) return `Reading ${name}'s branches…`;
     if (!answer.ok) return `${where} could not read ${repository}: ${answer.error.message}`;
     const { path, problem } = answer.result;
-    if (problem !== null) return resolverRefusal({ problem, path }, { kind: "directory", path }, place);
+    if (problem !== null) return problemLine(problem, path, where);
     if (read === null) return `${path} is in no git repository on ${where}.`;
     return read.branchesTruncated ? `Only the ${WORKSPACES_INSPECT_BRANCH_CAP.toLocaleString("en")} most recently committed branches are listed: type another's name.` : undefined;
   })();

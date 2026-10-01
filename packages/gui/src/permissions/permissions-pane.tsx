@@ -8,6 +8,7 @@ import { ContainmentDefault } from "./containment-default.js";
 import { DenylistPart } from "./denylist.js";
 import { Part } from "../settings/part.js";
 import { UnattendedReview } from "./unattended-review.js";
+import { useDenylist, type DenylistValues } from "./use-denylist.js";
 
 /** The permission keys the generic editor draws: every one but the containment default, which the pane draws with each level's availability. */
 const PLAIN_KEYS = rowKeys("access.permissions").filter((key) => key !== "permissions.containment.default");
@@ -29,6 +30,24 @@ export const PermissionsPane = () => {
 };
 
 const PermissionsOn = ({ view }: { readonly view: EnvironmentView }) => {
+  const denylist = useDenylist(view.environmentId);
+  return (
+    <>
+      <p className="text-sm text-ink-muted">{settingsRow("access.permissions").hint}</p>
+      <PermissionsForm view={view} denylist={denylist} />
+      <UnattendedReview view={view} />
+    </>
+  );
+};
+
+/**
+ * The permissions spec's form, on the Permissions row and the Permissions
+ * step's card (#415, #594): the permission settings and the denylist, over
+ * the denylist its holder reads (`useDenylist`). Without `admin` it is
+ * read-only with the capability's line, said once; while the environment
+ * cannot be reached it shows what this window last read, read-only.
+ */
+export const PermissionsForm = ({ view, denylist }: { readonly view: EnvironmentView; readonly denylist: DenylistValues }) => {
   const runtime = useRuntime();
   const { environmentId } = view;
   const { values } = useSettingsValues(environmentId);
@@ -37,15 +56,13 @@ const PermissionsOn = ({ view }: { readonly view: EnvironmentView }) => {
   const writable = ready && admin.status === "present";
   return (
     <>
-      <p className="text-sm text-ink-muted">{settingsRow("access.permissions").hint}</p>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, values !== null)}</p>}
       {ready && admin.status === "absent" && <p className="text-sm text-amber">Read-only: {admin.message}</p>}
       <Part title="Permission settings">
         <GenericEditor view={view} keys={PLAIN_KEYS} saysWhyReadOnly={false} />
         <ContainmentDefault view={view} writable={writable} />
       </Part>
-      <DenylistPart view={view} writable={writable} />
-      <UnattendedReview view={view} />
+      <DenylistPart view={view} values={denylist} writable={writable} />
     </>
   );
 };

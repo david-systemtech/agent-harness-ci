@@ -1,9 +1,9 @@
-import { ACCOUNT_STATUS_WORDS, identityWords, type EnvironmentView, type NewSessionChips, type NewSessionFocus, type NewSessionView, type Observable } from "@agent-harness/client-runtime";
+import { ACCOUNT_STATUS_WORDS, identityWords, requestLabel, type EnvironmentView, type NewSessionChips, type NewSessionFocus, type NewSessionView, type Observable } from "@agent-harness/client-runtime";
 import type { AccountRecord, ModelEntry } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
 import { pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { withBadge, type RailActs } from "./pickers.js";
-import { environmentChip, requestLabel, requestWords, sendFromStep, workspaceStep, type StepPlace } from "./workspace-step.js";
+import { environmentChip, requestWords, sendFromStep, workspaceStep, type StepPlace } from "./workspace-step.js";
 
 /**
  * The new-session card (workspace-picker spec, "The picker in the client
@@ -64,7 +64,7 @@ export const newSessionCard = (acts: RailActs, opening: CardOpening): Picker => 
       environmentChip(acts, view),
       { label: "account", value: accountWords(now, read.accounts) },
       { label: "model", value: modelWords(now, read.accounts || read.models) },
-      { label: "workspace", value: workspace ?? (now.workspace.value === null ? "…" : requestLabel(now.workspace.value, sessionId, rows())) },
+      { label: "workspace", value: workspace ?? (now.workspace.value === null ? "…" : requestLabel(now.workspace.value, sessionId, { environmentId, rows: rows() })) },
     ];
   };
   const reopen = (changed: NewSessionChips): Picker => newSessionCard(acts, { ...opening, chips: changed, query: "" });

@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
+import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, deleteSession } from "../../test/sessions.js";
 import { git } from "../../test/workspaces.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
+import { MAX_UNANSWERED } from "./availability.js";
 
 /**
  * The checkout index (workspace-picker spec, "Completions, minted sessions,
@@ -17,13 +18,37 @@ import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-const start = async (): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment();
+const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
+  const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
   return t;
 };
 
 const IDENTITY = "https://git.systemtech.dev/david/agent-harness";
+
+/** How long the watcher's look may take here: reached only by a look that never answers, which the test waits on, not on the time. */
+const LOOK_BOUND_MS = 50;
+
+/**
+ * The watcher's look, scripted: a path in `dead` never answers, as on a
+ * network mount whose server is gone; every other is a directory. Records
+ * each path asked.
+ */
+const deadMounts = (): { dead: Set<string>; asked: string[]; workspaces: NonNullable<TestEnvironmentOptions["workspaces"]> } => {
+  const dead = new Set<string>();
+  const asked: string[] = [];
+  return {
+    dead,
+    asked,
+    workspaces: {
+      lookTimeoutMs: LOOK_BOUND_MS,
+      isDirectory: (path) => {
+        asked.push(path);
+        return dead.has(path) ? new Promise<boolean>(() => undefined) : Promise.resolve(true);
+      },
+    },
+  };
+};
 
 /** A clone of the harness's repository: one commit, its remote spelled `remote`. */
 const clone = (remote = "git@git.systemtech.dev:david/agent-harness.git"): string => {
@@ -84,5 +109,42 @@ describe("the checkout index", () => {
     expect(await t.env.workspaces.checkoutIndex.checkoutFor("https://github.com/david/elsewhere")).toEqual({ kind: "scratch" });
     rmSync(kept, { recursive: true, force: true });
     expect(await t.env.workspaces.checkoutIndex.checkoutFor(IDENTITY)).toEqual({ kind: "scratch" });
+  });
+
+  it("passes over a known directory whose look does not answer within the watcher's bound, as on a network mount whose server is gone, for the next one (#709)", async () => {
+    const mounts = deadMounts();
+    const t = await start({ workspaces: mounts.workspaces });
+    const client = await t.client();
+    const [healthy, dead] = [clone(), clone()];
+    await session(client, { kind: "directory", path: healthy });
+    t.clock.advance(60_000);
+    await session(client, { kind: "directory", path: dead });
+    mounts.dead.add(dead);
+    mounts.asked.length = 0;
+
+    expect(await t.env.workspaces.checkoutIndex.checkoutFor(IDENTITY)).toEqual({ kind: "directory", path: healthy });
+    expect(mounts.asked).toEqual([dead, healthy]);
+    // Its call has still not returned, and is not asked again: it still does not answer.
+    expect(await t.env.workspaces.checkoutIndex.checkoutFor(IDENTITY)).toEqual({ kind: "directory", path: healthy });
+    expect(mounts.asked).toEqual([dead, healthy, healthy]);
+  });
+
+  it("passes over a known directory the watcher does not look at while its gate holds, its looks overdue, and answers scratch (#709)", async () => {
+    const mounts = deadMounts();
+    const t = await start({ workspaces: mounts.workspaces });
+    const client = await t.client();
+    const healthy = clone();
+    // Oldest first: the healthy directory, then as many dead ones as hold the gate, the latest used last.
+    const dead = Array.from({ length: MAX_UNANSWERED }, () => clone());
+    for (const path of [healthy, ...dead]) {
+      await session(client, { kind: "directory", path });
+      t.clock.advance(60_000);
+    }
+    dead.forEach((path) => mounts.dead.add(path));
+    mounts.asked.length = 0;
+
+    expect(await t.env.workspaces.checkoutIndex.checkoutFor(IDENTITY)).toEqual({ kind: "scratch" });
+    // The healthy directory is never asked about: the gate held before its turn.
+    expect(mounts.asked).toEqual([...dead].reverse());
   });
 });
