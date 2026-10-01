@@ -9,5 +9,6 @@ the result goes back to the Forgejo pull request as its `ci / ci` check.
 Nothing is developed here, and pull requests to this repository are not read.
 
 - `workflows` (the default branch) holds only the workflows.
-- `main` follows agent-harness `main`, so each push sends only new objects.
+- `mirror/main` follows agent-harness `main`, so each push sends only new
+  objects. Nothing here is ever called `main`.
 - `ci/<id>` branches exist only while their run does.
