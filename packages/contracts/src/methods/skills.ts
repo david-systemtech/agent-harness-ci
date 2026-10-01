@@ -1,9 +1,19 @@
 import { z } from "zod";
 import { AccountId } from "../accounts.js";
 import { commandParams, defineMethod } from "../method.js";
-import { SessionId } from "../sessions.js";
-import { SkillName } from "../skill-rules.js";
-import { SkillChoice, SkillMember, SkillsAlwaysOnSetPayload, SkillsCarryOverReport, SkillsEnabledSetPayload, SkillsView } from "../skills.js";
+import { SkillReadiness } from "../readiness.js";
+import { SessionId, Workspace } from "../sessions.js";
+import { SkillName, SkillSourceUrl } from "../skill-rules.js";
+import {
+  SkillChoice,
+  SkillMember,
+  SkillSourceBranch,
+  SkillsAlwaysOnSetPayload,
+  SkillsCarryOverReport,
+  SkillsEnabledSetPayload,
+  SkillsProbeResult,
+  SkillsView,
+} from "../skills.js";
 
 /**
  * The skill set's methods this far (skills spec, "The own directory and
@@ -151,5 +161,85 @@ export const skillsSetEnabled = defineMethod({
   kind: "command",
   params: commandParams(SkillsEnabledSetPayload.shape),
   result: choiceResult,
+  errors: [],
+});
+
+/**
+ * Probes a repository for its skill folders (skills spec, "Skill sources",
+ * the probe; ADR 0029), so a person adding a source ticks folders the
+ * environment found rather than guessing one. The environment shallow-clones
+ * `branch`, else the remote's default, through the ForgeService's git, which
+ * never prompts: the forge account for the URL's origin authenticates it,
+ * an origin with none is read anonymously, and an ssh URL on a host no forge
+ * account covers is read over ssh with the user's own keys. It answers the
+ * probe's id, the identity, the branch and commit, the root when it holds
+ * `SKILL.md`, and every folder up to four levels down whose children hold
+ * `SKILL.md`, each with its members, their count and any licence file; at
+ * most 2,000 directories are read, `.git` and `node_modules` skipped, and no
+ * link leading out of the checkout is followed. A URL failing the source
+ * URL rule is `invalid_params`. A repository it cannot reach is `conflict`,
+ * reason `unreachable` (`SkillProbeUnreachable`: the problem
+ * `authentication`, `not_found`, `network` or `git_failed`, what git said,
+ * and the origin). The checkout lies under the data directory and is kept
+ * thirty minutes for `skills.sources.add` to reuse by the probe's id, then
+ * removed.
+ */
+export const skillsProbe = defineMethod({
+  name: "skills.probe",
+  scope: "admin",
+  kind: "query",
+  params: z.object({
+    url: SkillSourceUrl,
+    branch: SkillSourceBranch.optional().meta({ description: "The branch to probe; the remote's default, the one its HEAD names, when absent." }),
+  }),
+  result: SkillsProbeResult,
+  errors: [],
+});
+
+/**
+ * `skills.readiness`: a session, or an account and a workspace, never
+ * both, with the names to answer and whether to read again. The
+ * refinement is zod's half; the `oneOf` the export's.
+ */
+const ReadinessParams = z
+  .object({
+    sessionId: SessionId.optional().meta({ description: "The session whose next run's set and workspace to check; leave out accountId and workspace." }),
+    accountId: AccountId.optional().meta({ description: "With workspace and no sessionId: the account of a new session whose set to check." }),
+    workspace: Workspace.optional().meta({ description: "With accountId and no sessionId: the workspace of a new session, where the checks run." }),
+    names: z.array(SkillName).optional().meta({ description: "The members to answer; every member of the set when absent. A name not in the set is left out." }),
+    refresh: z.boolean().optional().meta({ description: "Check again rather than answer what was checked in the last sixty seconds." }),
+  })
+  .refine((target) => (target.sessionId === undefined ? target.accountId !== undefined && target.workspace !== undefined : target.accountId === undefined && target.workspace === undefined), {
+    message: "Name a session, or an account and a workspace, not both.",
+  })
+  .meta({
+    description: "A session, whose next run's set is checked in its workspace; or an account and a workspace, where a new session's first run would be; with the names to answer and whether to check again.",
+    oneOf: [
+      { required: ["sessionId"], properties: { sessionId: true, accountId: false, workspace: false } },
+      { required: ["accountId", "workspace"], properties: { sessionId: false, accountId: true, workspace: true } },
+    ],
+  });
+
+/**
+ * Each member's readiness (skills spec, "Readiness"; ADR 0009): the set a
+ * session's next run would have, or a new session's of the account and
+ * workspace, each member checked against its sidecar, else the overlay's
+ * declaration for its origin, in the workspace (paths from the repository's
+ * root, else the workspace). Each check gets five seconds and the call ten;
+ * one that runs out fails as could not be checked in time. Answers are kept
+ * sixty seconds per workspace, account and set fingerprint, unless
+ * `refresh`. Advisory: it never blocks an invocation or changes the set. A
+ * session the environment does not hold, or a deleted one, is `not_found`
+ * (kind `session`); an account it does not hold, `not_found` (kind
+ * `account`).
+ */
+export const skillsReadiness = defineMethod({
+  name: "skills.readiness",
+  scope: "read",
+  kind: "query",
+  params: ReadinessParams,
+  result: z.object({
+    skills: z.array(SkillReadiness).meta({ description: "Each member asked for that is in the set, in the set's order." }),
+  }),
   errors: [],
 });

@@ -59,6 +59,8 @@ describe("the method registry", () => {
       "environment.rename": "admin",
       "environment.setIcon": "admin",
       "environment.setColour": "admin",
+      // Known environments (key-managers spec, "Wire methods"; #382): refused forbidden to a program all the same.
+      "environment.knownEnvironments.report": "read",
       "access.pairings.create": "admin",
       "access.sessions.list": "admin",
       "access.sessions.revoke": "admin",
@@ -376,6 +378,7 @@ describe("the method registry", () => {
       | "environment.rename"
       | "environment.setIcon"
       | "environment.setColour"
+      | "environment.knownEnvironments.report"
       | "access.pairings.create"
       | "access.sessions.list"
       | "access.sessions.revoke"
@@ -544,11 +547,13 @@ describe("the method registry", () => {
       | "routines.endpoints.remove"
       | "routines.endpoints.test"
       | "skills.get"
+      | "skills.probe"
       | "skills.own.create"
       | "skills.own.remove"
       | "skills.carryOver"
       | "skills.setAlwaysOn"
       | "skills.setEnabled"
+      | "skills.readiness"
       | "trust.get"
       | "trust.list"
       | "trust.decide"

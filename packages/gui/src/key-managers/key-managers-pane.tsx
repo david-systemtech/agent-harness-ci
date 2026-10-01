@@ -5,7 +5,7 @@ import { nameOf } from "../connections/words.js";
 import { reachWords } from "../settings/generic-editor.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
 import { Button } from "../ui/index.js";
-import { useFollowed, useObservable, useRuntime } from "../window-context.js";
+import { useObservable, useRuntime } from "../window-context.js";
 import { AddConnection } from "./add-connection.js";
 import { ConnectionCard } from "./connection-card.js";
 import { InjectionSetting } from "./injection-setting.js";
@@ -15,8 +15,9 @@ import { MoveCard } from "./move-card.js";
  * The Key managers row, `access.key-managers` (key-managers spec; ADR 0011,
  * ADR 0028; docs/specs/gui.md, "Settings"; #425), on the environment its
  * picker names: a card per connection from `keyManagers.list` in the request
- * cache, which every key-manager event refreshes, with each connection's
- * CLI row from `tools.list`, and Add. Everything drawn is the runtime's; the
+ * cache, which every key-manager event and `tools.updated` refresh, each
+ * connection with its CLI's Managed tools row as the list carries it (#375,
+ * #776), and Add. Everything drawn is the runtime's; the
  * pane keeps nothing of the connections itself (ADR 0004), only what a
  * person has typed and the last line it said.
  *
@@ -35,8 +36,6 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
   const { environmentId } = view;
   const flagged = runtime.capability(environmentId, "keyManagers");
   const listed = useObservable(useMemo(() => runtime.requests.cached(environmentId, "keyManagers.list", {}), [runtime, environmentId]));
-  const toolsAnswer = runtime.capability(environmentId, "tools.list");
-  const tooled = useFollowed(useMemo(() => (toolsAnswer.status === "present" ? runtime.requests.cached(environmentId, "tools.list", {}) : undefined), [runtime, environmentId, toolsAnswer.status]));
   const [adding, setAdding] = useState(false);
   const [line, say] = useState<string | undefined>(undefined);
   const hint = <p className="text-sm text-ink-muted">{settingsRow("access.key-managers").hint}</p>;
@@ -50,7 +49,6 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
     );
   }
   const connections = listed.result?.connections ?? null;
-  const tools = toolsAnswer.status === "absent" ? toolsAnswer.message : (tooled?.result?.tools ?? []);
   const ready = view.phase === "ready";
   const admin = runtime.capability(environmentId, "keyManagers.connections.add");
   const writable = admin.status === "present";
@@ -73,7 +71,7 @@ const KeyManagersOn = ({ view }: { readonly view: EnvironmentView }) => {
         ? ready && <p className="text-sm text-ink-faint">{listed.error === null ? "Reading the key managers…" : `The key managers could not be read: ${listed.error.message}`}</p>
         : connections.length === 0
           ? <p className="text-sm text-ink-muted">No key manager is connected here.</p>
-          : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} tools={tools} writable={writable} say={say} />)}
+          : connections.map((connection) => <ConnectionCard key={connection.id} environmentId={environmentId} connection={connection} writable={writable} say={say} />)}
       {connections !== null && connections.length > 0 && <MoveCard environmentId={environmentId} connections={connections} writable={writable} />}
       <InjectionSetting view={view} />
       {adding && <AddConnection environmentId={environmentId} environmentName={nameOf(view)} close={() => setAdding(false)} say={say} />}

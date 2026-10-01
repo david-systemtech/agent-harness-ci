@@ -1,4 +1,4 @@
-import type { Clock, Timer } from "@agent-harness/client-runtime";
+import type { AttentionKind, AttentionNotification, Clock, HarnessActivity, Timer } from "@agent-harness/client-runtime";
 
 /**
  * What the terminal says while nobody is looking at it (docs/specs/tui.md,
@@ -117,11 +117,8 @@ const tailEllipsis = (value: string, limit: number): string => {
   return glyphs.length <= limit ? value : `…${glyphs.slice(glyphs.length - Math.max(0, limit - 1)).join("")}`;
 };
 
-/** What the window says about the harness. */
-export type TerminalActivity = "ready" | "working" | "needs-you";
-
 export interface TitleInput {
-  readonly state: TerminalActivity;
+  readonly state: HarnessActivity;
   /** The open session's name; absent before there is one, when the folder stands in. */
   readonly title?: string | undefined;
   /** The workspace the title is about. */
@@ -142,7 +139,7 @@ const MAX_NEEDING = 99;
 const SEPARATOR = " · ";
 
 /** The three states: the rail's glyphs, and a working glyph that does not animate. */
-const lead = (state: TerminalActivity, needing: number | undefined): string => {
+const lead = (state: HarnessActivity, needing: number | undefined): string => {
   switch (state) {
     case "needs-you": {
       const count = typeof needing === "number" && Number.isFinite(needing) ? Math.floor(needing) : 1;
@@ -221,15 +218,6 @@ export const notificationMethod = (deps: TerminalDeps = {}): NotificationMethod 
   return forced ?? autoMethod(wired);
 };
 
-export type AttentionKind = "needs-you" | "finished";
-
-/** What a notification says: why it rang, the session it is about, and one sentence. */
-export interface AttentionNotice {
-  readonly kind: AttentionKind;
-  readonly title: string;
-  readonly body: string;
-}
-
 /** Long enough for a session's name and a sentence; short enough not to be a payload. */
 const NOTIFY_TITLE_LIMIT = 120;
 const NOTIFY_BODY_LIMIT = 240;
@@ -239,7 +227,7 @@ const NOTIFY_BODY_LIMIT = 240;
  * field), OSC 777 a title (a semicolon made a comma) and a body, the bell
  * nothing. `none` whenever nothing was written.
  */
-export const notify = (notice: AttentionNotice, deps: TerminalDeps = {}): NotificationMethod => {
+export const notify = (notice: AttentionNotification, deps: TerminalDeps = {}): NotificationMethod => {
   const wired = wire(deps);
   const method = notificationMethod(deps);
   if (method === "none") return "none";
@@ -258,7 +246,7 @@ export const notify = (notice: AttentionNotice, deps: TerminalDeps = {}): Notifi
 export interface TerminalChrome {
   setTitle(title: string): void;
   clearTitle(): void;
-  notify(notice: AttentionNotice): void;
+  notify(notice: AttentionNotification): void;
 }
 
 /** The chrome of the terminal `deps` names: its stream, its variables, its platform. */

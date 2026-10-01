@@ -62,11 +62,14 @@ describe("the JSON Schema export", () => {
       { path: "cases/skill-source-url.json", title: "Skill source URL" },
       { path: "cases/skill-source-folder.json", title: "Skill source folder" },
       { path: "cases/bridge-proof.json", title: "Bridge proof" },
+      { path: "cases/schedule-validation.json", title: "Schedule validation" },
+      { path: "cases/schedule-due-times.json", title: "Schedule due times" },
     ]);
     expect(index.data).toEqual([
       { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
       { path: "data/settings-addresses.json", title: "Settings addresses", schema: "settings/address-row.json" },
+      { path: "data/pairing-presets.json", title: "Pairing presets", schema: "pair/preset.json" },
       { path: "data/managed-tools.json", title: "Managed tools", schema: "managed-tools/tool.json" },
       { path: "data/managed-tool-commands.json", title: "Managed tool commands", schema: "managed-tools/command-entry.json" },
       { path: "data/catalogue-skills.json", title: "Catalogue skills", schema: "catalogue/skill-entry.json" },
@@ -151,6 +154,24 @@ describe("the JSON Schema export", () => {
     for (const entry of folders) {
       const check = contracts.checkSourceFolder(entry.folder);
       expect(check.ok ? { normalised: check.value, reason: null } : { normalised: null, reason: check.refusal.reason }, entry.note).toEqual({ normalised: entry.normalised, reason: entry.reason });
+    }
+  });
+
+  it("publishes the schedule maths' cases, which a client reading only the files can run its own maths against", () => {
+    const validation = readJson("cases/schedule-validation.json") as { description: string; cases: contracts.ScheduleValidationCase[] };
+    expect(validation.description).toContain("validateSchedule");
+    expect(validation.cases).toEqual(contracts.SCHEDULE_VALIDATION_CASES);
+    expect(validation.cases).toContainEqual({ note: "every second minute is refused", schedule: { kind: "cron", expression: "*/2 * * * *" }, timezone: "UTC", issues: [{ path: ["schedule", "expression"], reason: "floor" }] });
+    for (const { note, schedule, timezone, issues } of validation.cases) {
+      expect(contracts.validateSchedule({ schedule: schedule as contracts.RoutineSchedule, timezone }).map(({ path, reason }) => ({ path, reason })), note).toEqual(issues);
+    }
+
+    const dueTimes = readJson("cases/schedule-due-times.json") as { description: string; cases: contracts.ScheduleDueTimesCase[] };
+    expect(dueTimes.description).toContain("nextDueAt and dueTimesBetween");
+    expect(dueTimes.cases).toEqual(contracts.SCHEDULE_DUE_TIME_CASES);
+    for (const { note, after, through, next, ...zoned } of dueTimes.cases) {
+      expect(contracts.nextDueAt(zoned, new Date(after))?.toISOString() ?? null, note).toBe(next);
+      expect(contracts.dueTimesBetween(zoned, new Date(after), new Date(through)).map((due) => due.toISOString()), note).toEqual(zoned.dueTimes);
     }
   });
 

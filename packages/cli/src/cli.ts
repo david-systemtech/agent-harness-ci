@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { Ceiling, DISCOVERY_PATH, MODES, PRODUCT_NAME, SCOPES, ScopeSet } from "@agent-harness/contracts";
+import { Ceiling, DISCOVERY_PATH, MODES, PAIRING_PRESET_IDS, PRODUCT_NAME, PairingPresetId, SCOPES, ScopeSet, pairingPreset, presetGrant } from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
   defaultDataDirectory,
@@ -35,7 +35,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
   `       ${PRODUCT_NAME} service start`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
-  `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
+  `       ${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
@@ -77,12 +77,18 @@ const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir"
   };
 };
 
+/**
+ * `pair`'s arguments. `--preset` asks for a pairing preset's grant (ADR 0025;
+ * #577), with `--scopes` and `--ceiling` only where the preset lets them
+ * change (a program's ceiling; a custom code's both); without it, the
+ * scopes and ceiling given, each the environment's default when absent.
+ */
 const parsePair = (args: readonly string[]): PairArgs => {
-  let values: { "data-dir"?: string; port?: string; scopes?: string; ceiling?: string };
+  let values: { "data-dir"?: string; port?: string; preset?: string; scopes?: string; ceiling?: string };
   try {
     ({ values } = parseArgs({
       args: [...args],
-      options: { "data-dir": { type: "string" }, port: { type: "string" }, scopes: { type: "string" }, ceiling: { type: "string" } },
+      options: { "data-dir": { type: "string" }, port: { type: "string" }, preset: { type: "string" }, scopes: { type: "string" }, ceiling: { type: "string" } },
       strict: true,
       allowPositionals: false,
     }));
@@ -105,7 +111,14 @@ const parsePair = (args: readonly string[]): PairArgs => {
     if (!parsed.success) throw new UsageError(`--ceiling takes one of ${MODES.join(", ")}; got ${values.ceiling === "" ? "nothing" : values.ceiling}.`);
     ceiling = parsed.data;
   }
-  return { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port), scopes, ceiling };
+  const target = { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port) };
+  if (values.preset === undefined) return { ...target, scopes, ceiling };
+  const id = PairingPresetId.safeParse(values.preset);
+  if (!id.success) throw new UsageError(`--preset takes one of ${PAIRING_PRESET_IDS.join(", ")}; got ${values.preset === "" ? "nothing" : values.preset}.`);
+  const preset = pairingPreset(id.data);
+  const grant = presetGrant(preset, { ...(scopes !== undefined && { scopes }), ...(ceiling !== undefined && { ceiling }) });
+  if (!grant.ok) throw new UsageError(grant.message);
+  return { ...target, scopes: grant.scopes, ceiling: grant.ceiling, preset };
 };
 
 /** The network the verbs that reach the local environment use: the context's, else the platform's. */
@@ -120,7 +133,7 @@ const pair = async (args: readonly string[], context: CliContext): Promise<numbe
   const parsed = parsePair(args);
   const net = netOf(context);
   try {
-    context.stdout(renderPairing(await mintPairing(parsed, net)));
+    context.stdout(renderPairing(await mintPairing(parsed, net), parsed.preset));
     return 0;
   } catch (error) {
     if (!(error instanceof LocalFailure)) throw error;
@@ -164,7 +177,7 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   // A declared container no client has paired with pairs from this output, its log (ADR 0025, #349).
   if (environment.startPairing !== undefined) {
     context.stdout(
-      `No client has paired with this environment yet. Pair one with this code, or run ${PRODUCT_NAME} pair --data-dir ${environment.dataDir} in the container for a new one.\n${renderPairing(environment.startPairing)}`,
+      `No client has paired with this environment yet. Pair one with this code, or run ${PRODUCT_NAME} pair --preset own-client --data-dir ${environment.dataDir} in the container for a new one.\n${renderPairing(environment.startPairing)}`,
     );
   }
   // The drain's own end is awaited below, whatever started it.

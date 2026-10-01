@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReadinessDeclarer",
+  "type": "string",
+  "enum": [
+    "sidecar",
+    "overlay"
+  ],
+  "description": "Where the member's checks were declared: sidecar (agents/agent-harness.yaml beside its SKILL.md, which wins whole) or overlay (the harness's, matched by its origin)."
+}

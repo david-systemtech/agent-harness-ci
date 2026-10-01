@@ -1,29 +1,47 @@
-import { rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
-import type { MethodName } from "@agent-harness/contracts";
-import { useId, type ReactNode } from "react";
+import { clockTime, rowKeys, type EnvironmentView } from "@agent-harness/client-runtime";
+import { NETWORK_SETTINGS_KEYS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
+import { useId, useState, type ReactNode } from "react";
 import { EnvironmentMark } from "../connections/environment-mark.js";
 import { Remedy } from "../connections/remedy.js";
 import { THIS_MACHINE, nameOf } from "../connections/words.js";
 import { GenericEditor, lackingLines, readOnlyLine, writersOf } from "../settings/generic-editor.js";
+import { useSettings } from "../settings/settings-window.js";
+import { useChecklist } from "../setup/checklist-window.js";
+import { Button, Fold } from "../ui/index.js";
 import { BundledServerOffer, ClientOffer } from "../updates/offers.js";
 import { UpdateControls } from "../updates/update-controls.js";
 import { useRuntime } from "../window-context.js";
 import { ConnectionVerbs } from "./connection-verbs.js";
 import { ContainmentAvailability } from "./containment.js";
 import { LOOK_COMMANDS, LookEditor } from "./look-editor.js";
-import { PairingCode } from "./pairing-code.js";
+import { PresetPairing } from "./preset-pairing.js";
+import { Reachability } from "./reachability.js";
 
-/** The keys the row holds, the update keys: channel and auto-update are the update controls', the rest the generic editor's. */
-const UPDATE_KEYS = rowKeys("environments.machines");
+/** The keys the row holds: the update keys and the binding keys. */
+const ROW_KEYS = rowKeys("environments.machines");
 
-/** The update keys the update controls do not draw: the pin, the idle window and the deferral cap. */
-const OTHER_UPDATE_KEYS = UPDATE_KEYS.filter((key) => key !== "updates.channel" && key !== "updates.autoUpdate");
+/** The keys drawn by controls of their own: channel and auto-update the update controls', the binding keys the reachability's switches. */
+const OWN_CONTROLS: readonly SettingsKey[] = ["updates.channel", "updates.autoUpdate", ...NETWORK_SETTINGS_KEYS];
 
-/** What the card sends, every one at `admin`: the look commands, a pairing code, the update keys' writer and Update now. */
-const SENT: readonly MethodName[] = [...LOOK_COMMANDS, "access.pairings.create", ...writersOf(UPDATE_KEYS), "updates.apply"];
+/** The keys under Advanced, the generic editor's: the pin, the idle window and the deferral cap. */
+const ADVANCED_KEYS = ROW_KEYS.filter((key) => !OWN_CONTROLS.includes(key));
+
+/** What the card sends, every one at `admin`: the look commands, a pairing code, the row's keys' writers and Update now. */
+const SENT: readonly MethodName[] = [...LOOK_COMMANDS, "access.pairings.create", ...writersOf(ROW_KEYS), "updates.apply"];
+
+/**
+ * The local environment's service down, as its card says it beside Start
+ * (ADR 0025's "service down"), since when it was last reached where it
+ * was; undefined for any other phase, which the card says as every pane
+ * does.
+ */
+const serviceDownWords = (view: EnvironmentView): string | undefined => {
+  if (view.phase !== "service-down") return undefined;
+  return view.unreachableSince === null ? "Service down" : `Service down since ${clockTime(view.unreachableSince)}`;
+};
 
 /** A part of a card, under its heading. */
-const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
+export const Part = ({ title, children }: { readonly title: string; readonly children: ReactNode }) => {
   const heading = useId();
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-2">
@@ -43,25 +61,31 @@ interface MachineCardProps {
   readonly unprotected: boolean;
   /** Says on the pane what forgetting the connection did, since the card goes with it. */
   readonly forgotten: (line: string) => void;
+  /** What the card offers first, under its heading: Set up this machine, on a card Add a machine made (#577). */
+  readonly offer?: ReactNode;
 }
 
 /**
- * One environment's card on Your machines (ADR 0025; #416): its name, its
- * icon in its colour, whether it is this machine's and the primary one,
- * another environment of the same name, its containment availability, a
- * pairing code for another client, its update controls with the offer of
- * this client's newer version (and, on the local environment's card, of the
- * newer server the desktop carries) and its other update keys (#424), and
- * what this client does with its connection. While it is not ready, it
- * says since when it has not been reached (or why not) above everything it
- * shows as last read, read-only, with what the connection offers (Start,
- * Pair again, Try again); without `admin`, that it is read-only, with the
- * capability's line; and on a paired environment's card, when the desktop
- * stores tokens unprotected, that its token is.
+ * One environment's card on Your machines (ADR 0025; #416, #576): its name,
+ * its icon in its colour, whether it is this machine's and the primary one,
+ * another environment of the same name, how it is reached with its binding
+ * switches, its containment availability with a link to Permissions, a
+ * pairing code for another client and Manage access, its update controls
+ * with the offer of this client's newer version (and, on the local
+ * environment's card, of the newer server the desktop carries) and its
+ * other update keys under Advanced (#424), and what this client does with
+ * its connection. While it is not ready, it
+ * says since when it has not been reached, or that its service is down (or
+ * why not) above everything it shows as last read, read-only, with what the
+ * connection offers (Start, Pair again, Try again); without `admin`, that
+ * it is read-only, with the capability's line; and on a paired
+ * environment's card, when the desktop stores tokens unprotected, that its
+ * token is.
  */
-export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineCardProps) => {
+export const MachineCard = ({ view, namesake, unprotected, forgotten, offer }: MachineCardProps) => {
   const runtime = useRuntime();
   const heading = useId();
+  const [advanced, setAdvanced] = useState(false);
   const admits = (method: MethodName) => runtime.capability(view.environmentId, method).status === "present";
   const lacking = view.phase === "ready" ? lackingLines(runtime, view.environmentId, SENT) : [];
   return (
@@ -74,11 +98,12 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineC
         {view.kind === "local" && view.name !== null && <span className="text-xs text-ink-faint">{THIS_MACHINE}</span>}
         {view.primary && <span className="text-xs text-ink-faint">Primary</span>}
       </header>
+      {offer}
       {namesake !== undefined && <p className="text-sm text-amber">Another of your machines is named {namesake.name} too: rename one to tell them apart.</p>}
       {view.phase !== "ready" && (
         <div className="flex flex-wrap items-center gap-2">
           {/* What the card shows of it (its name, icon and colour first) was read once it had answered, which a name says. */}
-          <p className="text-sm text-amber">{readOnlyLine(runtime, view, view.name !== null)}</p>
+          <p className="text-sm text-amber">{readOnlyLine(runtime, view, view.name !== null, serviceDownWords(view))}</p>
           <Remedy view={view} />
         </div>
       )}
@@ -94,21 +119,43 @@ export const MachineCard = ({ view, namesake, unprotected, forgotten }: MachineC
         </p>
       ))}
       <LookEditor view={view} writable={LOOK_COMMANDS.every(admits)} />
+      <Part title="Reachability">
+        <Reachability view={view} writable={admits("settings.update")} />
+      </Part>
       <Part title="Containment">
         <ContainmentAvailability view={view} />
       </Part>
       <Part title="Pair another client">
-        <PairingCode view={view} writable={admits("access.pairings.create")} />
+        <PresetPairing view={view} writable={admits("access.pairings.create")} />
+        <ManageAccess view={view} />
       </Part>
       <Part title="Updates">
         <UpdateControls view={view} />
         <ClientOffer view={view} />
         {view.kind === "local" && <BundledServerOffer view={view} />}
-        <GenericEditor view={view} keys={OTHER_UPDATE_KEYS} saysWhyReadOnly={false} />
+        <Fold summary="Advanced" open={advanced} onOpenChange={setAdvanced}>
+          <GenericEditor view={view} keys={ADVANCED_KEYS} saysWhyReadOnly={false} />
+        </Fold>
       </Part>
       <Part title="Connection">
         <ConnectionVerbs view={view} forgotten={forgotten} />
       </Part>
     </section>
+  );
+};
+
+/**
+ * Manage access: the environment's access list in Settings (its client
+ * sessions, ceilings and program pairings, ADR 0025), leaving the full
+ * checklist when the card is drawn there.
+ */
+const ManageAccess = ({ view }: { readonly view: EnvironmentView }) => {
+  const { open } = useSettings();
+  const checklist = useChecklist();
+  const manage = () => (checklist.shown ? checklist.leave("environments.access", view.environmentId) : open("environments.access", view.environmentId));
+  return (
+    <div>
+      <Button onClick={manage}>Manage access</Button>
+    </div>
   );
 };

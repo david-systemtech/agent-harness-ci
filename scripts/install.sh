@@ -10,8 +10,9 @@
 # Then it runs the version's `service install` and `service start`, waits for
 # the environment's health URL to say ready, sets the channel with `update
 # settings`, hands its token to the environment with `update credential
-# --stdin`, and ends with `pair`'s link, QR and code on the tailnet address (or
-# the Tailscale warning when only loopback is bound) and the shim's path line.
+# --stdin`, and ends with the link, QR and code of `pair --preset own-client`
+# (my own client's grant) on the tailnet address (or the Tailscale warning
+# when only loopback is bound) and the shim's path line.
 #
 # Run again over a running service it downloads and unpacks nothing, since the
 # launcher alone writes the versions directory while it runs: the shim's
@@ -411,15 +412,15 @@ if [ "$running" = 1 ] && [ -n "$version" ]; then cli_verb update apply --version
 
 if [ "$dry_run" = 1 ]; then
   # pair's own plan line, the options it would take included.
-  printf '%s, or the Tailscale warning when only loopback is bound\nDry run: nothing was downloaded or changed.\n' "$(cli_verb pair)"
+  printf '%s, or the Tailscale warning when only loopback is bound\nDry run: nothing was downloaded or changed.\n' "$(cli_verb pair --preset own-client)"
   exit 0
 fi
 
 # A pairing on the tailnet address, which `pair` builds its link on; with only loopback bound no other machine could use one.
 discovery=$(curl -fsS --max-time 5 "$environment_url/.well-known/$NAME/environment" 2>/dev/null) || discovery=""
 if printf '%s' "$discovery" | grep -q '"authPolicy"[[:space:]]*:[[:space:]]*"tailnet"'; then
-  # `pair`'s own grant: every scope, and the ceiling the environment's permissions.defaultCeiling names.
-  cli_verb pair
+  # My own client's grant (ADR 0025): every scope and the top ceiling, since every client paired is the same person.
+  cli_verb pair --preset own-client
 else
   printf '\nNo Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.\n\n'
 fi

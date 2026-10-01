@@ -70,15 +70,16 @@ describe("the first-launch mark", () => {
   });
 
   it("is set by Finish on the last step, which Continue walks to one step at a time", async () => {
-    const app = await firstLaunch();
+    // Continue past Account waits on a signed-in account on first launch (#575).
+    const app = await firstLaunch({ accounts: [{ label: "personal" }] });
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const walked: string[] = [];
     while (within(card()).queryByRole("button", { name: "Continue" }) !== null) {
-      walked.push(within(card()).getByRole("heading").textContent ?? "");
+      walked.push(within(card()).getByRole("heading", { level: 2 }).textContent ?? "");
       await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
     }
     expect(walked).toEqual(["Account", "Carry over", "Your machines", "Forges", "Key manager", "Memory bank", "Skills", "Instructions", "Browser", "Permissions"]);
-    expect(within(card()).getByRole("heading").textContent).toBe("Appearance");
+    expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Appearance");
     expect(within(steps()).getByRole("button", { name: "Appearance" }).getAttribute("aria-current")).toBe("step");
 
     await app.user.click(within(card()).getByRole("button", { name: "Finish" }));
@@ -103,7 +104,8 @@ describe("the first-launch mark", () => {
 
 describe("Skip for now", () => {
   it("is on a skippable step's card beside Continue, moves the rail to the next step and records nothing", async () => {
-    const app = await firstLaunch();
+    // Continue past Account waits on a signed-in account on first launch (#575).
+    const app = await firstLaunch({ accounts: [{ label: "personal" }] });
     const desk = app.environment("desk");
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const skippable: string[] = [];
@@ -315,6 +317,8 @@ describe("a step's named actions", () => {
     const permissions = await cardOf(app, "Permissions");
     desk.setSetup({ permissions: {} });
     await app.user.click(within(permissions).getByRole("button", { name: "Restore" }));
+    // The Permissions card asks once, as a section's Restore presets does (#594).
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets the denylist lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 2 put back.")).toBeDefined();
     expect(await within(steps()).findByRole("img", { name: "Permissions: done" })).toBeDefined();
     expect(within(permissions).getByText(/^The containment default can be enforced here\./)).toBeDefined();
@@ -453,12 +457,14 @@ describe("a step's named actions on their targets", () => {
 
     const permissions = await cardOf(app, "Permissions");
     await app.user.click(within(permissions).getByRole("button", { name: "Restore: paths" }));
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Restore the presets Paths lost?" })).getByRole("button", { name: "Restore" }));
     expect(await within(permissions).findByText("Restored the denylist's presets: 1 put back.")).toBeDefined();
     expect(desk.requests("permissions.denylist.restorePresets").map((request) => request.params["sections"])).toEqual([["paths"]]);
 
     await app.user.click(within(steps()).getByRole("button", { name: "Your machines" }));
     const machines = within(checklist() as HTMLElement).getByRole("region", { name: "Your machines" });
-    await app.user.click(within(machines).getByRole("button", { name: "Update now" }));
+    // The step's action, drawn above each machine card's own (#576).
+    await app.user.click(within(machines).getAllByRole("button", { name: "Update now" })[0] as HTMLElement);
     expect(await within(machines).findByText("Updating to 1.3.0 once desk is idle.")).toBeDefined();
     expect(desk.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
   });
@@ -470,12 +476,12 @@ describe("a step's named actions on their targets", () => {
           name: "desk",
           reach: "local",
           setup: {
-            forges: {
+            skills: {
               state: "needs-attention",
-              reason: "gh is older than its minimum.",
-              failing: ["forges.gh"],
-              actions: ["update"],
-              targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }],
+              reason: "The team feed was last pulled two days ago.",
+              failing: ["skills.pulled"],
+              actions: ["pull-now"],
+              targets: [{ action: "pull-now", kind: "skill-source", id: "feed-1", label: "team feed" }],
             },
             "memory-bank": {
               state: "needs-attention",
@@ -490,9 +496,9 @@ describe("a step's named actions on their targets", () => {
     });
     await screen.findByText(NO_SESSION);
 
-    const forges = await cardOf(app, "Forges");
-    await app.user.click(within(forges).getByRole("button", { name: "Update: gh" }));
-    expect(within(settings()).getByRole("region", { name: "Forges" })).toBeDefined();
+    const skills = await cardOf(app, "Skills");
+    await app.user.click(within(skills).getByRole("button", { name: "Pull now: team feed" }));
+    expect(within(settings()).getByRole("region", { name: "Skills" })).toBeDefined();
 
     await app.user.click(within(settings()).getByRole("button", { name: "Set up" }));
     await app.user.click(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));

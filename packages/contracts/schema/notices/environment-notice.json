@@ -466,6 +466,54 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "environment.known-environments-updated"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "environments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^\\s*[^\\s\\p{Cc}\\p{Cf}](?:(?:[^\\p{Cc}\\p{Cf}]|[\\t\\n\\v\\f\\r]){0,198}[^\\s\\p{Cc}\\p{Cf}])?\\s*$",
+                    "description": "An environment's name as the client has it: 1 to 200 characters once trimmed, counted as code points, no control or format (zero-width) characters other than white space; kept trimmed with white space collapsed."
+                  },
+                  "address": {
+                    "type": "string",
+                    "maxLength": 300,
+                    "pattern": "^https?:\\/\\/[^\\s/\\\\?#@\\p{Cc}\\p{Cf}]+$",
+                    "description": "The address the client uses for the environment, as its connection keeps it: an http or https origin, http://host:port."
+                  }
+                },
+                "required": [
+                  "name",
+                  "address"
+                ],
+                "description": "An environment of the union: its name and the address a client uses for it."
+              },
+              "description": "The union of what the live client sessions report, this environment left out, each name and address once, sorted by name, then address: what the orientation block's other environments section lists."
+            }
+          },
+          "required": [
+            "environments"
+          ],
+          "description": "The known environments' union changed: the union as it now is."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "The union of what client sessions report of their other connections changed: the union as it now is, what the orientation block's other environments section lists."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "account.updated"
         },
         "payload": {
@@ -4716,6 +4764,21 @@
                       "copy"
                     ],
                     "description": "A managed tool's one action: install (it is not installed), update (installed by a method the harness can drive), or copy (the command, for a method it cannot: manual, unknown, mise, asdf, Scoop)."
+                  },
+                  "command": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 8192,
+                        "pattern": "^[^\\r\\n]+$",
+                        "description": "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "For a Copy row, the vendor's documented command a person copies and runs, as tools.run's tool_not_runnable answers it (#426): the vendor script's update where the tool has one, else the install the command table would run here, else the first it has for this platform. Null for an Install or Update row, whose command tools.run runs and answers, and for a Copy row the table has nothing for (vault, which the harness never installs or updates)."
                   }
                 },
                 "required": [
@@ -4728,9 +4791,10 @@
                   "minimum",
                   "method",
                   "status",
-                  "action"
+                  "action",
+                  "command"
                 ],
-                "description": "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status and its one action."
+                "description": "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status, its one action and, for a Copy row, the command to copy."
               },
               "description": "The rows that changed, as they are now, in the table's order."
             }

@@ -10,11 +10,11 @@ import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironme
  * and "The desktop moves with its local environment"; ADR 0026, ADR 0027;
  * #424): this client's version pinned above the picker with the desktop's
  * own update, then the picked environment's version, channel, auto-update,
- * pending update and Update now from `updates.status`, and the Claude Code
- * it bundles; and "Restart to update" across the window's header once the
- * runtime reports a staged desktop build. Driven through the harness over
- * the scripted environment `desk`, this machine's, and the fake shell's
- * `update`.
+ * pending update, Update now and Drain and update now (#825) from
+ * `updates.status`, and the Claude Code it bundles; and "Restart to update"
+ * across the window's header once the runtime reports a staged desktop
+ * build. Driven through the harness over the scripted environment `desk`,
+ * this machine's, and the fake shell's `update`.
  */
 
 const UPDATE_ID = "0199aa00-0000-4000-8000-00000000000a";
@@ -90,6 +90,29 @@ describe("About", () => {
     await app.user.click(await within(about).findByRole("button", { name: "Update now" }));
     expect(await within(about).findByText("Updating to 0.6.0 once desk is idle.")).toBeDefined();
     expect(app.environment("desk").requests("updates.apply").map((request) => request.params)).toEqual([{ commandId: expect.any(String), when: "idle" }]);
+  });
+
+  it("offers Drain and update now while the update waits on running work, asks once saying running runs are cut at the drain's cap, and sends updates.apply now", async () => {
+    const app = await opened({ updates: { status: { version: "0.5.0", newest: "0.6.0", pending: WAITING } } });
+    const about = await openAbout(app);
+    const desk = app.environment("desk");
+    const drain = await within(about).findByRole("button", { name: "Drain and update now…" });
+
+    await app.user.click(drain);
+    const asked = await screen.findByRole("dialog", { name: "Drain desk and update it to 0.6.0 now?" });
+    expect(
+      within(asked).getByText(
+        "desk refuses new runs at once and lets the running ones finish for up to 30 minutes, then cuts any still running and restarts on 0.6.0. A run it cuts carries on after the update when its provider can resume it.",
+      ),
+    ).toBeDefined();
+    await app.user.click(within(asked).getByRole("button", { name: "Cancel" }));
+    expect(desk.requests("updates.apply")).toEqual([]);
+
+    await app.user.click(drain);
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Drain desk and update it to 0.6.0 now?" })).getByRole("button", { name: "Drain and update" }));
+    expect(await within(about).findByRole("status")).toHaveProperty("textContent", "Draining desk to update to 0.6.0.");
+    expect(desk.requests("updates.apply").map((request) => request.params)).toEqual([{ commandId: expect.any(String), when: "now" }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("says a refused Update now in one line", async () => {

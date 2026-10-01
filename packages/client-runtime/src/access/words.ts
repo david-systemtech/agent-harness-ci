@@ -2,6 +2,7 @@ import {
   ACCESS_EVENT_PAYLOADS,
   AccessEventType,
   SCOPES,
+  scopesInWords,
   type AccessEventPayload,
   type Ceiling,
   type ClientKind,
@@ -42,11 +43,7 @@ export const clientSessionWords = (session: ClientSessionSummary, now: Date): st
 export const OWN_CEILING = "A client session cannot change its own ceiling; another admin session can.";
 
 /** What a pairing code grants: `Grants read, sessions:write and runs:drive, up to acceptEdits.` */
-export const grantWords = (scopes: readonly Scope[], ceiling: Ceiling): string => {
-  const held = SCOPES.filter((scope) => scopes.includes(scope));
-  const listed = held.length === SCOPES.length ? "every scope" : held.length === 1 ? held.join("") : `${held.slice(0, -1).join(", ")} and ${held.at(-1) ?? ""}`;
-  return `Grants ${listed}, up to ${ceiling}.`;
-};
+export const grantWords = (scopes: readonly Scope[], ceiling: Ceiling): string => `Grants ${scopesInWords(scopes)}, up to ${ceiling}.`;
 
 /** When an access event happened, where the client is: its clock time today, else its day too. */
 export const accessEventTimeWords = (event: Pick<EventEnvelope, "occurredAt">, now: Date): string => whenWords(event.occurredAt, now);

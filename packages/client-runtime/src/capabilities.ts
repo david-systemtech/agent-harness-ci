@@ -77,6 +77,7 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.network": "declare the addresses its window may connect to",
   "shell.system": "tell which machine and user it runs as",
   "shell.gh": "read the gh signed in on this computer",
+  "shell.camera": "scan a QR code with a camera",
 };
 
 /** The line a shell member's absence is said with. */

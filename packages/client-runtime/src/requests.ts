@@ -100,6 +100,14 @@ export interface Requests {
    * beside it. Anything but a query answers `unsupported`.
    */
   cached<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): Observable<CachedAnswer<N>>;
+  /**
+   * Fetches a cached query again, as a notice that it may have changed
+   * would: at once while followed, else by its next follower. A person's
+   * Check again, where the answer can change with no notice to say so
+   * (`environment.status`'s LAN addresses, #576). Nothing for a query never
+   * asked for.
+   */
+  refresh<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): void;
 }
 
 export interface RequestsHost {
@@ -166,10 +174,19 @@ const FORGE_ACCOUNT_EVENTS: readonly string[] = Object.keys(FORGE_EVENT_PAYLOADS
 
 /**
  * What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), an
- * account, which every row carries and the block names, and what the block's forges and key managers sections read: a
- * forge account, a key-manager connection and the managed tools, whose rows give each connection's CLI.
+ * account, which every row carries and the block names, what the block's forges and key managers sections read: a
+ * forge account, a key-manager connection and the managed tools, whose rows give each connection's CLI; and the known
+ * environments' union, its other environments section (#382).
  */
-const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", "settings.changed", "account.updated", ...FORGE_ACCOUNT_EVENTS, ...KEY_MANAGER_EVENTS, "tools.updated"];
+const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
+  "instructions.updated",
+  "settings.changed",
+  "account.updated",
+  ...FORGE_ACCOUNT_EVENTS,
+  ...KEY_MANAGER_EVENTS,
+  "tools.updated",
+  "environment.known-environments-updated",
+];
 
 /**
  * The notices after which one query's cached answer is fetched again: its
@@ -191,13 +208,15 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = ["instructions.updated", 
  * `permissions.settings.get`; and the skill set changing
  * (`skills.updated`, a command or a read of the own directory, #494) or an
  * account (the view lists the accounts, and a removal drops the choices
- * naming one, #501) `skills.get`; a trust decision recorded or revoked (`trust.updated`,
+ * naming one, #501) `skills.get` and `skills.readiness` (#510: the set
+ * checked, and the account's provider); a trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; an owned instruction changing
  * (`instructions.updated`, #505), a setting (the orientation switch), an
- * account, a forge account, a key-manager connection or the managed tools
- * (what the block's sections read) `instructions.list` and
+ * account, a forge account, a key-manager connection, the managed tools or
+ * the known environments' union (#382; what the block's sections read)
+ * `instructions.list` and
  * `instructions.preview`, and an owned instruction changing alone
  * `instructions.diff` (#509: a copy's version resolved or its body edited;
  * the catalogue changes only with the build); every key-manager event, a connection's and Move's, the
@@ -232,6 +251,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "settings.get": ["settings.changed"],
   "permissions.settings.get": ["settings.changed"],
   "skills.get": ["skills.updated", "account.updated"],
+  "skills.readiness": ["skills.updated", "account.updated"],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
   "instructions.list": INSTRUCTION_REFRESH_NOTICES,
@@ -249,6 +269,7 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
 
 export interface RequestCache {
   cached: Requests["cached"];
+  refresh: Requests["refresh"];
   /** The last result held for a query, if any: never fetches, and makes no entry. */
   peek<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): ResultOf<N> | null;
   /**
@@ -452,6 +473,10 @@ export const createRequestCache = (host: {
     },
     peek(environmentId, method, params) {
       return (entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }))?.value.read().result ?? null) as never;
+    },
+    refresh(environmentId, method, params) {
+      const entry = entries.get(keyOf({ environmentId, method, params: params as Record<string, unknown> }));
+      if (entry !== undefined) refresh(entry);
     },
     noticed(environmentId, type) {
       for (const entry of entries.values()) {

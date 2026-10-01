@@ -276,12 +276,15 @@ describe("answering", () => {
     expect(answersSent(env)).toEqual([]);
   });
 
-  it("says an answer refused because another client answered first in one line on the card, which goes when that answer is heard", async () => {
+  it("says an answer refused because another client answered first in one line on the card and in a toast, the line going when that answer is heard", async () => {
     const { app, env, transcript, session } = await opened();
     const promptId = await park(env, session);
     const elsewhere = env.answerElsewhere(session, promptId, { decision: "allow", heard: false });
     await app.user.click(button("Allow once"));
     await waitFor(() => expect(within(card() as HTMLElement).getByRole("status").textContent).toBe("Not answered: The prompt was already answered."));
+    // The runtime raised the rejection's notice, which the window's toasts say too (#405).
+    const toasts = within(screen.getByRole("region", { name: /^Notifications/ })).getAllByRole("listitem");
+    expect(toasts.some((toast) => toast.textContent === "Answer on Receipts was rejected: already answered.×")).toBe(true);
     elsewhere.hear();
     await waitFor(() => expect(card()).toBeNull());
     expect(within(transcript).getByRole("article", { name: "Permission" }).textContent).toBe("Bash: rm -rf build — allowed");

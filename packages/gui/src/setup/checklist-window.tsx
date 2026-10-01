@@ -1,7 +1,7 @@
 import { homeEnvironment } from "@agent-harness/client-runtime";
 import { STEP_ORDER, type SettingsRowId, type StepId } from "@agent-harness/contracts";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSettings } from "../settings/settings-window.js";
+import { useSettings, type SettingsPart } from "../settings/settings-window.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
 
 /**
@@ -19,20 +19,25 @@ export interface Checklist {
   readonly shown: boolean;
   /** The step whose card it shows. */
   readonly step: StepId;
-  /** Opens it on `step`, else on the step it showed last. */
-  open(step?: StepId): void;
+  /** The part of the step's card the last opening asked to go to; undefined when it asked for none, or another step was chosen since. */
+  readonly part: StepPart | undefined;
+  /** Opens it on `step`, else on the step it showed last, at `part` of its card when one is named. */
+  open(step?: StepId, part?: StepPart): void;
   /** Shows another step's card. */
   choose(step: StepId): void;
   /** Closes it and sets the first-launch mark: its Close, and Finish on the last step. */
   close(): void;
   /**
    * Leaves it for a row of Settings, on `environmentId` where the row picks
-   * one: a step's link to its home row, or an action that opens one. The
-   * mark stays as it is, so a first launch left this way comes back on the
-   * next.
+   * one, at `part` of its pane when one is named: a step's link to its home
+   * row, or an action that opens one. The mark stays as it is, so a first
+   * launch left this way comes back on the next.
    */
-  leave(row: SettingsRowId, environmentId?: string): void;
+  leave(row: SettingsRowId, environmentId?: string, part?: SettingsPart): void;
 }
+
+/** A part of a step's card an opening may go to, which takes the focus: the Key manager card's Move stored tokens (#590). */
+export type StepPart = "move-stored-tokens";
 
 const ChecklistContext = createContext<Checklist | null>(null);
 
@@ -50,6 +55,7 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
   const [shown, setShown] = useState(false);
   const [left, setLeft] = useState(false);
   const [step, setStep] = useState<StepId>(STEP_ORDER[0]);
+  const [part, setPart] = useState<StepPart | undefined>(undefined);
 
   // First launch: opened once the home environment is ready, and held open until it is finished, closed or left.
   const firstLaunch = !marked && !left && home?.phase === "ready";
@@ -57,23 +63,28 @@ export const ChecklistProvider = ({ children }: { readonly children: ReactNode }
     if (firstLaunch) setShown(true);
   }, [firstLaunch]);
 
-  const open = useCallback((at?: StepId) => {
+  const open = useCallback((at?: StepId, to?: StepPart) => {
     if (at !== undefined) setStep(at);
+    setPart(to);
     setShown(true);
+  }, []);
+  const choose = useCallback((at: StepId) => {
+    setStep(at);
+    setPart(undefined);
   }, []);
   const close = useCallback(() => {
     mark(true);
     setShown(false);
   }, [mark]);
   const leave = useCallback(
-    (row: SettingsRowId, environmentId?: string) => {
+    (row: SettingsRowId, environmentId?: string, part?: SettingsPart) => {
       setLeft(true);
       setShown(false);
-      openRow(row, environmentId);
+      openRow(row, environmentId, part);
     },
     [openRow],
   );
 
-  const checklist = useMemo<Checklist>(() => ({ shown, step, open, choose: setStep, close, leave }), [shown, step, open, close, leave]);
+  const checklist = useMemo<Checklist>(() => ({ shown, step, part, open, choose, close, leave }), [shown, step, part, open, choose, close, leave]);
   return <ChecklistContext value={checklist}>{children}</ChecklistContext>;
 };

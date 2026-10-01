@@ -1,4 +1,4 @@
-import { certificateFacts, previewCertificate, type CertificatePreview } from "@agent-harness/client-runtime";
+import { caWords, certificateFacts, previewCertificate, type CertificatePreview } from "@agent-harness/client-runtime";
 import { useEffect, useState } from "react";
 import { Button, Dialog, DialogContent } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -56,5 +56,38 @@ export const CertificateCheck = ({ environmentId, address, trust, close }: Certi
         </div>
       </DialogContent>
     </Dialog>
+  );
+};
+
+export interface CaChoiceProps {
+  readonly environmentId: string;
+  /** The address typed, whose certificate is read. */
+  readonly address: string;
+  /** The CA chosen, as PEM; null for none. */
+  readonly ca: string | null;
+  readonly choose: (ca: string | null) => void;
+}
+
+/**
+ * The CA an OpenBao connection is to pin, in a form (key-managers spec,
+ * "Providers"; ADR 0028; #425, #590): whether one is chosen, Read its
+ * certificate, which shows the preview of the certificate an `https`
+ * address presents (`CertificateCheck`) and chooses its anchor once a
+ * person trusts it, and Unpin the CA. The form sends what is chosen.
+ */
+export const CaChoice = ({ environmentId, address, ca, choose }: CaChoiceProps) => {
+  const [checking, setChecking] = useState(false);
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <span className="text-ink">CA</span>
+      <span className="text-ink-muted">{caWords({ provider: "openbao", ca })}</span>
+      <div className="flex gap-2">
+        <Button disabled={!address.trim().startsWith("https://")} onClick={() => setChecking(true)}>
+          Read its certificate
+        </Button>
+        {ca !== null && <Button onClick={() => choose(null)}>Unpin the CA</Button>}
+      </div>
+      {checking && <CertificateCheck environmentId={environmentId} address={address.trim()} trust={choose} close={() => setChecking(false)} />}
+    </div>
   );
 };

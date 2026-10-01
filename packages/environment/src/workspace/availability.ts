@@ -19,7 +19,8 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * the `files.*` methods and `diffs.workingTree` found (`found`). The Carry
  * over import looks through it too, at a transcript's working directory
  * before the session exists (`look`, #578), and marks the session it then
- * records with a gone directory (`markMissing`). While a
+ * records with a gone directory (`markMissing`); so does the checkout index,
+ * at each known directory it weighs (`look`, #709). While a
  * session is marked, its runs cannot start, take a message or read now
  * (`runs/run-decider.ts`), and no terminal opens on it
  * (`terminals/service.ts`); `sessions.setWorkspace` gives it a new
@@ -41,8 +42,8 @@ import { WORKSPACES_ACTOR } from "./identity-passes.js";
  * process: until one returns, the pass, the run commands, `terminals.open`
  * and the update settle mark no other session, which they decide on by the
  * mark as it stands, as before the watcher, and the resolved identity pass
- * passes over every other; the file and diff methods' own findings still
- * mark it. The log says so once each time the gate starts holding.
+ * and the checkout index pass over every other; the file and diff methods'
+ * own findings still mark it. The log says so once each time the gate starts holding.
  */
 
 /** How long one look at a workspace directory may take before the directory counts as not there. A chosen default (#328). */
@@ -105,7 +106,8 @@ export interface AvailabilityWatcher {
   /**
    * Looks at the directory `path` within the time bound and the gate, as a
    * session's look does, and marks nothing: the Carry over import's look at
-   * a transcript's working directory before its session exists (#578).
+   * a transcript's working directory before its session exists (#578), and
+   * the checkout index's at a known directory (#709).
    */
   look(path: string): Promise<Finding>;
   /** Runs a pass now, in the background, then hourly on the clock. */

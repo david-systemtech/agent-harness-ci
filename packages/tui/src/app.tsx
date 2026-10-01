@@ -7,6 +7,9 @@ import {
   attachmentRefusal,
   attachmentRefused,
   browse,
+  bulkAsks,
+  bulkQuestion,
+  decidable,
   directoryOf,
   followDraft,
   inWorkspace,
@@ -28,6 +31,7 @@ import {
   undoableFold,
   userMessagesOf,
   withdrawQueued,
+  workspaceLabel,
   type BrowseRow,
   type Clock,
   type EnvironmentView,
@@ -52,12 +56,13 @@ import {
   type PromptAnswerInput,
   type PromptKind,
 } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
 import { RECAP_FLASH_MS } from "./attention/policy.js";
 import { useAttention } from "./attention/use-attention.js";
 import { useAnswers } from "./cards/answers.js";
-import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
+import { askKey, askRows, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import {
   applyAction,
@@ -74,6 +79,7 @@ import {
 } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
+import { drainAndUpdateQuestionLine, updateCard, updateNow, updateRefusal, updateToClient } from "./commands/updates.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
@@ -113,7 +119,7 @@ import { badgesOf } from "./rail/badge.js";
 import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
 import { useRail } from "./rail/use-rail.js";
-import { isFullPath, workspaceLabel } from "./rail/workspace-step.js";
+import { isFullPath } from "./rail/workspace-step.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
@@ -135,6 +141,8 @@ import { heldApart, keyBytes } from "./terminal/keys.js";
 import { createScreen } from "./terminal/screen.js";
 import { useRawInput } from "./terminal/raw-input.js";
 import { useTerminalPane } from "./terminal/use-terminal.js";
+import { SIXTEEN, ThemeColoursContext, type ColourDepth } from "./theme/colours.js";
+import { useThemeColours } from "./theme/use-theme-colours.js";
 import {
   activityLine,
   clockTime,
@@ -231,6 +239,8 @@ export interface AppProps {
   readonly size?: { readonly columns: number; readonly rows: number };
   /** Mints a command id for a direct `admin` command. */
   readonly newCommandId: () => string;
+  /** This client's version, the harness version it was built as: what it offers an environment running an older one (#827). */
+  readonly version: string;
   /** Mints a session id for `/new`: a version 4 UUID. */
   readonly newSessionId?: () => string;
   /** The state directory: the prompt history, the snippets and the `@` pick memory live there. None, and they are not kept. */
@@ -251,6 +261,8 @@ export interface AppProps {
   readonly chrome?: TerminalChrome;
   /** The client-local presentation (the rail's folds): the state directory's; preset, held in memory. */
   readonly presentation?: Presentation;
+  /** How this terminal draws colour (`colourDepth`): preset the sixteen alone, so the theme is not drawn. */
+  readonly depth?: ColourDepth;
 }
 
 type Card =
@@ -457,7 +469,9 @@ export const App = (props: AppProps) => {
   const known = knownEnvironments(views);
   const down = started && localIsDown(views, local);
   const names = new Map(views.map((view) => [view.environmentId, nameOf(view)]));
-  const badges = useMemo(() => badgesOf(views), [views]);
+  // The colours the theme gives this terminal: the home environment's under truecolour, else the sixteen alone.
+  const colours = useThemeColours(runtime, views, props.depth ?? SIXTEEN, request);
+  const badges = useMemo(() => badgesOf(views, colours), [views, colours]);
 
   // The session on screen.
   const session = useSession(runtime, clock, request);
@@ -1334,10 +1348,46 @@ export const App = (props: AppProps) => {
 
   const viewOf = (environmentId: string): EnvironmentView | undefined => views.find((v) => v.environmentId === environmentId);
 
+  // The update of the environment whose card is open (#827): its `updates.status`, followed while the card is open, which
+  // the request cache reads again on each update notice.
+  const cardEnvironmentId = screen.card.kind === "menu" ? screen.card.environmentId : undefined;
+  const cardStatus = useMemo(
+    () => (cardEnvironmentId !== undefined ? runtime.requests.cached(cardEnvironmentId, "updates.status", {}) : undefined),
+    [runtime, cardEnvironmentId],
+  );
+  useFollow(cardStatus, request);
+  const cardView = cardEnvironmentId !== undefined ? viewOf(cardEnvironmentId) : undefined;
+  const cardUpdate = cardView ? updateCard(cardView, cardStatus?.read(), props.version, clock.now()) : undefined;
+  const cardActions = cardView && cardUpdate ? actionsFor(cardView, cardUpdate) : [];
+
+  // Drain and update now's question and the update it asks about (#878): it goes, unanswered, once the card no longer
+  // shows that update waiting on work (it went, was replaced or withdrawn, or the card closed), and the work coming
+  // back does not bring it back.
+  const drainAsked = useRef<{ readonly question: Question; readonly updateId: string } | undefined>(undefined);
+  const cardDrainableId = cardUpdate?.drainable?.updateId;
+  useEffect(() => {
+    const asked = drainAsked.current;
+    if (asked === undefined || asked.updateId === cardDrainableId) return;
+    drainAsked.current = undefined;
+    setScreen((s) => (s.question === asked.question ? { ...s, question: undefined } : s));
+  }, [cardDrainableId]);
+
+  /** Drain and update now (#878): asked once on the confirm line, unless the connection cannot send it; a yes sends `updates.apply` now. */
+  const drainAndUpdate = (environment: EnvironmentView) => {
+    const drainable = cardUpdate?.drainable;
+    if (!drainable) return;
+    const refusal = updateRefusal(runtime, environment);
+    if (refusal !== undefined) return say(refusal);
+    const question: Question = { text: drainAndUpdateQuestionLine(environment, drainable), yes: () => void updateNow(runtime, environment, props.newCommandId(), "now").then(say) };
+    drainAsked.current = { question, updateId: drainable.updateId };
+    update({ question });
+  };
+
   const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
   const rail = useRail({
     runtime,
     views,
+    colours,
     keymap,
     presentation,
     startingService,
@@ -1433,10 +1483,12 @@ export const App = (props: AppProps) => {
     if (card.kind === "menu") {
       const environment = viewOf(card.environmentId);
       if (!environment) return update({ card: { kind: "environments", cursor: 0 } });
-      const actions = actionsFor(environment);
-      const action = actions[clampCursor(card.cursor, actions.length)];
+      const action = cardActions[clampCursor(card.cursor, cardActions.length)];
       if (action === "sessions") return openClientSessions(environment);
       if (action === "name" || action === "icon" || action === "colour") return changeLook(environment, action, null);
+      if (action === "update") return void updateNow(runtime, environment, props.newCommandId()).then(say);
+      if (action === "drain-and-update") return drainAndUpdate(environment);
+      if (action === "update-to-client") return void updateToClient(runtime, environment).then(say);
       if (action === "remove") {
         return update({
           question: {
@@ -1532,10 +1584,8 @@ export const App = (props: AppProps) => {
     switch (card.kind) {
       case "environments":
         return views.length;
-      case "menu": {
-        const environment = viewOf(card.environmentId);
-        return environment ? actionsFor(environment).length : 0;
-      }
+      case "menu":
+        return cardActions.length;
       case "client-sessions":
         return card.rows?.length ?? 0;
       case "sessions":
@@ -1578,9 +1628,9 @@ export const App = (props: AppProps) => {
           : tasksLines(projection)
       : [];
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
-  const askList = card.kind === "asks" ? askRows(asks, views, opened) : [];
+  const askList = card.kind === "asks" ? askRows(asks, views, opened, colours) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
-  const bulk = askList.filter((row) => inBulk(row.ask.kind));
+  const bulk = bulkAsks(askList.map((row) => row.ask));
   /** `y` or `n` on the row under the cursor: a permission or denylist prompt answered in place; any other is opened to answer. */
   const decideInPlace = (decision: "allow" | "deny"): false | void => {
     if (!askAt) return false;
@@ -1589,12 +1639,11 @@ export const App = (props: AppProps) => {
   };
   /** `a` or `N`: every permission row answered at once, once confirmed, and only when there are two or more. */
   const decideAll = (decision: "allow" | "deny"): false | void => {
-    if (card.kind !== "asks" || bulk.length < 2) return false;
-    const targets = bulk.map((row) => row.ask);
+    if (card.kind !== "asks" || bulk.length === 0) return false;
     update({
       question: {
-        text: decision === "allow" ? `Allow all ${targets.length} permissions once? y/n` : `Deny all ${targets.length} permissions? y/n`,
-        yes: () => targets.forEach((target) => answers.answer(target, { decision })),
+        text: `${bulkQuestion(decision, bulk.length)} y/n`,
+        yes: () => bulk.forEach((target) => answers.answer(target, { decision })),
       },
     });
   };
@@ -2199,8 +2248,8 @@ export const App = (props: AppProps) => {
   const marker =
     opened && freshness !== "live"
       ? freshness === "cached"
-        ? { text: `◌ cached: what this terminal last saw of it; ${names.get(opened.environmentId) ?? "its environment"} is not answering`, color: "yellow" }
-        : { text: "⟳ catching up…", color: "cyan" }
+        ? { text: `◌ cached: what this terminal last saw of it; ${names.get(opened.environmentId) ?? "its environment"} is not answering`, color: TERMINAL_ROLES.warning }
+        : { text: "⟳ catching up…", color: TERMINAL_ROLES.machine }
       : undefined;
   const placeholder = !opened
     ? "no session open: /resume opens one, /new starts one"
@@ -2219,7 +2268,7 @@ export const App = (props: AppProps) => {
   const popup = composer.popup;
   const searchScope = composer.state.search ? (scopes[composer.state.search.scope]?.name ?? "everywhere") : undefined;
 
-  return (
+  const drawn = (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Header
         current={headerView}
@@ -2234,7 +2283,9 @@ export const App = (props: AppProps) => {
         )}
         <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {card.kind === "environments" && <EnvironmentsCard views={views} cursor={clampCursor(card.cursor, views.length)} hint={listHint("actions", "close")} />}
-          {card.kind === "menu" && menuView && <EnvironmentMenu view={menuView} actions={actionsFor(menuView)} cursor={card.cursor} hint={listHint("choose", "back")} />}
+          {card.kind === "menu" && cardView && cardUpdate && (
+            <EnvironmentMenu view={cardView} update={cardUpdate} actions={cardActions} cursor={clampCursor(card.cursor, cardActions.length)} hint={listHint("choose", "back")} />
+          )}
           {card.kind === "client-sessions" && menuView && (
             <ClientSessionsCard view={menuView} rows={card.rows} own={own} cursor={clampCursor(card.cursor, card.rows?.length ?? 0)} hint={listHint("revoke", "back")} />
           )}
@@ -2352,7 +2403,7 @@ export const App = (props: AppProps) => {
               height={Math.max(1, helpHeight - 3)}
               hint={{
                 decidable: `${keys("asks.move")} move · ${keys("asks.open")} open · ${keys("asks.allow")} allow once · ${keys("asks.deny")} deny${
-                  bulk.length > 1 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
+                  bulk.length > 0 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
                 } · ${keys("asks.close")} closes, deciding nothing`,
                 other: `${keys("asks.move")} move · ${keys("asks.open")} open · this one is answered on its own card · ${keys("asks.close")} closes, deciding nothing`,
               }}
@@ -2406,7 +2457,7 @@ export const App = (props: AppProps) => {
         </Box>
       </Box>
       <Line text={screen.line} />
-      <Line text={promptLine} color="yellow" />
+      <Line text={promptLine} color={TERMINAL_ROLES.warning} />
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
@@ -2422,6 +2473,8 @@ export const App = (props: AppProps) => {
       <HintLine hint={promptsHint ?? hint} activity={activity} fallback=" " />
     </Box>
   );
+  // What draws deep in the tree takes the theme's colours from here: a diff's bands.
+  return <ThemeColoursContext.Provider value={colours}>{drawn}</ThemeColoursContext.Provider>;
 };
 
 const clampCursor = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
@@ -2452,11 +2505,11 @@ const noticesLines = (notices: readonly Notice[], names: ReadonlyMap<string, str
 
 /** The notices worth a colour in `/notices`: what blocks a connection or a command in red, a prompt waiting in yellow. */
 const NOTICE_COLOURS: Readonly<Partial<Record<Notice["kind"], string>>> = {
-  revoked: "red",
-  expired: "red",
-  "command-rejected": "red",
-  "command-dropped": "red",
-  "prompt-parked": "yellow",
+  revoked: TERMINAL_ROLES.danger,
+  expired: TERMINAL_ROLES.danger,
+  "command-rejected": TERMINAL_ROLES.danger,
+  "command-dropped": TERMINAL_ROLES.danger,
+  "prompt-parked": TERMINAL_ROLES.warning,
 };
 
 /**
@@ -2514,7 +2567,7 @@ const tasksLines = (projection: { readonly items: readonly { readonly kind: stri
         { text: `${clockTime(task.startedAt)}  ` , dim: true },
         { text: `${task.subagentType ?? task.kind}: `, bold: true },
         { text: task.description },
-        { text: ` · ${task.status}${task.error ? `: ${task.error}` : ""}`, dim: true, ...(task.status === "failed" && { color: "red" }) },
+        { text: ` · ${task.status}${task.error ? `: ${task.error}` : ""}`, dim: true, ...(task.status === "failed" && { color: TERMINAL_ROLES.danger }) },
       ],
     })),
   );

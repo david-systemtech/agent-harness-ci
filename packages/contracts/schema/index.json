@@ -183,6 +183,18 @@
       "title": "PairError"
     },
     {
+      "path": "pair/preset-id.json",
+      "title": "PairingPresetId"
+    },
+    {
+      "path": "pair/preset-choice.json",
+      "title": "PairingPresetChoice"
+    },
+    {
+      "path": "pair/preset.json",
+      "title": "PairingPreset"
+    },
+    {
       "path": "update/request.json",
       "title": "UpdateRequest"
     },
@@ -1547,6 +1559,66 @@
       "title": "SkillsCarryOverReport"
     },
     {
+      "path": "skills/probe-id.json",
+      "title": "SkillProbeId"
+    },
+    {
+      "path": "skills/probe-member.json",
+      "title": "SkillProbeMember"
+    },
+    {
+      "path": "skills/probe-folder.json",
+      "title": "SkillProbeFolder"
+    },
+    {
+      "path": "skills/probe-result.json",
+      "title": "SkillsProbeResult"
+    },
+    {
+      "path": "skills/probe-problem.json",
+      "title": "SkillProbeProblem"
+    },
+    {
+      "path": "skills/probe-unreachable.json",
+      "title": "SkillProbeUnreachable"
+    },
+    {
+      "path": "skills/readiness/fix.json",
+      "title": "ReadinessFix"
+    },
+    {
+      "path": "skills/readiness/check.json",
+      "title": "ReadinessCheck"
+    },
+    {
+      "path": "skills/readiness/declaration.json",
+      "title": "ReadinessDeclaration"
+    },
+    {
+      "path": "skills/readiness/declarer.json",
+      "title": "ReadinessDeclarer"
+    },
+    {
+      "path": "skills/readiness/failure-outcome.json",
+      "title": "ReadinessFailureOutcome"
+    },
+    {
+      "path": "skills/readiness/failure.json",
+      "title": "ReadinessFailure"
+    },
+    {
+      "path": "skills/readiness/skill-readiness.json",
+      "title": "SkillReadiness"
+    },
+    {
+      "path": "skills/readiness/overlay-entry.json",
+      "title": "ReadinessOverlayEntry"
+    },
+    {
+      "path": "skills/readiness/overlay.json",
+      "title": "ReadinessOverlay"
+    },
+    {
       "path": "catalogue/skill-entry-id.json",
       "title": "CatalogueSkillEntryId"
     },
@@ -1697,6 +1769,18 @@
     {
       "path": "environment/colour-set.json",
       "title": "EnvironmentColourSetPayload"
+    },
+    {
+      "path": "environment/known-environment.json",
+      "title": "KnownEnvironment"
+    },
+    {
+      "path": "environment/listed-environment.json",
+      "title": "ListedEnvironment"
+    },
+    {
+      "path": "environment/known-environments-updated.json",
+      "title": "KnownEnvironmentsUpdatedPayload"
     },
     {
       "path": "usage/verdict.json",
@@ -2691,6 +2775,14 @@
       "title": "RoutineTimeZone"
     },
     {
+      "path": "routines/written-time-zone.json",
+      "title": "WrittenTimeZone"
+    },
+    {
+      "path": "routines/schedule-issue-params.json",
+      "title": "ScheduleIssueParams"
+    },
+    {
       "path": "routines/if-missed.json",
       "title": "RoutineIfMissed"
     },
@@ -3533,6 +3625,18 @@
     {
       "path": "methods/environment.setColour/error.json",
       "title": "environment.setColour error"
+    },
+    {
+      "path": "methods/environment.knownEnvironments.report/params.json",
+      "title": "environment.knownEnvironments.report params"
+    },
+    {
+      "path": "methods/environment.knownEnvironments.report/result.json",
+      "title": "environment.knownEnvironments.report result"
+    },
+    {
+      "path": "methods/environment.knownEnvironments.report/error.json",
+      "title": "environment.knownEnvironments.report error"
     },
     {
       "path": "methods/access.pairings.create/params.json",
@@ -5959,6 +6063,18 @@
       "title": "skills.get error"
     },
     {
+      "path": "methods/skills.probe/params.json",
+      "title": "skills.probe params"
+    },
+    {
+      "path": "methods/skills.probe/result.json",
+      "title": "skills.probe result"
+    },
+    {
+      "path": "methods/skills.probe/error.json",
+      "title": "skills.probe error"
+    },
+    {
       "path": "methods/skills.own.create/params.json",
       "title": "skills.own.create params"
     },
@@ -6037,6 +6153,18 @@
     {
       "path": "methods/skills.setEnabled/error.json",
       "title": "skills.setEnabled error"
+    },
+    {
+      "path": "methods/skills.readiness/params.json",
+      "title": "skills.readiness params"
+    },
+    {
+      "path": "methods/skills.readiness/result.json",
+      "title": "skills.readiness result"
+    },
+    {
+      "path": "methods/skills.readiness/error.json",
+      "title": "skills.readiness error"
     },
     {
       "path": "methods/trust.get/params.json",
@@ -6187,6 +6315,14 @@
     {
       "path": "cases/bridge-proof.json",
       "title": "Bridge proof"
+    },
+    {
+      "path": "cases/schedule-validation.json",
+      "title": "Schedule validation"
+    },
+    {
+      "path": "cases/schedule-due-times.json",
+      "title": "Schedule due times"
     }
   ],
   "data": [
@@ -6204,6 +6340,11 @@
       "path": "data/settings-addresses.json",
       "title": "Settings addresses",
       "schema": "settings/address-row.json"
+    },
+    {
+      "path": "data/pairing-presets.json",
+      "title": "Pairing presets",
+      "schema": "pair/preset.json"
     },
     {
       "path": "data/managed-tools.json",
@@ -6299,6 +6440,15 @@
       "result": "methods/environment.setColour/result.json",
       "response": "methods/environment.setColour/response.json",
       "error": "methods/environment.setColour/error.json"
+    },
+    {
+      "name": "environment.knownEnvironments.report",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/environment.knownEnvironments.report/params.json",
+      "result": "methods/environment.knownEnvironments.report/result.json",
+      "error": "methods/environment.knownEnvironments.report/error.json"
     },
     {
       "name": "access.pairings.create",
@@ -7915,6 +8065,15 @@
       "error": "methods/skills.get/error.json"
     },
     {
+      "name": "skills.probe",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/skills.probe/params.json",
+      "result": "methods/skills.probe/result.json",
+      "error": "methods/skills.probe/error.json"
+    },
+    {
       "name": "skills.own.create",
       "scope": "admin",
       "kind": "command",
@@ -7963,6 +8122,15 @@
       "result": "methods/skills.setEnabled/result.json",
       "response": "methods/skills.setEnabled/response.json",
       "error": "methods/skills.setEnabled/error.json"
+    },
+    {
+      "name": "skills.readiness",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/skills.readiness/params.json",
+      "result": "methods/skills.readiness/result.json",
+      "error": "methods/skills.readiness/error.json"
     },
     {
       "name": "trust.get",

@@ -76,6 +76,7 @@ export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js"
 export type { Forges, HandOverParams } from "./forges.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
+  INJECTION_SWITCH_WORDS,
   INJECTION_WORDS,
   KEY_MANAGER_METHOD_WORDS,
   KEY_MANAGER_PROVIDER_WORDS,
@@ -85,7 +86,7 @@ export {
   basePathWords,
   caWords,
   certificateFacts,
-  cliRowOf,
+  cliHealthWords,
   cliWords,
   copyLine,
   injectsWords,
@@ -180,6 +181,17 @@ export {
 } from "./desktop-update.js";
 export { homeEnvironment, type EnvironmentView } from "./projections/environments.js";
 export { KNOWN_DIRECTORY_LIMIT, type KnownDirectory } from "./projections/known-directories.js";
+export {
+  baseName,
+  heldWords,
+  presetBranch,
+  problemLine,
+  repositoryWords,
+  requestLabel,
+  resolverRefusal,
+  workspaceLabel,
+  type RefusalPlace,
+} from "./workspaces/words.js";
 export type {
   AccountChip,
   AccountPresetReason,
@@ -206,6 +218,7 @@ export {
   type SetupView,
 } from "./projections/setup.js";
 export {
+  RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
   restoreStep,
@@ -231,6 +244,7 @@ export {
   stepLine,
   worstState,
 } from "./setup/checklist.js";
+export { installLines, type InstallLines, type InstallTarget } from "./setup/install-lines.js";
 export {
   COMMAND_EXPIRY_MS,
   STOP_WAIT_MS,
@@ -304,6 +318,17 @@ export {
 } from "./projections/runs.js";
 export { stopFirstOffer, workspaceGoneLine, type QueuedMessage, type SessionVerbs, type StopFirstOffer, type VerbAvailability, type VerbMethod, type VerbReason } from "./projections/verbs.js";
 export type { Attention, AttentionEvent } from "./projections/attention.js";
+export {
+  harnessActivity,
+  notificationFor,
+  titleStateOf,
+  type AttentionKind,
+  type AttentionNotification,
+  type AttentionSubject,
+  type HarnessActivity,
+  type SessionActivity,
+  type TitleState,
+} from "./attention/policy.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
@@ -449,6 +474,7 @@ export { xtermFull, xtermScreen, xtermText, type TextScreen, type TextScreens, t
 export { TERMINAL_WRITE_CAP, nextWrite } from "./terminals/writes.js";
 export { choiceRows, joinAnswers, noteOf, rowAnswer, ttlWords, type ChoiceRow, type RowOutcome } from "./prompts/card.js";
 export { answerPrompt, type AnswerOutcome, type PromptTarget } from "./prompts/answer.js";
+export { BULK_LEAST, askDetail, bulkAsks, bulkQuestion, decidable, inBulk } from "./prompts/asks.js";
 export {
   confirmationOf,
   describeKey,
@@ -522,6 +548,7 @@ export {
   labelProblem,
   sendSignInCode,
   signInEnd,
+  signInLeftWords,
   startSignIn,
   type AccountAdded,
   type AttendedSignIn,
@@ -544,7 +571,7 @@ export {
   resetWords,
   type FamilyChoice,
 } from "./accounts/words.js";
-export { adoptAccount, relabelAccount, removeAccount, type AccountOutcome } from "./accounts/actions.js";
+export { adoptAccount, modelPreset, presetModelDefaults, relabelAccount, removeAccount, type AccountOutcome, type ModelPreset } from "./accounts/actions.js";
 export {
   DENYLIST_SECTION_NAMES,
   DENYLIST_TEST_KIND_NAMES,
@@ -580,16 +607,36 @@ export {
   grantWords,
   type ClientSessionSummary,
 } from "./access/words.js";
-export { PROGRAM_GRANT, readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { readAccessLog, revokeSession, setSessionCeiling, type AccessLogRead, type AccessOutcome } from "./access/actions.js";
+export { ceilingAboveOwn, offeredPresets, type OfferedPreset, type OfferedPresets } from "./access/presets.js";
 export { UPDATES_MANAGED_OUTSIDE, environmentStateWords } from "./service/words.js";
 export {
   bundledClaudeCodeWords,
   bundledServerWords,
+  clientOfferAskWords,
   clientOfferWords,
   clientUpdateWords,
   desktopBuildWords,
+  drainAndUpdateDescription,
+  drainAndUpdateQuestion,
+  drainableUpdate,
+  environmentVersionWords,
   offersClientVersion,
   pendingUpdateWords,
   pinnedWords,
+  updatesUnreadWords,
+  type WaitingUpdate,
 } from "./updates/words.js";
 export { drainEnvironment, rebuildProjections, type ServiceOutcome } from "./service/actions.js";
+export {
+  INSTALL_METHOD_WORDS,
+  MANAGED_TOOL_STATUS_WORDS,
+  doctorMethodWords,
+  noCommandWords,
+  requiredWords,
+  runWords,
+  toolRunWords,
+  verificationWords,
+} from "./managed-tools/words.js";
+export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/actions.js";
+export type { ToolRunsView } from "./managed-tools/tool-runs.js";

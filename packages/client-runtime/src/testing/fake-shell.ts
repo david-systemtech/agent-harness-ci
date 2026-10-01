@@ -2,6 +2,7 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import type { GrantReader, HttpFetch, SecretStore } from "../platform.js";
 import type {
   Shell,
+  ShellCamera,
   ShellClipboard,
   ShellDeepLinks,
   ShellDialogs,
@@ -67,6 +68,7 @@ export interface ShellFunctions {
   "network.allow": ShellNetwork["allow"];
   system: NonNullable<Shell["system"]>;
   "gh.token": ShellGh["token"];
+  "camera.scanQr": ShellCamera["scanQr"];
 }
 
 export type ShellFunctionName = keyof ShellFunctions;
@@ -148,6 +150,8 @@ export const fakeShell = (): FakeShell => {
     system: async () => ({ platform: "linux", architecture: "x64", hostname: "desk", user: "seth" }),
     // A computer whose gh is signed in nowhere until the test scripts a token.
     "gh.token": async () => undefined,
+    // A camera the person closes before it reads a code, until the test scripts one it reads.
+    "camera.scanQr": async () => undefined,
   };
   /** `member` as the shell carries it: recorded, then answered by its responder as it stands at the call. */
   const recorded = <M extends ShellFunctionName>(member: M): ShellFunctions[M] =>
@@ -190,6 +194,7 @@ export const fakeShell = (): FakeShell => {
     network: { allow: recorded("network.allow") },
     system: recorded("system"),
     gh: { token: recorded("gh.token") },
+    camera: { scanQr: recorded("camera.scanQr") },
     calls,
     answer(member, responder) {
       responders[member] = responder;

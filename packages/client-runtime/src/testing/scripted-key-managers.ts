@@ -8,7 +8,6 @@ import {
   httpOriginOf,
   invalidParams,
   keyManagerCliRow,
-  managedTool,
   type KeyManagerCredential,
   type KeyManagerLoginPolicy,
   type KeyManagerMoveItemResult,
@@ -67,7 +66,7 @@ export interface ScriptedKeyManagers {
   readonly writable?: boolean;
   /** The values the key manager holds already, by path under the mount (`personal/harness/forge-github`), each at the key `token`. */
   readonly values?: Readonly<Record<string, string>>;
-  /** The rows `tools.list` answers, each over a row for its tool installed at its minimum. */
+  /** The rows `tools.list` answers (`scripted-tools.ts`), each over its tool installed by apt at 2.1.1, current. */
   readonly tools?: readonly (Partial<ManagedToolRow> & Pick<ManagedToolRow, "tool">)[];
 }
 
@@ -98,6 +97,8 @@ export interface KeyManagersHost {
   next(): number;
   /** A rejection the script names for `method`, if any. */
   refusal(method: string): FakeAnswer | undefined;
+  /** The managed tools' rows as the environment holds them now (`scripted-tools.ts`). */
+  toolRows(): readonly ManagedToolRow[];
 }
 
 /** What each provider is called in a line. */
@@ -241,19 +242,18 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
   /** Whether no other connection of the provider injects, so this one, signed in now, does. */
   const firstOfProvider = (record: KeyManagerConnectionRecord) => !connections.some((c) => c.id !== record.id && c.provider === record.provider && c.injects);
 
-  const tools = (script.tools ?? []).map((row) =>
-    ManagedToolRow.parse({ label: managedTool(row.tool).label, path: `/usr/bin/${row.tool}`, realpath: `/usr/bin/${row.tool}`, version: "2.1.1", latest: null, minimum: "2.1.1", method: "apt", status: "current", action: "update", ...row }),
-  );
-  /** Every managed tool's row: the one scripted, else not installed. */
-  const everyTool = MANAGED_TOOLS.map(
-    ({ name, label, minimum }) =>
-      tools.find((row) => row.tool === name) ?? ManagedToolRow.parse({ tool: name, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install" }),
-  );
+  /** Every managed tool's row as the environment holds it now: the one held, else not installed. */
+  const everyTool = () =>
+    MANAGED_TOOLS.map(
+      ({ name, label, minimum }) =>
+        host.toolRows().find((row) => row.tool === name) ??
+        ManagedToolRow.parse({ tool: name, label, path: null, realpath: null, version: null, latest: null, minimum, method: null, status: "not-installed", action: "install", command: null }),
+    );
 
   let heldLists: (() => void)[] | null = null;
   wire.answer("keyManagers.list", (): FakeAnswer | Promise<FakeAnswer> => {
     // Each with its CLI's Managed tools row (#375).
-    const answer = (): FakeAnswer => ({ result: { connections: connections.map((record) => ({ ...record, cli: keyManagerCliRow(record.provider, everyTool) })) } });
+    const answer = (): FakeAnswer => ({ result: { connections: connections.map((record) => ({ ...record, cli: keyManagerCliRow(record.provider, everyTool()) })) } });
     const waiting = heldLists;
     return waiting === null ? answer() : new Promise((resolve) => waiting.push(() => resolve(answer())));
   });
@@ -601,8 +601,6 @@ export const scriptedKeyManagers = (host: KeyManagersHost): ScriptedKeyManagersH
     event("key-manager.value-copied", { connectionId: record.id, item: ref, reference: target.reference, clientSessionId: wire.credential()?.clientSessionId ?? "fake-client-session" });
     return accepted({ item: ref, reference: target.reference, value: item.value });
   });
-
-  wire.answer("tools.list", () => ({ result: { tools, probedAt: now() } }));
 
   return {
     keyManagerConnections: () => [...connections],

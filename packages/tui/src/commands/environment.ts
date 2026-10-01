@@ -1,4 +1,4 @@
-import type { EnvironmentView, RequestAnswer, Runtime } from "@agent-harness/client-runtime";
+import { clientOfferAskWords, type EnvironmentView, type RequestAnswer, type Runtime } from "@agent-harness/client-runtime";
 import {
   ENVIRONMENT_COLOURS,
   ENVIRONMENT_ICONS,
@@ -8,25 +8,37 @@ import {
   EnvironmentName,
   type ResultOf,
 } from "@agent-harness/contracts";
-import { terminalColourOf } from "../rail/badge.js";
+import { ENVIRONMENT_ANSI } from "@agent-harness/theme";
 import { pickerOf, type Picker, type PickerRow } from "../rail/picker.js";
 import { messageOf, nameOf } from "../view.js";
+import type { UpdateCard } from "./updates.js";
 
 /**
  * `/environment` (docs/specs/tui.md, "First launch"): the saved
  * connections with phase, version and "unreachable since", and per
  * connection enable or disable, remove, set primary, and its client
- * sessions (`access.sessions.list`, `access.sessions.revoke`); and the
+ * sessions (`access.sessions.list`, `access.sessions.revoke`); the
  * environment's name, icon and colour (#327), which `/environment rename`,
- * `icon` and `colour` set too. Every action is a runtime call, an `access.*`
- * request or a look command sent as a direct request; nothing is kept here.
+ * `icon` and `colour` set too; and its update (#827, `updates.ts`). Every
+ * action is a runtime call, an `access.*` request or a look or update
+ * command sent as a direct request; nothing is kept here.
  */
 
-/** The last three set the environment's look: its name, icon or colour (`LookField`). */
-export type EnvironmentAction = "enable" | "disable" | "remove" | "primary" | "sessions" | LookField;
+/**
+ * `name`, `icon` and `colour` set the environment's look (`LookField`);
+ * `update` is Update now, `drain-and-update` Drain and update now (#878),
+ * and `update-to-client` the offer of this client's version
+ * (`commands/updates.ts`, #827).
+ */
+export type EnvironmentAction = "enable" | "disable" | "remove" | "primary" | "sessions" | LookField | "update" | "drain-and-update" | "update-to-client";
 
-/** The actions a connection offers, in the menu's order. */
-export const actionsFor = (view: EnvironmentView): readonly EnvironmentAction[] => [
+/**
+ * The actions a connection offers, in the menu's order, by what its card
+ * says of its `update`: Drain and update now only while busy work holds
+ * the pending update, and the offer only while this client's version is
+ * offered there.
+ */
+export const actionsFor = (view: EnvironmentView, update: UpdateCard): readonly EnvironmentAction[] => [
   view.enabled ? "disable" : "enable",
   "remove",
   ...(view.primary ? [] : (["primary"] as const)),
@@ -34,9 +46,12 @@ export const actionsFor = (view: EnvironmentView): readonly EnvironmentAction[] 
   "name",
   "icon",
   "colour",
+  "update",
+  ...(update.drainable === null ? [] : (["drain-and-update"] as const)),
+  ...(update.offered === null ? [] : (["update-to-client"] as const)),
 ];
 
-export const actionWords: Readonly<Record<EnvironmentAction, string>> = {
+const ACTION_WORDS: Readonly<Record<Exclude<EnvironmentAction, "update-to-client">, string>> = {
   enable: "Enable",
   disable: "Disable",
   remove: "Remove",
@@ -45,7 +60,13 @@ export const actionWords: Readonly<Record<EnvironmentAction, string>> = {
   name: "Rename",
   icon: "Icon",
   colour: "Colour",
+  update: "Update now",
+  "drain-and-update": "Drain and update now",
 };
+
+/** What an action says on the card; the offer names the environment and this client's version `offered`, as the window's button does. */
+export const actionWords = (action: EnvironmentAction, view: EnvironmentView, offered: string | null): string =>
+  action === "update-to-client" ? clientOfferAskWords(offered ?? "this client's version", nameOf(view)) : ACTION_WORDS[action];
 
 /** Enables, disables or makes a connection the primary one; answers the line to show. */
 export const applyAction = async (
@@ -220,7 +241,7 @@ export const lookPicker = (acts: LookActs, view: EnvironmentView, field: LookFie
     case "colour": {
       const rows = () =>
         ENVIRONMENT_COLOURS.map(
-          (colour): PickerRow => ({ key: colour, text: colour, colour: terminalColourOf(colour), ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
+          (colour): PickerRow => ({ key: colour, text: colour, colour: ENVIRONMENT_ANSI[colour], ...(now().colour === colour && { detail: "now" }), choose: () => send({ field, value: colour }) }),
         );
       return {
         ...pickerOf({ title: () => `Colour for ${nameOf(now())}`, typed: false, rows }),

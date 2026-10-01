@@ -211,6 +211,7 @@ describe("the shell interface", () => {
       | "network"
       | "system"
       | "gh"
+      | "camera"
     >();
     expect(hasShellMember({}, "shell.dialogs")).toBe(false);
     expect(hasShellMember(undefined, "shell.dialogs")).toBe(false);

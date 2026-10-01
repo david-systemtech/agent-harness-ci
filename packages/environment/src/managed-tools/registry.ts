@@ -5,7 +5,9 @@ import {
   MANAGED_TOOLS,
   MANAGED_TOOL_COMMANDS,
   ManagedToolRow,
+  ToolCommandPlatform,
   compareToolVersions,
+  documentedCommand,
   managedTool,
   toolCommandMethodOf,
   type ManagedTool,
@@ -20,6 +22,7 @@ import type { HostEnvironment } from "../adapters/claude/credentials.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import { baseEnvironment } from "../terminals/shell.js";
+import { commandLine } from "./command-line.js";
 import { findOnPath, methodFromShape, versionIn, type FoundTool } from "./detection.js";
 import { LATEST_FILE, createLatestVersions, type ReleaseOrigins } from "./latest.js";
 import { readLoginPath } from "./login-path.js";
@@ -43,9 +46,10 @@ import { runCommand } from "./run.js";
  * tool and the forge's `gh` read their rows here.
  *
  * A row's action is Update where the closed command table (#376) updates
- * the tool installed the way it was, else Copy; Install for a tool not
- * installed. After a tool run the registry probes again at once
- * (`probeNow`), whatever the cadence, reading the PATH anew.
+ * the tool installed the way it was, else Copy, whose row carries the
+ * vendor's documented command a refusal of `tools.run` would answer (#426);
+ * Install for a tool not installed. After a tool run the registry probes
+ * again at once (`probeNow`), whatever the cadence, reading the PATH anew.
  *
  * Each installed tool's row carries its latest version (#374), cached in the
  * data directory and fetched on a client's refresh at most once a day per
@@ -172,12 +176,15 @@ const notInstalled = (tool: ManagedTool): ManagedToolRow => ({
   method: null,
   status: "not-installed",
   action: "install",
+  command: null,
 });
 
 export const createManagedTools = (options: ManagedToolsOptions): ManagedTools => {
   const { log, clock } = options;
   const platform = options.platform ?? process.platform;
   const commands = options.commands ?? MANAGED_TOOL_COMMANDS;
+  /** The table's platform this environment is; null for one it has no commands for. */
+  const tablePlatform = ToolCommandPlatform.safeParse(platform).data ?? null;
   const hostEnv: HostEnvironment = { ...(options.hostEnv ?? process.env) };
   const stream = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   const closing = new AbortController();
@@ -213,8 +220,8 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
     for (const event of events) {
       const { tools } = JSON.parse(event.payload) as { readonly tools?: unknown };
       for (const carried of Array.isArray(tools) ? tools : []) {
-        // A row carried before rows had a latest version (#374) knows none.
-        const parsed = ManagedToolRow.safeParse(typeof carried === "object" && carried !== null ? { latest: null, ...carried } : carried);
+        // A row carried before rows had a latest version (#374), or a Copy row's command (#426), knows none.
+        const parsed = ManagedToolRow.safeParse(typeof carried === "object" && carried !== null ? { latest: null, command: null, ...carried } : carried);
         if (parsed.success) found.set(parsed.data.tool, parsed.data);
       }
     }
@@ -259,14 +266,24 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
     return { path: found.path, realpath: found.realpath, version, method };
   };
 
-  /** A tool's row from what the probe found of it and the latest version known for how it was installed. */
-  const rowOf = (tool: ManagedTool, found: Detected | null): ManagedToolRow => {
-    if (found === null) return notInstalled(tool);
-    const known = latest.known(tool.name, found.method);
-    return { ...notInstalled(tool), ...found, latest: known, status: statusOf(tool, found, known), action: actionOf(commands, tool.name, found.method) };
+  /** The vendor's documented command a Copy row of `tool` carries, with the programs on `pathValue` deciding which install the table would run. */
+  const copyCommand = (tool: ManagedToolName, pathValue: string): string | null => {
+    const available = (program: string) => findOnPath(program, pathValue, { platform, ownResources: options.ownResources }) !== null;
+    const command = tablePlatform === null ? null : documentedCommand(tool, true, tablePlatform, available, commands);
+    return command === null ? null : commandLine(command, platform);
   };
 
-  const rowsOf = (found: ReadonlyMap<ManagedToolName, Detected | null>): ManagedToolRow[] => MANAGED_TOOLS.map((tool) => rowOf(tool, found.get(tool.name) ?? null));
+  /** A tool's row from what the probe found of it on `pathValue` and the latest version known for how it was installed. */
+  const rowOf = (tool: ManagedTool, found: Detected | null, pathValue: string): ManagedToolRow => {
+    if (found === null) return notInstalled(tool);
+    const known = latest.known(tool.name, found.method);
+    const action = actionOf(commands, tool.name, found.method);
+    const command = action === "copy" ? copyCommand(tool.name, pathValue) : null;
+    return { ...notInstalled(tool), ...found, latest: known, status: statusOf(tool, found, known), action, command };
+  };
+
+  const rowsOf = (found: ReadonlyMap<ManagedToolName, Detected | null>, pathValue: string): ManagedToolRow[] =>
+    MANAGED_TOOLS.map((tool) => rowOf(tool, found.get(tool.name) ?? null, pathValue));
 
   /**
    * Appends the rows that differ from what the log last carried, a tool it
@@ -299,7 +316,7 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
         const found = new Map(await Promise.all(MANAGED_TOOLS.map(async (tool) => [tool.name, await probeTool(tool, pathValue, env)] as const)));
         if (signal.aborted) return;
         detected = found;
-        rows = rowsOf(found);
+        rows = rowsOf(found, pathValue);
         probedAt = begun;
         probedPath = pathValue;
         notice(rows);
@@ -330,7 +347,7 @@ export const createManagedTools = (options: ManagedToolsOptions): ManagedTools =
       .refresh(installed)
       .then((changed) => {
         if (!changed || signal.aborted || detected === null) return;
-        rows = rowsOf(detected);
+        rows = rowsOf(detected, probedPath);
         notice(rows);
       })
       .catch((error: unknown) => console.error("Fetching the managed tools' latest versions failed; the rows keep the ones last known:", error))

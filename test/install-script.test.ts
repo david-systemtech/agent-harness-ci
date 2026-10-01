@@ -327,7 +327,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
       "agent-harness update settings --channel stable",
       "agent-harness update credential --stdin",
       `curl ${DISCOVERY}`,
-      "agent-harness pair",
+      "agent-harness pair --preset own-client",
     ]);
     expect(readFileSync(join(f.state, "credential"), "utf8")).toBe(`${TOKEN}\n`);
     expect(result.stdout).toContain("\n  Code: ABCD-EFGH\n");
@@ -340,7 +340,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     const result = await install(f, [], { FAKE_AUTH_POLICY: "local-only" });
     expect(result.code).toBe(0);
     expect(f.calls().slice(-2)).toEqual(["agent-harness update credential --stdin", `curl ${DISCOVERY}`]);
-    expect(f.calls()).not.toContain("agent-harness pair");
+    expect(f.calls().filter((call) => call.startsWith("agent-harness pair"))).toEqual([]);
     expect(result.stdout).toContain(
       "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.\n",
     );
@@ -486,7 +486,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
           `  wait up to 60 seconds for ${HEALTH} to say ready`,
           `  ${bin} update settings --channel stable`,
           `  ${bin} update credential --stdin`,
-          `  ${bin} pair, or the Tailscale warning when only loopback is bound`,
+          `  ${bin} pair --preset own-client, or the Tailscale warning when only loopback is bound`,
           "Dry run: nothing was downloaded or changed.",
           "",
         ].join("\n"),
@@ -501,7 +501,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
     const result = await install(f, ["--dry-run", "--data-dir", dataDir, "--port", "7500"]);
     expect(result.code).toBe(0);
     const bin = join(dataDir, "versions", "0.1.0", "bin", "agent-harness");
-    expect(result.stdout).toContain(`  ${bin} pair --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`);
+    expect(result.stdout).toContain(`  ${bin} pair --preset own-client --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`);
   });
 
   it("prints the plan of a re-run over a running service for --dry-run, changing nothing", async () => {
@@ -533,7 +533,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
         "shim update settings --channel beta",
         "shim update credential --stdin",
         `curl ${DISCOVERY}`,
-        "shim pair",
+        "shim pair --preset own-client",
       ]);
       expect(readFileSync(join(f.state, "credential"), "utf8")).toBe(`${TOKEN}\n`);
       expect(readdirSync(join(f.dataDir, "versions"))).toEqual(["0.1.0"]);
@@ -558,7 +558,7 @@ describe.skipIf(process.platform === "win32")("scripts/install.sh", () => {
         `shim update credential --stdin --data-dir ${dataDir}`,
         `shim update apply --version 0.2.0 --data-dir ${dataDir}`,
         `curl ${DISCOVERY}`,
-        `shim pair --data-dir ${dataDir}`,
+        `shim pair --preset own-client --data-dir ${dataDir}`,
       ]);
       expect(readdirSync(join(dataDir, "versions"))).toEqual(["0.1.0"]);
     });

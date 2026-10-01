@@ -107,6 +107,7 @@ import {
   EnvironmentName,
   EnvironmentRenamedPayload,
 } from "./environment-look.js";
+import { KnownEnvironment, KnownEnvironmentsUpdatedPayload, ListedEnvironment } from "./known-environments.js";
 import { Theme, ThemeName, ThemeSeed } from "./theme.js";
 import { ByeReason, EndReason, FRAME_SCHEMAS, FRAME_TYPES, Frame } from "./frames.js";
 import { CredentialUnavailableError, GitCredentialAction, GitCredentialAnswer, GitCredentialError, GitCredentialRequest } from "./git-credential.js";
@@ -132,6 +133,7 @@ import {
   PairingUsedError,
   ProtocolMismatchError,
 } from "./pairing.js";
+import { PAIRING_PRESETS, PairingPreset, PairingPresetChoice, PairingPresetId } from "./pairing-presets.js";
 import { EnvironmentNotice, EnvironmentNoticeType } from "./notices.js";
 import {
   DoctorToolName,
@@ -146,6 +148,7 @@ import {
   ManagedToolVerification,
   ManagedToolVerifyOutcome,
   ManagedToolVersion,
+  ToolCommandLine,
   ToolDoctorField,
   ToolDoctorReport,
   ToolDoctorWarning,
@@ -158,7 +161,6 @@ import {
   RunnableToolAction,
   ToolCommand,
   ToolCommandEntry,
-  ToolCommandLine,
   ToolCommandMethod,
   ToolCommandPlatform,
   ToolNotRunnableError,
@@ -561,6 +563,17 @@ import {
   PromptQuestionOption,
 } from "./prompts.js";
 import { ParkedPromptTtl, PermissionSettingsPatch, PermissionSettingsValues, SettingsArea, TtlUnit, UnattendedMode } from "./permissions-settings.js";
+import {
+  ReadinessCheck,
+  ReadinessDeclaration,
+  ReadinessDeclarer,
+  ReadinessFailure,
+  ReadinessFailureOutcome,
+  ReadinessFix,
+  ReadinessOverlay,
+  ReadinessOverlayEntry,
+  SkillReadiness,
+} from "./readiness.js";
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
@@ -598,7 +611,6 @@ import {
   RoutineAttention,
   RoutineChange,
   RoutineConflictReason,
-  RoutineDay,
   RoutineDefinition,
   RoutineDefinitionInput,
   RoutineDelivery,
@@ -618,10 +630,7 @@ import {
   RoutineLastOutcome,
   RoutineMoveLink,
   RoutineName,
-  RoutineSchedule,
   RoutineState,
-  RoutineTime,
-  RoutineTimeZone,
   RoutineTrigger,
   RoutineUpdatedPayload,
   RoutineWorkspace,
@@ -631,6 +640,8 @@ import {
   WebhookEntry,
   WebhookPayload,
 } from "./routines.js";
+import { RoutineDay, RoutineSchedule, RoutineTime, RoutineTimeZone, ScheduleIssueParams, WrittenTimeZone } from "./schedule.js";
+import { SCHEDULE_DUE_TIME_CASES, SCHEDULE_VALIDATION_CASES } from "./schedule-cases.js";
 import {
   GitCommit,
   RunSkillSet,
@@ -653,6 +664,12 @@ import {
   SkillSourceId,
   SkillNotCarried,
   SkillsCarryOverReport,
+  SkillProbeFolder,
+  SkillProbeId,
+  SkillProbeMember,
+  SkillProbeProblem,
+  SkillProbeUnreachable,
+  SkillsProbeResult,
   SkillsEventType,
   SkillsUpdatedPayload,
   SkillsView,
@@ -766,6 +783,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "client-session-credential.json", title: "ClientSessionCredential", schema: ClientSessionCredential },
   { path: "pair/request.json", title: "PairRequest", schema: PairRequest },
   { path: "pair/error.json", title: "PairError", schema: PairError },
+  { path: "pair/preset-id.json", title: "PairingPresetId", schema: PairingPresetId },
+  { path: "pair/preset-choice.json", title: "PairingPresetChoice", schema: PairingPresetChoice },
+  { path: "pair/preset.json", title: "PairingPreset", schema: PairingPreset },
   { path: "update/request.json", title: "UpdateRequest", schema: UpdateRequest },
   { path: "update/answer.json", title: "UpdateAnswer", schema: UpdateAnswer },
   { path: "update/error.json", title: "UpdateError", schema: UpdateError },
@@ -1030,6 +1050,21 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/carry-over-invalid.json", title: "SkillCarryOverInvalid", schema: SkillCarryOverInvalid },
   { path: "skills/not-carried.json", title: "SkillNotCarried", schema: SkillNotCarried },
   { path: "skills/carry-over-report.json", title: "SkillsCarryOverReport", schema: SkillsCarryOverReport },
+  { path: "skills/probe-id.json", title: "SkillProbeId", schema: SkillProbeId },
+  { path: "skills/probe-member.json", title: "SkillProbeMember", schema: SkillProbeMember },
+  { path: "skills/probe-folder.json", title: "SkillProbeFolder", schema: SkillProbeFolder },
+  { path: "skills/probe-result.json", title: "SkillsProbeResult", schema: SkillsProbeResult },
+  { path: "skills/probe-problem.json", title: "SkillProbeProblem", schema: SkillProbeProblem },
+  { path: "skills/probe-unreachable.json", title: "SkillProbeUnreachable", schema: SkillProbeUnreachable },
+  { path: "skills/readiness/fix.json", title: "ReadinessFix", schema: ReadinessFix },
+  { path: "skills/readiness/check.json", title: "ReadinessCheck", schema: ReadinessCheck },
+  { path: "skills/readiness/declaration.json", title: "ReadinessDeclaration", schema: ReadinessDeclaration },
+  { path: "skills/readiness/declarer.json", title: "ReadinessDeclarer", schema: ReadinessDeclarer },
+  { path: "skills/readiness/failure-outcome.json", title: "ReadinessFailureOutcome", schema: ReadinessFailureOutcome },
+  { path: "skills/readiness/failure.json", title: "ReadinessFailure", schema: ReadinessFailure },
+  { path: "skills/readiness/skill-readiness.json", title: "SkillReadiness", schema: SkillReadiness },
+  { path: "skills/readiness/overlay-entry.json", title: "ReadinessOverlayEntry", schema: ReadinessOverlayEntry },
+  { path: "skills/readiness/overlay.json", title: "ReadinessOverlay", schema: ReadinessOverlay },
   { path: "catalogue/skill-entry-id.json", title: "CatalogueSkillEntryId", schema: CatalogueSkillEntryId },
   { path: "catalogue/tag.json", title: "CatalogueTag", schema: CatalogueTag },
   { path: "catalogue/licence-where.json", title: "CatalogueLicenceWhere", schema: CatalogueLicenceWhere },
@@ -1066,6 +1101,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "environment/renamed.json", title: "EnvironmentRenamedPayload", schema: EnvironmentRenamedPayload },
   { path: "environment/icon-set.json", title: "EnvironmentIconSetPayload", schema: EnvironmentIconSetPayload },
   { path: "environment/colour-set.json", title: "EnvironmentColourSetPayload", schema: EnvironmentColourSetPayload },
+  { path: "environment/known-environment.json", title: "KnownEnvironment", schema: KnownEnvironment },
+  { path: "environment/listed-environment.json", title: "ListedEnvironment", schema: ListedEnvironment },
+  { path: "environment/known-environments-updated.json", title: "KnownEnvironmentsUpdatedPayload", schema: KnownEnvironmentsUpdatedPayload },
   { path: "usage/verdict.json", title: "UsageVerdict", schema: UsageVerdict },
   { path: "usage/window.json", title: "UsageWindow", schema: UsageWindow },
   { path: "usage/account-usage.json", title: "AccountUsage", schema: AccountUsage },
@@ -1310,6 +1348,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "routines/time.json", title: "RoutineTime", schema: RoutineTime },
   { path: "routines/schedule.json", title: "RoutineSchedule", schema: RoutineSchedule },
   { path: "routines/time-zone.json", title: "RoutineTimeZone", schema: RoutineTimeZone },
+  { path: "routines/written-time-zone.json", title: "WrittenTimeZone", schema: WrittenTimeZone },
+  { path: "routines/schedule-issue-params.json", title: "ScheduleIssueParams", schema: ScheduleIssueParams },
   { path: "routines/if-missed.json", title: "RoutineIfMissed", schema: RoutineIfMissed },
   { path: "routines/workspace.json", title: "RoutineWorkspace", schema: RoutineWorkspace },
   { path: "routines/injection.json", title: "RoutineInjection", schema: RoutineInjection },
@@ -1546,6 +1586,32 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
     ].join(" "),
     cases: [{ note: "The secret is the bytes 0x00 to 0x1f and the nonce the bytes 0x20 to 0x3f.", ...BRIDGE_PROOF_TEST_VECTOR }],
   },
+  {
+    path: "cases/schedule-validation.json",
+    title: "Schedule validation",
+    description: [
+      "The schedule rule, validateSchedule in the contracts package (routines spec, \"Schedules\").",
+      "Each case gives a schedule as written, its zone, and each issue the rule answers, by its path in the definition and its reason; none when it takes them.",
+      "First each field, at its path: kind, not one of manual, hourly, daily, weekdays, weekly, days, monthly and cron; minute, hourly's minute not a whole number from 0 to 59; time, an at not HH:MM from 00:00 to 23:59; day, a day not one of monday to sunday; days_empty, days naming none; days_repeated, a day named again, at the repeat; day_of_month, monthly's day not a whole number from 1 to 31.",
+      "A cron expression, trimmed, has one issue at most, the first found: cron_at_form when it begins with @; split on white space, cron_seconds for six fields and cron_fields for any count but five; then each field in order (minute 0 to 59, hour 0 to 23, day of month 1 to 31, month 1 to 12 or jan to dec, day of week 0 to 7 or sun to sat, 0 and 7 both Sunday, names in any case) as a comma list of elements, each *, a value or a range a-b, optionally followed by /step, a whole number from 1: cron_syntax for an element that is none of these, a step of 0 or a step after a single value; cron_range for a value outside the field; cron_backwards for a range whose end is below its start.",
+      "Then, when no field has an issue, the whole schedule: cron_never for a cron expression no day of the calendar matches (its day fields read as cases/schedule-due-times.json says); floor for due times that can fall under five minutes apart on the wall clock, judged over every day of the calendar: two of its minutes in one hour, or the last minute of an hour and the first of the next where both hours are due on one day, or hour 23 and hour 0 on two days running. A clock change can bring two due times closer, once, which the floor does not count.",
+      "Last, zone: a zone that is not a letter followed by letters, digits, _, +, - and /, or that the runtime's IANA data does not know.",
+      "A refusal on the wire is an invalid_params issue at the field whose params are {rule: schedule, reason}.",
+    ].join(" "),
+    cases: SCHEDULE_VALIDATION_CASES,
+  },
+  {
+    path: "cases/schedule-due-times.json",
+    title: "Schedule due times",
+    description: [
+      "The due times, nextDueAt and dueTimesBetween in the contracts package (routines spec, \"Schedules\").",
+      "Each case gives a schedule validateSchedule takes, its zone, two instants in UTC, after and through, the first due time strictly after after (next, null for none), and every due time strictly after after and at or before through, in order (dueTimes).",
+      "A schedule is due at wall-clock minutes in its zone: hourly at its minute of every hour; daily at its time each day; weekdays Monday to Friday; weekly on its day; days on each day it names; monthly on its day, a month without that day skipped; manual never.",
+      "A cron expression is due where its minute, hour and month fields match and its day fields do by Vixie cron's rule: when both the day of month and the day of week are restricted, which is neither beginning with *, either matching is enough; otherwise both must match, so a * field takes every day and a field like */2 restricts alongside the other.",
+      "A wall-clock minute a clock change skips is due at the first minute after the gap, which is the change's own instant, and minutes inside one gap are one due time; a minute a clock change repeats is due once, at its first occurrence.",
+    ].join(" "),
+    cases: SCHEDULE_DUE_TIME_CASES,
+  },
 ];
 
 /**
@@ -1595,6 +1661,17 @@ export const publishedData = (): PublishedData[] => [
     ].join(" "),
     schema: "settings/address-row.json",
     entries: SETTINGS_ADDRESSES.map((address) => ({ address, row: ADDRESS_ROWS[address] })),
+  },
+  {
+    path: "data/pairing-presets.json",
+    title: "Pairing presets",
+    description: [
+      "The pairing presets (ADR 0025; #577) in the order a client offers them, my own client preset: what a pairing code minted for another client grants, and what a person may change of it before minting.",
+      "A client resolves a preset to its scopes and ceiling, with the ceiling picked or the scopes ticked where the preset lets them change, and sends both explicit in access.pairings.create; the environment knows nothing of presets, and refuses a ceiling above the minter's own.",
+      "A code carries no label: the client that exchanges it names its client session, a program with its own name.",
+    ].join(" "),
+    schema: "pair/preset.json",
+    entries: PAIRING_PRESETS,
   },
   {
     path: "data/managed-tools.json",

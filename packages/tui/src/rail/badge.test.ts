@@ -1,5 +1,6 @@
 import type { EnvironmentView } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
+import { SIXTEEN_COLOURS } from "../theme/colours.js";
 import { abbreviationOf, badgesOf, glyphOf } from "./badge.js";
 
 /**
@@ -24,7 +25,7 @@ describe("the abbreviation", () => {
 
 describe("the badges of the environments listed", () => {
   it("give each environment a colour and an abbreviation no other has, and no icon: the terminal UI draws none (#19)", () => {
-    const badges = badgesOf([view("desk"), view("dev box"), view("laptop"), view("develop")]);
+    const badges = badgesOf([view("desk"), view("dev box"), view("laptop"), view("develop")], SIXTEEN_COLOURS);
     expect([...badges.values()].map((b) => b.abbreviation)).toEqual(["DE", "DB", "LA", "DV"]);
     expect(new Set([...badges.values()].map((b) => b.colour)).size).toBe(4);
     expect(badges.get("id-desk")).toEqual({ abbreviation: "DE", colour: "cyan" });
@@ -32,7 +33,7 @@ describe("the badges of the environments listed", () => {
 
   it("take the environment's own colour, the twelve names in order onto red, bright red, yellow, bright yellow, bright green, green, cyan, bright cyan, blue, bright blue, magenta and bright magenta", () => {
     const names = ["red", "orange", "amber", "yellow", "lime", "green", "teal", "cyan", "blue", "indigo", "violet", "pink"] as const;
-    const badges = badgesOf(names.map((colour) => view(`${colour} box`, { colour })));
+    const badges = badgesOf(names.map((colour) => view(`${colour} box`, { colour })), SIXTEEN_COLOURS);
     expect(names.map((colour) => badges.get(`id-${colour} box`)?.colour)).toEqual([
       "red",
       "redBright",
@@ -50,30 +51,30 @@ describe("the badges of the environments listed", () => {
   });
 
   it("keep a colour by the environment's place in the list for one that sends no colour, whatever its neighbours send", () => {
-    const badges = badgesOf([view("desk", { colour: "amber", icon: "laptop" }), view("tower"), view("nas", { icon: "nas" })]);
+    const badges = badgesOf([view("desk", { colour: "amber", icon: "laptop" }), view("tower"), view("nas", { icon: "nas" })], SIXTEEN_COLOURS);
     expect(badges.get("id-desk")).toEqual({ abbreviation: "DE", colour: "yellow" });
     expect(badges.get("id-tower")).toEqual({ abbreviation: "TO", colour: "magenta" });
     expect(badges.get("id-nas")).toEqual({ abbreviation: "NA", colour: "yellow" });
   });
 
   it("say this machine for the placeholder", () => {
-    expect(badgesOf([view(null)]).get("id-placeholder")?.abbreviation).toBe("TM");
+    expect(badgesOf([view(null)], SIXTEEN_COLOURS).get("id-placeholder")?.abbreviation).toBe("TM");
   });
 
   it("take a digit after the first letter once the letters run out, so two names with the same letters differ", () => {
-    const badges = badgesOf([view("ab"), view("a b"), view("A-B")]);
+    const badges = badgesOf([view("ab"), view("a b"), view("A-B")], SIXTEEN_COLOURS);
     expect([...badges.values()].map((b) => b.abbreviation)).toEqual(["AB", "A2", "A3"]);
   });
 
   it("fall back to ?? for a name with no letter or digit, rather than an empty abbreviation, shared by every such name", () => {
-    expect(badgesOf([view("---")]).get("id----")?.abbreviation).toBe("??");
+    expect(badgesOf([view("---")], SIXTEEN_COLOURS).get("id----")?.abbreviation).toBe("??");
     expect(abbreviationOf("···")).toBe("");
-    expect([...badgesOf([view("---"), view("···")]).values()].map((b) => b.abbreviation)).toEqual(["??", "??"]);
+    expect([...badgesOf([view("---"), view("···")], SIXTEEN_COLOURS).values()].map((b) => b.abbreviation)).toEqual(["??", "??"]);
   });
 
   it("share the plain abbreviation past nine names of the same letters, the digits spent", () => {
     const names = ["ab", "a b", "a-b", "a.b", "a_b", "AB", "Ab", "aB", "a  b", "a--b", "a..b"];
-    const badges = [...badgesOf(names.map((name) => view(name))).values()].map((b) => b.abbreviation);
+    const badges = [...badgesOf(names.map((name) => view(name)), SIXTEEN_COLOURS).values()].map((b) => b.abbreviation);
     expect(badges).toEqual(["AB", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "AB", "AB"]);
   });
 });

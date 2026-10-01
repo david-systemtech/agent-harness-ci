@@ -18,6 +18,7 @@ import {
   ContainmentReport,
   HandoffRecommendation,
   PERMISSION_SETTINGS_KEYS,
+  SIGN_IN_ENDED_STATES,
   UPDATE_SETTINGS_KEYS,
   type ReviewRun,
   SignIn,
@@ -71,6 +72,7 @@ import { ACCESS_COMMANDS, scriptedAccess, type ClientSessionRow, type ScriptedAc
 import { scriptedFolders, type ScriptedFolder } from "./scripted-folders.js";
 import { FORGE_COMMANDS, scriptedForges, type ScriptedForges, type ScriptedForgesHandle } from "./scripted-forges.js";
 import { KEY_MANAGER_COMMANDS, scriptedKeyManagers, type ScriptedKeyManagers, type ScriptedKeyManagersHandle } from "./scripted-key-managers.js";
+import { scriptedTools, type ScriptedManagedTools, type ScriptedToolsHandle, type ToolTerminalHooks } from "./scripted-tools.js";
 import { LIST_COMMANDS, SCRIPTED_HOME, scriptedList, type ScriptedList } from "./scripted-list.js";
 import { PERMISSION_COMMANDS, scriptedPermissions, type ScriptedPermissionsHandle } from "./scripted-permissions.js";
 import { scriptedPrompts, type ScriptedPrompts } from "./scripted-prompts.js";
@@ -172,7 +174,10 @@ export interface ScriptedEnvironment {
   readonly review?: readonly Partial<ReviewRun>[];
   /** What `accounts.handoff.recommend` answers, over no recommendation. */
   readonly recommendation?: Partial<HandoffRecommendation>;
-  /** What `accounts.add` says of the sign-in it starts: preset it starts one. */
+  /**
+   * What `accounts.add` says of the sign-in it starts: preset it starts one, unless a sign-in that has not ended holds
+   * the environment, which `accounts.signin.start` is refused for too (`signin_running`), as the director runs one at a time.
+   */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
   /**
    * What `accounts.probe` reads of the machine's own Claude directory, `/home/seth/.claude`, which `accounts.adopt`
@@ -229,6 +234,11 @@ export interface ScriptedEnvironment {
    * token. The `forge` flag is the script's `capabilities`.
    */
   readonly forges?: ScriptedForges;
+  /**
+   * What the Managed tools' verify commands and claude's doctor say, and how each tool run goes in its tool terminal
+   * (`scripted-tools.ts`); the rows are `keyManagers.tools`. Preset: every verification passes and every run exits 0.
+   */
+  readonly managedTools?: ScriptedManagedTools;
 }
 
 /**
@@ -263,7 +273,9 @@ export interface ScriptedTerminal {
 /** A terminal as the scripted environment holds it: what was written to it and how it was sized, by the commands that did. */
 export interface TerminalRecord {
   readonly id: string;
-  readonly sessionId: string;
+  /** A session's, or the Managed tools registry's (a tool terminal, #426), whose session is null. */
+  readonly owner: TerminalInfo["owner"];
+  readonly sessionId: string | null;
   readonly cols: number;
   readonly rows: number;
   /** The variables `terminals.open` gave its shell. */
@@ -286,7 +298,8 @@ export interface LookChanges {
   readonly colour?: EnvironmentColour;
 }
 
-export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedForgesHandle, ScriptedPermissionsHandle, ScriptedAccessHandle {
+export interface EnvironmentHandle
+  extends ScriptedPrompts, ScriptedSetupHandle, ScriptedKeyManagersHandle, ScriptedToolsHandle, ScriptedForgesHandle, ScriptedPermissionsHandle, ScriptedAccessHandle {
   readonly name: string;
   readonly environmentId: string;
   readonly wire: FakeWire;
@@ -400,6 +413,8 @@ export interface EnvironmentHandle extends ScriptedPrompts, ScriptedSetupHandle,
   terminalOutput(id: string, data: string): void;
   /** The terminal's shell exits with `exitCode`, killed by `signal` when one is given: `terminal.exited`, then its subscriptions end. */
   exitTerminal(id: string, exitCode: number, signal?: number | null): void;
+  /** The environment closes the terminal itself, as it does a tool terminal at its stop: out of the list at once, then `terminal.exited` closed to its subscriptions. */
+  closeTerminal(id: string): void;
   /** The terminal's scrollback loses its oldest `chunks`, as the cap drops them: a cursor before what is kept gets a truncated snapshot. */
   dropScrollback(id: string, chunks: number): void;
   /** Changes what the update methods answer from now on, over what they answer now: a release published since, a build staged. */
@@ -1093,7 +1108,8 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     readonly id: string;
     /** Its place among the terminals held, from 0: its events' ids are its own, as the environment mints each chunk's. */
     readonly index: number;
-    readonly sessionId: string;
+    readonly owner: TerminalInfo["owner"];
+    readonly sessionId: string | null;
     readonly openedAt: string;
     cols: number;
     rows: number;
@@ -1107,9 +1123,15 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     exit: { readonly exitCode: number; readonly signal: number | null; readonly cause: TerminalExitCause; readonly sequence: number } | null;
     closed: boolean;
     readonly subscriptions: Set<string>;
+    /** A tool terminal's command, which hears what is typed and its end (`scripted-tools.ts`). */
+    readonly tool: ToolTerminalHooks | undefined;
   }
   const terminals = new Map<string, HeldTerminal>();
-  const infoOf = (t: HeldTerminal): TerminalInfo => ({ id: t.id, owner: "session", sessionId: t.sessionId, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null });
+  const infoOf = (t: HeldTerminal): TerminalInfo => {
+    const fields = { id: t.id, openedAt: t.openedAt, cols: t.cols, rows: t.rows, exitCode: t.exit?.exitCode ?? null, signal: t.exit?.signal ?? null };
+    // A tool terminal (#362) is the Managed tools registry's, serving no session.
+    return t.sessionId === null ? { ...fields, owner: "managed-tools", sessionId: null } : { ...fields, owner: "session", sessionId: t.sessionId };
+  };
   const lastOf = (t: HeldTerminal) => t.last;
   const terminalEnvelope = (t: HeldTerminal, at: number, type: string, payload: Record<string, unknown>): EventEnvelope => ({
     sequence: at,
@@ -1131,10 +1153,16 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const exit = t.exit as NonNullable<HeldTerminal["exit"]>;
     return terminalEnvelope(t, exit.sequence, TERMINAL_EXITED_TYPE, { exitCode: exit.exitCode, signal: exit.signal, cause: exit.cause });
   };
-  const hold = (id: string, sessionId: string, fields: { readonly cols?: number | undefined; readonly rows?: number | undefined; readonly env?: Record<string, string> | undefined }): HeldTerminal => {
+  const hold = (
+    id: string,
+    sessionId: string | null,
+    fields: { readonly cols?: number | undefined; readonly rows?: number | undefined; readonly env?: Record<string, string> | undefined },
+    tool?: ToolTerminalHooks,
+  ): HeldTerminal => {
     const t: HeldTerminal = {
       id,
       index: terminals.size,
+      owner: tool === undefined ? "session" : "managed-tools",
       sessionId,
       openedAt: clock.now().toISOString(),
       cols: fields.cols ?? 80,
@@ -1148,6 +1176,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       exit: null,
       closed: false,
       subscriptions: new Set(),
+      tool,
     };
     terminals.set(id, t);
     return t;
@@ -1178,6 +1207,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       toSubscriber({ type: "end", subscription, reason: cause === "deleted" ? "deleted" : "closed" });
     }
     t.subscriptions.clear();
+    t.tool?.ended({ exitCode, signal, cause });
   };
   for (const held of spec.terminals ?? []) {
     const t = hold(held.id.toLowerCase(), sessions[held.session ?? 0]?.id ?? "", { cols: held.cols, rows: held.rows });
@@ -1249,6 +1279,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     if (t.exit) return conflict("exited", "The terminal's shell has exited.");
     const data = String(params["data"]);
     t.writes.push(data);
+    t.tool?.typed(data);
     if (t.env["AGENT_HARNESS_ONE_OFF"] !== undefined && data.includes("AGENT_HARNESS_ONE_OFF")) runOneOff(t, data);
     return terminalReceipt({ id });
   });
@@ -1529,18 +1560,32 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     later(() => notice("signin.updated", { ...started }));
     return signIn;
   };
+  /** The sign-in that has not ended, which holds the environment: one at a time, as the director runs them. */
+  const runningSignIn = (): SignIn | null => (signIn !== null && !(SIGN_IN_ENDED_STATES as readonly SignInState[]).includes(signIn.state) ? signIn : null);
+  /** What the director says of a sign-in held by `running`'s account. */
+  const heldMessage = (running: SignIn) =>
+    `A sign-in is already running for ${accounts.find((a) => a.id === running.accountId)?.label ?? running.accountId}; cancel it, or wait for it to end.`;
   wire.answer("accounts.signin.get", () => ({ result: { signIn } }));
   wire.answer("accounts.add", (params) => {
     const refused = rejection("accounts.add");
     if (refused) return refused;
     const id = ++accountsMinted;
-    const account = accountOf({ id: `account-${id}`, label: String(params["label"]), directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const label = String(params["label"]);
+    const running = runningSignIn();
+    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
-    const start = spec.addSignIn ?? { started: true, message: null };
+    const start =
+      spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });
     if (start.started) startSignIn(account.id);
     return acceptedWith({ account, signIn: start });
   });
-  wire.answer("accounts.signin.start", (params) => rejection("accounts.signin.start") ?? acceptedWith({ signIn: startSignIn(String(params["accountId"])) }));
+  wire.answer("accounts.signin.start", (params) => {
+    const refused = rejection("accounts.signin.start");
+    if (refused) return refused;
+    const running = runningSignIn();
+    if (running !== null) return accountRefusal("signin_running", heldMessage(running), { accountId: running.accountId });
+    return acceptedWith({ signIn: startSignIn(String(params["accountId"])) });
+  });
   wire.answer("accounts.signin.code", (params) => {
     const refused = rejection("accounts.signin.code");
     if (refused) return refused;
@@ -1719,11 +1764,27 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     emit(sessionId, "session.containment.set", payload);
     return acceptedWith({ sessionId, ...payload });
   });
+  // The Managed tools' rows, their verify commands, claude's doctor and the tool runs (`scripted-tools.ts`).
+  const tools = scriptedTools({
+    clock,
+    wire,
+    rows: spec.keyManagers?.tools,
+    script: spec.managedTools,
+    notice,
+    head: () => sequence,
+    next: () => ++sequence,
+    refusal: (method) => rejection(method),
+    openToolTerminal: (id, size, hooks) => (terminals.has(id) ? undefined : infoOf(hold(id, null, size, hooks))),
+    output: (id, data) => terminalOutput(id, data),
+    exit: (id, exitCode) => exitTerminal(id, exitCode),
+  });
+
   // The key-manager connections and Move (`scripted-key-managers.ts`).
   const keyManagers = scriptedKeyManagers({
     clock,
     wire,
     script: spec.keyManagers,
+    toolRows: () => tools.toolRows(),
     notice,
     head: () => sequence,
     next: () => ++sequence,
@@ -1963,6 +2024,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     ...prompts,
     setSetup: setup.setSetup,
     ...keyManagers,
+    ...tools,
     ...forges,
     ...access,
     denylist: permissions.denylist,
@@ -1988,6 +2050,12 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     exitTerminal(id, exitCode, signal = null) {
       if (!terminals.has(id.toLowerCase())) throw new Error(`${spec.name} never held a terminal ${id}.`);
       exitTerminal(id.toLowerCase(), exitCode, "exited", signal);
+    },
+    closeTerminal(id) {
+      const t = terminals.get(id.toLowerCase());
+      if (!t) throw new Error(`${spec.name} never held a terminal ${id}.`);
+      t.closed = true;
+      exitTerminal(t.id, 0, "closed", 1);
     },
     dropScrollback(id, chunks) {
       const t = terminals.get(id.toLowerCase());
@@ -2033,5 +2101,6 @@ export { OTHER_CLIENT, type ScriptedPrompt, type ScriptedPrompts } from "./scrip
 export { type ScriptedSetup, type ScriptedStepResult } from "./scripted-setup.js";
 export { type ScriptedDetection, type ScriptedForges } from "./scripted-forges.js";
 export { certificateOf, type ScriptedKeyManagers, type ScriptedMoveItem } from "./scripted-key-managers.js";
+export { SUDO_PROMPT, type ScriptedManagedTools, type ScriptedToolRun } from "./scripted-tools.js";
 export { type ScriptedPermissionsHandle } from "./scripted-permissions.js";
 export { type ClientSessionRow, type ScriptedAccessEvent, type ScriptedAccessHandle } from "./scripted-access.js";

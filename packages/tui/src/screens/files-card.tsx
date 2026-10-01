@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import { FILES_LIST_CAP } from "@agent-harness/contracts";
 import type { BrowseRow } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 
 /**
  * `/files`' picker on screen (docs/specs/tui.md, "The composer"): the
@@ -33,7 +34,7 @@ export const FilesCard = (props: {
         <Text inverse> </Text>
       </Text>
       {props.truncated && (
-        <Text color="yellow" wrap="truncate-end">
+        <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">
           The workspace holds more than {FILES_LIST_CAP.toLocaleString("en-GB")} files: this listing is cut.
         </Text>
       )}
@@ -44,7 +45,7 @@ export const FilesCard = (props: {
         return (
           <Text key={`${row.kind} ${row.path}`} wrap="truncate-end" inverse={selected}>
             {selected ? "› " : "  "}
-            {row.kind === "file" ? row.name : <Text color="cyan">{row.name}</Text>}
+            {row.kind === "file" ? row.name : <Text color={TERMINAL_ROLES.machine}>{row.name}</Text>}
             {row.kind === "dir" && <Text dimColor> {row.files === 1 ? "1 file" : `${String(row.files)} files`}</Text>}
           </Text>
         );

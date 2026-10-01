@@ -1,9 +1,9 @@
-import { INJECTION_WORDS, overridesWith, type EnvironmentView } from "@agent-harness/client-runtime";
+import { INJECTION_SWITCH_WORDS, INJECTION_WORDS, overridesWith, type EnvironmentView } from "@agent-harness/client-runtime";
 import { INJECTION_ANSWERS, type InjectionAnswer, type SettingsKey } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
-import { Select } from "../ui/index.js";
+import { Select, Switch } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
 
 /** An account's choice: its own answer, or the environment's (`inherit`, no entry in the map). */
@@ -22,19 +22,11 @@ export const InjectionSetting = ({ view }: { readonly view: EnvironmentView }) =
   const runtime = useRuntime();
   const heading = useId();
   const { environmentId } = view;
-  const settings = useSettingsValues(environmentId);
+  const { values, writable, save, line } = useInjection(view);
   const accounts = useObservable(useMemo(() => runtime.projections.accounts(environmentId), [runtime, environmentId])).value ?? [];
-  const [line, setLine] = useState<string | undefined>(undefined);
-  const { values } = settings;
   if (values === null) return null;
   const answer = (values["credentials.injection"] as InjectionAnswer | undefined) ?? "allow";
   const overrides = (values["credentials.injectionByAccount"] as Readonly<Record<string, InjectionAnswer>> | undefined) ?? {};
-  const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present";
-
-  const save = (key: SettingsKey, value: unknown) => {
-    setLine(undefined);
-    void settings.save(key, value).then((saved) => !saved.ok && setLine(`Not saved: ${saved.line}`));
-  };
 
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
@@ -69,6 +61,47 @@ export const InjectionSetting = ({ view }: { readonly view: EnvironmentView }) =
       ))}
       {line !== undefined && <p className="text-sm text-signal">{line}</p>}
     </section>
+  );
+};
+
+/**
+ * The injection setting's values as `settings.get` holds them, whether this
+ * client may write them (the environment reached, with `settings.update`),
+ * a write through `settings.update`, and the one line a refused write said.
+ */
+const useInjection = (view: EnvironmentView) => {
+  const runtime = useRuntime();
+  const { environmentId } = view;
+  const settings = useSettingsValues(environmentId);
+  const [line, setLine] = useState<string | undefined>(undefined);
+  const writable = view.phase === "ready" && runtime.capability(environmentId, "settings.update").status === "present";
+  const save = (key: SettingsKey, value: unknown) => {
+    setLine(undefined);
+    void settings.save(key, value).then((saved) => !saved.ok && setLine(`Not saved: ${saved.line}`));
+  };
+  return { values: settings.values, writable, save, line };
+};
+
+/**
+ * The injection switch on the Key manager card (the Set up specification,
+ * "5. Key manager"; ADR 0028; #590): `credentials.injection` as a switch,
+ * on for `allow` (its preset), beside its sentence, written through
+ * `settings.update`. Each account's own answer is the Key managers row's
+ * Injection, and a routine's the routine's.
+ */
+export const InjectionSwitch = ({ view }: { readonly view: EnvironmentView }) => {
+  const label = useId();
+  const { values, writable, save, line } = useInjection(view);
+  if (values === null) return null;
+  const on = ((values["credentials.injection"] as InjectionAnswer | undefined) ?? "allow") === "allow";
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-3 text-sm text-ink">
+        <Switch aria-labelledby={label} checked={on} disabled={!writable} onCheckedChange={(next) => save("credentials.injection", next ? "allow" : "deny")} />
+        <span id={label}>{INJECTION_SWITCH_WORDS}</span>
+      </div>
+      {line !== undefined && <p className="text-sm text-signal">{line}</p>}
+    </div>
   );
 };
 

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReadinessFailureOutcome",
+  "type": "string",
+  "enum": [
+    "failed",
+    "timed-out",
+    "not-evaluated"
+  ],
+  "description": "How the check failed: failed (it ran and does not hold), timed-out (it could not be checked in time: five seconds, within the call's ten), or not-evaluated (a secret, mcp or git forge-account check, which this environment does not evaluate yet)."
+}

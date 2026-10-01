@@ -1,13 +1,15 @@
 import { Box, Text } from "ink";
 import type { ReactNode } from "react";
 import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { actionWords, type ClientSessionRow, type EnvironmentAction } from "../commands/environment.js";
 import type { MintedLines } from "../commands/pair.js";
+import type { UpdateCard } from "../commands/updates.js";
 import type { HelpLine } from "../help.js";
 import { clockTime, nameOf, phaseWords } from "../view.js";
 
 /**
- * The open card: `/environment`'s list, a connection's actions, its client
+ * The open card: `/environment`'s list, a connection's card, its client
  * sessions, a minted pairing code, the help overlay. Each card's hint line
  * is handed in, written from the keymap in force, so a remapped key is the
  * one it names.
@@ -48,9 +50,15 @@ export const EnvironmentsCard = (props: { readonly views: readonly EnvironmentVi
   </Box>
 );
 
-/** A connection's actions: enable or disable, remove, set primary, client sessions, rename, icon and colour. */
+/**
+ * A connection's card: its update's lines (#827), then its actions: enable
+ * or disable, remove, set primary, client sessions, rename, icon, colour,
+ * Update now, Drain and update now while busy work holds the pending update
+ * (#878), and the offer of this client's version while it stands.
+ */
 export const EnvironmentMenu = (props: {
   readonly view: EnvironmentView;
+  readonly update: UpdateCard;
   readonly actions: readonly EnvironmentAction[];
   readonly cursor: number;
   readonly hint: string;
@@ -59,9 +67,16 @@ export const EnvironmentMenu = (props: {
     <Text bold>
       {nameOf(props.view)} <Text dimColor>{props.hint}</Text>
     </Text>
+    {props.update.lines.map((line) => (
+      <Box key={line.text} paddingLeft={2}>
+        <Text wrap="wrap" dimColor={line.tone === "quiet"} {...(line.tone === "warn" && { color: TERMINAL_ROLES.warning })}>
+          {line.text}
+        </Text>
+      </Box>
+    ))}
     {props.actions.map((action, index) => (
       <Row key={action} selected={index === props.cursor}>
-        {actionWords[action]}
+        {actionWords(action, props.view, props.update.offered)}
       </Row>
     ))}
   </Box>
@@ -140,7 +155,7 @@ export const HelpCard = (props: { readonly lines: readonly HelpLine[]; readonly 
         const keys = line.condition === undefined ? line.keys : `${line.keys} (${line.condition})`;
         return (
           <Text key={index} wrap="truncate-end">
-            <Text color="cyan" dimColor={dim}>
+            <Text color={TERMINAL_ROLES.machine} dimColor={dim}>
               {keys.length > HELP_KEY_WIDTH ? `${keys}  ` : keys.padEnd(HELP_KEY_WIDTH + 2)}
             </Text>
             <Text dimColor={dim}>

@@ -7,14 +7,17 @@ import { Ceiling, ScopeSet } from "../scopes.js";
 
 /**
  * Mint a one-time pairing code, valid for ten minutes and one exchange at
- * `/api/pair`. The scopes and ceiling default to every scope and the
+ * `/api/pair`. Scopes default to the minter's own; a requested scope it does
+ * not hold is forbidden with reason scope. The ceiling defaults to the
  * environment's default ceiling, the setting `permissions.defaultCeiling`.
  */
 export const accessPairingsCreate = defineMethod({
   name: "access.pairings.create",
   scope: "admin",
   params: commandParams({
-    scopes: ScopeSet.optional().meta({ description: "The scopes the client session will hold; every scope when absent." }),
+    scopes: ScopeSet.optional().meta({
+      description: "The scopes the client session will hold; the minter's own scopes when absent. A scope the minter does not hold is forbidden with reason scope, naming it in data.scope.",
+    }),
     ceiling: Ceiling.optional().meta({
       description: "The client session's ceiling; the environment's default ceiling (the setting permissions.defaultCeiling) when absent.",
     }),

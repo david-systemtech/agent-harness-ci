@@ -39,11 +39,12 @@ const openMachines = async (app: RenderedApp) => {
   return within(settings).getByRole("region", { name: "Your machines" });
 };
 
-/** The cards of the pane, each by its heading. */
+/** The environments' cards of the pane, each by its heading: Add a machine, the card after them, is none of them. */
 const cardNames = (pane: HTMLElement) =>
   within(pane)
     .getAllByRole("heading", { level: 3 })
-    .map((heading) => heading.textContent);
+    .map((heading) => heading.textContent)
+    .filter((name) => name !== "Add a machine");
 
 /** One environment's card, by its name. */
 const card = (pane: HTMLElement, name: string) => within(pane).getByRole("region", { name });
@@ -316,7 +317,8 @@ describe("Your machines' update controls", () => {
     await waitFor(() => expect(autoUpdate().getAttribute("aria-checked")).toBe("false"));
     expect(scripted.requests("updates.settings.set").map((request) => request.params["values"])).toEqual([{ "updates.channel": "beta" }, { "updates.autoUpdate": false }]);
     expect(scripted.settings()).toMatchObject({ "updates.channel": "beta", "updates.autoUpdate": false });
-    // The pin, the idle window and the deferral cap stay the generic editor's.
+    // The pin, the idle window and the deferral cap stay the generic editor's, under Advanced (#576).
+    await app.user.click(within(laptop()).getByRole("button", { name: "Advanced" }));
     for (const key of ["updates.pinnedVersion", "updates.idleWindowMinutes", "updates.deferralCapHours"]) expect(within(laptop()).getByRole("group", { name: key })).toBeDefined();
     expect(within(laptop()).queryByRole("group", { name: "updates.channel" })).toBeNull();
 
@@ -343,6 +345,45 @@ describe("Your machines' update controls", () => {
     app.environment("laptop").setUpdates({ status: { pending: { state: "draining", ...pending, cause: "cap" } } });
     app.environment("laptop").notice("environment.update-started", { updateId: pending.updateId, fromVersion: "0.0.0-fake", toVersion: "0.6.0", cause: "cap" });
     expect(await within(card(pane, "laptop")).findByText("Draining for the update to 0.6.0: new runs are refused.")).toBeDefined();
+  });
+
+  it("offers Drain and update now only while busy work holds the update, says its refusal in one line, and drops its question once the update no longer waits", async () => {
+    const pending = { updateId: "0199aa00-0000-4000-8000-00000000000d", toVersion: "0.6.0", source: "channel", since: "2026-09-24T00:00:00.000Z", deferUntil: "2026-09-25T00:00:00.000Z", image: null } as const;
+    const busy = { state: "waiting", ...pending, waitsOn: { reason: "parked-prompt", until: null } } as const;
+    const app = await opened({
+      desk: { updates: { status: { newest: "0.6.0", pending: { state: "waiting", ...pending, waitsOn: null } } } },
+      laptop: {
+        updates: { status: { newest: "0.6.0", pending: busy } },
+        receipts: { "updates.apply": { rejected: "conflict", message: "laptop's update to 0.6.0 is draining already.", data: { reason: "in_progress" } } },
+      },
+    });
+    const pane = await openMachines(app);
+    const laptop = () => card(pane, "laptop");
+    const scripted = app.environment("laptop");
+    const drain = () => within(laptop()).queryByRole("button", { name: "Drain and update now…" });
+    const question = () => screen.queryByRole("dialog", { name: "Drain laptop and update it to 0.6.0 now?" });
+    await within(laptop()).findByRole("button", { name: "Drain and update now…" });
+    // Nothing holds desk's update: it goes at the next tick, so there is nothing to drain for.
+    expect(within(card(pane, "desk")).getByText("Updating to 0.6.0 within a minute: nothing holds it.")).toBeDefined();
+    expect(within(card(pane, "desk")).queryByRole("button", { name: "Drain and update now…" })).toBeNull();
+
+    await app.user.click(drain()!);
+    await app.user.click(within(await screen.findByRole("dialog", { name: "Drain laptop and update it to 0.6.0 now?" })).getByRole("button", { name: "Drain and update" }));
+    expect(await within(laptop()).findByRole("status")).toHaveProperty("textContent", "Not updated: laptop's update to 0.6.0 is draining already.");
+    expect(scripted.requests("updates.apply").map((request) => request.params["when"])).toEqual(["now"]);
+
+    // Asked, then the update stops waiting on work before an answer: the question goes, and does not come back with the work.
+    await app.user.click(drain()!);
+    await screen.findByRole("dialog", { name: "Drain laptop and update it to 0.6.0 now?" });
+    scripted.setUpdates({ status: { pending: { state: "waiting", ...pending, waitsOn: null } } });
+    scripted.notice("environment.update-pending", pending);
+    await waitFor(() => expect(question()).toBeNull());
+    expect(drain()).toBeNull();
+    scripted.setUpdates({ status: { pending: busy } });
+    scripted.notice("environment.update-pending", pending);
+    await waitFor(() => expect(drain()).not.toBeNull());
+    expect(question()).toBeNull();
+    expect(scripted.requests("updates.apply")).toHaveLength(1);
   });
 
   it("offers to update an environment older than this client to this client's version, and not one already updating that far", async () => {
@@ -422,7 +463,23 @@ describe("Your machines' update controls", () => {
   it("is read-only without admin, and says a refused Update now in one line", async () => {
     const app = await opened({
       desk: { receipts: { "updates.apply": { rejected: "conflict", message: "desk runs 0.0.0-fake already.", data: { reason: "current" } } } },
-      laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"] },
+      laptop: {
+        scopes: ["read", "sessions:write", "runs:drive", "terminal"],
+        updates: {
+          status: {
+            pending: {
+              state: "waiting",
+              updateId: "0199aa00-0000-4000-8000-00000000000e",
+              toVersion: "0.6.0",
+              source: "channel",
+              since: "2026-09-24T00:00:00.000Z",
+              deferUntil: "2026-09-25T00:00:00.000Z",
+              image: null,
+              waitsOn: { reason: "run-running", until: null },
+            },
+          },
+        },
+      },
     });
     const pane = await openMachines(app);
     const laptop = card(pane, "laptop");
@@ -430,6 +487,7 @@ describe("Your machines' update controls", () => {
     await waitFor(() => expect(within(laptop).getByRole("combobox", { name: "Channel" }).hasAttribute("disabled")).toBe(true));
     expect(within(laptop).getByRole("switch", { name: "Auto-update" }).hasAttribute("disabled")).toBe(true);
     expect(within(laptop).getByRole("button", { name: "Update now" }).hasAttribute("disabled")).toBe(true);
+    expect(within(laptop).getByRole("button", { name: "Drain and update now…" }).hasAttribute("disabled")).toBe(true);
 
     await app.user.click(within(card(pane, "desk")).getByRole("button", { name: "Update now" }));
     expect(await within(card(pane, "desk")).findByRole("status")).toHaveProperty("textContent", "Not updated: desk runs 0.0.0-fake already.");

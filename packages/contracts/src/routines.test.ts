@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
 import { without } from "../test/fixtures.js";
 import {
   at,
+  commandId,
   endpoint,
   firing,
   firingId,
@@ -146,6 +148,40 @@ describe("a definition's fields", () => {
     ]) {
       expect(takes({ schedule }), JSON.stringify(schedule)).toBe(false);
     }
+  });
+
+  /** The issues `schema` finds in `value`, each by its path and params. */
+  const refusals = (schema: z.ZodType, value: unknown) => schema.safeParse(value).error?.issues.map(({ path, ...issue }) => ({ path, params: "params" in issue ? issue.params : undefined }));
+  const scheduleRule = (reason: string) => ({ rule: "schedule", reason });
+  const update = (fields: Record<string, unknown>) => ({ commandId, routineId, fields });
+
+  it("refuse a schedule the schedule maths refuses, at its path, the issue naming the rule and its reason", () => {
+    expect(refusals(RoutineDefinitionInput, { ...written, schedule: { kind: "cron", expression: "*/2 * * * *" } })).toEqual([
+      { path: ["schedule", "expression"], params: scheduleRule("floor") },
+    ]);
+    expect(refusals(RoutineDefinition, { ...saved, schedule: { kind: "cron", expression: "0 0 9 * * *" } })).toEqual([
+      { path: ["schedule", "expression"], params: scheduleRule("cron_seconds") },
+    ]);
+    expect(refusals(registry["routines.update"].params, update({ schedule: { kind: "cron", expression: "@daily" } }))).toEqual([
+      { path: ["fields", "schedule", "expression"], params: scheduleRule("cron_at_form") },
+    ]);
+    expect(refusals(ROUTINE_EVENT_TYPES["routine.edited"].payload, { fields: { schedule: { kind: "cron", expression: "0 9 30 2 *" } }, savedUnderCeiling: "auto" })).toEqual([
+      { path: ["fields", "schedule", "expression"], params: scheduleRule("cron_never") },
+    ]);
+    expect(takes({ schedule: { kind: "cron", expression: "*/5 * * * *" } })).toBe(true);
+  });
+
+  it("report a schedule field's problem once, as the field's own check finds it", () => {
+    expect(refusals(RoutineDefinitionInput, { ...written, schedule: { kind: "hourly", minute: 60 } })?.map(({ path }) => path)).toEqual([["schedule", "minute"]]);
+    expect(refusals(RoutineDefinitionInput, { ...written, schedule: { kind: "daily", at: "9:00" } })?.map(({ path }) => path)).toEqual([["schedule", "at"]]);
+  });
+
+  it("take, as a client writes them, only a zone the runtime's IANA data knows", () => {
+    expect(refusals(RoutineDefinitionInput, { ...written, timezone: "Mars/Olympus_Mons" })).toEqual([{ path: ["timezone"], params: scheduleRule("zone") }]);
+    expect(refusals(registry["routines.update"].params, update({ timezone: "Mars/Olympus_Mons" }))).toEqual([{ path: ["fields", "timezone"], params: scheduleRule("zone") }]);
+    expect(refusals(registry["routines.update"].params, update({ timezone: "Europe/London" }))).toBeUndefined();
+    // As saved, the zone was checked when it was written: a client whose zone data is older still reads it.
+    expect(RoutineDefinition.safeParse({ ...saved, timezone: "Mars/Olympus_Mons" }).success).toBe(true);
   });
 
   it("take an IANA zone's name, and run-once or skip for missed due times", () => {
@@ -490,17 +526,13 @@ describe("the routines methods", () => {
     });
   });
 
-  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history)", () => {
+  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history, the endpoints, #522, theirs)", () => {
     expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
       "routines.testPreCheck": "#526",
       "routines.scripts.list": "#526",
       "routines.export": "#528",
       "routines.checkImport": "#528",
       "routines.import": "#528",
-      "routines.endpoints.set": "#522",
-      "routines.endpoints.remove": "#522",
-      "routines.endpoints.list": "#522",
-      "routines.endpoints.test": "#522",
     });
   });
 

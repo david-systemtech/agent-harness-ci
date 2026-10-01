@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { CLIENT_KINDS, Ceiling, SCOPES, ScopeSet } from "./index.js";
+import { CLIENT_KINDS, Ceiling, SCOPES, ScopeSet, scopesInWords } from "./index.js";
 
 describe("scopes", () => {
   it("are the five the env spec names", () => {
     expect(SCOPES).toEqual(["read", "sessions:write", "runs:drive", "terminal", "admin"]);
+  });
+
+  it("are said in words in their own order, and an empty list as no scope", () => {
+    expect(scopesInWords(SCOPES)).toBe("every scope");
+    expect(scopesInWords(["read"])).toBe("read");
+    expect(scopesInWords(["runs:drive", "read", "sessions:write"])).toBe("read, sessions:write and runs:drive");
+    expect(scopesInWords([])).toBe("no scope");
   });
 
   it("are granted as a non-empty set", () => {

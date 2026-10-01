@@ -1,11 +1,12 @@
 import type { PendingUpdate } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { offersClientVersion, pendingUpdateWords } from "./words.js";
+import { drainableUpdate, offersClientVersion, pendingUpdateWords } from "./words.js";
 
 /**
- * What the update controls say of a pending update, and when a client
- * offers its own version (launcher-update spec, "Settings, methods, notices
- * and flags"; #424), for the states the GUI's tests do not reach.
+ * What the update controls say of a pending update, when a client offers
+ * its own version, and which update Drain and update now takes
+ * (launcher-update spec, "Settings, methods, notices and flags"; #424,
+ * #825), for the states the GUI's tests do not reach.
  */
 
 const NOW = new Date("2026-09-24T00:00:00.000Z");
@@ -47,5 +48,19 @@ describe("the offer of this client's version", () => {
   it("is never made when either version is no release version", () => {
     expect(offersClientVersion("dev", "0.5.0", null)).toBe(false);
     expect(offersClientVersion("0.6.0", "a checkout", null)).toBe(false);
+  });
+});
+
+describe("the update Drain and update now takes", () => {
+  it("is a waiting update busy work holds, and none in any other state", () => {
+    const held: PendingUpdate = { state: "waiting", ...PENDING, waitsOn: { reason: "terminal-running", until: null } };
+    expect(drainableUpdate(held)).toBe(held);
+    expect(drainableUpdate({ state: "waiting", ...PENDING, waitsOn: null })).toBeNull();
+    expect(drainableUpdate({ state: "current" })).toBeNull();
+    expect(drainableUpdate({ state: "staging", updateId: PENDING.updateId, toVersion: "0.6.0", source: "request" })).toBeNull();
+    expect(drainableUpdate({ state: "ready", ...PENDING })).toBeNull();
+    expect(drainableUpdate({ state: "draining", ...PENDING, cause: "requested" })).toBeNull();
+    expect(drainableUpdate({ state: "switching", ...PENDING, cause: "requested" })).toBeNull();
+    expect(drainableUpdate({ state: "blocked", reason: "launcher", toVersion: "0.6.0", message: "It needs a newer launcher." })).toBeNull();
   });
 });

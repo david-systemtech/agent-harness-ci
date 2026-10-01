@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingPresetChoice",
+  "type": "string",
+  "enum": [
+    "nothing",
+    "ceiling",
+    "scopes-and-ceiling"
+  ],
+  "description": "What a person may change before the code is minted: nothing, the ceiling (a picker preset to the preset's), or the scopes (ticks, preset to the preset's) and the ceiling."
+}

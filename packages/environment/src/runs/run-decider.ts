@@ -62,6 +62,8 @@ export interface LiveRunFacts {
   readonly runId: string;
   readonly descriptor: AdapterDescriptor;
   readonly policy: RunPolicy;
+  /** The browser it resolved at its start, which the browser tools drive at each call (#551). */
+  readonly browser: RunBrowserResolution;
 }
 
 /** What starting a run on a session depends on. */

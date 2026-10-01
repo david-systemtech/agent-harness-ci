@@ -1,4 +1,5 @@
 import { AccountLabel, type AccountRecord, type SignIn } from "@agent-harness/contracts";
+import { ttlWords } from "../prompts/card.js";
 import type { Runtime } from "../runtime.js";
 import { adminCall, type AdminOutcome } from "./actions.js";
 
@@ -56,6 +57,13 @@ export const signInEnd = (signIn: SignIn, label: string, environment: string): s
       return undefined;
   }
 };
+
+/**
+ * How long a running sign-in has before it expires, ten minutes after it
+ * started or after its code was written (ADR 0018), in one line, as the
+ * card counts it down.
+ */
+export const signInLeftWords = (remainingMs: number): string => (remainingMs <= 0 ? "The sign-in is expiring." : `${ttlWords(remainingMs)} to sign in.`);
 
 /**
  * The fallback command for a terminal on the environment's machine

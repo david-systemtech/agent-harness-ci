@@ -3,6 +3,7 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { approximateTokens, readSkillMember, type SkillMemberFolder, type SkillMemberKind, type SkillMemberReading } from "@agent-harness/contracts";
 import { parse } from "yaml";
+import { readSidecar } from "./sidecar.js";
 
 /**
  * The reader (skills spec, "Skill sources", the reader; ADR 0029, the
@@ -12,8 +13,10 @@ import { parse } from "yaml";
  * `SKILL.md` is one member; otherwise each direct child holding `SKILL.md`
  * is a member. Nothing deeper is read, and no link leading out of the
  * folder read is followed: a link inside it is. Each member is named and
- * described by `readSkillMember` (contracts), and carries its body's size.
- * What layer it lies in and where it comes from are the caller's.
+ * described by `readSkillMember` (contracts), and carries its body's size;
+ * a skill's readiness sidecar that does not read is a warning on it
+ * (`sidecar.ts`). What layer it lies in and where it comes from are the
+ * caller's.
  */
 
 /** The file that makes a folder a skill. */
@@ -124,11 +127,18 @@ export const entriesOf = async (folder: string): Promise<Dirent[]> => {
   return entries.filter((entry) => !UNNAMEABLE.test(entry.name)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 };
 
-/** Reads one member from its file. */
-const readMember = async (file: string, naming: SkillMemberFolder, found: Pick<FoundMember, "kind" | "relative">): Promise<FoundMember> => {
-  const { frontmatter, body } = splitFrontmatter(await readFile(file, "utf8"));
+/**
+ * Reads one member from its file: for a skill, `folder` is the folder
+ * holding its `SKILL.md`, whose readiness sidecar, when it does not read,
+ * is a warning on the member (null for a command, which has none).
+ */
+const readMember = async (file: string, naming: SkillMemberFolder, found: Pick<FoundMember, "kind" | "relative">, folder: string | null): Promise<FoundMember> => {
+  const [text, sidecar] = await Promise.all([readFile(file, "utf8"), folder === null ? null : readSidecar(folder)]);
+  const { frontmatter, body } = splitFrontmatter(text);
   const size = body.trim().length;
-  return { ...readSkillMember(frontmatter, naming), ...found, size, tokens: approximateTokens(size) };
+  const reading = readSkillMember(frontmatter, naming);
+  const warnings = sidecar?.kind === "invalid" ? [...reading.warnings, { kind: "sidecar-invalid" as const, message: sidecar.message }] : reading.warnings;
+  return { ...reading, warnings, ...found, size, tokens: approximateTokens(size) };
 };
 
 /** `folder` with every link resolved; null when it is no directory. */
@@ -151,13 +161,13 @@ export const readSkillFolder = async (folder: string, root: RootNaming): Promise
   const tree = await treeOf(folder);
   if (tree === null) return [];
   const own = await skillFileIn(tree, tree);
-  if (own !== null) return [await readMember(own, { kind: "root", ...root }, { kind: "skill", relative: "." })];
+  if (own !== null) return [await readMember(own, { kind: "root", ...root }, { kind: "skill", relative: "." }, tree)];
   const members: FoundMember[] = [];
   for (const entry of await entriesOf(tree)) {
     const child = await inside(tree, join(tree, entry.name));
     if (child === null || child === tree || (await kindOf(child)) !== "directory") continue;
     const file = await skillFileIn(tree, child);
-    if (file !== null) members.push(await readMember(file, { kind: "folder", name: entry.name }, { kind: "skill", relative: entry.name }));
+    if (file !== null) members.push(await readMember(file, { kind: "folder", name: entry.name }, { kind: "skill", relative: entry.name }, child));
   }
   return members;
 };
@@ -176,7 +186,7 @@ export const readCommandFolder = async (folder: string): Promise<FoundMember[]> 
     const file = await inside(tree, join(tree, entry.name));
     if (file === null || (await kindOf(file)) !== "file") continue;
     const name = entry.name.slice(0, -COMMAND_EXTENSION.length);
-    members.push(await readMember(file, { kind: "file", name }, { kind: "command", relative: entry.name }));
+    members.push(await readMember(file, { kind: "file", name }, { kind: "command", relative: entry.name }, null));
   }
   return members;
 };
@@ -190,7 +200,7 @@ export const readCommandFolder = async (folder: string): Promise<FoundMember[]> 
 export const readSkillFolderAt = async (folder: string, name: string): Promise<FoundMember | null> => {
   const file = join(folder, SKILL_FILE);
   if ((await kindOf(folder)) !== "directory" || (await kindOf(file)) !== "file") return null;
-  return readMember(file, { kind: "folder", name }, { kind: "skill", relative: name });
+  return readMember(file, { kind: "folder", name }, { kind: "skill", relative: name }, folder);
 };
 
 /**
@@ -199,5 +209,87 @@ export const readSkillFolderAt = async (folder: string, name: string): Promise<F
  */
 export const readCommandFileAt = async (file: string, name: string): Promise<FoundMember | null> => {
   if ((await kindOf(file)) !== "file") return null;
-  return readMember(file, { kind: "file", name }, { kind: "command", relative: `${name}${COMMAND_EXTENSION}` });
+  return readMember(file, { kind: "file", name }, { kind: "command", relative: `${name}${COMMAND_EXTENSION}` }, null);
+};
+
+/** What `findSkillFolders` found in a tree: whether its root holds `SKILL.md`, the folders whose children do, and whether it stopped short. */
+export interface FoundSkillFolders {
+  /** Whether the tree's root holds `SKILL.md` itself, and so is one skill. */
+  readonly rootIsSkill: boolean;
+  /** Each folder, from the tree's root with `/` between segments (`.` for the root), that holds no `SKILL.md` itself and has a child folder that does, in the order they were found: by depth, then by name. */
+  readonly folders: readonly string[];
+  /** Whether the walk stopped at `maxDirectories`. */
+  readonly truncated: boolean;
+}
+
+export interface FindSkillFoldersOptions {
+  /** How many levels below the root a folder may lie, the root being 0. */
+  readonly depth: number;
+  /** The most directories whose entries are read. */
+  readonly maxDirectories: number;
+  /** Names never entered, wherever they lie. */
+  readonly skipped: readonly string[];
+}
+
+/**
+ * Walks `tree` for folders a source could read skills from (the probe,
+ * skills spec "Skill sources"): breadth first, each directory's entries in
+ * name order, entering only directories themselves, never a link, so the
+ * walk never leaves the tree nor goes round a loop (a link inside the tree
+ * leads to a directory the walk reaches as itself), and skipping `skipped`.
+ * A folder is found when the reader reading it would list its children: it
+ * holds no `SKILL.md` and a child folder does, as the reader follows links
+ * from it. A tree that is not there holds none.
+ */
+export const findSkillFolders = async (tree: string, options: FindSkillFoldersOptions): Promise<FoundSkillFolders> => {
+  const root = await treeOf(tree);
+  if (root === null) return { rootIsSkill: false, folders: [], truncated: false };
+  const rootIsSkill = (await skillFileIn(root, root)) !== null;
+  const folders: string[] = [];
+  const queue: { readonly real: string; readonly path: string; readonly depth: number }[] = [{ real: root, path: ".", depth: 0 }];
+  let read = 0;
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    if (read === options.maxDirectories) return { rootIsSkill, folders, truncated: true };
+    read += 1;
+    let entries: Dirent[];
+    try {
+      entries = await entriesOf(next.real);
+    } catch {
+      continue;
+    }
+    let childSkill = false;
+    for (const entry of entries) {
+      if (options.skipped.includes(entry.name)) continue;
+      const path = join(next.real, entry.name);
+      // As the reader of this folder reads it: a child, a link among them, leading to a directory inside the folder.
+      const child = await inside(next.real, path);
+      if (!childSkill && child !== null && child !== next.real && (await kindOf(child)) === "directory" && (await skillFileIn(next.real, child)) !== null) childSkill = true;
+      if (entry.isDirectory() && next.depth < options.depth) queue.push({ real: path, path: next.path === "." ? entry.name : `${next.path}/${entry.name}`, depth: next.depth + 1 });
+    }
+    // As the reader reads it: a SKILL.md leading out of the folder makes no skill of it.
+    const holdsSkill = next.path === "." ? rootIsSkill : (await skillFileIn(next.real, next.real)) !== null;
+    if (childSkill && !holdsSkill) folders.push(next.path);
+  }
+  return { rootIsSkill, folders, truncated: false };
+};
+
+/** A licence file's name: LICENSE, LICENCE, COPYING or UNLICENSE, with any extension or suffix, in any case. */
+const LICENCE_FILE = /^(?:un)?licen[cs]e(?:[.-].*)?$|^copying(?:[.-].*)?$/i;
+
+/** The first licence file in `folder` by name, links resolved inside `tree`; its name, or null when it holds none. */
+export const findLicenceFile = async (tree: string, folder: string): Promise<string | null> => {
+  const root = await treeOf(tree);
+  if (root === null) return null;
+  let entries: Dirent[];
+  try {
+    entries = await entriesOf(folder);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!LICENCE_FILE.test(entry.name)) continue;
+    const file = await inside(root, join(folder, entry.name));
+    if (file !== null && (await kindOf(file)) === "file") return entry.name;
+  }
+  return null;
 };
