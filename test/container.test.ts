@@ -5,9 +5,10 @@
  * no image is built or run here. The image runs the environment as a
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes with the drain's stop grace and the release's
- * image, and neither sets `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It
- * passes a new environment's name and channel in from compose's own
- * variables, which Add a machine's container snippet sets (#846). What only
+ * image, the image ships ssh for the skill probe (#874), and neither sets
+ * `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It passes a new environment's
+ * name and channel in from compose's own variables, which Add a machine's
+ * container snippet sets (#846). What only
  * a real build and run can show is the Container section of
  * `docs/agents/service-install-checklist.md`.
  */
