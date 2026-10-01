@@ -174,6 +174,26 @@ it("validates the requested scope when updating a name and keeps just its latest
   expect(await h.client.request("banks.drafts.list", { sessionId: id })).toMatchObject({ queues: [{ drafts: [{ name: "backup-schedule", path: "projects/personal/homelab/memories/deploys/backup-schedule.md", removePaths: ["projects/personal/homelab/memories/backup-schedule.md"], content: expect.stringContaining("Latest update.") }] }] });
 });
 
+it("replaces a queued retirement's reason in a later run and keeps paths from earlier moves", async () => {
+  const h = await start();
+  const checkout = bank();
+  const bankId = await register(h, checkout);
+  const { id } = await create(h.client);
+  const first = await call(h, id,
+    tool("draft", { ...draft, name: "backup-schedule", topic: "deploys" }),
+    tool("retire", { bank: "maya-memory", name: "backup-schedule", reason: "The schedule is obsolete." }));
+  expect(first.every((answer) => !answer.isError)).toBe(true);
+
+  const [retried] = await call(h, id, tool("retire", { bank: "maya-memory", name: "backup-schedule", reason: "The service was shut down." }));
+  expect(retried?.isError, retried?.text).toBe(false);
+  expect(await h.client.request("banks.drafts.list", { sessionId: id })).toEqual({ queues: [{ bankId, drafts: [{
+    kind: "retire", name: "backup-schedule", reason: "The service was shut down.",
+    path: "projects/personal/homelab/memories/deploys/backup-schedule.md",
+    removePaths: ["projects/personal/homelab/memories/backup-schedule.md"],
+  }] }] });
+  expect(git(checkout, "status", "--porcelain")).toBe("");
+});
+
 it("keeps an accepted draft when the provider is interrupted before its run ends", async () => {
   const h = await start();
   await register(h, bank());

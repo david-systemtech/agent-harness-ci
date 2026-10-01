@@ -51,13 +51,13 @@ export const createMemoryToolServers = ({ log, environmentId, scrub }: { log: Ev
       if (bank.role === "read-only") throw new ContractError({ code: "bank_read_only", message: "The named bank is read-only.", data: { bank: bank.name } });
       return bank;
     };
-    const queue = async (bank: BankEntry, make: (files: BankFiles) => BankDraft): Promise<BankDraft> => {
+    const queue = async (bank: BankEntry, make: (files: BankFiles, drafts: readonly BankDraft[]) => BankDraft): Promise<BankDraft> => {
       const key = `${scope.sessionId}:${bank.id}`;
       const earlier = pending.get(key) ?? Promise.resolve();
       const work = earlier.catch(() => undefined).then(async () => {
         const drafts = listBankDrafts(reader, scope.sessionId, bank.id)[0]?.drafts ?? [];
         const files = apply(await readBankFiles(bank.checkout), drafts);
-        const proposed = make(files);
+        const proposed = make(files, drafts);
         const held = drafts.find((draft) => draft.name === proposed.name);
         const removePaths = [...new Set([...(held?.removePaths ?? []), ...(held !== undefined && held.path !== proposed.path ? [held.path] : []), ...(proposed.removePaths ?? [])])].filter((path) => path !== proposed.path);
         const change: BankDraft = { ...proposed, ...(removePaths.length > 0 && { removePaths }) };
@@ -114,8 +114,9 @@ export const createMemoryToolServers = ({ log, environmentId, scrub }: { log: Ev
               if (!parsed.success) return refuse("invalid_params", "The retirement input does not match its published schema.");
               const { bank: name, ...retire } = parsed.data;
               const bank = target(name);
-              const change = await queue(bank, (files) => {
-                const path = pathOfName(files, retire.name);
+              const change = await queue(bank, (files, drafts) => {
+                // A prior retirement has already removed the file from the proposed view.
+                const path = pathOfName(files, retire.name) ?? drafts.find((draft) => draft.name === retire.name)?.path;
                 if (!path) return refuse("not_found", "The memory named for retirement is not in the bank or queue.");
                 return { kind: "retire", path, ...retire };
               });
