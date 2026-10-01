@@ -1,6 +1,6 @@
-import { realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ManagedToolRow } from "@agent-harness/contracts";
+import type { EventFrame, ManagedToolRow } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
@@ -38,7 +38,7 @@ const fakePath = (): FakeToolPath => fakeToolPath(realpathSync(tempDir()));
 
 /** An environment whose login shell answers the fake PATH, reading its tools' latest versions from the fake sources. */
 const withTools = async (path: FakeToolPath, released: FakeReleaseSources, options: TestEnvironmentOptions = {}) => {
-  const t = await startTestEnvironment({ ...options, managedTools: { readPath: async () => path.path(), releaseOrigins: released.origins, ...options.managedTools } });
+  const t = await startTestEnvironment({ ...options, managedTools: { readPath: async () => path.path(), releaseOrigins: released.origins, hostEnv: { HOME: tempDir() }, ...options.managedTools } });
   onCleanup(() => t.close());
   return { t, client: await t.client() };
 };
@@ -50,6 +50,156 @@ const byTool = (rows: readonly ManagedToolRow[], ...fields: readonly (keyof Mana
   Object.fromEntries(rows.map((row) => [row.tool, fields.length === 1 ? row[fields[0] as keyof ManagedToolRow] : fields.map((field) => row[field])]));
 
 posix("a tool's latest version", () => {
+  it("keeps a native stable user current at the stable release rather than the latest channel", async () => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at: ".local/share/claude/versions/2.1.280", output: "2.1.280 (Claude Code)" });
+    const home = tempDir();
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ autoUpdatesChannel: "stable" }));
+    const stable = released.claude("2.1.280", "stable");
+    const latest = released.claude("2.1.285");
+    const { client } = await withTools(path, released, { managedTools: { hostEnv: { HOME: home } } });
+
+    await list(client, true);
+    await latestNoticed(client, 0, "claude");
+    expect(byTool((await list(client)).tools, "method", "latest", "status")).toMatchObject({ claude: ["native", "2.1.280", "current"] });
+    expect([released.reads(stable), released.reads(latest)]).toEqual([1, 0]);
+  });
+
+  it("keeps an npm stable user current using the registry's stable dist-tag and a custom config directory", async () => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at: "lib/node_modules/@anthropic-ai/claude-code/cli.js", output: "2.1.280 (Claude Code)" });
+    const config = tempDir();
+    writeFileSync(join(config, "settings.json"), JSON.stringify({ autoUpdatesChannel: "stable" }));
+    released.npm("@anthropic-ai/claude-code", "2.1.280", "stable");
+    const latest = released.npm("@anthropic-ai/claude-code", "2.1.285");
+    const { client } = await withTools(path, released, { managedTools: { hostEnv: { HOME: tempDir(), CLAUDE_CONFIG_DIR: config } } });
+
+    await list(client, true);
+    await latestNoticed(client, 0, "claude");
+    expect(byTool((await list(client)).tools, "method", "latest", "status")).toMatchObject({ claude: ["npm", "2.1.280", "current"] });
+    expect(released.reads(latest)).toBe(0);
+  });
+
+  it.each([
+    ["native", ".local/share/claude/versions/2.1.280"],
+    ["npm", "lib/node_modules/@anthropic-ai/claude-code/cli.js"],
+  ])("drops the %s latest-channel cache when a switch to stable cannot be fetched, and keeps stable across a restart", async (method, at) => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at, output: "2.1.280 (Claude Code)" });
+    const config = tempDir();
+    const settings = join(config, "settings.json");
+    const dataDir = join(tempDir(), "data");
+    const clock = manualClock();
+    const options = { dataDir, clock, managedTools: { hostEnv: { CLAUDE_CONFIG_DIR: config } } };
+    const latest = method === "npm" ? released.npm("@anthropic-ai/claude-code", "2.1.285") : released.claude("2.1.285");
+    const stable = method === "npm" ? released.npm("@anthropic-ai/claude-code", "2.1.280", "stable") : released.claude("2.1.280", "stable");
+    const first = await withTools(path, released, options);
+    await list(first.client, true);
+    await latestNoticed(first.client, 0, "claude");
+
+    writeFileSync(settings, JSON.stringify({ autoUpdatesChannel: "stable" }));
+    released.fail(stable);
+    const from = first.t.env.log.head();
+    const { subscription } = await first.client.subscribe("environment.subscribe", { afterSequence: from });
+    await list(first.client, true);
+    await first.client.next((frame) => "subscription" in frame && frame.subscription === subscription && frame.type === "event" && (frame as EventFrame).event.type === "tools.updated");
+    expect(byTool((await list(first.client)).tools, "latest", "status")).toMatchObject({ claude: [null, "current"] });
+    expect([released.reads(latest), released.reads(stable)]).toEqual([1, 1]);
+
+    // A failure is the day's fetch; once due again it reads stable, never the old channel.
+    if (method === "npm") released.npm("@anthropic-ai/claude-code", "2.1.280", "stable");
+    else released.claude("2.1.280", "stable");
+    await list(first.client, true);
+    expect(released.reads(stable)).toBe(1);
+    clock.advance(DAY);
+    await list(first.client, true);
+    await latestNoticed(first.client, from, "claude");
+    await first.t.close();
+
+    const restarted = await withTools(path, released, options);
+    expect(byTool((await list(restarted.client)).tools, "latest", "status")).toMatchObject({ claude: ["2.1.280", "current"] });
+    await list(restarted.client, true);
+    expect([released.reads(latest), released.reads(stable)]).toEqual([1, 2]);
+  });
+
+  it("never caches a different channel's version when settings change during a timed-out fetch", async () => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at: ".local/share/claude/versions/2.1.280", output: "2.1.280 (Claude Code)" });
+    const config = tempDir();
+    const settings = join(config, "settings.json");
+    writeFileSync(settings, JSON.stringify({ autoUpdatesChannel: "stable" }));
+    released.claude("2.1.280", "stable");
+    const latest = released.claude("2.1.285");
+    const { t, client } = await withTools(path, released, { managedTools: { hostEnv: { CLAUDE_CONFIG_DIR: config } } });
+    await list(client, true);
+    await latestNoticed(client, 0, "claude");
+
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    writeFileSync(settings, JSON.stringify({ autoUpdatesChannel: "latest" }));
+    released.hold(latest);
+    await list(client, true);
+    await vi.waitFor(() => expect(released.reads(latest)).toBe(1), { timeout: WAIT_MS });
+    writeFileSync(settings, JSON.stringify({ autoUpdatesChannel: "stable" }));
+    t.clock.advance(10_000);
+    await client.next((frame) => "subscription" in frame && frame.subscription === subscription && frame.type === "event" && (frame as EventFrame).event.type === "tools.updated");
+
+    writeFileSync(settings, JSON.stringify({ autoUpdatesChannel: "latest" }));
+    t.clock.advance(FIFTEEN_MINUTES);
+    expect(byTool((await list(client, true)).tools, "latest", "status")).toMatchObject({ claude: [null, "current"] });
+    expect(released.reads(latest)).toBe(1);
+  });
+
+  it("reads the rc channel, including a prerelease version, from user settings under USERPROFILE", async () => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at: ".local/share/claude/versions/2.1.286-rc.1", output: "2.1.286-rc.1 (Claude Code)" });
+    const profile = tempDir();
+    mkdirSync(join(profile, ".claude"));
+    writeFileSync(join(profile, ".claude", "settings.json"), JSON.stringify({ autoUpdatesChannel: "rc" }));
+    released.claude("2.1.286-rc.1", "rc");
+    const { client } = await withTools(path, released, { managedTools: { hostEnv: { USERPROFILE: profile, CLAUDE_CONFIG_DIR: "" } } });
+    await list(client, true);
+    await latestNoticed(client, 0, "claude");
+    expect(byTool((await list(client)).tools, "latest", "status")).toMatchObject({ claude: ["2.1.286-rc.1", "current"] });
+  });
+
+  it.each([undefined, "{}", '{"autoUpdatesChannel":"latest"}', '{"autoUpdatesChannel":"other"}', '{"autoUpdatesChannel":42}', "not JSON", "null"])("uses latest with absent, default or invalid user settings (%s)", async (settings) => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at: ".local/share/claude/versions/2.1.285", output: "2.1.285 (Claude Code)" });
+    const config = tempDir();
+    if (settings !== undefined) writeFileSync(join(config, "settings.json"), settings);
+    released.claude("2.1.285");
+    const { client } = await withTools(path, released, { managedTools: { hostEnv: { CLAUDE_CONFIG_DIR: config } } });
+    await list(client, true);
+    await latestNoticed(client, 0, "claude");
+    expect(byTool((await list(client)).tools, "latest", "status")).toMatchObject({ claude: ["2.1.285", "current"] });
+  });
+
+  it.each([
+    ["homebrew", "homebrew/Caskroom/claude-code/2.1.280/claude"],
+    ["winget", "AppData/Local/Microsoft/WinGet/Packages/Anthropic.ClaudeCode/claude"],
+  ])("keeps a stable user's %s latest tied to its package source", async (method, at) => {
+    const released = await sources();
+    const path = fakePath();
+    path.install("claude", { at, output: "2.1.280 (Claude Code)" });
+    const config = tempDir();
+    writeFileSync(join(config, "settings.json"), JSON.stringify({ autoUpdatesChannel: "stable" }));
+    if (method === "homebrew") released.cask("claude-code", "2.1.280");
+    else released.winget("Anthropic.ClaudeCode", ["2.1.280"]);
+    const stable = released.claude("2.1.281", "stable");
+    const { client } = await withTools(path, released, { managedTools: { hostEnv: { CLAUDE_CONFIG_DIR: config } } });
+    await list(client, true);
+    await latestNoticed(client, 0, "claude");
+    expect(byTool((await list(client)).tools, "method", "latest", "status")).toMatchObject({ claude: [method, "2.1.280", "current"] });
+    expect(released.reads(stable)).toBe(0);
+  });
+
   it("is fetched on a refresh from the source its install method matches: the Homebrew API, the npm registry, WinGet's manifests; a row behind it is update-available", async () => {
     const released = await sources();
     const path = fakePath();
