@@ -775,6 +775,29 @@ describe("the frame judge", () => {
     expect(await perform("screenshot", {})).toMatchObject({ ok: false, denylist: { frame: "sub-frame" } });
   });
 
+  it("judges the address each frame has now before every verb, so a policy that came to list the page refuses the next verb with the address and the entry", async () => {
+    const { peer, perform, setPolicy } = await driven();
+    await perform("open", { url: "https://shop.example/" });
+    setPolicy({ ...plainPolicy, browserDomains: [listed("shop.example")] });
+    expect(await perform("screenshot", {})).toEqual({
+      ok: false,
+      reason: "The page is at https://shop.example/, which the denylist's browser section lists (shop.example), so it was stopped at about:blank. Only the person can allow it.",
+      denylist: { frame: "top-level", match: { section: "browserDomains", entry: listed("shop.example"), matched: "https://shop.example/" } },
+    });
+
+    setPolicy(plainPolicy);
+    peer.document("https://news.example/", { frames: [{ url: "https://pay.example/embed", crossSite: true }] });
+    expect(await perform("navigate", { url: "https://news.example/" })).toMatchObject({ ok: true });
+    setPolicy({ ...plainPolicy, browserDomains: [listed("pay.example")] });
+    expect(await perform("screenshot", {})).toEqual({
+      ok: false,
+      reason: "A frame of the page is at https://pay.example/embed, which the denylist's browser section lists (pay.example), so the whole page was stopped at about:blank.",
+      denylist: { frame: "sub-frame", match: { section: "browserDomains", entry: listed("pay.example"), matched: "https://pay.example/embed" } },
+    });
+    await expect.poll(() => blanked(peer), { timeout: 20_000 }).toBe(2);
+    expect(await perform("screenshot", {})).toMatchObject({ ok: true });
+  });
+
   it("opens the host a one-time allowance names, once: its frames stand while it is the page, and the next arrival there is judged afresh", async () => {
     const { peer, perform, page } = await driven({ policy: guarded });
     peer.document("https://www.paypal.com/signin", { title: "Log in", frames: [{ url: "https://www.paypal.com/risk", crossSite: true }] });
