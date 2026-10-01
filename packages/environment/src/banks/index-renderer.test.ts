@@ -7,7 +7,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { git } from "../../test/workspaces.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank, type BankIndex, type BankRole } from "./bank-index.js";
-import { readPointer, renderTrail, type Relevance } from "./index-renderer.js";
+import { readPointer, renderFixedTiers, renderTrail, type Relevance } from "./index-renderer.js";
 
 /**
  * The IndexRenderer at its lower seam (banks spec, "Rendering the index"
@@ -116,15 +116,18 @@ describe("reading a pointer", () => {
 
 /** A personal bank with an org `personal` holding a project per entry, each with `count` memories, its `repos:` and its topics. */
 const projectsBank = (
-  projects: Readonly<Record<string, { readonly count: number; readonly repos?: readonly string[] }>>,
+  projects: Readonly<Record<string, { readonly count: number; readonly repos?: readonly string[]; readonly description?: (name: string) => string }>>,
   manifest: Record<string, unknown> = {},
 ): Record<string, string> => ({
   "BANK.md": markdown(personalManifest({ orientation: [], ...manifest })),
   "projects/personal/ORG.md": markdown({ line: "Maya's own work" }),
   ...Object.fromEntries(
-    Object.entries(projects).flatMap(([project, { count, repos }]) => [
+    Object.entries(projects).flatMap(([project, { count, repos, description }]) => [
       [`projects/personal/${project}/PROJECT.md`, scopeFile(`The ${project} project`, {}, repos)],
-      ...Array.from({ length: count }, (_, i) => [`projects/personal/${project}/memories/${project}-fact-${i + 1}.md`, memory(`${project}-fact-${i + 1}`)]),
+      ...Array.from({ length: count }, (_, i) => {
+        const name = `${project}-fact-${i + 1}`;
+        return [`projects/personal/${project}/memories/${name}.md`, memory(name, description === undefined ? {} : { description: description(name) })];
+      }),
     ]),
   ),
 });
@@ -230,5 +233,133 @@ describe("relevance", () => {
     const bank = await bankOf(PERSONAL_BANK);
     const trail = renderTrail([bank], { sessionPins: ["maya-memory:personal/homelab/memories/deploys/", "acme:acme/web/"] }).text;
     expect(trail.endsWith(text(PERSONAL_ORG, HOMELAB, `  ${DEPLOYS}`, `  ${BACKUP}`, NAS, MEMORY_BANK))).toBe(true);
+  });
+});
+
+/** No budget: the whole trail, to measure what a fixture needs. */
+const UNBOUNDED = { lines: Number.POSITIVE_INFINITY, bytes: Number.POSITIVE_INFINITY };
+
+/** A pointer's index as the trail shows it: what reading it answers, before the folder it sits in. */
+const indexOf = (banks: readonly BankIndex[], pointer: string): string => {
+  const read = readPointer(banks, pointer);
+  if (!read.found) throw new Error(read.message);
+  return read.text.slice(0, read.text.lastIndexOf("\n\nIn ") + 1);
+};
+
+/** `projectsBank` with the orientation memory `pad`, whose body sizes the trail. */
+const paddedBank = (body: string, projects: Parameters<typeof projectsBank>[0]): Record<string, string> => ({
+  ...projectsBank(projects, { orientation: ["pad"] }),
+  "projects/personal/memory-bank/PROJECT.md": scopeFile("The bank's own facts"),
+  "projects/personal/memory-bank/memories/pad.md": memory("pad", { description: "When the trail needs sizing - the orientation fact the budget-edge fixtures pad", body }),
+});
+
+/** A body of `count` lines. */
+const linesOf = (count: number): string => Array.from({ length: count }, () => "x").join("\n");
+
+const WEB = "https://github.com/example/web";
+
+describe("the ladder at the budget's edges", () => {
+  /** The bank with a 40-memory folder matching the repository, its orientation `count` lines long. */
+  const linesBank = async (count: number): Promise<BankIndex> => bankOf(paddedBank(linesOf(count), { web: { count: 40, repos: [WEB] } }));
+
+  it("expands a relevant folder whole at exactly 150 lines, and past them leaves it a breadcrumb marked [matches this repository]", async () => {
+    const measured = renderTrail([await linesBank(100)], { repositoryIdentity: WEB }, UNBOUNDED).lines;
+    const exact = await linesBank(100 + 150 - measured);
+    const web = indexOf([exact], "maya-memory:personal/web/");
+    const fits = renderTrail([exact], { repositoryIdentity: WEB });
+    expect(fits.lines).toBe(150);
+    expect(fits.text).toContain(web);
+    const over = await linesBank(100 + 151 - measured);
+    const left = renderTrail([over], { repositoryIdentity: WEB });
+    expect(left.text).not.toContain(web);
+    expect(left.text.endsWith("- maya-memory:personal/web/ (40) — The web project [matches this repository]\n")).toBe(true);
+    expect(left.lines).toBe(151 - 40);
+  });
+
+  it("expands relevant folders whole at exactly 20 KB, and past it leaves the last a marked breadcrumb", async () => {
+    const description = (name: string): string => `When you need the ${name} fact - a long line that sizes the bytes budget, ${"padded ".repeat(20)}`.slice(0, 160);
+    const projects = { alpha: { count: 40, repos: [WEB], description }, bravo: { count: 40, repos: [WEB], description }, charlie: { count: 21, repos: [WEB], description } };
+    const measured = renderTrail([await bankOf(paddedBank("x".repeat(300), projects))], { repositoryIdentity: WEB }, UNBOUNDED).bytes;
+    const pad = 300 + 20 * 1024 - measured;
+    expect(pad).toBeGreaterThan(0);
+    expect(pad).toBeLessThan(600);
+    const exact = await bankOf(paddedBank("x".repeat(pad), projects));
+    const fits = renderTrail([exact], { repositoryIdentity: WEB });
+    expect(fits.bytes).toBe(20 * 1024);
+    expect(fits.lines).toBeLessThan(150);
+    for (const project of ["alpha", "bravo", "charlie"]) expect(fits.text).toContain(indexOf([exact], `maya-memory:personal/${project}/`));
+    const over = await bankOf(paddedBank("x".repeat(pad + 1), projects));
+    const left = renderTrail([over], { repositoryIdentity: WEB });
+    // Ties go by fewer lines: charlie and one of the forties expand, the other forty stays a breadcrumb.
+    expect(left.text).toContain(indexOf([over], "maya-memory:personal/charlie/"));
+    expect(left.text).toContain(indexOf([over], "maya-memory:personal/alpha/"));
+    expect(left.text).toContain("- maya-memory:personal/bravo/ (40) — The bravo project [matches this repository]\n");
+    expect(left.text).not.toContain("  - maya-memory:bravo-fact-1 ");
+    expect(left.bytes).toBeLessThanOrEqual(20 * 1024);
+  });
+
+  const PERSONAL_FIXED = [
+    `## maya-memory (personal, read-write) — 5 memories in 3 folders — ${PURPOSE}`,
+    "- maya-memory:secrets-layout",
+    `  ${"é".repeat(300)}`,
+    "- maya-memory:machines-at-a-glance",
+    "  The laptop and the NAS; see [[nas-disk-layout]].",
+  ];
+
+  /** A signalled bank sized so its fixed tiers and the personal bank's line and orientation take `lines`, and the personal bank beside it. */
+  const besides = async (lines: number): Promise<[BankIndex, BankIndex]> => {
+    const signalled = async (count: number): Promise<BankIndex> => bankOf(paddedBank(linesOf(count), { web: { count: 40, repos: [WEB] } }), { name: "edge-memory" });
+    const measured = renderFixedTiers(await signalled(100)).lines + PERSONAL_FIXED.length;
+    return [await signalled(100 + lines - measured), await bankOf(PERSONAL_BANK)];
+  };
+
+  it.each([
+    ["collapses a bank with no signal to its line and orientation when its org header does not fit", 150, PERSONAL_FIXED],
+    ["collapses an org to its header when its breadcrumbs do not fit", 149, [...PERSONAL_FIXED, PERSONAL_ORG]],
+    ["opens an org's breadcrumbs when they fit exactly", 146, [...PERSONAL_FIXED, PERSONAL_ORG, HOMELAB, NAS, MEMORY_BANK]],
+  ])("%s, the signalled bank first", async (_, before, shown) => {
+    const banks = await besides(before);
+    const trail = renderTrail(banks, { repositoryIdentity: WEB });
+    expect(trail.text.startsWith("## edge-memory (personal, read-write)")).toBe(true);
+    expect(trail.text.endsWith(text(...shown))).toBe(true);
+    expect(trail.text).toContain("- edge-memory:personal/web/ (40) — The web project [matches this repository]\n");
+    expect(trail.lines).toBe(before + shown.length - PERSONAL_FIXED.length);
+  });
+
+  it("marks an org header standing for its group when a relevant folder in it is not shown, and opens the group when it fits exactly", async () => {
+    const bank = await linesBank(1);
+    const fixed = [`## maya-memory (personal, read-write) — 41 memories in 2 folders — ${PURPOSE}`, "- maya-memory:pad", "  x"];
+    expect(renderTrail([bank], { repositoryIdentity: WEB }, { lines: 5, bytes: 20 * 1024 }).text).toBe(text(...fixed, "### maya-memory:personal/ (41) — Maya's own work [matches this repository]"));
+    expect(renderTrail([bank], { repositoryIdentity: WEB }, { lines: 6, bytes: 20 * 1024 }).text).toBe(
+      text(...fixed, "### maya-memory:personal/ (41) — Maya's own work", "- maya-memory:personal/memory-bank/ (1) — The bank's own facts", "- maya-memory:personal/web/ (40) — The web project [matches this repository]"),
+    );
+  });
+});
+
+describe("the fixed tiers", () => {
+  it("are each bank's line, orientation and breadcrumbs, the bytes registry admission adds up, summing to the trail's", async () => {
+    const team = await bankOf(TEAM_BANK, { name: "acme", kind: "team", role: "read-only" });
+    const personal = await bankOf(PERSONAL_BANK);
+    const root = readPointer([team], "acme");
+    expect(root.found && renderFixedTiers(team)).toEqual({ text: root.found && root.text, lines: 6, bytes: Buffer.byteLength(root.found ? root.text : "") });
+    const trail = renderTrail([team, personal]);
+    expect(trail.text).toBe(renderFixedTiers(team).text + renderFixedTiers(personal).text);
+    expect(trail.bytes).toBe(renderFixedTiers(team).bytes + renderFixedTiers(personal).bytes);
+  });
+
+  it("never cut a group to fit: a bank past 8 KB of them is measured whole", async () => {
+    const projects = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`side-project-with-a-long-name-${String(i + 1).padStart(2, "0")}`, { count: 1 }]));
+    const files = Object.fromEntries(
+      Object.entries(projectsBank(projects)).map(([path, file]) => [path, path.endsWith("PROJECT.md") ? scopeFile(`${path.split("/")[2]} — ${"a project line padded to its cap ".repeat(4)}`.slice(0, 100)) : file]),
+    );
+    const fixed = renderFixedTiers(await bankOf(files));
+    expect(fixed.bytes).toBeGreaterThan(8 * 1024);
+    expect(fixed.lines).toBe(1 + 1 + 50);
+  });
+
+  it("end at the org headers of a bank whose root is re-tiered to orgs, whose groups the trail still opens where they fit", async () => {
+    const bank = await bankOf({ ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ root: "orgs" })) });
+    expect(renderFixedTiers(bank).text).toBe(text(...[`## maya-memory (personal, read-write) — 5 memories in 3 folders — ${PURPOSE}`, "- maya-memory:secrets-layout", `  ${"é".repeat(300)}`, "- maya-memory:machines-at-a-glance", "  The laptop and the NAS; see [[nas-disk-layout]].", PERSONAL_ORG]));
+    expect(renderTrail([bank]).text).toBe(renderFixedTiers(bank).text + text(HOMELAB, NAS, MEMORY_BANK));
   });
 });

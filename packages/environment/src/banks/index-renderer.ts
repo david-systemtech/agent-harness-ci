@@ -239,15 +239,21 @@ export const renderTrail = (banks: readonly BankIndex[], relevance: Relevance = 
   const attempt = (next: Plan): void => {
     if (fits(next)) plan = next;
   };
-  for (const bank of ordered) if (!plan.open.has(bank.name)) attempt({ ...plan, open: new Set([...plan.open, bank.name]) });
-  for (const bank of ordered) {
-    if (!plan.open.has(bank.name)) continue;
+  // Each org's breadcrumbs in place of its header, the orgs holding relevant folders first.
+  const openGroups = (bank: BankIndex): void => {
+    if (!plan.open.has(bank.name)) return;
     const relevant = signals.get(bank.name)?.folders ?? new Map<string, Signal>();
     const strongest = (org: IndexedOrg): number => Math.min(...shownFolders(org).map((folder) => relevant.get(folder.path)?.rank ?? Number.POSITIVE_INFINITY));
     for (const org of [...shownOrgs(bank)].sort((a, b) => strongest(a) - strongest(b) || compare(a.path, b.path))) {
       attempt({ ...plan, groups: new Set([...plan.groups, key(bank, org.path)]) });
     }
-  }
+  };
+  // T2: the signalled banks' groups, then the other banks' headers, each bank whose headers do not fit left at its line, then their groups.
+  const unsignalled = ordered.filter((bank) => !plan.open.has(bank.name));
+  for (const bank of signalled) openGroups(bank);
+  for (const bank of unsignalled) attempt({ ...plan, open: new Set([...plan.open, bank.name]) });
+  for (const bank of unsignalled) openGroups(bank);
+  // T3: each relevant folder whose breadcrumb shows, in relevance order, ties by fewer lines.
   const candidates = ordered.flatMap((bank) =>
     shownOrgs(bank).flatMap((org) =>
       shownFolders(org).flatMap((folder) => {
