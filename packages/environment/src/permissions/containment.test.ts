@@ -859,7 +859,7 @@ describe("the repository git directory's hooks and config, which a contained run
     expect(denied.map((gated) => gated.decision.decision)).toEqual(["deny", "deny", "deny", "deny"]);
     const messages = denied.map((gated) => (gated.decision.decision === "deny" ? gated.decision.message : ""));
     messages.forEach((message, index) => {
-      expect(message).toContain(`${closed[index]} is in the repository's git hooks or config`);
+      expect(message).toContain(`${closed[index]} is in a read-only directory`);
       expect(message).toContain("asking again will not widen it");
     });
     expect(decisionsOf(t, id, runId).map((event) => event.payload)).toEqual(
@@ -931,7 +931,7 @@ describe("a submodule's git directory under the repository's, whose hooks and co
     expect(allowed?.decision).toEqual({ decision: "allow" });
     expect(denied.map((gated) => gated.decision.decision)).toEqual(closed.map(() => "deny"));
     const messages = denied.map((gated) => (gated.decision.decision === "deny" ? gated.decision.message : ""));
-    messages.forEach((message, index) => expect(message).toContain(`${closed[index]} is in the repository's git hooks or config`));
+    messages.forEach((message, index) => expect(message).toContain(`${closed[index]} is in a read-only directory`));
     expect(decisionsOf(t, id, runId).map((event) => event.payload.decidedBy)).toEqual(closed.map(() => "containment"));
   });
 

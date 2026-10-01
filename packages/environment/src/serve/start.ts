@@ -42,7 +42,9 @@ import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
 import { describeBankStep } from "../banks/describe.js";
+import { PROVIDER_NAMES as KEY_MANAGER_NAMES } from "../key-managers/provider.js";
 import { createBankService } from "../banks/bank-service.js";
+import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
 import { banksProjector, listBanks } from "../banks/bank-store.js";
 import { bankMethods } from "../banks/methods.js";
 import { banksSection } from "../banks/orientation.js";
@@ -1042,6 +1044,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ownSkillsPath,
       join(dataDir, SNAPSHOTS_DIRECTORY),
       join(dataDir, GENERATIONS_DIRECTORY),
+      join(dataDir, BANKS_DIRECTORY),
     ],
     ...(user !== undefined && { user }),
   };
@@ -1336,6 +1339,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      bankCheckouts: (scope) => bankCheckouts(bankService.entries().map(({ entry }) => entry), scope),
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
       // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
       // it reads as it runs (#705), where the denylist covers them, are exempt too, so the sandbox lets the helper run.
@@ -1611,7 +1615,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
-  const bankService = createBankService({ log, clock, environmentId: record.id, forge, dataDir, scrub });
+  const bankService = createBankService({
+    log, clock, environmentId: record.id, forge, dataDir, scrub,
+    creation: {
+      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
+      keyManager: () => {
+        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
+        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
+      },
+    },
+  });
   capabilities.push("banks");
   const banks = bankRecords(bankService);
   // One local preview for the Instructions row and its health check, even when the orientation switch is off.

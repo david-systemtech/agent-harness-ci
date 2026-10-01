@@ -3,6 +3,8 @@ import { basename, isAbsolute } from "node:path";
 import {
   BANK_INDEX_BUDGET,
   BankName,
+  ContractError,
+  type BankKeyManager,
   ENVIRONMENT_STREAM_KIND,
   normaliseRemote,
   type BankEntry,
@@ -20,6 +22,7 @@ import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { joinBank, previewBank } from "./join.js";
+import { createBankCommand } from "./create.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandRejection, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
@@ -198,6 +201,14 @@ export interface BankServiceOptions {
   readonly scrub: Pick<ScrubRegistry, "check">;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
   readonly forge: Pick<ForgeService, "repositories" | "pullRequests" | "users" | "git">;
+  readonly creation?: {
+    readonly dataDir: string;
+    readonly localPersonName: string;
+    readonly scrub: Pick<ScrubRegistry, "check">;
+    readonly forge: Pick<ForgeService, "list" | "owners" | "repositories" | "git">;
+    readonly accounts: () => readonly { readonly id: string }[];
+    readonly keyManager: () => BankKeyManager | null;
+  };
 }
 
 export interface BankService {
@@ -212,6 +223,7 @@ export interface BankService {
   preview(url: string): Promise<BankJoinPreview>;
   readonly register: PreparedCommand<"banks.register">;
   readonly join: PreparedCommand<"banks.join">;
+  readonly create: PreparedCommand<"banks.create">;
 }
 
 export const createBankService = (options: BankServiceOptions): BankService => {
@@ -372,53 +384,68 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return verifyingAll;
   };
 
-  const register: BankService["register"] = {
-    async prepare(params) {
-      const rejecting =
-        (rejected: CommandRejection<ErrorOf<"banks.register">["code"]>): PreparedMethodHandler<"banks.register"> =>
-        () => ({ aggregate: stream, rejected });
-      const imported = params.importedFrom === undefined ? null : importHolder(reader, params.importedFrom);
-      if (imported !== null) {
-        const answer = (await records()).find((bank) => bank.id === imported) ?? null;
-        return () => (answer === null ? { aggregate: stream, rejected: { code: "not_found" } } : { aggregate: stream, result: { bank: answer } });
+  const prepareRegister = async (params: ParamsOf<"banks.register">, personalDefaults = false): Promise<PreparedMethodHandler<"banks.register">> => {
+    const rejecting =
+      (rejected: CommandRejection<ErrorOf<"banks.register">["code"]>): PreparedMethodHandler<"banks.register"> =>
+      () => ({ aggregate: stream, rejected });
+    const imported = params.importedFrom === undefined ? null : importHolder(reader, params.importedFrom);
+    if (imported !== null) {
+      const answer = (await records()).find((bank) => bank.id === imported) ?? null;
+      return () => (answer === null ? { aggregate: stream, rejected: { code: "not_found" } } : { aggregate: stream, result: { bank: answer } });
+    }
+    if (!isAbsolute(params.path)) return rejecting({ code: "invalid_params", message: `The path ${params.path} is not absolute: name the checkout from the root.`, data: { issues: [] } });
+    const read = await readCheckout(params.path, { name: "unnamed", role: params.role });
+    if ("problem" in read) return rejecting({ code: "invalid_params", message: `The path ${params.path} holds no git repository a bank can be read from: ${read.problem}`, data: { issues: [] } });
+    const manifest = manifestOf(read.reading.files);
+    const named = BankName.safeParse(manifest.name ?? basename(params.path).toLowerCase());
+    if (!named.success) {
+      return rejecting({ code: "invalid_params", message: `The bank at ${params.path} has no name: its BANK.md names none, and its folder's name is no bank name.`, data: { issues: [] } });
+    }
+    const location = await locationOf(params.path);
+    const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
+    const { status, reading } = await inspect(draft);
+    const preparedEntry: BankEntry = { ...draft, status };
+    const held = await readAll();
+    const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
+    return (_params, command) => {
+      const assigned = new Set(listBanks(reader).flatMap((bank) => bank.defaultFor));
+      const entry = { ...preparedEntry, ...(personalDefaults && { defaultFor: (options.creation?.accounts() ?? []).map((account) => account.id).filter((id) => !assigned.has(id)) }) };
+      if (bankEver(reader, entry.id)) {
+        return { aggregate: stream, rejected: { code: "conflict", message: `A bank ${entry.id} was registered on this environment already.`, data: { reason: "exists", bankId: entry.id } } };
       }
-      if (!isAbsolute(params.path)) return rejecting({ code: "invalid_params", message: `The path ${params.path} is not absolute: name the checkout from the root.`, data: { issues: [] } });
-      const read = await readCheckout(params.path, { name: "unnamed", role: params.role });
-      if ("problem" in read) return rejecting({ code: "invalid_params", message: `The path ${params.path} holds no git repository a bank can be read from: ${read.problem}`, data: { issues: [] } });
-      const manifest = manifestOf(read.reading.files);
-      const named = BankName.safeParse(manifest.name ?? basename(params.path).toLowerCase());
-      if (!named.success) {
-        return rejecting({ code: "invalid_params", message: `The bank at ${params.path} has no name: its BANK.md names none, and its folder's name is no bank name.`, data: { issues: [] } });
+      if (nameHolder(reader, entry.name) !== null) {
+        return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
       }
-      const location = await locationOf(params.path);
-      const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
-      const { status, reading } = await inspect(draft);
-      const entry: BankEntry = { ...draft, status };
-      const held = await readAll();
-      const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
-      return (_params, command) => {
-        if (bankEver(reader, entry.id)) {
-          return { aggregate: stream, rejected: { code: "conflict", message: `A bank ${entry.id} was registered on this environment already.`, data: { reason: "exists", bankId: entry.id } } };
-        }
-        if (nameHolder(reader, entry.name) !== null) {
-          return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
-        }
-        // Weighed against the banks registered now, as the name is: one registered or forgotten while this one was read counts.
-        const weighed = listBanks(reader)
-          .filter((bank) => bank.enabled)
-          .map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
-        const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
-        if (conflict !== null) {
-          const [first] = conflict.scopes;
-          const message = `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`;
-          return { aggregate: stream, rejected: { code: "conflict", message, data: { reason: "index_too_large", ...conflict } } };
-        }
-        command.tx.afterCommit(() => readings.set(entry.id, reading));
-        log.append(stream, [{ type: "bank.added", payload: { bank: entry } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
-        return { aggregate: stream, result: { bank: recordOf(entry, reading, claims) } };
-      };
-    },
+      // Weighed against the banks registered now, as the name is: one registered or forgotten while this one was read counts.
+      const weighed = listBanks(reader)
+        .filter((bank) => bank.enabled)
+        .map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
+      const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
+      if (conflict !== null) {
+        const [first] = conflict.scopes;
+        const message = `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`;
+        return { aggregate: stream, rejected: { code: "conflict", message, data: { reason: "index_too_large", ...conflict } } };
+      }
+      command.tx.afterCommit(() => readings.set(entry.id, reading));
+      log.append(stream, [{ type: "bank.added", payload: { bank: entry } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+      return { aggregate: stream, result: { bank: recordOf(entry, reading, claims) } };
+    };
   };
+  const register: BankService["register"] = { prepare: (params) => prepareRegister(params) };
+  const create: BankService["create"] = options.creation === undefined ? {
+    prepare: () => { throw new ContractError({ code: "not_found", message: "Bank creation is unavailable on this service.", data: {} }); },
+  } : createBankCommand({
+    ...options.creation,
+    register: prepareRegister,
+    async admit(bankId, name, files) {
+      await readAll();
+      if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: `A bank ${bankId} was registered already.`, data: { reason: "exists", bankId } });
+      if (nameHolder(reader, name) !== null) throw new ContractError({ code: "conflict", message: `Another bank is named ${name}.`, data: { reason: "name_taken", name } });
+      const weighed = listBanks(reader).filter((bank) => bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
+      const conflict = overLimit(weighed, { name, accounts: "all", repositories: "all", bytes: fixedBytes(readingFrom(files, { name, role: "read-write" })) });
+      if (conflict !== null) throw new ContractError({ code: "conflict", message: "The bank would exceed the fixed-tier limit.", data: { reason: "index_too_large", ...conflict } });
+    },
+  });
 
   return {
     list: records,
@@ -433,6 +460,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     register,
     preview: (url) => previewBank(options, url),
     join: joinBank({ ...options, register }),
+    create,
   };
 };
 

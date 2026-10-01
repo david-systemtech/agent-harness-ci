@@ -21,5 +21,6 @@ export const bankMethods = (banks: BankService): MethodHandlers => ({
     return { bank };
   },
   "banks.register": banks.register,
+  "banks.create": banks.create,
   "banks.verify": async (params) => ({ banks: await banks.verify(params.bankId) }),
 });
