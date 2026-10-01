@@ -1,37 +1,8 @@
 name: catalogue
 
+# Re-enable weekly and path triggers after external workflow installation (#1010).
 on:
-  schedule:
-    - cron: '17 4 * * 1'
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - packages/contracts/src/catalogue-data.ts
-      - packages/contracts/src/catalogue.ts
-      - packages/contracts/src/readiness-overlay.ts
-      - packages/contracts/src/readiness.ts
-      - packages/contracts/src/skill-rules.ts
-      - packages/environment/src/skills/reader.ts
-      - packages/environment/src/skills/sidecar.ts
-      - packages/environment/scripts/check-catalogue.ts
-      - .forgejo/workflows/catalogue.yml
-      - .forgejo/github-workflows/catalogue.yml
-      - .forgejo/scripts/github-ci.sh
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - packages/contracts/src/catalogue-data.ts
-      - packages/contracts/src/catalogue.ts
-      - packages/contracts/src/readiness-overlay.ts
-      - packages/contracts/src/readiness.ts
-      - packages/contracts/src/skill-rules.ts
-      - packages/environment/src/skills/reader.ts
-      - packages/environment/src/skills/sidecar.ts
-      - packages/environment/scripts/check-catalogue.ts
-      - .forgejo/workflows/catalogue.yml
-      - .forgejo/github-workflows/catalogue.yml
-      - .forgejo/scripts/github-ci.sh
 
 concurrency:
   group: catalogue-${{ github.event.pull_request.number || github.ref }}

@@ -1,10 +1,11 @@
 # Catalogue job
 
 The `catalogue` workflow checks the shipped skills catalogue and readiness
-overlay against upstream default branches every Monday at 04:17 UTC, on
-changes to either data module or its reader, and by manual dispatch. Forgejo
-relays the commit to GitHub; the network check runs there separately from the
-unit-test suite. Repositories shared by entries are shallow-cloned once.
+overlay against upstream default branches by manual dispatch. Weekly and
+catalogue/overlay/reader path triggers are deferred to #1010 until the external
+workflow is installed and a manual run passes. Forgejo relays the commit to
+GitHub; the network check runs there separately from the unit-test suite.
+Repositories shared by entries are shallow-cloned once.
 
 The script uses the environment's skill reader, including the root-skill
 rule. It reports each entry's expected and found count and names, invalid
@@ -28,7 +29,8 @@ script against the shipped upstream URLs.
 
 ## Installing the GitHub workflow
 
-Before enabling the Forgejo relay, install the source file
+The infrastructure follow-up #1010 tracks installation and re-enabling the
+automatic triggers. Before running the Forgejo relay manually, install the source file
 `.forgejo/github-workflows/catalogue.yml` as `.github/workflows/catalogue.yml`
 on the `workflows` default branch of `david-systemtech/agent-harness-ci`.
 GitHub reads `repository_dispatch` workflows from that branch, rather than

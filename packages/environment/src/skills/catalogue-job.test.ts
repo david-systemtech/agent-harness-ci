@@ -124,13 +124,10 @@ describe("the catalogue job's script", () => {
 });
 
 describe("the catalogue workflow", () => {
-  it("runs weekly and on catalogue, overlay and reader changes through a separate GitHub job", () => {
+  it("runs only on manual dispatch until the external catalogue workflow is installed", () => {
     const root = join(import.meta.dirname, "../../../..");
     const relay = parse(readFileSync(join(root, ".forgejo/workflows/catalogue.yml"), "utf8"));
-    expect(relay.on.schedule).toEqual([{ cron: "17 4 * * 1" }]);
-    for (const event of ["push", "pull_request"]) {
-      expect(relay.on[event].paths).toEqual(expect.arrayContaining(["packages/contracts/src/catalogue-data.ts", "packages/contracts/src/readiness-overlay.ts", "packages/environment/src/skills/reader.ts"]));
-    }
+    expect(Object.keys(relay.on)).toEqual(["workflow_dispatch"]);
     expect(relay.jobs.catalogue["runs-on"]).toBe("relay");
     expect(relay.jobs.catalogue.steps).toContainEqual(expect.objectContaining({ run: "bash .forgejo/scripts/github-ci.sh", env: expect.objectContaining({ GH_CI_EVENT: "catalogue" }) }));
     const github = parse(readFileSync(join(root, ".forgejo/github-workflows/catalogue.yml"), "utf8"));
