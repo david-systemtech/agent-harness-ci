@@ -50,7 +50,7 @@ import { wrap, type Line, type Span } from "../transcript/lines.js";
 import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Question } from "../view.js";
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
-import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, usageLines, type Panel, type PanelRow } from "./panel.js";
+import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, usageLines, type Panel, type PanelRow } from "./panel.js";
 import { editorKeys, editorRows, noRowLine } from "./settings.js";
 
 /**
@@ -135,6 +135,8 @@ export const usePickers = (host: PickersHost): Pickers => {
   const [forks, setForks] = useState<ReadonlyMap<string, string>>(new Map());
   // The lines a card of lines drew last: what its scroll is clamped to.
   const drawn = useRef({ lines: 0, height: 1 });
+  // A completed check only finishes the card that started it, even when /setup was reopened on the same environment.
+  const setupCheck = useRef(0);
   // The mode each session was last asked for, until its answer lands: what a step taken before then steps on from.
   const asked = useRef(new Map<string, Mode>());
 
@@ -161,6 +163,11 @@ export const usePickers = (host: PickersHost): Pickers => {
     [runtime, kind, panelEnvironment],
   );
   useFollow(permissions, request);
+  const setup = useMemo(() => (kind === "setup" && panelEnvironment !== undefined ? runtime.projections.setup(panelEnvironment) : undefined), [runtime, kind, panelEnvironment]);
+  // Without the stream flag following itself starts a check. The command already starts one, so draw that answer instead.
+  const liveSetup = panelEnvironment !== undefined && environmentOf(panelEnvironment)?.flags.includes("setup") === true;
+  useFollow(liveSetup ? setup : undefined, request);
+
   const signIn = useMemo(
     () => (kind === "signin" && panelEnvironment !== undefined ? runtime.requests.cached(panelEnvironment, "accounts.signin.get", {}) : undefined),
     [runtime, kind, panelEnvironment],
@@ -476,14 +483,17 @@ export const usePickers = (host: PickersHost): Pickers => {
           });
         }
         case "setup":
-          // ADR 0031: a step's health is `setup.check`'s to run and the `setup` subscription's to carry; neither is on the wire yet (#88).
-          return withEnvironment(
-            (view) =>
-              host.say(
-                `Set up on ${nameOf(view)} cannot be read from here yet: no step-registry query is on the wire (setup.check and the setup subscription, ADR 0031). Run it in the desktop window.`,
+          return withEnvironment((view) => {
+            const check = ++setupCheck.current;
+            host.open({ kind: "setup", environmentId: view.environmentId, top: 0, checking: true, failed: null });
+            void runtime.setup.check(view.environmentId).then((answer) =>
+              host.change((card) =>
+                card.kind === "setup" && card.environmentId === view.environmentId && check === setupCheck.current
+                  ? { ...card, checking: false, failed: answer.ok ? null : answer.error.message }
+                  : card,
               ),
-            command.argument,
-          );
+            );
+          }, command.argument);
       }
     },
 
@@ -616,10 +626,10 @@ export const usePickers = (host: PickersHost): Pickers => {
       return card;
     },
 
-    isLines: (card) => card.kind === "usage" || card.kind === "review",
+    isLines: (card) => card.kind === "usage" || card.kind === "review" || card.kind === "setup",
 
     scroll(card, to) {
-      if (card.kind !== "usage" && card.kind !== "review") return card;
+      if (card.kind !== "usage" && card.kind !== "review" && card.kind !== "setup") return card;
       const most = Math.max(0, drawn.current.lines - drawn.current.height);
       return { ...card, top: Math.min(Math.max(to(Math.min(card.top, most)), 0), most) };
     },
@@ -639,6 +649,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           return list("sets", "close");
         case "usage":
         case "review":
+        case "setup":
           return `${k("pager.line")} ${k("pager.halfDown")} ${k("pager.halfUp")} scroll · ${k("pager.close")} close`;
         case "settings":
           if (card.edit?.kind === "text") return `${k("picker.choose")} saves · ${k("picker.leave")} leaves it`;
@@ -736,6 +747,11 @@ export const usePickers = (host: PickersHost): Pickers => {
           const lines = usageLines(runtime.projections.usage.read(), views, (id) => runtime.projections.accounts(id).read(), meterCells(size.width)).flatMap(text);
           drawn.current = { lines: lines.length, height: size.height };
           return <LinesCard title="Plan usage, pooled by account identity" hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
+        }
+        case "setup": {
+          const lines = setup ? setupLines(setup.read(), nameFor(card.environmentId), card.checking, card.failed, liveSetup, runtime.environmentNow(card.environmentId)).flatMap(text) : [];
+          drawn.current = { lines: lines.length, height: size.height };
+          return <LinesCard title={`Set up on ${nameFor(card.environmentId)}`} hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
         }
         case "review": {
           const titleOf = (sessionId: string) => runtime.projections.sessionList.read().rows.find((row) => row.environmentId === card.environmentId && row.summary.id === sessionId)?.summary.title;

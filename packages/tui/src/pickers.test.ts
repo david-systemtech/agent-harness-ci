@@ -660,18 +660,86 @@ describe("/settings by row (#389)", () => {
 });
 
 describe("/setup", () => {
-  it("answers absent with the reason until the environment has a step-registry query, and points at the desktop window", async () => {
-    const { app } = await launch(undefined, false);
+  it("checks every step on open and draws the summary with the desktop pointer", async () => {
+    const { app, env } = await launch([desk({
+      capabilities: ["setup"],
+      setup: {
+        account: { state: "done" },
+        browser: { state: "skipped" },
+        permissions: { state: "done" },
+        "memory-bank": null,
+        skills: null,
+      },
+    })], false);
+    const release = env.holdSetupChecks();
+    env.setSetup({ permissions: { state: "needs-attention", reason: "The denylist could not be read." } });
     await command(app, "/setup");
-    await app.waitFor(
-      "Set up on desk cannot be read from here yet: no step-registry query is on the wire (setup.check and the setup subscription, ADR 0031). Run it in the desktop window.",
-    );
+    await app.waitFor("Checking Set up…");
+    release();
+    await app.waitFor("Set up on desk");
+    await app.waitFor(/Account.*done/);
+    await app.waitFor(/Browser.*skipped/);
+    await app.waitFor(/Permissions.*needs attention.*The denylist could not be read\./);
+    await app.waitFor("7 done, 1 needs attention, 1 skipped");
+    await app.waitFor("Run it in the desktop window.");
+    expect(app.frame()).not.toContain("Checking Set up…");
+    expect(app.frame()).not.toContain("Live Set up updates are unavailable");
+    expect(env.requests("setup.check").map((r) => r.params)).toEqual([{}]);
   });
 
-  it("names the environment asked for, and says when none is known by that name", async () => {
+  it("updates the open card from the environment's setup notices without another check", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"] })]);
+    await command(app, "/setup");
+    await app.waitFor(/Permissions.*done/);
+    env.setSetup({ permissions: { state: "needs-attention", reason: "Containment is unavailable." } });
+    env.passSetup(["permissions"]);
+    await app.waitFor(/Permissions.*needs attention.*Containment is unavailable\./);
+    await app.waitFor(/Containment is unavailable\. \(unchanged since 00:00\)/);
+    expect(env.requests("setup.check")).toHaveLength(1);
+    await app.press(KEY.esc);
+    await app.waitFor("Nothing said yet.");
+    await command(app, "/setup");
+    await app.waitFor(/Permissions.*needs attention/);
+    expect(env.requests("setup.check")).toHaveLength(2);
+  });
+
+  it("keeps the Set up card and explains a refused check", async () => {
+    const { app, env } = await launch(undefined, false);
+    env.wire.answer("setup.check", () => ({ error: { code: "forbidden", message: "This grant cannot read setup.", data: { scope: "read" } } }));
+    await command(app, "/setup");
+    await app.waitFor("Set up on desk");
+    await app.waitFor("Set up could not be checked: This grant cannot read setup.");
+    expect(app.frame()).not.toContain("Checking Set up…");
+    expect(env.requests("setup.check")).toHaveLength(1);
+  });
+
+  it("keeps a reopened card checking when an earlier card's check answers", async () => {
+    const { app, env } = await launch(undefined, false);
+    const answers: (() => void)[] = [];
+    env.wire.answer("setup.check", () => new Promise((resolve) => answers.push(() => resolve({ result: { results: [] } }))));
+    await command(app, "/setup");
+    await app.waitFor("Checking Set up…");
+    await app.press(KEY.esc);
+    await command(app, "/setup");
+    await app.waitFor("Checking Set up…");
+    expect(answers).toHaveLength(2);
+    answers[0]?.();
+    await app.tick();
+    expect(app.frame()).toContain("Checking Set up…");
+    answers[1]?.();
+    await app.waitUntil(() => !app.frame().includes("Checking Set up…"), "the reopened check to answer");
+    expect(app.frame()).toContain("Set up on desk");
+  });
+
+  it("checks the named environment without a setup stream, and says when none is known by that name", async () => {
     const { app } = await launch([desk(), { name: "laptop", reach: "paired" }], false);
     await command(app, "/setup laptop");
-    await app.waitFor("Set up on laptop cannot be read from here yet");
+    await app.waitFor("Set up on laptop");
+    await app.waitFor(/Account.*done/);
+    await app.waitFor("Live Set up updates are unavailable on this environment; /setup checks again.");
+    expect(app.environment("laptop").requests("setup.check").map((r) => r.params)).toEqual([{}]);
+    expect(app.environment("desk").requests("setup.check")).toEqual([]);
+    await app.press(KEY.esc);
     await command(app, "/setup attic");
     await app.waitFor("No environment named attic is known here.");
   });

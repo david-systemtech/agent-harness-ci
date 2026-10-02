@@ -210,6 +210,7 @@ const treeOf = (paths: readonly string[]): Tree => {
  */
 export { read as readBankMarkdown, treeOf as bankTreeOf };
 export type { Read as BankMarkdown, Tree as BankTree, MemoryFile as BankMemoryFile };
+export { bankFindingLine, bankVerdictText, readBankFolder, type BankFolderEntry, type BankFolderReading, type BankFolderSystem } from "./bank-validator-folder.js";
 
 /** The file a scope folder's level gives it. */
 const scopeFileOf = (folder: string): string => {

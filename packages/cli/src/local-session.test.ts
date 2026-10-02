@@ -133,6 +133,25 @@ describe("the local session route", () => {
     await expect(verb).rejects.toThrow(/did not answer within/);
   });
 
+  it("waits on a call given a longer wait than the route's for as long as that call's wait, and fails it past that", async () => {
+    const t = await start();
+    // Answered a second after it is asked: past the route's timeout, within the call's own wait.
+    t.env.methods.register(registry["banks.list"], async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return { banks: [] };
+    });
+    const answered = await withLocalSession({ dataDir: t.dataDir }, net, "one slow call", (call) => call("banks.list", {}, { timeoutMs: 60_000 }), { timeoutMs: 300 });
+    expect(answered).toEqual({ banks: [] });
+
+    const { clock, start: silence } = heldClock();
+    t.env.methods.register(registry["banks.list"], () => {
+      silence();
+      return new Promise<never>(() => undefined);
+    });
+    const verb = withLocalSession({ dataDir: t.dataDir }, net, "one silent slow call", (call) => call("banks.list", {}, { timeoutMs: 600 }), { timeoutMs: 300, clock });
+    await expect(verb).rejects.toThrow(/did not answer within 0\.6 seconds/);
+  });
+
   it("fails the verb when the environment goes silent on the revoke, even after a call its work left behind is answered", async () => {
     const t = await start();
     let release!: () => void;

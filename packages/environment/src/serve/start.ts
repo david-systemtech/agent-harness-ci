@@ -1,5 +1,7 @@
 import { bankInstructionsLayer } from "../banks/bank-layer.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
+import { createMemoryOperations } from "../banks/memory-operations.js";
+import { memoryMethods } from "../banks/memory-methods.js";
 import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
@@ -1186,7 +1188,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
   closers.push(() => bankService.closeLanding());
-  const memoryTools = createMemoryToolServers({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
+  // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
+  const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
+  const memoryTools = createMemoryToolServers(memoryOperations);
   const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
@@ -1777,6 +1781,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...bankMethods(bankService, bankCredentials, bankSyncer),
+    ...memoryMethods(memoryOperations, () => accounts.defaultId()),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
       const session = readSessionFacts(log, reader, sessionId);

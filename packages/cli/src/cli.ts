@@ -30,6 +30,7 @@ import {
   type PreflightSeams,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { BANK_USAGE, bank } from "./bank.js";
 import { BROWSER_USAGE, browser } from "./browser.js";
 import { harnessCommand } from "./harness-command.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
@@ -56,6 +57,7 @@ const USAGE = [
   `       ${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
   ...BROWSER_USAGE.map((line) => `       ${line}`),
+  ...BANK_USAGE.map((line) => `       ${line}`),
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
   "",
@@ -80,12 +82,14 @@ export interface CliContext extends ProcessContext {
   readonly clock?: Pick<Clock, "now" | "setTimeout">;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
-  /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
+  /** What `git-credential` reads git's attributes from, `update credential` the token, and `bank draft --body -` the body; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
-  /** The variables `git-credential` reads, and `serve` its new environment's name and channel from; preset: the process's own. */
+  /** The variables `git-credential` reads, `serve` its new environment's name and channel from, and the `bank` verbs a Claude Code session's id from; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
+  /** The directory the `bank` verbs work in, whose repository scopes the banks; preset: the process's working directory. */
+  readonly cwd?: string;
 }
 
 /** A variable's value trimmed, or undefined when it is unset or blank, as the compose file passes one left unset. */
@@ -272,6 +276,16 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         net: netOf(context),
         clock: context.clock ?? systemClock,
         stopRequested: context.stopRequested,
+      });
+    }
+    if (args[0] === "bank") {
+      return await bank(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        cwd: context.cwd ?? process.cwd(),
+        env: context.env ?? process.env,
+        stdin: context.stdin ?? readStandardInput,
       });
     }
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });

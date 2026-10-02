@@ -25,7 +25,7 @@ import { HARNESS_VERSION, systemClock, type Clock, type Timer } from "@agent-har
 
 /**
  * The route every CLI verb that asks the environment on this machine
- * something takes (`pair`, the `update` verbs, `browser pair`): the
+ * something takes (`pair`, the `update` verbs, `browser pair`, the `bank` verbs): the
  * bootstrap grant in the environment's data directory is exchanged for a
  * local client session, the verb makes its calls on the wire and hears the
  * environment's notices from then on when it waits on one, and the client
@@ -63,8 +63,14 @@ export class LocalRefusal extends LocalFailure {
   }
 }
 
+/** How long one call may wait for its answer. */
+export interface LocalCallOptions {
+  /** How long the environment may stay silent while it works on this call; preset the route's timeout. A bank's landing waits minutes on its forge's check. */
+  readonly timeoutMs?: number;
+}
+
 /** One call on the wire: the method's response, or a `LocalRefusal` thrown with the environment's error. */
-export type LocalCall = <N extends MethodName>(method: N, params: ParamsOf<N>) => Promise<ResponseOf<N>>;
+export type LocalCall = <N extends MethodName>(method: N, params: ParamsOf<N>, options?: LocalCallOptions) => Promise<ResponseOf<N>>;
 
 /**
  * Follows the environment's notices (`environment.subscribe`) from now on:
@@ -171,8 +177,8 @@ const overWire = <T>(
 ): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const ws = new net.WebSocket(url);
-    /** The calls awaiting their answer, by request id. */
-    const pending = new Map<string, (frame: ResponseFrame) => void>();
+    /** The calls awaiting their answer, by request id, each with how long it may wait. */
+    const pending = new Map<string, { readonly answer: (frame: ResponseFrame) => void; readonly timeoutMs: number }>();
     let calls = 0;
     let following: Following | undefined;
     let greeted = false;
@@ -195,26 +201,29 @@ const overWire = <T>(
      * the environment (the connection and its hello, a call's answer, the
      * notices' catch-up, the revoke and its bye) the wait starts again, and
      * silence for the timeout fails the verb; while only the verb's own work
-     * runs, waiting on a notice included, nothing is waited on.
+     * runs, waiting on a notice included, nothing is waited on. A call in
+     * flight with a longer wait of its own lengthens it while it is.
      */
     const rearm = () => {
       timer?.cancel();
       const waiting = !greeted || pending.size > 0 || following?.live === false || outcome !== undefined;
-      if (waiting && !settled) timer = clock.setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
+      const waitMs = Math.max(timeoutMs, ...[...pending.values()].map((entry) => entry.timeoutMs));
+      if (waiting && !settled) timer = clock.setTimeout(() => fail(`The environment at ${url} did not answer within ${waitMs / 1000} seconds.`), waitMs);
     };
     const send = (frame: Parameters<typeof encodeFrame>[0]) => ws.send(encodeFrame(frame));
 
-    const call: LocalCall = (method, params) =>
+    const call: LocalCall = (method, params, options = {}) =>
       new Promise((resolveCall, rejectCall) => {
         if (settled || outcome !== undefined) return rejectCall(new LocalFailure(`${method} was called after the verb's work was done.`));
         const id = `call-${++calls}`;
-        pending.set(id, (frame) => {
+        const answer = (frame: ResponseFrame) => {
           if (frame.error) return rejectCall(new LocalRefusal(method, frame.error));
           const entry = registry[method];
-          const answer = ("response" in entry ? entry.response : entry.result).safeParse(frame.result);
-          if (!answer.success) return rejectCall(new LocalFailure(`The environment answered ${method} with something that is not its answer.`));
-          resolveCall(answer.data as ResponseOf<typeof method>);
-        });
+          const parsed = ("response" in entry ? entry.response : entry.result).safeParse(frame.result);
+          if (!parsed.success) return rejectCall(new LocalFailure(`The environment answered ${method} with something that is not its answer.`));
+          resolveCall(parsed.data as ResponseOf<typeof method>);
+        };
+        pending.set(id, { answer, timeoutMs: options.timeoutMs ?? timeoutMs });
         send({ type: "request", id, method, params: params as Record<string, unknown> });
         rearm();
       });
@@ -312,7 +321,7 @@ const overWire = <T>(
           if (waiting === undefined) return;
           pending.delete(frame.id);
           rearm();
-          return waiting(frame);
+          return waiting.answer(frame);
         }
         default:
           return;
