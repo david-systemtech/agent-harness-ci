@@ -80,20 +80,16 @@ docker compose up -d
 docker compose logs environment
 ```
 
-Until the first client pairs, the log shows a pairing link and code. In the
-desktop's **Set up > Your machines**, add the environment using that link
-or code. The compose file uses the host's network; the stock image listens
-on loopback.
-
-For a Docker host on another machine, open an SSH tunnel from your client
-machine, replacing `user@your-docker-host` with your SSH destination:
-
-```sh
-ssh -N -L 7443:localhost:7433 user@your-docker-host
-```
-
-Keep that terminal open. In **Your machines**, pair by address and code:
-use `localhost:7443` as the address and the code from the container log.
+For remote container pairing, run the published Compose file on a Linux host
+with Tailscale installed, signed in and running in kernel TUN mode (the default,
+with a `tailscale0` interface). Join the client machine to the same tailnet and
+allow TCP port 7433 in the tailnet policy and host firewall. The container
+shares the host network and discovers its Tailscale IPv4 address without a
+Tailscale CLI or daemon socket. Until the first client pairs, `docker compose
+logs environment` prints a pairing link and code; use them in the desktop's
+**Set up > Your machines**. Loopback remains available and LAN binding stays off
+unless you enable it. This path requires the Linux host network; userspace
+Tailscale and Docker Desktop are unsupported.
 
 A container never updates itself. Make `host-updater.sh` executable and
 schedule it on the Docker host every five minutes, as described in the

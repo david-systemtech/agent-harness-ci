@@ -191,7 +191,7 @@ export interface PromptMessage {
  */
 export type RunTarget =
   | { readonly kind: "fresh" }
-  | { readonly kind: "resume"; readonly providerSessionId: string }
+  | { readonly kind: "resume"; readonly providerSessionId: string; /** Retained import transcript, never an authentication source. */ readonly sourceDirectory?: string }
   | { readonly kind: "fork"; readonly providerSessionId: string; readonly atMessageId: string | null }
   | { readonly kind: "rewind"; readonly providerSessionId: string; readonly toMessageId: string };
 
@@ -1046,12 +1046,13 @@ export interface Adapter {
    */
   readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
   /**
-   * Copies an imported provider conversation from its original account into
+   * Copies an imported provider conversation from its original directory into
    * the store under the harness session before a fork copies that session's
-   * rows. Reads the account's directory only; does nothing when already stored.
+   * rows. Reads sourceDirectory when supplied, otherwise the Account directory; never authenticates there.
+   * An explicit retained source must hydrate successfully; does nothing when already stored.
    * Absent for adapters that keep their own conversations without this store.
    */
-  seedSessionStore?(account: AccountRef, sessionId: string, providerSessionId: string): Promise<void>;
+  seedSessionStore?(account: AccountRef, sessionId: string, providerSessionId: string, sourceDirectory?: string): Promise<void>;
   /**
    * Whether a fork or rewind can continue stored history before this
    * message. Read before the command's transaction; absent for adapters
