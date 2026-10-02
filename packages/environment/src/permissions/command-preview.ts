@@ -435,7 +435,7 @@ function tokenize(command: string): readonly Segment[] {
       continue;
     }
 
-    if (char === '(' || char === '`' || (char === '{' && !open && words.every((word) => !word.quoted && ASSIGNMENT.test(word.text)) && /\s/.test(command[index + 1] ?? ''))) indirectShell = true;
+    if (char === '(' || char === '`' || (char === '{' && !open && braceGroupPosition(words) && /\s/.test(command[index + 1] ?? ''))) indirectShell = true;
     open = true;
     text += char;
     operand += char;
@@ -453,6 +453,13 @@ function tokenize(command: string): readonly Segment[] {
 
 /** `FOO=bar rm …`: an assignment in front of the command is not the command. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/** Reserved words can place a compound command where an ordinary argument cannot. */
+const BRACE_GROUP_PREFIXES = new Set(['time', '!', 'if', 'then', 'elif', 'else', 'while', 'until', 'do']);
+const braceGroupPosition = (words: readonly Word[]): boolean => words.every((word, index) =>
+  !word.quoted && (ASSIGNMENT.test(word.text) || BRACE_GROUP_PREFIXES.has(word.text)
+    || (word.text === '-p' && words[index - 1]?.text === 'time')));
+
 
 /** Wrappers that are not themselves the command, and are worth seeing through. */
 const PREFIXES = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'xargs']);

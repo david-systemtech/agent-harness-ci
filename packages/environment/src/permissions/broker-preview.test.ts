@@ -57,6 +57,8 @@ describe("the broker's indirect execution preview", () => {
   it.skipIf(process.platform === "win32").each([
     "(rm -rf build)",
     "{ rm -rf build; }",
+    "time { rm -rf build; }",
+    "time -p { rm -rf build; }",
     "echo $(rm -rf build)",
     "X=$(rm -rf build)",
     "eval rm -rf build",

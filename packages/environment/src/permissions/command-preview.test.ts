@@ -171,10 +171,10 @@ describe('reading a command line', () => {
     expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
   });
   it('warns about brace groups while leaving quoted groups and brace data quiet', () => {
-    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }']) {
+    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }', 'time { rm -rf build; }', 'time -p { rm -rf build; }', 'time ! { rm -rf build; }', '! { rm -rf build; }', 'if { rm -rf build; }; then echo done; fi', 'while { rm -rf build; }; do echo done; done', 'if true; then { rm -rf build; }; fi']) {
       expect(kinds(command)).toEqual(['indirect-shell']);
     }
-    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}']) {
+    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}', 'echo time { rm -rf build \\; }', 'time echo { rm -rf build \\; }', '"time" { rm -rf build \\; }']) {
       expect(destructiveParts(command)).toEqual([]);
     }
     expect(destructiveParts('rm build/{a,b}')[0]?.targets).toEqual(['build/{a,b}']);
