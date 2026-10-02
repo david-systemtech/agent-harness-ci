@@ -73,7 +73,7 @@ export interface IndexedEntity {
 /** A bank as the IndexRenderer reads it. */
 export interface BankIndex {
   readonly name: string;
-  readonly kind: BankKind;
+  readonly kind: BankKind | null;
   readonly role: BankRole;
   readonly purpose: string | null;
   readonly entities: readonly IndexedEntity[];
@@ -92,7 +92,7 @@ export interface BankIndex {
 /** What the registry says of a bank, and its files as committed. */
 export interface BankSource {
   readonly name: string;
-  readonly kind: BankKind;
+  readonly kind: BankKind | null;
   readonly role: BankRole;
   readonly files: BankFiles;
 }
