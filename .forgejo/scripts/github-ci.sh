@@ -31,22 +31,41 @@ group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 event=${GH_CI_EVENT:-ci}
 case "$event" in ci | catalogue) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
 
-# Bounded, so a stalled response on a flaky uplink is retried within seconds instead of
-# hanging for many minutes (2026-10-02: polls hung 12-15 min each while the site's
-# connection swung between 2 and 77 Mbit/s).
+# Each attempt has 120 s, enough for a 16 KB run reply at the site's measured 1.2 KB/s.
+# Retries start within 180 s; the last attempt can take another 120 s.
 gh_api() {
-  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
+  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-max-time 180 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 # A GET whose reply gets parsed. Through a file, because curl cannot rewind stdout: a retry after
 # a reply cut off mid-way appended the new reply to the partial one, and the parse then failed the
-# job (2026-10-02). Prints nothing when every try failed; the callers read that as "not yet".
+# job (2026-10-02). Failed transfers and incomplete JSON never reach the callers' parsers.
 gh_get() {
   local out
   out=$(mktemp -p "$gl")
-  gh_api -o "$out" "$@" || true
+  if ! gh_api --fail -o "$out" "$@" || ! python3 -c '
+import json,sys
+try:
+    with open(sys.argv[1]) as f: reply=json.load(f)
+    if not isinstance(reply,dict): sys.exit(1)
+except ValueError: sys.exit(1)
+' "$out"; then
+    rm -f "$out"
+    return 1
+  fi
   cat "$out"
   rm -f "$out"
+}
+
+# Three failed polls cost at most 15 minutes of API transport, within the 40-minute
+# relay budget. A valid reply resets the count, even when the run is still queued.
+transport_failures=0
+transport_failure() {
+  transport_failures=$((transport_failures + 1))
+  if [ "$transport_failures" -ge 3 ]; then
+    echo "::error::GitHub API transport failed: GET $1 (3 consecutive failed or incomplete replies after retries)"
+    exit 1
+  fi
 }
 
 # The same gitleaks pin as david/ci scripts/secret-scan.sh; only HEAD's history.
@@ -117,14 +136,18 @@ payload=$(python3 -c 'import json,sys; print(json.dumps({"event_type":sys.argv[5
 # Runs created from a minute before the dispatch, so the lookup reads a few runs, not 30
 # (30 were 485 KB, which a slow uplink did not finish in two minutes).
 since=$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc) - d.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
-code=$(gh_api -o /dev/null -w '%{http_code}' -X POST "$api/dispatches" -d "$payload")
+code=$(gh_api -o /dev/null -w '%{http_code}' -X POST "$api/dispatches" -d "$payload") ||
+  { echo "::error::GitHub API transport failed: POST $api/dispatches (retries exhausted)"; exit 1; }
 [ "$code" = 204 ] || { echo "::error::repository_dispatch answered HTTP $code"; exit 1; }
 
 title="$event $sha $id"
 run_id=
+run_url="$api/actions/runs?event=repository_dispatch&created=%3E%3D$since&per_page=30"
 for _ in $(seq 1 30); do
   sleep 5
-  run_id=$(gh_get "$api/actions/runs?event=repository_dispatch&created=%3E%3D$since&per_page=30" | python3 -c '
+  if reply=$(gh_get "$run_url"); then transport_failures=0
+  else transport_failure "$run_url"; continue; fi
+  run_id=$(printf '%s' "$reply" | python3 -c '
 import json,sys
 try: runs=json.load(sys.stdin).get("workflow_runs",[])
 except ValueError: runs=[]
@@ -135,7 +158,9 @@ done
 echo "GitHub run: https://github.com/$repo/actions/runs/$run_id"
 
 while :; do
-  read -r status conclusion < <(gh_get "$api/actions/runs/$run_id" | python3 -c '
+  if reply=$(gh_get "$api/actions/runs/$run_id"); then transport_failures=0
+  else transport_failure "$api/actions/runs/$run_id"; sleep 15; continue; fi
+  read -r status conclusion < <(printf '%s' "$reply" | python3 -c '
 import json,sys
 try: r=json.load(sys.stdin)
 except ValueError: r={}
@@ -147,7 +172,11 @@ echo "GitHub run finished: $conclusion"
 [ "$conclusion" = success ] && exit 0
 
 # Print the failed steps of each failed job, then fail.
-gh_get "$api/actions/runs/$run_id/jobs" | python3 -c '
+for _ in 1 2 3; do
+  if reply=$(gh_get "$api/actions/runs/$run_id/jobs"); then break
+  else transport_failure "$api/actions/runs/$run_id/jobs"; sleep 3; fi
+done
+printf '%s' "$reply" | python3 -c '
 import json,sys
 try: jobs=json.load(sys.stdin).get("jobs",[])
 except ValueError: jobs=[]
@@ -157,7 +186,9 @@ for j in jobs:
         print(j["id"], j["name"], "failed at:", ", ".join(bad) or j.get("conclusion"))
 ' | while read -r job rest; do
   echo "::group::$rest"
-  gh_api -L "$api/actions/jobs/$job/logs" | grep -v -E '^\S+Z ##\[(group|endgroup)\]' | tail -n 200 || true
+  gh_api --fail -L -o "$gl/job-$job.log" "$api/actions/jobs/$job/logs" ||
+    { echo "::error::GitHub API transport failed: GET $api/actions/jobs/$job/logs (retries exhausted)"; exit 1; }
+  grep -v -E '^\S+Z ##\[(group|endgroup)\]' "$gl/job-$job.log" | tail -n 200 || true
   echo "::endgroup::"
 done
 echo "::error::GitHub CI $conclusion: https://github.com/$repo/actions/runs/$run_id"
