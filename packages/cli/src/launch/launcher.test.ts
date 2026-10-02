@@ -24,7 +24,7 @@ import {
   type ScriptedStart,
   type VersionLayout,
 } from "../../test/launcher-fixtures.js";
-import { RELAUNCH_EXIT_CODE, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
+import { DRAIN_ASK_INTERVAL_MS, RELAUNCH_EXIT_CODE, startLauncher, type Launcher, type TrialFailure } from "./launcher.js";
 import { hasSnapshot, RESTORE_MARKER_FILE, snapshotDirectory, takeSnapshot } from "./snapshot.js";
 import { readServiceState, SERVICE_STATE_FILE, writeServiceState, type ServiceState } from "./state.js";
 import { completeVersions } from "./versions.js";
@@ -82,6 +82,14 @@ interface Running {
   report(): ChildEvent[];
   /** Waits until the scripted children have reported `count` events matching `event`, then answers them. */
   events(event: string, count?: number): Promise<ChildEvent[]>;
+  /**
+   * The service manager's stop, with each next `drain?` run a second after
+   * the last, as the launcher's own timer runs it: a real serve just
+   * committed hears no query before its wire opens, so the one asked at the
+   * stop may go unheard, and on the test's timer alone the stop would wait
+   * for good (#877).
+   */
+  stop(): Promise<number>;
 }
 
 /**
@@ -108,8 +116,18 @@ const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir
     freeBytes: options.freeBytes ?? (() => 2 ** 40),
     ...(version === undefined ? {} : { version }),
   });
+  const stop = async (): Promise<number> => {
+    const nextAsk = setInterval(() => {
+      if (timer.pending().includes(DRAIN_ASK_INTERVAL_MS)) timer.run(DRAIN_ASK_INTERVAL_MS);
+    }, DRAIN_ASK_INTERVAL_MS);
+    try {
+      return await launcher.stop();
+    } finally {
+      clearInterval(nextAsk);
+    }
+  };
   cleanups.push(async () => {
-    await launcher.stop();
+    await stop();
     // A child still there after the test (one it never let go) is ended, so no process outlives the file.
     for (const { pid } of childReport(dataDir)) {
       try {
@@ -132,6 +150,7 @@ const launch = (options: { dataDir?: string; port?: number; freeBytes?: (dataDir
       await until(`${count} ${event} event(s)`, () => matching().length >= count);
       return matching();
     },
+    stop,
   };
 };
 
@@ -1363,7 +1382,7 @@ describe.runIf(posix && !runningAsRoot)("the launcher over the real serve", () =
     const { address } = BootstrapGrant.parse(JSON.parse(readFileSync(grant, "utf8")));
     const discovery = `http://${address.host}:${address.port}${DISCOVERY_PATH}`;
     await vi.waitFor(async () => expect(await (await fetch(discovery)).json()).toMatchObject({ readiness: "ready", harnessVersion: HARNESS_VERSION }), { timeout: 15_000 });
-    await running.launcher.stop();
+    await running.stop();
     await until("serve's exit is logged", () => running.log().at(-1) === `launcher: ${HARNESS_VERSION} exited with code 0`);
     expect(running.log().slice(1)).toEqual([
       `launcher: ${HARNESS_VERSION} committed`,
@@ -1373,8 +1392,15 @@ describe.runIf(posix && !runningAsRoot)("the launcher over the real serve", () =
     await expect(fetch(discovery)).rejects.toThrow();
   });
 
-  // Waits on the stop itself, however long serve takes to start through tsx (the real preflight's budget, #634).
-  it("hands over to the launcher of a real serve that answers idle?, draining it before it exits with the relaunch code", { timeout: REAL_PREFLIGHT_MS }, async () => {
+  /**
+   * Serve's start holds it busy for the idle window (#445), a minute at the
+   * least on serve's own clock, which the test's timer does not move: so a
+   * real serve is asked and answers, and the handover waits. The handover at
+   * the first idle is the scripted child's test above. Waits on serve's
+   * answer, however long serve takes to start through tsx (the real
+   * preflight's budget, #634).
+   */
+  it("asks a real serve idle? to hand over to its launcher, and waits while the serve's start holds it busy, draining it on stop", { timeout: REAL_PREFLIGHT_MS }, async () => {
     const dataDir = dataDirectory();
     installVersion(dataDir, HARNESS_VERSION, new URL("../main.ts", import.meta.url).pathname);
     writeServiceState(dataDir, state(HARNESS_VERSION));
@@ -1384,10 +1410,17 @@ describe.runIf(posix && !runningAsRoot)("the launcher over the real serve", () =
       if (running.timer.pending().includes(10 * 60_000)) running.timer.run(10 * 60_000);
     }, 1_000);
     cleanups.push(() => clearInterval(nextAsk));
-    expect(await running.launcher.stopped).toBe(RELAUNCH_EXIT_CODE);
-    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": `${HARNESS_VERSION}\n`, "launcher-handover": `0.4.0\n${HARNESS_VERSION}\n`, "launcher-handover-starts": null });
+    const waits = `launcher: ${HARNESS_VERSION} is busy (recent-activity), so the handover waits`;
+    await until("serve answers idle? busy", () => running.log().includes(waits), REAL_PREFLIGHT_MS);
+    expect(await running.stop()).toBe(0);
+    expect(handoverFiles(dataDir)).toEqual({ "launcher-version": null, "launcher-handover": null, "launcher-handover-starts": null });
     await until("serve's exit is logged", () => running.log().at(-1) === `launcher: ${HARNESS_VERSION} exited with code 0`);
-    expect(running.log()).toContain(`launcher: stopping: draining ${HARNESS_VERSION}`);
+    expect(running.log().slice(1).filter((line) => line !== waits)).toEqual([
+      `launcher: ${HARNESS_VERSION} committed`,
+      `launcher: ${HARNESS_VERSION} carries another launcher than this one's 0.4.0, so it is asked idle? every 10 minutes to hand over to it`,
+      `launcher: stopping: draining ${HARNESS_VERSION}`,
+      `launcher: ${HARNESS_VERSION} exited with code 0`,
+    ]);
   });
 
   it("commits a trial of the real serve, which passes its gate on the database the switch snapshotted", async () => {
@@ -1405,6 +1438,6 @@ describe.runIf(posix && !runningAsRoot)("the launcher over the real serve", () =
     const { address } = BootstrapGrant.parse(JSON.parse(readFileSync(grant, "utf8")));
     const discovery = `http://${address.host}:${address.port}${DISCOVERY_PATH}`;
     await vi.waitFor(async () => expect(await (await fetch(discovery)).json()).toMatchObject({ readiness: "ready", harnessVersion: HARNESS_VERSION }), { timeout: 15_000 });
-    await running.launcher.stop();
+    await running.stop();
   });
 });
