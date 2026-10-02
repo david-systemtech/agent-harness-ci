@@ -1,12 +1,12 @@
 import {
   TOOL_QUIET_MS,
-  fileUndoWords,
   attachmentChip,
   checkStatus,
   classifyTool,
   describeActivity,
   endWords,
   environmentMessage,
+  fileUndoWords,
   folded,
   formatDuration,
   oneLine,
