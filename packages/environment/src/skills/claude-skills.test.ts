@@ -154,26 +154,63 @@ describe("the run's skill set with the Claude adapter", () => {
     expect(revoked.options.resume).toBe(PROVIDER_SESSION);
   });
 
-  it("links a worktree's skill when project configuration loads from its main checkout", async () => {
+  /** A main checkout holding `main-probe` and a command, and a linked worktree of it whose branch holds skills of its own, one below its root. */
+  const worktreeOfCheckout = () => {
     const checkout = tempDir("agent-harness-main-");
     testGit(checkout, "init", "-q");
     testGit(checkout, "commit", "-q", "--allow-empty", "-m", "first");
     const worktree = join(tempDir("agent-harness-worktrees-"), "branch");
     testGit(checkout, "worktree", "add", "-q", "-b", "branch", worktree);
-    write(join(worktree, ".claude/skills/branch-only/SKILL.md"), skill("branch-only"));
+    write(join(checkout, ".claude/skills/main-probe/SKILL.md"), skill("main-probe"));
     write(join(checkout, ".claude/commands/release.md"), skill("release"));
+    write(join(worktree, ".claude/skills/branch-probe/SKILL.md"), skill("branch-probe"));
+    write(join(worktree, ".agents/skills/branch-linked/SKILL.md"), skill("branch-linked"));
+    write(join(worktree, "packages/web/.claude/skills/nested/SKILL.md"), skill("nested"));
+    return { checkout, worktree };
+  };
+
+  it("offers a worktree its main checkout's native skills and not the branch's, in the set, the listing and the run, hides one switched off, and loads none once trust is revoked", async () => {
+    const { checkout, worktree } = worktreeOfCheckout();
     const { t, client, sessionId } = await start(worktree);
     await client.request("trust.decide", { commandId: randomUUID(), sessionId, decision: "trusted" });
     const members = registry["skills.get"].result.parse(await client.request("skills.get", { sessionId })).members;
-    expect(members.find((m) => m.name === "branch-only")).toMatchObject({ native: false });
-    expect(members.find((m) => m.name === "release")).toMatchObject({ native: true });
+    expect(members.map((m) => [m.name, m.native])).toEqual([["main-probe", true], ["release", true]]);
+    // The CLI under projectConfigRoot lists the main checkout's members, natively, and no branch skill (#998's probe).
+    fake.controls = { supportedCommands: async () => [{ name: "main-probe", description: "The main-probe skill.", argumentHint: "" }, { name: "release", description: "The release skill.", argumentHint: "" }] };
+    const listing = await client.request("commands.list", { sessionId });
+    expect(fake.last().options).toMatchObject({ cwd: worktree, settingSources: ["project"], projectConfigRoot: checkout });
+    expect(listing.entries.map((entry) => [entry.kind, entry.name])).toEqual([["skill", "main-probe"], ["skill", "release"]]);
     const first = await runOn(client, sessionId, "One", () => runQuery(1), 1);
     await ended(t, sessionId, 1);
-    expect(first.options.projectConfigRoot).toBe(checkout);
-    expect(readdirSync(join(pluginOf(first), "skills"))).toEqual(["branch-only"]);
-    expect(readlinkSync(join(pluginOf(first), "skills/branch-only"))).toBe(join(worktree, ".claude/skills/branch-only"));
+    expect(first.options).toMatchObject({ settingSources: ["project"], projectConfigRoot: checkout });
+    expect(first.options.plugins ?? []).toEqual([]);
+    await client.request("skills.setEnabled", { commandId: randomUUID(), name: "main-probe", accountId: "work", enabled: false });
+    const disabled = await runOn(client, sessionId, "Two", () => runQuery(2), 1);
+    await ended(t, sessionId, 2);
+    expect(first.closed).toBe(true);
+    expect(disabled.options.settings).toMatchObject({ skillOverrides: { "main-probe": "off" } });
+    const decision = await client.request("trust.get", { sessionId });
+    await client.request("trust.revoke", { commandId: randomUUID(), key: decision.key });
+    const revoked = await runOn(client, sessionId, "Three", () => runQuery(3), 1);
+    await ended(t, sessionId, 3);
+    expect(disabled.closed).toBe(true);
+    expect(revoked.options.settingSources).toEqual([]);
+    expect(revoked.options).not.toHaveProperty("projectConfigRoot");
+    expect(revoked.options.plugins ?? []).toEqual([]);
+    expect(revoked.options.settings ?? {}).not.toHaveProperty("skillOverrides");
   });
 
+  it("offers a workspace below a worktree's root the same main checkout's skills, not the branch's beside it", async () => {
+    const { checkout, worktree } = worktreeOfCheckout();
+    const { t, client, sessionId } = await start(join(worktree, "packages/web"));
+    await client.request("trust.decide", { commandId: randomUUID(), sessionId, decision: "trusted" });
+    const members = registry["skills.get"].result.parse(await client.request("skills.get", { sessionId })).members;
+    expect(members.map((m) => [m.name, m.native])).toEqual([["main-probe", true], ["release", true]]);
+    const first = await runOn(client, sessionId, "One", () => runQuery(1), 1);
+    await ended(t, sessionId, 1);
+    expect(first.options).toMatchObject({ cwd: join(worktree, "packages/web"), projectConfigRoot: checkout });
+    expect(first.options.plugins ?? []).toEqual([]);
+  });
 
   it("hides a native command shadowed by a linked skill and restores it when the skill is removed", async () => {
     const root = tempDir("agent-harness-shadowed-");

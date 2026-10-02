@@ -9,6 +9,7 @@ export * from "./banks.js";
 export * from "./bank-join.js";
 export * from "./bank-registry.js";
 export * from "./bank-use.js";
+export { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
 export * from "./browser-choice.js";

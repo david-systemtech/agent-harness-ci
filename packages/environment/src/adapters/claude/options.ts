@@ -11,7 +11,6 @@ import type {
   PermissionMode,
   SandboxSettings,
   SessionStore,
-  SettingSource,
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
@@ -247,6 +246,19 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">, suppl
 };
 
 /**
+ * What of its repository's project a run, or a listing of what a run would
+ * offer, loads (ADR 0009, ADR 0015): under trust the `project` source, and
+ * for a workspace in a linked worktree its main checkout as
+ * `projectConfigRoot`, so project settings, hooks and the `.claude` trees,
+ * native skills among them, come from that checkout (#998); untrusted,
+ * nothing of the project, from the branch or from its checkout.
+ */
+export const projectOptions = (trusted: boolean, checkoutRoot: string | null): Pick<Options, "settingSources" | "projectConfigRoot"> => ({
+  settingSources: trusted ? ["project"] : [],
+  ...(trusted && checkoutRoot !== null && { projectConfigRoot: checkoutRoot }),
+});
+
+/**
  * The run's skill set as the SDK's plugins (ADR 0009): its generation as
  * the one local plugin, whose skills the CLI offers as
  * `agent-harness:<name>`; none without a generation.
@@ -317,7 +329,6 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const effort = claudeEffort(run.effort);
   const servers = mcpServers(run);
   const allowed = allowedTools(run);
-  const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
   const sandbox = sandboxOf(run, input.suppliedWritable);
   const disallowedTools = disallowedShell(run.denylist);
   const plugins = skillPlugins(run.skillSet);
@@ -331,8 +342,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   return {
     cwd: run.workspace.path,
     ...(run.additionalDirectories !== undefined && run.additionalDirectories.length > 0 && { additionalDirectories: [...run.additionalDirectories] }),
-    // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
-    ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
+    ...projectOptions(run.trusted, input.checkoutRoot),
     env,
     ...(input.executablePath !== null && { pathToClaudeCodeExecutable: input.executablePath }),
     abortController: input.abortController,
@@ -350,7 +360,6 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(disallowedTools.length > 0 && { disallowedTools }),
     ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),
     systemPrompt: systemPrompt(run.instructions),
-    settingSources,
     strictMcpConfig: true,
     ...(servers !== null && { mcpServers: servers }),
     ...(allowed.length > 0 && { allowedTools: allowed }),

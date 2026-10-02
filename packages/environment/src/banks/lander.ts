@@ -15,6 +15,8 @@ const BANKS_ACTOR = formatActor({ kind: "system", id: "banks" });
 
 export interface BankChanges {
   readonly writes: Readonly<Record<string, string | null>>;
+  /** Refuse a structural edit prepared from another main, so it cannot overwrite intervening authoring. */
+  readonly expectedHead?: string;
   readonly sessionId?: string;
   readonly title: string;
   readonly body: string;
@@ -199,6 +201,7 @@ export const createBankLander = (options: {
       step = "fetch";
       if (remote !== null) await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`, `+refs/heads/memory/${(sessionId ?? bank.id).slice(0, 8)}-*:refs/remotes/origin/memory/${(sessionId ?? bank.id).slice(0, 8)}-*`]);
       const base = await git(bank.checkout, ["rev-parse", main]);
+      if (changes?.expectedHead !== undefined && changes.expectedHead !== base) throw new Error("The bank main changed while the structural edit was prepared. Sync the bank and author the change again.");
       worktree = await detachedAt(base);
       step = "validate";
       const files = await readBankFiles(worktree);
