@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankMigrationReport",
+  "type": "object",
+  "properties": {
+    "valid": {
+      "type": "boolean"
+    },
+    "memories": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "added": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "before",
+        "after",
+        "added"
+      ]
+    },
+    "renames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "from",
+          "to"
+        ]
+      }
+    },
+    "moves": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ]
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string",
+            "enum": [
+              "unreadable",
+              "manifest_missing",
+              "manifest_malformed",
+              "manifest_fact_missing",
+              "manifest_fact_invalid",
+              "retired_key",
+              "unknown_scope_label",
+              "orientation_over_cap",
+              "orientation_missing",
+              "orientation_too_large",
+              "scope_file_missing",
+              "scope_file_malformed",
+              "scope_line",
+              "scope_topics",
+              "unknown_scope",
+              "undeclared_topic",
+              "repository_identity",
+              "index_over_cap",
+              "root_over_cap",
+              "memory_malformed",
+              "memory_name",
+              "memory_name_taken",
+              "memory_type",
+              "description_length",
+              "description_is_name",
+              "description_duplicate",
+              "body_too_long",
+              "secret_shaped",
+              "description_trigger",
+              "unresolved_link"
+            ],
+            "description": "A bank validator rule's id; data/bank-validator-rules.json says what each refuses or warns of."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "refusal",
+              "warning"
+            ],
+            "description": "refusal: the bank or the write is refused; warning: reported, nothing refused."
+          },
+          "path": {
+            "type": "string",
+            "description": "The file or folder it is about, relative to the bank's root: BANK.md, projects/acme/web/, or a memory's file."
+          },
+          "field": {
+            "description": "The field of the file it is about, where it is one: purpose, orientation, topics, description, body.",
+            "type": "string",
+            "minLength": 1
+          },
+          "secret": {
+            "description": "secret_shaped only: the shape rule that found it, or registered-value; never the value.",
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai-style",
+              "aws",
+              "google",
+              "github",
+              "private-key",
+              "bearer",
+              "key-assignment",
+              "openbao",
+              "doppler",
+              "onepassword",
+              "bitwarden",
+              "registered-value"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What is wrong and what to do, for the bank's author; never a secret's value."
+          }
+        },
+        "required": [
+          "rule",
+          "severity",
+          "path",
+          "message"
+        ],
+        "description": "One finding of the bank validator: the rule's id, refusal or warning, the path and field it is about, and an actionable message."
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "value",
+          "reason"
+        ]
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pointer": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){1,3}|(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){2,3}memories\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/)$"
+              },
+              {
+                "pattern": "^[^:]+:[^/]+\\/[^/]+\\/(?:[^/]+\\/)?$"
+              }
+            ],
+            "description": "A project or area folder pointer bank:org/project/[area/], whose flat memories may be split into authored topics."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "All memories in the scope folder, including existing topics."
+          },
+          "clusters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "prefix": {
+                  "type": "string",
+                  "maxLength": 60,
+                  "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                  "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+                },
+                "memories": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                    "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+                  }
+                }
+              },
+              "required": [
+                "prefix",
+                "memories"
+              ]
+            }
+          }
+        },
+        "required": [
+          "pointer",
+          "count",
+          "clusters"
+        ],
+        "description": "Name-prefix clusters suggested for explicit authoring. Proposing changes no files, declarations or landing state."
+      }
+    },
+    "preservation": {
+      "type": "object",
+      "properties": {
+        "names": {
+          "type": "boolean"
+        },
+        "links": {
+          "type": "boolean"
+        },
+        "counts": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "names",
+        "links",
+        "counts"
+      ]
+    },
+    "headsUp": {
+      "description": "Draft only: the human posts it before switch-over; migration never creates a tracker issue.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    }
+  },
+  "required": [
+    "valid",
+    "memories",
+    "renames",
+    "moves",
+    "findings",
+    "decisions",
+    "proposals"
+  ],
+  "description": "Conversion counts, key renames, accepted moves, common validator findings and unresolved human decisions; never source memory bodies."
+}

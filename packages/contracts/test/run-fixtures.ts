@@ -212,12 +212,14 @@ const payloads: Record<string, Fixtures> = {
     valid: [
       { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: null },
       { fromSessionId: sessionId, atMessageId: messageId, fromProviderSessionId: "provider-session-1" },
+      { fromSessionId: sessionId, atMessageId: messageId, fromProviderSessionId: "provider-session-1", history: { title: "Receipts", anchor: "Add the tests", items: [], runs: [] } },
     ],
     invalid: [
       { fromSessionId: "s-1", atMessageId: null, fromProviderSessionId: null },
       { atMessageId: null, fromProviderSessionId: null },
       { fromSessionId: sessionId, atMessageId: null },
       { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: "" },
+      { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: null, history: { title: "Receipts", anchor: null, items: [{ kind: "user-message", sequence: 1 }], runs: [] } },
     ],
   },
   "session.rewound": { valid: [{ toMessageId: messageId }], invalid: [{}, { toMessageId: "m-1" }] },
@@ -299,6 +301,8 @@ const toolCall = {
   output: "file.txt",
   durationMs: 12,
 };
+const runningCheck = { kind: "check", sequence: 7, terminalId: messageId, command: "pnpm lint", sourceRunId: null, state: "running", result: null };
+const finishedCheck = { ...runningCheck, state: "finished", result: { output: "Lint passed\n", truncated: false, exitCode: 0, signal: null, timedOut: false, failure: null } };
 const items = [
   userMessage,
   { kind: "assistant-thinking", sequence: 4, runId, itemId: "i-2", text: "Look first.", aborted: false },
@@ -412,12 +416,24 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
-  "transcript/transcript-item.json": { valid: [...items,
+  "transcript/fork-history.json": {
+    valid: [{ title: "Receipts", anchor: "Add the tests", items: [...items, runningCheck, finishedCheck], runs: [runSummary] }, { title: "", anchor: null, items: [], runs: [] }],
+    invalid: [{ title: "Receipts", anchor: null, items: [{ kind: "assistant-text", sequence: 3 }], runs: [] }, { title: "Receipts", anchor: 3, items: [], runs: [] }],
+  },
+  "transcript/transcript-item.json": { valid: [...items, runningCheck, finishedCheck,
       { kind: "file-undo", sequence: 2, changeId: messageId, path: "src/app.ts", action: "restored" },
       { kind: "file-undo", sequence: 3, changeId: otherMessageId, path: "new.ts", action: "deleted" }, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: null },
+      { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId, history: { title: "Receipts", anchor: "Add the tests", items, runs: [runSummary] } },
     ], invalid: [
+      { kind: "check", sequence: 7 },
+      { ...runningCheck, terminalId: "not-a-terminal" },
+      { ...runningCheck, command: " " },
+      { ...runningCheck, state: "finished" },
+      { ...finishedCheck, state: "running" },
+      { ...finishedCheck, result: { ...finishedCheck.result, failure: "unknown" } },
+      { ...finishedCheck, result: { ...finishedCheck.result, output: "x".repeat(65537) } },
       { sequence: 3 },
       { kind: "plan-card" },
       { kind: "file-undo", sequence: 2, changeId: messageId, path: "", action: "restored" },
@@ -446,7 +462,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   },
   "transcript/session-snapshot.json": {
     // The last valid one is an environment's from before #260, with no rewinds or instructions: read as none standing, and none.
-    valid: [snapshot, { ...snapshot, suggestion: { runId, suggestion: "Run the tests" } }, { ...snapshot, suggestion: null }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
+    valid: [snapshot, { ...snapshot, items: [runningCheck, finishedCheck] }, { ...snapshot, suggestion: { runId, suggestion: "Run the tests" } }, { ...snapshot, suggestion: null }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
     invalid: [
       { sequence: 13, summary: freshSummary, transcript: {} },
       { ...snapshot, suggestion: { runId, suggestion: "" } },

@@ -63,6 +63,18 @@ const run: RunSummary = {
 const view: Pick<SessionProjection, "items" | "runs" | "summary"> = { items, runs: [run], summary: null };
 
 describe("the text of a session", () => {
+  it("exports check commands, status, truncation and retained output", () => {
+    const items: TranscriptEntry[] = [
+      { kind: "check", sequence: 1, terminalId: "terminal-1", command: "pnpm lint", sourceRunId: null, state: "running", result: null },
+      { kind: "check", sequence: 2, terminalId: "terminal-2", command: "pnpm typecheck", sourceRunId: RUN, state: "finished", result: { output: "Type error\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null } },
+    ];
+    const exported = exportMarkdown({ items, runs: [], summary: null }, { environment: "desk", at: new Date("2026-10-02T00:00:00Z") });
+    expect(exported).toContain("`$ pnpm lint` · running");
+    expect(exported).toContain("`$ pnpm typecheck` · exit 1");
+    expect(exported).toContain("_Earlier output omitted_");
+    expect(exported).toContain("Type error");
+  });
+
   it("finds a reply's fenced code blocks without their fences", () => {
     expect(codeBlocks("a\n```ts\none\ntwo\n```\nb\n~~~\nthree\n~~~")).toEqual(["one\ntwo", "three"]);
     expect(codeBlocks("no code")).toEqual([]);
@@ -171,6 +183,12 @@ describe("what a rewind cut, in /export (#232)", () => {
     const header = { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z"), forked: { title: "Receipts", anchor: "Add the tests" } };
     expect(exportMarkdown({ items: [forked, said(5, "Carry on")], runs: [], summary: null }, header)).toContain("_Forked from Receipts at Add the tests._\n\n### You · ");
     expect(exported([forked])).toContain("_Forked from another session._");
+    const copied = said(1, "Fix the receipts");
+    if (copied.kind !== "user-message") throw new Error("Expected a user message.");
+    const seeded: TranscriptEntry = { ...forked, history: { title: "Saved receipts", anchor: "Add the tests", items: [copied], runs: [] } };
+    const document = exported([seeded]);
+    expect(document).toContain("_Forked from Saved receipts at Add the tests._");
+    expect(document).toContain("Fix the receipts");
   });
 
   it("writes an unreadable history's line on one line, whatever lines its reason spans (#579)", () => {

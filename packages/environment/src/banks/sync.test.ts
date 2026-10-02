@@ -97,6 +97,29 @@ const events = (t: TestEnvironment, after: number): EventEnvelope[] => t.env.log
 const pull = async (client: WireClient, bank: BankRecord) => (await client.request("banks.sync", { bankId: bank.id })).banks.find((record) => record.id === bank.id);
 
 describe("banks.sync", () => {
+  it("syncs another bank while checkout work is held and continues after that work fails", async () => {
+    const { t, client, banks } = await start({}, [{}, {}]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    onCleanup(release);
+    let entered!: () => void;
+    const holding = new Promise<void>((resolve) => { entered = resolve; });
+    const bank = banks[0]!.bank;
+    const held = t.env.banks.withCheckout(bank.id, async () => {
+      entered();
+      await gate;
+      throw new Error("The preceding checkout operation failed.");
+    });
+    const failed = expect(held).rejects.toThrow("The preceding checkout operation failed.");
+    await holding;
+    const pulling = pull(client, bank);
+    expect((await pull(client, banks[1]!.bank))?.status.reachable.state).toBe("reachable");
+    release();
+    await failed;
+    expect((await pulling)?.status.reachable.state).toBe("reachable");
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.status.lastSync).not.toBeNull();
+  });
+
   it("keeps a fetch failure when an older verification completes afterward", async () => {
     const { client, bank, forge } = await start({ banksGit: async () => { throw new Error("The fetch failed."); } });
     let asked!: () => void;

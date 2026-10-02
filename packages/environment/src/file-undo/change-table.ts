@@ -33,7 +33,11 @@ export interface CapturedChange {
   /** Relative to the workspace's real path with forward slashes, when inside it; else the absolute path the call writes. */
   readonly path: string;
   readonly inside: boolean;
-  /** Whether the file was there before the call. */
+  /**
+   * Whether the capture found the file there before the call. False too where
+   * it did not look (outside the workspace, or recorded without a read), so a
+   * false says the file was absent only on a record that can be restored.
+   */
   readonly existed: boolean;
   /** The file's bytes before the call; null when it cannot be restored or was not there. */
   readonly pre: Uint8Array | null;
@@ -43,8 +47,8 @@ export interface CapturedChange {
   readonly unrestorable: FileChangeUnrestorableReason | null;
 }
 
-/** What a call left in one of its files: the digest of its bytes, or why the change cannot be restored. */
-export type ChangeOutcome = { readonly digest: string; readonly unrestorable?: undefined } | { readonly unrestorable: FileChangeUnrestorableReason };
+/** What a call left in one of its files: the digest of its bytes and its permission bits, or why the change cannot be restored. */
+export type ChangeOutcome = { readonly digest: string; readonly mode: number; readonly unrestorable?: undefined } | { readonly unrestorable: FileChangeUnrestorableReason };
 
 /** A pending record, as the capture after its call completes it. */
 export interface PendingChange {
@@ -64,6 +68,7 @@ export interface ChangeRecord extends PendingChange {
   readonly pre: Buffer | null;
   readonly preMode: number | null;
   readonly postDigest: string | null;
+  readonly postMode: number | null;
 }
 
 /** A restore under way: the command it is, the record it restores and the scratch file it writes first. */
@@ -116,6 +121,7 @@ interface ChangeRow {
   pre: Uint8Array | null;
   pre_mode: number | null;
   post_digest: string | null;
+  post_mode: number | null;
 }
 
 const toRecord = (row: ChangeRow): ChangeRecord & { readonly state: string } => ({
@@ -132,6 +138,7 @@ const toRecord = (row: ChangeRow): ChangeRecord & { readonly state: string } => 
   pre: row.pre === null ? null : Buffer.from(row.pre),
   preMode: row.pre_mode,
   postDigest: row.post_digest,
+  postMode: row.post_mode,
 });
 
 const toJournal = (row: { actor: string; command_id: string; change_id: string; scratch: string }): JournalEntry => ({
@@ -188,7 +195,13 @@ export const createFileChangeTable = (sql: Sql, requireTx: (tx: Tx) => void): Fi
           changeId,
         );
       } else {
-        sql.run("UPDATE file_changes SET state = 'completed', position = ?, post_digest = ? WHERE change_id = ? AND state = 'pending'", position, outcome.digest, changeId);
+        sql.run(
+          "UPDATE file_changes SET state = 'completed', position = ?, post_digest = ?, post_mode = ? WHERE change_id = ? AND state = 'pending'",
+          position,
+          outcome.digest,
+          outcome.mode,
+          changeId,
+        );
       }
     }
     // A record the outcomes do not name has nothing to restore against.

@@ -196,6 +196,7 @@ export const MIGRATIONS: readonly Migration[] = [
         pre BLOB,
         pre_mode INTEGER,
         post_digest TEXT,
+        post_mode INTEGER,
         UNIQUE (session_id, tool_call_id, path)
       ) STRICT;
       CREATE INDEX file_changes_by_session ON file_changes (session_id, state, position);

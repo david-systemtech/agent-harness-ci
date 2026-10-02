@@ -340,7 +340,7 @@ describe("banks.verify", () => {
     git(reviewed, "add", "BANK.md");
     git(reviewed, "commit", "--quiet", "-m", "Describe the bank.");
     git(reviewed, "switch", "--quiet", "main");
-    forge.pullRequest(TOKEN, "acme/reviewed", 7, { head: "setup/describe-2026-09-24", state: "open" });
+    forge.pullRequest(TOKEN, "acme/reviewed", 7, { head: "setup/describe-2026-09-24", sha: git(reviewed, "rev-parse", "setup/describe-2026-09-24").trim(), state: "open" });
     const awaiting = await registered(client, { path: reviewed });
     expect([team.status.owners.unresolved, awaiting.status.manifest.state]).toEqual([["maya-reyes"], "awaiting-review"]);
     const from = t.env.log.head();
