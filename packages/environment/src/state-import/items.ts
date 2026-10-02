@@ -148,7 +148,8 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
     try {
       const refusal = item.validate === undefined ? null : await item.validate();
       if (refusal != null) { failed.push({ label: item.label, message: refusal }); continue; }
-      const apply = item.prepare === undefined ? item.apply : await item.prepare({ ...caller, commandId, onUndo: (undo) => void undos.push(undo) });
+      const preparation = { ...caller, commandId, onUndo: (undo: Undo) => void undos.push(undo) };
+      const apply = item.apply === undefined ? await item.prepare(preparation) : await item.prepare?.(preparation) ?? item.apply;
       const run = log.command<{ readonly carried: boolean }>({ actor, commandId }, (tx) => {
         if (mappedTarget(log, item) !== undefined) return { aggregate: stream, result: { carried: false } };
         const answer = apply({ ...caller, commandId, actor, tx });
