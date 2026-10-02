@@ -2,6 +2,7 @@ import {
   CHAT_COMPLETIONS_PATH,
   COMPLETIONS_NAMESPACE,
   ChatCompletionChunk,
+  CompletionsErrorBody,
   CompletionsModelList,
   MODELS_PATH,
   type CompletionsModel,
@@ -9,8 +10,10 @@ import {
   type Mode,
   type RunEndReason,
 } from "@agent-harness/contracts";
+import type { ConnectionCredential } from "@agent-harness/client-runtime";
 import type { SelectionOutcome } from "../startup/selection.js";
-import { formatWriter, type PrintFormat } from "./output.js";
+import { nameOf } from "../view.js";
+import { formatWriter, type FormatWriter, type PrintFormat } from "./output.js";
 import { eventData } from "./sse.js";
 
 /**
@@ -49,10 +52,104 @@ export interface PrintIo {
 /** The part of a listed model's id after the account's slug: the model's own id. */
 const modelOf = (listedId: string): string => listedId.slice(listedId.indexOf("/") + 1);
 
+/** A step that cannot go on: its one line, said on standard error and in the result. */
+class PrintFailure extends Error {}
+
+/** What the print has learned, for its result. */
+interface Learned {
+  environmentId: string | null;
+  sessionId: string | null;
+  runId: string | null;
+  text: string;
+  usage: CompletionUsage | null;
+  reason: RunEndReason;
+  error: string | null;
+  /** The answer ended with its run completed, and nothing it sent still waits. */
+  completed: boolean;
+}
+
+/** The surface's refusal of a request, in its words, with the session and run it names; else the status. */
+const refusalOf = async (response: Response, learned: Learned, what: string): Promise<PrintFailure> => {
+  const parsed = CompletionsErrorBody.safeParse(await response.json().catch(() => null));
+  if (!parsed.success) return new PrintFailure(`${what} answered ${response.status}.`);
+  const fields = parsed.data[COMPLETIONS_NAMESPACE];
+  if (fields?.sessionId !== undefined) learned.sessionId = fields.sessionId;
+  if (fields?.runId !== undefined) learned.runId = fields.runId;
+  if (fields?.ended !== undefined) learned.reason = fields.ended.reason;
+  return new PrintFailure(parsed.data.error.message);
+};
+
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** A request of the completions routes; a network failure is the environment out of reach. */
+const ask = async (io: PrintIo, environment: string, url: string, init: RequestInit): Promise<Response> => {
+  try {
+    return await io.fetch(url, init);
+  } catch (error) {
+    throw new PrintFailure(`${environment} could not be reached: ${messageOf(error)}.`);
+  }
+};
+
 /** `GET /v1/models` on the environment, as its credential may read it. */
-const listModels = async (io: PrintIo, origin: string, token: string): Promise<readonly CompletionsModel[]> => {
-  const response = await io.fetch(`${origin}${MODELS_PATH}`, { headers: { authorization: `Bearer ${token}` } });
-  return CompletionsModelList.parse(await response.json()).data;
+const listModels = async (io: PrintIo, environment: string, credential: ConnectionCredential, learned: Learned): Promise<readonly CompletionsModel[]> => {
+  const response = await ask(io, environment, `${credential.origin}${MODELS_PATH}`, { headers: { authorization: `Bearer ${credential.token}` } });
+  if (!response.ok) throw await refusalOf(response, learned, environment);
+  const listing = CompletionsModelList.safeParse(await response.json().catch(() => null));
+  if (!listing.success) throw new PrintFailure(`${environment} listed its models in a shape this terminal does not read.`);
+  return listing.data.data;
+};
+
+/** One event's data, parsed as JSON and read as a chunk. */
+const chunkOf = (data: string): { readonly raw: unknown; readonly chunk: ChatCompletionChunk } => {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(data);
+  } catch {
+    throw new PrintFailure("The answer sent something that is not JSON.");
+  }
+  const parsed = ChatCompletionChunk.safeParse(raw);
+  if (!parsed.success) throw new PrintFailure("The answer sent something that is not a completion chunk.");
+  return { raw, chunk: parsed.data };
+};
+
+/** Reads the streamed answer into `learned`, handing each chunk to `writer` as it comes. */
+const readAnswer = async (body: ReadableStream<Uint8Array>, environment: string, learned: Learned, writer: FormatWriter): Promise<void> => {
+  let finished = false;
+  /** The final chunk's error: said once the usage after it is read too. */
+  let failed: string | undefined;
+  const events = eventData(body);
+  for (;;) {
+    let next: IteratorResult<string>;
+    try {
+      next = await events.next();
+    } catch (error) {
+      throw new PrintFailure(`The answer from ${environment} broke off: ${messageOf(error)}.`);
+    }
+    if (next.done === true) break;
+    let raw: unknown;
+    let chunk: ChatCompletionChunk;
+    try {
+      ({ raw, chunk } = chunkOf(next.value));
+    } catch (error) {
+      await events.return();
+      throw error;
+    }
+    const fields = chunk[COMPLETIONS_NAMESPACE];
+    if (fields.sessionId !== undefined) learned.sessionId = fields.sessionId;
+    if (fields.runId !== undefined) learned.runId = fields.runId;
+    const choice = chunk.choices[0];
+    const content = choice?.delta.content;
+    if (content !== undefined) learned.text += content;
+    if (chunk.usage !== undefined) learned.usage = chunk.usage;
+    writer.chunk(raw, content);
+    if (choice?.finish_reason == null) continue;
+    finished = true;
+    if (fields.ended !== undefined) learned.reason = fields.ended.reason;
+    learned.completed = choice.finish_reason === "stop" && fields.ended?.reason === "completed";
+    failed = chunk.error?.message;
+  }
+  if (!finished) throw new PrintFailure("The answer ended before its run did.");
+  if (failed !== undefined) throw new PrintFailure(failed);
 };
 
 /**
@@ -63,27 +160,29 @@ const listModels = async (io: PrintIo, origin: string, token: string): Promise<r
 export const printAnswer = async (select: () => Promise<SelectionOutcome>, request: PrintRequest, io: PrintIo): Promise<number> => {
   const startedAt = performance.now();
   const writer = formatWriter(request.format, io.stdout);
-  const ids: { environmentId: string | null; sessionId: string | null; runId: string | null } = { environmentId: null, sessionId: null, runId: null };
-  let text = "";
-  let usage: CompletionUsage | null = null;
-  let reason: RunEndReason = "error";
-  let error: string | null = null;
-  let completed = false;
+  const learned: Learned = { environmentId: null, sessionId: null, runId: null, text: "", usage: null, reason: "error", error: null, completed: false };
   const end = (code: number): number => {
-    writer.end({ type: "result", ...ids, text, usage, durationMs: Math.round(performance.now() - startedAt), reason, error }, completed);
+    const { completed, ...result } = learned;
+    writer.end({ type: "result", ...result, durationMs: Math.round(performance.now() - startedAt) }, completed);
     return code;
+  };
+  const fail = (message: string): number => {
+    learned.error = message;
+    io.stderr(`${message}\n`);
+    return end(1);
   };
 
   const outcome = await select();
-  if (!outcome.ok) return end(1);
+  if (!outcome.ok) return fail(outcome.message);
   const { selection } = outcome;
-  ids.environmentId = selection.environment.environmentId;
+  learned.environmentId = selection.environment.environmentId;
   try {
     const { credential, session } = selection;
+    const environment = nameOf(selection.environment);
     const presets = await selection.newSessionPresets();
-    const listing = await listModels(io, credential.origin, credential.token);
+    const listing = await listModels(io, environment, credential, learned);
     const model = listing.find((entry) => entry[COMPLETIONS_NAMESPACE].accountId === presets.account.value?.id && modelOf(entry.id) === presets.model.value?.id);
-    if (model === undefined) return end(1);
+    if (model === undefined) return fail("No model.");
     const body = {
       model: model.id,
       messages: [{ role: "user", content: request.prompt }],
@@ -91,26 +190,17 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
       stream_options: { include_usage: true },
       [COMPLETIONS_NAMESPACE]: { workspace: session.workspace, attended: false },
     };
-    const response = await io.fetch(`${credential.origin}${CHAT_COMPLETIONS_PATH}`, {
+    const response = await ask(io, environment, `${credential.origin}${CHAT_COMPLETIONS_PATH}`, {
       method: "POST",
       headers: { authorization: `Bearer ${credential.token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (response.body === null) return end(1);
-    for await (const data of eventData(response.body)) {
-      const raw: unknown = JSON.parse(data);
-      const chunk = ChatCompletionChunk.parse(raw);
-      const fields = chunk[COMPLETIONS_NAMESPACE];
-      if (fields.sessionId !== undefined) ids.sessionId = fields.sessionId;
-      if (fields.runId !== undefined) ids.runId = fields.runId;
-      const content = chunk.choices[0]?.delta.content;
-      if (content !== undefined) text += content;
-      if (chunk.usage !== undefined) usage = chunk.usage;
-      if (fields.ended !== undefined) reason = fields.ended.reason;
-      if (chunk.choices[0]?.finish_reason === "stop" && fields.ended?.reason === "completed") completed = true;
-      writer.chunk(raw, content);
-    }
-    return end(completed ? 0 : 1);
+    if (!response.ok || response.body === null) throw await refusalOf(response, learned, environment);
+    await readAnswer(response.body, environment, learned, writer);
+    return end(learned.completed ? 0 : 1);
+  } catch (error) {
+    if (error instanceof PrintFailure) return fail(error.message);
+    throw error;
   } finally {
     await selection.close();
   }

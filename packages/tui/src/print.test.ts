@@ -198,3 +198,123 @@ describe("printing one answer", () => {
     }
   });
 });
+
+/** The one JSON result standard output holds. */
+const resultOf = (stdout: string): unknown => {
+  const lines = stdout.trimEnd().split("\n");
+  expect(lines).toHaveLength(1);
+  return JSON.parse(lines[0] ?? "");
+};
+
+describe("a print that fails", () => {
+  it("says why no environment was chosen, on standard error and as a JSON result naming none", async () => {
+    const on = await machine({ environments: [] });
+    const http = fakeCompletions("http://nowhere.test");
+    const message = "No environment is known here: `agent-harness service install` sets up this machine's, and `/pair` in `agent-harness tui` adds another.";
+
+    const text = print(on, http);
+    expect(await text.exit).toBe(1);
+    expect([text.stdout(), text.stderr()]).toEqual(["", `${message}\n`]);
+
+    const json = print(on, http, { format: "json" });
+    expect(await json.exit).toBe(1);
+    expect(resultOf(json.stdout())).toEqual({
+      type: "result",
+      environmentId: null,
+      sessionId: null,
+      runId: null,
+      text: "",
+      usage: null,
+      durationMs: expect.any(Number),
+      reason: "error",
+      error: message,
+    });
+    expect(http.sent()).toEqual([]);
+  });
+
+  it("ends with the surface's refusal of the turn, in its words, with the session it names", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const message = "The workspace /home/seth/code/harness is not a directory on this environment.";
+
+    for (const format of ["text", "stream-json"] as const) {
+      const http = fakeCompletions(environment.wire.origin, [OPUS]);
+      const printing = print(on, http, { format });
+      (await http.turn()).refuse(400, {
+        error: { message, type: "invalid_request_error", code: "workspace_missing", param: "agent-harness.workspace" },
+        "agent-harness": { sessionId },
+      });
+
+      expect(await printing.exit, format).toBe(1);
+      expect(printing.stderr(), format).toBe(`${message}\n`);
+      if (format === "text") expect(printing.stdout()).toBe("");
+      else expect(resultOf(printing.stdout())).toMatchObject({ environmentId: DESK, sessionId, runId: null, text: "", usage: null, reason: "error", error: message });
+    }
+  });
+
+  it("ends with the run's failure as the answer gave it, keeping the text printed and the usage reported", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const usage = { prompt_tokens: 30, completion_tokens: 2, total_tokens: 32, prompt_tokens_details: { cached_tokens: 0 } };
+
+    for (const [format, ended] of [
+      ["text", { reason: "error", cause: null }],
+      ["json", { reason: "error", cause: null }],
+      ["json", { reason: "interrupted", cause: "user" }],
+    ] as const) {
+      const http = fakeCompletions(environment.wire.origin, [OPUS]);
+      const printing = print(on, http, { format });
+      const turn = await http.turn();
+      const run = environment.startRun(sessionId, "Say hello");
+      const answer = turn.open();
+      answer.chunk(headOf(environment, sessionId, run));
+      answer.chunk(chunkOf(4, { content: "Half an answer" }));
+      const error = { message: `The run ended: ${ended.reason}.`, type: "server_error", code: ended.reason, param: null };
+      answer.chunk(chunkOf(5, { finish: "error", error, ext: { ended } }));
+      answer.chunk(chunkOf(5, { usage }));
+      answer.done();
+
+      expect(await printing.exit, format).toBe(1);
+      expect(printing.stderr(), format).toBe(`${error.message}\n`);
+      if (format === "text") expect(printing.stdout()).toBe("Half an answer\n");
+      else expect(resultOf(printing.stdout())).toMatchObject({ sessionId, runId: run.runId, text: "Half an answer", usage, reason: ended.reason, error: error.message });
+    }
+  });
+
+  it("ends with one result when the answer breaks off, ends early or is not an answer, making up no usage", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const cases: readonly [string, (answer: AnswerStream) => void, string][] = [
+      ["broken", (answer) => answer.fail(), "The answer from desk broke off: terminated."],
+      ["ended early", (answer) => answer.done(), "The answer ended before its run did."],
+      ["not a chunk", (answer) => answer.write('data: {"object":"something else"}\n\n'), "The answer sent something that is not a completion chunk."],
+      ["not JSON", (answer) => answer.write("data: {half\n\n"), "The answer sent something that is not JSON."],
+    ];
+    for (const [name, cut, message] of cases) {
+      const http = fakeCompletions(environment.wire.origin, [OPUS]);
+      const printing = print(on, http, { format: "json" });
+      const turn = await http.turn();
+      const run = environment.startRun(sessionId, "Say hello");
+      environment.endRun(sessionId, run.runId);
+      const answer = turn.open();
+      answer.chunk(headOf(environment, sessionId, run));
+      answer.chunk(chunkOf(4, { content: "Hel" }));
+      cut(answer);
+
+      expect(await printing.exit, name).toBe(1);
+      expect(resultOf(printing.stdout()), name).toMatchObject({ sessionId, runId: run.runId, text: "Hel", usage: null, reason: "error", error: message });
+      expect(printing.stderr(), name).toBe(`${message}\n`);
+      // An answer that is not one is let go of, open as it is.
+      if (name.startsWith("not")) expect(answer.abandoned(), name).toBe(true);
+    }
+
+    // Nothing answers at the environment's address: the turn was never taken.
+    const http = fakeCompletions("http://elsewhere.test", []);
+    const printing = print(on, http, { format: "json" });
+    expect(await printing.exit).toBe(1);
+    expect(resultOf(printing.stdout())).toMatchObject({ environmentId: DESK, sessionId: null, usage: null, reason: "error", error: `desk could not be reached: fetch failed: nothing answers at ${environment.wire.origin}/v1/models.` });
+  });
+});

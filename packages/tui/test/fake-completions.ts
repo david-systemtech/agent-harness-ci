@@ -105,28 +105,40 @@ export const fakeCompletions = (origin: string, listing: readonly CompletionsMod
         },
         open() {
           settled = true;
-          let controller!: ReadableStreamDefaultController<Uint8Array>;
+          // What the test wrote, served as the printer reads: a break comes after what was written before it, as on a socket.
+          const queue: (Uint8Array | Error | "end")[] = [];
+          let wake: (() => void) | undefined;
           let over = false;
           let abandoned = false;
-          const stream = new ReadableStream<Uint8Array>({
-            start: (c) => void (controller = c),
-            cancel: () => void (abandoned = true),
-          });
+          const push = (item: Uint8Array | Error | "end") => {
+            if (over) return;
+            if (!(item instanceof Uint8Array)) over = true;
+            queue.push(item);
+            wake?.();
+          };
+          const stream = new ReadableStream<Uint8Array>(
+            {
+              pull: async (controller) => {
+                while (queue.length === 0) await new Promise<void>((resolve) => (wake = resolve));
+                const next = queue.shift() as Uint8Array | Error | "end";
+                if (next === "end") controller.close();
+                else if (next instanceof Error) controller.error(next);
+                else controller.enqueue(next);
+              },
+              cancel: () => void (abandoned = true),
+            },
+            { highWaterMark: 0 },
+          );
           signal?.addEventListener("abort", () => {
             abandoned = true;
-            if (over) return;
-            over = true;
-            controller.error(abortError());
+            // An abort drops what was not read yet.
+            queue.length = 0;
+            over = false;
+            push(abortError());
           });
-          const bytes = (chunk: Uint8Array) => {
-            if (!over) controller.enqueue(chunk);
-          };
+          const bytes = (chunk: Uint8Array) => push(chunk);
           const write = (text: string) => bytes(encoder.encode(text));
-          const end = () => {
-            if (over) return;
-            over = true;
-            controller.close();
-          };
+          const end = () => push("end");
           resolve(new Response(stream, { status: 200, headers: { "content-type": "text/event-stream; charset=utf-8" } }));
           return {
             write,
@@ -138,11 +150,7 @@ export const fakeCompletions = (origin: string, listing: readonly CompletionsMod
               end();
             },
             end,
-            fail: () => {
-              if (over) return;
-              over = true;
-              controller.error(new TypeError("terminated"));
-            },
+            fail: () => push(new TypeError("terminated")),
             abandoned: () => abandoned,
           };
         },
