@@ -1,0 +1,33 @@
+# Root-relative globs. A matched directory excludes its whole subtree.
+# Development CI and publication policies stay on the development origin.
+.forgejo/
+.ci/
+.public-exclude
+.public-privacy.json
+.public-map.json
+public/.github-workflows/
+.gitleaksignore
+scripts/publish-public.py
+test/publish-public.test.ts
+docs/agents/publish-public.md
+# Private operational runbooks identified by the publication scrub.
+docs/agents/switch-over-*
+docs/routines/hermes-delivery.md
+# Local operational state must never be a public snapshot input.
+.ah-*/
+# Tests naming private inputs remain covered by development CI only.
+test/release-workflow.test.ts
+test/github-ci-script.test.ts
+test/install-ps1-script.test.ts
+test/release-workflow-input.test.ts
+test/container.test.ts
+test/desktop-builds-script.test.ts
+test/image-script.test.ts
+packages/contracts/src/bank-templates.test.ts
+packages/environment/src/skills/catalogue-job.test.ts
+packages/environment/src/banks/create.test.ts
+packages/environment/src/banks/validator-update.test.ts
+packages/environment/src/banks/migration-wire.test.ts
+packages/environment/src/banks/migrate.test.ts
+packages/environment/src/banks/publish.test.ts
+packages/desktop/scripts/desktop-build/workflow.test.ts
