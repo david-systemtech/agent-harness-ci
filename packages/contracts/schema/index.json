@@ -1431,6 +1431,14 @@
       "title": "RepositoryIdentity"
     },
     {
+      "path": "banks/migration-choices.json",
+      "title": "BankMigrationChoices"
+    },
+    {
+      "path": "banks/migration-report.json",
+      "title": "BankMigrationReport"
+    },
+    {
       "path": "banks/split-pointer.json",
       "title": "BankSplitPointer"
     },
@@ -5407,6 +5415,22 @@
       "title": "banks.split.apply error"
     },
     {
+      "path": "methods/banks.migrate/params.json",
+      "title": "banks.migrate params"
+    },
+    {
+      "path": "methods/banks.migrate/result.json",
+      "title": "banks.migrate result"
+    },
+    {
+      "path": "methods/banks.migrate/response.json",
+      "title": "banks.migrate response"
+    },
+    {
+      "path": "methods/banks.migrate/error.json",
+      "title": "banks.migrate error"
+    },
+    {
       "path": "methods/banks.join.preview/params.json",
       "title": "banks.join.preview params"
     },
@@ -8180,6 +8204,16 @@
       "result": "methods/banks.split.apply/result.json",
       "response": "methods/banks.split.apply/response.json",
       "error": "methods/banks.split.apply/error.json"
+    },
+    {
+      "name": "banks.migrate",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.migrate/params.json",
+      "result": "methods/banks.migrate/result.json",
+      "response": "methods/banks.migrate/response.json",
+      "error": "methods/banks.migrate/error.json"
     },
     {
       "name": "banks.join.preview",

@@ -1,3 +1,4 @@
+import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 import { SessionBankUsedPayload } from "./bank-use.js";
 import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, BankReviewHeldPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
@@ -1068,6 +1069,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/migration-choices.json", title: "BankMigrationChoices", schema: BankMigrationChoices },
+  { path: "banks/migration-report.json", title: "BankMigrationReport", schema: BankMigrationReport },
   { path: "banks/split-pointer.json", title: "BankSplitPointer", schema: BankSplitPointer },
   { path: "banks/split-topics.json", title: "BankSplitTopics", schema: BankSplitTopics },
   { path: "banks/split-proposal.json", title: "BankSplitProposal", schema: BankSplitProposal },
