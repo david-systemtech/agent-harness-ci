@@ -1,6 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
+import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { selectOn, type SelectionRequest } from "./startup/selection.js";
 
@@ -67,6 +68,10 @@ const deskAndLaptop: Script = {
   ],
 };
 
+/** How many sockets each environment has open: none, once the selection is closed or refused. */
+const allClosed = (on: Machine) => on.world.environments.map((environment) => [environment.name, environment.wire.open()]);
+const NONE_OPEN = (on: Machine) => on.world.environments.map((environment) => [environment.name, 0]);
+
 describe("the screenless selection", () => {
   it("chooses this machine's environment when none is named, with the token its grant exchange gave", async () => {
     const on = await machine(deskAndLaptop);
@@ -108,11 +113,82 @@ describe("the screenless selection", () => {
     // Naming one for a command is no choice of what the screen opens on next.
     expect(named.runtime.preferences.read()["environments.lastUsed"]).toBe(LAPTOP);
   });
-});
 
-/** Every socket the selection opened has been closed. */
-const allClosed = (on: Machine) => on.world.environments.map((environment) => [environment.name, environment.wire.open()]);
-const NONE_OPEN = (on: Machine) => on.world.environments.map((environment) => [environment.name, 0]);
+  it("carries the session and directory flags as given, creating no session and starting no run", async () => {
+    const on = await machine({ environments: [{ name: "desk", reach: "local", environmentId: DESK, sessions: [{ workspace: { kind: "directory", path: HERE } }] }] });
+    const desk = on.world.environment("desk");
+
+    const plain = await chosen(on);
+    expect(plain.session).toEqual({ sessionId: undefined, continueLatest: false, cwd: undefined, workspace: HERE });
+    const latest = await chosen(on, { continueLatest: true, cwd: "/srv/notes" });
+    expect(latest.session).toEqual({ sessionId: undefined, continueLatest: true, cwd: "/srv/notes", workspace: "/srv/notes" });
+    const named = await chosen(on, { session: desk.sessionId(0) });
+    expect(named.session).toEqual({ sessionId: desk.sessionId(0), continueLatest: false, cwd: undefined, workspace: HERE });
+
+    for (const method of ["sessions.create", "runs.start", "sessions.setDraft"]) expect(desk.requests(method), method).toEqual([]);
+    expect(desk.list.summaries()).toHaveLength(1);
+  });
+
+  it("presets a new session's account and model through projections.newSession, once the accounts, models and settings it reads have answered", async () => {
+    const identity = (email: string) => ({ provider: "claude", email, organisation: null });
+    const on = await machine({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          environmentId: DESK,
+          accounts: [
+            { id: "account-1", label: "Work", identity: identity("seth@work.test") },
+            { id: "account-2", label: "Home", identity: identity("seth@home.test") },
+          ],
+          models: [
+            { accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] },
+            {
+              accountId: "account-2",
+              live: true,
+              models: [
+                { id: "claude-haiku-5", family: "haiku", tier: 1, efforts: [], label: "Haiku 5" },
+                { id: "claude-sonnet-5", family: "sonnet", tier: 2, efforts: [], label: "Sonnet 5" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    // The default account is the setting's: held, the first signed-in account would stand in for it.
+    let answerSettings: () => void = () => undefined;
+    const settings = new Promise<{ readonly result: unknown }>((resolve) => {
+      answerSettings = () => resolve({ result: { values: { "accounts.defaultAccount": "account-2" } } });
+    });
+    on.world.environment("desk").wire.answer("settings.get", () => settings);
+    const selection = await chosen(on);
+
+    let answered = false;
+    const presets = selection.newSessionPresets().then((chips) => {
+      answered = true;
+      return chips;
+    });
+    for (let i = 0; i < 20; i++) await flush();
+    expect(selection.runtime.projections.accounts(DESK).read().value).toHaveLength(2);
+    expect(answered).toBe(false);
+
+    answerSettings();
+    const { account, model } = await presets;
+    expect([account.value?.id, account.reason]).toEqual(["account-2", "default"]);
+    expect([model.value?.id, model.reason]).toEqual(["claude-sonnet-5", "default"]);
+    expect(on.world.environment("desk").requests("sessions.create")).toEqual([]);
+  });
+
+  it("closes every connection it opened when the caller is done", async () => {
+    const on = await machine(deskAndLaptop);
+    const selection = await chosen(on, { environment: "laptop" });
+    expect(on.world.environment("laptop").wire.open()).toBe(1);
+
+    await selection.close();
+
+    expect(allClosed(on)).toEqual(NONE_OPEN(on));
+  });
+});
 
 describe("a selection refused", () => {
   it("names each environment a name answers to more than once, by id, where the screen would take the first", async () => {

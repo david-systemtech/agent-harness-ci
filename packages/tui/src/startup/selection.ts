@@ -1,4 +1,4 @@
-import type { ConnectionCredential, EnvironmentView, Runtime } from "@agent-harness/client-runtime";
+import { PRESET_SETTING_KEYS, type AccountChip, type ConnectionCredential, type EnvironmentView, type ModelChip, type Runtime } from "@agent-harness/client-runtime";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { SERVICE_DOWN, currentEnvironment, environmentsNamed, knownEnvironments, localIsDown, nameOf, phaseWords } from "../view.js";
 
@@ -17,8 +17,30 @@ import { SERVICE_DOWN, currentEnvironment, environmentsNamed, knownEnvironments,
 export interface SelectionRequest {
   /** `--environment <name or id>`. */
   readonly environment?: string | undefined;
+  /** `--session <id>`. */
+  readonly session?: string | undefined;
+  /** `-c`. */
+  readonly continueLatest?: boolean | undefined;
+  /** `--cwd <path>`, absolute. */
+  readonly cwd?: string | undefined;
   /** The process's working directory. */
   readonly currentDirectory: string;
+}
+
+/**
+ * The session flags, carried as given: resolving the selection opens,
+ * creates and runs nothing, and what they come to (the session `-c` means,
+ * whether a directory is the environment's) is the caller's to settle.
+ */
+export interface SessionSelection {
+  /** `--session <id>`: a session to continue. */
+  readonly sessionId: string | undefined;
+  /** `-c`: the newest session in the directory. */
+  readonly continueLatest: boolean;
+  /** `--cwd` as given; undefined when none was, and the current directory stands. */
+  readonly cwd: string | undefined;
+  /** `--cwd`, else the current directory: a new session's directory on this machine, as the screen's header shows it. */
+  readonly workspace: string;
 }
 
 /** The environment chosen, and what a caller without a screen needs to use it. */
@@ -27,10 +49,19 @@ export interface TerminalSelection {
   readonly environment: EnvironmentView;
   /** Its connection's address and client session token (`connections.credential`), for the environment's HTTP routes. */
   readonly credential: ConnectionCredential;
+  readonly session: SessionSelection;
   /** The started runtime the environment was chosen on, for the caller's reads and commands there; `close` closes it. */
   readonly runtime: Runtime;
+  /** What a new session on the environment starts on, as the screen's new-session card presets it (`projections.newSession`). */
+  newSessionPresets(): Promise<NewSessionPresets>;
   /** Closes the runtime. */
   close(): Promise<void>;
+}
+
+/** The account and model chips of `projections.newSession` for a new session on the environment chosen. */
+export interface NewSessionPresets {
+  readonly account: AccountChip;
+  readonly model: ModelChip;
 }
 
 /**
@@ -79,6 +110,35 @@ const choose = (runtime: Runtime, wanted: string | undefined): { readonly ok: tr
 };
 
 /**
+ * `projections.newSession` with the environment in focus, as `--environment`
+ * opens the screen's card, followed until what its account and model chips
+ * read has answered or failed: the environment's accounts, its models and
+ * the preset settings (`PRESET_SETTING_KEYS`). A screen draws each chip as
+ * it arrives; a caller without one takes them once, settled.
+ */
+const newSessionPresets = (runtime: Runtime, environmentId: string): Promise<NewSessionPresets> => {
+  const view = runtime.projections.newSession({ focus: { kind: "environment", environmentId } });
+  const read = [
+    runtime.projections.accounts(environmentId),
+    runtime.projections.models(environmentId),
+    runtime.requests.cached(environmentId, "settings.get", { keys: [...PRESET_SETTING_KEYS] }),
+  ] as const;
+  const answered = () => read.every((answer) => answer.read().fetchedAt !== null || answer.read().error !== null);
+  return new Promise((resolve) => {
+    const following: (() => void)[] = [];
+    const settle = () => {
+      if (following.length === 0 || !answered()) return;
+      const { account, model } = view.read();
+      for (const stop of following.splice(0)) stop();
+      resolve({ account, model });
+    };
+    // Following the card fetches what it reads; following the answers too hears each arrive.
+    following.push(view.subscribe(settle), ...read.map((answer) => answer.subscribe(settle)));
+    settle();
+  });
+};
+
+/**
  * Starts `runtime` (the saved connections read, the local grant exchanged,
  * each connection's first attempt settled), chooses the environment and
  * hands over what using it needs. A refusal, or a start that fails, closes
@@ -98,7 +158,23 @@ export const selectOn = async (runtime: Runtime, request: SelectionRequest): Pro
       await runtime.close();
       return refused("unreachable", `This terminal holds no credential for ${nameOf(environment)} now.`);
     }
-    return { ok: true, selection: { environment, credential, runtime, close: () => runtime.close() } };
+    const session: SessionSelection = {
+      sessionId: request.session,
+      continueLatest: request.continueLatest ?? false,
+      cwd: request.cwd,
+      workspace: request.cwd ?? request.currentDirectory,
+    };
+    return {
+      ok: true,
+      selection: {
+        environment,
+        credential,
+        session,
+        runtime,
+        newSessionPresets: () => newSessionPresets(runtime, environment.environmentId),
+        close: () => runtime.close(),
+      },
+    };
   } catch (error) {
     await runtime.close();
     throw error;
