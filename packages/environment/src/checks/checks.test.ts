@@ -61,6 +61,7 @@ describe("a Workspace directory's check command", () => {
     const t = await start({ dataDir: tempDir("agent-harness-checks-data-") });
     const first = await t.client();
     const second = await otherClient(t);
+    expect(first.hello.capabilities).toContain("workspaceChecks");
     const dir = tempDir("agent-harness-checks-");
     const link = join(tempDir("agent-harness-checks-links-"), "project");
     symlinkSync(dir, link);
@@ -73,6 +74,8 @@ describe("a Workspace directory's check command", () => {
     const command = "  pnpm typecheck && pnpm exec vitest run 'a b.test.ts' \\\n  --maxWorkers=2\n";
     expect(await first.apply("checks.set", { commandId: randomUUID(), sessionId: here, command })).toEqual({ workspace, command });
     expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command });
+    // Setting the command it has changes nothing.
+    expect(await second.request("checks.set", { commandId: randomUUID(), sessionId: throughLink, command })).toMatchObject({ receipt: { status: "accepted", changed: false }, result: { workspace, command } });
     const notices = await noticesOf(second, "checks.changed", head);
     expect(notices.map(({ payload, actor }) => ({ payload, actor }))).toEqual([{ payload: { workspace, command }, actor: { kind: "client_session", id: first.hello.clientSessionId } }]);
 
