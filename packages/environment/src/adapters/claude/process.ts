@@ -737,7 +737,8 @@ export class ClaudeProcess implements TurnControl {
       this.#settleWaiters();
       this.#denyAll(DISPOSED_DENY_MESSAGE);
       this.#fileTools.abandon();
-      if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn);
+      // A subagent's prompt turn ends as its siblings do: its prompts were just denied because the process died, not answered.
+      if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn, end);
       const onItsOwn = this.#disposing === undefined;
       this.#close();
       // Died on its own (a transport failure, the CLI quitting): the pool records it stopped and the next run starts cold.

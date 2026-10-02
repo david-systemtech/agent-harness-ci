@@ -1982,6 +1982,26 @@ describe("a turn the provider opens on its own", () => {
     expect(await asked).toMatchObject({ behavior: "allow" });
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
+
+  it("ends a subagent's prompt turn with the transport error when the process dies under its parked prompt, not completed", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const asked = query.canUseTool("Bash", { command: "npm test" }, { toolUseID: "toolu_sub", agentID: "agent-1" });
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const promptTurn = context.adopted[0] as ProviderTurn;
+    promptTurn.onAdopted?.("run-prompt");
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    const read = reading(promptTurn);
+    query.fail(new Error("the CLI exited with code 1"));
+    expect(await asked).toMatchObject({ behavior: "deny" });
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "transport", message: expect.stringContaining("exited with code 1") }) })]);
+  });
 });
 
 describe("plan usage", () => {
