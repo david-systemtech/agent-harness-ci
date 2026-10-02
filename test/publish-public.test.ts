@@ -35,7 +35,7 @@ function fixture() {
   writeFileSync(scanner, `#!/usr/bin/env python3\nimport pathlib,sys\nif sys.argv[1:] == ['version']: print('8.30.1'); sys.exit(0)\nassert sys.argv[1] == 'dir' and '--redact' in sys.argv and '--no-banner' in sys.argv\nassert '--ignore-gitleaks-allow' in sys.argv\nassert not (pathlib.Path(sys.argv[-1]) / '.git').exists()\nsys.exit(1 if any(b'fake-secret-for-tests' in p.read_bytes() for p in pathlib.Path(sys.argv[-1]).rglob('*') if p.is_file()) else 0)\n`);
   chmodSync(scanner, 0o755);
   const publish = (...args: string[]) => execFileSync("python3", [script, "--source", source, "--ref", "HEAD", "--remote", remote, "--version", "1.2.3", "--gitleaks", scanner, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  return { source, remote, write, commit, publish };
+  return { source, remote, scanner, write, commit, publish };
 }
 it("publishes a cleaned root snapshot and stacks a second snapshot with a release tag", () => {
   const f = fixture();
@@ -111,6 +111,29 @@ it("refuses an existing tag atomically without advancing main", () => {
   f.write("README.md", "Next snapshot\n"); f.commit();
   expect(() => f.publish("--tag", "v1.2.3")).toThrow();
   expect(git(f.remote, "rev-parse", "main")).toBe(previous);
+});
+
+it("reports scanner rule and location without exposing matched secrets or scanner output", () => {
+  const f = fixture();
+  writeFileSync(f.scanner, `#!/usr/bin/env python3
+import json,pathlib,sys
+if sys.argv[1:] == ['version']: print('8.30.1'); sys.exit(0)
+args = sys.argv[1:]
+report = pathlib.Path(args[args.index('--report-path') + 1]) if '--report-path' in args else None
+if report:
+    report.write_text(json.dumps([{'File': str(pathlib.Path(args[-1]) / 'README.md'), 'StartLine': 7, 'RuleID': 'test-secret-rule', 'Secret': 'fake-secret-for-tests', 'Match': 'fake-secret-for-tests'}]))
+print('fake-secret-for-tests')
+print('fake-secret-for-tests', file=sys.stderr)
+sys.exit(1)
+`);
+  let failure: unknown;
+  try { f.publish(); } catch (error) { failure = error; }
+  expect(failure).toMatchObject({ status: 1 });
+  const stderr = (failure as { stderr: string }).stderr;
+  expect(stderr).toContain('"README.md":7: test-secret-rule');
+  expect(stderr).toContain("publication blocked");
+  expect(stderr).not.toContain("fake-secret-for-tests");
+  expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
 it("refuses an unpinned scanner and missing public release files", () => {

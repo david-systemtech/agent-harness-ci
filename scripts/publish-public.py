@@ -154,11 +154,26 @@ def publish(args):
         config = scratch / 'gitleaks.toml'
         config.write_text('[extend]\nuseDefault = true\n')
         scan_env = {k: v for k, v in os.environ.items() if not k.startswith('GITLEAKS_')}
+        report = scratch / 'gitleaks.json'
         try:
             command([scanner, 'dir', '--no-banner', '--redact', '--exit-code', '1',
-                     '--ignore-gitleaks-allow', '--config', str(config), str(tree)], cwd=scratch, env=scan_env)
+                     '--ignore-gitleaks-allow', '--config', str(config),
+                     '--report-format', 'json', '--report-path', str(report), str(tree)], cwd=scratch, env=scan_env)
         except subprocess.CalledProcessError as error:
-            raise ValueError(f'gitleaks: failed (exit {error.returncode}); publication blocked') from None
+            locations = []
+            try:
+                for finding in json.loads(report.read_text()):
+                    path = Path(finding['File'])
+                    if path.is_absolute():
+                        path = path.relative_to(tree)
+                    line, rule = finding['StartLine'], finding['RuleID']
+                    if '..' not in path.parts and type(line) is int and line > 0 and re.fullmatch(r'[\w.-]+', rule):
+                        locations.append(f'{json.dumps(path.as_posix())}:{line}: {rule}')
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+            # Never forward scanner output or report Match/Secret fields.
+            details = '\n' + '\n'.join(locations) if locations else ''
+            raise ValueError(f'gitleaks: failed (exit {error.returncode}); publication blocked' + details) from None
         print('gitleaks: pass')
         repo = scratch / 'repo'
         git(scratch, 'init', '-q', str(repo))
