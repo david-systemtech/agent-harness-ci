@@ -2703,6 +2703,10 @@
       "title": "CarryOverInventory"
     },
     {
+      "path": "carry-over/state-import-account-inventories.json",
+      "title": "StateImportAccountInventories"
+    },
+    {
       "path": "carry-over/sessions-imported.json",
       "title": "CarryOverSessionsImported"
     },

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AccountId } from "./accounts.js";
 import { RepositoryIdentity } from "./repository-identity.js";
 import { AbsolutePath } from "./sessions.js";
+import { StateImportFailure, StateImportLater } from "./state-import.js";
 import { SkillCarryOverOffer, SkillNotCarried, SkillsCarryOverReport } from "./skills.js";
 
 /**
@@ -121,6 +122,20 @@ export const CarryOverInventory = z
       "What Carry over's card counts in an adopted account's directory: its sessions, memory, skills and commands, the subagents and plugins not carried, and the hooks, personal MCP servers and permission rules that do not carry.",
   });
 export type CarryOverInventory = z.infer<typeof CarryOverInventory>;
+
+/** Source-declared Claude directories only; these previews neither register Accounts nor reserve mappings. */
+export const StateImportAccountInventories = z.object({
+  accounts: z.array(z.object({
+    sourceId: z.string().min(1),
+    label: z.string(),
+    accountId: AccountId.nullable(),
+    inventory: CarryOverInventory.nullable(),
+    failure: z.string().min(1).nullable(),
+  })),
+  failed: z.array(StateImportFailure),
+  later: z.array(StateImportLater),
+}).meta({ description: "Per-directory state import previews, including secondary sources under their winning Account. No caller-supplied directory is accepted." });
+export type StateImportAccountInventories = z.infer<typeof StateImportAccountInventories>;
 
 /**
  * What an import did with the listed sessions: how many it imported, of
