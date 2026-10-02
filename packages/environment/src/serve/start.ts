@@ -1,3 +1,4 @@
+import { validatorUpdateMethods } from "../banks/validator-update.js";
 import { migrationMethods } from "../banks/migrate.js";
 import { splitMethods } from "../banks/split.js";
 import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
@@ -1822,6 +1823,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...bankMethods(bankService, bankCredentials, bankSyncer),
     ...splitMethods(bankService, record.id),
     ...migrationMethods(bankService, record.id, forge),
+    ...validatorUpdateMethods(bankService, record.id),
     ...memoryMethods(memoryOperations, () => accounts.defaultId()),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
