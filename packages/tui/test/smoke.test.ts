@@ -105,8 +105,10 @@ describe("the terminal UI through the real spine", { concurrent: false, timeout:
     await until(() => one.frame().includes("● smoke-desk ready"), one.frame);
     const rows = one.frame().split("\n");
     expect(rows[0]).toContain(`agent-harness · ● smoke-desk ready · ${dirname(stateDir)}`);
-    expect(rows[1]).toMatch(/^smoke-desk\s+│/);
-    expect(rows[2]).toMatch(/^\s+no sessions\s+│/);
+    expect(rows[1]).toMatch(/^Set up on smoke-desk:.*need attention/);
+    const rail = rows.findIndex((row) => /^smoke-desk\s+│/.test(row));
+    expect(rail).toBeGreaterThan(1);
+    expect(rows[rail + 1]).toMatch(/^\s+no sessions\s+│/);
     expect(one.host.current.read().connections.list.read()).toMatchObject([{ kind: "local", phase: "ready", scopes: expect.arrayContaining(["admin"]) }]);
 
     // The state directory holds the runtime's documents and nothing named after session state.

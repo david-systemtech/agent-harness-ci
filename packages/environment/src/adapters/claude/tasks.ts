@@ -36,6 +36,12 @@ const statusOf = (raw: unknown): DelegatedWorkStatus | undefined => {
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
 
+/** Whether two rows hold the same values, field by field: every field of a row is a string or null. */
+const sameRow = (a: DelegatedWorkRow, b: DelegatedWorkRow): boolean => {
+  const fields = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof DelegatedWorkRow>;
+  return [...fields].every((field) => a[field] === b[field]);
+};
+
 type Message = Record<string, unknown>;
 
 export class TaskLedger {
@@ -109,8 +115,16 @@ export class TaskLedger {
     );
   }
 
-  /** Writes the row; when it settles a task, the settled rows past the cap go, oldest first, and the level index forgets what is gone. */
-  #put(row: DelegatedWorkRow): true {
+  /**
+   * Writes the row, unless the ledger holds it as it is already (a progress
+   * message repeating the start, say): answers whether anything changed, so
+   * a turn reports the rows only after a change. When it settles a task, the
+   * settled rows past the cap go, oldest first, and the level index forgets
+   * what is gone.
+   */
+  #put(row: DelegatedWorkRow): boolean {
+    const existing = this.#rows.get(row.taskId);
+    if (existing !== undefined && sameRow(existing, row)) return false;
     this.#rows.set(row.taskId, row);
     this.#dirty = true;
     if (!LIVE.has(row.status)) this.#prune();
@@ -201,12 +215,11 @@ export class TaskLedger {
     const id = text(message["task_id"]);
     if (id === undefined) return false;
     const base = this.#base(id);
-    this.#put({
+    return this.#put({
       ...base,
       status: statusOf(message["status"]) ?? "completed",
       endedAt: this.#now(),
       toolCallId: text(message["tool_use_id"]) ?? base.toolCallId,
     });
-    return true;
   }
 }
