@@ -227,6 +227,19 @@ it.each([false, true])("blocks a UTF-16 private term (big endian: %s)", (bigEndi
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
+it("allows documented network constants without allowing deployment addresses or names", () => {
+  const f = fixture();
+  f.write("docs/specs/browser.md", "Metadata addresses: 100.100.100.200 and fd00:ec2::254\n");
+  f.write("packages/contracts/schema/cases/repository-identity.json", '{"host":"100.101.102.103"}');
+  f.commit(); f.publish("--dry-run");
+  f.write("docs/specs/browser.md", "10.44.55.66"); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
+  f.write("docs/specs/browser.md", "100.100.100.200");
+  f.write("packages/contracts/schema/cases/repository-identity.json", JSON.stringify({ host: [100, 109, 204, 54].join(".") })); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/scrub-private-address/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
 it("allows only the listed synthetic fixture values, while scanning fixture prose", () => {
   const f = fixture();
   f.write("test/fixture.txt", "synthetic: 10.0.0.1, 192.168.1.2, 100.64.0.1; documentation: 192.0.2.1, tail1234, example.com\n");

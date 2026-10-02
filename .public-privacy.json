@@ -118,6 +118,66 @@
       "rule": "private-ip",
       "path": "(?:^test/|^packages/[^/]+/test/|[.]test[.]tsx?$)",
       "value": "(?:10[.]0[.]0[.]\\d{1,3}|192[.]168[.]1[.]\\d{1,3}|100[.]64[.]0[.]\\d{1,3})"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^docs/specs/browser\\.md$",
+      "value": "(?:100\\.100\\.100\\.200|fd00:ec2::254)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^docs/specs/env\\.md$",
+      "value": "(?:100\\.64\\.0\\.0)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^docs/specs/gui\\.md$",
+      "value": "(?:100\\.101\\.102\\.103|100\\.64\\.0\\.9|192\\.168\\.1\\.20)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^docs/specs/setup\\.md$",
+      "value": "(?:100\\.64\\.0\\.0|fd7a:115c:a1e0::)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/client\\-runtime/src/connections/address\\.ts$",
+      "value": "(?:100\\.64\\.0\\.7|fd7a::1)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/contracts/src/browser\\-policy\\.ts$",
+      "value": "(?:100\\.100\\.100\\.200|fd00:ec2::254)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/contracts/src/denylist\\.ts$",
+      "value": "(?:fe80::1)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/contracts/src/discovery\\.ts$",
+      "value": "(?:fd7a::1)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/contracts/src/repository\\-identity\\.ts$",
+      "value": "(?:100\\.101\\.102\\.103|fd7a:115c:a1e0::1)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/contracts/src/skill\\-rule\\-cases\\.ts$",
+      "value": "(?:fd7a:115c:a1e0::1)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "^packages/environment/src/serve/interfaces\\.ts$",
+      "value": "(?:100\\.64\\.0\\.0|fd00:0::20|fd00::20|fd7a:115c:a1e0::|fe80::)"
+    },
+    {
+      "rule": "private-ip",
+      "path": "(?:[.]test[.]tsx?$|^packages/[^/]+/test/|^packages/contracts/schema/cases/)",
+      "value": "(?:10\\.0\\.0\\.1|10\\.0\\.0\\.7|10\\.1\\.2\\.3|100\\.100\\.1\\.2|100\\.100\\.100\\.200|100\\.101\\.102\\.103|100\\.127\\.255\\.254|100\\.64\\.0\\.1|100\\.64\\.0\\.7|172\\.16\\.0\\.1|172\\.20\\.1\\.1|172\\.31\\.255\\.255|192\\.168\\.1\\.1|192\\.168\\.1\\.2|192\\.168\\.1\\.20|192\\.168\\.1\\.256|192\\.168\\.7\\.5|fc00::1|fd00:0:0::20|fd00:0ec2:0:0:0:0:0:0254|fd00:0ec2:0:0::0254|fd00::20|fd00:ec2:0::254|fd00:ec2::254|fd12:3456::1|fd12::1|fd7a:115c::7|fd7a:115c:a1e0::1|fd7a::1|fe80::1|fe80::1c2b:3aff:fe4d:5e6f|febf::1)"
     }
   ]
 }
