@@ -110,7 +110,7 @@ import {
   instructionsSetScope,
   sessionsSetInstructions,
 } from "./methods/instructions.js";
-import { banksCreate, banksCredentialSet, banksCredentialSwap, banksGet, banksJoin, banksJoinPreview, banksList, banksRegister, banksSync, banksVerify, banksRegistryUpdate, banksPin, banksForget } from "./methods/banks.js";
+import { banksPublish, banksCreate, banksCredentialSet, banksCredentialSwap, banksGet, banksJoin, banksJoinPreview, banksList, banksRegister, banksSync, banksVerify, banksRegistryUpdate, banksPin, banksForget } from "./methods/banks.js";
 import {
   forgeAccountsAdd,
   forgeAccountsList,
@@ -320,6 +320,7 @@ export const methods = [
   banksCredentialSet,
   banksCredentialSwap,
   banksCreate,
+  banksPublish,
   banksVerify,
   banksRegistryUpdate,
   banksPin,
@@ -438,15 +439,11 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * ticket that owes its handler. They are registered ahead of it so the
  * tickets that read their shapes need not queue behind it (the session
  * summary's field table, #114; the update vocabulary, #335; the routine
- * vocabulary, #519; the state import's run, whose contract the Carry over
- * step names, #581); a method leaves
- * this list in the change that serves it, and the wire's test refuses a
- * registered method that is neither served nor owed here.
+ * vocabulary, #519; the state import's run, #581, served since #1165); a
+ * method leaves this list in the change that serves it, and the wire's test
+ * refuses a registered method that is neither served nor owed here.
  */
-export const OWED_HANDLERS = {
-  // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
-  "stateImport.run": "#94",
-} as const satisfies { readonly [N in MethodName]?: `#${number}` };
+export const OWED_HANDLERS = {} as const satisfies { readonly [N in MethodName]?: `#${number}` };
 export type Registry = { readonly [M in Registered as M["name"]]: M };
 
 /** The methods by name. It has no prototype, so `toString` or `__proto__` is never a method. */
