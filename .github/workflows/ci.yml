@@ -98,13 +98,13 @@ jobs:
             exit 1
           fi
 
-  # The suite in three shards on three runners: one 4-vCPU runner took 601 s
-  # for it on 2026-10-01, and runners for a public repository cost nothing.
+  # Six shards reduce work queued before the long snapshot-publisher tests.
+  # Keep the full run inside the relay's 40-minute budget.
   test:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-24.04
     # Root bypasses filesystem permissions and skips the serve handshake.
     # Use the hosted runner's ordinary user for every test file, including
@@ -151,7 +151,7 @@ jobs:
       - name: The suite shard, as an ordinary user
         run: |
           [ "$(id -u)" != 0 ] || { echo "::error::suite shards must run as an ordinary user"; exit 1; }
-          pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/3
+          pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/6
 
   # Keep root-only branches, such as serve refusing root, covered separately.
   # The same uid-based selection finds new files automatically; their ordinary
