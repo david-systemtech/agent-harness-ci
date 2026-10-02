@@ -80,6 +80,8 @@ export interface Destructive {
   readonly targets: readonly string[];
   /** The verb's own flags, as typed: `-rf` stays `-rf` rather than becoming two. */
   readonly flags: readonly string[];
+  /** A source checkout or restore that replaces the index as well as the worktree. */
+  readonly overwritesIndex?: boolean;
 }
 
 /** What one {@link Destructive} would do, read off the disk. */
@@ -405,6 +407,7 @@ const PREFIXES = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'xa
 
 /** Prefix options that swallow the next word, so the command is not mistaken for their value. */
 const PREFIX_VALUE_FLAGS = new Set(['-u', '-g', '-C', '--user', '--chdir', '-I']);
+const XARGS_VALUE_FLAGS = new Set(['-n', '-P', '-L', '-a', '-s', '-d', '-E', '--max-args', '--max-procs', '--max-lines', '--arg-file', '--max-chars', '--delimiter']);
 
 /** git's own options, before the subcommand. Those that take a separate value. */
 const GIT_VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
@@ -464,7 +467,7 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
     while (at < words.length) {
       const word = words[at];
       if (word === undefined || !isFlag(word)) break;
-      at += PREFIX_VALUE_FLAGS.has(word.text) ? 2 : 1;
+      at += PREFIX_VALUE_FLAGS.has(word.text) || (name === 'xargs' && XARGS_VALUE_FLAGS.has(word.text)) ? 2 : 1;
     }
     words = words.slice(at);
   }
@@ -500,7 +503,7 @@ export function networkLines(command: string): readonly string[] {
     const invocation = invocationOf(segment);
     if (invocation === null) continue;
     const { name, args } = invocation;
-    if (!['curl', 'wget', 'ssh', 'scp', 'sftp', 'rsync'].includes(name) && !(name === 'git' && ['push', 'pull', 'fetch', 'clone'].includes(args[0]?.text ?? ''))) continue;
+    if (!['curl', 'wget', 'ssh', 'scp', 'sftp', 'rsync'].includes(name) && !(name === 'git' && ['push', 'pull', 'fetch', 'clone'].includes(args[gitSubcommandAt(args)]?.text ?? ''))) continue;
     const subjects = shellSubjects(segment.text);
     const hosts = new Set([...subjects.hosts, ...subjects.urls.map((url) => hostOf(url)).filter((host): host is string => host !== null)]);
     lines.push(hosts.size === 0 ? `⚠ network: destination is resolved by ${name}` : `⚠ network: ${[...hosts].slice(0, MAX_LISTED).join(', ')}`);
@@ -535,13 +538,18 @@ function removeOf(args: readonly Word[], text: string): Destructive | null {
   return { kind: 'rm', text, targets: operands, flags };
 }
 
-function gitOf(args: readonly Word[], text: string): Destructive | null {
+function gitSubcommandAt(args: readonly Word[]): number {
   let at = 0;
   while (at < args.length) {
     const word = args[at];
     if (word === undefined || !isFlag(word)) break;
     at += GIT_VALUE_OPTIONS.has(word.text) ? 2 : 1;
   }
+  return at;
+}
+
+function gitOf(args: readonly Word[], text: string): Destructive | null {
+  const at = gitSubcommandAt(args);
   const subcommand = args[at]?.text;
   if (subcommand === undefined) return null;
   const rest = args.slice(at + 1);
@@ -571,14 +579,16 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
       }
       const paths = separator === -1 ? operands : rest.slice(separator + 1).map(operandOf);
       if (paths.length === 0) return null;
-      return { kind: 'git-checkout-discard', text, targets: paths, flags };
+      return { kind: 'git-checkout-discard', text, targets: paths, flags,
+        overwritesIndex: separator !== -1 && split(rest.slice(0, separator)).operands.length > 0 };
     }
     case 'restore': {
       const { flags, operands } = split(rest);
       // `--staged` alone only unstages: the work tree keeps every byte.
-      if (flags.includes('--staged') && !flags.includes('--worktree') && !flags.includes('-W')) return null;
+      const staged = flags.includes('--staged') || flags.includes('-S');
+      if (staged && !flags.includes('--worktree') && !flags.includes('-W')) return null;
       if (operands.length === 0) return null;
-      return { kind: 'git-checkout-discard', text, targets: operands, flags };
+      return { kind: 'git-checkout-discard', text, targets: operands, flags, overwritesIndex: staged };
     }
     case 'branch': {
       const { flags, operands } = split(rest);
@@ -601,7 +611,7 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
  * alone: an exclusion that arrived as two words would otherwise be a flag whose
  * value went missing, and a dry run without it lists paths that would survive.
  */
-function cleanOf(args: readonly Word[], text: string): Destructive {
+function cleanOf(args: readonly Word[], text: string): Destructive | null {
   const flags: string[] = [];
   const targets: string[] = [];
   let literal = false;
@@ -626,6 +636,7 @@ function cleanOf(args: readonly Word[], text: string): Destructive {
     }
     targets.push(operandOf(word));
   }
+  if (flags.some((flag) => flag === '--dry-run' || /^-[A-Za-z]*n[A-Za-z]*$/.test(flag))) return null;
   return { kind: 'git-clean', text, targets, flags };
 }
 
@@ -738,6 +749,7 @@ export const READ_ONLY_ARGV: readonly (readonly string[])[] = [
   ['rev-list', '--count', 'HEAD..@{u}'],
   ['remote', '-v'],
   ['diff', '--name-only', '--relative'],
+  ['diff', '--cached', '--name-only', '--relative'],
   ['branch', '--merged'],
 ];
 
@@ -1052,7 +1064,7 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
       case 'find-delete':
         return await previewUnder(part, cwd, deps, budget);
       case 'other':
-        return await previewOther(part, cwd, deps);
+        return await previewOther(part, cwd, deps, budget);
     }
   } catch (error) {
     return { kind: part.kind, summary: `could not preview: ${reasonOf(error)}`, lines: [] };
@@ -1186,9 +1198,9 @@ async function previewResetHard(part: Destructive, cwd: string, deps: BlastRadiu
     .filter((line) => line.trim().length > 0 && !line.startsWith('??'));
   const target = part.targets[0];
   const back = head.length > 0 ? `, back to ${target === undefined ? head : `${target} — currently ${head}`}` : '';
-  const summary = changes.length === 0 ? `no tracked changes reported${back}` : `${plural(changes.length, 'uncommitted change')} would be lost${back}`;
+  const tracked = changes.length === 0 ? `no tracked changes reported${back}` : `${plural(changes.length, 'uncommitted change')} would be lost${back}`;
+  const summary = status.split('\n').some((line) => line.startsWith('??')) ? `${tracked}; untracked paths may be overwritten if they obstruct the reset` : tracked;
   const lines = changes.slice(0, MAX_LISTED);
-  if (status.split('\n').some((line) => line.startsWith('??'))) lines.push('untracked paths may be overwritten if they obstruct the reset');
   return { kind: part.kind, summary, lines, count: changes.length };
 }
 
@@ -1220,7 +1232,9 @@ async function previewCheckoutDiscard(part: Destructive, cwd: string, deps: Blas
     return { kind: part.kind, summary: 'cannot tell: checkout pathspecs may discard local changes', lines: [...part.targets].slice(0, MAX_LISTED) };
   }
   const git = gitIn(cwd, deps);
-  const changed = (await git(['diff', '--name-only', '--relative']))
+  const unstaged = await git(['diff', '--name-only', '--relative']);
+  const staged = part.overwritesIndex === true ? await git(['diff', '--cached', '--name-only', '--relative']) : '';
+  const changed = `${unstaged}\n${staged}`
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
@@ -1280,11 +1294,13 @@ async function previewTruncate(part: Destructive, cwd: string, deps: BlastRadius
 }
 
 async function previewUnder(part: Destructive, cwd: string, deps: BlastRadiusDeps, budget: Budget): Promise<Preview> {
+  const paths = await expandedPaths(part, cwd, deps, budget);
+  if (paths === null) return { kind: part.kind, summary: 'cannot tell: destructive targets could not be fully expanded', lines: [] };
   const lines: string[] = [];
   let total = 0;
   let truncated = false;
-  for (const target of part.targets) {
-    const path = resolve(cwd, unescape(target));
+  for (const path of paths) {
+    const target = labelOf(path, cwd);
     const info = await statOf(path, deps);
     if (info === null) {
       lines.push(`${target} — not there`);
@@ -1305,17 +1321,29 @@ async function previewUnder(part: Destructive, cwd: string, deps: BlastRadiusDep
   return { kind: part.kind, summary, lines: lines.slice(0, MAX_LISTED), count: lines.length, truncated };
 }
 
-async function previewOther(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
+async function previewOther(part: Destructive, cwd: string, deps: BlastRadiusDeps, budget: Budget): Promise<Preview> {
+  const paths = await expandedPaths(part, cwd, deps, budget);
+  if (paths === null) return { kind: part.kind, summary: 'cannot tell: destructive targets could not be fully expanded', lines: [] };
   const lines: string[] = [];
-  for (const target of part.targets.slice(0, MAX_LISTED)) {
-    const path = resolve(cwd, unescape(target));
+  for (const path of paths.slice(0, MAX_LISTED)) {
+    const target = labelOf(path, cwd);
     const info = await statOf(path, deps);
     if (info === null) lines.push(`${target} — not there`);
     else if (info.directory) lines.push(`${target} — a directory`);
     else lines.push(`${target} — ${bytes(info.size)}`);
   }
-  const summary = part.targets.length === 0 ? 'destructive, and there is no dry run for it' : `no dry run for this one; it would overwrite ${plural(part.targets.length, 'path')}`;
-  return { kind: part.kind, summary, lines, count: part.targets.length };
+  const summary = part.targets.length === 0 ? 'destructive, and there is no dry run for it' : `no dry run for this one; it would overwrite ${plural(paths.length, 'path')}`;
+  return { kind: part.kind, summary, lines, count: paths.length };
+}
+
+async function expandedPaths(part: Destructive, cwd: string, deps: BlastRadiusDeps, budget: Budget): Promise<readonly string[] | null> {
+  if (part.targets.some(needsShell)) return null;
+  const paths = new Set<string>();
+  for (const target of part.targets) {
+    if (isGlob(target)) for (const path of await expandGlob(target, cwd, deps, budget)) paths.add(path);
+    else paths.add(resolve(cwd, unescape(target)));
+  }
+  return budget.exhausted ? null : [...paths];
 }
 
 const statOf = async (path: string, deps: BlastRadiusDeps): Promise<FileInfo | null> => {

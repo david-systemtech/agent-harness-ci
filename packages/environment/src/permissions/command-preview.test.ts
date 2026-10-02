@@ -140,6 +140,16 @@ it('reports unresolved substitutions instead of claiming nothing would be delete
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it('leaves git clean dry runs out of destructive previews', () => {
+    for (const command of ['git clean -n', 'git clean -nd', 'git clean -fdn', 'git clean --dry-run -d']) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('finds the command after xargs options with separate values', () => {
+    for (const option of ['-n 1', '-P 4', '-L 1', '-a list', '--max-args 1', '--delimiter ,']) {
+      expect(destructiveParts(`xargs ${option} rm -rf build`)[0]).toMatchObject({ kind: 'rm', targets: ['build'] });
+    }
+  });
   it('preserves which glob characters were quoted within a word', () => {
     expect(destructiveParts("rm *'foo'")[0]?.targets).toEqual(['*foo']);
     expect(destructiveParts("rm '*'foo")[0]?.targets).toEqual(['\\*foo']);
@@ -350,6 +360,13 @@ describe('previewing rm against a directory', () => {
 });
 
 describe('previewing the things that are not rm', () => {
+  it('expands destructive glob operands for chmod, find and shred', async () => {
+    const root = await tree();
+    expect(await only('chmod -R 777 src/*.ts', root)).toMatchObject({ summary: 'chmod -R would change the mode of 2 entries' });
+    expect(await only('find src/*.ts -delete', root)).toMatchObject({ summary: 'find would walk 2 entries and delete every match' });
+    expect(await only('shred src/*.ts', root)).toMatchObject({ summary: 'no dry run for this one; it would overwrite 2 paths', lines: ['src/a.ts — 1 B', 'src/b.ts — 1 B'] });
+    expect((await only('chmod -R 777 $TARGET', root)).summary).toContain('cannot tell:');
+  });
   it('previews a single glob redirect and reports ambiguous or unresolved targets', async () => {
     const root = await tree();
     expect(await only('echo hi > *.txt', root)).toMatchObject({ summary: 'cannot tell: redirect glob does not resolve to exactly one path' });
@@ -399,13 +416,21 @@ describe('previewing git, with git standing in', () => {
   it('counts what a reset --hard would lose and names where it would land', async () => {
     const replies = { 'git status --porcelain': ' M a.ts\nA  added.ts\n?? b.ts\n', 'git log --oneline -1': 'abc1234 the last commit\n' };
     expect(await only('git reset --hard origin/main', '/repo', recorder(replies))).toMatchObject({
-      summary: '2 uncommitted changes would be lost, back to origin/main — currently abc1234 the last commit',
-      lines: [' M a.ts', 'A  added.ts', 'untracked paths may be overwritten if they obstruct the reset'],
+      summary: '2 uncommitted changes would be lost, back to origin/main — currently abc1234 the last commit; untracked paths may be overwritten if they obstruct the reset',
+      lines: [' M a.ts', 'A  added.ts'],
       count: 2,
     });
     expect((await only('git reset --hard', '/repo', recorder({ ...replies, 'git status --porcelain': '' }))).summary).toBe(
       'no tracked changes reported, back to abc1234 the last commit',
     );
+  });
+
+  it('keeps the reset untracked warning separate from the truncated tracked-change count', async () => {
+    const status = [...Array.from({ length: 21 }, (_, at) => ` M file-${at}`), '?? untracked'].join('\n');
+    const preview = await only('git reset --hard', '/repo', recorder({ 'git status --porcelain': status, 'git log --oneline -1': '' }));
+    expect(preview.summary).toContain('untracked paths may be overwritten');
+    expect(preview.lines).toHaveLength(20);
+    expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
   });
 
   it('names branch, remote and the commits a force push would discard', async () => {
@@ -438,6 +463,13 @@ describe('previewing git, with git standing in', () => {
     });
     const clean = recorder({ 'git diff --name-only --relative': '' });
     expect((await only('git restore src/a.ts', '/repo', clean)).summary).toBe('none of these paths has local changes to lose');
+  });
+
+  it('includes staged changes when checkout or restore overwrites the index', async () => {
+    const disk = recorder({ 'git diff --name-only --relative': '', 'git diff --cached --name-only --relative': 'src/a.ts\n' });
+    expect((await only('git checkout other -- src/a.ts', '/repo', disk)).summary).toBe('1 of 1 path would lose local changes');
+    expect((await only('git restore --source=HEAD --staged --worktree src/a.ts', '/repo', disk)).summary).toBe('1 of 1 path would lose local changes');
+    expect((await only('git checkout -- src/a.ts', '/repo', disk)).summary).toBe('none of these paths has local changes to lose');
   });
 
   it('says whether each branch being deleted is merged', async () => {
@@ -540,6 +572,9 @@ describe('blastRadiusLines', () => {
     expect(networkLines('echo "curl https://preview.example.test"')).toEqual([]);
     expect(networkLines('git commit -m push')).toEqual([]);
     expect(networkLines('git fetch origin')).toEqual(['⚠ network: destination is resolved by git']);
+    expect(networkLines('git -C /repo pull')).toEqual(['⚠ network: destination is resolved by git']);
+    expect(networkLines('git --git-dir=/repo fetch')).toEqual(['⚠ network: destination is resolved by git']);
+    expect(networkLines('git -c advice.detachedHead=false clone https://preview.example.test/repo')).toEqual(['⚠ network: preview.example.test']);
   });
 
   const previews: readonly Preview[] = [
