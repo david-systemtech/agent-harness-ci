@@ -4,7 +4,7 @@
 # REVIEW_SKIP and, if the rules are not in AGENTS.md, REVIEW_RULES; the rest is
 # the same in every repository, so a fix in the template can be copied over.
 #
-# It leaves one comment, ending in a JSON block: the prose is for whoever
+# A completed review ends in a JSON block: the prose is for whoever
 # reviews the pull request, the JSON for an agent that re-checks the findings
 # before anyone acts on them. A finding is a lead, never a verdict. It
 # approves nothing, is not a required check, and never fails: a rate-limited
@@ -12,8 +12,8 @@
 # is no review, and a green check.
 #
 # The work is david/ci's scripts/ai_review.py, checked out at run time from
-# david/ci's main - the same script, byte for byte, as the GitHub repositories
-# carry in .github/scripts. This repository's BASE commit is checked out for
+# the pinned revision below; GitHub repositories carry the same script in
+# .github/scripts. This repository's BASE commit is checked out for
 # the rules the model is told; the pull request's changes arrive as text
 # through the API, so nothing in a pull request runs here or rewrites the
 # rules it is judged by.
@@ -100,6 +100,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: david/ci
+          # Bounded provider attempts and preservation of earlier review evidence.
+          ref: 5a95c70df9edc75cbcb276ad799b64f263e80e2b
           token: ${{ secrets.CI_READ_TOKEN }}
           path: .ci
           persist-credentials: false

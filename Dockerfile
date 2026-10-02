@@ -27,12 +27,16 @@ ENV CI=true
 RUN corepack enable
 WORKDIR /opt/agent-harness
 COPY . .
-# Every dependency (node-pty compiled with this image's python3, make and
-# g++), the CLI and the packages it runs built to dist, then the
-# devDependencies dropped.
-RUN pnpm install --frozen-lockfile \
+# Completed downloads survive failed builds and later checkouts on this
+# builder. Keep fetching and installing in one cache-mounted instruction:
+# if the cache is evicted, the next build fetches it again before going
+# offline. The bounded fetch leaves time for compilation in the image job.
+# node-pty compiles with this image's python3, make and g++.
+RUN --mount=type=cache,id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,sharing=shared \
+  bash scripts/image-deps.sh \
+  && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store \
   && pnpm exec tsc -b packages/cli \
-  && pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+  && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false
 
 FROM node:24-bookworm-slim
 # git for the workspace and the provider's runs; bubblewrap and socat so a

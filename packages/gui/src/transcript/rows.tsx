@@ -9,6 +9,7 @@ import {
   turnFacts,
   updateInterruptedText,
   type AssistantEntry,
+  type ChecksView,
   type PromptEntry,
   type SubagentEntry,
   type TranscriptRow,
@@ -49,6 +50,7 @@ export interface RowFacts {
    * cut, a subagent's transcript.
    */
   readonly verbs: boolean;
+  readonly checkOutput?: ChecksView["runningOutput"];
 }
 
 /** One row of the transcript, drawn by its kind. */
@@ -75,6 +77,21 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <Subagent entry={row.entry} facts={facts} />;
     case "prompt":
       return <Prompt entry={row.entry} />;
+    case "check": {
+      const entry = row.entry;
+      const live = entry.state === "running" ? facts.checkOutput?.get(entry.terminalId) : undefined;
+      const output = live?.output ?? entry.result?.output ?? "";
+      const status = checkStatus(entry);
+      return (
+        <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
+          <pre className="font-mono whitespace-pre-wrap break-words"><Marked text={`$ ${entry.command} · ${status}`} /></pre>
+          {entry.result !== null && status !== `exit ${entry.result.exitCode}` && <p>exit {entry.result.exitCode ?? "none"}</p>}
+          {(live?.truncated ?? entry.result?.truncated) && <span>Earlier output omitted</span>}
+          {entry.result?.failure != null && <p className="text-amber">{entry.result.failure}</p>}
+          {output !== "" && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={output} /></pre>}
+        </article>
+      );
+    }
     case "command":
       return (
         <article aria-label="Command" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
@@ -90,18 +107,6 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       );
     case "file-undo":
       return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
-    case "check":
-      return (
-        <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
-          <span className="font-mono"><Marked text={`$ ${row.entry.command} · ${checkStatus(row.entry)}`} /></span>
-          {row.entry.result !== null && (
-            <>
-              {row.entry.result.truncated && <span>Earlier output omitted</span>}
-              {row.entry.result.output.length > 0 && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={row.entry.result.output} /></pre>}
-            </>
-          )}
-        </article>
-      );
     case "turn":
       return <CostLine run={row.run} />;
     case "opaque":
