@@ -61,5 +61,6 @@ jobs:
         run: bash .forgejo/scripts/github-ci.sh
         env:
           GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+          FORGEJO_TOKEN: ${{ github.token }}
           GROUP: ${{ github.event.pull_request.number || github.sha }}
           FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
