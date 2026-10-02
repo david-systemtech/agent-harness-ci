@@ -154,14 +154,79 @@ it('reports locale-sensitive character classes as unavailable rather than an emp
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it('warns about a subshell without querying or evaluating its contents', async () => {
+    const command = '(rm -rf build)';
+    expect(destructiveParts(command)).toEqual([{ kind: 'indirect-shell', text: command, targets: [], flags: [] }]);
+    const calls: string[] = [];
+    const previews = await previewBlastRadius(destructiveParts(command), '/repo', {
+      execFile: async () => { calls.push('exec'); return ''; },
+      readdir: async () => { calls.push('readdir'); return []; },
+      stat: async () => { calls.push('stat'); return { size: 0, directory: false }; },
+    });
+    expect(previews).toEqual([{ kind: 'indirect-shell', summary: 'cannot tell: indirect shell execution may change files or contact the network', lines: [] }]);
+    expect(calls).toEqual([]);
+  });
   it('does not mistake read-write redirection for truncation', () => {
     expect(destructiveParts('cat <> log.txt')).toEqual([]);
     expect(destructiveParts('cat 3<>log.txt')).toEqual([]);
     expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
   });
+  it('warns about brace groups while leaving quoted groups and brace data quiet', () => {
+    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }', 'time { rm -rf build; }', 'time -p { rm -rf build; }', 'time ! { rm -rf build; }', '! { rm -rf build; }', 'if { rm -rf build; }; then echo done; fi', 'while { rm -rf build; }; do echo done; done', 'if true; then { rm -rf build; }; fi', 'function f { rm -rf build; }; f']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}', 'echo time { rm -rf build \\; }', 'time echo { rm -rf build \\; }', '"time" { rm -rf build \\; }', "echo 'function f { rm -rf build; }; f'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+    expect(destructiveParts('rm build/{a,b}')[0]?.targets).toEqual(['build/{a,b}']);
+  });
   it('warns about command substitutions in unquoted heredocs without parsing their bodies as commands', async () => {
     expect((await only('cat <<EOF\n$(rm -rf build)\nEOF', '/repo')).summary).toBe('cannot tell: command substitution in a here-document needs the shell');
     expect(kinds("cat <<'EOF'\n$(rm -rf build)\nEOF")).toEqual([]);
+  });
+  it('warns about executed substitutions in arguments and assignments but skips literal data', () => {
+    for (const command of ['echo $(rm -rf build)', 'X=$(rm -rf build)', 'echo "$(rm -rf build)"', 'echo `rm -rf build`', 'X=`rm -rf build`', 'echo "`rm -rf build`"', 'echo $(echo ready; rm -rf /outside)']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo '$(rm -rf build)'", "echo '`rm -rf build`'", 'echo "\\$(rm -rf build)"', 'echo "\\`rm -rf build\\`"', 'echo \\(rm -rf build\\)', 'echo ok # $(rm -rf build)', "cat <<'EOF'\n$(rm -rf build)\nEOF"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('warns when eval or a shell command option evaluates even quoted command text', () => {
+    for (const command of ['eval rm -rf build', "eval 'rm -rf build'", "sh -c 'rm -rf build'", '/bin/bash -lc "rm -rf build"', 'env X=1 sh -ec "rm -rf build"', "sudo -- sh '-c' 'rm -rf build'", "dash -o errexit -c 'rm -rf build'", "zsh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ['eval', "echo 'eval rm -rf build'", "echo \"sh -c 'rm -rf build'\"", "sh script.sh 'rm -rf build'", "sh script.sh '-c' 'rm -rf build'", "sh -- -c 'rm -rf build'", "bash -o noclobber script.sh 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('sees shell command options through execution wrappers without treating wrapper values as commands', () => {
+    for (const command of ["exec sh -c 'rm -rf build'", "exec -a label sh -c 'rm -rf build'", "exec '--' sh '-c' 'rm -rf build'", "timeout 10 sh -c 'rm -rf build'", "timeout -k 2 10 sh -c 'rm -rf build'", "timeout '--signal' 'TERM' -- 10 sh -c 'rm -rf build'", "busybox sh -c 'rm -rf build'", "busybox ash -c 'rm -rf build'", "exec env X=1 timeout -s TERM 10 busybox sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"exec sh -c 'rm -rf build'\"", "exec '-a' sh echo '-c' 'rm -rf build'", "timeout 10 sh script.sh '-c' 'rm -rf build'", "busybox echo sh '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('warns about coprocess execution, including named groups, without treating quoted data as a command', () => {
+    for (const command of ['coproc { rm -rf build; }', 'coproc CLEANUP { rm -rf build; }', "coproc sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo 'coproc { rm -rf build; }'")).toEqual([]);
+  });
+  it('warns when user-switching commands ask a shell to evaluate text, even after a username', () => {
+    for (const command of ["su -c 'rm -rf build'", "su root -c 'rm -rf build'", "sudo su root --command='rm -rf build'", "su -s /bin/sh root -lc 'rm -rf build'", "runuser root --session-command 'rm -rf build'", "su -- root '-c' 'rm -rf build'", "su root -- -c 'rm -rf build'", "runuser -u root -- sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"su root -c 'rm -rf build'\"", "su -- root script.sh '-c' 'rm -rf build'", "su -- root -- '-c' 'rm -rf build'", "su -s '-c' root", "runuser -u root -- echo '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('keeps changed-root execution opaque rather than inspecting targets in the original workspace', () => {
+    for (const command of ["chroot /mnt/root sh -c 'rm -rf build'", 'chroot /mnt/root rm -rf build']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo \"chroot /mnt/root sh -c 'rm -rf build'\"")).toEqual([]);
   });
   it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
     const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
@@ -590,16 +655,63 @@ describe('previewing git, with git standing in', () => {
     expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
   });
 
-  it('names branch, remote and the commits a force push would discard', async () => {
+  it('names branch, remote and the commits an implicit force push would discard', async () => {
     const { execFile } = recorder({
       'git rev-parse --abbrev-ref HEAD': 'feature\n',
       'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\norigin\tgit@github.com:a/b.git (push)\n',
       'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
       'git rev-list --count HEAD..@{u}': '3\n',
     });
-    const preview = await only('git push --force origin main', '/repo', { execFile });
+    const preview = await only('git push --force', '/repo', { execFile });
     expect(preview.summary).toBe('force-push feature to origin: would discard 3 remote commits');
     expect(preview.lines[0]).toBe('upstream: origin/feature');
+  });
+
+  it.each([
+    ['git push --force origin main', ['main']],
+    ['git push -f origin main:release', ['main:release']],
+    ['git push --force-with-lease origin refs/heads/main:refs/heads/release', ['refs/heads/main:refs/heads/release']],
+    ['git push origin +main:release', ['+main:release']],
+    ['git push --force origin main:release feature:review', ['main:release', 'feature:review']],
+    ['git push origin +main:release feature:review', ['+main:release', 'feature:review']],
+  ])('names explicit refspecs without borrowing the checked-out feature upstream: %s', async (command, refspecs) => {
+    const disk = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    const preview = await only(command, '/repo', disk);
+    expect(preview).toMatchObject({
+      summary: 'force-push to origin: cannot tell how many remote commits the forced refspecs may discard; remote state was not contacted',
+      lines: refspecs,
+      count: refspecs.length,
+    });
+    expect(disk.calls).toEqual([]);
+  });
+
+  it('bounds the listed refspecs while retaining the full count', async () => {
+    const refspecs = Array.from({ length: 21 }, (_, at) => `branch-${at}:destination-${at}`);
+    const disk = recorder();
+    const preview = await only(`git push -f backup ${refspecs.join(' ')}`, '/repo', disk);
+    expect(preview).toMatchObject({ lines: refspecs.slice(0, 20), count: 21 });
+    expect(preview.summary).toContain('force-push to backup: cannot tell');
+    expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
+    expect(disk.calls).toEqual([]);
+  });
+
+  it.each(['origin', 'backup'])('does not borrow the upstream count for a named remote: %s', async (remote) => {
+    const disk = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\nbackup\tgit@github.com:c/d.git (push)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    expect(await only(`git push -f ${remote}`, '/repo', disk)).toMatchObject({
+      summary: `force-push to ${remote}: cannot tell which refs or how many remote commits may be overwritten; remote state was not contacted`,
+      lines: [],
+    });
+    expect(disk.calls).toEqual([]);
   });
 
   it('says so when there is no upstream to read', async () => {

@@ -40,6 +40,7 @@ import { STATE_IMPORT_USAGE, stateImport } from "./state-import.js";
 import { status } from "./status.js";
 import { GIT_CREDENTIAL_USAGE, gitCredential, readStandardInput } from "./git-credential.js";
 import { LocalFailure, type Net } from "./local-session.js";
+import { LS_USAGE, ls } from "./ls.js";
 import { mintPairing, renderPairing, type PairArgs } from "./pair.js";
 import { preflight, PREFLIGHT_USAGE } from "./preflight.js";
 import { TUI_USAGE, tui, type RunTui } from "./tui.js";
@@ -62,6 +63,7 @@ const USAGE = [
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
   `       ${STATE_IMPORT_USAGE}`,
+  `       ${LS_USAGE}`,
   "",
 ].join("\n");
 
@@ -90,7 +92,7 @@ export interface CliContext extends ProcessContext {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
-  /** The directory the `bank` verbs work in, whose repository scopes the banks; preset: the process's working directory. */
+  /** The directory the `bank` verbs work in, whose repository scopes the banks, and the one `ls` lists on this machine's environment; preset: the process's working directory. */
   readonly cwd?: string;
 }
 
@@ -304,6 +306,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         runTui: context.tui,
       });
     }
+    if (args[0] === "ls") return await ls(args.slice(1), { stdout: context.stdout, stderr: context.stderr, seams: context.service ?? {}, cwd: context.cwd ?? process.cwd() });
     throw new UsageError(args.length === 0 ? "No command given." : `Unknown command ${args[0]}.`);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;

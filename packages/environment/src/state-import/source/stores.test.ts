@@ -158,7 +158,7 @@ describe("the audited profile document", () => {
       { id: "other", label: "Other", providerId: "codex", configDir: "/fixture/other" },
     ] } });
     expect((await readSourceStores(folder)).profiles).toMatchObject({ status: "read", records: {
-      profiles: [{ sourceId: "work", label: "Work", directory: "/fixture/work" }], failed: [], later: [{ label: "Other: profile, Sessions and archive", provider: "codex" }],
+      profiles: [{ sourceId: "work", label: "Work", directory: "/fixture/work" }], failed: [], later: [{ label: "Profile for codex", provider: "codex" }],
     } });
     expect(JSON.stringify((await readSourceStores(folder)).profiles)).not.toContain("secret-for-tests");
     writeFileSync(join(folder, "profiles.json"), JSON.stringify({ version: 1, profiles: [

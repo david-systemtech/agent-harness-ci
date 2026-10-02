@@ -144,11 +144,11 @@ export interface ForgeRequest {
  * limit's 403 or 429 is unanswered, as is a server error; null for every
  * other status, which the caller reads.
  */
-const unansweredStatus = (response: Response, http: ForgeHttpOptions, call: CallOptions): Extract<Reply, { outcome: "unanswered" }> | null => {
+const unansweredStatus = (response: Response, http: ForgeHttpOptions, call: CallOptions, anonymous: boolean): Extract<Reply, { outcome: "unanswered" }> | null => {
   const { status } = response;
   const pause = pauseOf(response.headers, http.now());
   if (pause !== null) call.onPause?.(pause);
-  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `is rate-limiting this token until ${pause.toISOString()}` };
+  if (pause !== null && (status === 403 || status === 429)) return { outcome: "unanswered", message: `is rate-limiting ${anonymous ? `anonymous reads (HTTP ${status})` : "this token"} until ${pause.toISOString()}` };
   return isTransient(status) ? { outcome: "unanswered", message: `answered HTTP ${status}` } : null;
 };
 
@@ -179,7 +179,7 @@ export const forgeCall = async (http: ForgeHttpOptions, request: ForgeRequest, c
   } catch (error) {
     return { outcome: "unanswered", message: `could not be reached: ${whyUnanswered(error, http.timeoutMs)}` };
   }
-  const unanswered = unansweredStatus(response, http, call);
+  const unanswered = unansweredStatus(response, http, call, request.token === null);
   if (unanswered !== null) return unanswered;
   const { status } = response;
   if (status === 304 && kept !== undefined) return { outcome: "answered", status: kept.status, headers: kept.headers, body: parseJson(kept.text) };
@@ -298,7 +298,7 @@ export const forgeDownload = async (
       target = new URL(response.headers.get("location") ?? "", target).href;
       response = await http.fetch(target, { headers: sameOrigin(target, url) ? headers : withoutAuthorization(headers), redirect: "manual", signal });
     }
-    const unanswered = unansweredStatus(response, http, call);
+    const unanswered = unansweredStatus(response, http, call, !sameOrigin(target, url) || new Headers(headers).get("authorization") === null);
     if (unanswered !== null || !response.ok || response.body === null) {
       const text = await response.text();
       return unanswered ?? { outcome: "failed", status: response.status, body: parseJson(text) };

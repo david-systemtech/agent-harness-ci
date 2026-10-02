@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FileUndoConflictReason",
+  "type": "string",
+  "enum": [
+    "run_active",
+    "workspace_missing",
+    "unsafe_path",
+    "nothing_to_undo",
+    "snapshot_unavailable",
+    "file_changed"
+  ],
+  "description": "Why files.undo was refused: run_active (a run is live in the session or in another session sharing its workspace; data names it), workspace_missing (the workspace directory is gone), unsafe_path (the newest change's file is outside the workspace, reached through a symlink, or not a regular file), nothing_to_undo (no change of the session is left to undo), snapshot_unavailable (the newest change cannot be restored, data.unrestorable says why; an older one is never undone past it) or file_changed (the file no longer holds what the change left)."
+}

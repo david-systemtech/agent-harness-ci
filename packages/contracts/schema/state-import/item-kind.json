@@ -5,7 +5,11 @@
   "enum": [
     "instruction",
     "account",
-    "account-default"
+    "account-default",
+    "forge-account",
+    "key-manager-connection",
+    "dev-site",
+    "page-policy"
   ],
-  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile)."
+  "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
 }

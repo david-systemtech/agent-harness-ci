@@ -157,6 +157,24 @@ it("reuses registered identity and directory Accounts without relabelling them a
   expect(await client.request("instructions.list", {})).toMatchObject({ instructions: [{ scope: ["kept"] }] });
 });
 
+it("counts a fresh adoption when the registered Account disappears after planning", async () => {
+  const source = tempDir();
+  const directory = tempDir();
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [{ id: "work", label: "Work", providerId: "claude", configDir: directory }] }));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [], status: () => signedInAs("reuse@example.com") });
+  const adapter = { ...base, observeIdentity: async () => ({ provider: "claude", email: "reuse@example.com", organisation: null }) };
+  const t = await startTestEnvironment({ adapter, accounts: [{ id: "existing", provider: "claude", directory }], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }), stateImportHooks: { planned: async () => {
+    expect(await client.request("accounts.remove", { commandId: randomUUID(), accountId: "existing" })).toMatchObject({ result: { accountId: "existing", directoryDeleted: false } });
+  } } });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { accounts: 1 }, failed: [] } });
+  const { accounts } = await client.request("accounts.list", {});
+  expect(accounts).toHaveLength(1);
+  expect(accounts[0]).toMatchObject({ label: "Work", directory: { path: directory } });
+  expect(accounts[0]?.id).not.toBe("existing");
+});
+
 it("fails unreadable identities, invalid labels, unresolved scopes and defaults independently, then retries repaired profiles with a fresh command", async () => {
   const source = tempDir();
   const good = tempDir();
@@ -187,7 +205,8 @@ it("fails unreadable identities, invalid labels, unresolved scopes and defaults 
   const commandId = randomUUID();
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview.result?.failed).toHaveLength(4);
-  expect(preview.result?.later).toEqual([{ label: "Other provider: profile, Sessions and archive", provider: "codex" }]);
+  expect(preview.result?.later).toEqual([{ label: "Profile for codex", provider: "codex" }]);
+  expect(await client.request("carryOver.inventory", { source: "state-import" })).toMatchObject({ later: [{ label: "Profile for codex", provider: "codex" }] });
   expect(await client.request("stateImport.run", { commandId, dryRun: false })).toMatchObject({ result: { carried: { accounts: 1, instructions: 1 }, failed: preview.result?.failed } });
   expect(await client.request("settings.get", { keys: ["accounts.defaultAccount"] })).toEqual({ values: { "accounts.defaultAccount": "existing" } });
   identity(badIdentity, "repaired@example.com");

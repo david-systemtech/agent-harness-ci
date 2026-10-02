@@ -64,13 +64,14 @@ export type DestructiveKind =
   | 'chmod-recursive'
   | 'find-delete'
   | 'shell-expansion'
+  | 'indirect-shell'
   | 'input-targets'
   | 'other';
 
 /** One segment of a command line that would destroy something. */
 export interface Destructive {
   readonly kind: DestructiveKind;
-  /** The segment as typed, comments and surrounding operators removed. */
+  /** The segment as typed, or the whole command when indirect execution makes it opaque. */
   readonly text: string;
   /**
    * What the verb acts on: paths for `rm`, pathspecs for `git clean`, branch
@@ -186,6 +187,7 @@ interface Segment {
   /** The slice of the original line this came from, without any trailing comment. */
   readonly text: string;
   readonly unresolvedHereDoc?: boolean;
+  readonly indirectShell?: boolean;
 }
 
 /**
@@ -214,6 +216,7 @@ function tokenize(command: string): readonly Segment[] {
   let operand = '';
   let open = false;
   let quoted = false;
+  let indirectShell = false;
   let pending: RedirectOp | null = null;
   let pendingDup = false;
   let pendingDupFile = false;
@@ -241,10 +244,11 @@ function tokenize(command: string): readonly Segment[] {
   const pushSegment = (nextStart: number): void => {
     pushWord();
     if (words.length > 0 || redirects.length > 0) {
-      segments.push({ words, redirects, text: command.slice(start, Math.max(start, mark)).trim() });
+      segments.push({ words, redirects, text: command.slice(start, Math.max(start, mark)).trim(), indirectShell });
     }
     words = [];
     redirects = [];
+    indirectShell = false;
     pending = null;
     pendingDup = false;
     pendingDupFile = false;
@@ -326,6 +330,7 @@ function tokenize(command: string): readonly Segment[] {
           at += 1;
           continue;
         }
+        if (inner === '`' || (inner === '$' && command[at + 1] === '(')) indirectShell = true;
         text += inner;
         operand += '$`'.includes(inner) ? inner : escapeLiteral(inner);
         at += 1;
@@ -430,6 +435,7 @@ function tokenize(command: string): readonly Segment[] {
       continue;
     }
 
+    if (char === '(' || char === '`' || (char === '{' && !open && braceGroupPosition(words) && /\s/.test(command[index + 1] ?? ''))) indirectShell = true;
     open = true;
     text += char;
     operand += char;
@@ -448,11 +454,21 @@ function tokenize(command: string): readonly Segment[] {
 /** `FOO=bar rm …`: an assignment in front of the command is not the command. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
+/** Reserved words can place a compound command where an ordinary argument cannot. */
+const BRACE_GROUP_PREFIXES = new Set(['time', '!', 'if', 'then', 'elif', 'else', 'while', 'until', 'do']);
+const braceGroupPosition = (words: readonly Word[]): boolean => {
+  const functionWord = words.at(-2);
+  const prefix = functionWord?.text === 'function' && !functionWord.quoted ? words.slice(0, -2) : words;
+  return prefix.every((word, index) => !word.quoted && (ASSIGNMENT.test(word.text) || BRACE_GROUP_PREFIXES.has(word.text)
+    || (word.text === '-p' && prefix[index - 1]?.text === 'time')));
+};
+
 /** Wrappers that are not themselves the command, and are worth seeing through. */
-const PREFIXES = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'xargs']);
+const PREFIXES = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'xargs', 'exec', 'timeout', 'busybox']);
 
 /** Prefix options that swallow the next word, so the command is not mistaken for their value. */
 const PREFIX_VALUE_FLAGS = new Set(['-u', '-g', '-C', '--user', '--chdir', '-I']);
+const TIMEOUT_VALUE_FLAGS = new Set(['-k', '-s', '--kill-after', '--signal']);
 const XARGS_VALUE_FLAGS = new Set(['-n', '-P', '-L', '-a', '-s', '-d', '-E', '--max-args', '--max-procs', '--max-lines', '--arg-file', '--max-chars', '--delimiter']);
 
 /** git's own options, before the subcommand. Those that take a separate value. */
@@ -524,14 +540,61 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
     if (!PREFIXES.has(name)) return { name, args: words.slice(1), inputTargets };
     if (name === 'xargs') inputTargets = true;
     let at = 1;
+    const executionWrapper = name === 'exec' || name === 'timeout' || name === 'busybox';
     while (at < words.length) {
       const word = words[at];
-      if (word === undefined || !isFlag(word)) break;
-      at += PREFIX_VALUE_FLAGS.has(word.text) || (name === 'xargs' && XARGS_VALUE_FLAGS.has(word.text)) ? 2 : 1;
+      if (word === undefined || !(isFlag(word) || (executionWrapper && /^-./.test(word.text)))) break;
+      if (word.text === '--') { at += 1; break; }
+      const takesValue = PREFIX_VALUE_FLAGS.has(word.text) || (name === 'xargs' && XARGS_VALUE_FLAGS.has(word.text))
+        || (name === 'exec' && word.text === '-a') || (name === 'timeout' && TIMEOUT_VALUE_FLAGS.has(word.text));
+      at += takesValue ? 2 : 1;
     }
+    if (name === 'timeout') at += 1; // The duration precedes the wrapped command.
     words = words.slice(at);
   }
   return null;
+}
+
+const SHELLS = new Set(['sh', 'bash', 'dash', 'ash', 'ksh', 'zsh', 'fish', 'csh', 'tcsh']);
+const SHELL_VALUE_OPTIONS = new Set(['-o', '-O', '--rcfile', '--init-file']);
+const USER_SHELLS = new Set(['su', 'runuser']);
+const USER_SHELL_VALUE_OPTIONS = new Set(['-s', '--shell', '-g', '--group', '-G', '--supp-group', '-w', '--whitelist-environment', '-u', '--user']);
+
+/** Only invocation options count: `sh script -c text` passes data to a script. */
+function evaluatesShell(segment: Segment, depth = 0): boolean {
+  if (depth >= 8) return true; // Further user-switching wrappers remain opaque.
+  const invocation = invocationOf(segment);
+  if (invocation === null) return false;
+  const { name, args } = invocation;
+  if (name === 'eval' || name === 'coproc' || name === 'chroot') return args.length > 0;
+  const userShell = USER_SHELLS.has(name);
+  if (!SHELLS.has(name) && !userShell) return false;
+  let username = false;
+  let forwarded = false;
+  let directUser = false;
+  for (let at = 0; at < args.length; at += 1) {
+    const option = args[at]?.text ?? '';
+    if (option === '--') {
+      if (directUser) return evaluatesShell({ ...segment, words: args.slice(at + 1) }, depth + 1);
+      if (!userShell || forwarded) break;
+      forwarded = true; // su forwards the remaining arguments to the user's shell.
+      continue;
+    }
+    if (name === 'runuser' && !forwarded && (option.startsWith('--user=') || hasShortFlag([option], 'u', 'sgGw'))) directUser = true;
+    if (userShell && !forwarded && USER_SHELL_VALUE_OPTIONS.has(option)) { at += 1; continue; }
+    if (option === '-' || !/^[+-]/.test(option)) {
+      if (userShell && (!forwarded || !username)) {
+        if (option !== '-') username = true;
+        continue; // Options may follow the username; forwarded script arguments remain data.
+      }
+      break;
+    }
+    const commandFlag = userShell && !forwarded ? hasShortFlag([option], 'c', 'sgGwu') : /^-[^-]*c/.test(option);
+    if (commandFlag || option === '--command' || option.startsWith('--command=')
+      || (userShell && (option === '--session-command' || option.startsWith('--session-command=')))) return true;
+    if (SHELL_VALUE_OPTIONS.has(option)) at += 1;
+  }
+  return false;
 }
 
 /**
@@ -541,8 +604,14 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
  * nothing, which is the common case and the one that keeps the card quiet.
  */
 export function destructiveParts(command: string): readonly Destructive[] {
+  const segments = tokenize(command);
+  // Nested syntax can split into misleading apparent commands. Keep the whole
+  // request opaque rather than inspecting targets that only the shell resolves.
+  if (segments.some((segment) => segment.indirectShell === true || evaluatesShell(segment))) {
+    return [{ kind: 'indirect-shell', text: command, targets: [], flags: [] }];
+  }
   const found: Destructive[] = [];
-  for (const segment of tokenize(command)) {
+  for (const segment of segments) {
     if (segment.unresolvedHereDoc === true) found.push({ kind: 'shell-expansion', text: segment.text, targets: [], flags: [] });
     const invocation = invocationOf(segment);
     if (invocation !== null) {
@@ -1149,6 +1218,8 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
         return previewDrop(part);
       case 'shell-expansion':
         return { kind: part.kind, summary: 'cannot tell: command substitution in a here-document needs the shell', lines: [] };
+      case 'indirect-shell':
+        return { kind: part.kind, summary: 'cannot tell: indirect shell execution may change files or contact the network', lines: [] };
       case 'input-targets':
         return { kind: part.kind, summary: 'cannot tell: xargs supplies destructive targets from input', lines: [] };
       case 'truncate-redirect':
@@ -1259,13 +1330,15 @@ async function previewRemove(part: Destructive, cwd: string, deps: BlastRadiusDe
  */
 async function previewClean(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
   const stdout = await gitIn(cwd, deps)(cleanArgv(part));
-  const paths = stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(/^Would (?:remove|skip repository|not remove) /, ''));
+  const paths = cleanPaths(stdout);
   if (paths.length === 0) return { kind: part.kind, summary: 'git clean would remove nothing', lines: [], count: 0 };
   return { kind: part.kind, summary: `git clean would remove ${plural(paths.length, 'path')}`, lines: paths.slice(0, MAX_LISTED), count: paths.length };
+}
+
+/** Raw path labels from the fixed clean dry run, shared with the broker's path checks. */
+export function cleanPaths(stdout: string): readonly string[] {
+  return stdout.split('\n').filter((line) => line.length > 0)
+    .map((line) => line.replace(/^Would (?:remove|skip repository|not remove) /, ''));
 }
 
 /** The dry-run argv: `-n` first, the flags that only narrow the search, then the pathspecs. */
@@ -1304,15 +1377,30 @@ async function previewResetHard(part: Destructive, cwd: string, deps: BlastRadiu
 }
 
 async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
-  if (part.targets.slice(1).some((refspec) => refspec.startsWith('+'))) {
-    return { kind: part.kind, summary: 'forced refspec may discard remote commits; remote state was not contacted', lines: part.targets.slice(1).slice(0, MAX_LISTED), count: part.targets.length - 1 };
+  const refspecs = part.targets.slice(1);
+  if (refspecs.length > 0) {
+    // HEAD and its upstream do not identify an explicit source/destination pair.
+    // Keep the typed refspecs rather than query a different pair or contact a remote.
+    return {
+      kind: part.kind,
+      summary: `force-push to ${unescape(part.targets[0] ?? 'the remote')}: cannot tell how many remote commits the forced refspecs may discard; remote state was not contacted`,
+      lines: refspecs.map(unescape).slice(0, MAX_LISTED),
+      count: refspecs.length,
+    };
+  }
+  const named = part.targets[0];
+  if (named !== undefined) {
+    // A named remote can select configured push refspecs unrelated to @{u}.
+    return {
+      kind: part.kind,
+      summary: `force-push to ${unescape(named)}: cannot tell which refs or how many remote commits may be overwritten; remote state was not contacted`,
+      lines: [],
+    };
   }
   const git = gitIn(cwd, deps);
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
   const remoteLine = ((await soft(git(['remote', '-v']))).split('\n')[0]?.trim() ?? '').replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/]+@/gi, '$1');
-  // The remote the command names beats the first one configured, which is only a guess.
-  const named = part.targets.find((target) => !target.startsWith('-'));
-  const remote = named ?? remoteLine.split(/\s+/)[0] ?? 'the remote';
+  const remote = remoteLine.split(/\s+/)[0] ?? 'the remote';
   const upstream = (await soft(git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']))).trim();
   const where = `force-push ${branch.length > 0 ? branch : 'HEAD'} to ${remote}`;
   const lines = remoteLine.length > 0 ? [remoteLine] : [];

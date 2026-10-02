@@ -26,11 +26,8 @@ export const createBankSyncer = (options: { readonly banks: BankService; readonl
   let interval: Timer | undefined;
   let closed = false;
 
-  const fetchOne = async (bank: BankEntry): Promise<void> => {
-    if (bank.location.kind === "local") {
-      await banks.verify(bank.id);
-      return;
-    }
+  const fetchRemote = async (bank: BankEntry): Promise<void> => {
+    if (bank.location.kind !== "remote") return;
     const local = (args: readonly string[]) => runGit(bank.checkout, args, { maxBytes: 64 * 1024, signal: controller.signal });
     const previous = await local(["rev-parse", "HEAD"]);
     if (controller.signal.aborted) return;
@@ -62,6 +59,10 @@ export const createBankSyncer = (options: { readonly banks: BankService; readonl
     }
     await banks.recordSync(bank.id, { head: head.stdout.toString("utf8").trim(), previousHead: previous.ok ? previous.stdout.toString("utf8").trim() : null });
   };
+
+  const fetchOne = (bank: BankEntry): Promise<void> => bank.location.kind === "local"
+    ? banks.verify(bank.id).then(() => undefined)
+    : banks.withCheckout(bank.id, () => fetchRemote(bank));
 
   const join = (bank: BankEntry): Promise<void> => {
     const held = running.get(bank.id);

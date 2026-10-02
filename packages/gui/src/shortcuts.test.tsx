@@ -115,10 +115,11 @@ describe("the list", () => {
     ]);
     expect(within(quit).queryByRole("button")).toBeNull();
     expect(actionRow(pane, "Anywhere", "Show or hide the sidebar").hasAttribute("aria-disabled")).toBe(false);
-    // The terminal answers it absent: its reason, dim.
-    expect(cells(actionRow(pane, "Slash commands", "Take back the last file change the agent made"))[1]).toBe(
-      "/undo: Deferred to phase D, carried if Seth relies on it (docs/specs/tui.md, Out of Scope).",
-    );
+    // File undo is wired in the terminal; the GUI surface follows separately.
+    expect(cells(actionRow(pane, "Slash commands", "Take back the last file change the agent made")).slice(1)).toEqual([
+      "/undo",
+      "File undo is not offered by this GUI build yet.",
+    ]);
   });
 
   it("finds an action as its search is typed at, every word in its description, id or keys; a group with none found is not drawn", async () => {
@@ -207,6 +208,10 @@ describe("a remap", () => {
 
   it("refuses a reserved key, Ctrl+C on an action that stops a run, and a text field's own key, each with its reason; Esc leaves the recording", async () => {
     const app = await opened();
+    const env = app.environment("desk");
+    const session = env.sessionId();
+    const { runId } = env.startRun(session, "Keep working while keys are configured");
+    await screen.findByRole("button", { name: "Stop" });
     const pane = await openShortcuts(app);
     const find = () => actionRow(pane, "Anywhere", "Find in the conversation");
     const record = async (row: () => HTMLElement, from: string, keys: string) => {
@@ -249,6 +254,8 @@ describe("a remap", () => {
     expect(within(find()).queryByText(/^Not saved/)).toBeNull();
     expect(remaps(app)).toEqual({});
     expect(settings()).toBeDefined();
+    expect(env.liveRun(session)).toBe(runId);
+    expect(env.requests("runs.interrupt")).toEqual([]);
   });
 
   it("is reset by its row's Reset, or with every other by Reset every key", async () => {

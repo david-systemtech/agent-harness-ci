@@ -1,6 +1,6 @@
-import { SETTINGS_KEYS, type SettingsKey, type SettingsPatch, type SettingsValues } from "@agent-harness/contracts";
+import { SETTINGS_KEYS, type ParamsOf, type ResultOf, type SettingsKey, type SettingsPatch, type SettingsValues } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
-import type { MethodHandler } from "../serve/methods.js";
+import type { MethodContext, MethodHandler, MethodHandlers } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { recordSettingsChange, settingsStream } from "./changes.js";
 import { readSettings } from "./settings-store.js";
@@ -40,7 +40,12 @@ const same = (a: unknown, b: unknown): boolean => {
   return keys.length === Object.keys(right).length && keys.every((key) => key in right && same(left[key], right[key]));
 };
 
-export const settingsMethods = (options: SettingsMethodsOptions): { readonly "settings.get": MethodHandler<"settings.get">; readonly "settings.update": MethodHandler<"settings.update"> } => {
+export interface SettingsHandlers {
+  readonly "settings.get": (params: ParamsOf<"settings.get">, context: MethodContext) => ResultOf<"settings.get">;
+  readonly "settings.update": MethodHandler<"settings.update">;
+}
+
+export const settingsMethods = (options: SettingsMethodsOptions): MethodHandlers & SettingsHandlers => {
   const { log } = options;
   const stream = settingsStream(options.environmentId);
   // The log's query-only read: inside a command it reads that command's own transaction.

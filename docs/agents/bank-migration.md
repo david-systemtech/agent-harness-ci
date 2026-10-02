@@ -62,3 +62,6 @@ bank can be inspected through dry runs but cannot prepare a migration PR.
 The bank owner approves orientation and every topic move. Verify the bank's live
 `validate` job and secret scan on that PR. Keep it unmerged until the switch-over
 owner authorizes landing; preparing a migration never switches readers.
+
+For team scope moves, holding-company facts, product-line topics and the
+human-owned heads-up, follow [the team migration checklist](team-bank-migration.md).
