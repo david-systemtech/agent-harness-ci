@@ -43,7 +43,8 @@ export const createChecks = (host: {
     const key = `${environmentId} ${sessionId}`;
     const prior = state.get(key);
     if (prior) {
-      prior.floor = Math.max(prior.floor, ...entries(environmentId, sessionId).map((item) => item.sequence));
+      // A reset dismisses completed offers; an in-flight check may still produce a new failure.
+      prior.floor = Math.max(prior.floor, ...entries(environmentId, sessionId).filter((item) => item.status !== "running").map((item) => item.sequence));
       prior.sent.clear();
       prior.generation++;
     }

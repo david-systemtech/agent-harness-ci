@@ -142,3 +142,25 @@ it("refreshes both Sessions on checks.changed and refuses absent flags, scopes a
   expect(await runtime.checks.run(id, SESSION)).toMatchObject({ ok: false, error: { code: "unreachable" } });
   expect(await runtime.checks.set(id, SESSION, "never queued")).toMatchObject({ ok: false, error: { code: "unreachable" } });
 });
+
+it("keeps an in-flight check's later failure offer after a busy manual-now reset", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  wire.answer("checks.run", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { terminalId: TERMINAL } } }));
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  stream.snapshot(0, { ...recordedSnapshot(), sequence: 0, runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(0);
+  await flush();
+  expect(await runtime.checks.run(id, SESSION)).toMatchObject({ ok: true });
+  const manual = check(TERMINAL, { sourceRunId: null });
+  stream.event(numbered(1, [["checks.started", { terminalId: TERMINAL, command: manual.command, sourceRunId: null }]])[0]!);
+  await flush();
+  wire.answer("checks.run", () => ({ result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: "conflict", error: { code: "conflict", message: "The check is busy.", data: { reason: "check_running" } } } } }));
+  expect(await runtime.checks.run(id, SESSION)).toMatchObject({ ok: true, result: { receipt: { status: "rejected" } } });
+  stream.event(numbered(2, [["checks.finished", manual]])[0]!);
+  await flush();
+  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, output: "failed assertion" });
+});
