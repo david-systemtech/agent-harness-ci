@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   getSessionMessages as sdkGetSessionMessages,
@@ -15,6 +15,7 @@ import { autoMemoryName } from "../../workspace/auto-memory.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
+import { readClaudeDirectoryIdentity } from "./directory-identity.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readStoredSession, readSubagentTranscript, resolveForkPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { readDirectoryHistory, seedStoreFromDirectory } from "./imported-history.js";
@@ -281,6 +282,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
+    observeIdentity: (directory) => readClaudeDirectoryIdentity(directory, hostEnv["HOME"] ?? hostEnv["USERPROFILE"] ?? homedir()),
     ...(store !== undefined && {
       seedSessionStore: async (account: AccountRef, sessionId: string, providerSessionId: string) => {
         await seedStoreFromDirectory({

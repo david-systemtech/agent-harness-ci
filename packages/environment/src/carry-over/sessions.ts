@@ -146,3 +146,7 @@ export const findDirectories = async (paths: readonly string[], looks: Directory
 
 /** A listed session's failure, as the report names it. */
 export const failureOf = (session: ProviderSessionInfo, message: string): CarryOverFailure => ({ providerSessionId: session.providerSessionId, message });
+
+/** How a failed listing is named in inventory and application. */
+export const listingFailed = (account: AccountRef, error: unknown): string =>
+  `Listing the sessions in ${account.directory ?? "the account's directory"} failed: ${error instanceof Error ? error.message : String(error)}`;
