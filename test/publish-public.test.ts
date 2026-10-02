@@ -110,13 +110,13 @@ it("refuses excluded test paths stored as UTF-16", () => {
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
-it("checks the committed repository's actual filtered test inventory before the privacy gate", () => {
+it("checks the committed repository's actual filtered test inventory and privacy policy", () => {
   const f = fixture();
   let output: string;
-  // The scrub can still be pending; this check observes export and test closure.
   try { output = f.publish("--source", root, "--dry-run"); }
   catch (error) { output = (error as { stdout: string }).stdout; }
   expect(output).toContain("Test inputs: pass");
+  expect(output).toContain("Privacy deny-list: pass");
   expect(git(f.remote, "for-each-ref")).toBe("");
 }, 120_000);
 
@@ -134,9 +134,7 @@ it.skipIf(process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRO
     mkdirSync(join(f.source, path, ".."), { recursive: true });
     cpSync(join(root, path), join(f.source, path));
   }
-  // This integration fixture tests public test closure before the scrub lands.
-  // Real publication always runs its selected ref's privacy policy unchanged.
-  f.write(".public-privacy.json", JSON.stringify({ deny: [], allow: [] }));
+  // Exercise the same checked-in privacy policy as real publication.
   git(f.source, "add", "-f", ".");
   git(f.source, "commit", "-qm", "public check fixture");
   f.publish();
@@ -167,6 +165,39 @@ it("dry-runs the full checks and commit without moving public refs", () => {
   expect(output).toContain("gitleaks: pass");
   expect(output).toMatch(/Commit: [a-f0-9]{40}\nParent: \(root\)\nMessage: Publish 1.2.3/);
   expect(output).toContain(".github/workflows/release.yml\nREADME.md");
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it.each([
+  ["deployment variants", ["SYSTEM", "USA"].join("-")],
+  ["person boundary", ["se", "th"].join("")],
+  ["company whitespace", ["brand", "solidate"].join("\n")],
+  ["company separator", ["cool", "jams"].join("-")],
+  ["company name", ["blue", "beards"].join("")],
+  ["company phrase", ["sir", "waggingtons"].join("\\n")],
+  ["vault organization", ["systemtech", "dev/"].join("")],
+  ["vault service", ["personal", "forgejo"].join("/")],
+  ["vault agents", ["personal", "agents/"].join("/")],
+  ["private account", ["david", "abusiewiez"].join("")],
+  ["deployment service", ["dok", "ploy"].join("")],
+  ["relay name", ["vm", "relay", "1"].join("-")],
+  ["vault host", ["bao", "systemtech", "dev"].join(".")],
+  ["location boundary", ["m", "nl"].join("")],
+  ["private project", ["cor", "tex"].join("")],
+  ["person name", ["al", "bert"].join("")],
+  ["private address", [100, 109, 204, 54].join(".")],
+  ["private release", ["v2026", "9", "24"].join(".")],
+  ["organization boundary", ["system", "tech"].join("")],
+  ["private remote alias", ["git", "systemtech"].join("-")],
+  ["audit marker", ["oa9YJpND", "k68"].join("")],
+  ["private revision", ["d3b25", "b5"].join("")],
+  ["runner name", ["mba", "macos", "12"].join("-")],
+  ["escaped deployment separator", ["system", "server"].join("\\t")],
+  ["escaped company separator", ["brand", "solidate"].join("\\r")],
+])("blocks the scrub deny-list's %s in a future snapshot", (_name, content) => {
+  const f = fixture();
+  f.write("README.md", content); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
