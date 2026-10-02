@@ -195,7 +195,7 @@ export const StateImportStartedPayload = z
 export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
 
 /** The kinds of item a state import carries, each written through the service that owns it. */
-export const StateImportItemKind = z.enum(["instruction", "account", "account-default", "forge-account", "key-manager-connection", "dev-site", "page-policy"]).meta({ description: "The kind of item a state import carried: an owned instruction, an Account mapping or default, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy." });
+export const StateImportItemKind = z.enum(["instruction", "bank", "bank-default", "account", "account-default", "forge-account", "key-manager-connection", "dev-site", "page-policy"]).meta({ description: "The kind of item a state import carried: an owned instruction, a Bank registry entry or default, an Account mapping or default, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy." });
 export type StateImportItemKind = z.infer<typeof StateImportItemKind>;
 
 /**
@@ -210,11 +210,11 @@ export const StateImportItemCarriedPayload = z
   .object({
     importId,
     sourceKey,
-    store: z.string().min(1).meta({ description: "The source store the item was read from: instructions, profiles, preferences, browser.devSites or browser.evaluateEverywhere." }),
+    store: z.string().min(1).meta({ description: "The source store the item was read from: instructions, profiles, preferences, banks, banks.default, browser.devSites or browser.evaluateEverywhere." }),
     sourceId: z.string().min(1).meta({ description: "The item's id in its store, or its natural identity where the store gives it none." }),
     kind: StateImportItemKind,
     sourceDirectory: z.string().min(1).optional().meta({ description: "The canonical listed Claude directory retained as an import source for an Account mapping, including a secondary directory. No credentials." }),
-    targetId: z.string().min(1).meta({ description: "The target held by its owning service: an owned instruction's id, an Account's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key." }),
+    targetId: z.string().min(1).meta({ description: "The target held by its owning service: an owned instruction's id, an Account's or Bank's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key." }),
     origin: z.literal("import").meta({ description: "Always import: the target was written by a state import." }),
   })
   .meta({

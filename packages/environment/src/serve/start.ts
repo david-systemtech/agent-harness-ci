@@ -1923,6 +1923,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       accounts,
       listSessions: listImportSessions,
       createInstruction: instructionHandlers["instructions.create"],
+      banks: bankService,
       forge,
       managers: keyManagerConnections,
       getSettings: settingsHandlers["settings.get"],

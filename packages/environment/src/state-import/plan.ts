@@ -1,3 +1,4 @@
+import { planBanks, BANK_REGISTRY_LABEL, type PlanBanksOptions } from "./banks.js";
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
 import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
@@ -50,8 +51,8 @@ export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & PagePolicyOwner): Promise<ImportPlan> => {
-  const { sourceKey, instructions, preferences, profiles, browser } = stores;
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanBanksOptions, "sourceKey"> & PagePolicyOwner): Promise<ImportPlan> => {
+  const { sourceKey, instructions, preferences, profiles, browser, banks } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
   const planned: PlannedStore[] = [];
@@ -91,7 +92,12 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: browser.snapshot, label: "Browser policy", items: policy.items, notCarried: pairings });
     failed.push(...policy.failed);
   }
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal }, stores.reportStores);
+  const bankPlan = banks.status === "read" ? await planBanks(banks.records, { ...options, sourceKey, accountIds: accounts?.accountIds }) : null;
+  if (bankPlan !== null && banks.status === "read") {
+    planned.push({ snapshot: banks.snapshot, ...(profiles.status === "read" && bankPlan.items.length > 0 && { dependencies: [profiles.snapshot] }), label: BANK_REGISTRY_LABEL, items: bankPlan.items });
+    failed.push(...bankPlan.failed);
+  } else if (banks.status === "failed") failed.push({ label: "Bank registry", message: banks.diagnostic });
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, ...(bankPlan !== null && { repairs: bankPlan.repairs }) }, stores.reportStores);
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */
@@ -151,7 +157,7 @@ const NOTHING_CARRIED: StateImportCarried = {
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
   const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
+    carried: { ...NOTHING_CARRIED, banks: carriedItems.filter((item) => item.kind === "bank").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
     reEnter: [...(plan.repairs?.(applied === null) ?? [])],
     later: plan.stores.flatMap((store) => store.later ?? []),
     notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],

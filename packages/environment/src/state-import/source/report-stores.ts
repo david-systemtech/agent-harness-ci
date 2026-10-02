@@ -38,7 +38,14 @@ export const readSourceReportStores = async (folder: string, existing?: StoreRea
     if (value["version"] !== 1 && value["version"] !== 2) return { refused: "The profile list has an unsupported version." };
     return profileOmissions(value["profiles"]);
   }, EMPTY);
-  return [{ label: "Provider omissions", read: profiles }];
+  const switches = await readStore<SourceReportRecords>(join(folder, "cerebro.json"), { name: "The memory switches", is: "are" }, (value) => {
+    if (!record(value) || value["version"] !== 1) return { refused: "The memory switches hold no supported version 1 record." };
+    const notCarried: StateImportNotCarried[] = [];
+    if (typeof value["enabled"] === "boolean") notCarried.push({ label: "Master memory switch", count: 1, step: null });
+    if (typeof value["followUpsAsIssues"] === "boolean") notCarried.push({ label: "Follow-ups-as-issues switch", count: 1, step: null });
+    return { notCarried, later: [] };
+  }, EMPTY);
+  return [...(profiles.status === "read" ? [{ label: "Provider omissions", read: profiles }] : []), { label: "Memory switches", read: switches }];
 };
 
 /** The terminal's file picker cache is counted, never adopted or exposed by path. */

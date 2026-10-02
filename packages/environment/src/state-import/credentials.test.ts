@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { registry } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -15,9 +15,11 @@ import { machinePointedAt } from "./source/folders.js";
 const { tempDir, onCleanup } = useCleanups();
 const store = (folder: string, name: string, value: unknown) => writeFileSync(join(folder, name), JSON.stringify(value), { mode: 0o600 });
 const bank = (slug: string, remote: string) => {
-  const path = tempDir();
+  const path = join(tempDir(), slug);
+  mkdirSync(path);
   execFileSync("git", ["init", "--quiet", path]);
   execFileSync("git", ["-C", path, "remote", "add", "origin", remote]);
+  execFileSync("git", ["-C", path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "--quiet", "--allow-empty", "-m", "Fixture Bank."]);
   return { slug, path, role: "readwrite", enabled: true, profiles: { kind: "all" } };
 };
 const start = async (folder: string, options: TestEnvironmentOptions = {}) => {
@@ -39,7 +41,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     const head = t.env.log.head();
     const preview = (await run(client, true)).result;
     expect(preview?.carried).toMatchObject({ forgeAccounts: 1, devSites: 1 });
-    expect(preview?.reEnter).toEqual([{ label: "Forge https://github.com", step: "forges" }]);
+    expect(preview?.reEnter.filter((repair) => repair.step !== "memory-bank")).toEqual([{ label: "Forge https://github.com", step: "forges" }]);
     expect(preview?.notCarried).toContainEqual({ label: 'Competing Forge credential from Bank "beta"', count: 1, step: null });
     expect(preview?.notCarried).toContainEqual({ label: "Browser Pairings", count: 1, step: "browser" });
     expect(t.env.log.head()).toBe(head);
@@ -52,7 +54,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     expect(JSON.stringify({ applied, events: t.env.log.readStream({ kinds: ["environment", "state-import"] }) })).not.toMatch(/encrypted-for-tests|plaintext-for-tests|browser-secret-for-tests/);
     expect(forgeFetch).not.toHaveBeenCalled();
   });
-  it("preserves a winning reference and the connection settings unsigned-in without resolving or storing credentials", async () => {
+  it("preserves a winning reference and the connection settings unsigned-in without storing credentials while Bank verification remains unsigned-in", async () => {
     const folder = tempDir();
     const id = randomUUID();
     const ca = testCertificates().ca;
@@ -60,7 +62,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     store(folder, "memory-banks.json", { version: 2, banks: [bank("encrypted", "https://github.com/team/a"), bank("referenced", "git@github.com:team/b")] });
     store(folder, "memory-bank-tokens.json", { encrypted: { username: "git", token: "encrypted-for-tests" }, referenced: { kind: "ref", username: "git", ref } });
     store(folder, "secret-managers.json", { connections: [{ id, label: "Team keys", provider: "openbao", address: "https://bao.example.test:8200", authMethod: "userpass", caPem: ca, username: "fixture-user", password: "password-for-tests" }], verifications: {} });
-    const resolve = vi.fn();
+    const resolve = vi.fn(async () => ({ outcome: "unavailable" as const, code: "credential_source_unavailable" as const, message: "Sign-in is required for tests." }));
     const forgeFetch = vi.fn();
     const vault = { get: vi.fn(async () => undefined), set: vi.fn(async () => {}), delete: vi.fn(async () => {}), keys: vi.fn(async () => []) };
     const { t, client } = await start(folder, { forgeFetch, keyManagers: { resolve }, vault });
@@ -68,14 +70,15 @@ describe("state import's Forge credentials and Key-manager records", () => {
     vault.set.mockClear();
     const preview = (await run(client, true)).result;
     expect(preview?.carried).toMatchObject({ forgeAccounts: 1, keyManagerConnections: 1 });
-    expect(preview?.reEnter).toEqual([{ label: 'Key manager "Team keys"', step: "key-manager" }]);
+    expect(preview?.reEnter.filter((repair) => repair.step !== "memory-bank")).toEqual([{ label: 'Key manager "Team keys"', step: "key-manager" }]);
     expect(preview?.notCarried).toContainEqual({ label: 'Competing Forge credential from Bank "encrypted"', count: 1, step: null });
     expect((await client.request("keyManagers.list", {})).connections).toEqual([]);
+    expect(resolve).not.toHaveBeenCalled();
     const applied = (await run(client)).result;
     expect(applied).toEqual({ ...preview, dryRun: false });
     expect((await client.request("keyManagers.list", {})).connections).toMatchObject([{ id, label: "Team keys", address: "https://bao.example.test:8200", method: "userpass", ca, username: "fixture-user", status: { kind: "awaiting-sign-in" }, injects: false }]);
     expect((await client.request("forge.accounts.list", {})).accounts).toMatchObject([{ credential: { kind: "reference", reference: ref } }]);
-    expect(resolve).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalled();
     expect(vault.set).not.toHaveBeenCalled();
     expect(vault.get).not.toHaveBeenCalled();
     expect(forgeFetch).not.toHaveBeenCalled();
@@ -112,7 +115,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     await client.request("environment.rebuildProjections", { commandId: randomUUID() });
     const next = (await run(client)).result;
     expect(next?.carried).toMatchObject({ forgeAccounts: 0, keyManagerConnections: 0 });
-    expect(next?.reEnter).toEqual([{ label: 'Key manager "Team keys"', step: "key-manager" }]);
+    expect(next?.reEnter.filter((repair) => repair.step !== "memory-bank")).toEqual([{ label: 'Key manager "Team keys"', step: "key-manager" }]);
     const account = (await client.request("forge.accounts.list", {})).accounts[0];
     expect(account).toBeDefined();
     await client.request("forge.accounts.remove", { commandId: randomUUID(), forgeAccountId: account?.id ?? "" });
@@ -137,7 +140,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     expect(account.aliases[0]?.verifiedAt).not.toBeNull();
     const imported = (await run(client)).result;
     expect(imported?.carried.forgeAccounts).toBe(0);
-    expect(imported?.reEnter).toEqual([]);
+    expect(imported?.reEnter.filter((repair) => repair.step !== "memory-bank")).toEqual([]);
     expect((await client.request("forge.accounts.list", {})).accounts).toMatchObject([{ id: account.id, credential: account.credential, aliases: account.aliases }]);
     expect((await run(client)).result?.carried.forgeAccounts).toBe(0);
   });
@@ -152,7 +155,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     const applied = (await run(client)).result;
     expect(applied?.carried).toMatchObject({ forgeAccounts: 0, keyManagerConnections: 1 });
     expect(applied?.failed).toContainEqual({ label: "Bank credentials", message: "It changed after it was read: preview again, then import." });
-    expect(applied?.reEnter).toEqual([{ label: 'Key manager "Team keys"', step: "key-manager" }]);
+    expect(applied?.reEnter.filter((repair) => repair.step !== "memory-bank")).toEqual([{ label: 'Key manager "Team keys"', step: "key-manager" }]);
     expect((await client.request("forge.accounts.list", {})).accounts).toEqual([]);
   });
 
@@ -164,7 +167,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     const { client } = await start(folder);
     const applied = (await run(client)).result;
     expect(applied?.failed).toEqual([]);
-    expect(applied?.reEnter).toEqual([{ label: `Key manager ${id}`, step: "key-manager" }]);
+    expect(applied?.reEnter.filter((repair) => repair.step !== "memory-bank")).toEqual([{ label: `Key manager ${id}`, step: "key-manager" }]);
     const carryOver = (await client.request("setup.check", { step: "carry-over" })).results[0];
     expect(carryOver?.failing).not.toContain("carry-over.last-import");
     const keys = (await client.request("setup.check", { step: "key-manager" })).results[0];
@@ -234,7 +237,7 @@ describe("state import's Forge credentials and Key-manager records", () => {
     expect((await run(restarted.client)).result?.carried).toMatchObject({ forgeAccounts: 0, keyManagerConnections: 0 });
     expect((await restarted.client.request("keyManagers.list", {})).connections).toHaveLength(1);
     expect((await restarted.client.request("forge.accounts.list", {})).accounts).toHaveLength(1);
-    expect(restarted.t.env.log.readStream({ kinds: ["state-import"] }).filter((event) => event.type === "state-import.item-carried").map((event) => event.payload["kind"])).toEqual(["key-manager-connection", "forge-account"]);
+    expect(restarted.t.env.log.readStream({ kinds: ["state-import"] }).filter((event) => event.type === "state-import.item-carried").map((event) => event.payload["kind"])).toEqual(["key-manager-connection", "forge-account", "bank-default", "bank"]);
     logged.mockRestore();
   });
 

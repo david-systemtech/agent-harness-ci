@@ -28,6 +28,10 @@
       ],
       "description": "Whether runs may draft into the bank (read-write) or only read and search it (read-only)."
     },
+    "enabled": {
+      "description": "Whether runs use this Bank; true when omitted. State import retains the source entry’s enabled flag.",
+      "type": "boolean"
+    },
     "accounts": {
       "anyOf": [
         {

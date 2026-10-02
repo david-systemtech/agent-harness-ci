@@ -1,3 +1,5 @@
+import { BANK_REGISTRY_LABEL } from "./banks.js";
+import type { BankService } from "../banks/bank-service.js";
 import type { KeyManagerConnections } from "../key-managers/connections.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { planCredentials } from "./credentials.js";
@@ -49,6 +51,7 @@ export interface StateImportOptions {
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
   readonly accounts: AccountService;
+  readonly banks: BankService;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   /** The Instructions service's create command, which carries each instruction. */
   readonly createInstruction: MethodHandler<"instructions.create">;
@@ -83,10 +86,21 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const dataPlan =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, listSessions: options.listSessions, get: options.getSettings, update: options.updateSettings });
+            : await planImport(await readSourceStores(dataFolder.path), { log, environmentId: options.environmentId, importId, create: options.createInstruction, accounts: options.accounts, banks: options.banks, listSessions: options.listSessions, get: options.getSettings, update: options.updateSettings });
         const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
-        const combined = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };
+        const combined = credentials === null ? planned : {
+          ...planned,
+          // Accounts commit before scoped Banks; credential sources exist before registration verifies its Forge.
+          stores: [
+            ...planned.stores.filter((store) => store.label !== BANK_REGISTRY_LABEL),
+            ...credentials.stores.filter((store) => store.label !== BANK_REGISTRY_LABEL),
+            ...planned.stores.filter((store) => store.label === BANK_REGISTRY_LABEL),
+          ],
+          failed: [...planned.failed, ...credentials.failed.filter((failure) => !planned.failed.some((held) => held.label === failure.label && held.message === failure.message))],
+          notCarried: [...planned.notCarried, ...credentials.notCarried],
+          repairs: (preview: boolean) => [...credentials.repairs(preview), ...(planned.repairs?.(preview) ?? [])],
+        };
         if (dryRun) {
           const report = reportOf(combined, null);
           return () => ({ aggregate: environmentStream, result: report });
