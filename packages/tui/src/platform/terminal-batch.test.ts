@@ -192,3 +192,19 @@ it("refuses corrupt completion metadata instead of reporting an unrecorded succe
   expect(() => commitTerminalBatch(dir, { sourceKey: "/source", history: [{ ts: 1, text: "new", cwd: "/repo" }] })).toThrow("completion metadata");
   expect((await PromptHistory.load(join(dir, HISTORY_FILE))).size).toBe(0);
 });
+
+it("retries unmarked history by timestamp/text occurrence without losing local edits", async () => {
+  const batch = { sourceKey: "/source", history: [
+    { ts: 1, text: "repeat", cwd: "/repo" },
+    { ts: 2, text: "repeat", cwd: "/repo" },
+    { ts: 2, text: "repeat", cwd: "/repo" },
+  ], completed: [] };
+  commitTerminalBatch(dir, batch);
+  expect(terminalCompletion(dir, "/source")).toEqual([]);
+  const local = await PromptHistory.load(join(dir, HISTORY_FILE));
+  local.append({ ts: 3, text: "local edit", cwd: "/repo" });
+  await local.flush();
+  commitTerminalBatch(dir, { ...batch, completed: ["history"] as const });
+  expect((await PromptHistory.load(join(dir, HISTORY_FILE))).size).toBe(3);
+  expect(terminalCompletion(dir, "/source")).toEqual(["history"]);
+});

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportItemCarriedPayload",
+  "type": "object",
+  "properties": {
+    "importId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The import: the command id of the stateImport.run that applied it, in lowercase."
+    },
+    "sourceKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source data folder's canonical path on the environment's machine: symbolic links resolved."
+    },
+    "store": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source store the item was read from: instructions for the source's instruction list."
+    },
+    "sourceId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The item's id in its store, or its natural identity where the store gives it none."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "instruction"
+      ],
+      "description": "The kind of item a state import carried: instruction (an owned instruction)."
+    },
+    "targetId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The id of what the owning service made of it: an owned instruction's id."
+    },
+    "origin": {
+      "type": "string",
+      "const": "import",
+      "description": "Always import: the target was written by a state import."
+    }
+  },
+  "required": [
+    "importId",
+    "sourceKey",
+    "store",
+    "sourceId",
+    "kind",
+    "targetId",
+    "origin"
+  ],
+  "description": "state-import.item-carried: a source item was carried: its folder, store and id there, its kind, the target its owning service made of it, the import that carried it, and origin import."
+}

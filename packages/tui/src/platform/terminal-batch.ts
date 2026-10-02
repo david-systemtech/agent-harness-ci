@@ -9,6 +9,8 @@ const COMPLETION_FILE = "terminal-import.json";
 export type TerminalPart = "history" | "snippets" | "afterEdit";
 export interface TerminalBatch {
   readonly sourceKey: string;
+  /** Fully valid parts to mark; partial parts may persist records without completion. Preset: all supplied parts. */
+  readonly completed?: readonly TerminalPart[];
   readonly history?: readonly HistoryEntry[];
   readonly snippets?: readonly Snippet[];
   readonly afterEdit?: readonly { readonly cwd: string; readonly command: string }[];
@@ -24,7 +26,7 @@ const completion = (text: string | undefined): Completion => {
   return value as Completion;
 };
 
-/** The caller normalises/validates records and supplies only successful parts; no source is read here. */
+/** The caller normalises/validates records and supplies valid records and identifies fully successful parts; no source is read here. */
 export const commitTerminalBatch = (dir: string, batch: TerminalBatch, faults?: TerminalCommitFaults): readonly TerminalPart[] =>
   withTerminalFiles(dir, (files) => {
     const marker = join(dir, COMPLETION_FILE);
@@ -33,17 +35,23 @@ export const commitTerminalBatch = (dir: string, batch: TerminalBatch, faults?: 
     const writes: TerminalWrite[] = [];
     if (batch.history !== undefined && !parts.includes("history")) {
       const path = join(dir, HISTORY_FILE);
-      let entries = [...parseHistoryEntries(files.read(path) ?? ""), ...batch.history].sort((a, b) => a.ts - b.ts);
+      const seen = new Set<string>();
+      let entries = [...parseHistoryEntries(files.read(path) ?? ""), ...batch.history].filter((entry) => {
+        const occurrence = JSON.stringify([entry.ts, entry.text]);
+        if (seen.has(occurrence)) return false;
+        seen.add(occurrence);
+        return true;
+      }).sort((a, b) => a.ts - b.ts);
       if (entries.length > HISTORY_MAX_ENTRIES) entries = entries.slice(-HISTORY_KEPT_ENTRIES);
       writes.push({ path, text: entries.map((entry) => `${JSON.stringify(entry)}\n`).join("") });
-      parts.push("history");
+      if (batch.completed === undefined || batch.completed.includes("history")) parts.push("history");
     }
     if (batch.snippets !== undefined && !parts.includes("snippets")) {
       const path = join(dir, SNIPPETS_FILE);
       const snippets = parseSnippets(files.read(path) ?? "");
       for (const snippet of batch.snippets) if (!snippets.has(snippet.name)) snippets.set(snippet.name, snippet);
       writes.push({ path, text: serialiseSnippets([...snippets.values()]) });
-      parts.push("snippets");
+      if (batch.completed === undefined || batch.completed.includes("snippets")) parts.push("snippets");
     }
     if (batch.afterEdit !== undefined && !parts.includes("afterEdit")) {
       const path = join(dir, "documents", `${AFTER_EDIT_DOCUMENT}.json`);
@@ -51,7 +59,7 @@ export const commitTerminalBatch = (dir: string, batch: TerminalBatch, faults?: 
       const entries = text === undefined ? {} : JSON.parse(text) as Record<string, string>;
       for (const entry of batch.afterEdit) if (!Object.hasOwn(entries, entry.cwd)) Object.defineProperty(entries, entry.cwd, { value: entry.command, enumerable: true });
       writes.push({ path, text: `${JSON.stringify(entries)}\n` });
-      parts.push("afterEdit");
+      if (batch.completed === undefined || batch.completed.includes("afterEdit")) parts.push("afterEdit");
     }
     if (writes.length > 0) {
       Object.defineProperty(sources, batch.sourceKey, { value: parts, enumerable: true, configurable: true });
