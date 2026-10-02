@@ -75,7 +75,7 @@ const AccountCarryOver = ({
       <h3 className="font-semibold text-ink">{account.label}</h3>
       <p className="text-sm text-ink-muted">{account.directory.path}</p>
       {listed.error !== null && <p className="text-sm text-ink-muted">The inventory could not be read: {listed.error.message}</p>}
-      {listed.result !== null && (
+      {listed.result !== null && "accountId" in listed.result && (
         <AccountInventory
           key={account.id}
           environmentId={environmentId}
