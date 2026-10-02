@@ -27,7 +27,9 @@ export const planOrganisation = (stores: readonly OrganisationStore[], options: 
   const targets = log.read<{ id: string; accountId: string; providerId: string; present: number }>("SELECT id, json_extract(origin, '$.accountId') AS accountId, json_extract(origin, '$.providerSessionId') AS providerId, deleted_at IS NULL AS present FROM sessions WHERE json_extract(origin, '$.kind') = 'import'");
   // Mapping evidence survives purge, so a bare id never becomes falsely unambiguous when one Account deletes its target.
   for (const mapping of log.read<{ source_id: string; target_id: string }>("SELECT source_id, target_id FROM state_import_items WHERE source_key = ? AND kind = 'session'", sourceKey)) {
-    const key: unknown = JSON.parse(mapping.source_id);
+    let key: unknown;
+    try { key = JSON.parse(mapping.source_id); }
+    catch { continue; } // Bare provider ids from earlier imports remain represented by the live Session origin.
     if (!Array.isArray(key) || typeof key[0] !== "string" || typeof key[1] !== "string") continue;
     if (!targets.some((target) => target.accountId === key[0] && target.providerId === key[1])) targets.push({ id: mapping.target_id, accountId: key[0], providerId: key[1], present: 0 });
   }

@@ -233,3 +233,24 @@ it("recognises an uncontinued source Routine when the SDK normalises and truncat
   await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
   expect((await client.request("sessions.list", {})).sessions.find((s) => s.title === "Session 1")?.archivedAt).not.toBeNull();
 });
+
+it("repeats imports with retained bare Session mappings and still applies new organisation references", async () => {
+  const f = fixture();
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  const session = (await client.request("sessions.list", {})).sessions.find((s) => s.title === "Session 2")!;
+  // The parent Session importer recorded provider ids directly, before Account-qualified mapping keys.
+  const importId = randomUUID();
+  t.env.log.append({ kind: "state-import", id: t.env.id }, [{ type: "state-import.item-carried", payload: {
+    importId, sourceKey: f.source, store: "provider-sessions", sourceId: f.ids[2], kind: "session", targetId: session.id, sourceDirectory: f.directory, origin: "import",
+  } }], { actor: "system:fixture", commandId: importId });
+  writeFileSync(join(f.terminal, "preferences.json"), JSON.stringify({ version: 1, preferences: { pinned: [f.ids[2]] } }));
+  const preview = (await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).result!;
+  expect(preview).toMatchObject({ carried: { pins: 1 }, failed: [] });
+  const applied = (await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result!;
+  expect(applied).toEqual({ ...preview, dryRun: false });
+  expect((await client.request("sessions.list", {})).sessions).toHaveLength(3);
+  expect((await client.request("sessions.get", { sessionId: session.id })).summary.pinnedAt).not.toBeNull();
+});
