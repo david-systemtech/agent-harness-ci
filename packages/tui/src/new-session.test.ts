@@ -28,7 +28,7 @@ const TRAIN = "0199aa00-0000-4000-8000-0000000000a1";
 const HARNESS = "https://git.systemtech.dev/david/agent-harness";
 const at = (hours: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + hours * 3_600_000).toISOString();
 
-const WORK = { id: "account-1", label: "Work", identity: { provider: "claude", email: "seth@work.test", organisation: null } } as const;
+const WORK = { id: "account-1", label: "Work", identity: { provider: "claude", email: "milo@work.test", organisation: null } } as const;
 const OPUS = { accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] };
 
 const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => ({
@@ -39,7 +39,7 @@ const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => 
   models: [OPUS],
   sessions: [
     { id: FIX, title: "Fix the rail", workspace: { kind: "directory", path: "/work/harness" }, repositoryIdentity: HARNESS, lastActivityAt: at(0) },
-    { id: NOTES, title: "Notes", workspace: { kind: "directory", path: "/home/seth/notes" }, lastActivityAt: at(-5) },
+    { id: NOTES, title: "Notes", workspace: { kind: "directory", path: "/home/milo/notes" }, lastActivityAt: at(-5) },
     { id: OLD, title: "Old one", workspace: { kind: "directory", path: "/srv/old" }, lastActivityAt: at(-10), workspaceMissingSince: at(-2) },
   ],
   ...extra,
@@ -50,7 +50,7 @@ const laptop = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment =
   environmentId: LAPTOP_ID,
   accounts: [WORK],
   models: [OPUS],
-  sessions: [{ id: TRAIN, title: "Train tidy", workspace: { kind: "directory", path: "/home/seth/train" }, repositoryIdentity: HARNESS, lastActivityAt: at(-1) }],
+  sessions: [{ id: TRAIN, title: "Train tidy", workspace: { kind: "directory", path: "/home/milo/train" }, repositoryIdentity: HARNESS, lastActivityAt: at(-1) }],
   ...extra,
 });
 
@@ -119,7 +119,7 @@ describe("the new-session card", () => {
     const nas: ScriptedEnvironment = {
       name: "nas",
       reach: "paired",
-      accounts: [{ id: "account-1", label: "Home", identity: { provider: "claude", email: "seth@home.test", organisation: null } }],
+      accounts: [{ id: "account-1", label: "Home", identity: { provider: "claude", email: "milo@home.test", organisation: null } }],
       models: [{ accountId: "account-1", live: true, models: [{ id: "claude-sonnet-5", family: "sonnet", tier: 2, efforts: [], label: "Sonnet 5" }] }],
       sessions: [{ title: "Photos", workspace: { kind: "directory", path: "/tank/photos" }, lastActivityAt: at(-3) }],
     };
@@ -163,7 +163,7 @@ describe("the workspace step", () => {
     const rows = linesOf(app).slice(4, 11).map((line) => line.trim());
     expect(rows).toEqual([
       "› /work/harness git.systemtech.dev/david/agent-harness",
-      "/home/seth/notes",
+      "/home/milo/notes",
       expect.stringMatching(/^\/srv\/old \(gone since \w{3} \d+ \w{3} \d\d:\d\d\)$/),
       "Browse desk's directories",
       "A worktree of a repository, on a new branch or one it has",
@@ -180,19 +180,19 @@ describe("the workspace step", () => {
     const app = await launch();
     await headingTo(app, "desk");
     await app.press(KEY.enter);
-    await app.waitFor("/home/seth/notes");
-    await rowTo(app, "/home/seth/notes");
+    await app.waitFor("/home/milo/notes");
+    await rowTo(app, "/home/milo/notes");
     await app.press(KEY.ctrlD);
-    await app.waitFor("Hid /home/seth/notes from desk's list on this terminal; it comes back when a session works there again.");
-    await app.waitUntil(() => !listed(app, "/home/seth/notes"), "the directory hidden");
-    expect(app.runtime().preferences.read().hiddenDirectories[DESK_ID]).toHaveProperty("/home/seth/notes");
+    await app.waitFor("Hid /home/milo/notes from desk's list on this terminal; it comes back when a session works there again.");
+    await app.waitUntil(() => !listed(app, "/home/milo/notes"), "the directory hidden");
+    expect(app.runtime().preferences.read().hiddenDirectories[DESK_ID]).toHaveProperty("/home/milo/notes");
     await rowTo(app, "Scratch");
     await app.press(KEY.ctrlD);
     await app.waitFor("Only a directory the environment's sessions use can be hidden from this list.");
 
     // Another client works there: the directory is back.
     app.environment("desk").list.change(NOTES, { lastActivityAt: at(1) });
-    await app.waitUntil(() => listed(app, "/home/seth/notes"), "the directory back");
+    await app.waitUntil(() => listed(app, "/home/milo/notes"), "the directory back");
   });
 
   it("sends scratch as one row's scratch request, and a typed path as typed, each under the id minted as the card opened, the new row taking the rail's cursor", async () => {
@@ -221,16 +221,16 @@ describe("the workspace step", () => {
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "desk", "sessions.create").length === 2, "the second create sent");
     expect(params(sent(app, "desk", "sessions.create")[1])).toMatchObject({ id: "0199ab00-0000-4000-8000-000000000002", workspace: { kind: "directory", path: "~/code/new" } });
-    await app.waitUntil(() => app.environment("desk").list.summaries().some((summary) => summary.workspace.path === "/home/seth/code/new"), "the session made");
+    await app.waitUntil(() => app.environment("desk").list.summaries().some((summary) => summary.workspace.path === "/home/milo/code/new"), "the session made");
   });
 });
 
 describe("browsing", () => {
   const folders = {
-    "/home/seth/code": { truncated: true },
-    "/home/seth/code/harness": { repository: { identity: HARNESS } },
-    "/home/seth/code/tools": {},
-    "/home/seth/.config": {},
+    "/home/milo/code": { truncated: true },
+    "/home/milo/code/harness": { repository: { identity: HARNESS } },
+    "/home/milo/code/tools": {},
+    "/home/milo/.config": {},
   };
 
   it("lists workspaces.browse on the card's environment from its home: repository roots marked, dot-directories on a toggle, truncated said, a way up; choosing one sends a directory request", async () => {
@@ -239,28 +239,28 @@ describe("browsing", () => {
     await app.press(KEY.enter);
     await rowTo(app, "Browse desk's directories");
     await app.press(KEY.enter);
-    await app.waitFor("Browse desk: /home/seth");
+    await app.waitFor("Browse desk: /home/milo");
     await app.waitFor("Show the dot-directories");
-    expect(linesOf(app).slice(4, 8).map((line) => line.trim())).toEqual(["› Work in /home/seth", ".. up to /home", "code/", "Show the dot-directories"]);
+    expect(linesOf(app).slice(4, 8).map((line) => line.trim())).toEqual(["› Work in /home/milo", ".. up to /home", "code/", "Show the dot-directories"]);
     expect(sent(app, "desk", "workspaces.browse").map(params)).toEqual([{}]);
 
     await rowTo(app, "Show the dot-directories");
     await app.press(KEY.enter);
     await app.waitFor(".config/");
-    expect(params(sent(app, "desk", "workspaces.browse")[1])).toEqual({ path: "/home/seth", hidden: true });
+    expect(params(sent(app, "desk", "workspaces.browse")[1])).toEqual({ path: "/home/milo", hidden: true });
     await rowTo(app, "code/");
     await app.press(KEY.enter);
-    await app.waitFor("Browse desk: /home/seth/code");
+    await app.waitFor("Browse desk: /home/milo/code");
     await app.waitFor("harness/ repository");
     expect(listed(app, "tools/")).toBe(true);
     await app.waitFor("Only the first 1,000 directories are listed");
     await rowTo(app, "harness/");
     await app.press(KEY.enter);
-    await app.waitFor("Browse desk: /home/seth/code/harness");
-    await rowTo(app, "Work in /home/seth/code/harness");
+    await app.waitFor("Browse desk: /home/milo/code/harness");
+    await rowTo(app, "Work in /home/milo/code/harness");
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "desk", "sessions.create").length === 1, "the create sent");
-    expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "directory", path: "/home/seth/code/harness" } });
+    expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "directory", path: "/home/milo/code/harness" } });
     await app.waitUntil(() => !app.frame().includes("Browse desk"), "the browse step closed");
   });
 
@@ -271,7 +271,7 @@ describe("browsing", () => {
     await app.type("~/code");
     await rowTo(app, "Browse from ~/code");
     await app.press(KEY.enter);
-    await app.waitFor("Browse desk: /home/seth/code");
+    await app.waitFor("Browse desk: /home/milo/code");
     await app.press(KEY.esc, KEY.esc);
     await app.waitFor("New session on desk: where it works");
     await app.type("/nowhere");
@@ -340,25 +340,25 @@ describe("a worktree", () => {
   });
 
   it("takes a repository browsed to", async () => {
-    const app = await launch({ desk: withReview({ folders: { ...repository, "/home/seth/code/tools": { repository: { identity: null, branch: "trunk" } } } }) });
+    const app = await launch({ desk: withReview({ folders: { ...repository, "/home/milo/code/tools": { repository: { identity: null, branch: "trunk" } } } }) });
     await headingTo(app, "desk");
     await app.press(KEY.enter);
     await rowTo(app, "A worktree");
     await app.press(KEY.enter);
     await rowTo(app, "Browse desk's directories");
     await app.press(KEY.enter);
-    await app.waitFor("Make the worktree from /home/seth");
+    await app.waitFor("Make the worktree from /home/milo");
     await rowTo(app, "code/");
     await app.press(KEY.enter);
     await rowTo(app, "tools/");
     await app.press(KEY.enter);
-    await rowTo(app, "Make the worktree from /home/seth/code/tools");
+    await rowTo(app, "Make the worktree from /home/milo/code/tools");
     await app.press(KEY.enter);
     await app.waitFor("A worktree of tools on desk: its branch");
     await app.waitFor("New branch agent-harness/0199ab00 from trunk");
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "desk", "sessions.create").length === 1, "the create sent");
-    expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "worktree", repository: "/home/seth/code/tools", newBranch: {} } });
+    expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "worktree", repository: "/home/milo/code/tools", newBranch: {} } });
   });
 
   it("makes a worktree on an existing branch, or on a new branch named as typed", async () => {
@@ -423,39 +423,39 @@ describe("a worktree", () => {
 
 describe("from the composer", () => {
   it("opens the card on /new with no session open, the terminal's own directory preset on the local environment, and opens the session once the environment has it", async () => {
-    const app = await launch({ flags: { workspace: "/home/seth/code/harness" } });
+    const app = await launch({ flags: { workspace: "/home/milo/code/harness" } });
     await run(app, "/new");
     await app.waitFor("New session on desk: where it works");
     await app.waitFor("workspace directory harness");
-    expect(rowWith(app, "/home/seth/code/harness")).toMatch(/^ › \/home\/seth\/code\/harness this directory/);
+    expect(rowWith(app, "/home/milo/code/harness")).toMatch(/^ › \/home\/milo\/code\/harness this directory/);
     await app.press(KEY.enter);
     await app.waitFor("Nothing said yet.");
-    expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "directory", path: "/home/seth/code/harness" }, account: "account-1", model: "claude-opus-5" });
+    expect(params(sent(app, "desk", "sessions.create")[0])).toMatchObject({ workspace: { kind: "directory", path: "/home/milo/code/harness" }, account: "account-1", model: "claude-opus-5" });
     await app.waitFor("agent-harness · DE desk ready · New session · directory harness");
   });
 
   it("keeps the cursor on the preset's row when a directory another client starts a session in arrives while the card is up", async () => {
-    const app = await launch({ flags: { workspace: "/home/seth/code/harness" } });
+    const app = await launch({ flags: { workspace: "/home/milo/code/harness" } });
     await run(app, "/new");
-    await app.waitFor("/home/seth/code/harness this directory");
+    await app.waitFor("/home/milo/code/harness this directory");
     // Another client works in a new directory: it is the most recently used, listed ahead of the rest.
     const other = await app.runtime().commands.startSession(DESK_ID, { workspace: { kind: "directory", path: "/srv/elsewhere" } });
     expect(other.answer.ok).toBe(true);
     await app.waitFor("/srv/elsewhere");
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "desk", "sessions.create").length === 2, "the card's create sent");
-    expect(params(sent(app, "desk", "sessions.create")[1])).toMatchObject({ workspace: { kind: "directory", path: "/home/seth/code/harness" } });
+    expect(params(sent(app, "desk", "sessions.create")[1])).toMatchObject({ workspace: { kind: "directory", path: "/home/milo/code/harness" } });
   });
 
   it("opens the card on /cwd on the environment --environment names, its presets there", async () => {
-    const app = await launch({ flags: { workspace: "/home/seth/code/harness", environment: "laptop" } });
+    const app = await launch({ flags: { workspace: "/home/milo/code/harness", environment: "laptop" } });
     await run(app, "/cwd");
     await app.waitFor("New session on laptop: where it works");
     await app.waitFor("environment LA laptop · account Work · model Opus 5 · workspace directory train");
   });
 
   it("opens the card on /cwd with a session open on its environment, the open session's workspace preset as a row of its own", async () => {
-    const app = await launch({ flags: { session: FIX, workspace: "/home/seth/code/harness" } });
+    const app = await launch({ flags: { session: FIX, workspace: "/home/milo/code/harness" } });
     await app.waitFor("Nothing said yet.");
     await run(app, "/cwd");
     await app.waitFor("New session on desk: where it works");

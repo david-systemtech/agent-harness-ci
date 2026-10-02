@@ -204,11 +204,11 @@ describe("the primitives", () => {
         <PopoverTrigger asChild>
           <Button>Account</Button>
         </PopoverTrigger>
-        <PopoverContent aria-label="Accounts">seth@desk</PopoverContent>
+        <PopoverContent aria-label="Accounts">milo@desk</PopoverContent>
       </Popover>,
     );
     await user.click(screen.getByRole("button", { name: "Account" }));
-    expect(screen.getByRole("dialog", { name: "Accounts" }).textContent).toBe("seth@desk");
+    expect(screen.getByRole("dialog", { name: "Accounts" }).textContent).toBe("milo@desk");
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();

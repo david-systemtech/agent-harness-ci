@@ -26,7 +26,7 @@ export interface BrowseProps {
   /** The environment's name, as the picker says it. */
   readonly where: string;
   readonly at: BrowseAt;
-  /** What the first button says of the directory listed ("Work in /home/seth"). */
+  /** What the first button says of the directory listed ("Work in /home/milo"). */
   readonly takeWords: (path: string) => string;
   /** Takes the directory listed. */
   take(path: string): void;

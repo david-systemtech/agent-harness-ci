@@ -12,7 +12,7 @@ import type { RewoundEntry, SubagentEntry, ToolCallEntry, TranscriptEntry } from
  * was last written whole.
  */
 
-const WORKSPACE = "/home/seth/site";
+const WORKSPACE = "/home/milo/site";
 const RUN = "0199a100-0000-4000-8000-000000000001";
 const LATER_RUN = "0199a100-0000-4000-8000-000000000002";
 const STARTED = "2026-09-29T10:00:00.000Z";

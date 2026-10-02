@@ -35,8 +35,8 @@ const launch = async (environment: Partial<ScriptedEnvironment> = {}, extra: Par
           name: "desk",
           reach: "local",
           sessions: [
-            { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
-            { title: "Parser", workspace: { kind: "directory", path: "/home/seth/parser" } },
+            { title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } },
+            { title: "Parser", workspace: { kind: "directory", path: "/home/milo/parser" } },
           ],
           ...environment,
         },
@@ -154,7 +154,7 @@ describe("sending", () => {
 
   it("takes the provider from the session's account when the environment has several", async () => {
     const { app } = await launch({
-      sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" }, accountId: "account-2" }],
+      sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" }, accountId: "account-2" }],
       providers: [{}, { provider: "codex", displayName: "Codex", providerQueue: true, steering: true }],
       accounts: [{}, { provider: "codex" }],
       queue: "provider",
@@ -272,8 +272,8 @@ describe("the draft", () => {
   it("is restored when switching sessions, and a command typed for the terminal is never saved as one", async () => {
     const { app } = await launch({
       sessions: [
-        { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
-        { title: "Parser", workspace: { kind: "directory", path: "/home/seth/parser" }, draft: "left on the laptop" },
+        { title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } },
+        { title: "Parser", workspace: { kind: "directory", path: "/home/milo/parser" }, draft: "left on the laptop" },
       ],
     });
     await send(app, "/resume");
@@ -352,8 +352,8 @@ describe("slash commands", () => {
   it("types ? into /resume's filter rather than opening the keys", async () => {
     const { app } = await launch({
       sessions: [
-        { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
-        { title: "Why is it slow?", workspace: { kind: "directory", path: "/home/seth/parser" } },
+        { title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } },
+        { title: "Why is it slow?", workspace: { kind: "directory", path: "/home/milo/parser" } },
       ],
     });
     await send(app, "/resume");
@@ -383,11 +383,11 @@ describe("slash commands", () => {
   it("starts a session with /new on the same environment, in the open session's workspace through a session request", async () => {
     const { app } = await launch();
     await send(app, "/new");
-    await app.waitFor("A new session on desk in /home/seth/receipts.");
+    await app.waitFor("A new session on desk in /home/milo/receipts.");
     await app.waitFor("Nothing said yet.");
     expect(paramsOf(app, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "session", sessionId: SESSION } })]);
     const created = String(paramsOf(app, "sessions.create")[0]?.["id"]);
-    expect(app.environment("desk").list.summaries().find((summary) => summary.id === created)?.workspace).toEqual({ kind: "directory", path: "/home/seth/receipts" });
+    expect(app.environment("desk").list.summaries().find((summary) => summary.id === created)?.workspace).toEqual({ kind: "directory", path: "/home/milo/receipts" });
     await send(app, "Hello");
     await app.waitUntil(() => paramsOf(app, "runs.start").length === 1, "a start");
     expect(paramsOf(app, "runs.start")[0]).toMatchObject({ sessionId: paramsOf(app, "sessions.create")[0]?.["id"], text: "Hello" });

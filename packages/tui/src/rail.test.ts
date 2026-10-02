@@ -53,7 +53,7 @@ const desk = (extra: Partial<Script["environments"][number]> = {}): Script["envi
   reach: "local",
   environmentId: DESK_ID,
   groups: [
-    { id: G_BRAND_DESK, name: "Brandsolidate" },
+    { id: G_BRAND_DESK, name: "Meadowstudios" },
     { id: G_OPS, name: "Ops" },
   ],
   sessions: [
@@ -70,7 +70,7 @@ const laptop = (extra: Partial<Script["environments"][number]> = {}): Script["en
   name: "laptop",
   reach: "paired",
   environmentId: LAPTOP_ID,
-  groups: [{ id: G_BRAND_LAPTOP, name: "brandsolidate" }],
+  groups: [{ id: G_BRAND_LAPTOP, name: "meadowstudios" }],
   sessions: [
     { id: TRAIN, title: "Train tidy", parkedPromptCount: 2, activity: { state: "parked", since: at(0) } },
     { id: LBRAND, title: "Brand on laptop", groupId: G_BRAND_LAPTOP },
@@ -137,7 +137,7 @@ describe("the headings", () => {
       "▾ Pinned",
       "  DE · Pinned one",
       "  LA · Laptop pin",
-      "▾ Brandsolidate",
+      "▾ Meadowstudios",
       "  DE · Brand copy",
       "  LA · Brand on laptop",
       "desk",
@@ -163,26 +163,26 @@ describe("the headings", () => {
     await app.press(KEY.enter);
     await app.waitFor("▾ Settled");
     expect(railOf(app.frame())).toContain("  DE · Done");
-    await headingTo(app, "Brandsolidate");
+    await headingTo(app, "Meadowstudios");
     await app.press(KEY.enter);
-    await app.waitFor("▸ Brandsolidate 1");
-    expect(presentation.collapsedHeadings.read()).toEqual({ "shelf:settled": false, "group:brandsolidate": true });
+    await app.waitFor("▸ Meadowstudios 1");
+    expect(presentation.collapsedHeadings.read()).toEqual({ "shelf:settled": false, "group:meadowstudios": true });
     await app.unmount();
     apps = [];
 
     const again = await launch({ script: { environments: [desk()] }, presentation });
     await again.waitFor("Fix the rail");
-    expect(railOf(again.frame())).toEqual(expect.arrayContaining(["▸ Brandsolidate 1", "▾ Settled", "  DE · Done"]));
+    expect(railOf(again.frame())).toEqual(expect.arrayContaining(["▸ Meadowstudios 1", "▾ Settled", "  DE · Done"]));
   });
 
   it("drops the fold of a group no longer listed when it keeps a fold", async () => {
-    const presentation = inMemoryPresentation({ "group:gone": true, "group:brandsolidate": true });
+    const presentation = inMemoryPresentation({ "group:gone": true, "group:meadowstudios": true });
     const app = await launch({ script: { environments: [desk()] }, presentation });
     await focusRail(app);
     await headingTo(app, "Settled");
     await app.press(KEY.enter);
     await app.waitFor("▾ Settled");
-    expect(presentation.collapsedHeadings.read()).toEqual({ "group:brandsolidate": true, "shelf:settled": false });
+    expect(presentation.collapsedHeadings.read()).toEqual({ "group:meadowstudios": true, "shelf:settled": false });
   });
 
   it("keeps some of a snoozed row's title beside its wake time and its pending marker at 28 columns", async () => {
@@ -377,10 +377,10 @@ describe("each row key issues its command once with a command id, the row pendin
     await cursorTo(app, "Train tidy");
     await app.press("g");
     await app.waitFor("Put “Train tidy” in a group");
-    await app.waitFor("Brandsolidate on DE LA");
-    await app.type("brand");
+    await app.waitFor("Meadowstudios on DE LA");
+    await app.type("meadow");
     await app.press(KEY.enter);
-    await app.waitFor("Moved “Train tidy” into Brandsolidate.");
+    await app.waitFor("Moved “Train tidy” into Meadowstudios.");
     expect(sent(app, "laptop", "groups.create")).toEqual([]);
     expect(params(sent(app, "laptop", "sessions.setGroup")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), sessionId: TRAIN, groupId: G_BRAND_LAPTOP });
     await app.waitUntil(() => railOf(app.frame()).indexOf("  LA ?2 Train tidy") < railOf(app.frame()).indexOf("desk"), "the row under the merged heading");
@@ -446,17 +446,17 @@ describe("a merged group's heading: one command per member group, each on its ow
   it("R renames it from a typed picker holding the name: one groups.rename per environment, the heading pending until the receipts", async () => {
     const app = await two();
     await focusRail(app);
-    await headingTo(app, "Brandsolidate");
+    await headingTo(app, "Meadowstudios");
     await app.waitFor("R renames it, D deletes it");
     const release = app.environment("laptop").list.hold("groups.rename");
     await app.press("R");
-    await app.waitFor("Rename the group “Brandsolidate”");
-    await app.waitFor("› Brandsolidate");
-    await erase(app, "Brandsolidate");
+    await app.waitFor("Rename the group “Meadowstudios”");
+    await app.waitFor("› Meadowstudios");
+    await erase(app, "Meadowstudios");
     await app.type("Brand ops");
     await app.waitFor("Rename it “Brand ops”");
     await app.press(KEY.enter);
-    await app.waitFor("Renamed the group “Brandsolidate” to “Brand ops”.");
+    await app.waitFor("Renamed the group “Meadowstudios” to “Brand ops”.");
     expect(sent(app, "desk", "groups.rename").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK, name: "Brand ops" }]);
     expect(sent(app, "laptop", "groups.rename").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP, name: "Brand ops" }]);
     await app.waitFor("▾ Brand ops pending");
@@ -493,11 +493,11 @@ describe("a merged group's heading: one command per member group, each on its ow
     await app.waitFor("A group needs a name.");
     await app.press(KEY.esc);
     await app.waitUntil(() => !app.frame().includes("Rename the group"), "the picker closed");
-    // laptop's is "brandsolidate": the heading's own casing renames it there.
-    await headingTo(app, "Brandsolidate");
+    // laptop's is "meadowstudios": the heading's own casing renames it there.
+    await headingTo(app, "Meadowstudios");
     await app.press("R");
-    await app.waitFor("Rename the group “Brandsolidate”");
-    await app.waitFor("Rename it “Brandsolidate”");
+    await app.waitFor("Rename the group “Meadowstudios”");
+    await app.waitFor("Rename it “Meadowstudios”");
     expect(app.frame()).not.toContain("(it has that name)");
     await app.press(KEY.esc, KEY.esc);
     await app.waitUntil(() => !app.frame().includes("Rename the group"), "the picker closed");
@@ -508,19 +508,19 @@ describe("a merged group's heading: one command per member group, each on its ow
   it("D deletes it after one confirm: n cancels, y sends one groups.delete per environment, its sessions staying in no group", async () => {
     const app = await two();
     await focusRail(app);
-    await headingTo(app, "Brandsolidate");
+    await headingTo(app, "Meadowstudios");
     await app.press("D");
-    await app.waitFor("Delete the group “Brandsolidate” on desk and laptop? Its sessions stay, in no group. y/n");
+    await app.waitFor("Delete the group “Meadowstudios” on desk and laptop? Its sessions stay, in no group. y/n");
     await app.press("n");
     await app.waitFor("Not deleted.");
     expect(sent(app, "desk", "groups.delete")).toEqual([]);
     await app.press("D");
     await app.waitFor("y/n");
     await app.press("y");
-    await app.waitFor("Deleted the group “Brandsolidate”.");
+    await app.waitFor("Deleted the group “Meadowstudios”.");
     expect(sent(app, "desk", "groups.delete").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK }]);
     expect(sent(app, "laptop", "groups.delete").map(params)).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP }]);
-    await app.waitUntil(() => !railOf(app.frame()).some((line) => line.includes("Brandsolidate")), "the heading gone");
+    await app.waitUntil(() => !railOf(app.frame()).some((line) => line.includes("Meadowstudios")), "the heading gone");
     const rail = railOf(app.frame());
     expect(rail.indexOf("  DE · Brand copy")).toBeGreaterThan(rail.indexOf("desk"));
     expect(rail.indexOf("  LA · Brand on laptop")).toBeGreaterThan(rail.indexOf("laptop"));
@@ -532,7 +532,7 @@ describe("a merged group's heading: one command per member group, each on its ow
     const app = await two({
       laptop: {
         groups: [
-          { id: G_BRAND_LAPTOP, name: "brandsolidate" },
+          { id: G_BRAND_LAPTOP, name: "meadowstudios" },
           { id: G_RESEARCH_LAPTOP, name: "Research" },
         ],
         sessions: [
@@ -543,19 +543,19 @@ describe("a merged group's heading: one command per member group, each on its ow
       },
     });
     await focusRail(app);
-    await headingTo(app, "Brandsolidate");
+    await headingTo(app, "Meadowstudios");
     await app.press("R");
-    await app.waitFor("› Brandsolidate");
-    await erase(app, "Brandsolidate");
+    await app.waitFor("› Meadowstudios");
+    await erase(app, "Meadowstudios");
     await app.type("Research");
     await app.press(KEY.enter);
     await app.waitFor("Not renamed on laptop: another group there is named “Research”.");
     expect(sent(app, "desk", "groups.rename").map((f) => params(f)["groupId"])).toEqual([G_BRAND_DESK]);
     expect(sent(app, "laptop", "groups.rename").map((f) => params(f)["groupId"])).toEqual([G_BRAND_LAPTOP]);
-    await app.waitUntil(() => railOf(app.frame()).includes("▾ brandsolidate"), "laptop's group under its own heading");
+    await app.waitUntil(() => railOf(app.frame()).includes("▾ meadowstudios"), "laptop's group under its own heading");
     const rail = railOf(app.frame());
     expect(rail.slice(rail.indexOf("▾ Research"), rail.indexOf("▾ Research") + 3)).toEqual(["▾ Research", "  DE · Brand copy", "  LA · Reading"]);
-    expect(rail.slice(rail.indexOf("▾ brandsolidate"), rail.indexOf("▾ brandsolidate") + 2)).toEqual(["▾ brandsolidate", "  LA · Brand on laptop"]);
+    expect(rail.slice(rail.indexOf("▾ meadowstudios"), rail.indexOf("▾ meadowstudios") + 2)).toEqual(["▾ meadowstudios", "  LA · Brand on laptop"]);
   });
 });
 
@@ -743,7 +743,7 @@ describe("the filter and /search", () => {
     await app.press("/");
     await app.type("brand");
     await app.waitFor("/brand");
-    expect(railOf(app.frame())).toEqual(["/brand", "▾ Brandsolidate", "› DE · Brand copy", "  LA · Brand on laptop"]);
+    expect(railOf(app.frame())).toEqual(["/brand", "▾ Meadowstudios", "› DE · Brand copy", "  LA · Brand on laptop"]);
     await app.press("a");
     await app.waitFor("/branda");
     expect(sent(app, "desk", "sessions.archive")).toEqual([]);
@@ -781,8 +781,8 @@ describe("the filter and /search", () => {
     const before = [app.environment("desk").requests().length, app.environment("laptop").requests().length];
     await run(app, "/search brand");
     await app.waitFor("Search every environment");
-    await app.waitFor("DE Brand copy Brandsolidate");
-    expect(flat(app.frame())).toContain("LA Brand on laptop brandsolidate");
+    await app.waitFor("DE Brand copy Meadowstudios");
+    expect(flat(app.frame())).toContain("LA Brand on laptop meadowstudios");
     await app.type(" on");
     await app.waitUntil(() => !flat(app.frame()).includes("DE Brand copy"), "the search narrowed");
     await app.press(KEY.enter);
@@ -858,8 +858,8 @@ describe("starting a session on an environment", () => {
     id: "0199cc00-0000-4000-8000-00000000acc1",
     provider: "claude",
     label: "Work",
-    directory: { kind: "owned", path: "/home/seth/.agent-harness/accounts/work" },
-    identity: { provider: "claude", email: "seth@work.test", organisation: null },
+    directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/work" },
+    identity: { provider: "claude", email: "milo@work.test", organisation: null },
     status: { state: "signed-in", checkedAt: null, detail: null },
     createdAt: at(-100),
   };
@@ -873,10 +873,10 @@ describe("starting a session on an environment", () => {
     await app.press(KEY.enter);
     await app.waitFor("New session on desk: where it works");
     await app.waitFor("/work/harness");
-    expect(flat(app.frame())).toContain("/home/seth/code");
+    expect(flat(app.frame())).toContain("/home/milo/code");
     await app.waitFor("environment DE desk · account Work · model Opus 5 · workspace direct");
     // The cursor starts on the preset, the most recently used directory; another is a move away.
-    expect(paneOf(app.frame()).find((line) => line.includes("/home/seth/code"))).toMatch(/^ › \/home\/seth\/code/);
+    expect(paneOf(app.frame()).find((line) => line.includes("/home/milo/code"))).toMatch(/^ › \/home\/milo\/code/);
     for (let i = 0; i < 5 && !paneOf(app.frame()).some((line) => line.startsWith(" › /work/harness")); i++) await app.press(KEY.down);
     await app.press(KEY.enter);
     await app.waitFor("Starting a session on desk in /work/harness.");
@@ -893,7 +893,7 @@ describe("starting a session on an environment", () => {
   });
 
   it("changes the account on its own step, which opens on the card's account and goes back to the card", async () => {
-    const other: AccountRecord = { ...account, id: "0199cc00-0000-4000-8000-00000000acc2", label: "Home", identity: { provider: "claude", email: "seth@home.test", organisation: null } };
+    const other: AccountRecord = { ...account, id: "0199cc00-0000-4000-8000-00000000acc2", label: "Home", identity: { provider: "claude", email: "milo@home.test", organisation: null } };
     const app = await two({ desk: { accounts: [account, other] } });
     await focusRail(app);
     await headingTo(app, "desk");
@@ -976,7 +976,7 @@ describe("starting a session on an environment", () => {
     await app.press(KEY.enter);
     await app.waitUntil(() => sent(app, "laptop", "sessions.create").length === 1, "the create sent");
     expect(params(sent(app, "laptop", "sessions.create")[0])).toEqual({ commandId: expect.stringMatching(UUIDV7), id: expect.stringMatching(UUIDV4), workspace: { kind: "directory", path: "~/code" } });
-    await app.waitUntil(() => app.environment("laptop").list.summaries().some((s) => s.workspace.path === "/home/seth/code"), "the session created");
+    await app.waitUntil(() => app.environment("laptop").list.summaries().some((s) => s.workspace.path === "/home/milo/code"), "the session created");
     await app.waitUntil(() => !app.frame().includes("where it works"), "the step closed");
 
     await headingTo(app, "laptop");

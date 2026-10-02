@@ -49,9 +49,9 @@ const GO_TRACE = [
   "",
   "goroutine 1 [running]:",
   "main.handle(0xc000110000)",
-  "\t/home/seth/src/api/handler.go:42 +0x1b5",
+  "\t/home/milo/src/api/handler.go:42 +0x1b5",
   "main.main()",
-  "\t/home/seth/src/api/main.go:17 +0x38",
+  "\t/home/milo/src/api/main.go:17 +0x38",
   "exit status 2",
 ].join("\n");
 
@@ -182,7 +182,7 @@ describe("classifyPaste: stack traces", () => {
     const found = classifyPaste(GO_TRACE);
     expect(found.kind).toBe("stack-trace");
     expect(found.label).toBe("Go stack trace from handler.go:42");
-    expect(found.source).toBe("/home/seth/src/api/handler.go:42");
+    expect(found.source).toBe("/home/milo/src/api/handler.go:42");
   });
 
   it("reads a Java trace, whose frames carry a line but no column", () => {
@@ -298,7 +298,7 @@ describe("classifyPaste: logs", () => {
 
   it("reads syslog, which writes the month rather than the year", () => {
     const syslog = [
-      "Sep 15 08:12:01 host sshd[1]: Accepted publickey for seth",
+      "Sep 15 08:12:01 host sshd[1]: Accepted publickey for milo",
       "Sep 15 08:12:02 host sshd[1]: session opened",
       "Sep 15 08:12:40 host sshd[1]: session closed",
       "Sep 15 08:13:00 host cron[9]: running job",
@@ -431,7 +431,7 @@ describe("classifyPaste: never throws", () => {
     { name: "emoji with modifiers", text: "ok 👍🏽\ndone 🎉\nshipped 🚀\nagain 🌟" },
     { name: "carriage returns", text: "a\r\nb\r\nc\r\n" },
     { name: "a fence and nothing else", text: "```\n```" },
-    { name: "backslashes", text: "C:\\Users\\seth\\a\\b\\c" },
+    { name: "backslashes", text: "C:\\Users\\milo\\a\\b\\c" },
     { name: "a hundred thousand characters on one line", text: "a".repeat(100_000) },
     { name: "a regular expression that eats itself", text: `${"(".repeat(500)}x` },
     { name: "tabs only", text: "\t\t\n\t\n\t\t\t" },

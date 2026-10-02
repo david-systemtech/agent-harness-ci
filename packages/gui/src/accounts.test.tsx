@@ -12,8 +12,8 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  * two scripted environments: `desk`, this machine's, and `laptop`, paired.
  */
 
-/** Who seth signs in as, on either machine. */
-const SETH: AccountIdentity = { provider: "claude", email: "seth@example.test", organisation: null };
+/** Who milo signs in as, on either machine. */
+const MILO: AccountIdentity = { provider: "claude", email: "milo@example.test", organisation: null };
 
 /** The window with its two environments ready and no session open, each as `given` scripts it. */
 const opened = async (given: { readonly desk?: Partial<ScriptedEnvironment>; readonly laptop?: Partial<ScriptedEnvironment> } = {}) => {
@@ -43,10 +43,10 @@ const facts = (region: HTMLElement): Record<string, string> => {
   return Object.fromEntries(terms.map((term) => [term.textContent ?? "", term.nextElementSibling?.textContent ?? ""]));
 };
 
-/** A reading of `accountId` as seth, its two windows as given. */
+/** A reading of `accountId` as milo, its two windows as given. */
 const reading = (accountId: string, fiveHour: number, week: number, observedAt = "2026-09-30T10:00:00.000Z"): AccountUsage => ({
   accountId,
-  identity: SETH,
+  identity: MILO,
   windows: [
     { window: "five_hour", utilisation: fiveHour, resetsAt: "2026-09-30T14:00:00.000Z", verdict: null, observedAt },
     { window: "seven_day", utilisation: week, resetsAt: null, verdict: null, observedAt },
@@ -60,11 +60,11 @@ describe("Accounts", () => {
     const app = await opened({
       desk: {
         accounts: [
-          { label: "personal", identity: SETH },
-          { label: "work", directory: { kind: "owned", path: "/home/seth/.agent-harness/accounts/2" }, status: { state: "unreadable", checkedAt: null, detail: "auth status timed out after 10 s" } },
+          { label: "personal", identity: MILO },
+          { label: "work", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/2" }, status: { state: "unreadable", checkedAt: null, detail: "auth status timed out after 10 s" } },
         ],
       },
-      laptop: { accounts: [{ label: "laptop seth", identity: SETH }] },
+      laptop: { accounts: [{ label: "laptop milo", identity: MILO }] },
     });
     app.environment("desk").setUsage([reading("account-1", 0.42, 0.1)]);
     const accounts = await openRow(app, "Accounts");
@@ -72,20 +72,20 @@ describe("Accounts", () => {
     const personal = await within(accounts).findByRole("region", { name: "personal" });
     await waitFor(() => expect(facts(personal)["Plan"]).toBe("5hr 42% · Week 10%"));
     expect(facts(personal)).toEqual({
-      Identity: "seth@example.test",
+      Identity: "milo@example.test",
       Status: "signed in",
       Plan: "5hr 42% · Week 10%",
-      Directory: "/home/seth/.account-1, adopted in place",
+      Directory: "/home/milo/.account-1, adopted in place",
     });
     expect(facts(within(accounts).getByRole("region", { name: "work" }))).toEqual({
       Identity: "not read yet",
       Status: "status unreadable: auth status timed out after 10 s",
       Plan: "no reading yet",
-      Directory: "/home/seth/.agent-harness/accounts/2, the environment's own",
+      Directory: "/home/milo/.agent-harness/accounts/2, the environment's own",
     });
 
     const laptop = await openRow(app, "Accounts", "laptop");
-    expect(await within(laptop).findByRole("region", { name: "laptop seth" })).toBeDefined();
+    expect(await within(laptop).findByRole("region", { name: "laptop milo" })).toBeDefined();
     expect(within(laptop).queryByRole("region", { name: "personal" })).toBeNull();
     // The accounts' status is read again as the pane opens on each environment.
     await waitFor(() => expect(app.environment("laptop").requests("accounts.refresh")).toHaveLength(1));
@@ -97,10 +97,10 @@ describe("Accounts", () => {
   });
 
   it("offers the Claude Code sign-in on the environment's machine from accounts.probe, adopts it with accounts.adopt, and says a refusal in one line", async () => {
-    const app = await opened({ desk: { accounts: [{ label: "work", directory: { kind: "owned", path: "/home/seth/.agent-harness/accounts/1" } }], ambient: { present: true, signedIn: true, identity: SETH } } });
+    const app = await opened({ desk: { accounts: [{ label: "work", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/1" } }], ambient: { present: true, signedIn: true, identity: MILO } } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
-    const offer = await within(accounts).findByRole("region", { name: "Use the Claude Code sign-in on desk's machine (seth@example.test)" });
+    const offer = await within(accounts).findByRole("region", { name: "Use the Claude Code sign-in on desk's machine (milo@example.test)" });
     const label = within(offer).getByRole("textbox", { name: "Label (the email it signs in as when empty)" });
 
     await app.user.type(label, "WORK");
@@ -111,16 +111,16 @@ describe("Accounts", () => {
     // Left empty, the account takes the email it signs in as; the offer goes once the directory is held.
     await app.user.clear(label);
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
-    expect(await within(accounts).findByText("Adopted seth@example.test on desk.")).toBeDefined();
+    expect(await within(accounts).findByText("Adopted milo@example.test on desk.")).toBeDefined();
     expect(desk.requests("accounts.adopt")[1]?.params).not.toHaveProperty("label");
-    const adopted = await within(accounts).findByRole("region", { name: "seth@example.test" });
-    expect(facts(adopted)).toMatchObject({ Identity: "seth@example.test", Status: "signed in", Directory: "/home/seth/.claude, adopted in place" });
+    const adopted = await within(accounts).findByRole("region", { name: "milo@example.test" });
+    expect(facts(adopted)).toMatchObject({ Identity: "milo@example.test", Status: "signed in", Directory: "/home/milo/.claude, adopted in place" });
     await waitFor(() => expect(within(accounts).queryByRole("region", { name: /^Use the Claude Code sign-in/ })).toBeNull());
     expect(within(accounts).getAllByText(/^(Not adopted|Adopted)/)).toHaveLength(1);
   });
 
   it("adds an account and signs it in on the sign-in card, and signs in again an account whose sign-in lapsed, each end said in one line", async () => {
-    const app = await opened({ desk: { accounts: [{ label: "work", identity: SETH, status: { state: "expired", checkedAt: null, detail: null } }] } });
+    const app = await opened({ desk: { accounts: [{ label: "work", identity: MILO, status: { state: "expired", checkedAt: null, detail: null } }] } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
     await app.user.click(within(accounts).getByRole("button", { name: "Add an account…" }));
@@ -175,14 +175,14 @@ describe("Accounts", () => {
   });
 
   it("removes one with accounts.remove once confirmed, deleting an owned directory only when asked, and says a refusal in one line", async () => {
-    const app = await opened({ desk: { accounts: [{ label: "personal" }, { label: "work", directory: { kind: "owned", path: "/home/seth/.agent-harness/accounts/2" } }, { label: "spare" }] } });
+    const app = await opened({ desk: { accounts: [{ label: "personal" }, { label: "work", directory: { kind: "owned", path: "/home/milo/.agent-harness/accounts/2" } }, { label: "spare" }] } });
     const desk = app.environment("desk");
     const accounts = await openRow(app, "Accounts");
 
     // An owned directory: kept unless its deletion is ticked. Cancel sends nothing.
     await app.user.click(within(await within(accounts).findByRole("region", { name: "work" })).getByRole("button", { name: "Remove…" }));
     let asking = await screen.findByRole("dialog", { name: "Remove work from desk?" });
-    expect(within(asking).getByText("Its directory, /home/seth/.agent-harness/accounts/2, stays unless you delete it too, with its sign-in and history.")).toBeDefined();
+    expect(within(asking).getByText("Its directory, /home/milo/.agent-harness/accounts/2, stays unless you delete it too, with its sign-in and history.")).toBeDefined();
     await app.user.click(within(asking).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(desk.requests("accounts.remove")).toEqual([]);
@@ -198,10 +198,10 @@ describe("Accounts", () => {
     // An adopted directory is the machine's own: never deleted, so nothing asks.
     await app.user.click(within(within(accounts).getByRole("region", { name: "personal" })).getByRole("button", { name: "Remove…" }));
     asking = await screen.findByRole("dialog", { name: "Remove personal from desk?" });
-    expect(within(asking).getByText("Its directory, /home/seth/.account-1, is the machine's own Claude Code directory, adopted in place: removing the account leaves it as it is.")).toBeDefined();
+    expect(within(asking).getByText("Its directory, /home/milo/.account-1, is the machine's own Claude Code directory, adopted in place: removing the account leaves it as it is.")).toBeDefined();
     expect(within(asking).queryByRole("checkbox")).toBeNull();
     await app.user.click(within(asking).getByRole("button", { name: "Remove" }));
-    expect(await within(accounts).findByText("Removed personal from desk; its directory stays at /home/seth/.account-1.")).toBeDefined();
+    expect(await within(accounts).findByText("Removed personal from desk; its directory stays at /home/milo/.account-1.")).toBeDefined();
     expect(desk.requests("accounts.remove")[1]?.params).not.toHaveProperty("deleteDirectory");
 
     // One another client removed while this one asked: the environment's refusal, in one line.
@@ -216,20 +216,20 @@ describe("Accounts", () => {
 
   it("is read-only without admin, with the capability's line said once, and shows an unreachable environment's accounts as last read, read-only", async () => {
     const app = await opened({
-      laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"], accounts: [{ label: "laptop seth", identity: SETH }], ambient: { present: true, signedIn: true, identity: SETH } },
+      laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"], accounts: [{ label: "laptop milo", identity: MILO }], ambient: { present: true, signedIn: true, identity: MILO } },
       desk: { accounts: [{ label: "personal" }] },
     });
     const laptop = await openRow(app, "Accounts", "laptop");
     expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
     expect(within(laptop).getAllByText(/^Read-only:/)).toHaveLength(1);
-    const seth = await within(laptop).findByRole("region", { name: "laptop seth" });
+    const milo = await within(laptop).findByRole("region", { name: "laptop milo" });
     const offer = await within(laptop).findByRole("region", { name: /^Use the Claude Code sign-in/ });
     for (const control of [
       within(laptop).getByRole("button", { name: "Add an account…" }),
       within(offer).getByRole("button", { name: "Adopt" }),
-      within(seth).getByRole("textbox", { name: "Label" }),
-      within(seth).getByRole("button", { name: "Sign in again" }),
-      within(seth).getByRole("button", { name: "Remove…" }),
+      within(milo).getByRole("textbox", { name: "Label" }),
+      within(milo).getByRole("button", { name: "Sign in again" }),
+      within(milo).getByRole("button", { name: "Remove…" }),
     ]) {
       expect(control.hasAttribute("disabled"), control.textContent ?? "").toBe(true);
     }
@@ -326,7 +326,7 @@ describe("Default account and model", () => {
   it("is read-only without admin with the capability's line, shows an unreachable environment's values as last read, and says a refused write in one line", async () => {
     const app = await opened({
       desk: { accounts: [{ label: "personal" }], models: MODELS.slice(0, 1), receipts: { "settings.update": { rejected: "invalid_params", message: "accounts.defaultEffort: an effort is a word." } } },
-      laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"], accounts: [{ label: "laptop seth" }], settings: { "accounts.defaultEffort": "medium" } },
+      laptop: { scopes: ["read", "sessions:write", "runs:drive", "terminal"], accounts: [{ label: "laptop milo" }], settings: { "accounts.defaultEffort": "medium" } },
     });
     const laptop = await openRow(app, "Default account and model", "laptop");
     expect(await within(laptop).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
@@ -369,8 +369,8 @@ describe("Usage", () => {
   it("shows every gauge pooled by account identity across every environment, with the accounts and environments in each, and an unreachable environment's readings as last read", async () => {
     const work: AccountIdentity = { provider: "claude", email: "work@example.test", organisation: "Example" };
     const app = await opened({
-      desk: { accounts: [{ label: "personal", identity: SETH }, { label: "work", identity: work }, { label: "spare", status: { state: "signed-out", checkedAt: null, detail: null } }] },
-      laptop: { accounts: [{ label: "laptop seth", identity: SETH }] },
+      desk: { accounts: [{ label: "personal", identity: MILO }, { label: "work", identity: work }, { label: "spare", status: { state: "signed-out", checkedAt: null, detail: null } }] },
+      laptop: { accounts: [{ label: "laptop milo", identity: MILO }] },
     });
     const earlier = "2026-09-30T10:00:00.000Z";
     app.environment("desk").setUsage([
@@ -383,9 +383,9 @@ describe("Usage", () => {
     const usage = await openRow(app, "Usage");
     expect(within(usage).queryByRole("combobox", { name: "Environment" })).toBeNull();
 
-    const seth = await within(usage).findByRole("region", { name: "seth@example.test" });
-    await waitFor(() => expect(pooled(seth)).toEqual(["personal on desk", "laptop seth on laptop"]));
-    expect(windows(seth)).toEqual([expect.stringMatching(/^5-hour 50%, resets \d\d:\d\d$/), "Week 20%"]);
+    const milo = await within(usage).findByRole("region", { name: "milo@example.test" });
+    await waitFor(() => expect(pooled(milo)).toEqual(["personal on desk", "laptop milo on laptop"]));
+    expect(windows(milo)).toEqual([expect.stringMatching(/^5-hour 50%, resets \d\d:\d\d$/), "Week 20%"]);
     expect(windows(within(usage).getByRole("region", { name: "work@example.test" }))).toEqual(["5-hour 95% out"]);
     const unread = within(usage).getByRole("region", { name: "An account never read" });
     expect(pooled(unread)).toEqual(["spare on desk"]);
@@ -394,14 +394,14 @@ describe("Usage", () => {
       within(usage)
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent),
-    ).toEqual(["seth@example.test", "work@example.test", "An account never read"]);
+    ).toEqual(["milo@example.test", "work@example.test", "An account never read"]);
 
     const laptop = app.environment("laptop");
     laptop.discovery("nothing");
     laptop.server.drop();
     expect(await within(usage).findByText(/^laptop: Unreachable since \d\d:\d\d: its readings as this window last read them\.$/)).toBeDefined();
-    expect(pooled(within(usage).getByRole("region", { name: "seth@example.test" }))).toEqual(["personal on desk", "laptop seth on laptop"]);
-    expect(windows(within(usage).getByRole("region", { name: "seth@example.test" }))[1]).toBe("Week 20%");
+    expect(pooled(within(usage).getByRole("region", { name: "milo@example.test" }))).toEqual(["personal on desk", "laptop milo on laptop"]);
+    expect(windows(within(usage).getByRole("region", { name: "milo@example.test" }))[1]).toBe("Week 20%");
   });
 
   it("says when no account has a plan reading yet", async () => {

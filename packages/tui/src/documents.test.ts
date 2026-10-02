@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
-const WORKSPACE = "/home/seth/receipts";
+const WORKSPACE = "/home/milo/receipts";
 
 const PAGE = "<!doctype html><h1>Receipts</h1>";
 const DRAWING = '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>';
@@ -113,9 +113,9 @@ describe("/documents", () => {
     await app.waitUntil(() => listed(app).length === 2, "the two documents listed");
 
     await app.press(KEY.enter);
-    await app.waitFor("The desktop window's preview draws this SVG, not the terminal: /home/seth/receipts/chart.svg");
+    await app.waitFor("The desktop window's preview draws this SVG, not the terminal: /home/milo/receipts/chart.svg");
     await app.press(KEY.down, KEY.enter);
-    await app.waitFor("The desktop window's preview draws this page, not the terminal: /home/seth/receipts/site/index.html");
+    await app.waitFor("The desktop window's preview draws this page, not the terminal: /home/milo/receipts/site/index.html");
     // The list stays open, and no markup reached the frame.
     expect(listed(app)).toHaveLength(2);
     expect(app.frame()).not.toContain("<h1>");

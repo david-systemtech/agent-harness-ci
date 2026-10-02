@@ -28,7 +28,7 @@ afterEach(async () => {
 describe("a terminal pane Ink cannot hand keys to", () => {
   it("is refused in one line, opening no terminal", async () => {
     const app = await renderApp({
-      script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }] }] },
+      script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }] }] },
       flags: { session: "0199aa00-0000-4000-8000-000000000001" },
     });
     apps.push(app);

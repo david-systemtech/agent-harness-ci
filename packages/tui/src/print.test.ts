@@ -23,7 +23,7 @@ vi.mock("react", () => {
  */
 
 const DESK = "0199aa00-0000-7000-8000-00000000de5c";
-const HERE = "/home/seth/code/harness";
+const HERE = "/home/milo/code/harness";
 const WORK = { id: "account-1", label: "Work" };
 const OPUS = listed("work", "claude-opus-5", "opus", 3, WORK);
 
@@ -33,7 +33,7 @@ const desk: Script = {
       name: "desk",
       reach: "local",
       environmentId: DESK,
-      accounts: [{ id: WORK.id, label: WORK.label, identity: { provider: "claude", email: "seth@work.test", organisation: null } }],
+      accounts: [{ id: WORK.id, label: WORK.label, identity: { provider: "claude", email: "milo@work.test", organisation: null } }],
       models: [{ accountId: WORK.id, live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] }],
       sessions: [{ workspace: { kind: "directory", path: "/srv/elsewhere" } }],
     },
@@ -188,8 +188,8 @@ const twoAccounts: Script = {
       reach: "local",
       environmentId: DESK,
       accounts: [
-        { id: WORK.id, label: WORK.label, identity: { provider: "claude", email: "seth@work.test", organisation: null } },
-        { id: HOME.id, label: HOME.label, identity: { provider: "claude", email: "seth@home.test", organisation: null } },
+        { id: WORK.id, label: WORK.label, identity: { provider: "claude", email: "milo@work.test", organisation: null } },
+        { id: HOME.id, label: HOME.label, identity: { provider: "claude", email: "milo@home.test", organisation: null } },
       ],
       models: [
         { accountId: WORK.id, live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] },
@@ -263,7 +263,7 @@ describe("the session a print continues", () => {
           { id: sessionIdOf(1), workspace: { kind: "directory", path: HERE }, updatedAt: at("11:00"), archivedAt: at("11:00") },
           // Two updated at the same time, the trailing slash no different: the lower id wins.
           { id: sessionIdOf(3), workspace: { kind: "directory", path: `${HERE}/` }, updatedAt: at("09:00") },
-          { id: sessionIdOf(2), workspace: { kind: "worktree", path: HERE, repository: "/home/seth/code/main", branch: "agent-harness/0199aa00" }, updatedAt: at("09:00"), accountId: WORK.id, model: "claude-opus-5" },
+          { id: sessionIdOf(2), workspace: { kind: "worktree", path: HERE, repository: "/home/milo/code/main", branch: "agent-harness/0199aa00" }, updatedAt: at("09:00"), accountId: WORK.id, model: "claude-opus-5" },
           { id: sessionIdOf(4), workspace: { kind: "directory", path: HERE }, updatedAt: at("08:00") },
           // Newer still, in another directory.
           { id: sessionIdOf(5), workspace: { kind: "directory", path: "/srv/notes" }, updatedAt: at("12:00"), activity: { state: "running", since: at("12:00") } },
@@ -446,7 +446,7 @@ describe("a print that fails", () => {
     const on = await machine(desk);
     const environment = on.world.environment("desk");
     const sessionId = environment.sessionId(0);
-    const message = "The workspace /home/seth/code/harness is not a directory on this environment.";
+    const message = "The workspace /home/milo/code/harness is not a directory on this environment.";
 
     for (const format of ["text", "stream-json"] as const) {
       const http = fakeCompletions(environment.wire.origin, [OPUS]);

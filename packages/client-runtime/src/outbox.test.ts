@@ -174,7 +174,7 @@ describe("commands.dispatch", () => {
     wire.answer("sessions.delete", () => undefined);
     const groupId = randomUUID();
     const sessionId = randomUUID();
-    const created = runtime.commands.dispatch(id, "groups.create", { id: groupId, name: "Brandsolidate" });
+    const created = runtime.commands.dispatch(id, "groups.create", { id: groupId, name: "Meadowstudios" });
     const deleted = runtime.commands.dispatch(id, "sessions.delete", { sessionId });
     await wire.server.request("groups.create");
     wire.server.drop();
@@ -199,14 +199,14 @@ describe("commands.dispatch", () => {
     listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
     await flush();
     wire.answer("groups.create", () => undefined);
-    const moved = runtime.commands.moveToGroup(id, sessionId, "Cool-Jams");
+    const moved = runtime.commands.moveToGroup(id, sessionId, "Moon-Gems");
     // The create is sent and its answer lost with the socket; meanwhile another client took the name.
     await wire.server.request("groups.create");
     wire.server.drop();
     await flush();
-    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Cool-Jams"]);
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Moon-Gems"]);
 
-    wire.answer("groups.create", () => answering(rejected(11, "conflict", { reason: "name_taken", name: "Cool-Jams", heldName: "Cool-Jams", groupId: holder })));
+    wire.answer("groups.create", () => answering(rejected(11, "conflict", { reason: "name_taken", name: "Moon-Gems", heldName: "Moon-Gems", groupId: holder })));
     wire.answer("sessions.setGroup", (params) => answering(rejected(12, "not_found", { kind: "group", groupId: params["groupId"] })));
     clock.advance(1250);
     await wire.server.accept();
@@ -215,7 +215,7 @@ describe("commands.dispatch", () => {
     expect(runtime.projections.sessionList.read().groups).toEqual([]);
     expect(row(runtime, sessionId)).toMatchObject({ groupName: null });
     expect(runtime.projections.notices.read().filter((n) => n.kind === "command-rejected").map((n) => n.message)).toEqual([
-      "Create group on Cool-Jams was rejected: name taken.",
+      "Create group on Moon-Gems was rejected: name taken.",
       "Move on Invoices was rejected: its group no longer exists.",
     ]);
   });
@@ -728,22 +728,22 @@ describe("awaitingReceipt", () => {
   it("clears the flag on a rejection, and flags a heading while a command about one of its groups waits", async () => {
     const { runtime, wire, id, list } = await paired({ list: true });
     const [sessionId, groupId] = [randomUUID(), randomUUID()];
-    listed(list, 10, [summaryOf(sessionId, { title: "Invoices", groupId })], [groupOf(groupId, "Brandsolidate")]);
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices", groupId })], [groupOf(groupId, "Meadowstudios")]);
     await flush();
     const held: ((answer: FakeAnswer) => void)[] = [];
     for (const method of ["groups.rename", "sessions.pin"]) wire.answer(method, () => new Promise<FakeAnswer>((resolve) => held.push(resolve)));
     const heading = () => runtime.projections.sessionList.read().groups[0];
 
-    const renamed = runtime.commands.dispatch(id, "groups.rename", { groupId, name: "Cool-Jams" });
+    const renamed = runtime.commands.dispatch(id, "groups.rename", { groupId, name: "Moon-Gems" });
     const pinned = runtime.commands.dispatch(id, "sessions.pin", { sessionId });
     await flush();
-    expect(heading()).toMatchObject({ name: "Cool-Jams", awaitingReceipt: true, pending: false });
+    expect(heading()).toMatchObject({ name: "Moon-Gems", awaitingReceipt: true, pending: false });
     expect(row(runtime, sessionId)).toMatchObject({ awaitingReceipt: true, pending: false });
 
     held.shift()?.(answering(rejected(11, "conflict", { reason: "name_taken" })));
     expect(await renamed).toMatchObject({ ok: false });
     await flush();
-    expect(heading()).toMatchObject({ name: "Brandsolidate", awaitingReceipt: false });
+    expect(heading()).toMatchObject({ name: "Meadowstudios", awaitingReceipt: false });
     held.shift()?.(answering(rejected(12, "not_found", { kind: "session", sessionId })));
     expect(await pinned).toMatchObject({ ok: false });
     await flush();
@@ -801,7 +801,7 @@ describe("coalescing", () => {
   it("never replaces a setter whose refusal depends on what it names: a group rename, a move, a snooze are all sent in order", async () => {
     const { runtime, wire, clock, id, list } = await paired({ list: true });
     const [renamed, sessionId, first, second] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
-    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })], [groupOf(renamed, "Brandsolidate"), groupOf(first, "One"), groupOf(second, "Two")]);
+    listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })], [groupOf(renamed, "Meadowstudios"), groupOf(first, "One"), groupOf(second, "Two")]);
     await flush();
     await cut(wire);
     const soon = new Date(clock.now().getTime() + DAY).toISOString();
@@ -809,8 +809,8 @@ describe("coalescing", () => {
     // The later of each pair may be refused where the earlier is not (a name another group took, a group deleted, a time out of
     // its window): sent alone, it would leave the target as it was rather than as the earlier command set it.
     const renames = [
-      runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Cool-Jams" }),
-      runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Bluebeards" }),
+      runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Moon-Gems" }),
+      runtime.commands.dispatch(id, "groups.rename", { groupId: renamed, name: "Pinegroves" }),
     ];
     void runtime.commands.dispatch(id, "sessions.setGroup", { sessionId, groupId: first });
     void runtime.commands.dispatch(id, "sessions.setGroup", { sessionId, groupId: second });
@@ -821,8 +821,8 @@ describe("coalescing", () => {
 
     let sequence = 11;
     wire.answer("groups.rename", (params) =>
-      params["name"] === "Bluebeards"
-        ? answering(rejected(sequence++, "conflict", { reason: "name_taken", name: "Bluebeards", heldName: "Bluebeards", groupId: randomUUID() }))
+      params["name"] === "Pinegroves"
+        ? answering(rejected(sequence++, "conflict", { reason: "name_taken", name: "Pinegroves", heldName: "Pinegroves", groupId: randomUUID() }))
         : answering(accepted(sequence++)),
     );
     for (const method of ["sessions.setGroup", "sessions.snooze"]) wire.answer(method, () => answering(accepted(sequence++)));
@@ -831,11 +831,11 @@ describe("coalescing", () => {
     expect(await renames[0]).toMatchObject({ ok: true });
     expect(await renames[1]).toMatchObject({ ok: false, error: { code: "conflict" } });
     await flush();
-    expect(requests(wire, "groups.rename").map((f) => f.params["name"])).toEqual(["Cool-Jams", "Bluebeards"]);
+    expect(requests(wire, "groups.rename").map((f) => f.params["name"])).toEqual(["Moon-Gems", "Pinegroves"]);
     expect(requests(wire, "sessions.setGroup").map((f) => f.params["groupId"])).toEqual([first, second]);
     expect(requests(wire, "sessions.snooze").map((f) => f.params["until"])).toEqual([soon, later]);
     // The group has the name the first rename gave it, as it would have had the two been sent one by one.
-    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toContain("Cool-Jams");
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toContain("Moon-Gems");
   });
 });
 
@@ -846,12 +846,12 @@ describe("groups offline", () => {
     listed(list, 10, [summaryOf(sessionId, { title: "Invoices" })]);
     await flush();
     await cut(wire);
-    const moved = runtime.commands.moveToGroup(id, sessionId, "  Brand  solidate ");
+    const moved = runtime.commands.moveToGroup(id, sessionId, "  Meadow  studios ");
     await flush();
     const view = runtime.projections.sessionList.read();
-    expect(view.groups).toEqual([expect.objectContaining({ name: "Brand solidate", pending: true })]);
+    expect(view.groups).toEqual([expect.objectContaining({ name: "Meadow studios", pending: true })]);
     expect(view.groups[0]?.shelves.active.map((r) => r.summary.id)).toEqual([sessionId]);
-    expect(row(runtime, sessionId)).toMatchObject({ groupName: "Brand solidate", pending: true });
+    expect(row(runtime, sessionId)).toMatchObject({ groupName: "Meadow studios", pending: true });
 
     let sequence = 11;
     for (const method of ["groups.create", "sessions.setGroup"]) wire.answer(method, () => answering(accepted(sequence++)));
@@ -862,17 +862,17 @@ describe("groups offline", () => {
     expect(sent.map((f) => f.method)).toEqual(["groups.create", "sessions.setGroup"]);
     const groupId = sent[0]?.params["id"] as string;
     expect(groupId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(sent[0]?.params["name"]).toBe("Brand solidate");
+    expect(sent[0]?.params["name"]).toBe("Meadow studios");
     expect(sent[1]?.params).toMatchObject({ sessionId, groupId });
   });
 
   it("moves a session into a group its environment has by that name, ignoring case, without creating one", async () => {
     const { runtime, wire, id, list } = await paired({ list: true });
     const [sessionId, groupId] = [randomUUID(), randomUUID()];
-    listed(list, 10, [summaryOf(sessionId)], [groupOf(groupId, "Brandsolidate")]);
+    listed(list, 10, [summaryOf(sessionId)], [groupOf(groupId, "Meadowstudios")]);
     await flush();
     wire.answer("sessions.setGroup", () => answering(accepted(11)));
-    expect(await runtime.commands.moveToGroup(id, sessionId, "brandsolidate")).toMatchObject({ ok: true });
+    expect(await runtime.commands.moveToGroup(id, sessionId, "meadowstudios")).toMatchObject({ ok: true });
     expect(requests(wire, "groups.create")).toEqual([]);
     expect(requests(wire, "sessions.setGroup").map((f) => f.params["groupId"])).toEqual([groupId]);
   });
@@ -880,25 +880,25 @@ describe("groups offline", () => {
   it("hides a group deleted offline and shows a group renamed offline under its new name", async () => {
     const { runtime, wire, id, list } = await paired({ list: true });
     const [kept, gone] = [randomUUID(), randomUUID()];
-    listed(list, 10, [], [groupOf(kept, "Brandsolidate"), groupOf(gone, "Old")]);
+    listed(list, 10, [], [groupOf(kept, "Meadowstudios"), groupOf(gone, "Old")]);
     await flush();
     await cut(wire);
-    void runtime.commands.dispatch(id, "groups.rename", { groupId: kept, name: "Cool-Jams" });
+    void runtime.commands.dispatch(id, "groups.rename", { groupId: kept, name: "Moon-Gems" });
     void runtime.commands.dispatch(id, "groups.delete", { groupId: gone });
     await flush();
-    expect(runtime.projections.sessionList.read().groups.map((h) => [h.name, h.pending])).toEqual([["Cool-Jams", true]]);
+    expect(runtime.projections.sessionList.read().groups.map((h) => [h.name, h.pending])).toEqual([["Moon-Gems", true]]);
   });
 
   it("keeps a group renamed here under its new name while another client's rename of it lands first", async () => {
     const { runtime, wire, id, list } = await paired({ list: true });
     const groupId = randomUUID();
-    listed(list, 10, [], [groupOf(groupId, "Brandsolidate")]);
+    listed(list, 10, [], [groupOf(groupId, "Meadowstudios")]);
     await flush();
     wire.answer("groups.rename", () => undefined);
-    void runtime.commands.dispatch(id, "groups.rename", { groupId, name: "Cool-Jams" });
+    void runtime.commands.dispatch(id, "groups.rename", { groupId, name: "Moon-Gems" });
     list.event(groupEvent(11, { op: "set", groupId, fields: { name: "Other" } }));
     await flush();
-    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Cool-Jams"]);
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Moon-Gems"]);
   });
 });
 

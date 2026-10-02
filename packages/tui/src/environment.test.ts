@@ -173,7 +173,7 @@ describe("/environment", () => {
     await app.press(KEY.down, KEY.down, KEY.down, KEY.enter);
     await app.waitFor("Client sessions on laptop");
     await app.waitFor("David's MacBook");
-    expect(rowWith(app.frame(), "seth@desk:pts/3")).toContain("(this terminal)");
+    expect(rowWith(app.frame(), "milo@desk:pts/3")).toContain("(this terminal)");
     expect(app.environment("laptop").requests("access.sessions.list")).toHaveLength(1);
     await app.press(KEY.enter);
     await app.waitFor("Revoke David's MacBook on laptop? y/n");
@@ -184,7 +184,7 @@ describe("/environment", () => {
     expect(app.environment("laptop").requests("access.sessions.revoke")).toMatchObject([{ params: { clientSessionId: "0199cc00-0000-7000-8000-000000000001" } }]);
     // The card lists again, without the revoked row; this terminal's own stays.
     await app.waitUntil(() => app.environment("laptop").requests("access.sessions.list").length === 2, "the client sessions listed again");
-    await app.waitFor(/seth@desk:pts\/3\s+tui/);
+    await app.waitFor(/milo@desk:pts\/3\s+tui/);
     expect(app.frame()).not.toMatch(/David's MacBook\s+desktop/);
   });
 

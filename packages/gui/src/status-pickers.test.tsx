@@ -13,8 +13,8 @@ import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvir
  * reason. Driven through the harness over the scripted environment.
  */
 
-const WORK = { provider: "claude", email: "seth@work.test", organisation: null };
-const HOME = { provider: "claude", email: "seth@home.test", organisation: null };
+const WORK = { provider: "claude", email: "milo@work.test", organisation: null };
+const HOME = { provider: "claude", email: "milo@home.test", organisation: null };
 const BYPASS = "The agent will act without asking and can do anything this account can, within the containment you chose.";
 
 const desk = (more: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => ({
@@ -165,8 +165,8 @@ describe("the account picker", () => {
     env.setUsage([reading("account-1", WORK, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
     await within(statusLine()).findByRole("group", { name: "Plan usage" });
     const menu = await openPicker(app, "Account");
-    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work seth@work.testsigned in · this session5hr 42% · Week 10%");
-    expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal seth@home.testsign-in expiredNot signed in.");
+    expect(within(menu).getByRole("menuitem", { name: /^work/ }).textContent).toBe("work milo@work.testsigned in · this session5hr 42% · Week 10%");
+    expect(within(menu).getByRole("menuitem", { name: /^personal/ }).textContent).toBe("personal milo@home.testsign-in expiredNot signed in.");
     expect(within(menu).getByRole("menuitem", { name: "Add an account…" })).toBeTruthy();
   });
 
@@ -177,7 +177,7 @@ describe("the account picker", () => {
     const fork = String(sent(env, "sessions.fork")[0]?.["id"]);
     await waitFor(() => expect(app.shown()).toEqual({ environmentId: env.environmentId, sessionId: fork }));
     await waitFor(() => expect(env.summary(fork).draft).toBe("and the tests"));
-    expect(await within(statusLine()).findByRole("button", { name: "Account: personal seth@home.test" })).toBeTruthy();
+    expect(await within(statusLine()).findByRole("button", { name: "Account: personal milo@home.test" })).toBeTruthy();
   });
 
   it("says the session is on the account already", async () => {
@@ -216,8 +216,8 @@ describe("the hand-off offer and picker", () => {
     const dialog = await screen.findByRole("dialog", { name: "Hand off Receipts on desk" });
     expect(dialog.textContent).toContain(out.message);
     const accounts = within(dialog).getByRole("list", { name: "Accounts" });
-    await waitFor(() => expect(within(accounts).getByRole("button", { name: /^work/ }).textContent).toBe("work seth@work.test signed in · this session5hr 100% out"));
-    expect(within(accounts).getByRole("button", { name: /^personal/ }).textContent).toBe("personal seth@home.test signed in · recommended5hr 12%");
+    await waitFor(() => expect(within(accounts).getByRole("button", { name: /^work/ }).textContent).toBe("work milo@work.test signed in · this session5hr 100% out"));
+    expect(within(accounts).getByRole("button", { name: /^personal/ }).textContent).toBe("personal milo@home.test signed in · recommended5hr 12%");
     expect(within(accounts).getByText("hand-off between environments comes in milestone 2 (ADR 0005)")).toBeTruthy();
 
     await app.user.click(within(accounts).getByRole("button", { name: /^personal/ }));
@@ -242,7 +242,7 @@ describe("sign-in", () => {
     await within(signing).findByText("https://claude.ai/oauth/authorize?code=true&state=abc");
     await waitFor(() => expect(app.shell.calls).toContainEqual(["openExternal", "https://claude.ai/oauth/authorize?code=true&state=abc"]));
     expect(within(signing).getByText("Or run this in a terminal on desk's machine:")).toBeTruthy();
-    expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/seth/.agent-harness/accounts/3' claude auth login")).toBeTruthy();
+    expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth login")).toBeTruthy();
 
     await app.user.type(within(signing).getByRole("textbox", { name: "Then paste the code it shows" }), "  abc-123  {Enter}");
     await waitFor(() => expect(sent(env, "accounts.signin.code")).toEqual([expect.objectContaining({ accountId: "account-3", code: "abc-123" })]));
