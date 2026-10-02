@@ -268,6 +268,11 @@ export interface ForgeService extends ForgeOperations {
    * for one other than github.com.
    */
   probeCredential(request: CredentialProbeRequest): Promise<CredentialProbe>;
+  /** An import may reuse an alias only when this owner has verified it as the same identity. */
+  importTarget(origin: ForgeOrigin): ForgeAccountRecord | null;
+  canImportOrigin(origin: ForgeOrigin): boolean;
+  /** Carries a secret-free import record without resolving credentials or verifying aliases. */
+  importRecord(params: { readonly forgeAccountId: string; readonly origin: ForgeOrigin; readonly kind: Exclude<ForgeKind, "gitlab">; readonly credential: Extract<ForgeCredentialSource, { kind: "none" | "reference" }> }, context: CommandContext): CommandAnswer<{ readonly targetId: string; readonly carried: boolean }>;
   readonly add: ForgeAdd;
   readonly update: PreparedCommand<"forge.accounts.update">;
   readonly remove: MethodHandler<"forge.accounts.remove">;
@@ -929,6 +934,37 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     probeGh: () => gh.probe(),
 
     startVerifying: () => verifier.start(),
+
+    importTarget(origin) {
+      return listForgeAccounts(reader).find((account) => account.origin === origin || account.aliases.some((alias) => alias.origin === origin && alias.verifiedAt !== null)) ?? null;
+    },
+    canImportOrigin(origin) {
+      const holder = originHolder(reader, origin);
+      if (holder === null) return true;
+      const held = recordOf(holder);
+      return held.origin === origin || held.aliases.some((alias) => alias.origin === origin && alias.verifiedAt !== null);
+    },
+    importRecord(params, command) {
+      const { forgeAccountId, origin, kind, credential } = params;
+      const existing = originHolder(reader, origin);
+      if (existing !== null) {
+        const held = recordOf(existing);
+        if (held.origin !== origin && !held.aliases.some((alias) => alias.origin === origin && alias.verifiedAt !== null)) return { aggregate: stream, rejected: { code: "conflict", message: "The Forge owner has not verified this alias as the same identity." } };
+        return { aggregate: stream, result: { targetId: existing, carried: false } };
+      }
+      const refused = addRefusal(forgeAccountId, [origin], undefined);
+      if (refused !== null) return { aggregate: stream, rejected: refused };
+      const accounts = listForgeAccounts(reader);
+      const payload: ForgeAccountAddedPayload = {
+        forgeAccountId, origin, kind, credential, aliases: [],
+        slug: deriveForgeSlug(origin, accounts.map((account) => account.slug)),
+        identity: null, primary: accounts.length === 0, clearedPrimary: null,
+        problem: credential.kind === "none" ? needsCredential() : problemNow("credential-unavailable", "Sign in to the Key manager to use this preserved reference."),
+        copiedFrom: null,
+      };
+      log.append(stream, [{ type: "forge.account.added", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+      return { aggregate: stream, result: { targetId: forgeAccountId, carried: true } };
+    },
 
     async probeCredential(request) {
       const { origin, kind, path } = forgeOf(request.url, request.kind);

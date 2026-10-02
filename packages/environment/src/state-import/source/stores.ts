@@ -124,6 +124,12 @@ const digestNow = async (path: string): Promise<string | null | undefined> => {
   return now.kind === "read" ? digestOf(now.bytes) : undefined;
 };
 
+/** A bounded snapshot of a checkout config, without returning any of its text. */
+export const readSnapshot = async (path: string): Promise<StoreSnapshot | null> => {
+  const digest = await digestNow(path);
+  return digest === undefined ? null : { path, digest };
+};
+
 /** Whether the store's bytes are no longer those `snapshot` read: changed, appeared, gone, or now unreadable. */
 export const storeChanged = async (snapshot: StoreSnapshot): Promise<boolean> => (await digestNow(snapshot.path)) !== snapshot.digest;
 

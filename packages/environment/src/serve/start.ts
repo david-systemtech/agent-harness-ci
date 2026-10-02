@@ -1907,6 +1907,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentId: record.id,
       coordinator: stateImports,
       createInstruction: instructionHandlers["instructions.create"],
+      forge,
+      managers: keyManagerConnections,
       getSettings: settingsHandlers["settings.get"],
       updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
