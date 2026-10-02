@@ -1,4 +1,4 @@
-import type { CanUseTool, HookJSONOutput, McpSdkServerConfigWithInstance, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, HookEvent, HookInput, HookJSONOutput, McpSdkServerConfigWithInstance, Options, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -15,6 +15,25 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
  */
 
 type Message = unknown;
+
+/** What a tool hook is handed beside the call: its id, the SDK's signal, the subagent it comes from. */
+export interface ToolHookExtra {
+  readonly toolUseID?: string;
+  readonly signal?: AbortSignal;
+  readonly agentId?: string;
+}
+
+/**
+ * Whether a hook matcher takes a tool, as the pinned CLI reads one: none,
+ * empty or `*` takes every tool, and a list of plain names joined by `|`
+ * takes those exact tools. The CLI reads anything else as a pattern, which
+ * no run registers, so the fake refuses it rather than guess.
+ */
+const matcherTakes = (matcher: string | undefined, toolName: string): boolean => {
+  if (matcher === undefined || matcher === "" || matcher === "*") return true;
+  if (!/^[a-zA-Z0-9_|]+$/.test(matcher)) throw new Error(`The fake reads no matcher pattern such as ${matcher}.`);
+  return matcher.split("|").includes(toolName);
+};
 
 /** The control answers a test sets per query. */
 export interface FakeControls {
@@ -178,22 +197,44 @@ export class FakeQuery {
    * `signal` is the one the SDK hands the callback: the CLI's cancel of the
    * hook's request (its timeout, the turn's interrupt) aborts it.
    */
-  async preToolUse(toolName: string, input: Record<string, unknown>, extra: { readonly toolUseID?: string; readonly signal?: AbortSignal; readonly agentId?: string } = {}): Promise<HookJSONOutput> {
-    const matchers = this.options.hooks?.PreToolUse ?? [];
-    if (matchers.length === 0) throw new Error("The run registered no PreToolUse hook.");
+  async preToolUse(toolName: string, input: Record<string, unknown>, extra: ToolHookExtra = {}): Promise<HookJSONOutput> {
+    if ((this.options.hooks?.PreToolUse ?? []).length === 0) throw new Error("The run registered no PreToolUse hook.");
+    return this.#toolHooks("PreToolUse", toolName, input, {}, extra);
+  }
+
+  /** Runs the `PostToolUse` hooks whose matcher takes the tool, as the CLI does once a call succeeded, with what the tool answered. */
+  async postToolUse(toolName: string, input: Record<string, unknown>, response: unknown, extra: ToolHookExtra = {}): Promise<HookJSONOutput> {
+    return this.#toolHooks("PostToolUse", toolName, input, { tool_response: response }, extra);
+  }
+
+  /** Runs the `PostToolUseFailure` hooks whose matcher takes the tool, as the CLI does once a call threw, with its error. */
+  async postToolUseFailure(toolName: string, input: Record<string, unknown>, error: string, extra: ToolHookExtra = {}): Promise<HookJSONOutput> {
+    return this.#toolHooks("PostToolUseFailure", toolName, input, { error }, extra);
+  }
+
+  /**
+   * Runs an event's hooks whose matcher takes the tool, one after another,
+   * and answers what the last one said. The CLI runs them in parallel; every
+   * run registers one callback per event, for which the two are the same.
+   */
+  async #toolHooks(event: HookEvent, toolName: string, input: Record<string, unknown>, fields: Record<string, unknown>, extra: ToolHookExtra): Promise<HookJSONOutput> {
     const toolUseID = extra.toolUseID ?? `toolu_${Math.random().toString(36).slice(2)}`;
     const hookInput = {
-      hook_event_name: "PreToolUse" as const,
+      hook_event_name: event,
       session_id: "s",
       transcript_path: "/tmp/transcript.jsonl",
       cwd: "/work/repo",
       tool_name: toolName,
       tool_input: input,
       tool_use_id: toolUseID,
+      ...fields,
       ...(extra.agentId !== undefined && { agent_id: extra.agentId }),
-    };
+    } as HookInput;
     let output: HookJSONOutput = {};
-    for (const matcher of matchers) for (const hook of matcher.hooks) output = await hook(hookInput, toolUseID, { signal: extra.signal ?? new AbortController().signal });
+    for (const matcher of this.options.hooks?.[event] ?? []) {
+      if (!matcherTakes(matcher.matcher, toolName)) continue;
+      for (const hook of matcher.hooks) output = await hook(hookInput, toolUseID, { signal: extra.signal ?? new AbortController().signal });
+    }
     return output;
   }
 

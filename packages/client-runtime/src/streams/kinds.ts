@@ -348,6 +348,7 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "bank.landed":
       case "bank.landing-failed":
       case "bank.awaiting-review":
+      case "bank.review-held":
         return data;
       // The key-manager connections' events (#365, #366) and Move's (#371, #372) change no status: the request cache refreshes
       // keyManagers.list and keyManagers.move.list on them, and the notices queue raises a connection's status rows (#384).

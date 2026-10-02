@@ -74,6 +74,10 @@ export interface FakeGitRequest {
 
 /** A pull request as a test scripts one; every field has a preset. */
 export interface FakePullRequest {
+  /** The author's forge login; preset `david`. */
+  readonly author?: string;
+  /** The head commit; preset `0123abcd`. */
+  readonly sha?: string;
   /** Preset `open`. */
   readonly state?: "open" | "closed" | "merged";
   /** When it merged; preset: none, or `closedAt` for a merged one. */
@@ -141,6 +145,8 @@ export interface FakeForge {
   pullRequest(token: string | null, fullName: string, number: number, fields?: FakePullRequest): void;
   /** Scripts the validate check for a pushed commit on both APIs; pending never permits a merge. */
   validateCheck(token: string, fullName: string, sha: string, state: "pending" | "success" | "failure"): void;
+  /** Scripts the PR's reviews on both APIs in order; an omitted commit is null. */
+  reviews(token: string, fullName: string, number: number, reviews: readonly { readonly login: string; readonly state: string; readonly commit?: string }[]): void;
   /** Every request of the APIs so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
   /**
@@ -405,6 +411,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
         const closedAt = scripted.closedAt !== undefined ? scripted.closedAt : state === "open" ? null : MERGED_OR_CLOSED_AT;
         const mergedAt = scripted.mergedAt !== undefined ? scripted.mergedAt : state === "merged" ? closedAt : null;
         return {
+          user: { login: scripted.author ?? "david" },
           number: pull,
           title: `Pull request ${pull}`,
           body: "",
@@ -412,7 +419,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
           ...(api === "/api/v1" && { merged: state === "merged" }),
           merged_at: mergedAt,
           closed_at: closedAt,
-          head: { ref: scripted.head ?? "feature", sha: "0123abcd", repo: { full_name: scripted.headRepository ?? fullName } },
+          head: { ref: scripted.head ?? "feature", sha: scripted.sha ?? "0123abcd", repo: { full_name: scripted.headRepository ?? fullName } },
           base: { ref: "main" },
           html_url: `${origin}/${fullName}/${api === "/api/v3" ? "pull" : "pulls"}/${pull}`,
         };
@@ -427,6 +434,9 @@ export const startFakeForge = async (): Promise<FakeForge> => {
         return { status: 200, body: answers.map(({ answer }) => answer) };
       });
       script(caller, `GET /api/v1/repos/${fullName}/pulls`, () => ({ status: 200, body: listed("/api/v1").map(({ answer }) => answer) }));
+    },
+    reviews(token, fullName, number, reviews) {
+      for (const api of ["/api/v3", "/api/v1"]) script(token, `GET ${api}/repos/${fullName}/pulls/${number}/reviews`, { status: 200, body: reviews.map((review, index) => ({ id: index + 1, user: { login: review.login }, state: review.state, commit_id: review.commit ?? null })) });
     },
     validateCheck(token, fullName, sha, state) {
       script(token, `GET /api/v1/repos/${fullName}/commits/${sha}/statuses`, { status: 200, body: [{ context: "validate", state }] });
