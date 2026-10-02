@@ -39,6 +39,9 @@ describe("/pair", () => {
     // Beside the placeholder the runtime lists for this machine, which has no environment running (#181).
     expect(app.runtime().connections.list.read().filter((r) => r.environmentId !== LOCAL_PLACEHOLDER_ID)).toMatchObject([{ kind: "paired", phase: "ready" }]);
     expect(app.frame()).not.toContain("Pair this terminal");
+    const laptop = app.environment("laptop");
+    await app.waitUntil(() => laptop.requests("setup.check").length === 1, "the paired machine's check");
+    expect(laptop.requests("setup.check")[0]?.params).toEqual({ step: "your-machines" });
   });
 
   it("pairs from an address and a code, the code typed in its two groups", async () => {
