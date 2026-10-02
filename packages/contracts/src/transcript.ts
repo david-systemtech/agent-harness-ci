@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FileUndoOutcome } from "./file-undo.js";
 import {
   AccountIdentity,
   DelegatedWorkRow,
@@ -564,6 +565,8 @@ const PromptItem = z
   })
   .meta({ description: "A prompt, where it was asked: what it asked and, once answered, its answer and who gave it." });
 
+const FileUndoItem = FileUndoOutcome.extend({ kind: z.literal("file-undo"), ...itemPart }).meta({ description: "A completed file undo: change id, path and action, never file contents." });
+
 const HistoryUnreadableItem = z
   .object({
     kind: z.literal("history-unreadable"),
@@ -582,7 +585,7 @@ const ForkedItem = z
   .meta({ description: "A fork's first row: the source and anchor its session.forked named, at that event's sequence." });
 
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
-export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt", "history-unreadable", "forked", "update-interrupted"] as const;
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt", "history-unreadable", "forked", "update-interrupted", "file-undo"] as const;
 
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
@@ -613,6 +616,7 @@ export const TranscriptItem = z
     HistoryUnreadableItem,
     ForkedItem,
     ...UpdateInterruptedItems,
+    FileUndoItem,
     OpaqueItem,
   ])
   .meta({

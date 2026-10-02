@@ -81,6 +81,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     records: registry.list,
     report,
     applied(environmentId, stream, event, news) {
+      // Session completion events refresh diffs even during replay, and when another Client performed the undo.
+      if (stream.startsWith("session.") && event.type === "files.undo-finished") requestCache.sessionChanged(environmentId, event.streamId, event.type);
       if (stream === "list") {
         outbox.applied(environmentId, event);
         // Every run and prompt event of every session comes on the list: the run states and the parked asks fold them all.

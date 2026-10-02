@@ -1,5 +1,6 @@
 import {
   attachmentChip,
+  fileUndoWords,
   classifyTool,
   clockTime,
   endWords,
@@ -65,6 +66,8 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
       return `- ${row.entry.task?.subagentType ?? "Agent"}: ${row.entry.task?.description ?? ""} (${row.entry.calls.length} calls)`;
     case "turn":
       return `_${[...(row.run.reason === "completed" ? [] : [endWords(row.run)]), ...turnFacts(row.run)].join(" · ")}_`;
+    case "file-undo":
+      return `_${fileUndoWords(row.entry)} ${row.entry.changeId}_`;
     case "opaque":
       return `_${row.entry.type}: an event this version does not show_`;
     case "rewound": {

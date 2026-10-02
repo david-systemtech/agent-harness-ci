@@ -412,12 +412,16 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
-  "transcript/transcript-item.json": { valid: [...items, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
+  "transcript/transcript-item.json": { valid: [...items,
+      { kind: "file-undo", sequence: 2, changeId: messageId, path: "src/app.ts", action: "restored" },
+      { kind: "file-undo", sequence: 3, changeId: otherMessageId, path: "new.ts", action: "deleted" }, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: null },
     ], invalid: [
       { sequence: 3 },
       { kind: "plan-card" },
+      { kind: "file-undo", sequence: 2, changeId: messageId, path: "", action: "restored" },
+      { kind: "file-undo", sequence: 2, changeId: messageId, path: "src/app.ts", action: "redo" },
       { kind: 3, sequence: 3 },
       { kind: "plan-card", sequence: 0 },
       // A known kind is held to its own schema: a malformed one is never kept opaque.

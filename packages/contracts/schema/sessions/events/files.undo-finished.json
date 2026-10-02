@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FilesUndoFinishedPayload",
+  "type": "object",
+  "properties": {
+    "changeId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A change record's id: one file one tool call changed, as the environment recorded it."
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The file, relative to the session's workspace, with forward slashes."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "restored",
+        "deleted"
+      ],
+      "description": "What undoing a change did: restored (the file's bytes and mode from before the call were written back) or deleted (the call had created the file, so it was removed)."
+    }
+  },
+  "required": [
+    "changeId",
+    "path",
+    "action"
+  ],
+  "description": "files.undo-finished: files.undo undid a change: its record, the file relative to the workspace and what undoing it did; never the file's contents."
+}

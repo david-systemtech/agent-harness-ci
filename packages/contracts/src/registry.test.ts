@@ -144,6 +144,7 @@ describe("the method registry", () => {
       "terminals.subscribe": ["stream", "terminal"],
       "files.list": ["query", "terminal"],
       "files.read": ["query", "terminal"],
+      "files.undo": ["command", "terminal"],
       "diffs.workingTree": ["query", "terminal"],
       "diffs.session": ["query", "terminal"],
     });
@@ -288,6 +289,7 @@ describe("the method registry", () => {
       "terminals.write",
       "terminals.resize",
       "terminals.close",
+      "files.undo",
       "updates.apply",
       "updates.cancel",
       "updates.settings.set",
@@ -558,6 +560,7 @@ describe("the method registry", () => {
       | "terminals.subscribe"
       | "files.list"
       | "files.read"
+      | "files.undo"
       | "diffs.workingTree"
       | "diffs.session"
       | "workspaces.browse"

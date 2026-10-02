@@ -205,6 +205,9 @@ import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings
 import { createReaper } from "../workspace/reaper.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { fileChangeObserver } from "../file-undo/observer.js";
+import { createFileUndo, type FileUndoHooks } from "../file-undo/undo.js";
+import { createWorkspaceWrites } from "../file-undo/workspace-writes.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
@@ -429,6 +432,8 @@ export interface EnvironmentOptions {
    * its own.
    */
   readonly processIdleMinutes?: () => number;
+  /** A test's hold on a file restore of `files.undo`, around its rename (#1183); preset: none. */
+  readonly fileUndoHooks?: FileUndoHooks;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
@@ -1290,6 +1295,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
   const forgeAccounts = () => verifiedOrigins(forge.list());
   const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  // The environment's turns at a workspace's files (#1183): a file tool's capture and files.undo's restore take them.
+  const workspaceWrites = createWorkspaceWrites();
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1412,6 +1419,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       beforeRun: bankSyncer.beforeRun,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
+      // What each run's recognised file tools change, kept for files.undo (#1183).
+      fileChanges: fileChangeObserver({ log, writes: workspaceWrites }),
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1477,7 +1486,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, onPurged: (purged) => reaper.purged(purged) });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, fileChanges: log.fileChanges, onPurged: (purged) => reaper.purged(purged) });
+  // File undo (#1183): the newest change a run's file tool made, restored under the workspace's turn the captures take too.
+  const fileUndo = createFileUndo({ log, host, writes: workspaceWrites, ...(options.fileUndoHooks !== undefined && { hooks: options.fileUndoHooks }) });
+  capabilities.push("fileUndo");
   // An imported session's history, read from the adopted directory the first time a client opens it (#579).
   const importedHistory = createImportedHistory({ log, host });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
@@ -1828,6 +1840,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
+    ...fileUndo.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
       log,
@@ -2034,6 +2047,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The startup sweep of the workspace roots (#330), after the removals those purges set off: each stray by the reaper's rules,
   // a worktree it keeps logged, not noticed.
   await reaper.sweep(strays);
+  // File restores a stop cut, recognised before any client can retry them (#1183).
+  await fileUndo.recover();
   // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
   try {
     providerStore.sweepOrphans();

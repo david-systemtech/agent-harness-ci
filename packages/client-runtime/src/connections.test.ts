@@ -41,7 +41,7 @@ describe("hello", () => {
         colour: presetColour(t.env.id),
         harnessVersion: HARNESS_VERSION,
         protocolVersion: 1,
-        capabilities: ["forge", "keyManagers", "managedTools", "banks", "setup", "stateImport"],
+        capabilities: ["forge", "keyManagers", "managedTools", "fileUndo", "banks", "setup", "stateImport"],
         lastSeen: platform.clock.now().toISOString(),
       },
     });
