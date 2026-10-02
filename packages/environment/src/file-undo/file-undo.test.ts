@@ -9,6 +9,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { deleteSession, purgeSession } from "../../test/sessions.js";
 import { sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
+import type { AdapterEvent } from "../adapter/contract.js";
 
 /**
  * File undo through the primary seam (switch-over spec, "Phase-D commands
@@ -52,9 +53,9 @@ const runScript = async (t: TestEnvironment, client: WireClient, sessionId: stri
 
 /** A run that plays each of `steps`, then ends completed. */
 const playing =
-  (...steps: ((controls: ScriptControls) => AsyncIterable<never> | AsyncGenerator<unknown>)[]): Script =>
+  (...steps: ((controls: ScriptControls) => AsyncIterable<AdapterEvent>)[]): Script =>
   async function* (controls) {
-    for (const step of steps) yield* step(controls) as AsyncGenerator<never>;
+    for (const step of steps) yield* step(controls);
     yield end();
   };
 
@@ -74,8 +75,8 @@ const refusal = async (client: WireClient, sessionId: string): Promise<{ code: s
   return { code: receipt.error.code, data: receipt.error.data };
 };
 
-/** A `Write` of `path`, a tool whose change is recorded and not restored yet. */
-const writeFile_ = (controls: ScriptControls, path: string, content: string) =>
+/** A `Write` of `path`: a tool whose change is recorded, and not restored yet. */
+const writeCall = (controls: ScriptControls, path: string, content: string) =>
   fileTool(controls, { tool: "Write", input: { file_path: path, content }, paths: [path], write: () => writeFileSync(path, content) });
 
 describe("files.undo", () => {
@@ -161,7 +162,7 @@ describe("files.undo", () => {
       sessionId,
       playing(
         (controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" }),
-        (controls) => writeFile_(controls, join(root, "b.txt"), "B\n"),
+        (controls) => writeCall(controls, join(root, "b.txt"), "B\n"),
       ),
     );
 
