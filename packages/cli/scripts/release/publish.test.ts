@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, type ReleaseManifest } from "@agent-harness/contracts";
@@ -296,5 +296,57 @@ describe("the publisher's command line", () => {
     expect(() => publishOptionsOf(["--tag", "v0.5.0", "--check", "--draft"], env, "/work")).toThrow(/--draft/);
     expect(() => publishOptionsOf(["--tag", "v0.5.0", "--check"], { ...env, RELEASE_TOKEN: "" }, "/work")).toThrow(/RELEASE_TOKEN/);
     expect(() => publishOptionsOf(["--tag", "v0.5.0", "--check"], { RELEASE_TOKEN: TOKEN }, "/work")).toThrow(/GITHUB_SERVER_URL and GITHUB_REPOSITORY/);
+  });
+});
+
+
+describe("publishing on GitHub", () => {
+  it("selects GitHub's API from the hosted runner's environment", () => {
+    const command = publishOptionsOf(["--tag", "v1.2.3", "--check"], {
+      GITHUB_SERVER_URL: "https://github.com", GITHUB_REPOSITORY: "david-systemtech/agent-harness", RELEASE_TOKEN: TOKEN,
+    }, "/workspace");
+    expect(command.forge).toEqual({ kind: "github", server: "https://github.com", repository: "david-systemtech/agent-harness", token: TOKEN });
+  });
+
+  it("finds a draft beyond GitHub's first release-list page and replaces it", async () => {
+    const fake = await startFakeForgejo(REPOSITORY, TOKEN, { github: true });
+    cleanups.push(() => fake.close());
+    for (let i = 0; i < 100; i += 1) fake.add({ tag_name: `v0.0.${i}`, name: "earlier release", draft: false, prerelease: false, assets: [] });
+    const draft = fake.add({ tag_name: "v1.2.3", name: "leftover draft", draft: true, prerelease: false, assets: [] });
+    const forge = { server: fake.server, repository: REPOSITORY, token: TOKEN, kind: "github" as const };
+    await publishRelease({ tag: "v1.2.3", folder: releaseFolder("1.2.3") }, forge, quiet);
+    expect(fake.calls).toContain("GET /releases?per_page=100&page=2");
+    expect(fake.calls).toContain(`DELETE /releases/${draft.id}`);
+    expect(fake.release("v1.2.3")?.draft).toBe(false);
+  });
+
+  it("leaves a failed GitHub upload in a draft and replaces that draft on a successful retry", async () => {
+    const fake = await startFakeForgejo(REPOSITORY, TOKEN, { github: true, failUpload: "install.sh" });
+    cleanups.push(() => fake.close());
+    const forge = { server: fake.server, repository: REPOSITORY, token: TOKEN, kind: "github" as const };
+    const folder = releaseFolder("1.2.3");
+    await expect(publishRelease({ tag: "v1.2.3", folder }, forge, quiet)).rejects.toThrow(/answered 500/);
+    expect(fake.release("v1.2.3")?.draft).toBe(true);
+    // A fresh run against the same draft, without the failed asset in its folder.
+    const retry = releaseFolder("1.2.3", {}, ASSETS.slice(0, 1));
+    await publishRelease({ tag: "v1.2.3", folder: retry }, forge, quiet);
+    expect(fake.release("v1.2.3")).toMatchObject({ draft: false, assets: expect.arrayContaining([expect.objectContaining({ name: "release.json" })]) });
+    expect(fake.calls).toContain("DELETE /releases/1");
+  });
+
+  it.each(["0.5.0", "0.5.0-beta.2"])("publishes %s with every file intact through GitHub's binary upload API", async (version) => {
+    const fake = await startFakeForgejo(REPOSITORY, TOKEN, { github: true });
+    cleanups.push(() => fake.close());
+    const folder = releaseFolder(version, {}, [...ASSETS, ...DESKTOP_BUILDS]);
+    const forge = { server: fake.server, repository: REPOSITORY, token: TOKEN, kind: "github" as const };
+    await checkUnpublished(`v${version}`, forge, quiet);
+    await publishRelease({ tag: `v${version}`, folder }, forge, quiet);
+    const release = fake.release(`v${version}`);
+    expect(release).toMatchObject({ draft: false, prerelease: version === "0.5.0-beta.2" });
+    expect(release?.assets.map(({ name, size }) => ({ name, size })).sort((a, b) => a.name.localeCompare(b.name))).toEqual(filesOf(folder));
+    for (const asset of release?.assets ?? []) {
+      expect(asset.sha256).toBe(sha256(readFileSync(join(folder, asset.name), "utf8")));
+    }
+    await expect(checkUnpublished(`v${version}`, forge, quiet)).rejects.toThrow(/already published/);
   });
 });
