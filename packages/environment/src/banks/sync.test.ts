@@ -160,6 +160,42 @@ describe("banks.sync", () => {
     expect(readFileSync(join(checkout, "ignored.md"), "utf8")).toBe("Retained ignored work.");
   });
 
+  it.each([false, true])("clears blocked Health after a successful pull overlapping verification, newer finishes last: %s", async (newerLast) => {
+    const { client, bank, remote, checkout, forge } = await start();
+    writeFileSync(join(checkout, "BANK.md"), "Retained tracked work.");
+    expect((await pull(client, bank))?.status.reachable.state).toBe("unreachable");
+    git(checkout, "checkout", "--", "BANK.md");
+    advanceRemote(remote);
+    let asked!: () => void;
+    let newerAsked!: () => void;
+    let release!: () => void;
+    let releaseNewer!: () => void;
+    const held = new Promise<void>((resolve) => { asked = resolve; });
+    const newerHeld = new Promise<void>((resolve) => { newerAsked = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const newerGate = new Promise<void>((resolve) => { releaseNewer = resolve; });
+    onCleanup(() => { release(); releaseNewer(); });
+    let reads = 0;
+    forge.answer(TOKEN, "GET /api/v1/repos/maya/memory", () => {
+      const body = { full_name: "maya/memory", private: true, default_branch: "main", html_url: `${forge.origin}/maya/memory` };
+      if (reads++ === 0) { asked(); return { status: 200, body, after: gate }; }
+      newerAsked();
+      return { status: 200, body, ...(newerLast && { after: newerGate }) };
+    });
+    const pulling = pull(client, bank);
+    await held;
+    const verifying = client.request("banks.verify", { bankId: bank.id });
+    await newerHeld;
+    if (!newerLast) await verifying;
+    release();
+    const synced = await pulling;
+    releaseNewer();
+    await verifying;
+    expect(synced?.status.reachable.state).toBe("reachable");
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.status.reachable.state).toBe("reachable");
+    expect((await client.request("setup.check", { step: "memory-bank" })).results[0]?.state).toBe("done");
+  });
+
   it("preserves staged tracked work even when merge autostash is configured", async () => {
     const { client, bank, remote, checkout } = await start();
     git(checkout, "config", "merge.autostash", "true");

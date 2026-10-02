@@ -397,12 +397,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** What holds of the bank now: its status as found, every part since now, and its reading. */
-  const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status" | "checkoutOwnership">, clearSyncProblem = false): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
+  const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status" | "checkoutOwnership">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
     const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
     // A checkout git cannot read fails the bank wherever its remote is; a readable one with a remote fails when its forge does not have it.
-    const syncProblem = !clearSyncProblem && entry.checkoutOwnership !== "managed" && entry.status.reachable.state === "unreachable" && entry.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)
+    const syncProblem = entry.checkoutOwnership !== "managed" && entry.status.reachable.state === "unreachable" && entry.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)
       ? entry.status.reachable.reason : null;
     const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null) ?? syncProblem;
     const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
@@ -423,11 +423,11 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** Verifies one bank and records what changed; answers its entry after. */
-  const verifyOne = async (entry: BankEntry, clearSyncProblem = false): Promise<void> => {
+  const verifyOne = async (entry: BankEntry): Promise<void> => {
     entry = liveBank(reader, entry.id) ?? entry;
     const generation = (verificationGenerations.get(entry.id) ?? 0) + 1;
     verificationGenerations.set(entry.id, generation);
-    const { status: found, reading } = await inspect(entry, clearSyncProblem);
+    const { status: found, reading } = await inspect(entry);
     // A newer inspection (notably a sync) owns the reading: an older one must never put old files back.
     if (verificationGenerations.get(entry.id) !== generation) return;
     const manifest = reading === null ? null : manifestOf(reading.files);
@@ -650,7 +650,16 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async recordSync(bankId, outcome) {
       const entry = liveBank(reader, bankId);
       if (entry === null) return;
-      if ("head" in outcome) await verifyOne(entry, true);
+      if ("head" in outcome) {
+        // Clear the resolved block before inspecting: a newer verification must not retain it.
+        log.atomically((tx) => {
+          const held = liveBank(reader, bankId);
+          if (held?.status.reachable.state !== "unreachable" || !held.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)) return;
+          const status: BankStatus = { ...held.status, reachable: { state: "reachable", since: clock.now().toISOString() } };
+          log.append(stream, [{ type: "bank.updated", payload: { bankId, status } }], { tx, actor: BANKS_ACTOR });
+        });
+        await verifyOne(entry);
+      }
       else verificationGenerations.set(bankId, (verificationGenerations.get(bankId) ?? 0) + 1);
       log.atomically((tx) => {
         const held = liveBank(reader, bankId);
