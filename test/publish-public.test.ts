@@ -262,6 +262,7 @@ it.each([false, true])("blocks a UTF-16 private term (big endian: %s)", (bigEndi
 it("allows documented network constants without allowing deployment addresses or names", () => {
   const f = fixture();
   f.write("docs/specs/browser.md", "Metadata addresses: 100.100.100.200 and fd00:ec2::254\n");
+  f.write("packages/client-runtime/src/access/words.ts", "Example peer: 100.64.0.7");
   f.write("packages/contracts/schema/cases/repository-identity.json", '{"host":"100.101.102.103"}');
   f.commit(); f.publish("--dry-run");
   f.write("docs/specs/browser.md", "10.44.55.66"); f.commit();
