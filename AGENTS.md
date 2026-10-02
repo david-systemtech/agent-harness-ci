@@ -190,10 +190,15 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   It reads a bank through `bank-files.ts` (`BANK.md` and `projects/**/*.md` as
   committed at the checkout's head) and `indexBank`, which uses the validator's
   own tree, so the index and the verdict agree on what a memory and a topic are.
-- `agent-harness serve` refuses root (ADR 0006), and the agent box and possibly
-  CI run as root: the environment's tests inject a non-privileged user check,
-  and the CLI's end-to-end `serve` tests split on the runner's uid (the
-  refusal as root, the launcher handshake otherwise), so one is always skipped.
+- `agent-harness serve` refuses root (ADR 0006), and the agent box and CI's
+  test shards run as root: the environment's tests inject a non-privileged
+  user check, and the CLI's end-to-end `serve` tests split on the runner's uid
+  (the refusal as root, the launcher handshake otherwise), so one is skipped
+  there. CI's `ordinary-user` job (agent-harness-ci's `ci.yml`) runs every
+  test file that reads `process.getuid` or `process.geteuid` as an ordinary
+  user, so a test that splits on the uid reads it that way. To run that side
+  on the agent box, copy the worktree, `chown -R` the copy to an unprivileged
+  user and run vitest there as that user (`runuser -u nobody`).
 - `agent-harness service install|uninstall|status|start` (`packages/cli/src/service/`)
   is tested with the service manager stubbed; `scripts/install.sh` is the
   headless installer, tested by `test/install-script.test.ts` against a fake
