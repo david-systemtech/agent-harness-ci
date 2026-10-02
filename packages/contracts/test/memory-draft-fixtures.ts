@@ -1,6 +1,7 @@
 const sessionId = "5b1c6f3e-2a4d-4e8f-9b0a-1c2d3e4f5a6b";
 const bankId = "6f1c2c1e-8a8f-4b5e-9a65-1d7c5b0f2a10";
 const change = { kind: "draft", name: "fact", path: "projects/personal/homelab/memories/fact.md", content: "A fact." };
+const repositoryIdentity = "https://git.example.test/maya/homelab";
 const input = { scope: { org: "personal", project: "homelab" }, name: "fact", description: "When reading the homelab facts, follow these verified steps and measurements.", body: "A fact.", type: "project" };
 export const memoryDraftSchemaFixtures = {
   "sessions/events/session.bank-used.json": { valid: [{ bankId, pointers: ["maya-memory:personal/homelab/"] }], invalid: [{ bankId, pointers: [] }, { bankId, pointers: ["/etc/passwd"] }] },
@@ -18,4 +19,8 @@ export const memoryDraftSchemaFixtures = {
 };
 export const memoryDraftMethodFixtures = {
   "banks.drafts.list": { params: { valid: [{ sessionId }, { sessionId, bankId }], invalid: [{}, { sessionId: "session" }] }, result: { valid: [{ queues: [] }, { queues: [{ bankId, drafts: [change] }] }], invalid: [{ drafts: [] }, { queues: [{ bankId, drafts: [{ kind: "promote" }] }] }] } },
+  "banks.memory.search": { params: { valid: [{ query: "backup", repositoryIdentity: null }, { query: "backup", bank: "maya-memory", scope: input.scope, limit: 10, repositoryIdentity }], invalid: [{ query: "backup" }, { query: "", repositoryIdentity: null }, { query: "backup", repositoryIdentity: "/home/maya/homelab" }] }, result: { valid: [{ text: "maya-memory:fact A fact.\n1 of 1" }], invalid: [{}, { text: 1 }] } },
+  "banks.memory.read": { params: { valid: [{ repositoryIdentity: null }, { pointer: "maya-memory:personal/homelab/", repositoryIdentity }], invalid: [{}, { pointer: "", repositoryIdentity: null }] }, result: { valid: [{ text: "A fact." }], invalid: [{}, { text: null }] } },
+  "banks.memory.draft": { params: { valid: [{ ...input, queue: sessionId, repositoryIdentity: null }, { ...input, bank: "maya-memory", topic: "deploy", queue: sessionId, repositoryIdentity }], invalid: [{ ...input, repositoryIdentity: null }, { ...input, queue: "session", repositoryIdentity: null }, { ...input, type: "status", queue: sessionId, repositoryIdentity: null }] }, result: { valid: [{ bank: "maya-memory", change }], invalid: [{ change }, { bank: "maya-memory", change: { ...change, kind: "promote" } }] } },
+  "banks.memory.promote": { params: { valid: [{ queue: sessionId, repositoryIdentity: null }, { bank: "maya-memory", queue: sessionId, repositoryIdentity }], invalid: [{ repositoryIdentity: null }, { queue: sessionId }, { bank: "../secret", queue: sessionId, repositoryIdentity: null }] }, result: { valid: [{ promotion: { state: "landed", bank: "maya-memory", pullRequest: null, files: [] } }, { promotion: { state: "failed", bank: "maya-memory", step: "fetch", reason: "Failed." } }], invalid: [{}, { promotion: { state: "failed", bank: "maya-memory" } }] } },
 };

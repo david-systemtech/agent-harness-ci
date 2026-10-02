@@ -9,11 +9,11 @@
       "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
       "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
     },
-    "sessionId": {
+    "queue": {
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "The caller's own session id, a version 4 UUID (a Claude Code session's), naming the draft queue per bank that drafts join and promote lands."
+      "description": "The caller's own draft queue: its own session's id, a version 4 UUID (a Claude Code session's), not a harness session's. Drafts join the queue per bank and promote lands it."
     },
     "repositoryIdentity": {
       "anyOf": [
@@ -30,7 +30,7 @@
     }
   },
   "required": [
-    "sessionId",
+    "queue",
     "repositoryIdentity"
   ]
 }

@@ -62,15 +62,18 @@ export type MemoryReadInput = z.infer<typeof MemoryReadInput>;
  * Claude Code session on the environment's machine, ask what a run's `memory` tools ask, and are answered by the same
  * operations. Only a local client session (the bootstrap grant's) may call them: any other is `forbidden` with reason
  * `local`. The caller's banks are those in scope for the environment's default account, the account a session with
- * none of its own runs on (ADR 0018), and the repository it works in; its drafts join the queue of the session it
- * names, its own, which a later promote lands. Queries, as the tools' calls are: a draft of a queued name replaces it,
+ * none of its own runs on (ADR 0018), and the repository it works in; its drafts join the queue it names, its own
+ * session's, which a later promote lands. Queries, as the tools' calls are: a draft of a queued name replaces it,
  * and a promote lands the queue as it is then, so asking again changes nothing twice.
  */
 
 /** The repository the outside caller works in, which scopes its banks as a session's workspace does. */
 const CallerRepository = RepositoryIdentity.nullable().meta({ description: "The repository identity of the directory the caller works in (workspaces.inspect's); null for none, under which only banks scoped to every repository are in scope." });
-/** The outside caller's own session, whose draft queue a draft joins and a promote lands. */
-const CallerSession = SessionId.meta({ description: "The caller's own session id, a version 4 UUID (a Claude Code session's), naming the draft queue per bank that drafts join and promote lands." });
+/**
+ * The outside caller's own draft queue, named by its own session's id: not a harness session's, so the param is
+ * `queue` and never `sessionId`, which names a harness session throughout the protocol.
+ */
+const CallerQueue = SessionId.meta({ description: "The caller's own draft queue: its own session's id, a version 4 UUID (a Claude Code session's), not a harness session's. Drafts join the queue per bank and promote lands it." });
 
 export const banksMemorySearch = defineMethod({
   name: "banks.memory.search", scope: "read", kind: "query",
@@ -84,11 +87,11 @@ export const banksMemoryRead = defineMethod({
 });
 export const banksMemoryDraft = defineMethod({
   name: "banks.memory.draft", scope: "admin", kind: "query",
-  params: MemoryDraftInput.extend({ sessionId: CallerSession, repositoryIdentity: CallerRepository }),
+  params: MemoryDraftInput.extend({ queue: CallerQueue, repositoryIdentity: CallerRepository }),
   result: z.object({ bank: BankName, change: BankDraft }), errors: [BankRequiredError, BankReadOnlyError, ValidationFailedError],
 });
 export const banksMemoryPromote = defineMethod({
   name: "banks.memory.promote", scope: "admin", kind: "query",
-  params: MemoryPromoteInput.extend({ sessionId: CallerSession, repositoryIdentity: CallerRepository }),
+  params: MemoryPromoteInput.extend({ queue: CallerQueue, repositoryIdentity: CallerRepository }),
   result: z.object({ promotion: MemoryPromoteResult }), errors: [BankRequiredError, BankReadOnlyError],
 });

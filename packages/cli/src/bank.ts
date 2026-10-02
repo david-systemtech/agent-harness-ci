@@ -164,7 +164,7 @@ const draft = async (args: readonly string[], context: BankContext): Promise<num
   if (type === undefined) throw new UsageError(`--type takes ${MEMORY_TYPES.join(", ")}; got ${values.type ?? "none"}.`);
   const description = required("--description", values.description);
   const body = required("--body", values.body);
-  const sessionId = queueSession(values.session, context.env);
+  const queue = queueSession(values.session, context.env);
   const input: MemoryDraftInput = {
     name, scope, type, description,
     body: body === "-" ? await context.stdin() : body,
@@ -172,8 +172,8 @@ const draft = async (args: readonly string[], context: BankContext): Promise<num
     ...(values["applies-to"] !== undefined && { appliesTo: values["applies-to"] }),
     ...(values.bank !== undefined && { bank: values.bank }),
   };
-  const queued = await onEnvironment("draft", values, context, (call, repositoryIdentity) => call("banks.memory.draft", { ...input, sessionId, repositoryIdentity }));
-  context.stdout(`Queued ${queued.change.name} for ${queued.bank} at ${queued.change.path} (session ${sessionId}).\n`);
+  const queued = await onEnvironment("draft", values, context, (call, repositoryIdentity) => call("banks.memory.draft", { ...input, queue, repositoryIdentity }));
+  context.stdout(`Queued ${queued.change.name} for ${queued.bank} at ${queued.change.path} (session ${queue}).\n`);
   for (const path of queued.change.removePaths ?? []) context.stdout(`  replacing ${path}\n`);
   return 0;
 };
@@ -200,9 +200,9 @@ const promotionLines = (promotion: MemoryPromoteResult): string => {
 const promote = async (args: readonly string[], context: BankContext): Promise<number> => {
   const { values, positionals } = parseVerb(args, { ...TARGET_OPTIONS, bank: { type: "string" }, session: { type: "string" } });
   if (positionals.length > 0) throw new UsageError("bank promote takes no arguments but its options.");
-  const sessionId = queueSession(values.session, context.env);
+  const queue = queueSession(values.session, context.env);
   const { promotion } = await onEnvironment("promote", values, context, (call, repositoryIdentity) =>
-    call("banks.memory.promote", { ...(values.bank !== undefined && { bank: values.bank }), sessionId, repositoryIdentity }, { timeoutMs: PROMOTE_WAIT_MS }));
+    call("banks.memory.promote", { ...(values.bank !== undefined && { bank: values.bank }), queue, repositoryIdentity }, { timeoutMs: PROMOTE_WAIT_MS }));
   if (promotion.state === "failed") {
     context.stderr(promotionLines(promotion));
     return 1;

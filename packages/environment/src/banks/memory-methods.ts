@@ -17,7 +17,7 @@ const localOnly = (context: MethodContext, scope: Scope): void => {
  * operations a run's tools use, for the CLI's `bank` verbs on this machine.
  * The caller's banks are those in scope for the environment's default
  * account (ADR 0018) and the repository it names; its drafts join the queue
- * of the session it names; its calls record no session's recent use.
+ * it names, its own session's; its calls record no session's recent use.
  */
 export const memoryMethods = (operations: MemoryOperations, defaultAccount: () => string | null): MethodHandlers => {
   const caller = (repositoryIdentity: string | null): MemoryCaller => ({ accountId: defaultAccount(), repositoryIdentity });
@@ -30,13 +30,13 @@ export const memoryMethods = (operations: MemoryOperations, defaultAccount: () =
       localOnly(context, "read");
       return { text: await operations.read(caller(repositoryIdentity), input) };
     },
-    "banks.memory.draft": async ({ repositoryIdentity, sessionId, ...input }, context) => {
+    "banks.memory.draft": async ({ repositoryIdentity, queue, ...input }, context) => {
       localOnly(context, "admin");
-      return operations.draft({ ...caller(repositoryIdentity), queue: sessionId }, input);
+      return operations.draft({ ...caller(repositoryIdentity), queue }, input);
     },
-    "banks.memory.promote": async ({ repositoryIdentity, sessionId, ...input }, context) => {
+    "banks.memory.promote": async ({ repositoryIdentity, queue, ...input }, context) => {
       localOnly(context, "admin");
-      return { promotion: await operations.promote({ ...caller(repositoryIdentity), queue: sessionId }, input) };
+      return { promotion: await operations.promote({ ...caller(repositoryIdentity), queue }, input) };
     },
   };
 };

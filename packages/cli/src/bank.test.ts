@@ -306,15 +306,15 @@ it("answers the memory methods to a local client session only: a paired client i
   const h = await start();
   const bankId = await register(h, PERSONAL_BANK);
   const paired = await h.t.client({ token: (await h.t.pair({ scopes: [...SCOPES] })).token });
-  const sessionId = randomUUID();
+  const queue = randomUUID();
   const fact = { scope: { org: "personal", project: "homelab" }, name: "rollout-steps", description: DESCRIPTION, body: "Roll out once.", type: "project" as const };
   await expect(paired.request("banks.memory.search", { query: "homelab", repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "read", reason: "local" } });
   await expect(paired.request("banks.memory.read", { repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "read", reason: "local" } });
-  await expect(paired.request("banks.memory.draft", { ...fact, sessionId, repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
-  await expect(paired.request("banks.memory.promote", { sessionId, repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
+  await expect(paired.request("banks.memory.draft", { ...fact, queue, repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
+  await expect(paired.request("banks.memory.promote", { queue, repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
   expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).filter((event) => event.payload["bankId"] === bankId && event.type.startsWith("bank.dra"))).toEqual([]);
   // The local client session the bank verbs exchange is answered.
-  expect(await h.client.request("banks.memory.draft", { ...fact, sessionId, repositoryIdentity: null })).toMatchObject({ bank: "maya-memory", change: { kind: "draft", name: "rollout-steps" } });
+  expect(await h.client.request("banks.memory.draft", { ...fact, queue, repositoryIdentity: null })).toMatchObject({ bank: "maya-memory", change: { kind: "draft", name: "rollout-steps" } });
 });
 
 it("validates a bank's working tree with the contracts' versioned validator, as the bank's CI does, with no environment", async () => {
