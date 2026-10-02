@@ -113,7 +113,7 @@ it.each(["install", "typecheck", "lint", "test"])("blocks both public refs when 
 it.each(["posix", "nt"])("stops the whole timed-out rehearsal on %s before blocking publication", (platform) => {
   const f = fixture();
   const result = spawnSync("python3", ["-c", `
-import os,runpy,signal,subprocess,sys,types
+import os,runpy,shutil,signal,subprocess,sys,types
 publisher = runpy.run_path(sys.argv[1])['main']
 namespace = publisher.__globals__
 real_popen, real_run = subprocess.Popen, subprocess.run
@@ -153,6 +153,7 @@ def killpg(pid, sig):
     alive.update(launcher=False, worker=False)
 
 namespace['os'] = types.SimpleNamespace(**{**vars(os), 'name': sys.argv[2], 'killpg': killpg})
+namespace['shutil'] = types.SimpleNamespace(**{**vars(shutil), 'which': lambda name: 'pnpm'})
 subprocess.Popen, subprocess.run = popen, run
 sys.argv = [sys.argv[1], *sys.argv[3:]]
 assert publisher() == 1
@@ -166,6 +167,64 @@ assert not any(alive.values())
   expect(result.stdout).not.toContain("Published ");
   expect(result.stdout).not.toContain("Public checkout rehearsal: pass");
   expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it.each([0, 17])("launches the resolved Windows pnpm shim and keeps diagnostics safe on exit %s", (status) => {
+  const f = fixture();
+  const result = spawnSync("python3", ["-c", `
+import json,os,runpy,shutil,subprocess,sys,types
+publisher = runpy.run_path(sys.argv[1])['main']
+namespace = publisher.__globals__
+real_popen = subprocess.Popen
+shim = 'C:/test-tools/pnpm.cmd'
+calls = []
+status = int(sys.argv[2])
+class RehearsalProcess:
+    def __init__(self, args, **kwargs):
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
+        self.args = args
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        pass
+    def wait(self, timeout=None):
+        return status
+
+def which(name):
+    assert name == 'pnpm'
+    return shim
+
+def popen(args, **kwargs):
+    if args[0] in ('pnpm', shim):
+        if args[0] != shim:
+            raise FileNotFoundError('unresolved pnpm launcher')
+        calls.append(args[1:])
+        return RehearsalProcess(args, **kwargs)
+    return real_popen(args, **kwargs)
+
+namespace['os'] = types.SimpleNamespace(**{**vars(os), 'name': 'nt'})
+namespace['shutil'] = types.SimpleNamespace(**{**vars(shutil), 'which': which})
+subprocess.Popen = popen
+sys.argv = [sys.argv[1], *sys.argv[3:]]
+assert publisher() == (1 if status else 0)
+print(json.dumps(calls))
+`, script, String(status), "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
+  "--version", "1.2.3", "--tag", "v1.2.3", "--gitleaks", f.scanner], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "null")).toEqual(status
+    ? [["install", "--frozen-lockfile"]]
+    : [["install", "--frozen-lockfile"], ["typecheck"], ["lint"], ["test", "--maxWorkers=4"]]);
+  expect(result.stderr).not.toContain("C:/test-tools");
+  if (status) {
+    expect(result.stderr).toContain("pnpm install --frozen-lockfile failed (exit 17); publication blocked");
+    expect(git(f.remote, "for-each-ref")).toBe("");
+  } else {
+    expect(result.stdout).toContain("Public checkout rehearsal: pass");
+    expect(git(f.remote, "for-each-ref")).toContain("refs/heads/main");
+  }
 });
 
 it("keeps rehearsal changes and generated files out of the public snapshot", () => {
