@@ -11,6 +11,7 @@ import { deleteSession, purgeSession } from "../../test/sessions.js";
 import { sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent } from "../adapter/contract.js";
+import { claudeToolAccess } from "../adapters/claude/gate-access.js";
 
 /**
  * File undo through the primary seam (switch-over spec, "Phase-D commands
@@ -327,6 +328,31 @@ describe("files.undo", () => {
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
     expect(await paths()).toEqual([]);
     expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
+  });
+
+  it.each([false, true])("undoes only targeted MultiEdit files when its unused shared path exists: %s", async (sharedExists) => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n", ...(sharedExists ? { "z-unused.txt": "untouched\n" } : {}) });
+    const input = {
+      file_path: "z-unused.txt",
+      edits: [
+        { file_path: "a.txt", old_string: "a", new_string: "A" },
+        { file_path: "b.txt", old_string: "b", new_string: "B" },
+      ],
+    };
+    const access = claudeToolAccess("MultiEdit", input);
+    if (access.kind !== "write") throw new Error("MultiEdit must be a write.");
+    await runScript(t, client, sessionId, playing((controls) => fileTool(controls, {
+      tool: "MultiEdit", input, paths: access.paths,
+      write: () => { writeFileSync(join(root, "a.txt"), "A\n"); writeFileSync(join(root, "b.txt"), "B\n"); },
+    })));
+
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("b.txt");
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b\n");
+    expect(existsSync(join(root, "z-unused.txt"))).toBe(sharedExists);
+    if (sharedExists) expect(readFileSync(join(root, "z-unused.txt"), "utf8")).toBe("untouched\n");
   });
 
   it("consumes the diff of one multi-file path reached through an in-workspace symlink", async () => {
