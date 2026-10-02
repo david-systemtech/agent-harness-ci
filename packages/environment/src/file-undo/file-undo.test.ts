@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { editFile, end, fakeAdapter, type Script, type ScriptControls } from "../../test/fake-adapter.js";
+import { editFile, end, fakeAdapter, fileTool, gate, say, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -62,6 +62,20 @@ const eventsOf = (t: TestEnvironment, sessionId: string, type: string) =>
 
 const modeOf = (path: string): number => statSync(path).mode & 0o7777;
 
+/** Asks files.undo with a fresh command id (unless one is given); resolves with the response. */
+const undo = (client: WireClient, sessionId: string, commandId: string = randomUUID()) => client.request("files.undo", { commandId, sessionId });
+
+/** Asks files.undo, which must be refused in its receipt; resolves with the rejection's code and data. */
+const refusal = async (client: WireClient, sessionId: string): Promise<{ code: string; data: Record<string, unknown> }> => {
+  const { receipt } = await undo(client, sessionId);
+  if (receipt.status !== "rejected") throw new Error(`files.undo was accepted: ${JSON.stringify(receipt)}`);
+  return { code: receipt.error.code, data: receipt.error.data };
+};
+
+/** A `Write` of `path`, a tool whose change is recorded and not restored yet. */
+const writeFile_ = (controls: ScriptControls, path: string, content: string) =>
+  fileTool(controls, { tool: "Write", input: { file_path: path, content }, paths: [path], write: () => writeFileSync(path, content) });
+
 describe("files.undo", () => {
   it("writes back the bytes and mode an Edit replaced, answers the change and records it, with no file contents", async () => {
     const { t, client, root, sessionId } = await setUp({ "a.txt": "one\ntwo\n" });
@@ -75,5 +89,160 @@ describe("files.undo", () => {
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("one\ntwo\n");
     expect(modeOf(join(root, "a.txt"))).toBe(0o640);
     expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([answer]);
+  });
+
+  it("leaves an undone change out of diffs.session, and keeps the session's other changes in it", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
+    await runScript(
+      t,
+      client,
+      sessionId,
+      playing(
+        (controls) => editFile(controls, { path: join(root, "a.txt"), oldString: "a", newString: "A", toolCallId: "toolu_a" }),
+        (controls) => editFile(controls, { path: join(root, "b.txt"), oldString: "b", newString: "B", toolCallId: "toolu_b" }),
+      ),
+    );
+    expect((await client.request("diffs.session", { sessionId })).files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
+
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+
+    const { files } = await client.request("diffs.session", { sessionId });
+    expect(files.map((file) => [file.path, file.changes.map((change) => change.toolCallId)])).toEqual([["a.txt", ["toolu_a"]]]);
+    expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b\n");
+    expect((await client.request("files.read", { sessionId, path: "b.txt" })).text).toBe("b\n");
+  });
+
+  it("walks back the session's changes newest first, one file at a time, and then has nothing to undo", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "b", newString: "c" })));
+
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\n");
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+
+    const head = t.env.log.head();
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "nothing_to_undo", sessionId } });
+    expect(t.env.log.head()).toBe(head);
+  });
+
+  it("has nothing to undo for a session with no change, a failed Edit's or a shell command's", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "nothing_to_undo", sessionId } });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "missing", newString: "x" })));
+    writeFileSync(join(root, "a.txt"), "changed by a shell\n");
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "nothing_to_undo", sessionId } });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("changed by a shell\n");
+  });
+
+  it("refuses file_changed when the file no longer holds what the Edit left, writing nothing and keeping the change", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    writeFileSync(join(root, "a.txt"), "b\nand more\n");
+
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "file_changed", sessionId, changeId: expect.any(String), path: "a.txt" } });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\nand more\n");
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+
+    // The change is still the newest: once the file holds what the Edit left again, it is undone.
+    writeFileSync(join(root, "a.txt"), "b\n");
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+  });
+
+  it("never passes a newest change it cannot restore to undo an older one", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
+    await runScript(
+      t,
+      client,
+      sessionId,
+      playing(
+        (controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" }),
+        (controls) => writeFile_(controls, join(root, "b.txt"), "B\n"),
+      ),
+    );
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect(await refusal(client, sessionId)).toEqual({
+        code: "conflict",
+        data: { reason: "snapshot_unavailable", sessionId, changeId: expect.any(String), path: "b.txt", unrestorable: "unknown" },
+      });
+    }
+    expect([readFileSync(join(root, "a.txt"), "utf8"), readFileSync(join(root, "b.txt"), "utf8")]).toEqual(["A\n", "B\n"]);
+  });
+
+  it("cannot restore an Edit of a binary file, nor one past 2 MiB", async () => {
+    const big = "x".repeat(2 * 1024 * 1024 - 1) + "\n";
+    const { t, client, sessionId } = await setUp({ "bin.dat": "head\0tail", "big.txt": big });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "bin.dat", oldString: "tail", newString: "TAIL" })));
+    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "bin.dat", unrestorable: "binary" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "big.txt", oldString: "\n", newString: "xx\n" })));
+    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "big.txt", unrestorable: "oversized" });
+  });
+
+  it("refuses run_active while a run of the session, or of another session in its workspace, is live", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    const other = await sessionIn(client, root);
+    for (const live of [sessionId, other]) {
+      const held = gate();
+      t.adapter.nextScripts.push(async function* () {
+        yield say("Working");
+        await held.opened;
+        yield end();
+      });
+      const ended = new Promise<void>((resolve) => {
+        const unsubscribe = t.env.log.subscribe((event) => {
+          if (event.type === "run.ended" && event.streamId === live) {
+            unsubscribe();
+            resolve();
+          }
+        });
+      });
+      const { runId } = await client.apply("runs.start", { commandId: randomUUID(), sessionId: live, text: "Keep working" });
+      expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "run_active", sessionId: live, runId } });
+      held.open();
+      await ended;
+    }
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\n");
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+  });
+
+  it("refuses workspace_missing once the workspace directory is gone", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    rmSync(root, { recursive: true, force: true });
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "workspace_missing", sessionId, path: root } });
+  });
+
+  it("refuses unsafe_path for a file outside the workspace, and for one a symlink stands in for now, writing through neither", async () => {
+    const { t, client, sessionId } = await setUp({ "a.txt": "a\n" });
+    const outside = join(tempDir("agent-harness-outside-"), "secret.txt");
+    writeFileSync(outside, "s\n");
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: outside, oldString: "s", newString: "S" })));
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "unsafe_path", sessionId, changeId: expect.any(String), path: outside } });
+    expect(readFileSync(outside, "utf8")).toBe("S\n");
+
+    const { t: t2, client: client2, root: root2, sessionId: session2 } = await setUp({ "a.txt": "a\n" });
+    await runScript(t2, client2, session2, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    // The file the Edit changed is replaced by a symlink to a file outside holding the very bytes the Edit left.
+    const elsewhere = join(tempDir("agent-harness-outside-"), "b.txt");
+    writeFileSync(elsewhere, "b\n");
+    rmSync(join(root2, "a.txt"));
+    symlinkSync(elsewhere, join(root2, "a.txt"));
+    expect((await refusal(client2, session2)).data).toMatchObject({ reason: "unsafe_path", path: "a.txt" });
+    expect(readFileSync(elsewhere, "utf8")).toBe("b\n");
+  });
+
+  it("restores a file an Edit reached through a symlink inside the workspace, at the file itself", async () => {
+    const { t, client, root, sessionId } = await setUp();
+    mkdirSync(join(root, "real"));
+    writeFileSync(join(root, "real", "a.txt"), "a\n");
+    symlinkSync(join(root, "real"), join(root, "linked"));
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "linked/a.txt", oldString: "a", newString: "b" })));
+    expect(await client.apply("files.undo", { commandId: randomUUID(), sessionId })).toMatchObject({ path: "real/a.txt", action: "restored" });
+    expect(readFileSync(join(root, "real", "a.txt"), "utf8")).toBe("a\n");
   });
 });
