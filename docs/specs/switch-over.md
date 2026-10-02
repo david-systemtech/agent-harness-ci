@@ -114,7 +114,7 @@ Session snapshots carry each check as a `check` transcript item at its `checks.s
 
 ### Hermes cut-over and Bank migration
 
-Pair only the butler on SAMPLE-SERVER as `program` with `read`, `sessions:write`, `runs:drive` and #29's `bypassPermissions` Ceiling. Store its credential in OpenBao's agents namespace. Preserve current Claude Account identity/subscription billing; verify identity and Account-qualified id with live `GET /v1/models`, never saved settings. Scopes do not limit model discovery to one Account; model selection identifies the borrowed Account. Other programs keep `acceptEdits` (ADRs 0015/0006).
+Pair only the butler on SAMPLE-SERVER as `program` with `read`, `sessions:write`, `runs:drive` and #29's `bypassPermissions` Ceiling. Store its credential in the configured OpenBao connection's base. Preserve current Claude Account identity/subscription billing; verify identity and Account-qualified id with live `GET /v1/models`, never saved settings. Scopes do not limit model discovery to one Account; model selection identifies the borrowed Account. Other programs keep `acceptEdits` (ADRs 0015/0006).
 
 Update deployment code to SAMPLE-SERVER's harness URL and built `agent-harness` namespace, without inventing an alias. Set `permissionMode: bypassPermissions`, supported `thinking`, appended `systemPrompt`, required `ignoreUnsupported`, `attended: false`. Preserve fresh scratch Sessions where no `sessionId` is sent. Hermes runs caller tools and returns matching `tool_call_id` on the same `agent-harness.sessionId`/credential, never as fresh user messages. Prove streaming, tool round trip, two-turn chat, model/effort routing, `/keep` and `/save` (#29, #9).
 

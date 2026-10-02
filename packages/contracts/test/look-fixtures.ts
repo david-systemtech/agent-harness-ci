@@ -25,7 +25,7 @@ export const lookSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["Laptop", "phone", "💻", "", null],
   },
   "environment/name.json": {
-    valid: ["LAB", "x".repeat(40), ` ${"x".repeat(40)} `, "🖥".repeat(40), "SYSTEM \t SERVER"],
+    valid: ["LAB", "x".repeat(40), ` ${"x".repeat(40)} `, "🖥".repeat(40), "SAMPLE \t SERVER"],
     invalid: ["", "   ", "x".repeat(41), "a\u0000b", "a\u200bb", "a\u2066b", 7],
   },
   "environment/look.json": looks,
@@ -36,7 +36,7 @@ export const lookSchemaFixtures: Record<string, Fixtures> = {
 
 export const lookMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.rename": {
-    params: { valid: [{ commandId, name: "LAB" }, { commandId, name: "  SYSTEM  SERVER " }], invalid: [{ name: "LAB" }, { commandId, name: "" }, { commandId, name: "x".repeat(41) }] },
+    params: { valid: [{ commandId, name: "LAB" }, { commandId, name: "  SAMPLE  SERVER " }], invalid: [{ name: "LAB" }, { commandId, name: "" }, { commandId, name: "x".repeat(41) }] },
     result: looks,
   },
   "environment.setIcon": {

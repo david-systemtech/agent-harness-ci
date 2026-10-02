@@ -2,7 +2,7 @@
 
 Milestone 1 uses Hermes as the delivering endpoint, as decided in #29 and ADR 0008: the harness posts a signed webhook, and Hermes relays it to the Matrix home room. No Hermes state is read or imported. Hermes keeps its bots and schedules until milestone 2. Keep any existing alert integrations on separate routes.
 
-The repository work for #538 adds `hermes` on `success` to the [disabled upstream-watch definition](upstream-watch.md). Client notices remain on `both`. This does not configure Hermes, Matrix/Tuwunel, OpenBao or a live environment. The live checks below are tracked in [#1009](https://git.systemtech.dev:5526/david/agent-harness/issues/1009), coordinated with the upstream-watch cut-over [#988](https://git.systemtech.dev:5526/david/agent-harness/issues/988). Operators must verify that the target Environment and receiver are available first.
+The repository work for #538 adds `hermes` on `success` to the [disabled upstream-watch definition](upstream-watch.md). Client notices remain on `both`. This does not configure Hermes, Matrix or its homeserver, OpenBao or a live environment. The live checks below are tracked in [#1009](https://git.systemtech.dev:5526/david/agent-harness/issues/1009), coordinated with the upstream-watch cut-over [#988](https://git.systemtech.dev:5526/david/agent-harness/issues/988). Operators must verify that the target Environment and receiver are available first.
 
 ## Receiver contract
 

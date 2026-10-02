@@ -185,7 +185,7 @@ History stays where it was; each copy links to the other. **Settling**: a client
 - **The ledger** stays issue #74, not routine state: it must travel with the routine on a move, and the model writes `judged_fps`.
 - **Mode** stays `acceptEdits` (#31). An unattended `acceptEdits` run is denied any shell command no rule allows, so the repository's committed Claude settings gain allow rules for the watch's `git pull`, `gh api` and `curl`, loaded once David trusts the repository on that environment (skills-instructions workstream); they also apply to his own `acceptEdits` sessions there.
 - **Delivery**: a client notice on both; the webhook target on success once the Hermes fleet is back (notebook issue 437) and its endpoint exists.
-- **Cut-over**, this workstream's acceptance: `routines.testPreCheck` twice gives one hash; a run now files a digest with no denial in the Unattended review; David enables it and the routines-server routine `oa9YJpNDk68` is deleted in the same sitting, so no Monday has both; the routine document and the memory are updated.
+- **Cut-over**, this workstream's acceptance: `routines.testPreCheck` twice gives one hash; a run now files a digest with no denial in the Unattended review; David enables it and the routines-server upstream-watch routine is deleted in the same sitting, so no Monday has both; the routine document and the memory are updated.
 
 ### Hermes in milestone 1
 

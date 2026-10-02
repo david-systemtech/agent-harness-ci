@@ -37,7 +37,7 @@ describe("an environment's look", () => {
     for (const bad of ["", "   ", "x".repeat(41), "🖥".repeat(41), "a\u0000b", "a\u200bb", "\u200b", "a\u2066b"]) {
       expect(EnvironmentName.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
     }
-    expect(normaliseEnvironmentName("  SYSTEM \t SERVER\n ")).toBe("SYSTEM SERVER");
+    expect(normaliseEnvironmentName("  SAMPLE \t SERVER\n ")).toBe("SAMPLE SERVER");
   });
 
   it("is a name, an icon and a colour, where a name is any the record holds: one it was created with may be longer than a rename takes", () => {

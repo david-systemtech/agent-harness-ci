@@ -1,7 +1,7 @@
 # Preparing the team bank's switch-over
 
 The #1043 build uses invented fixtures only. It has made no live bank branch,
-pull request, issue, label or contact with team owner. David owns those actions,
+pull request, issue, label or contact with the team owner. David owns those actions,
 including posting the heads-up and the day-of merge coordinated by #94.
 The ready-for-human live-work handoff is [#1240](https://git.systemtech.dev:5526/david/agent-harness/issues/1240).
 See [the shared migration command](bank-migration.md) for authentication,

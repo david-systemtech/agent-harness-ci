@@ -96,13 +96,13 @@ describe("the stream reducer", () => {
       { type: "event", sequence: 2, event: sessionEvent(2, added(summaryOf(b))) },
       { type: "event", sequence: 3, event: groupEvent(3, { op: "add", group: groupOf(groupId, "Moon Gems") }, "group.created") },
       { type: "event", sequence: 4, event: sessionEvent(4, { op: "set", sessionId: a, fields: { groupId, title: "Invoices" } }) },
-      { type: "event", sequence: 5, event: groupEvent(5, { op: "set", groupId, fields: { name: "Moon Gems" } }) },
+      { type: "event", sequence: 5, event: groupEvent(5, { op: "set", groupId, fields: { name: "Moon gems" } }) },
       { type: "event", sequence: 6, event: sessionEvent(6, { op: "remove", sessionId: b }, "session.deleted") },
       { type: "event", sequence: 7, event: unpatchedEvent(7, b) },
     );
     expect(ids(state)).toEqual([a]);
     expect(state.data?.sessions.get(a)).toMatchObject({ groupId, title: "Invoices" });
-    expect(state.data?.groups.get(groupId)?.name).toBe("Moon Gems");
+    expect(state.data?.groups.get(groupId)?.name).toBe("Moon gems");
     expect(state.cursor).toBe(7);
   });
 

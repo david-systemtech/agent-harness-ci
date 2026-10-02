@@ -34,7 +34,7 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    credentials or private transcripts. Keep a way to recover every affected row.
 3. Capture the current butler's Claude Account identity and subscription billing,
    pin the selected receiver version, auxiliary overrides and parked librarian. Record Matrix room
-   ids/Tuwunel deployment and disabled netdata routes as preservation checks.
+   ids, the homeserver deployment and existing alert routes in their configured state as preservation checks.
    Keep sources, backups and lazy-history folders readable. No automatic deletion,
    during preparation or after acceptance: only David's explicit deletion approval
    permits it.
@@ -116,7 +116,7 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    harness URL and the built `agent-harness` namespace, retaining the selected receiver version.
    Leave the librarian parked. Pair as `program` with `read`, `sessions:write`,
    `runs:drive` and `bypassPermissions` Ceiling; other programs keep `acceptEdits`.
-   Store the credential in OpenBao's agents namespace and record only its locator.
+   Store the credential in the configured OpenBao connection's base and record only its locator.
 2. Read live `GET /v1/models`; select the Account-qualified model for the saved
    current Claude identity/subscription billing. Scopes do not restrict discovery
    to that Account; a cached setting does not prove billing identity. Record live
@@ -141,7 +141,7 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    altered bodies and old/future timestamps (300-second window), the correct
    Matrix room, and a lost-ack retry with one message. Any other signature or
    retry failure blocks acceptance. Preserve existing alert routes in their
-   configured state and preserve Matrix rooms. Remove controlled fault injection
+   configured state and preserve Matrix rooms and the homeserver deployment. Remove controlled fault injection
    and restore any chat settings reset by deployment rendering.
 
 ## 7. Prove Client acceptance
