@@ -127,7 +127,8 @@ describe("a prompt", () => {
   it("is opened on its session's stream with its kind and fields, parks the run, and is answered once by a person, whose answer reaches the run", async () => {
     const t = await start({ script: ask("permission", permission, { promptId: "toolu_1" }) });
     const client = await t.client();
-    const { id } = await create(client);
+    const workspace = await tempDir();
+    const { id } = await create(client, { workspace: { kind: "directory", path: workspace } });
     const { runId } = await startRun(client, id);
 
     const [opened] = await untilOpened(t, id);
@@ -138,6 +139,7 @@ describe("a prompt", () => {
       toolName: "Bash",
       toolCallId: "toolu_1",
       input: { command: "rm -rf build" },
+      previewLines: ["⚠ nothing matching is there, so nothing would be deleted"],
       summary: "Claude wants to run rm -rf build",
       blockedPath: "/work/agent-harness/build",
       reason: "rm is not allowed without asking",
@@ -759,7 +761,6 @@ describe("a prompt whose run ends", () => {
       script: async function* ({ context, input }) {
         yield say("Working");
         const request = context.broker.request({ sessionId: input.sessionId, runId: input.runId, promptId: "p-1", kind: "permission", detail: permission, signal: cancel.signal });
-        cancel.abort();
         yield say(toldText(await request));
         yield end();
       },
@@ -767,6 +768,8 @@ describe("a prompt whose run ends", () => {
     const client = await t.client();
     const { id } = await create(client);
     const { runId } = await startRun(client, id);
+    await untilOpened(t, id);
+    cancel.abort();
     await untilEnded(t, id, runId);
     expect(answeredEvents(t, id)).toEqual([expect.objectContaining({ promptId: "p-1", decision: "deny", decidedBy: { auto: "cancelled" }, delivery: null })]);
     expect(await get(client, id)).toMatchObject({ parkedPromptCount: 0 });
@@ -787,6 +790,7 @@ describe("a prompt whose run ends", () => {
     const { runId } = await startRun(client, id);
     await vi.waitFor(() => expect(told(t, id)).toHaveLength(1));
     expect(told(t, id)).toEqual([toldText({ decision: "deny", message: DUPLICATE_PROMPT_MESSAGE })]);
+    await untilOpened(t, id);
     expect(ofType(t, id, "prompt.opened")).toHaveLength(1);
     expect((await answer(client, "dup-1", { decision: "allow" })).result).toMatchObject({ delivery: "live" });
     await untilEnded(t, id, runId);
