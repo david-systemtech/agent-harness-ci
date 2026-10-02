@@ -24,6 +24,8 @@ export interface ImportState {
 export interface ImportCoordinator {
   /** The import or dry run under way, or the last one's end; null before the first. */
   state(): ImportState | null;
+  /** The import or dry run holding the environment now, preparing or applying; null when none is. */
+  underWay(): ImportState | null;
   /**
    * Runs `work` as the environment's one import or dry run, preparing until
    * it calls `applying`: null, and `work` never runs, while another holds the
@@ -37,6 +39,7 @@ export const createImportCoordinator = (): ImportCoordinator => {
   const holds = (): boolean => current?.phase === "preparing" || current?.phase === "applying";
   return {
     state: () => current,
+    underWay: () => (holds() ? current : null),
     exclusive(importId, dryRun, work) {
       if (holds()) return null;
       let state: ImportState = { importId, dryRun, phase: "preparing" };

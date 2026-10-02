@@ -33,11 +33,13 @@ describe("the import coordinator", () => {
     expect(coordinator.exclusive("preview-1", true, async () => "preview")).toBeNull();
     enterApplying();
     expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, phase: "applying" });
+    expect(coordinator.underWay()).toEqual(coordinator.state());
     expect(coordinator.exclusive("import-2", false, async () => "second")).toBeNull();
 
     gate.resolve("report");
     expect(await first).toBe("report");
     expect(coordinator.state()).toEqual({ importId: "import-1", dryRun: false, phase: "finished" });
+    expect(coordinator.underWay()).toBeNull();
     expect(await coordinator.exclusive("preview-2", true, async () => "preview")).toBe("preview");
   });
 

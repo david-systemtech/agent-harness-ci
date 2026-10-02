@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { registry, type StateImportReport } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { registry, type StateImportReport, type StepResult } from "@agent-harness/contracts";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakeAdapter } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -166,5 +166,155 @@ describe("an import", () => {
     for (const event of [...rest, finished]) expect(event?.correlationId).toBe(commandId);
     for (const event of events) expect(event.actor).toBe(started?.actor);
     expect(started?.actor).toMatch(/^client_session:/);
+  });
+});
+
+describe("a re-run", () => {
+  it("under a fresh command id carries only what is new or failed before, leaving an instruction edited since as edited and one deleted since deleted, even after the projections are rebuilt", async () => {
+    const { client, dataFolder } = await start();
+    await run(client, false);
+    const [first, second] = (await client.request("instructions.list", {})).instructions;
+    await client.request("instructions.edit", { commandId: randomUUID(), instructionId: first?.id ?? "", title: "Run the checks, always", body: "Edited here." });
+    await client.request("instructions.remove", { commandId: randomUUID(), instructionId: second?.id ?? "" });
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+
+    const prompts = SOURCE.prompts ?? [];
+    writeSourceFolder(dataFolder ?? "", {
+      prompts: [...prompts.slice(0, 5), sourcePrompt("p5", { name: "Bell, fixed" }), sourcePrompt("p6", { name: "New since" }), sourcePrompt("p1", { markdown: "Changed in the source." })],
+    });
+    const again = await run(client, false);
+    expect(again.result).toMatchObject({ carried: carried({ instructions: 2 }), failed: [OMISSIONS.failed[0]] });
+    const { instructions } = await client.request("instructions.list", {});
+    expect(instructions.map(({ title, body }) => [title, body])).toEqual([
+      ["Run the checks, always", "Edited here."],
+      ["Banks, my way", "My own bank text."],
+      ["Bell, fixed", "Text of p5."],
+      ["New since", "Text of p6."],
+    ]);
+    expect((await run(client, true)).result).toMatchObject({ carried: carried(), failed: [OMISSIONS.failed[0]] });
+  });
+
+  it("under the same command id is answered from the receipt alone, planning and carrying nothing again", async () => {
+    const { t, client } = await start();
+    const commandId = randomUUID();
+    const first = await run(client, false, commandId);
+    const head = t.env.log.head();
+    const again = await run(client, false, commandId.toUpperCase());
+    expect(again).toEqual({ receipt: first.receipt });
+    expect(t.env.log.head()).toBe(head);
+    expect((await client.request("instructions.list", {})).instructions).toHaveLength(3);
+  });
+});
+
+describe("the coordinator", () => {
+  it("refuses a preview or a second import import_in_progress while an import is under way, from another client too, and lets the next one run once it ends", async () => {
+    let release!: () => void;
+    const holding = new Promise<void>((resolve) => (release = resolve));
+    let planned!: () => void;
+    const reached = new Promise<void>((resolve) => (planned = resolve));
+    const { t, client } = await start({
+      stateImportHooks: {
+        planned: async () => {
+          planned();
+          await holding;
+        },
+      },
+    });
+    const other = await t.client();
+    const first = run(client, false);
+    await reached;
+    for (const [caller, dryRun] of [[other, true], [client, false]] as const) {
+      expect((await run(caller, dryRun)).receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "import_in_progress" } } });
+    }
+    release();
+    expect((await first).result).toMatchObject({ carried: carried({ instructions: 3 }) });
+    expect((await run(other, true)).receipt).toMatchObject({ status: "accepted" });
+  });
+
+  it("fails a store whose bytes changed after the plan read them, with every item read from it, keeping the stores that did not change", async () => {
+    let dataFolder = "";
+    const { t, client, dataFolder: folder } = await start({
+      stateImportHooks: { planned: () => void writeSourceFolder(dataFolder, { prompts: [sourcePrompt("p1"), sourcePrompt("p9")] }) },
+    });
+    dataFolder = folder ?? "";
+    const answer = await run(client, false);
+    expect(answer.result).toEqual({
+      carried: carried(),
+      ...OMISSIONS,
+      failed: [...OMISSIONS.failed, { label: "Instructions", message: "It changed after it was read: preview again, then import." }],
+      clientLocal: CLIENT_LOCAL,
+      dryRun: false,
+    });
+    expect(importEvents(t).map((event) => event.type)).toEqual(["state-import.started", "state-import.finished"]);
+    expect((await client.request("instructions.list", {})).instructions).toEqual([]);
+    expect((await run(client, false)).result).toMatchObject({ carried: carried({ instructions: 2 }) });
+  });
+});
+
+/** The one result `setup.check` answers for Carry over. */
+const checkCarryOver = async (client: WireClient): Promise<StepResult> => {
+  const { results } = await client.request("setup.check", { step: "carry-over" });
+  return results[0] as StepResult;
+};
+
+describe("an import that stops part way", () => {
+  /** A source every instruction of which carries. */
+  const CLEAN: SourceFolderFiles = { prompts: [sourcePrompt("p1"), sourcePrompt("p2"), sourcePrompt("p3")] };
+
+  it("keeps what it carried across a restart, which Carry over's last import names until a re-run finishes, carrying the rest with no duplicate", async () => {
+    const dataDir = tempDir();
+    const crash = new Error("The environment stopped here.");
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { t, client, dataFolder } = await start({
+      dataDir,
+      source: CLEAN,
+      stateImportHooks: {
+        carried: ({ sourceId }) => {
+          if (sourceId === "p1") throw crash;
+        },
+      },
+    });
+    await expect(run(client, false)).rejects.toMatchObject({ code: "internal" });
+    expect(logged).toHaveBeenCalledWith("The handler for stateImport.run failed:", crash);
+    logged.mockRestore();
+    expect(importEvents(t).map((event) => event.type)).toEqual(["state-import.started", "state-import.item-carried"]);
+    await t.close();
+
+    const restarted = await startTestEnvironment({
+      dataDir,
+      adapter: fakeAdapter(),
+      accounts: [{ id: "claude-max", provider: "fake" }],
+      stateImportSource: machinePointedAt({ dataFolder: dataFolder ?? "", home: tempDir() }),
+    });
+    onCleanup(() => restarted.close());
+    const after = await restarted.client();
+    expect((await after.request("instructions.list", {})).instructions.map((instruction) => instruction.title)).toEqual(["Prompt p1"]);
+    const stopped = await checkCarryOver(after);
+    expect(stopped).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"], actions: ["import-again"] });
+    expect(stopped.targets).toEqual([{ action: "import-again", kind: "environment", id: restarted.env.id, label: "The state import" }]);
+    expect(stopped.reason).toContain(`The state import from ${realpathSync(dataFolder ?? "")} stopped before it finished: Import again to carry the rest.`);
+
+    expect((await run(after, false)).result).toMatchObject({ carried: carried({ instructions: 2 }), failed: [] });
+    expect((await after.request("instructions.list", {})).instructions.map((instruction) => instruction.title)).toEqual(["Prompt p1", "Prompt p2", "Prompt p3"]);
+    expect(await checkCarryOver(after)).toMatchObject({ state: "done", failing: [] });
+  });
+
+  it("is named by Carry over's last import while its items fail, which a dry run leaves as it is and a re-run without failures clears", async () => {
+    const long = "x".repeat(20_001);
+    const { client, dataFolder } = await start({ source: { prompts: [sourcePrompt("p1"), sourcePrompt("p2", { name: "Too long", markdown: long }), sourcePrompt("p3")] } });
+    expect((await run(client, false)).result).toMatchObject({
+      carried: carried({ instructions: 2 }),
+      failed: [{ label: 'Instruction "Too long"', message: "Its text is longer than an instruction's body may be, 20000 characters." }],
+    });
+    const failing = await checkCarryOver(client);
+    expect(failing).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
+    expect(failing.reason).toContain(`The last state import failed part way: Instruction "Too long": Its text is longer than an instruction's body may be, 20000 characters. Import again to retry what failed.`);
+    await run(client, true);
+    expect((await checkCarryOver(client)).state).toBe("needs-attention");
+
+    writeSourceFolder(dataFolder ?? "", { prompts: [sourcePrompt("p1"), sourcePrompt("p2", { name: "Too long", markdown: "Short now." }), sourcePrompt("p3")] });
+    expect((await run(client, false)).result).toMatchObject({ carried: carried({ instructions: 1 }), failed: [] });
+    expect((await client.request("instructions.list", {})).instructions.map((instruction) => instruction.title)).toEqual(["Prompt p1", "Prompt p3", "Too long"]);
+    expect(await checkCarryOver(client)).toMatchObject({ state: "done", failing: [] });
   });
 });

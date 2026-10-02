@@ -1684,6 +1684,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
+      stateImport: {
+        environmentId: record.id,
+        underWay: () => stateImports.underWay()?.importId ?? null,
+      },
       containment,
       isRoot,
       dataDir,
