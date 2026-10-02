@@ -97,6 +97,10 @@ const start = async (adapter: FakeAdapterOptions | FakeAdapter = {}, options: Om
 const program = async (t: TestEnvironment, options: { ceiling?: Mode; scopes?: readonly Scope[] } = {}) =>
   t.pair({ kind: "program", scopes: options.scopes ?? PROGRAM_SCOPES, ceiling: options.ceiling ?? "bypassPermissions", label: "hermes" });
 
+const callers = ["program", "local TUI", "paired TUI"] as const;
+const selectedCredential = (t: TestEnvironment, caller: (typeof callers)[number]) =>
+  caller === "local TUI" ? t.bootstrap("tui") : t.pair({ kind: caller === "program" ? "program" : "tui", scopes: PROGRAM_SCOPES, ceiling: "bypassPermissions" });
+
 const url = (t: TestEnvironment, path: string): string => `http://${t.address.host}:${t.address.port}${path}`;
 
 const bearer = (token: string | undefined): Record<string, string> => (token === undefined ? {} : { authorization: `Bearer ${token}` });
@@ -415,22 +419,47 @@ describe("the routes on the wire's port", () => {
 });
 
 describe("authentication", () => {
-  it("refuses a request with no token, a token it did not issue, and a revoked one, 401", async () => {
+  it.each(["local", "paired"] as const)("admits the selected %s TUI credential for model discovery and a streamed turn", async (origin) => {
+    const t = await start({ script: streamingScript });
+    const credential = origin === "local" ? await t.bootstrap("tui") : await t.pair({ kind: "tui", scopes: PROGRAM_SCOPES });
+    const client = await t.client({ token: credential.token });
+    expect(client.hello.clientSessionId).toBe(credential.clientSessionId);
+    const models = await get(t, "/v1/models", credential.token);
+    expect(models.status).toBe(200);
+    expect(CompletionsModelList.parse(await models.json()).data.map((model) => model.id)).toContain("claude-max/opus");
+    const model = await get(t, "/v1/models/claude-max/opus", credential.token);
+    expect(model.status).toBe(200);
+    expect(CompletionsModel.parse(await model.json()).id).toBe("claude-max/opus");
+    const chunks = chunksOf(await (await stream(t, credential.token, turn("Print this", { stream_options: { include_usage: true }, "agent-harness": { attended: false } }))).rest());
+    expect(contentOf(chunks)).toBe("Hello, world");
+    expect(chunks.at(-1)?.usage).toMatchObject({ prompt_tokens: 18, completion_tokens: 3, total_tokens: 21 });
+    expect(chunks.at(-2)?.["agent-harness"].ended).toMatchObject({ reason: "completed" });
+    const sessionId = chunks[0]?.["agent-harness"].sessionId as string;
+    const session = registry["sessions.get"].result.parse(await client.request("sessions.get", { sessionId }));
+    expect(session.summary.id).toBe(sessionId);
+    expect(ofType(t, sessionId, "session.created")[0]?.actor).toBe(`client_session:${credential.clientSessionId}`);
+    expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started")[0]).toMatchObject({ origin: "completions", accountId: "claude-max" });
+    expect(payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved")[0]).toMatchObject({ attended: false });
+  });
+
+  it.each(callers)("refuses missing, unknown and revoked credentials alongside a %s caller, 401", async (caller) => {
     const t = await start();
-    const credential = await program(t);
+    const credential = await selectedCredential(t, caller);
     expect(await refusalOf(await post(t, undefined, turn("Hi")))).toMatchObject({ status: 401, body: { error: { type: "authentication_error", code: "unauthorized" } } });
     expect(await refusalOf(await post(t, "not-a-token", turn("Hi")))).toMatchObject({ status: 401, body: { error: { code: "unauthorized" } } });
     expect(await refusalOf(await get(t, "/v1/models"))).toMatchObject({ status: 401 });
     expect(t.env.clientSessions.revoke(credential.clientSessionId)).toBe(true);
     expect(await refusalOf(await post(t, credential.token, turn("Hi")))).toMatchObject({ status: 401, body: { error: { code: "revoked" } } });
+    expect(await refusalOf(await get(t, "/v1/models", credential.token))).toMatchObject({ status: 401, body: { error: { code: "revoked" } } });
     expect(t.adapter.runs).toHaveLength(0);
   });
 
-  it("refuses an expired token 401 expired", async () => {
+  it.each(["program", "tui"] as const)("refuses an expired %s token 401 expired", async (kind) => {
     const t = await start();
-    const { token } = await program(t);
+    const { token } = await t.pair({ kind, scopes: PROGRAM_SCOPES });
     t.clock.advance(30 * DAY);
     expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 401, body: { error: { code: "expired" } } });
+    expect(await refusalOf(await get(t, "/v1/models", token))).toMatchObject({ status: 401, body: { error: { code: "expired" } } });
   });
 
   it("refuses a body past its cap 413 too_large", async () => {
@@ -447,12 +476,14 @@ describe("authentication", () => {
     expect(await listed(t)).toEqual([]);
   });
 
-  it("refuses a client session that is not a program's, 403, whatever its scopes", async () => {
+  it("refuses desktop and web client sessions, 403, whatever their scopes", async () => {
     const t = await start();
-    const tui = await t.bootstrap("tui");
+    const localDesktop = await t.bootstrap("desktop");
     const desktop = await t.pair({ kind: "desktop", scopes: PROGRAM_SCOPES });
-    for (const token of [tui.token, desktop.token]) {
+    const web = await t.pair({ kind: "web", scopes: PROGRAM_SCOPES });
+    for (const token of [localDesktop.token, desktop.token, web.token]) {
       expect(await refusalOf(await post(t, token, turn("Hi")))).toMatchObject({ status: 403, body: { error: { type: "permission_error", code: "client_kind" } } });
+      expect(await refusalOf(await get(t, "/v1/models", token))).toMatchObject({ status: 403, body: { error: { code: "client_kind" } } });
     }
     expect(t.adapter.runs).toHaveLength(0);
   });
@@ -466,6 +497,29 @@ describe("authentication", () => {
     expect((await get(t, "/v1/models", readOnly.token)).status).toBe(200);
     const noRead = await program(t, { scopes: ["sessions:write", "runs:drive"] });
     expect(await refusalOf(await get(t, "/v1/models", noRead.token))).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
+  });
+
+  it.each(PROGRAM_SCOPES)("does not give a paired TUI the missing %s scope", async (missing) => {
+    const t = await start();
+    const { token } = await t.pair({ kind: "tui", scopes: PROGRAM_SCOPES.filter((scope) => scope !== missing) });
+    for (const path of ["/v1/models", "/v1/models/claude-max/opus"]) {
+      const response = await get(t, path, token);
+      if (missing === "read") {
+        const refused = await refusalOf(response);
+        expect(refused).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
+        expect(refused.body.error.message).toContain("read");
+      } else expect(response.status).toBe(200);
+    }
+    if (missing === "read") {
+      const answer = await complete(t, token, turn("No read scope needed for a turn", { "agent-harness": { attended: false } }));
+      expect(answer.choices[0]?.finish_reason).toBe("stop");
+    } else {
+      const refused = await refusalOf(await post(t, token, turn("Refuse this")));
+      expect(refused).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
+      expect(refused.body.error.message).toContain(missing);
+      expect(t.adapter.runs).toHaveLength(0);
+      expect(await listed(t)).toEqual([]);
+    }
   });
 
   it("answers 503 while the environment drains, and the running stream ends with its run", async () => {
@@ -487,9 +541,9 @@ describe("authentication", () => {
 });
 
 describe("a completion, whole", () => {
-  it("runs the trailing user message as an ordinary run and answers with the text, the usage and the session", async () => {
+  it.each(callers)("runs a %s caller's trailing user message as an ordinary run with text, usage and session", async (caller) => {
     const t = await start({ script: () => [say("Filed it."), usage(20, 4), end()] });
-    const { token } = await program(t);
+    const { token } = await selectedCredential(t, caller);
     const answer = await complete(t, token, turn("File the receipt"));
     const sessionId = answer["agent-harness"].sessionId as string;
     expect(answer.choices[0]).toEqual({ index: 0, message: { role: "assistant", content: "Filed it." }, finish_reason: "stop" });
@@ -912,9 +966,9 @@ describe("session continuity", () => {
     expect(forksAndRewinds(plain)).toEqual([]);
   });
 
-  it("follows a steer the environment holds into the run that reads it, which is the program's too", async () => {
+  it.each(callers)("follows a %s caller's queued message into the run that reads it", async (caller) => {
     const t = await start({ capabilities: { providerQueue: false, steering: false } });
-    const { token } = await program(t);
+    const { token } = await selectedCredential(t, caller);
     const held = gate();
     t.adapter.nextScripts.push(heldScript(held.opened, "First done"));
     const first = await stream(t, token, turn("First"));
@@ -1448,10 +1502,14 @@ describe("session continuity", () => {
 });
 
 describe("the mode, the ceiling and attendance", () => {
-  it("clamps permissionMode to the token's ceiling and reports it on the first chunk", async () => {
+  it.each(callers)("clamps a %s caller's permissionMode to its current Ceiling on the first chunk", async (caller) => {
     const t = await start();
-    const { token } = await program(t, { ceiling: "acceptEdits" });
-    const reading = await stream(t, token, turn("Go", { "agent-harness": { permissionMode: "bypassPermissions" } }));
+    const credential = await selectedCredential(t, caller);
+    const selected = await t.client({ token: credential.token });
+    expect(selected.hello.ceiling).toBe("bypassPermissions");
+    const admin = await t.client();
+    await admin.apply("access.sessions.setCeiling", { commandId: randomUUID(), clientSessionId: credential.clientSessionId, ceiling: "acceptEdits" });
+    const reading = await stream(t, credential.token, turn("Go", { "agent-harness": { permissionMode: "bypassPermissions", attended: false } }));
     const first = await reading.chunk();
     await reading.rest();
     expect(first["agent-harness"]).toMatchObject({
@@ -1464,10 +1522,10 @@ describe("the mode, the ceiling and attendance", () => {
     expect(t.adapter.lastRun().input.mode).toBe("acceptEdits");
   });
 
-  it("runs unattended by default: a prompt is denied by the unattended rule and the stream goes on", async () => {
+  it.each(callers)("denies unattended prompts for a %s caller and continues the stream", async (caller) => {
     const t = await start({ script: ask("permission", { toolName: "Bash", toolCallId: "toolu_9", input: { command: "rm -rf build" } }) });
-    const { token } = await program(t);
-    const chunks = chunksOf(await (await stream(t, token, turn("Clean up"))).rest());
+    const { token } = await selectedCredential(t, caller);
+    const chunks = chunksOf(await (await stream(t, token, turn("Clean up", caller === "program" ? {} : { "agent-harness": { attended: false } }))).rest());
     const sessionId = chunks[0]?.["agent-harness"].sessionId as string;
     const [answered] = payloadsOf<PromptAnsweredPayload>(t, sessionId, "prompt.answered");
     expect(answered).toMatchObject({ decision: "deny", decidedBy: { auto: "unattended" } });
