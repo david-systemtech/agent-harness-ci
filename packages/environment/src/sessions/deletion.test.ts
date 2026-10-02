@@ -252,6 +252,9 @@ describe("a deleted session", () => {
     "banks.pin": { sessionId, pointer: "sample:personal/homelab/", pinned: true },
     // A deleted session's changes are not undone (#1183).
     "files.undo": { sessionId },
+    // A deleted session has no Workspace directory to set a check for or to check (#1187).
+    "checks.set": { sessionId, command: "pnpm test" },
+    "checks.run": { sessionId },
   });
 
   /**
@@ -274,6 +277,7 @@ describe("a deleted session", () => {
     "trust.get": { sessionId },
     "commands.list": { sessionId },
     "banks.drafts.list": { sessionId },
+    "checks.get": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */

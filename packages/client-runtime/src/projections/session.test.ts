@@ -444,6 +444,19 @@ describe("session.forked", () => {
     expect(kinds(items)).toEqual(["forked", "user-message"]);
   });
 
+  it("keeps the copied history under one fork entry equally from replay and a snapshot", () => {
+    const seedItem = recordedSnapshot().items[0];
+    if (seedItem === undefined) throw new Error("Missing recorded history.");
+    const history = { title: "Receipts", anchor: "Add the tests", items: [seedItem], runs: recordedSnapshot().runs };
+    const replay = reduce(numbered(20, [["session.forked", { fromSessionId: SOURCE, atMessageId: FIXTURE_MESSAGE, fromProviderSessionId: null, history }]]));
+    expect(replay.items).toEqual([{ kind: "forked", sequence: 20, fromSessionId: SOURCE, atMessageId: FIXTURE_MESSAGE, history }]);
+    const snapshot = { ...NO_SNAPSHOT, items: [{ kind: "forked" as const, sequence: 20, fromSessionId: SOURCE, atMessageId: FIXTURE_MESSAGE, history }] };
+    expect(reduceSession(snapshot, []).items).toEqual(replay.items);
+    expect(replay.runs).toEqual([]);
+    expect(replay.parkedPrompts).toEqual([]);
+    expect(replay.queued).toEqual([]);
+  });
+
   it("names no message for a fork of the whole session", () => {
     expect(reduce(fork(null)).items).toEqual([{ kind: "forked", sequence: 4, fromSessionId: SOURCE, atMessageId: null }]);
   });

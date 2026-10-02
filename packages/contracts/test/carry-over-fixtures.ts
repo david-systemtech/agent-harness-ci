@@ -28,6 +28,7 @@ const notCarried = [
   { kind: "plugin", name: "formatter@marketplace" },
 ];
 const fullInventory = { accountId, sessions: inventory, memory: memoryInventory, skills: skillsInventory, notCarried, doesNotCarry };
+const sourceInventories = { accounts: [{ sourceId: "work", label: "Work", accountId, inventory: fullInventory, failure: null }], failed: [], later: [] };
 // The digests are placeholders of the right shape; an import computes real ones.
 const digest = `sha256:${"0".repeat(64)}`;
 const copy = { ...folder, key: "https://git.systemtech.dev/david/agent-harness", outcome: "copied", under: null, digest };
@@ -72,6 +73,7 @@ export const carryOverSchemaFixtures: Record<string, Fixtures> = {
     valid: [doesNotCarry, { hooks: 0, mcpServers: 0, permissionRules: 0 }],
     invalid: [{ ...doesNotCarry, hooks: -1 }, { hooks: 1, mcpServers: 1 }],
   },
+  "carry-over/state-import-account-inventories.json": { valid: [sourceInventories, { accounts: [], failed: [], later: [] }], invalid: [{ accounts: [] }, { ...sourceInventories, accounts: [{ sourceId: "" }] }] },
   "carry-over/inventory.json": {
     valid: [fullInventory, { ...fullInventory, notCarried: [] }],
     invalid: [{ accountId, sessions: inventory }, { ...fullInventory, accountId: "" }, { ...fullInventory, doesNotCarry: { hooks: 1 } }, { ...fullInventory, notCarried: [{ kind: "hook", name: "x" }] }],
@@ -115,9 +117,9 @@ export const carryOverSchemaFixtures: Record<string, Fixtures> = {
 /** Params and result instances for Carry over's methods. */
 export const carryOverMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "carryOver.inventory": {
-    params: { valid: [{ accountId }], invalid: [{}, { accountId: "" }, { accountId: 7 }] },
+    params: { valid: [{ accountId }, { source: "state-import" }], invalid: [{}, { accountId: "" }, { accountId: 7 }, { source: "state-import", accountId }, { directory: "/fixture" }, { source: "state-import", directory: "/fixture" }] },
     result: {
-      valid: [fullInventory],
+      valid: [fullInventory, sourceInventories],
       invalid: [{ ...fullInventory, sessions: { ...inventory, archived: -2 } }, { accountId, sessions: inventory }, { accountId }],
     },
   },

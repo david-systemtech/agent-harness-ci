@@ -1,7 +1,7 @@
 import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import type { SessionProjection, ToolCallEntry, TranscriptEntry } from "../projections/session.js";
-import { forkedFrom, liveTasks, transcriptRows } from "./rows.js";
+import { checkStatus, forkedFrom, liveTasks, transcriptRows } from "./rows.js";
 
 /**
  * The transcript's rows as a pure function (docs/specs/tui.md, "Testing
@@ -62,6 +62,21 @@ const run = (runId: string, state: "running" | "ended", more: Partial<RunSummary
 const view = (items: readonly TranscriptEntry[], runs: readonly RunSummary[] = []): Pick<SessionProjection, "items" | "runs"> => ({ items, runs });
 
 describe("transcriptRows", () => {
+  it("draws checks separately from their source run with a stable terminal id and a shared status", () => {
+    const running = { kind: "check", sequence: 3, terminalId: "terminal-1", command: "pnpm lint", sourceRunId: RUN, state: "running", result: null } as const;
+    const finished = { ...running, state: "finished", result: { output: "Passed\n", truncated: false, exitCode: 0, signal: null, timedOut: false, failure: null } } as const;
+    const first = transcriptRows(view([running], [run(RUN, "ended")]));
+    const last = transcriptRows(view([finished], [run(RUN, "ended")]));
+    expect(first).toEqual([{ kind: "check", id: "check:terminal-1", runId: null, entry: running }]);
+    expect(last[0]?.id).toBe(first[0]?.id);
+    expect(checkStatus(running)).toBe("running");
+    expect(checkStatus(finished)).toBe("passed");
+    expect(checkStatus({ ...finished, result: { ...finished.result, exitCode: 1 } })).toBe("exit 1");
+    expect(checkStatus({ ...finished, result: { ...finished.result, signal: 15 } })).toBe("signal 15");
+    expect(checkStatus({ ...finished, result: { ...finished.result, exitCode: null, timedOut: true } })).toBe("timed out");
+    expect(checkStatus({ ...finished, result: { ...finished.result, exitCode: null, failure: "launch_failed" } })).toBe("launch failed");
+  });
+
   it("folds a run's calls into one row at its first call, keeping every other entry where it was opened", () => {
     const rows = transcriptRows(view([message(1, "Go"), text(2, "Looking."), call(3, "Bash", "ok"), text(4, "Found it."), call(5, "Read", "ok")]));
     expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "calls", "assistant"]);
@@ -139,11 +154,22 @@ describe("transcriptRows", () => {
     const forked: TranscriptEntry = { kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2" };
     const rows = transcriptRows(view([forked, message(5, "Carry on"), text(6, "Carrying on.")], [run(RUN, "ended")]));
     expect(rows.map((row) => row.kind)).toEqual(["forked", "user", "assistant", "turn"]);
-    expect(rows[0]).toEqual({ kind: "forked", id: "forked:4", runId: null, entry: forked });
+    expect(rows[0]).toEqual({ kind: "forked", id: "forked:4", runId: null, entry: forked, rows: [] });
   });
 });
 
 describe("forkedFrom", () => {
+  it("uses copied labels without opening the source and keeps carried rows under one fold", () => {
+    const copied = message(1, "Fix the receipts");
+    if (copied.kind !== "user-message") throw new Error("Expected a user message.");
+    const entry = { kind: "forked" as const, sequence: 4, fromSessionId: "s-source", atMessageId: "m-2",
+      history: { title: "Receipts", anchor: "Add the tests", items: [copied], runs: [] } };
+    expect(forkedFrom(entry, undefined)).toEqual({ title: "Receipts", anchor: "Add the tests" });
+    const rows = transcriptRows(view([entry, message(5, "Carry on")]));
+    expect(rows.map((row) => row.kind)).toEqual(["forked", "user"]);
+    expect(rows[0]?.kind === "forked" && rows[0].rows.map((row) => row.kind)).toEqual(["user"]);
+  });
+
   const forked = (atMessageId: string | null) => ({ kind: "forked" as const, sequence: 4, fromSessionId: "s-source", atMessageId });
   const source = (items: readonly TranscriptEntry[], title: string | null = "Receipts") => ({ summary: title === null ? null : { title }, items });
 

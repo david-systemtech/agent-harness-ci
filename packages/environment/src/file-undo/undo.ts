@@ -11,7 +11,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { FILE_EDITING_TOOLS } from "../workspace/diffs.js";
 import { sessionWorkspaceStatus } from "../workspace/session.js";
 import type { ChangeRecord, JournalEntry } from "./change-table.js";
-import { digestOf, readFileState } from "./snapshot.js";
+import { digestOf, readFileState, type FileState } from "./snapshot.js";
 import type { WorkspaceWrites } from "./workspace-writes.js";
 
 /**
@@ -78,6 +78,9 @@ const isPlainFile = async (path: string): Promise<boolean> => {
     return false;
   }
 };
+
+/** Whether `now` is what the change's call left in its file: the same bytes, with the same mode. */
+const leftByTheCall = (change: ChangeRecord, now: FileState): boolean => now.kind === "kept" && digestOf(now.bytes) === change.postDigest && now.mode === change.postMode;
 
 export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): FileUndo => {
   const table = log.fileChanges;
@@ -150,11 +153,8 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
   const fileChanged = (change: ChangeRecord): Refusal =>
     conflict("file_changed", `${change.path} has changed since the change being undone; it is left as it is.`, { sessionId: change.sessionId, changeId: change.changeId, path: change.path });
 
-  /** Whether the file holds exactly what the change's call left. */
-  const holdsPostImage = async (change: ChangeRecord, target: string): Promise<boolean> => {
-    const now = await readFileState(target);
-    return now.kind === "kept" && digestOf(now.bytes) === change.postDigest;
-  };
+  /** Whether the file holds exactly what the change's call left: its bytes, and its mode, so a chmod since is not undone either. */
+  const holdsPostImage = async (change: ChangeRecord, target: string): Promise<boolean> => leftByTheCall(change, await readFileState(target));
 
   /** Writes the record's bytes and mode to a scratch file beside `target`, durably. */
   const writeScratch = async (change: ChangeRecord, scratch: string): Promise<void> => {
@@ -200,7 +200,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
     if (realRoot === null) return { kind: "unknown" };
     const now = await readFileState(join(realRoot, change.path));
     if (now.kind === "kept" && now.bytes.equals(change.pre)) return { kind: "restored", change };
-    if (now.kind === "kept" && digestOf(now.bytes) === change.postDigest) {
+    if (leftByTheCall(change, now)) {
       log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
       return { kind: "unapplied" };
     }
@@ -264,12 +264,12 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
               return holding(refuse(fileChanged(change)));
             }
             await hooks?.beforeRename?.();
+            await rename(entry.scratch, target);
           } catch (error) {
             await rm(entry.scratch, { force: true });
             log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
             throw error;
           }
-          await rename(entry.scratch, target);
           await hooks?.afterRename?.();
           return holding((_params, command) => finished(aggregate, change, entry, command.tx));
         } catch (error) {

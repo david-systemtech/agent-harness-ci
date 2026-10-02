@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChecksFinishedPayload",
+  "type": "object",
+  "properties": {
+    "terminalId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "\\S",
+      "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+    },
+    "sourceRunId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The run whose edits set the check off; null for a manual check."
+    },
+    "output": {
+      "type": "string",
+      "maxLength": 65536,
+      "description": "The check's terminal output, scrubbed of registered values: its last 64 KiB (UTF-8) when more came."
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "Whether earlier output was dropped to keep the last 64 KiB."
+    },
+    "exitCode": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The command's exit code; null when it timed out or failed without exiting."
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The signal that ended the command, when one did; null otherwise."
+    },
+    "timedOut": {
+      "type": "boolean",
+      "description": "Whether the check ran past its 120 seconds and its terminal was closed."
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "launch_failed",
+            "closed",
+            "interrupted"
+          ],
+          "description": "Why a check ended without its command's exit: launch_failed (the command could not start in its terminal), closed (its terminal was closed, or its session deleted, before the command exited) or interrupted (the environment stopped while it ran; the command is not run again)."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Why the check ended without its command's exit; null when the command exited or timed out."
+    }
+  },
+  "required": [
+    "terminalId",
+    "command",
+    "sourceRunId",
+    "output",
+    "truncated",
+    "exitCode",
+    "signal",
+    "timedOut",
+    "failure"
+  ],
+  "description": "checks.finished: how a Workspace check ended: its retained output and whether it was cut, the exit code and signal, whether it timed out, and why it failed without an exit. It passed only on exit code 0 with no signal, no timeout and no failure."
+}

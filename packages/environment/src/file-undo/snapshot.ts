@@ -9,7 +9,10 @@ import { BINARY_SNIFF_BYTES, FILE_UNDO_MAX_FILE_BYTES, type FileChangeUnrestorab
  * bits; nothing there is absent; anything else cannot be restored, and says
  * why: binary when a NUL byte is in its first 8 KiB (git's test, as
  * `files.read` makes it), oversized past 2 MiB, unknown for anything but a
- * regular file or one that could not be read. A symlink is never followed.
+ * regular file or one that could not be read. Where Node defines O_NOFOLLOW,
+ * open rejects a symlink at the final path component. On Windows, open may
+ * follow a link swapped in after lstat; on every platform, bytes are read
+ * only when the opened regular file has the device and inode lstat saw.
  */
 export type FileState =
   | { readonly kind: "absent" }
@@ -26,8 +29,10 @@ export const readFileState = async (path: string): Promise<FileState> => {
     const info = await lstat(path);
     if (!info.isFile()) return unrestorable("unknown");
     if (info.size > FILE_UNDO_MAX_FILE_BYTES) return unrestorable("oversized");
-    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino) return unrestorable("unknown");
       // One byte past the bound tells a file that grew since the look.
       const buffer = Buffer.allocUnsafe(FILE_UNDO_MAX_FILE_BYTES + 1);
       let length = 0;

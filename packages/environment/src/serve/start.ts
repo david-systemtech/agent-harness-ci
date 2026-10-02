@@ -1,3 +1,5 @@
+import { validatorUpdateMethods } from "../banks/validator-update.js";
+import { migrationMethods } from "../banks/migrate.js";
 import { splitMethods } from "../banks/split.js";
 import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
@@ -190,6 +192,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
+import { createWorkspaceChecks } from "../checks/service.js";
+import { checksProjector } from "../checks/store.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
@@ -216,6 +220,8 @@ import { createSkillProbes } from "../skills/probe.js";
 import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
+import { sourceAccountInventories } from "../state-import/inventory.js";
+import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
@@ -912,6 +918,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       skillChoicesProjector,
       skillSourcesProjector,
       chromesProjector,
+      checksProjector,
       stateImportProjector,
       ...(options.projectors ?? []),
     ]) {
@@ -1199,7 +1206,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // check asks this (#511), since the caller's tools are its request's alone.
   bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankService.closeLanding());
+  // Either bank worker can be queued behind the other: abort both before awaiting either.
+  closers.push(async () => { await Promise.all([bankSyncer.close(), bankService.closeLanding()]); });
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
   const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
@@ -1515,6 +1523,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
   });
   closers.push(() => terminalService.close());
+  // Workspace checks (#1187): each directory's command, run in the session's terminals as terminals.run runs one; closed
+  // before the terminals, so a check the stop cuts short is recorded interrupted. A check a crash cut is recorded as it starts.
+  const workspaceChecks = createWorkspaceChecks({ log, clock, environmentId: record.id, terminals: terminalService.commands, scrub });
+  closers.push(() => workspaceChecks.close());
+  capabilities.push("workspaceChecks");
   // Install and Update in a tool terminal (#376): closed before the terminals, so a run the stop cuts short is recorded finished.
   const toolRunner = createToolRunner({
     tools: managedTools,
@@ -1746,6 +1759,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
+  // Read only listed directories: source use selects Accounts, and the shared inventory previews them before adoption.
+  const listImportSessions = (directory: string) => {
+    const adapter = host.adapters.get("claude");
+    if (adapter?.listSessions === undefined) throw new Error("The Claude adapter cannot list source use.");
+    return adapter.listSessions({ id: "state-import-preview", directory });
+  };
+  const importInventory = sourceAccountInventories({
+    log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
+    inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
+  });
   // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
   const instructionHandlers = instructionMethods({
     host,
@@ -1758,6 +1781,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
     orientation: readOrientation,
   });
+  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1771,7 +1795,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
+    ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -1810,6 +1834,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...forgeMethods(forge),
     ...bankMethods(bankService, bankCredentials, bankSyncer),
     ...splitMethods(bankService, record.id),
+    ...migrationMethods(bankService, record.id, forge),
+    ...validatorUpdateMethods(bankService, record.id),
     ...memoryMethods(memoryOperations, () => accounts.defaultId()),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -1841,6 +1867,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
     ...fileUndo.handlers,
+    ...workspaceChecks.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
       log,
@@ -1900,6 +1927,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       autoMemory,
       skills: carrySkills,
       home: carryOverHome,
+      stateImportInventory: importInventory,
     }),
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
@@ -1907,7 +1935,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       environmentId: record.id,
       coordinator: stateImports,
+      accounts,
+      listSessions: listImportSessions,
       createInstruction: instructionHandlers["instructions.create"],
+      forge,
+      managers: keyManagerConnections,
+      getSettings: settingsHandlers["settings.get"],
+      updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).

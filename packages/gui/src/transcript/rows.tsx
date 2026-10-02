@@ -1,5 +1,6 @@
 import {
   attachmentChip,
+  checkStatus,
   endWords,
   fileUndoWords,
   environmentMessage,
@@ -89,6 +90,18 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       );
     case "file-undo":
       return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
+    case "check":
+      return (
+        <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
+          <span className="font-mono"><Marked text={`$ ${row.entry.command} · ${checkStatus(row.entry)}`} /></span>
+          {row.entry.result !== null && (
+            <>
+              {row.entry.result.truncated && <span>Earlier output omitted</span>}
+              {row.entry.result.output.length > 0 && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={row.entry.result.output} /></pre>}
+            </>
+          )}
+        </article>
+      );
     case "turn":
       return <CostLine run={row.run} />;
     case "opaque":
@@ -100,7 +113,13 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
     case "rewound":
       return <RewoundFold row={row} facts={facts} />;
     case "forked":
-      return <ForkedRow entry={row.entry} />;
+      return (
+        <ForkedRow entry={row.entry}>
+          <div role="group" aria-label="Copied fork history" className="flex flex-col gap-3 border-l border-hairline pl-3">
+            {row.rows.map((inner) => <TranscriptRowView key={inner.id} row={inner} facts={{ ...facts, verbs: false }} />)}
+          </div>
+        </ForkedRow>
+      );
     case "update-interrupted":
       return <p className="text-[0.85em] text-ink-muted"><Marked text={updateInterruptedText(row.entry)} /></p>;
     case "history-unreadable":

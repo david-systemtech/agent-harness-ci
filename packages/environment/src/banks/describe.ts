@@ -27,6 +27,9 @@ const BRANCH_PREFIX = "setup/describe-";
 /** The most of a branch listing read. */
 const LISTING_BYTES = 64 * 1024;
 
+/** Names being created but not yet visible in git's branch listing, by repository. */
+const reserving = new Map<string, Set<string>>();
+
 /** The bank as `setup.mint`'s subject and a result's target name it. */
 const subjectOf = (bank: BankRecord): StepSubject => ({ kind: "bank", id: bank.id, label: bank.name });
 
@@ -44,8 +47,9 @@ const isDirectory = async (path: string): Promise<boolean> => {
 
 /**
  * The first of `setup/describe-<day>`, then `-2`, `-3` and on, that the
- * repository has no local branch of. Creating the ref reserves the name
- * atomically, before a concurrent mint can choose it for another worktree.
+ * repository has no local branch of and no other mint is creating. Reserve
+ * the name before starting git: its ref lock may outlive another branch
+ * command's lock timeout while the new ref is still absent from show-ref.
  */
 const freeBranch = async (checkout: string, day: string): Promise<string> => {
   const base = `${BRANCH_PREFIX}${day}`;
@@ -53,11 +57,19 @@ const freeBranch = async (checkout: string, day: string): Promise<string> => {
   const taken = new Set(listing.ok ? listing.stdout.toString("utf8").split("\n") : []);
   for (let n = 1; ; n += 1) {
     const name = n === 1 ? base : `${base}-${n}`;
-    if (taken.has(`refs/heads/${name}`)) continue;
-    const created = await runGit(checkout, ["branch", "--", name, "refs/heads/main"], { maxBytes: 1024 });
-    if (created.ok && !created.truncated) return name;
-    const exists = await runGit(checkout, ["show-ref", "--verify", "--quiet", `refs/heads/${name}`], { maxBytes: 1024 });
-    if (!exists.ok) throw new DescribeGitError("branch", created);
+    const pending = reserving.get(checkout) ?? new Set<string>();
+    if (taken.has(`refs/heads/${name}`) || pending.has(name)) continue;
+    pending.add(name);
+    reserving.set(checkout, pending);
+    try {
+      const created = await runGit(checkout, ["branch", "--", name, "refs/heads/main"], { maxBytes: 1024 });
+      if (created.ok && !created.truncated) return name;
+      const exists = await runGit(checkout, ["show-ref", "--verify", "--quiet", `refs/heads/${name}`], { maxBytes: 1024 });
+      if (!exists.ok) throw new DescribeGitError("branch", created);
+    } finally {
+      pending.delete(name);
+      if (pending.size === 0) reserving.delete(checkout);
+    }
   }
 };
 

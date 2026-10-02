@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AccountId } from "../accounts.js";
-import { CarryOverInventory, CarryOverMemoryAssignedPayload, CarryOverMemoryFolderName, CarryOverReport } from "../carry-over.js";
+import { CarryOverInventory, StateImportAccountInventories, CarryOverMemoryAssignedPayload, CarryOverMemoryFolderName, CarryOverReport } from "../carry-over.js";
 import { commandParams, defineMethod } from "../method.js";
 import { RepositoryIdentity } from "../repository-identity.js";
 
@@ -37,13 +37,15 @@ const accountId = AccountId.meta({ description: "The adopted account whose direc
  * `skills.carryOver`'s dry run answers them, with the checkouts offered as
  * sources; the subagents and plugins not carried; and the hooks, personal
  * MCP servers and permission rules that do not carry. Reads alone.
+ * `source: state-import` previews every source-declared Claude directory,
+ * without an Account or a caller-supplied path.
  */
 export const carryOverInventory = defineMethod({
   name: "carryOver.inventory",
   scope: "read",
   kind: "query",
-  params: z.object({ accountId }),
-  result: CarryOverInventory,
+  params: z.union([z.strictObject({ accountId }), z.strictObject({ source: z.literal("state-import") })]),
+  result: z.union([CarryOverInventory, StateImportAccountInventories]),
   errors: [],
 });
 

@@ -154,6 +154,17 @@ describe("files.undo", () => {
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
   });
 
+  it("refuses file_changed when only the file's mode has changed since the Edit, leaving the mode as it is", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    chmodSync(join(root, "a.txt"), 0o644);
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    chmodSync(join(root, "a.txt"), 0o755);
+
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "file_changed", sessionId, changeId: expect.any(String), path: "a.txt" } });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\n");
+    expect(modeOf(join(root, "a.txt"))).toBe(0o755);
+  });
+
   it("never passes a newest change it cannot restore to undo an older one", async () => {
     const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
     await runScript(
@@ -404,6 +415,36 @@ describe("files.undo's receipts and its journal", () => {
     expect(eventsOf(t, sessionId, "files.undo-finished")).toHaveLength(1);
   });
 
+  it("removes the scratch file and journal before reporting a failed rename, leaving the change for a retry", async () => {
+    let target = "";
+    let failOnce = true;
+    const { t, client, root, sessionId } = await edited({
+      fileUndoHooks: {
+        beforeRename: async () => {
+          if (!failOnce) return;
+          failOnce = false;
+          rmSync(target);
+          mkdirSync(target);
+        },
+      },
+    });
+    target = join(root, "a.txt");
+    const commandId = randomUUID();
+
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+
+    expect(readdirSync(root)).toEqual(["a.txt"]);
+    expect(statSync(target).isDirectory()).toBe(true);
+    expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
+    expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+    rmSync(target, { recursive: true });
+    writeFileSync(target, "b\n");
+    const again = await undo(client, sessionId, commandId);
+    expect(again.result).toEqual({ changeId: expect.any(String), path: "a.txt", action: "restored" });
+    expect(readFileSync(target, "utf8")).toBe("a\n");
+  });
+
   it("records a restore an earlier attempt of the command applied once, without writing again", async () => {
     let failOnce = true;
     const { t, client, root, sessionId } = await edited({
@@ -418,6 +459,7 @@ describe("files.undo's receipts and its journal", () => {
     const commandId = randomUUID();
     await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(t.env.log.fileChanges.allJournaled()).toHaveLength(1);
     // The retry finds the file restored: it records the restore, where running afresh would find the file changed.
     const again = await undo(client, sessionId, commandId);
     expect(again).toEqual({ receipt: expect.objectContaining({ status: "accepted" }), result: { changeId: expect.any(String), path: "a.txt", action: "restored" } });

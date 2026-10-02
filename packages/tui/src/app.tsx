@@ -4,8 +4,6 @@ import { isAbsolute, join, resolve } from "node:path";
 import { Box, Text, render as inkRender, useApp, useInput, usePaste, useStdout, type Instance, type RenderOptions } from "ink";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 import {
-  undoFile,
-  type CapabilityAnswer,
   attachmentRefusal,
   attachmentRefused,
   browse,
@@ -34,10 +32,12 @@ import {
   ttlWords,
   typedPath,
   undoableFold,
+  undoFile,
   userMessagesOf,
   withdrawQueued,
   workspaceLabel,
   type BrowseRow,
+  type CapabilityAnswer,
   type ClientCommandRow,
   type Clock,
   type EnvironmentView,

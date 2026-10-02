@@ -1,10 +1,11 @@
 import {
   attachmentChip,
-  fileUndoWords,
+  checkStatus,
   classifyTool,
   clockTime,
   endWords,
   environmentMessage,
+  fileUndoWords,
   formatDuration,
   oneLine,
   outputText,
@@ -54,6 +55,8 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
           return output.length > 0 && call.status !== "ok" ? `${head}\n\n  \`\`\`\n${output.split("\n").map((l) => `  ${l}`).join("\n")}\n  \`\`\`` : head;
         })
         .join("\n");
+    case "check":
+      return [`\`$ ${row.entry.command}\` · ${checkStatus(row.entry)}`, ...(row.entry.result?.truncated ? ["_Earlier output omitted_"] : []), row.entry.result?.output ?? ""].filter((part) => part.length > 0).join("\n\n");
     case "command":
       return [`\`/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}\``, row.entry.output ?? ""].filter((part) => part.length > 0).join("\n\n");
     case "prompt": {
@@ -77,8 +80,12 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
       // A cut with nothing to show is the line alone: an empty text split is one empty line, which would quote as a bare `>`.
       return [`_Rewound to ${oneLine(row.entry.text, 200)}: what the rewind cut follows._`, ...(cut.length > 0 ? [quoted] : [])].join("\n\n");
     }
-    case "forked":
-      return `_Forked from ${forked?.title ?? "another session"}${forked?.anchor != null ? ` at ${oneLine(forked.anchor, 200)}` : ""}._`;
+    case "forked": {
+      const from = row.entry.history ?? forked;
+      const copied = row.rows.map((inner) => rowMarkdown(inner)).filter((text) => text.length > 0).join("\n\n");
+      const note = `_Forked from ${from?.title ?? "another session"}${from?.anchor != null ? ` at ${oneLine(from.anchor, 200)}` : ""}._`;
+      return [note, copied].filter((text) => text.length > 0).join("\n\n");
+    }
     case "update-interrupted":
       return `_${updateInterruptedText(row.entry)}_`;
     case "history-unreadable":

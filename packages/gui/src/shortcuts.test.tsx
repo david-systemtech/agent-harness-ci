@@ -208,6 +208,10 @@ describe("a remap", () => {
 
   it("refuses a reserved key, Ctrl+C on an action that stops a run, and a text field's own key, each with its reason; Esc leaves the recording", async () => {
     const app = await opened();
+    const env = app.environment("desk");
+    const session = env.sessionId();
+    const { runId } = env.startRun(session, "Keep working while keys are configured");
+    await screen.findByRole("button", { name: "Stop" });
     const pane = await openShortcuts(app);
     const find = () => actionRow(pane, "Anywhere", "Find in the conversation");
     const record = async (row: () => HTMLElement, from: string, keys: string) => {
@@ -250,6 +254,8 @@ describe("a remap", () => {
     expect(within(find()).queryByText(/^Not saved/)).toBeNull();
     expect(remaps(app)).toEqual({});
     expect(settings()).toBeDefined();
+    expect(env.liveRun(session)).toBe(runId);
+    expect(env.requests("runs.interrupt")).toEqual([]);
   });
 
   it("is reset by its row's Reset, or with every other by Reset every key", async () => {

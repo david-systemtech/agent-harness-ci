@@ -13,7 +13,7 @@ import {
   type EditorState,
 } from "./editor.js";
 import type { HistoryMatch } from "./history.js";
-import { fuzzyMatch, matchCommands, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type Mention, type SlashMenuRow, type CapabilityAnswer } from "@agent-harness/client-runtime";
+import { fuzzyMatch, matchCommands, mentionAt, replaceMention, type CapabilityAnswer, type FileMatch, type FrecencyLike, type Mention, type SlashMenuRow } from "@agent-harness/client-runtime";
 import { classifyPaste, expandChip, pasteMarker, type PasteClassification } from "./paste-kind.js";
 import { expand, expandInText, snippetAt, type Expansion, type SlotRange, type SnippetTemplate, type SnippetToken } from "./snippets.js";
 

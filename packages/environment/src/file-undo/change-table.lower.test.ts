@@ -43,7 +43,7 @@ const change = (log: EventLog, path: string, pre: Buffer | null, tool = "Edit"):
     unrestorable: pre === null ? "unknown" : null,
   };
   log.atomically((tx) => log.fileChanges.begin(tx, [captured]));
-  log.atomically((tx) => log.fileChanges.complete(tx, sessionId, toolCallId, new Map(pre === null ? [] : [[captured.changeId, { digest: "after" }]])));
+  log.atomically((tx) => log.fileChanges.complete(tx, sessionId, toolCallId, new Map(pre === null ? [] : [[captured.changeId, { digest: "after", mode: 0o644 }]])));
   return captured.changeId;
 };
 

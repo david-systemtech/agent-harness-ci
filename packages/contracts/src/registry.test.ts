@@ -252,6 +252,8 @@ describe("the method registry", () => {
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
       "banks.split.apply",
+      "banks.migrate",
+      "banks.validator.update",
       "banks.join",
       "banks.register",
       "banks.credential.set",
@@ -289,6 +291,8 @@ describe("the method registry", () => {
       "terminals.write",
       "terminals.resize",
       "terminals.close",
+      "checks.set",
+      "checks.run",
       "files.undo",
       "updates.apply",
       "updates.cancel",
@@ -491,6 +495,8 @@ describe("the method registry", () => {
       | "forge.pullRequests.refresh"
       | "banks.split.propose"
       | "banks.split.apply"
+      | "banks.migrate"
+      | "banks.validator.update"
       | "banks.join"
       | "banks.join.preview"
       | "banks.drafts.list"
@@ -558,6 +564,9 @@ describe("the method registry", () => {
       | "terminals.close"
       | "terminals.list"
       | "terminals.subscribe"
+      | "checks.get"
+      | "checks.set"
+      | "checks.run"
       | "files.list"
       | "files.read"
       | "files.undo"
