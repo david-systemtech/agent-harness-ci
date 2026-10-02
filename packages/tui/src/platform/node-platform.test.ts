@@ -253,6 +253,7 @@ describe("the terminal UI's platform", () => {
       `documents/streams.${wire.environmentId}.meta.json`,
       "secrets",
       `secrets/${wire.environmentId}.secret`,
+      "terminal-state.sqlite",
     ]);
     for (const file of files) for (const word of FORBIDDEN_WORDS) expect(file.toLowerCase()).not.toContain(word);
   });
