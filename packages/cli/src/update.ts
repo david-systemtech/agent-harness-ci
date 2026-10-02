@@ -33,7 +33,8 @@ import { SNAPSHOT_VERBS, UPDATE_SNAPSHOT_USAGE } from "./update-snapshot.js";
  * that waits, when idle or at once with `--now`); `update settings`, the five
  * update settings written from flags through `updates.settings.set`;
  * `update credential --stdin`, the release token given to the environment
- * as the forge account for its release origin (#346); and, for a
+ * as the optional forge account for its public GitHub release origin
+ * (a higher rate limit; anonymous reads need none); and, for a
  * container's host-side updater through `docker compose exec` (#348),
  * `update status --host-updater`, its poll, and `update begin`, the start of
  * the ready update whose image it pulled. Each exchanges the

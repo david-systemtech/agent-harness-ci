@@ -38,7 +38,7 @@ type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | 
   readonly print: PrintRequest | undefined;
 };
 
-const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
+export const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
   if (value !== undefined && value.trim() === "") throw new UsageError(`${flag} takes a value; got an empty one.`);
   return value;
 };
