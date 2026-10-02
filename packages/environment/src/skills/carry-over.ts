@@ -158,8 +158,9 @@ export const holdsSkillOriginals = async (directory: string): Promise<boolean> =
 export interface SkillsCarryOver extends PreparedCommand<"skills.carryOver"> {
   /** What a dry run answers for the account `accountId`, having written nothing; the refusal, not held or not adopted, thrown. */
   dryRun(accountId: string): Promise<SkillsCarryOverReport>;
-  /** Internal, read-only inventory for a validated explicit source before its Account exists. */
+  /** Prepares a validated source's Skills copies for its winning Account, or previews them in a dry run. */
   prepareDirectory(account: AccountRef & { readonly directory: string }, dryRun: boolean, context: PrepareContext): Promise<MethodHandler<"skills.carryOver">>;
+  /** Internal, read-only inventory for a validated explicit source before its Account exists. */
   dryRunDirectory(account: AccountRef & { readonly directory: string }): Promise<SkillsCarryOverReport>;
 }
 

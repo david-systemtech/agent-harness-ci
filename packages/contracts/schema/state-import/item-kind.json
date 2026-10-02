@@ -15,7 +15,8 @@
     "pin",
     "group",
     "group-membership",
-    "draft"
+    "draft",
+    "routine"
   ],
-  "description": "The owning service kind for a carried instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection or page policy."
+  "description": "The owning service kind for a carried instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection page policy or a disabled local Routine."
 }

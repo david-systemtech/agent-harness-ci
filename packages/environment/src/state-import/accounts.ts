@@ -107,6 +107,7 @@ export const planAccounts = async (records: SourceProfiles, options: PlanAccount
           }
           if (profile !== winner) return { aggregate: { kind: "account", id: plannedId }, rejected: { code: "conflict", message: "The winning directory's Account was not adopted; retry the import.", data: { reason: "account_unresolved" } } };
           const answer = accounts.adoptDirectory({ source, label: uniqueLabel(winner.label, new Set(live.map((entry) => entry.label.toLowerCase()))) }, context);
+          if (answer.rejected === undefined) adopted = true;
           return answer.rejected !== undefined ? answer : { ...answer, result: { targetId: answer.result.account.id } };
         },
       });

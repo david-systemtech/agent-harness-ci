@@ -1,10 +1,12 @@
 import {
   TOOL_QUIET_MS,
   attachmentChip,
+  checkStatus,
   classifyTool,
   describeActivity,
   endWords,
   environmentMessage,
+  fileUndoWords,
   folded,
   formatDuration,
   oneLine,
@@ -398,6 +400,12 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       const head: Span[] = [{ text: `${entry.name}${entry.args.length > 0 ? ` ${entry.args}` : ""}`, dim: true }];
       return block(row.id, { text: "/", dim: true }, [head, ...returned(cutLines(nonBlank(entry.output ?? ""), context.expanded))], width, true);
     }
+    case "check": {
+      const { entry } = row;
+      const head: Span[] = [{ text: `${entry.command} · ${checkStatus(entry)}`, dim: true }];
+      const truncated: Span[][] = entry.result?.truncated ? [[{ text: "Earlier output omitted", dim: true }]] : [];
+      return block(row.id, { text: "$", dim: true }, [head, ...truncated, ...returned(cutLines(nonBlank(entry.result?.output ?? ""), context.expanded))], width, true);
+    }
     case "prompt":
       return promptLines(row.id, row.entry, context);
     case "subagent": {
@@ -412,6 +420,8 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
     }
     case "turn":
       return turnLines(row.id, row.run, context);
+    case "file-undo":
+      return wrap([{ text: `${INDENT}· ${fileUndoWords(row.entry)} ${row.entry.changeId}`, color: TERMINAL_ROLES.success }], width).map((spans) => ({ row: row.id, spans }));
     case "opaque":
       return [{ row: row.id, spans: [{ text: `${INDENT}· ${row.entry.type}: an event this version does not show`, dim: true }] }];
     case "rewound":

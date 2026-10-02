@@ -300,7 +300,7 @@ describe("the syncs on their own", () => {
     await t.close();
     // The previous build held attempt times only in memory: its database has no attempt table.
     const previous = new (loadSqlite().DatabaseSync)(join(t.dataDir, DATABASE_FILE));
-    try { previous.exec("DROP TABLE skill_source_attempts; PRAGMA user_version = 7;"); }
+    try { previous.exec("DROP TABLE skill_source_attempts; DROP TABLE file_changes; DROP TABLE file_undo_journal; PRAGMA user_version = 7;"); }
     finally { previous.close(); }
     const git = skillsGit();
     const release = git.hold();

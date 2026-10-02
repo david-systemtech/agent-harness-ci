@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FileUndoAction",
+  "type": "string",
+  "enum": [
+    "restored",
+    "deleted"
+  ],
+  "description": "What undoing a change did: restored (the file's bytes and mode from before the call were written back) or deleted (the call had created the file, so it was removed)."
+}

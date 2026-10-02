@@ -14,6 +14,7 @@ import type { SettingsHandlers } from "../settings/methods.js";
 import type { ImportCoordinator } from "./coordinator.js";
 import { applyItems, stateImportStream, mappedTarget, type ImportItem } from "./items.js";
 import { emptyPlan, includeReportStores, itemsOf, planImport, recheckStores, reportOf, directoriesOf, type ImportPlan } from "./plan.js";
+import type { PlanRoutinesOptions } from "./routines.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { carryListedSources } from "./sessions.js";
 import { readSourceStores } from "./source/stores.js";
@@ -44,7 +45,7 @@ export interface StateImportHooks {
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
 
-export interface StateImportOptions extends OrganisationOwners {
+export interface StateImportOptions extends OrganisationOwners, Pick<PlanRoutinesOptions, "directoryRules" | "timeZone" | "checkRoutineImport" | "importRoutine"> {
   /** The machine the source reader looks at: this process's environment, platform and home. */
   readonly machine: SourceMachine;
   readonly log: EventLog;
@@ -52,10 +53,10 @@ export interface StateImportOptions extends OrganisationOwners {
   readonly environmentId: string;
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
-  /** The Instructions service's create command, which carries each instruction. */
   readonly accounts: AccountService;
   readonly carryOver: CarryOverService;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
+  /** The Instructions service's create command, which carries each instruction. */
   readonly createInstruction: MethodHandler<"instructions.create">;
   readonly forge: ForgeService;
   readonly managers: KeyManagerConnections;
@@ -88,7 +89,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const dataPlan =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, updateSettings: options.updateSettings, listSessions: options.listSessions, get: options.getSettings, update: options.updateSettings });
+            : await planImport(await readSourceStores(dataFolder.path), { ...options, caller, create: options.createInstruction, get: options.getSettings, update: options.updateSettings });
         const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
         const combined: ImportPlan = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };

@@ -96,6 +96,34 @@ describe("a prompt suggestion (#251)", () => {
 });
 
 describe("the transcript fold", () => {
+  it("finishes a running check carried by a stored fold without mutating that fold", () => {
+    const check = { terminalId: first, command: "pnpm lint", sourceRunId: null };
+    const start = event("checks.started", check);
+    const before = foldTranscript([start]);
+    const saved = structuredClone(before);
+    const result = { output: "Interrupted\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" };
+    const finish = event("checks.finished", { ...check, ...result });
+    const after = foldTranscript([finish], storedTranscriptParts(before));
+    expect(after.items).toEqual([{ kind: "check", sequence: start.sequence, ...check, state: "finished", result }]);
+    expect(before).toEqual(saved);
+    expect(after).toEqual(foldTranscript([start, finish]));
+  });
+
+  it("keeps finished and running Workspace checks at their start sequences in a snapshot", () => {
+    const check = { terminalId: first, command: "pnpm lint", sourceRunId: runId };
+    const running = { terminalId: queued, command: "pnpm typecheck", sourceRunId: null };
+    const result = { output: "Lint failed\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null };
+    const start = event("checks.started", check);
+    const finish = event("checks.finished", { ...check, ...result });
+    const next = event("checks.started", running);
+    const parts = foldTranscript([start, finish, next]);
+    expect(parts.items).toEqual([
+      { kind: "check", sequence: start.sequence, ...check, state: "finished", result },
+      { kind: "check", sequence: next.sequence, ...running, state: "running", result: null },
+    ]);
+    expect(SessionSnapshot.safeParse({ sequence, summary, ...parts }).success).toBe(true);
+  });
+
   it("keeps a fork's source and anchor through a stored fold and later events, without duplicating the row", () => {
     sequence = 0;
     const forked = event("session.forked", { fromSessionId: sessionId, atMessageId: first, fromProviderSessionId: "provider-for-tests" });

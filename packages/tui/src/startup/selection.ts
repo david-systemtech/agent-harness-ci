@@ -30,7 +30,7 @@ export interface SelectionRequest {
   readonly session?: string | undefined;
   /** `-c`. */
   readonly continueLatest?: boolean | undefined;
-  /** `--cwd <path>`, absolute. */
+  /** `--cwd <path>` as given: the caller settles it by the selected machine's rules. */
   readonly cwd?: string | undefined;
   /** The process's working directory. */
   readonly currentDirectory: string;

@@ -7,7 +7,7 @@ import { releaseNotes } from "./notes.js";
 /**
  * The release publisher (launcher-update spec, "The release"; #358): the
  * release workflow's last step, which puts the folder the build wrote on
- * the tag's Forgejo release. It checks the folder against its
+ * the tag's GitHub or Forgejo release. It checks the folder against its
  * `release.json` (read through the contracts' schema), uploads every file to
  * a draft whose notes are written from that manifest (`notes.ts`), checks
  * the draft holds them all, and publishes it last, so no
@@ -28,6 +28,8 @@ export interface ReleaseRepository {
   /** `owner/name`. */
   readonly repository: string;
   readonly token: string;
+  /** Preset Forgejo for existing callers; GitHub uses its REST and binary upload APIs. */
+  readonly kind?: "github" | "forgejo";
 }
 
 /** What is published: the tag's release, from the folder the build wrote. */
@@ -45,6 +47,8 @@ export interface PublishSeams {
 interface ForgeRelease {
   readonly id: number;
   readonly draft: boolean;
+  readonly upload_url?: string;
+  readonly tag_name?: string;
   readonly assets: readonly { readonly name: string; readonly size: number }[];
 }
 
@@ -65,20 +69,22 @@ const releaseOf = (value: unknown): ForgeRelease => {
 
 /** The release API of `forge`'s repository, each call answering one of the statuses it expects or failing with the forge's answer, never the token. */
 const releasesOf = (forge: ReleaseRepository) => {
-  const api = `${forge.server.replace(/\/+$/, "")}/api/v1/repos/${forge.repository}/releases`;
-  const call = async (method: string, path: string, expected: readonly number[], body?: FormData | object): Promise<Response> => {
-    const json = body !== undefined && !(body instanceof FormData);
-    const response = await fetch(`${api}${path}`, {
+  const github = forge.kind === "github";
+  const origin = github && forge.server === "https://github.com" ? "https://api.github.com" : forge.server.replace(/\/+$/, "");
+  const api = `${origin}${github ? "/repos/" : "/api/v1/repos/"}${forge.repository}/releases`;
+  const call = async (method: string, path: string, expected: readonly number[], body?: FormData | Blob | object, url = `${api}${path}`): Promise<Response> => {
+    const json = body !== undefined && !(body instanceof FormData) && !(body instanceof Blob);
+    const response = await fetch(url, {
       method,
-      headers: { authorization: `token ${forge.token}`, accept: "application/json", ...(json && { "content-type": "application/json" }) },
-      ...(body !== undefined && { body: json ? JSON.stringify(body) : (body as FormData) }),
+      headers: { authorization: `${github ? "Bearer" : "token"} ${forge.token}`, accept: "application/json", ...(github && { "X-GitHub-Api-Version": "2022-11-28" }), ...(json && { "content-type": "application/json" }), ...(body instanceof Blob && { "content-type": "application/octet-stream" }) },
+      ...(body !== undefined && { body: json ? JSON.stringify(body) : (body as FormData | Blob) }),
     }).catch((error: unknown) => {
       const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
-      throw new PublishError(`${method} ${api}${path} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      throw new PublishError(`${method} ${url} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
     });
     if (!expected.includes(response.status)) {
       const answer = (await response.text()).trim().slice(0, 300);
-      throw new PublishError(`${method} ${api}${path} answered ${response.status}${answer === "" ? "" : `: ${answer}`}`);
+      throw new PublishError(`${method} ${url} answered ${response.status}${answer === "" ? "" : `: ${answer}`}`);
     }
     return response;
   };
@@ -86,17 +92,34 @@ const releasesOf = (forge: ReleaseRepository) => {
     /** The tag's release, a draft included (the token can write), or null when the tag has none. */
     ofTag: async (tag: string): Promise<ForgeRelease | null> => {
       const response = await call("GET", `/tags/${encodeURIComponent(tag)}`, [200, 404]);
-      return response.status === 404 ? null : releaseOf(await response.json());
+      if (response.status !== 404) return releaseOf(await response.json());
+      if (!github) return null;
+      // GitHub's tag lookup returns published releases. Writers find drafts
+      // through the release list, including drafts beyond its first page.
+      for (let page = 1; ; page += 1) {
+        const value: unknown = await (await call("GET", `?per_page=100&page=${page}`, [200])).json();
+        if (!Array.isArray(value)) throw new PublishError("GitHub answered a release list that is not an array.");
+        const releases = value.map(releaseOf);
+        const found = releases.find((release) => release.tag_name === tag);
+        if (found) return found;
+        if (releases.length < 100) return null;
+      }
     },
     get: async (id: number): Promise<ForgeRelease> => releaseOf(await (await call("GET", `/${id}`, [200])).json()),
     createDraft: async (tag: string, prerelease: boolean, notes: string): Promise<ForgeRelease> =>
       releaseOf(await (await call("POST", "", [201], { tag_name: tag, name: tag, body: notes, draft: true, prerelease })).json()),
     /** Deletes the release `id`; Forgejo keeps its tag and drops its assets. */
     remove: async (id: number): Promise<void> => void (await call("DELETE", `/${id}`, [204])),
-    upload: async (id: number, name: string, path: string): Promise<void> => {
+    upload: async (draft: ForgeRelease, name: string, path: string): Promise<void> => {
+      if (github) {
+        if (!draft.upload_url) throw new PublishError("GitHub answered a draft without its upload_url.");
+        const url = `${draft.upload_url.replace(/\{.*$/, "")}?name=${encodeURIComponent(name)}`;
+        await call("POST", "", [201], await openAsBlob(path), url);
+        return;
+      }
       const form = new FormData();
       form.set("attachment", await openAsBlob(path), name);
-      await call("POST", `/${id}/assets?name=${encodeURIComponent(name)}`, [201], form);
+      await call("POST", `/${draft.id}/assets?name=${encodeURIComponent(name)}`, [201], form);
     },
     publish: async (id: number): Promise<ForgeRelease> => releaseOf(await (await call("PATCH", `/${id}`, [200], { draft: false })).json()),
   };
@@ -183,7 +206,7 @@ export const publishRelease = async ({ tag, folder }: PublishOptions, forge: Rel
   const draft = await releases.createDraft(tag, prerelease, releaseNotes(manifest.assets));
   log(`${tag}: created a draft${prerelease ? " prerelease" : ""}`);
   for (const file of files) {
-    await releases.upload(draft.id, file.name, join(folder, file.name));
+    await releases.upload(draft, file.name, join(folder, file.name));
     log(`${tag}: uploaded ${file.name} (${file.size} bytes)`);
   }
   const held = new Map((await releases.get(draft.id)).assets.map((asset) => [asset.name, asset.size]));

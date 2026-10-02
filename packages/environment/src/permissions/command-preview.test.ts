@@ -154,14 +154,92 @@ it('reports locale-sensitive character classes as unavailable rather than an emp
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it.each(['mkfs.ext2', 'mkfs.ext3', 'mkfs.ext4', 'mkfs.xfs', 'mkfs.btrfs', 'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mkntfs', 'mke2fs'])('recognises %s and its absolute executable path as destructive', (name) => {
+    for (const executable of [name, `/usr/sbin/${name}`]) {
+      const command = `${executable} disk.img`;
+      expect(destructiveParts(command)).toEqual([{ kind: 'other', text: command, targets: ['disk.img'], flags: [] }]);
+    }
+  });
+
+  it('keeps filesystem-maker coverage curated rather than matching any mkfs prefix', () => {
+    for (const command of ['mkfs.custom disk.img', 'mkfs.ext4-wrapper disk.img', 'mkfs-info disk.img', 'echo mkfs.ext4 disk.img']) {
+      expect(destructiveParts(command), command).toEqual([]);
+    }
+  });
+
+  it('warns about a subshell without querying or evaluating its contents', async () => {
+    const command = '(rm -rf build)';
+    expect(destructiveParts(command)).toEqual([{ kind: 'indirect-shell', text: command, targets: [], flags: [] }]);
+    const calls: string[] = [];
+    const previews = await previewBlastRadius(destructiveParts(command), '/repo', {
+      execFile: async () => { calls.push('exec'); return ''; },
+      readdir: async () => { calls.push('readdir'); return []; },
+      stat: async () => { calls.push('stat'); return { size: 0, directory: false }; },
+    });
+    expect(previews).toEqual([{ kind: 'indirect-shell', summary: 'cannot tell: indirect shell execution may change files or contact the network', lines: [] }]);
+    expect(calls).toEqual([]);
+  });
   it('does not mistake read-write redirection for truncation', () => {
     expect(destructiveParts('cat <> log.txt')).toEqual([]);
     expect(destructiveParts('cat 3<>log.txt')).toEqual([]);
     expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
   });
+  it('warns about brace groups while leaving quoted groups and brace data quiet', () => {
+    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }', 'time { rm -rf build; }', 'time -p { rm -rf build; }', 'time ! { rm -rf build; }', '! { rm -rf build; }', 'if { rm -rf build; }; then echo done; fi', 'while { rm -rf build; }; do echo done; done', 'if true; then { rm -rf build; }; fi', 'function f { rm -rf build; }; f']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}', 'echo time { rm -rf build \\; }', 'time echo { rm -rf build \\; }', '"time" { rm -rf build \\; }', "echo 'function f { rm -rf build; }; f'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+    expect(destructiveParts('rm build/{a,b}')[0]?.targets).toEqual(['build/{a,b}']);
+  });
   it('warns about command substitutions in unquoted heredocs without parsing their bodies as commands', async () => {
     expect((await only('cat <<EOF\n$(rm -rf build)\nEOF', '/repo')).summary).toBe('cannot tell: command substitution in a here-document needs the shell');
     expect(kinds("cat <<'EOF'\n$(rm -rf build)\nEOF")).toEqual([]);
+  });
+  it('warns about executed substitutions in arguments and assignments but skips literal data', () => {
+    for (const command of ['echo $(rm -rf build)', 'X=$(rm -rf build)', 'echo "$(rm -rf build)"', 'echo `rm -rf build`', 'X=`rm -rf build`', 'echo "`rm -rf build`"', 'echo $(echo ready; rm -rf /outside)']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo '$(rm -rf build)'", "echo '`rm -rf build`'", 'echo "\\$(rm -rf build)"', 'echo "\\`rm -rf build\\`"', 'echo \\(rm -rf build\\)', 'echo ok # $(rm -rf build)', "cat <<'EOF'\n$(rm -rf build)\nEOF"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('warns when eval or a shell command option evaluates even quoted command text', () => {
+    for (const command of ['eval rm -rf build', "eval 'rm -rf build'", "sh -c 'rm -rf build'", '/bin/bash -lc "rm -rf build"', 'env X=1 sh -ec "rm -rf build"', "sudo -- sh '-c' 'rm -rf build'", "dash -o errexit -c 'rm -rf build'", "zsh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ['eval', "echo 'eval rm -rf build'", "echo \"sh -c 'rm -rf build'\"", "sh script.sh 'rm -rf build'", "sh script.sh '-c' 'rm -rf build'", "sh -- -c 'rm -rf build'", "bash -o noclobber script.sh 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('sees shell command options through execution wrappers without treating wrapper values as commands', () => {
+    for (const command of ["exec sh -c 'rm -rf build'", "exec -a label sh -c 'rm -rf build'", "exec '--' sh '-c' 'rm -rf build'", "timeout 10 sh -c 'rm -rf build'", "timeout -k 2 10 sh -c 'rm -rf build'", "timeout '--signal' 'TERM' -- 10 sh -c 'rm -rf build'", "busybox sh -c 'rm -rf build'", "busybox ash -c 'rm -rf build'", "exec env X=1 timeout -s TERM 10 busybox sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"exec sh -c 'rm -rf build'\"", "exec '-a' sh echo '-c' 'rm -rf build'", "timeout 10 sh script.sh '-c' 'rm -rf build'", "busybox echo sh '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('warns about coprocess execution, including named groups, without treating quoted data as a command', () => {
+    for (const command of ['coproc { rm -rf build; }', 'coproc CLEANUP { rm -rf build; }', "coproc sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo 'coproc { rm -rf build; }'")).toEqual([]);
+  });
+  it('warns when user-switching commands ask a shell to evaluate text, even after a username', () => {
+    for (const command of ["su -c 'rm -rf build'", "su root -c 'rm -rf build'", "sudo su root --command='rm -rf build'", "su -s /bin/sh root -lc 'rm -rf build'", "runuser root --session-command 'rm -rf build'", "su -- root '-c' 'rm -rf build'", "su root -- -c 'rm -rf build'", "runuser -u root -- sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"su root -c 'rm -rf build'\"", "su -- root script.sh '-c' 'rm -rf build'", "su -- root -- '-c' 'rm -rf build'", "su -s '-c' root", "runuser -u root -- echo '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('keeps changed-root execution opaque rather than inspecting targets in the original workspace', () => {
+    for (const command of ["chroot /mnt/root sh -c 'rm -rf build'", 'chroot /mnt/root rm -rf build']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo \"chroot /mnt/root sh -c 'rm -rf build'\"")).toEqual([]);
   });
   it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
     const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";

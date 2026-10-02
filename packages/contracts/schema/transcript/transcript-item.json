@@ -409,6 +409,190 @@
     {
       "type": "object",
       "properties": {
+        "terminalId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "\\S",
+          "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+        },
+        "sourceRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run whose edits set the check off; null for a manual check."
+        },
+        "kind": {
+          "type": "string",
+          "const": "check"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "state": {
+          "type": "string",
+          "const": "running"
+        },
+        "result": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "terminalId",
+        "command",
+        "sourceRunId",
+        "kind",
+        "sequence",
+        "state",
+        "result"
+      ],
+      "description": "A Workspace check at its checks.started sequence, still running in its terminal."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "\\S",
+          "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+        },
+        "sourceRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run whose edits set the check off; null for a manual check."
+        },
+        "kind": {
+          "type": "string",
+          "const": "check"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "state": {
+          "type": "string",
+          "const": "finished"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "output": {
+              "type": "string",
+              "maxLength": 65536,
+              "description": "The check's terminal output, scrubbed of registered values: its last 64 KiB (UTF-8) when more came."
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "Whether earlier output was dropped to keep the last 64 KiB."
+            },
+            "exitCode": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The command's exit code; null when it timed out or failed without exiting."
+            },
+            "signal": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The signal that ended the command, when one did; null otherwise."
+            },
+            "timedOut": {
+              "type": "boolean",
+              "description": "Whether the check ran past its 120 seconds and its terminal was closed."
+            },
+            "failure": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "launch_failed",
+                    "closed",
+                    "interrupted"
+                  ],
+                  "description": "Why a check ended without its command's exit: launch_failed (the command could not start in its terminal), closed (its terminal was closed, or its session deleted, before the command exited) or interrupted (the environment stopped while it ran; the command is not run again)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the check ended without its command's exit; null when the command exited or timed out."
+            }
+          },
+          "required": [
+            "output",
+            "truncated",
+            "exitCode",
+            "signal",
+            "timedOut",
+            "failure"
+          ]
+        }
+      },
+      "required": [
+        "terminalId",
+        "command",
+        "sourceRunId",
+        "kind",
+        "sequence",
+        "state",
+        "result"
+      ],
+      "description": "A Workspace check at its checks.started sequence, with its checks.finished outcome folded in."
+    },
+    {
+      "type": "object",
+      "properties": {
         "kind": {
           "type": "string",
           "const": "tasks"
@@ -1141,6 +1325,48 @@
     {
       "type": "object",
       "properties": {
+        "changeId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A change record's id: one file one tool call changed, as the environment recorded it."
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The file, relative to the session's workspace, with forward slashes."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "restored",
+            "deleted"
+          ],
+          "description": "What undoing a change did: restored (the file's bytes and mode from before the call were written back) or deleted (the call had created the file, so it was removed)."
+        },
+        "kind": {
+          "type": "string",
+          "const": "file-undo"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        }
+      },
+      "required": [
+        "changeId",
+        "path",
+        "action",
+        "kind",
+        "sequence"
+      ],
+      "description": "A completed file undo: change id, path and action, never file contents."
+    },
+    {
+      "type": "object",
+      "properties": {
         "kind": {
           "type": "string",
           "const": "forked"
@@ -1589,6 +1815,190 @@
                       "output"
                     ],
                     "description": "A slash command that ran."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "terminalId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+                      },
+                      "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384,
+                        "pattern": "\\S",
+                        "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+                      },
+                      "sourceRunId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                            "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The run whose edits set the check off; null for a manual check."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "check"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "state": {
+                        "type": "string",
+                        "const": "running"
+                      },
+                      "result": {
+                        "type": "null"
+                      }
+                    },
+                    "required": [
+                      "terminalId",
+                      "command",
+                      "sourceRunId",
+                      "kind",
+                      "sequence",
+                      "state",
+                      "result"
+                    ],
+                    "description": "A Workspace check at its checks.started sequence, still running in its terminal."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "terminalId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+                      },
+                      "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384,
+                        "pattern": "\\S",
+                        "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+                      },
+                      "sourceRunId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                            "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The run whose edits set the check off; null for a manual check."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "check"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "state": {
+                        "type": "string",
+                        "const": "finished"
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "output": {
+                            "type": "string",
+                            "maxLength": 65536,
+                            "description": "The check's terminal output, scrubbed of registered values: its last 64 KiB (UTF-8) when more came."
+                          },
+                          "truncated": {
+                            "type": "boolean",
+                            "description": "Whether earlier output was dropped to keep the last 64 KiB."
+                          },
+                          "exitCode": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The command's exit code; null when it timed out or failed without exiting."
+                          },
+                          "signal": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The signal that ended the command, when one did; null otherwise."
+                          },
+                          "timedOut": {
+                            "type": "boolean",
+                            "description": "Whether the check ran past its 120 seconds and its terminal was closed."
+                          },
+                          "failure": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "launch_failed",
+                                  "closed",
+                                  "interrupted"
+                                ],
+                                "description": "Why a check ended without its command's exit: launch_failed (the command could not start in its terminal), closed (its terminal was closed, or its session deleted, before the command exited) or interrupted (the environment stopped while it ran; the command is not run again)."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Why the check ended without its command's exit; null when the command exited or timed out."
+                          }
+                        },
+                        "required": [
+                          "output",
+                          "truncated",
+                          "exitCode",
+                          "signal",
+                          "timedOut",
+                          "failure"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "terminalId",
+                      "command",
+                      "sourceRunId",
+                      "kind",
+                      "sequence",
+                      "state",
+                      "result"
+                    ],
+                    "description": "A Workspace check at its checks.started sequence, with its checks.finished outcome folded in."
                   },
                   {
                     "type": "object",
@@ -2325,6 +2735,48 @@
                   {
                     "type": "object",
                     "properties": {
+                      "changeId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A change record's id: one file one tool call changed, as the environment recorded it."
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The file, relative to the session's workspace, with forward slashes."
+                      },
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "restored",
+                          "deleted"
+                        ],
+                        "description": "What undoing a change did: restored (the file's bytes and mode from before the call were written back) or deleted (the call had created the file, so it was removed)."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "file-undo"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      }
+                    },
+                    "required": [
+                      "changeId",
+                      "path",
+                      "action",
+                      "kind",
+                      "sequence"
+                    ],
+                    "description": "A completed file undo: change id, path and action, never file contents."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
                       "runId": {
                         "type": "string",
                         "format": "uuid",
@@ -2495,8 +2947,8 @@
                     "properties": {
                       "kind": {
                         "type": "string",
-                        "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable|forked|update-interrupted)$).+$",
-                        "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable, forked, update-interrupted), which must match their own schema."
+                        "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|check|tasks|prompt|history-unreadable|file-undo|forked|update-interrupted)$).+$",
+                        "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, check, tasks, prompt, history-unreadable, file-undo, forked, update-interrupted), which must match their own schema."
                       },
                       "sequence": {
                         "type": "integer",
@@ -2513,7 +2965,7 @@
                     "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
                   }
                 ],
-                "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque."
+                "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a running or finished Workspace check, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque."
               }
             },
             "runs": {
@@ -3018,8 +3470,8 @@
       "properties": {
         "kind": {
           "type": "string",
-          "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable|forked|update-interrupted)$).+$",
-          "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable, forked, update-interrupted), which must match their own schema."
+          "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|check|tasks|prompt|history-unreadable|file-undo|forked|update-interrupted)$).+$",
+          "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, check, tasks, prompt, history-unreadable, file-undo, forked, update-interrupted), which must match their own schema."
         },
         "sequence": {
           "type": "integer",

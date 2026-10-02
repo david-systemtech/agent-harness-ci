@@ -10,7 +10,7 @@ import {
   type PreCheck,
   type RoutineChange,
   type RoutineCreatedPayload,
-  type RoutineDefinition,
+  RoutineDefinition,
   type RoutineDisabledPayload,
   type RoutineEditedPayload,
   type RoutineEnabledPayload,
@@ -22,6 +22,7 @@ import {
 import { renderRoutineYaml } from "@agent-harness/contracts/routine-yaml";
 import type { VerifiedClientSession } from "../auth/client-sessions.js";
 import type { EventInput, EventLog } from "../event-log/event-log.js";
+import { clampMode, startingMode } from "../permissions/resolver.js";
 import { currentCeiling } from "../permissions/methods.js";
 import { readSettings } from "../settings/settings-store.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, MethodHandlers } from "../serve/methods.js";
@@ -29,7 +30,7 @@ import type { Reader } from "../sessions/session-tables.js";
 import { endFiring, firingText } from "./firing-end.js";
 import type { FiringStart, FiringStarter } from "./firing-start.js";
 import { heldBy, nameHolders, nameTakenIssue, oneDocumentIssue, readImport, type ImportDocument } from "./import-documents.js";
-import { listRoutine, readSkillSetFor, routineNeeds, type RoutineAccounts, type RoutineSurroundings, type SkillSetHolds, type SkillSetReader } from "./listing.js";
+import { listRoutine, readSkillSetFor, routineAccount, routineNeeds, type RoutineAccounts, type RoutineSurroundings, type SkillSetHolds, type SkillSetReader } from "./listing.js";
 import { appendRoutineRecord, routineStream } from "./records.js";
 import { entryPosition, listStoredRoutines, liveFiringOfRoutine, liveRoutine, routineEntries, routineEver, routineNamed, type StoredRoutine } from "./routine-store.js";
 import type { ScriptsDirectory } from "./scripts-directory.js";
@@ -155,6 +156,19 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
   const storedSkills = (routineId: string): readonly string[] => liveRoutine(reader, routineId.toLowerCase())?.definition.skills ?? [];
 
   const ceilingOf = (clientSession: VerifiedClientSession): Ceiling => currentCeiling(options.ceilingOf, clientSession);
+
+  /** Enabling by command, edit or replacement crosses the same deliberate gate. */
+  const enableRefusal = (routine: StoredRoutine, definition: RoutineDefinition, ceiling: Ceiling, skillSet: SkillSetHolds | null): CommandRejection<"conflict"> | null => {
+    const unattended = readSettings(reader)["permissions.unattended.mode"];
+    const surroundings = where(skillSet);
+    const needs = routineNeeds({ ...routine, definition, state: { ...routine.state, savedUnderCeiling: ceiling } }, surroundings, unattended);
+    // Past outcomes do not prevent repairing and enabling a Routine.
+    const attention = needs.attention.filter((code) => code !== "failing" && code !== "delivery_failing");
+    const account = routineAccount(definition.account, surroundings);
+    if (account !== null && clampMode(definition.mode, startingMode(definition.mode, false, unattended), ceiling, account.descriptor.modes) === null && !attention.includes("clamped")) attention.push("clamped");
+    if (attention.length > 0) return { code: "conflict", message: "Repair the Routine's enable conditions before enabling it.", data: { reason: "enable_conditions", attention } };
+    return null;
+  };
 
   /** The refusal of a name another live routine holds ignoring case; null when none but `routineId` holds it. */
   const nameTaken = (name: string, routineId: string): CommandRejection<"conflict"> | null => {
@@ -314,6 +328,9 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
                 () => {
                   const refused = nameRefusal(0) ?? deniedPreCheck(replacement.definition.preCheck);
                   if (refused !== null) return { rejected: refused };
+                  const routine = liveRoutine(reader, replacing)!;
+                  const enable = !routine.definition.enabled && replacement.definition.enabled ? enableRefusal(routine, replacement.definition, ceilingOf(context.clientSession), skillSet) : null;
+                  if (enable !== null) return { rejected: enable };
                   const payload: RoutineEditedPayload = { fields: replacement.definition, savedUnderCeiling: ceilingOf(context.clientSession) };
                   return { event: { type: "routine.edited", payload }, change: "edited" };
                 },
@@ -436,6 +453,9 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
               const fields: RoutineFields = { ...params.fields, ...(name !== undefined && { name: name.trim() }), ...(workspace !== undefined && { workspace }) };
               const refused = (fields.name === undefined ? null : nameTaken(fields.name, id)) ?? deniedPreCheck(fields.preCheck);
               if (refused !== null) return { rejected: refused };
+              const routine = liveRoutine(reader, id)!;
+              const enable = !routine.definition.enabled && fields.enabled === true ? enableRefusal(routine, RoutineDefinition.parse({ ...routine.definition, ...fields }), ceilingOf(context.clientSession), skillSet) : null;
+              if (enable !== null) return { rejected: enable };
               const payload: RoutineEditedPayload = { fields, savedUnderCeiling: ceilingOf(context.clientSession) };
               return { event: { type: "routine.edited", payload }, change: "edited" };
             },
@@ -451,8 +471,12 @@ export const routineMethods = (options: RoutineMethodsOptions): Required<Pick<Me
           onRoutine(
             params.routineId,
             context,
-            () => {
-              const payload: RoutineEnabledPayload = { savedUnderCeiling: ceilingOf(context.clientSession) };
+            (id) => {
+              const routine = liveRoutine(reader, id)!;
+              const ceiling = ceilingOf(context.clientSession);
+              const refused = enableRefusal(routine, routine.definition, ceiling, skillSet);
+              if (refused !== null) return { rejected: refused };
+              const payload: RoutineEnabledPayload = { savedUnderCeiling: ceiling };
               return { event: { type: "routine.enabled", payload }, change: "enabled" };
             },
             (id) => listedAfter(id, skillSet),

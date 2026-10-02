@@ -56,12 +56,18 @@ export const lanAddressesOf = (interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>):
   ),
 ];
 
+/** The IPv4 range Tailscale assigns to its kernel interface. */
+const tailscaleIpv4 = new BlockList();
+tailscaleIpv4.addSubnet("100.64.0.0", 10, "ipv4");
+
 /**
  * The environment's detector: `tailscale ip -4` for the address and
  * `tailscale status --json` for the name, through `run`, and the machine's
  * network interfaces, read each time, for its LAN addresses. A machine
- * without the `tailscale` binary on its PATH, or with Tailscale stopped, has
- * neither address nor name.
+ * without a CLI answer falls back to the IPv4 address on `tailscale0`, in
+ * Tailscale's range: a Linux container sharing its host's network sees that
+ * interface without a CLI or access to the host's daemon socket. The name
+ * still needs the CLI; without it pairing uses the address.
  */
 export const tailscaleDetector = (
   runner: CommandRunner = processRunner,
@@ -70,7 +76,8 @@ export const tailscaleDetector = (
   lanAddresses: () => lanAddressesOf(readInterfaces()),
   async tailscaleAddress() {
     const first = (await runner("tailscale", ["ip", "-4"]))?.split(/\r?\n/)[0]?.trim();
-    return first !== undefined && isIPv4(first) ? first : undefined;
+    if (first !== undefined && isIPv4(first)) return first;
+    return readInterfaces().tailscale0?.find((entry) => !entry.internal && isIPv4(entry.address) && tailscaleIpv4.check(entry.address, "ipv4"))?.address;
   },
   async tailnetName() {
     const text = await runner("tailscale", ["status", "--json"]);

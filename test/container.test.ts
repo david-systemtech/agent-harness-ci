@@ -143,6 +143,20 @@ describe("the published compose file", () => {
     expect(uid).not.toBe("0");
   });
 
+  it("shares the Linux host's Tailscale interface without a CLI, daemon socket or added privileges (#1265)", () => {
+    const lines = composeService("environment");
+    expect(lines).toContain("    network_mode: host");
+    expect(lines.join("\n")).not.toMatch(/ports:|tailscaled\.sock|\/dev\/net\/tun|privileged:|cap_add:/);
+    const installed = finalStage()
+      .filter((line) => /^RUN .*\bapt-get install\b/.test(line))
+      .flatMap((line) => line.split(/\s+/));
+    expect(installed).not.toContain("tailscale");
+    const header = composeHeader();
+    expect(header).toContain("tailscale0");
+    expect(header).toContain("kernel TUN mode");
+    expect(header).toContain("same tailnet");
+  });
+
   it("mounts /data and /work as named volumes, which Docker creates owned by the image's user", () => {
     const lines = composeLines();
     expect(lines).toContain("      - data:/data");
@@ -161,11 +175,11 @@ describe("the published compose file", () => {
     expect(compose.split(UNRELEASED_IMAGE)).toHaveLength(2);
   });
 
-  it("names, in its header, the registry's docker login with a read-package token and the host-side updater's documentation", () => {
+  it("names, in its header, the public image without registry login and the host-side updater's documentation", () => {
     const header = composeHeader();
-    expect(header).toContain("#   docker login git.systemtech.dev:5526");
-    expect(header).toContain("read:package");
-    expect(header).toContain("https://git.systemtech.dev:5526/david/agent-harness/src/branch/main/docs/host-updater.md");
+    expect(header).toContain("ghcr.io/david-systemtech/agent-harness");
+    expect(header).toContain("no registry login is required");
+    expect(header).toContain("https://github.com/david-systemtech/agent-harness/blob/main/docs/host-updater.md");
     expect(header).toContain("host-updater.sh");
   });
 

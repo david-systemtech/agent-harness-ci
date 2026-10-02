@@ -2,7 +2,7 @@ import { z } from "zod";
 import { RunId } from "./adapter.js";
 import { Sequence, Timestamp } from "./primitives.js";
 import { SessionId } from "./sessions.js";
-import { ToolStatus } from "./transcript.js";
+import { ToolStatus } from "./tool-status.js";
 
 /**
  * Terminals, files and diffs (tui spec, "Terminals, files and diffs: the

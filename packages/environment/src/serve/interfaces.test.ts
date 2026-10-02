@@ -15,32 +15,72 @@ const scripted = (answers: Record<string, string | undefined>) => {
 
 const status = (self: Record<string, unknown>) => JSON.stringify({ BackendState: "Running", Self: self });
 
+/** One scripted kernel interface address. */
+const entry = (address: string, internal = false) => ({ address, internal, family: address.includes(":") ? "IPv6" : "IPv4" }) as NetworkInterfaceInfo;
+
+
 describe("the Tailscale detector", () => {
   it("reads the address from tailscale ip -4 and the name from tailscale status --json", async () => {
     const { run, asked } = scripted({
       "tailscale ip -4": "100.101.102.103\n",
       "tailscale status --json": status({ DNSName: "Desk.tail1234.ts.net.", TailscaleIPs: ["100.101.102.103"] }),
     });
-    const detector = tailscaleDetector(run);
+    const detector = tailscaleDetector(run, () => ({}));
     expect(await detector.tailscaleAddress()).toBe("100.101.102.103");
     expect(await detector.tailnetName()).toBe("desk.tail1234.ts.net");
     expect(asked).toEqual(["tailscale ip -4", "tailscale status --json"]);
   });
 
-  it("finds nothing when the binary is missing or fails", async () => {
-    const detector = tailscaleDetector(scripted({}).run);
+  it("discovers the host tailnet without a CLI in a container sharing the host network, retaining loopback and leaving LAN opt-in", async () => {
+    const detector = tailscaleDetector(scripted({}).run, () => ({
+      lo: [entry("127.0.0.1", true)],
+      eth0: [entry("192.168.1.20")],
+      tailscale0: [entry("fd7a:115c:a1e0::1"), entry("100.101.102.103")],
+    }));
+    const tailscaleAddress = await detector.tailscaleAddress();
+    expect(tailscaleAddress).toBe("100.101.102.103");
+    expect(await detector.tailnetName()).toBeUndefined();
+    expect(bindPlan({ tailscaleAddress, lanAddresses: detector.lanAddresses() }).binds).toEqual([
+      { host: "127.0.0.1", interface: "loopback" },
+      { host: "100.101.102.103", interface: "tailnet" },
+    ]);
+    expect(bindPlan({ tailscaleAddress, bindTailnet: false }).binds).toEqual([{ host: "127.0.0.1", interface: "loopback" }]);
+  });
+
+  it("finds nothing when the CLI gives no address and no kernel tailnet interface is present", async () => {
+    const detector = tailscaleDetector(scripted({}).run, () => ({}));
     expect(await detector.tailscaleAddress()).toBeUndefined();
     expect(await detector.tailnetName()).toBeUndefined();
   });
 
   it("takes only an IPv4 address, and the first when there are several", async () => {
-    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "not an address\n" }).run).tailscaleAddress()).toBeUndefined();
-    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "fd7a:115c:a1e0::1\n" }).run).tailscaleAddress()).toBeUndefined();
-    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "100.64.0.1\n100.64.0.2\n" }).run).tailscaleAddress()).toBe("100.64.0.1");
+    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "not an address\n" }).run, () => ({})).tailscaleAddress()).toBeUndefined();
+    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "fd7a:115c:a1e0::1\n" }).run, () => ({})).tailscaleAddress()).toBeUndefined();
+    expect(await tailscaleDetector(scripted({ "tailscale ip -4": "100.64.0.1\n100.64.0.2\n" }).run, () => ({})).tailscaleAddress()).toBe("100.64.0.1");
+  });
+
+  it("uses only a non-internal IPv4 address in Tailscale's range on tailscale0, reading it anew", async () => {
+    let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
+      eth0: [entry("100.64.0.5")],
+      tun0: [entry("100.64.0.6")],
+      tailscale0: [entry("192.168.1.20"), entry("100.63.255.255"), entry("100.128.0.1"), entry("100.64.0.7", true), entry("fd7a:115c:a1e0::1")],
+    };
+    const detector = tailscaleDetector(scripted({}).run, () => interfaces);
+    expect(await detector.tailscaleAddress()).toBeUndefined();
+    interfaces = { tailscale0: [entry("100.64.0.1")] };
+    expect(await detector.tailscaleAddress()).toBe("100.64.0.1");
+    interfaces = { tailscale0: [entry("100.127.255.254")] };
+    expect(await detector.tailscaleAddress()).toBe("100.127.255.254");
+    interfaces = {};
+    expect(await detector.tailscaleAddress()).toBeUndefined();
+  });
+
+  it("prefers the CLI address to the kernel interface address", async () => {
+    const detector = tailscaleDetector(scripted({ "tailscale ip -4": "100.101.102.103\n" }).run, () => ({ tailscale0: [entry("100.64.0.1")] }));
+    expect(await detector.tailscaleAddress()).toBe("100.101.102.103");
   });
 
   it("reads the machine's LAN addresses from its network interfaces each time it is asked: every address but loopback, link-local and Tailscale's, each once", () => {
-    const entry = (address: string, internal = false) => ({ address, internal, family: address.includes(":") ? "IPv6" : "IPv4" }) as NetworkInterfaceInfo;
     let interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = {
       lo: [entry("127.0.0.1", true), entry("::1", true)],
       eth0: [entry("192.168.1.20"), entry("fe80::1c2b:3aff:fe4d:5e6f"), entry("fd00::20")],
