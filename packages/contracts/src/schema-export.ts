@@ -557,6 +557,7 @@ import {
 import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
+import { CHECK_SESSION_EVENT_TYPES, CheckCommand, CheckFailure, ChecksChangedPayload, WorkspaceCheck } from "./checks.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
@@ -771,6 +772,7 @@ export const publishedEventPayloads = (): [string, z.ZodType][] =>
     ...PERMISSION_SESSION_EVENT_TYPES,
     ...INSTRUCTION_SESSION_EVENT_TYPES,
     ...BROWSER_SESSION_EVENT_TYPES,
+    ...CHECK_SESSION_EVENT_TYPES,
     ...GROUP_EVENT_TYPES,
   } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
@@ -1375,6 +1377,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "state-import/client-local.json", title: "StateImportClientLocal", schema: StateImportClientLocal },
   { path: "state-import/notices/state-import.finished.json", title: "StateImportFinishedPayload", schema: StateImportFinishedPayload },
   { path: "state-import/report.json", title: "StateImportReport", schema: StateImportReport },
+  { path: "checks/check-command.json", title: "CheckCommand", schema: CheckCommand },
+  { path: "checks/workspace-check.json", title: "WorkspaceCheck", schema: WorkspaceCheck },
+  { path: "checks/check-failure.json", title: "CheckFailure", schema: CheckFailure },
+  { path: "checks/notices/checks.changed.json", title: "ChecksChangedPayload", schema: ChecksChangedPayload },
   { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
   { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },

@@ -339,6 +339,11 @@
     },
     {
       "type": "string",
+      "const": "checks.changed",
+      "description": "A Workspace directory's check command was set, changed or cleared; a client reads checks.get again for its sessions in that directory."
+    },
+    {
+      "type": "string",
       "const": "workspace.kept",
       "description": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why."
     },
