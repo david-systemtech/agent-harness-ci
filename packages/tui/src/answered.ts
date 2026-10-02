@@ -43,6 +43,7 @@ export const SCREEN_KEYS = [
   "picker.move",
   "picker.moveVi",
   "picker.choose",
+  "picker.preview",
   "picker.leave",
   "pager.line",
   "pager.screenDown",
@@ -124,5 +125,6 @@ export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
   "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",
   "row.leave": "Back to the composer",
+  "picker.preview": "Preview the next action on the selected Set up step",
   "app.prompt.back": "The prompt picker: rewind to one of this session's prompts, or branch there",
 };
