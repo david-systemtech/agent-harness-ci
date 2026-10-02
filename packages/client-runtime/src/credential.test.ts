@@ -27,7 +27,7 @@ const started = async (platform: InMemoryPlatform) => {
 describe("a connection's credential", () => {
   it("is a local connection's address and the token its grant exchange gave, kept in memory and never in secret storage", async () => {
     const { clock, world: scripted } = world();
-    const platform = inMemoryPlatform({ clock, fetch: scripted.fetch, webSocket: scripted.webSocket, grant: scripted.grant });
+    const platform = inMemoryPlatform({ clock, fetch: scripted.fetch, webSocket: scripted.webSocket, ...(scripted.grant && { grant: scripted.grant }) });
     const runtime = await started(platform);
     const desk = scripted.environment("desk");
 

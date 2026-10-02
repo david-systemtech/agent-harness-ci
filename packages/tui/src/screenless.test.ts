@@ -6,7 +6,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { BOOTSTRAP_GRANT_FILE } from "@agent-harness/contracts";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
-import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
+import { flush, type FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { selectTerminalEnvironment } from "./screenless.js";
 import { selectOn, type SelectionRequest } from "./startup/selection.js";
@@ -163,7 +163,7 @@ describe("the screenless selection", () => {
     });
     // The default account is the setting's: held, the first signed-in account would stand in for it.
     let answerSettings: () => void = () => undefined;
-    const settings = new Promise<{ readonly result: unknown }>((resolve) => {
+    const settings = new Promise<FakeAnswer>((resolve) => {
       answerSettings = () => resolve({ result: { values: { "accounts.defaultAccount": "account-2" } } });
     });
     on.world.environment("desk").wire.answer("settings.get", () => settings);
