@@ -1,4 +1,4 @@
-import { BankDraftQueuedPayload, BankDraftsConsumedPayload } from "./memory-drafts.js";
+import { BankReviewHeldPayload, BankDraftQueuedPayload, BankDraftsConsumedPayload } from "./memory-drafts.js";
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
 import {
@@ -129,6 +129,7 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // The BankService's own events, which the BankRegistry is kept from (#1025); bank.updated is also a notice a client
   // refreshes banks.list and banks.get on.
   "bank.added",
+  "bank.review-held",
   "bank.draft-queued",
   "bank.drafts-consumed",
   "bank.updated",
@@ -229,6 +230,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
   "bank.drafts-consumed": "A landing consumed its queue snapshot; clients refresh banks.drafts.list.",
+  "bank.review-held": "A validated bank change was held for review as an immutable snapshot.",
   "bank.draft-queued": "A session queued a validated draft or retirement; clients refresh banks.drafts.list.",
   "bank.added": "A bank was registered, created or joined; a client refreshes what it caches of the banks.",
   "bank.updated": "A bank's registry settings, sync status or what its BANK.md names changed; a client refreshes what it caches of the banks.",
@@ -590,6 +592,7 @@ export const EnvironmentNotice = z
     ForgeAccountRemoved,
     ForgeOriginMissing,
     describedNotice("bank.drafts-consumed", BankDraftsConsumedPayload, "A landing consumed the queued changes it verified on main."),
+    describedNotice("bank.review-held", BankReviewHeldPayload, "A validated bank change waits for review with its submitted files."),
     describedNotice("bank.draft-queued", BankDraftQueuedPayload, "A session queued a validated draft or retirement for its bank."),
     BankAdded,
     BankUpdated,

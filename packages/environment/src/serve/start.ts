@@ -1,5 +1,4 @@
 import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
-import { createBankLander } from "../banks/lander.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
 import { createMemoryOperations } from "../banks/memory-operations.js";
 import { memoryMethods } from "../banks/memory-methods.js";
@@ -1190,11 +1189,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const seamServers = hostSeams.toolServers ?? noToolServers;
   // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
   // check asks this (#511), since the caller's tools are its request's alone.
-  const bankLander = createBankLander({ log, environmentId: record.id, banks: bankService, forge, clock, scrub,
+  bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankLander.close());
+  closers.push(() => bankService.closeLanding());
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
-  const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: bankLander.promote });
+  const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
   const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.

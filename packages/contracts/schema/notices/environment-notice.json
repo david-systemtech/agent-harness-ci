@@ -2697,6 +2697,155 @@
       "properties": {
         "type": {
           "type": "string",
+          "const": "bank.review-held"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "bankId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+            },
+            "sessionId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "A session's id: a version 4 UUID the creating client mints (never the provider's resume id), kept in lowercase."
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "pullRequest": {
+              "type": "string",
+              "minLength": 1
+            },
+            "number": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "head": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40,64}$"
+            },
+            "writes": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1
+              },
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "drafts": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "draft"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "removePaths": {
+                        "description": "Prior paths of this name removed when the draft moves to a different scope or topic.",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "name",
+                      "path",
+                      "content"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "retire"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "removePaths": {
+                        "description": "Prior paths removed by queued moves of this name.",
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "name",
+                      "path",
+                      "reason"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "required": [
+            "bankId",
+            "sessionId",
+            "pullRequest",
+            "number",
+            "head",
+            "writes",
+            "drafts"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A validated bank change waits for review with its submitted files."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
           "const": "bank.draft-queued"
         },
         "payload": {
@@ -3411,6 +3560,30 @@
                           "properties": {
                             "state": {
                               "type": "string",
+                              "const": "awaiting-review"
+                            },
+                            "pullRequest": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "since": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                              "description": "When this part of the status last changed: never when it was last verified."
+                            }
+                          },
+                          "required": [
+                            "state",
+                            "pullRequest",
+                            "since"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
                               "const": "failed"
                             },
                             "step": {
@@ -3438,7 +3611,7 @@
                           ]
                         }
                       ],
-                      "description": "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why."
+                      "description": "The bank's last landing: ok, awaiting an owner's review, or failed at a step of the Lander, with why."
                     }
                   },
                   "required": [
@@ -4121,6 +4294,30 @@
                       "properties": {
                         "state": {
                           "type": "string",
+                          "const": "awaiting-review"
+                        },
+                        "pullRequest": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "pullRequest",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
                           "const": "failed"
                         },
                         "step": {
@@ -4148,7 +4345,7 @@
                       ]
                     }
                   ],
-                  "description": "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why."
+                  "description": "The bank's last landing: ok, awaiting an owner's review, or failed at a step of the Lander, with why."
                 }
               },
               "required": [
@@ -4556,6 +4753,30 @@
                       "properties": {
                         "state": {
                           "type": "string",
+                          "const": "awaiting-review"
+                        },
+                        "pullRequest": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When this part of the status last changed: never when it was last verified."
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "pullRequest",
+                        "since"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
                           "const": "failed"
                         },
                         "step": {
@@ -4583,7 +4804,7 @@
                       ]
                     }
                   ],
-                  "description": "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why."
+                  "description": "The bank's last landing: ok, awaiting an owner's review, or failed at a step of the Lander, with why."
                 }
               },
               "required": [
@@ -4711,6 +4932,11 @@
             "reason": {
               "type": "string",
               "minLength": 1
+            },
+            "reviewReleased": {
+              "description": "The held review was closed, replaced or failed exact-file verification and was released; drafts remain queued for resubmission.",
+              "type": "boolean",
+              "const": true
             }
           },
           "required": [

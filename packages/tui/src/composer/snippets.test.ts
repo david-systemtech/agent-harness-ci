@@ -91,7 +91,7 @@ describe("Snippets", () => {
     snippets.set("two", "b");
     await snippets.flush();
 
-    expect(await readdir(dir)).toEqual(["snippets.json"]);
+    expect(await readdir(dir)).toEqual(["snippets.json", "terminal-state.sqlite"]);
     expect((await stored()).version).toBe(1);
   });
 
