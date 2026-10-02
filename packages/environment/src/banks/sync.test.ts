@@ -10,7 +10,9 @@ import { startFakeForge } from "../../test/fake-forge.js";
 import { added, DAVID, TOKEN } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
-import { create } from "../../test/sessions.js";
+import { create, workspace } from "../../test/sessions.js";
+import { fakeAdapter } from "../../test/fake-adapter.js";
+import { autoMemoryName } from "../workspace/auto-memory.js";
 import type { ForgeGitRequest } from "../forge/harness-git.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { composeInstructions } from "../instructions/composer.js";
@@ -355,4 +357,26 @@ describe("idle sync", () => {
     expect(observed.requests).toHaveLength(3);
     expect(restarted.adapter.runs).toEqual([]);
   });
+});
+
+
+it("rewrites a repository's shared memory block when a bank sync changes its head", async () => {
+  const adapter = fakeAdapter({ provider: "claude" });
+  const { t, client, bank, remote } = await start({ adapter, accounts: [{ id: "claude-max", provider: "claude" }] });
+  const { id } = await create(client);
+  await client.request("instructions.preview", { sessionId: id });
+  const memory = join(t.dataDir, "auto-memory", autoMemoryName({ workspace, repositoryIdentity: null }), "MEMORY.md");
+  expect(readFileSync(memory, "utf8")).toContain("Maya Reyes's private memory");
+  writeFileSync(join(remote, "BANK.md"), PERSONAL_BANK["BANK.md"]!.replace("private memory", "synced memory"));
+  git(remote, "add", "BANK.md");
+  git(remote, "commit", "--quiet", "-m", "Refresh the bank purpose.");
+  const after = t.env.log.head();
+  await pull(client, bank);
+  await until(() => expect(readFileSync(memory, "utf8")).toContain("Maya Reyes's synced memory"));
+  expect(events(t, after).some((event) => event.type === "bank.synced")).toBe(true);
+  const unchanged = readFileSync(memory, "utf8");
+  const next = t.env.log.head();
+  await pull(client, bank);
+  expect(events(t, next).some((event) => event.type === "bank.synced")).toBe(false);
+  expect(readFileSync(memory, "utf8")).toBe(unchanged);
 });
