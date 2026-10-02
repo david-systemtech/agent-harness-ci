@@ -1,3 +1,4 @@
+import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 import { SessionBankUsedPayload } from "./bank-use.js";
 import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, BankReviewHeldPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
@@ -25,13 +26,17 @@ import {
   StateImportClientLocal,
   StateImportDataFolder,
   StateImportDetection,
+  StateImportEventType,
   StateImportFailure,
   StateImportFinishedPayload,
   StateImportHoldings,
+  StateImportItemCarriedPayload,
+  StateImportItemKind,
   StateImportLater,
   StateImportNotCarried,
   StateImportReEnter,
   StateImportReport,
+  StateImportStartedPayload,
   StateImportTerminalFolder,
 } from "./state-import.js";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, AccessEventType, ClientSessionOrigin, RevocationReason } from "./access-log.js";
@@ -1065,6 +1070,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/migration-choices.json", title: "BankMigrationChoices", schema: BankMigrationChoices },
+  { path: "banks/migration-report.json", title: "BankMigrationReport", schema: BankMigrationReport },
   { path: "banks/split-pointer.json", title: "BankSplitPointer", schema: BankSplitPointer },
   { path: "banks/split-topics.json", title: "BankSplitTopics", schema: BankSplitTopics },
   { path: "banks/split-proposal.json", title: "BankSplitProposal", schema: BankSplitProposal },
@@ -1382,6 +1389,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "state-import/client-local.json", title: "StateImportClientLocal", schema: StateImportClientLocal },
   { path: "state-import/notices/state-import.finished.json", title: "StateImportFinishedPayload", schema: StateImportFinishedPayload },
   { path: "state-import/report.json", title: "StateImportReport", schema: StateImportReport },
+  { path: "state-import/event-type.json", title: "StateImportEventType", schema: StateImportEventType },
+  { path: "state-import/item-kind.json", title: "StateImportItemKind", schema: StateImportItemKind },
+  { path: "state-import/events/state-import.started.json", title: "StateImportStartedPayload", schema: StateImportStartedPayload },
+  { path: "state-import/events/state-import.item-carried.json", title: "StateImportItemCarriedPayload", schema: StateImportItemCarriedPayload },
   { path: "checks/check-command.json", title: "CheckCommand", schema: CheckCommand },
   { path: "checks/workspace-check.json", title: "WorkspaceCheck", schema: WorkspaceCheck },
   { path: "checks/check-failure.json", title: "CheckFailure", schema: CheckFailure },

@@ -1,0 +1,815 @@
+/**
+ * This module's promise has two halves, and they fail in different ways, so
+ * they are tested differently.
+ *
+ * The recogniser is a table: a string in, a list of segments out, and every
+ * interesting case is a line. Most of the lines are about *not* firing — a
+ * `--soft` reset, an `>>` append, a `git checkout` that moves a branch — because
+ * a card that warns about everything is a card people learn to click through,
+ * and a false positive is the failure mode that costs the feature its point.
+ *
+ * The previews run against a real temporary tree wherever the thing being
+ * checked is arithmetic about a filesystem: a glob that has to skip dotfiles,
+ * a directory counted recursively, a size read off a file. The caps are the
+ * exception, where 2500 files would be built to prove a number, so those use a
+ * `Map` standing in for the disk — which doubles as the check that the injected
+ * `deps` really are the only way this module reaches a filesystem.
+ *
+ * And then the rule the whole module exists to keep: it must never run the
+ * command it is previewing. That is checked twice over. Once at the boundary,
+ * by pinning {@link assertReadOnly} and {@link cleanArgv} directly. Once from
+ * the outside, by driving every git verb through a fake `execFile` that records
+ * each argv, and judging what it recorded against a rule this file writes out
+ * itself rather than importing — because a test that asks the implementation
+ * what counts as safe would agree with any bug it contained.
+ */
+
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { afterAll, describe, expect, it } from 'vitest';
+
+import {
+  BLAST_TIMEOUT_MS,
+  MAX_ENTRIES,
+  assertReadOnly,
+  blastRadiusLines,
+  cleanArgv,
+  destructiveParts,
+  networkLines,
+  nodeBlastDeps,
+  previewBlastRadius,
+  type BlastRadiusDeps,
+  type Destructive,
+  type DirEntry,
+  type Preview,
+} from './command-preview.js';
+
+// ---------------------------------------------------------------------------
+// A disk, and a git that is only ever asked questions
+// ---------------------------------------------------------------------------
+
+const temporaries: string[] = [];
+afterAll(async () => {
+  for (const directory of temporaries) await rm(directory, { recursive: true, force: true });
+});
+
+/**
+ * A small tree, rebuilt per test.
+ *
+ * It has the four things the glob expander has to get right: nesting, a
+ * dotfile, a directory whose name is not a match, and a file literally called
+ * `*`, which is the only way to tell an expanded pattern from a quoted one.
+ */
+async function tree(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'command-preview-'));
+  temporaries.push(root);
+  await mkdir(join(root, 'build', 'nested', 'deep'), { recursive: true });
+  await mkdir(join(root, 'src'), { recursive: true });
+  await mkdir(join(root, '.cache'), { recursive: true });
+  // Windows cannot name a file `*`, so the tree has no such file there and the
+  // one test that needs it is skipped on that platform.
+  const names = ['build/a.js', 'build/b.js', 'build/nested/c.js', 'build/nested/deep/d.js', 'src/a.ts', 'src/b.ts', 'keep.txt', '.dotfile'];
+  if (process.platform !== 'win32') names.push('*');
+  for (const path of names) {
+    await writeFile(join(root, path), 'x');
+  }
+  await writeFile(join(root, 'log.txt'), 'hello world');
+  await writeFile(join(root, 'empty.txt'), '');
+  return root;
+}
+
+interface Call {
+  readonly file: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly timeout: number;
+}
+
+/** A `git` that answers from a table and remembers every question. */
+function recorder(replies: Readonly<Record<string, string>> = {}): { readonly execFile: BlastRadiusDeps['execFile']; readonly calls: readonly Call[] } {
+  const calls: Call[] = [];
+  return {
+    calls,
+    execFile: async (file, args, options) => {
+      calls.push({ file, args: [...args], cwd: options.cwd, timeout: options.timeout });
+      const key = [file, ...args].join(' ');
+      const reply = replies[key];
+      if (reply === undefined) throw new Error(`nothing canned for: ${key}`);
+      return reply;
+    },
+  };
+}
+
+/** A filesystem made of a `Map`, for the cases where building one would be absurd. */
+function fakeDisk(directories: ReadonlyMap<string, readonly DirEntry[]>): BlastRadiusDeps {
+  return {
+    execFile: async (file) => {
+      throw new Error(`previewing rm must not run ${file}`);
+    },
+    // Keys are resolved on both sides, so `/w` and `\\w` and `D:\\w` are one
+    // directory whatever the host's separator and drive letter make of them.
+    readdir: async (path) => {
+      const entries = directories.get(resolve(path));
+      if (entries === undefined) throw new Error(`not a directory: ${path}`);
+      return entries;
+    },
+    stat: async (path) => ({ size: 0, directory: directories.has(resolve(path)) }),
+    timeoutMs: BLAST_TIMEOUT_MS,
+  };
+}
+
+const kinds = (command: string): readonly string[] => destructiveParts(command).map((part) => part.kind);
+
+const only = async (command: string, cwd: string, deps: Partial<BlastRadiusDeps> = {}): Promise<Preview> => {
+  const previews = await previewBlastRadius(destructiveParts(command), cwd, deps);
+  const first = previews[0];
+  if (first === undefined) throw new Error(`no preview for: ${command}`);
+  return first;
+};
+
+it('reports unresolved substitutions instead of claiming nothing would be deleted', async () => {
+  const root = await tree();
+  for (const command of ['rm -rf `ls`', 'rm -rf ${TARGET}', 'rm -rf "$(ls)"']) {
+    expect((await only(command, root)).summary).toContain('cannot tell:');
+  }
+  await writeFile(join(root, 'afoo'), 'keep');
+  expect(await only("rm *'foo'", root)).toMatchObject({ summary: '1 file', lines: ['afoo'] });
+});
+
+it.skipIf(process.platform === 'win32')('matches shell bracket classes with a leading closing bracket and literal empty classes', async () => {
+  const root = await tree();
+  for (const name of ['x', ']', 'foo[]']) await writeFile(join(root, name), 'keep');
+  expect(await only('rm []x]', root)).toMatchObject({ summary: '2 files', lines: [']', 'x'] });
+  expect(await only('rm foo[]', root)).toMatchObject({ summary: '1 file', lines: ['foo[]'] });
+  expect(await only('rm [!]]', root)).toMatchObject({ summary: '2 files', lines: ['*', 'x'] });
+});
+
+it('reports locale-sensitive character classes as unavailable rather than an empty match', async () => {
+  const root = await tree();
+  expect((await only('rm [[:alpha:]]', root)).summary).toBe('could not preview: locale-sensitive character classes need the shell');
+});
+
+// ===========================================================================
+
+describe('reading a command line', () => {
+  it('does not mistake read-write redirection for truncation', () => {
+    expect(destructiveParts('cat <> log.txt')).toEqual([]);
+    expect(destructiveParts('cat 3<>log.txt')).toEqual([]);
+    expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
+  });
+  it('warns about command substitutions in unquoted heredocs without parsing their bodies as commands', async () => {
+    expect((await only('cat <<EOF\n$(rm -rf build)\nEOF', '/repo')).summary).toBe('cannot tell: command substitution in a here-document needs the shell');
+    expect(kinds("cat <<'EOF'\n$(rm -rf build)\nEOF")).toEqual([]);
+  });
+  it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
+    const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
+    expect(destructiveParts(command).map((part) => ({ kind: part.kind, targets: part.targets }))).toEqual([
+      { kind: 'truncate-redirect', targets: ['log.txt'] }, { kind: 'rm', targets: ['build'] },
+    ]);
+    expect(networkLines(command)).toEqual([]);
+    expect(kinds('cat <<-EOF\n\trm -rf build\n\tEOF\nrm src/a.ts')).toEqual(['rm']);
+    expect(destructiveParts('cat <<A <<B\nrm a\nA\nrm b\nB\nrm keep.txt')[0]?.targets).toEqual(['keep.txt']);
+    expect(kinds('cat <<< "rm -rf build"')).toEqual([]);
+  });
+  it('leaves git clean dry runs out of destructive previews', () => {
+    for (const command of ['git clean -n', 'git clean -nd', 'git clean -fdn', 'git clean --dry-run -d']) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('finds the command after xargs options with separate values', () => {
+    for (const option of ['-n 1', '-P 4', '-L 1', '-a list', '--max-args 1', '--delimiter ,']) {
+      expect(destructiveParts(`xargs ${option} rm -rf build`)[0]).toMatchObject({ kind: 'rm', targets: ['build'] });
+    }
+  });
+
+  it('warns when xargs supplies removal targets through input without inventing filenames', async () => {
+    const disk = recorder();
+    const command = 'find . -type f | xargs -n 1 rm';
+    expect(kinds(command)).toEqual(['input-targets']);
+    expect(await only(command, '/repo', disk)).toMatchObject({ summary: 'cannot tell: xargs supplies destructive targets from input', lines: [] });
+    expect(disk.calls).toEqual([]);
+    expect(destructiveParts('xargs echo')).toEqual([]);
+  });
+  it('preserves which glob characters were quoted within a word', () => {
+    expect(destructiveParts("rm *'foo'")[0]?.targets).toEqual(['*foo']);
+    expect(destructiveParts("rm '*'foo")[0]?.targets).toEqual(['\\*foo']);
+  });
+  it('keeps a quoted path whole, and a quoted glob literal', () => {
+    expect(destructiveParts('rm "my notes.txt" \'a b\'')[0]?.targets).toEqual(['my notes.txt', 'a b']);
+    // The escape is how a quoted `*` survives as a filename rather than a pattern.
+    expect(destructiveParts("rm '*'")[0]?.targets).toEqual(['\\*']);
+    expect(destructiveParts('rm *')[0]?.targets).toEqual(['*']);
+    expect(destructiveParts('rm my\\ file')[0]?.targets).toEqual(['my file']);
+  });
+
+  it('finds the rm on the far side of &&, ||, ; and a pipe', () => {
+    expect(destructiveParts('npm ci && rm -rf node_modules')[0]).toMatchObject({ text: 'rm -rf node_modules', targets: ['node_modules'] });
+    expect(destructiveParts('test -d tmp || rm -r tmp')[0]?.targets).toEqual(['tmp']);
+    expect(destructiveParts('rm a; rm b').map((part) => part.targets)).toEqual([['a'], ['b']]);
+    expect(kinds('ls | rm x')).toEqual(['rm']);
+    expect(destructiveParts('cd /tmp\nrm -rf junk')[0]?.text).toBe('rm -rf junk');
+  });
+
+  it('reads nothing out of a comment', () => {
+    expect(destructiveParts('echo hi # rm -rf /')).toEqual([]);
+    expect(destructiveParts('# rm -rf /\nls')).toEqual([]);
+    // A `#` in the middle of a word is part of the word, not a comment.
+    expect(destructiveParts('rm note#1.txt')[0]?.targets).toEqual(['note#1.txt']);
+  });
+
+  it('takes a redirect target for a redirect and not an operand', () => {
+    expect(destructiveParts('rm foo > log.txt')).toEqual([
+      { kind: 'rm', text: 'rm foo > log.txt', targets: ['foo'], flags: [] },
+      { kind: 'truncate-redirect', text: 'rm foo > log.txt', targets: ['log.txt'], flags: [] },
+    ]);
+    // The `2` is a file descriptor, so it must not join `rm`'s operands.
+    expect(destructiveParts('rm foo 2> err.log')[0]?.targets).toEqual(['foo']);
+    expect(destructiveParts('cat a < b')).toEqual([]);
+  });
+});
+
+describe('the verbs it knows', () => {
+  it('recognises rm with any flags, and notes them', () => {
+    expect(destructiveParts('rm -rf build dist')[0]).toEqual({ kind: 'rm', text: 'rm -rf build dist', targets: ['build', 'dist'], flags: ['-rf'] });
+    // A plain delete of one named file is still a delete.
+    expect(destructiveParts('rm notes.txt')[0]).toMatchObject({ kind: 'rm', flags: [] });
+    expect(destructiveParts('rm -- -weird')[0]?.targets).toEqual(['-weird']);
+    expect(destructiveParts('rm')).toEqual([]);
+  });
+
+  it('recognises git clean, folding an exclusion into one word', () => {
+    expect(destructiveParts('git clean -fdx -e node_modules -- src')[0]).toEqual({
+      kind: 'git-clean',
+      text: 'git clean -fdx -e node_modules -- src',
+      targets: ['src'],
+      flags: ['-fdx', '--exclude=node_modules'],
+    });
+    expect(destructiveParts('git clean --exclude build -f')[0]?.flags).toEqual(['--exclude=build', '-f']);
+  });
+
+  it('recognises git reset --hard and leaves the other resets alone', () => {
+    expect(destructiveParts('git reset --hard origin/main')[0]).toMatchObject({ kind: 'git-reset-hard', targets: ['origin/main'], flags: ['--hard'] });
+    expect(destructiveParts('git reset --soft HEAD~1')).toEqual([]);
+    expect(destructiveParts('git reset')).toEqual([]);
+  });
+
+  it('recognises the three ways to force a push, and not a plain one', () => {
+    expect(kinds('git push --force origin main')).toEqual(['git-push-force']);
+    expect(kinds('git push -f')).toEqual(['git-push-force']);
+    expect(kinds('git push --force-with-lease=main:abc123 origin main')).toEqual(['git-push-force']);
+    expect(destructiveParts('git push --force origin main')[0]?.targets).toEqual(['origin', 'main']);
+    expect(destructiveParts('git push origin main')).toEqual([]);
+    // git's own options come before the subcommand and must not hide it.
+    expect(kinds('git -C /srv/repo push -f')).toEqual(['git-push-force']);
+  });
+
+  it('warns about forced refspecs and remote deletion without contacting the remote', async () => {
+    const disk = recorder();
+    expect(kinds('git push origin +main')).toEqual(['git-push-force']);
+    expect((await only('git push origin +main', '/repo', disk)).summary).toContain('forced refspec');
+    for (const command of ['git push origin :main', 'git push origin --delete main', 'git push -d origin main']) {
+      expect(kinds(command)).toEqual(['git-push-delete']);
+      expect(await only(command, '/repo', disk)).toMatchObject({ summary: 'remote ref deletion requested; commits may become unreachable', lines: ['main'] });
+    }
+    expect(disk.calls).toEqual([]);
+  });
+
+  it('recognises the discarding forms of checkout and restore only', () => {
+    expect(destructiveParts('git checkout -- src/a.ts src/b.ts')[0]).toMatchObject({ kind: 'git-checkout-discard', targets: ['src/a.ts', 'src/b.ts'] });
+    expect(destructiveParts('git restore src/a.ts')[0]).toMatchObject({ kind: 'git-checkout-discard', targets: ['src/a.ts'] });
+    // Moving to a branch is not discarding, and `--staged` leaves the work tree alone.
+    expect(destructiveParts('git checkout main')).toEqual([]);
+    expect(destructiveParts('git checkout -b feature')).toEqual([]);
+    expect(destructiveParts('git restore --staged src/a.ts')).toEqual([]);
+    expect(kinds('git restore --staged --worktree src/a.ts')).toEqual(['git-checkout-discard']);
+  });
+
+  it('previews path checkout without a separator and warns about forced branch checkout', async () => {
+    const disk = recorder({ 'git diff --name-only --relative': 'src/a.ts\n' });
+    expect(await only('git checkout .', '/repo', disk)).toMatchObject({ summary: '1 of 1 path would lose local changes' });
+    expect(await only('git checkout src/a.ts', '/repo', disk)).toMatchObject({ lines: ['src/a.ts — local changes would be lost'] });
+    expect((await only('git checkout -f main', '/repo', disk)).summary).toContain('forced checkout');
+    expect(kinds('git checkout --force main')).toEqual(['git-checkout-discard']);
+    expect((await only('git checkout src/*.ts', '/repo', disk)).summary).toContain('cannot tell:');
+  });
+
+  it('recognises git branch -D and leaves -d alone', () => {
+    expect(destructiveParts('git branch -D feature old')[0]).toMatchObject({ kind: 'git-branch-delete', targets: ['feature', 'old'], flags: ['-D'] });
+    expect(kinds('git branch --delete --force feature')).toEqual(['git-branch-delete']);
+    // `-d` refuses to drop an unmerged branch, so it destroys nothing git kept.
+    expect(destructiveParts('git branch -d feature')).toEqual([]);
+    expect(destructiveParts('git branch -a')).toEqual([]);
+  });
+
+  it('decodes clustered Git flags without consuming attached branch names as flags', () => {
+    for (const command of ['git branch -df feature', 'git branch -Df feature', 'git branch -fd feature']) expect(kinds(command)).toEqual(['git-branch-delete']);
+    expect(kinds('git branch -vd feature')).toEqual([]);
+    expect(kinds('git checkout -fb feature')).toEqual(['git-checkout-discard']);
+    expect(kinds('git checkout -bfeature')).toEqual([]);
+    expect(kinds('git push -fu origin main')).toEqual(['git-push-force']);
+    expect(kinds('git restore -SW src/a.ts')).toEqual(['git-checkout-discard']);
+  });
+
+  it('recognises a DROP inside psql -c and mysql -e', () => {
+    expect(destructiveParts('psql -c "DROP TABLE users, orders CASCADE;"')[0]).toMatchObject({ kind: 'drop', targets: ['users', 'orders'], flags: ['table'] });
+    expect(destructiveParts("mysql -e 'drop database if exists shop'")[0]).toMatchObject({ kind: 'drop', targets: ['shop'], flags: ['database'] });
+    expect(destructiveParts('psql --command="DROP TABLE a"')[0]?.targets).toEqual(['a']);
+    expect(destructiveParts('psql -c "SELECT * FROM users"')).toEqual([]);
+  });
+
+  it('recognises a truncating redirect and leaves an append alone', () => {
+    expect(destructiveParts('echo hi > notes.txt')[0]).toMatchObject({ kind: 'truncate-redirect', targets: ['notes.txt'] });
+    expect(destructiveParts('echo hi >> notes.txt')).toEqual([]);
+    // Nobody loses anything down /dev/null.
+    expect(destructiveParts('make > /dev/null')).toEqual([]);
+  });
+
+  it('recognises chmod -R, find -delete and find -exec rm', () => {
+    expect(destructiveParts('chmod -R 777 /srv/app')[0]).toMatchObject({ kind: 'chmod-recursive', targets: ['/srv/app'], flags: ['-R'] });
+    expect(destructiveParts('chmod 777 /srv/app')).toEqual([]);
+    expect(destructiveParts('find . -name "*.log" -delete')[0]).toMatchObject({ kind: 'find-delete', targets: ['.'], flags: ['-delete'] });
+    expect(destructiveParts('find build tmp -type f -exec rm -f {} +')[0]).toMatchObject({ kind: 'find-delete', targets: ['build', 'tmp'] });
+    expect(destructiveParts('find . -name "*.log" -print')).toEqual([]);
+  });
+
+  it('sees through sudo, env and a leading assignment', () => {
+    expect(destructiveParts('sudo rm -rf /var/cache/x')[0]?.targets).toEqual(['/var/cache/x']);
+    expect(destructiveParts('env -u HOME rm x')[0]?.targets).toEqual(['x']);
+    expect(destructiveParts('FOO=bar rm x')[0]?.targets).toEqual(['x']);
+    expect(destructiveParts('/bin/rm x')[0]?.targets).toEqual(['x']);
+  });
+
+  it('yields nothing for a command that destroys nothing', () => {
+    for (const command of [
+      'ls -la',
+      'pnpm install && pnpm test',
+      'git status --porcelain',
+      'git commit -m "rm -rf build"',
+      'echo "rm -rf /"',
+      'grep -rn "rm" src/',
+      'cat a.txt | wc -l',
+      'mkdir -p build',
+      '',
+      '   ',
+    ]) {
+      expect(destructiveParts(command), command).toEqual([]);
+    }
+  });
+});
+
+describe('previewing rm against a directory', () => {
+  it.each(['EACCES', 'EIO'])('reports unavailable inspection (%s) even after finding another target', async (code) => {
+    const root = await tree();
+    for (const command of ['rm log.txt', 'rm keep.txt log.txt', 'rm *.txt']) {
+      expect(await only(command, root, {
+        stat: async (path) => {
+          if (path === join(root, 'log.txt')) throw Object.assign(new Error('Cannot inspect target'), { code });
+          return nodeBlastDeps.stat(path);
+        },
+      })).toMatchObject({ summary: 'could not preview: Cannot inspect target', lines: [] });
+    }
+  });
+
+  it.each(['EACCES', 'EIO'])('reports an unavailable directory read (%s) instead of an empty glob', async (code) => {
+    const root = await tree();
+    expect(await only('rm *', root, {
+      readdir: async () => { throw { code }; },
+    })).toMatchObject({ summary: expect.stringContaining('could not preview:'), lines: [] });
+  });
+
+  it.each(['EACCES', 'EIO'])('discards partial glob and recursive counts when a nested read fails (%s)', async (code) => {
+    const root = await tree();
+    for (const command of ['rm build/**/*.js', 'rm -rf build', 'chmod -R 700 build', 'find build -delete']) {
+      const preview = await only(command, root, {
+        readdir: async (path) => {
+          if (path === join(root, 'build', 'nested')) throw Object.assign(new Error('Cannot read nested directory'), { code });
+          return nodeBlastDeps.readdir(path);
+        },
+      });
+      expect(preview).toMatchObject({ summary: 'could not preview: Cannot read nested directory', lines: [] });
+      expect(preview.count).toBeUndefined();
+    }
+  });
+
+  it('does not treat filesystem errors without an absence code as missing', async () => {
+    const root = await tree();
+    expect(await only('rm *', root, {
+      readdir: async () => { throw new Error('Unknown directory failure'); },
+    })).toMatchObject({ summary: 'could not preview: Unknown directory failure', lines: [] });
+    expect(await only('rm log.txt', root, {
+      stat: async () => { throw new Error('Unknown inspection failure'); },
+    })).toMatchObject({ summary: 'could not preview: Unknown inspection failure', lines: [] });
+  });
+
+  it.each(['ENOENT', 'ENOTDIR'])('retains an empty target for absent path components (%s)', async (code) => {
+    const root = await tree();
+    const missing = async (): Promise<never> => { throw { code }; };
+    for (const command of ['rm missing.txt', 'rm missing/*.txt']) {
+      expect(await only(command, root, { stat: missing, readdir: missing })).toMatchObject({
+        summary: 'nothing matching is there, so nothing would be deleted', lines: [], count: 0,
+      });
+    }
+  });
+
+  it('expands a glob one level deep and lists what it matched', async () => {
+    const root = await tree();
+    expect(await only('rm build/*.js', root)).toMatchObject({ kind: 'rm', summary: '2 files', lines: ['build/a.js', 'build/b.js'], count: 2 });
+  });
+
+  it('counts a directory recursively, and counts nothing twice', async () => {
+    const root = await tree();
+    expect(await only('rm -rf build', root)).toMatchObject({ summary: '1 directory (4 files inside)', lines: ['build/'], count: 1, truncated: false });
+    // The file is inside the directory, so it is one blast and not two.
+    expect(await only('rm -rf build build/a.js', root)).toMatchObject({ summary: '1 directory (4 files inside)', lines: ['build/'] });
+  });
+
+  it('expands **, {a,b} and ? without a shell', async () => {
+    const root = await tree();
+    expect(await only('rm build/**/*.js', root)).toMatchObject({
+      summary: '4 files',
+      lines: ['build/a.js', 'build/b.js', 'build/nested/c.js', 'build/nested/deep/d.js'],
+    });
+    expect(await only('rm src/{a,b}.ts', root)).toMatchObject({ summary: '2 files', lines: ['src/a.ts', 'src/b.ts'] });
+    expect(await only('rm src/?.ts', root)).toMatchObject({ summary: '2 files' });
+  });
+
+  it('does not claim brace sequences are empty and keeps quoted braces literal', async () => {
+    const root = await tree();
+    await writeFile(join(root, 'build', '1'), 'keep');
+    expect((await only('rm build/{1..10}', root)).summary).toContain('could not preview:');
+    expect((await only('rm build/{a..z}', root)).summary).toContain('could not preview:');
+    await writeFile(join(root, '{1..10}'), 'keep');
+    expect(await only("rm '{1..10}'", root)).toMatchObject({ summary: '1 file', lines: ['{1..10}'] });
+  });
+
+  it.skipIf(process.platform === 'win32')('leaves the dotfiles out of a bare star, and reads a quoted one as a filename', async () => {
+    const root = await tree();
+    const star = await only('rm -rf *', root);
+    expect(star.summary).toBe('4 files and 2 directories (6 files inside)');
+    expect(star.lines).not.toContain('.dotfile');
+    expect(star.lines).not.toContain('.cache/');
+    expect(star.lines).toContain('*');
+    // Quoted, it is the one file with that name and nothing else.
+    expect(await only("rm '*'", root)).toMatchObject({ summary: '1 file', lines: ['*'], count: 1 });
+  });
+
+  it('says nothing is there when nothing matches', async () => {
+    const root = await tree();
+    expect(await only('rm -rf nope.txt', root)).toMatchObject({ summary: 'nothing matching is there, so nothing would be deleted', count: 0 });
+    expect(await only('rm -rf build/*.ts', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf nope/*.txt', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf keep.txt/child', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf keep.txt/*.txt', root)).toMatchObject({ count: 0 });
+  });
+
+  it('names a path it cannot expand rather than calling it empty', async () => {
+    const root = await tree();
+    // Claiming "nothing would be deleted" about `rm -rf ~/work` is the one
+    // failure worse than saying nothing at all.
+    expect(await only('rm -rf ~/work', root)).toMatchObject({
+      summary: 'cannot tell: 1 path needs the shell to expand',
+      lines: ['~/work — needs the shell to expand'],
+    });
+    expect((await only('rm -rf $BUILD_DIR keep.txt', root)).summary).toBe('1 file, and 1 path the shell would have to expand');
+  });
+
+  it('reports unknown instead of a total when glob matching or depth is capped', async () => {
+    const flat = fakeDisk(new Map([[resolve('/w'), Array.from({ length: 1000 }, (_, index) => ({ name: `f${String(index)}.txt`, directory: false }))]]));
+    for (const command of ['rm *', 'chmod -R 700 *', 'find * -delete', 'shred *']) {
+      const preview = await only(command, '/w', flat);
+      expect(preview.summary).toContain('could not preview:');
+      expect(preview.count).toBeUndefined();
+    }
+    const nested = new Map<string, readonly DirEntry[]>();
+    let path = resolve('/w');
+    for (let depth = 0; depth < 30; depth++) {
+      nested.set(path, [{ name: 'deep', directory: true }]);
+      path = join(path, 'deep');
+    }
+    nested.set(path, [{ name: 'keep.txt', directory: false }]);
+    expect((await only('rm **/*.txt', '/w', fakeDisk(nested))).summary).toContain('could not preview:');
+  });
+
+  it('stops counting at the cap and says the count is a floor', async () => {
+    const directories = new Map<string, readonly DirEntry[]>([
+      [resolve('/w'), [{ name: 'big', directory: true }]],
+      [resolve('/w', 'big'), Array.from({ length: MAX_ENTRIES + 500 }, (_, index) => ({ name: `f${String(index)}.txt`, directory: false }))],
+    ]);
+    const preview = await only('rm -rf big', '/w', fakeDisk(directories));
+    expect(preview.summary).toBe(`1 directory (${String(MAX_ENTRIES)}+ files inside)`);
+    expect(preview.truncated).toBe(true);
+  });
+});
+
+describe('previewing the things that are not rm', () => {
+  it('previews Bash combined-output redirects without treating descriptor duplication as a file', async () => {
+    const root = await tree();
+    expect(await only('echo hi >& log.txt', root)).toMatchObject({ summary: 'log.txt would be emptied, throwing away 11 B' });
+    expect(await only('echo hi 1>&log.txt', root)).toMatchObject({ kind: 'truncate-redirect' });
+    for (const command of ['echo hi >&2', 'echo hi 2>&1', 'echo hi >&-', 'echo hi 2>&log.txt']) expect(destructiveParts(command)).toEqual([]);
+  });
+  it('expands destructive glob operands for chmod, find and shred', async () => {
+    const root = await tree();
+    expect(await only('chmod -R 777 src/*.ts', root)).toMatchObject({ summary: 'chmod -R would change the mode of 2 entries' });
+    expect(await only('find src/*.ts -delete', root)).toMatchObject({ summary: 'find would walk 2 entries and delete every match' });
+    expect(await only('shred src/*.ts', root)).toMatchObject({ summary: 'no dry run for this one; it would overwrite 2 paths', lines: ['src/a.ts — 1 B', 'src/b.ts — 1 B'] });
+    expect((await only('chmod -R 777 $TARGET', root)).summary).toContain('cannot tell:');
+  });
+  it('previews a single glob redirect and reports ambiguous or unresolved targets', async () => {
+    const root = await tree();
+    expect(await only('echo hi > *.txt', root)).toMatchObject({ summary: 'cannot tell: redirect glob does not resolve to exactly one path' });
+    expect(await only('echo hi > l*.txt', root)).toMatchObject({ summary: 'log.txt would be emptied, throwing away 11 B' });
+    expect((await only('echo hi > $LOG', root)).summary).toContain('cannot tell:');
+    expect((await only('echo hi > `pwd`', root)).summary).toContain('cannot tell:');
+  });
+  it('reports the size a redirect would throw away, and says nothing when there is none', async () => {
+    const root = await tree();
+    expect(await only('echo hi > log.txt', root)).toMatchObject({ kind: 'truncate-redirect', summary: 'log.txt would be emptied, throwing away 11 B' });
+    // Creating a file, or emptying an empty one, destroys nothing.
+    expect(await previewBlastRadius(destructiveParts('echo hi > missing.txt'), root)).toEqual([]);
+    expect(await previewBlastRadius(destructiveParts('echo hi > empty.txt'), root)).toEqual([]);
+  });
+
+  it('counts the entries under a chmod -R and a find -delete', async () => {
+    const root = await tree();
+    expect(await only('chmod -R 755 build', root)).toMatchObject({ summary: 'chmod -R would change the mode of 6 entries', lines: ['build — 6 entries'] });
+    expect(await only('find src -type f -delete', root)).toMatchObject({ summary: 'find would walk 2 entries and delete every match' });
+  });
+
+  it('names the objects a DROP would take, and reads no disk to do it', async () => {
+    const { execFile, calls } = recorder();
+    const preview = await only('psql -c "DROP TABLE users, orders"', '/repo', { execFile });
+    expect(preview).toMatchObject({ kind: 'drop', summary: 'would drop 2 tables', lines: ['users', 'orders'] });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('previewing git, with git standing in', () => {
+  it('runs git clean with -n and repeats the paths it printed', async () => {
+    const { execFile, calls } = recorder({ 'git clean -n -d -x --exclude=node_modules': 'Would remove dist/\nWould remove tmp.log\n' });
+    expect(await only('git clean -fdx -e node_modules', '/repo', { execFile })).toMatchObject({
+      kind: 'git-clean',
+      summary: 'git clean would remove 2 paths',
+      lines: ['dist/', 'tmp.log'],
+      count: 2,
+    });
+    expect(calls).toEqual([{ file: 'git', args: ['clean', '-n', '-d', '-x', '--exclude=node_modules'], cwd: '/repo', timeout: BLAST_TIMEOUT_MS }]);
+  });
+
+  it('says git clean would remove nothing when it printed nothing', async () => {
+    const { execFile } = recorder({ 'git clean -n': '' });
+    expect(await only('git clean -f', '/repo', { execFile })).toMatchObject({ summary: 'git clean would remove nothing', count: 0 });
+  });
+
+  it('counts what a reset --hard would lose and names where it would land', async () => {
+    const replies = { 'git status --porcelain': ' M a.ts\nA  added.ts\n?? b.ts\n', 'git log --oneline -1': 'abc1234 the last commit\n' };
+    expect(await only('git reset --hard origin/main', '/repo', recorder(replies))).toMatchObject({
+      summary: 'cannot tell how reset to origin/main would change committed files and commit reachability; 2 uncommitted changes would be lost, back to origin/main — currently abc1234 the last commit; untracked paths may be overwritten if they obstruct the reset',
+      lines: [' M a.ts', 'A  added.ts'],
+      count: 2,
+    });
+    expect((await only('git reset --hard', '/repo', recorder({ ...replies, 'git status --porcelain': '' }))).summary).toBe(
+      'no tracked changes reported, back to abc1234 the last commit',
+    );
+  });
+
+  it('reports uncertainty about committed files and reachability for a named hard-reset target', async () => {
+    const disk = recorder({ 'git status --porcelain': '', 'git log --oneline -1': 'abc1234 current commit\n' });
+    const preview = await only('git reset --hard HEAD~1', '/repo', disk);
+    expect(preview.summary).toMatch(/^cannot tell/);
+    expect(preview.summary).toContain('committed files and commit reachability');
+  });
+
+  it('keeps the reset untracked warning separate from the truncated tracked-change count', async () => {
+    const status = [...Array.from({ length: 21 }, (_, at) => ` M file-${at}`), '?? untracked'].join('\n');
+    const preview = await only('git reset --hard', '/repo', recorder({ 'git status --porcelain': status, 'git log --oneline -1': '' }));
+    expect(preview.summary).toContain('untracked paths may be overwritten');
+    expect(preview.lines).toHaveLength(20);
+    expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
+  });
+
+  it('names branch, remote and the commits an implicit force push would discard', async () => {
+    const { execFile } = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\norigin\tgit@github.com:a/b.git (push)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    const preview = await only('git push --force', '/repo', { execFile });
+    expect(preview.summary).toBe('force-push feature to origin: would discard 3 remote commits');
+    expect(preview.lines[0]).toBe('upstream: origin/feature');
+  });
+
+  it.each([
+    ['git push --force origin main', ['main']],
+    ['git push -f origin main:release', ['main:release']],
+    ['git push --force-with-lease origin refs/heads/main:refs/heads/release', ['refs/heads/main:refs/heads/release']],
+    ['git push origin +main:release', ['+main:release']],
+    ['git push --force origin main:release feature:review', ['main:release', 'feature:review']],
+    ['git push origin +main:release feature:review', ['+main:release', 'feature:review']],
+  ])('names explicit refspecs without borrowing the checked-out feature upstream: %s', async (command, refspecs) => {
+    const disk = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    const preview = await only(command, '/repo', disk);
+    expect(preview).toMatchObject({
+      summary: 'force-push to origin: cannot tell how many remote commits the forced refspecs may discard; remote state was not contacted',
+      lines: refspecs,
+      count: refspecs.length,
+    });
+    expect(disk.calls).toEqual([]);
+  });
+
+  it('bounds the listed refspecs while retaining the full count', async () => {
+    const refspecs = Array.from({ length: 21 }, (_, at) => `branch-${at}:destination-${at}`);
+    const disk = recorder();
+    const preview = await only(`git push -f backup ${refspecs.join(' ')}`, '/repo', disk);
+    expect(preview).toMatchObject({ lines: refspecs.slice(0, 20), count: 21 });
+    expect(preview.summary).toContain('force-push to backup: cannot tell');
+    expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
+    expect(disk.calls).toEqual([]);
+  });
+
+  it.each(['origin', 'backup'])('does not borrow the upstream count for a named remote: %s', async (remote) => {
+    const disk = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\nbackup\tgit@github.com:c/d.git (push)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    expect(await only(`git push -f ${remote}`, '/repo', disk)).toMatchObject({
+      summary: `force-push to ${remote}: cannot tell which refs or how many remote commits may be overwritten; remote state was not contacted`,
+      lines: [],
+    });
+    expect(disk.calls).toEqual([]);
+  });
+
+  it('says so when there is no upstream to read', async () => {
+    const { execFile, calls } = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\n',
+      // No `@{u}`: the query fails the way git fails it, and nothing is invented.
+    });
+    expect((await only('git push -f', '/repo', { execFile })).summary).toBe('force-push feature to origin: no upstream is set, so what is on the remote cannot be read');
+    expect(calls.map((call) => call.args.join(' '))).not.toContain('rev-list --count HEAD..@{u}');
+  });
+
+  it('marks each checked-out path with whether it has local changes', async () => {
+    const { execFile } = recorder({ 'git diff --name-only --relative': 'src/a.ts\n' });
+    expect(await only('git checkout -- src/a.ts src/b.ts', '/repo', { execFile })).toMatchObject({
+      summary: '1 of 2 paths would lose local changes',
+      lines: ['src/a.ts — local changes would be lost', 'src/b.ts — no local changes'],
+    });
+    const clean = recorder({ 'git diff --name-only --relative': '' });
+    expect((await only('git restore src/a.ts', '/repo', clean)).summary).toBe('none of these paths has local changes to lose');
+  });
+
+  it('includes staged changes when checkout or restore overwrites the index', async () => {
+    const disk = recorder({ 'git diff --name-only --relative': '', 'git diff --cached --name-only --relative': 'src/a.ts\n' });
+    expect((await only('git checkout other -- src/a.ts', '/repo', disk)).summary).toBe('1 of 1 path would lose local changes');
+    expect((await only('git restore --source=HEAD --staged --worktree src/a.ts', '/repo', disk)).summary).toBe('1 of 1 path would lose local changes');
+    expect((await only('git checkout -- src/a.ts', '/repo', disk)).summary).toBe('none of these paths has local changes to lose');
+  });
+
+  it('warns about checkout with multiple operands when the source and paths are ambiguous', async () => {
+    for (const command of ['git checkout HEAD Makefile', 'git checkout Makefile README', 'git checkout HEAD src/a.ts']) {
+      const { execFile, calls } = recorder();
+      expect((await only(command, '/repo', { execFile })).summary).toContain('cannot tell:');
+      expect(calls).toEqual([]);
+    }
+    const disk = recorder({ 'git diff --name-only --relative': '', 'git diff --cached --name-only --relative': 'Makefile\n' });
+    expect(await only('git checkout HEAD -- Makefile', '/repo', disk)).toMatchObject({ summary: '1 of 1 path would lose local changes' });
+  });
+
+  it('says whether each branch being deleted is merged', async () => {
+    const { execFile } = recorder({ 'git branch --merged': '* main\n  old\n  (HEAD detached at abc1234)\n' });
+    expect(await only('git branch -D old new', '/repo', { execFile })).toMatchObject({
+      summary: '1 of 2 branches not merged',
+      lines: ['old — merged, nothing would become unreachable', 'new — not merged into HEAD; its commits would become unreachable'],
+    });
+    const merged = recorder({ 'git branch --merged': '* main\n  old\n' });
+    expect((await only('git branch -D old', '/repo', merged)).summary).toBe('that branch is already merged');
+  });
+
+  it('turns a failing git into one could-not-preview line rather than throwing', async () => {
+    const { execFile } = recorder({});
+    const preview = await only('git reset --hard', '/repo', { execFile });
+    expect(preview.summary).toBe('could not preview: nothing canned for: git status --porcelain');
+    expect(preview.lines).toEqual([]);
+
+    const noisy: BlastRadiusDeps['execFile'] = async () => {
+      throw new Error(`fatal: not a git repository\n${'x'.repeat(400)}`);
+    };
+    const clipped = await only('git clean -f', '/repo', { execFile: noisy });
+    expect(clipped.summary).toBe('could not preview: fatal: not a git repository');
+  });
+});
+
+describe('it never runs the command it previews', () => {
+  it('records only read-only git queries, across every verb at once', async () => {
+    const root = await tree();
+    const { execFile, calls } = recorder({
+      'git clean -n -d -x': 'Would remove dist/\n',
+      'git status --porcelain': ' M a.ts\n',
+      'git log --oneline -1': 'abc1234 head\n',
+      'git rev-parse --abbrev-ref HEAD': 'main\n',
+      'git remote -v': 'origin\tssh://example/a.git (fetch)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/main\n',
+      'git rev-list --count HEAD..@{u}': '2\n',
+      'git diff --name-only --relative': 'src/a.ts\n',
+      'git branch --merged': '* main\n',
+    });
+    const command = [
+      'git clean -fdx',
+      'git reset --hard HEAD~3',
+      'git push --force origin main',
+      'git checkout -- src/a.ts',
+      'git branch -D old',
+      'rm -rf build',
+      'chmod -R 777 src',
+      'echo x > log.txt',
+    ].join(' && ');
+
+    const previews = await previewBlastRadius(destructiveParts(command), root, { execFile });
+    expect(previews).toHaveLength(8);
+
+    // The rule, written here rather than imported: a test that asked the module
+    // what counts as safe would agree with whatever it had got wrong.
+    const readOnlySubcommands = new Set(['status', 'log', 'rev-parse', 'rev-list', 'remote', 'diff', 'branch', 'clean']);
+    const mutating = ['-f', '--force', '-i', '--interactive', '--hard', '-D', 'rm', 'add', 'commit', 'checkout', 'restore', 'reset', 'push', 'stash', 'merge', 'rebase', 'filter-branch'];
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const label = [call.file, ...call.args].join(' ');
+      expect(call.file, label).toBe('git');
+      const [subcommand, ...rest] = call.args;
+      expect(subcommand !== undefined && readOnlySubcommands.has(subcommand), label).toBe(true);
+      if (subcommand === 'clean') expect(rest[0], label).toBe('-n');
+      if (subcommand === 'branch') expect(rest, label).toContain('--merged');
+      for (const word of mutating) expect(call.args, label).not.toContain(word);
+      expect(call.cwd, label).toBe(root);
+      expect(call.timeout, label).toBe(BLAST_TIMEOUT_MS);
+    }
+  });
+
+  it('keeps git clean a dry run whatever flags the command carried', () => {
+    const part: Destructive = { kind: 'git-clean', text: '', targets: ['src', 'a b'], flags: ['-dfx', '-i', '--force', '--exclude=node_modules'] };
+    const argv = cleanArgv(part);
+    expect(argv).toEqual(['clean', '-n', '-d', '-x', '--exclude=node_modules', '--', 'src', 'a b']);
+    expect(() => assertReadOnly('git', argv)).not.toThrow();
+    // Pathspecs go after `--`, so a target that looks like a flag stays a path.
+    expect(cleanArgv({ kind: 'git-clean', text: '', targets: ['-rf'], flags: [] })).toEqual(['clean', '-n', '--', '-rf']);
+  });
+
+  it('refuses any argv that is not a known read-only query', () => {
+    expect(() => assertReadOnly('git', ['status', '--porcelain'])).not.toThrow();
+    expect(() => assertReadOnly('git', ['clean', '-n', '-d', '-x', '--exclude=a', '--', 'src'])).not.toThrow();
+
+    expect(() => assertReadOnly('git', ['clean', '-f'])).toThrow(/only as a dry run/);
+    expect(() => assertReadOnly('git', ['clean', '-n', '-f'])).toThrow(/only as a dry run/);
+    expect(() => assertReadOnly('git', ['clean', '-n', '-i'])).toThrow(/only as a dry run/);
+    expect(() => assertReadOnly('git', ['push', '--force'])).toThrow(/not a known read-only query/);
+    expect(() => assertReadOnly('git', ['status'])).toThrow(/not a known read-only query/);
+    expect(() => assertReadOnly('rm', ['-rf', '/'])).toThrow(/only read-only git queries/);
+    expect(() => assertReadOnly('sh', ['-c', 'rm -rf /'])).toThrow(/only read-only git queries/);
+  });
+});
+
+describe('blastRadiusLines', () => {
+  it('names network destinations without treating quoted text or a commit message as a network call', () => {
+    expect(networkLines('curl https://preview.example.test/notes')).toEqual(['⚠ network: preview.example.test']);
+    expect(networkLines('echo "curl https://preview.example.test"')).toEqual([]);
+    expect(networkLines('git commit -m push')).toEqual([]);
+    expect(networkLines('git fetch origin')).toEqual(['⚠ network: destination is resolved by git']);
+    expect(networkLines('git -C /repo pull')).toEqual(['⚠ network: destination is resolved by git']);
+    expect(networkLines('git --git-dir=/repo fetch')).toEqual(['⚠ network: destination is resolved by git']);
+    expect(networkLines('git -c advice.detachedHead=false clone https://preview.example.test/repo')).toEqual(['⚠ network: preview.example.test']);
+  });
+
+  const previews: readonly Preview[] = [
+    { kind: 'rm', summary: '3 files and 1 directory (412 files inside)', lines: ['a.ts', 'b.ts'], count: 5 },
+    { kind: 'git-clean', summary: 'git clean would remove nothing', lines: [], count: 0 },
+  ];
+
+  it('draws one warning per preview with its detail indented under it', () => {
+    expect(blastRadiusLines(previews)).toEqual([
+      '⚠ 3 files and 1 directory (412 files inside)',
+      '  a.ts',
+      '  b.ts',
+      '  … +3 more',
+      '⚠ git clean would remove nothing',
+    ]);
+    expect(blastRadiusLines([])).toEqual([]);
+  });
+
+  it('clips every line to the width it was given', () => {
+    expect(blastRadiusLines([{ kind: 'rm', summary: 'a'.repeat(40), lines: ['b'.repeat(40)] }], 10)).toEqual(['⚠ aaaaaaa…', '  bbbbbbb…']);
+    // A width nobody could draw in still yields one character per line.
+    expect(blastRadiusLines(previews, 1).every((line) => line.length <= 8)).toBe(true);
+  });
+});
