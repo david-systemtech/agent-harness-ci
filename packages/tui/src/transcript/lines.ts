@@ -1,6 +1,7 @@
 import {
   TOOL_QUIET_MS,
   attachmentChip,
+  checkStatus,
   classifyTool,
   describeActivity,
   endWords,
@@ -397,6 +398,12 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       const { entry } = row;
       const head: Span[] = [{ text: `${entry.name}${entry.args.length > 0 ? ` ${entry.args}` : ""}`, dim: true }];
       return block(row.id, { text: "/", dim: true }, [head, ...returned(cutLines(nonBlank(entry.output ?? ""), context.expanded))], width, true);
+    }
+    case "check": {
+      const { entry } = row;
+      const head: Span[] = [{ text: `${entry.command} · ${checkStatus(entry)}`, dim: true }];
+      const truncated: Span[][] = entry.result?.truncated ? [[{ text: "Earlier output omitted", dim: true }]] : [];
+      return block(row.id, { text: "$", dim: true }, [head, ...truncated, ...returned(cutLines(nonBlank(entry.result?.output ?? ""), context.expanded))], width, true);
     }
     case "prompt":
       return promptLines(row.id, row.entry, context);

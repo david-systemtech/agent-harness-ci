@@ -440,3 +440,17 @@ export const readBankValidatorStamp = (text: string): { readonly name: string; r
   const match = /^\/\/ ([a-z][a-z0-9-]*) ([1-9][0-9]*)(?:\r?\n|$)/.exec(text);
   return match?.[1] === undefined || match[2] === undefined ? null : { name: match[1], version: Number(match[2]) };
 };
+
+/** The committed vendored validator compared with this environment's rules. */
+export const BankValidatorStatus = z.object({
+  installedVersion: z.int().nonnegative().nullable().meta({ description: "The committed stamp, or null when missing or malformed." }),
+  currentVersion: z.int().positive().meta({ description: "The environment's BANK_VALIDATOR version, also carried by the describe prompt." }),
+  needsUpdate: z.boolean().meta({ description: "The stamp is missing, malformed, or older than the environment; a newer bank is never downgraded." }),
+});
+export type BankValidatorStatus = z.infer<typeof BankValidatorStatus>;
+
+export const bankValidatorStatus = (text: string | undefined, currentVersion: number = BANK_VALIDATOR.version): BankValidatorStatus => {
+  const stamp = readBankValidatorStamp(text ?? "");
+  const installedVersion = stamp?.name === BANK_VALIDATOR.name && Number.isSafeInteger(stamp.version) ? stamp.version : null;
+  return { installedVersion, currentVersion, needsUpdate: installedVersion === null || installedVersion < currentVersion };
+};

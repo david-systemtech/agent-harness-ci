@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { defineMethod } from "../method.js";
+import { FileUndoOutcome } from "../file-undo.js";
+import { commandParams, defineMethod } from "../method.js";
 import { SessionId } from "../sessions.js";
 import { FilesListSource, WorkspacePath } from "../terminals.js";
 
@@ -51,5 +52,30 @@ export const filesRead = defineMethod({
     truncated: z.boolean().meta({ description: "True when the file is larger than the 2 MiB read." }),
     text: z.string().nullable().meta({ description: "The first 2 MiB as UTF-8; null for a binary file." }),
   }),
+  errors: [],
+});
+
+/**
+ * Undoes the newest change a run's file tool made in the session that is not
+ * undone yet (switch-over spec, "Phase-D commands and parity", File undo;
+ * #1183), one file at a time: the file's bytes and mode from before the call
+ * are written back, only while it still holds what the call left, and
+ * `files.undo-finished` is appended; the record is consumed, with no redo.
+ * It never rewinds the conversation. A refusal changes no file and no record:
+ * `conflict` with reason `run_active` while a run is live in the session or in
+ * another sharing its workspace, `workspace_missing`, `nothing_to_undo`,
+ * `snapshot_unavailable` (data `unrestorable` saying why) when the newest
+ * change cannot be restored, which an older one is never undone past,
+ * `unsafe_path` when its file is outside the workspace, behind a symlink or
+ * not a regular file, and `file_changed` when the file holds anything else
+ * now. A retry of the same command answers its receipt and writes nothing.
+ * Offered with the `fileUndo` flag.
+ */
+export const filesUndo = defineMethod({
+  name: "files.undo",
+  scope: "terminal",
+  kind: "command",
+  params: commandParams({ sessionId: SessionId }),
+  result: FileUndoOutcome,
   errors: [],
 });
