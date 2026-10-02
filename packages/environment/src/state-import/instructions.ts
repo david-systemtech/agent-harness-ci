@@ -9,6 +9,7 @@ import {
 } from "@agent-harness/contracts";
 import type { EventLog } from "../event-log/event-log.js";
 import type { MethodHandler } from "../serve/methods.js";
+import { PROFILES_STORE } from "./accounts.js";
 import { derivedUuid, mappedTarget, type ImportItem } from "./items.js";
 import type { SourceInstruction, SourceInstructions } from "./source/stores.js";
 
@@ -42,6 +43,7 @@ export interface InstructionsPlan {
 export interface PlanInstructionsOptions {
   readonly log: Pick<EventLog, "read">;
   readonly sourceKey: string;
+  readonly accountIds?: ReadonlyMap<string, string> | undefined;
   /** The Instructions service's create command, which carries each one. */
   readonly create: MethodHandler<"instructions.create">;
 }
@@ -69,12 +71,12 @@ export const planInstructions = (records: SourceInstructions, options: PlanInstr
     // Carried before: held, whatever became of it since.
     if (mappedTarget(options.log, key) !== undefined) continue;
     const label = labelOf(instruction);
-    if (instruction.reach !== "all") {
+    if (instruction.reach !== "all" && instruction.reach.some((id) => !options.accountIds?.has(id))) {
       failed.push({ label, message: HELD });
       continue;
     }
     const id = derivedUuid("state-import.instruction", sourceKey, INSTRUCTIONS_STORE, instruction.sourceId);
-    const draft = { commandId: id, id, title: instruction.title, body: instruction.body, scope: "all", enabled: instruction.enabled };
+    const draft = { commandId: id, id, title: instruction.title, body: instruction.body, scope: instruction.reach === "all" ? "all" : [...new Set(instruction.reach.map((id) => options.accountIds?.get(id)))], enabled: instruction.enabled };
     const parsed = registry["instructions.create"].params.safeParse(draft);
     if (!parsed.success) {
       const field = parsed.error.issues.map((issue) => String(issue.path[0])).find((path) => path in REFUSED_FIELDS);
@@ -87,7 +89,9 @@ export const planInstructions = (records: SourceInstructions, options: PlanInstr
       kind: "instruction",
       label,
       apply: (context) => {
-        const answer = create({ ...params, commandId: context.commandId }, context);
+        const scope = instruction.reach === "all" ? "all" : [...new Set(instruction.reach.map((sourceId) => mappedTarget(options.log, { sourceKey, store: PROFILES_STORE, sourceId })))];
+        if (scope !== "all" && scope.some((id) => id === undefined)) return { aggregate: { kind: "instruction", id }, rejected: { code: "conflict", message: HELD, data: { reason: "account_unresolved" } } };
+        const answer = create({ ...params, scope: scope as "all" | string[], commandId: context.commandId }, context);
         return answer.rejected !== undefined ? answer : { ...answer, result: { targetId: answer.result.instruction.id } };
       },
     });

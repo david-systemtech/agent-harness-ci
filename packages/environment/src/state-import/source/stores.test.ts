@@ -150,3 +150,36 @@ describe("a store's snapshot", () => {
     expect(read.preferences).toMatchObject({ status: "failed", diagnostic: "The desktop preferences are larger than the 16 MiB an import reads." });
   });
 });
+
+describe("the audited profile document", () => {
+  it("reads only declared directory/identity references, migrates version-1 names and defers other providers", async () => {
+    const folder = folderWith({ "profiles.json": { version: 2, profiles: [
+      { id: "work", label: "Work", providerId: "claude", configDir: "/fixture/work", publicEnv: { PRIVATE_VALUE: "secret-for-tests" }, updatedAt: 123 },
+      { id: "other", label: "Other", providerId: "codex", configDir: "/fixture/other" },
+    ] } });
+    expect((await readSourceStores(folder)).profiles).toMatchObject({ status: "read", records: {
+      profiles: [{ sourceId: "work", label: "Work", directory: "/fixture/work" }], failed: [], later: [{ label: "Other: profile, Sessions and archive", provider: "codex" }],
+    } });
+    expect(JSON.stringify((await readSourceStores(folder)).profiles)).not.toContain("secret-for-tests");
+    writeFileSync(join(folder, "profiles.json"), JSON.stringify({ version: 1, profiles: [
+      { id: "named", label: "Named", providerId: "claude", configDirName: "fixture" },
+      { id: "escape", label: "Escape", providerId: "claude", configDirName: "../outside" },
+    ] }));
+    const old = (await readSourceStores(folder)).profiles;
+    expect(old).toMatchObject({ status: "read", records: { profiles: [{ sourceId: "named", directory: join(folder, "profiles", "fixture") }], failed: [{ label: "Claude profile" }] } });
+  });
+
+  it("fails unsupported documents independently and refuses repeated ids and relative directory guesses", async () => {
+    const folder = folderWith({ "profiles.json": { version: 99, profiles: [] }, "agent-prompts.json": { version: 1, prompts: [sourcePrompt("kept")] } });
+    const unsupported = await readSourceStores(folder);
+    expect(unsupported.profiles).toMatchObject({ status: "failed", diagnostic: "The profile list has an unsupported version." });
+    expect(unsupported.instructions).toMatchObject({ status: "read" });
+    writeFileSync(join(folder, "profiles.json"), JSON.stringify({ version: 2, profiles: [
+      { id: "repeated", label: "First", providerId: "claude", configDir: "/fixture/first" },
+      { id: "repeated", label: "Second", providerId: "claude", configDir: "/fixture/second" },
+      { id: "relative", label: "Relative", providerId: "claude", configDir: "relative" },
+      { id: "provider", label: "Unnamed provider", providerId: "" },
+    ] }));
+    expect((await readSourceStores(folder)).profiles).toMatchObject({ status: "read", records: { profiles: [{ sourceId: "repeated", directory: "/fixture/first" }], failed: [{ label: "Profile" }, { label: "Claude profile" }], later: [{ provider: "unknown" }] } });
+  });
+});

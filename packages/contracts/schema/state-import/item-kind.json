@@ -3,7 +3,9 @@
   "title": "StateImportItemKind",
   "type": "string",
   "enum": [
-    "instruction"
+    "instruction",
+    "account",
+    "account-default"
   ],
-  "description": "The kind of item a state import carried: instruction (an owned instruction)."
+  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile)."
 }
