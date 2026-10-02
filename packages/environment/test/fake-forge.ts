@@ -74,7 +74,9 @@ export interface FakeGitRequest {
 
 /** A pull request as a test scripts one; every field has a preset. */
 export interface FakePullRequest {
+  /** The author's forge login; preset `david`. */
   readonly author?: string;
+  /** The head commit; preset `0123abcd`. */
   readonly sha?: string;
   /** Preset `open`. */
   readonly state?: "open" | "closed" | "merged";
@@ -143,6 +145,7 @@ export interface FakeForge {
   pullRequest(token: string | null, fullName: string, number: number, fields?: FakePullRequest): void;
   /** Scripts the validate check for a pushed commit on both APIs; pending never permits a merge. */
   validateCheck(token: string, fullName: string, sha: string, state: "pending" | "success" | "failure"): void;
+  /** Scripts the PR's reviews on both APIs in order; an omitted commit is null. */
   reviews(token: string, fullName: string, number: number, reviews: readonly { readonly login: string; readonly state: string; readonly commit?: string }[]): void;
   /** Every request of the APIs so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
