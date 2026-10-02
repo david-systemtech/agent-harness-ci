@@ -21,6 +21,8 @@ export interface BankRecord {
   readonly enabled: boolean;
   /** Its checkout on this machine, which a describe session's worktree is made from. */
   readonly checkout: string;
+  /** Local-only describe commits land through the environment rather than a remote push. */
+  readonly localOnly?: boolean;
   /** The entities its `BANK.md` names, each with its aliases. */
   readonly entities: readonly { readonly name: string; readonly aliases: readonly string[] }[];
   /** Its scope folders holding memories, `projects/{org}/{project}/` with an area or not. */
@@ -45,6 +47,7 @@ export const bankRecords = (service: BankService): BankRecords => {
       kind: entry.kind,
       enabled: entry.enabled,
       checkout: entry.checkout,
+      localOnly: entry.location.kind === "local",
       entities: index?.entities.map(({ name, aliases }) => ({ name, aliases })) ?? [],
       scopes: index?.orgs.flatMap((org) => org.folders.map((folder) => `projects/${folder.path}`)) ?? [],
       status: entry.status,

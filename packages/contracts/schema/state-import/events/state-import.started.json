@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportStartedPayload",
+  "type": "object",
+  "properties": {
+    "importId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The import: the command id of the stateImport.run that applied it, in lowercase."
+    },
+    "sourceKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source folder's canonical path on the environment's machine, symbolic links resolved: its data folder, or its terminal-client state folder when it has none."
+    }
+  },
+  "required": [
+    "importId",
+    "sourceKey"
+  ],
+  "description": "state-import.started: an import is about to apply what it planned: its id and the source folder it reads (its data folder, or its terminal-client state folder when it has none)."
+}

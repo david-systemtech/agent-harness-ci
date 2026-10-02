@@ -231,10 +231,10 @@ describe("the state import's detection", () => {
     expect(await other.request("stateImport.detect", {})).toMatchObject({ dataFolder: { holds: { banks: null, profiles: 6 } }, terminalFolder: null });
   });
 
-  it("finds nothing on a machine whose folders hold none, and offers no stateImport flag, the run unserved until the switch-over build", async () => {
+  it("finds nothing on a machine whose folders hold none, where the run, served behind the stateImport flag, is refused no_source", async () => {
     const client = await start({ accounts: [] });
     expect(await client.request("stateImport.detect", {})).toEqual({ dataFolder: null, terminalFolder: null });
-    expect(client.hello.capabilities).not.toContain("stateImport");
-    await expect(client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).rejects.toMatchObject({ code: "not_found" });
+    expect(client.hello.capabilities).toContain("stateImport");
+    expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).toMatchObject({ receipt: { status: "rejected", reason: "conflict", error: { data: { reason: "no_source" } } } });
   });
 });

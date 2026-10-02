@@ -17,7 +17,7 @@ import {
 } from "@agent-harness/contracts";
 import type { AdapterHost, InstructionTarget } from "../adapter/host.js";
 import type { EventLog } from "../event-log/event-log.js";
-import type { CommandAnswer, CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, MethodHandlers } from "../serve/methods.js";
 import type { OrientationAnswer } from "./composer.js";
 import { readMintedFile } from "./import.js";
 import { instructionsStream, type InstructionStore } from "./store.js";
@@ -95,7 +95,10 @@ type Refused = "not_found" | "conflict";
 
 type EventInput = { readonly type: string; readonly payload: Record<string, unknown> };
 
-export const instructionMethods = (options: InstructionMethodsOptions): MethodHandlers => {
+/** The instructions' handlers, among them the create command the state import carries each instruction through (#1165). */
+export type InstructionHandlers = MethodHandlers & { readonly "instructions.create": MethodHandler<"instructions.create"> };
+
+export const instructionMethods = (options: InstructionMethodsOptions): InstructionHandlers => {
   const { host, log, store } = options;
   const stream = instructionsStream(options.environmentId);
 

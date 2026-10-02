@@ -63,6 +63,20 @@
       ],
       "description": "The tool's input as the model gave it; null when there is none."
     },
+    "previewLines": {
+      "description": "Environment-owned read-only command preview, drawn under the command. Null when unavailable, timed out or not applicable; absent on events recorded before this field existed.",
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "summary": {
       "type": "string",
       "minLength": 1,
