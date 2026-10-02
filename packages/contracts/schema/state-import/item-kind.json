@@ -5,7 +5,9 @@
   "enum": [
     "instruction",
     "account",
-    "account-default"
+    "account-default",
+    "skill-source",
+    "skill-always-on"
   ],
-  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile)."
+  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile), skill-source (a tracked repository), skill-always-on (an Account choice)."
 }

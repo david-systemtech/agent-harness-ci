@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, type StateImportFinishedPayload, type StateImportReport } from "@agent-harness/contracts";
+import type { PlanSkillsOptions } from "./skills.js";
 import type { AccountService } from "../accounts/account-service.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
@@ -35,7 +36,7 @@ export interface StateImportHooks {
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
 
-export interface StateImportOptions {
+export interface StateImportOptions extends Omit<PlanSkillsOptions, "sourceKey"> {
   /** The machine the source reader looks at: this process's environment, platform and home. */
   readonly machine: SourceMachine;
   readonly log: EventLog;
@@ -75,7 +76,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const planned =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, updateSettings: options.updateSettings, listSessions: options.listSessions });
+            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, updateSettings: options.updateSettings, listSessions: options.listSessions, sources: options.sources, environmentId: options.environmentId, forgeAccounts: options.forgeAccounts, setAlwaysOn: options.setAlwaysOn, knownSkillNames: options.knownSkillNames });
         if (dryRun) {
           const report = reportOf(planned, null);
           return () => ({ aggregate: environmentStream, result: report });

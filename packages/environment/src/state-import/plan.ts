@@ -2,6 +2,7 @@ import type { StateImportCarried, StateImportClientLocal, StateImportFailure, St
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
 import type { MethodHandler } from "../serve/methods.js";
 import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { planSkills, type PlanSkillsOptions } from "./skills.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
 import { storeChanged, type SourceStores, type StoreSnapshot } from "./source/stores.js";
 
@@ -45,8 +46,8 @@ export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & { readonly updateSettings: MethodHandler<"settings.update"> }): Promise<ImportPlan> => {
-  const { sourceKey, instructions, preferences, profiles } = stores;
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanSkillsOptions, "sourceKey"> & { readonly updateSettings: MethodHandler<"settings.update"> }): Promise<ImportPlan> => {
+  const { sourceKey, instructions, preferences, profiles, skills } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
   const planned: PlannedStore[] = [];
@@ -61,6 +62,12 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: instructions.snapshot, label: INSTRUCTIONS, items: plan.items });
     failed.push(...plan.failed);
     notCarried.push(...plan.notCarried);
+  }
+  if (skills.status === "failed") failed.push({ label: "Skills", message: skills.diagnostic });
+  else {
+    const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [] });
+    planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
+    failed.push(...plan.failed);
   }
   let clientLocal: StateImportClientLocal = {};
   if (preferences.status === "failed") failed.push({ label: PREFERENCES, message: preferences.diagnostic });
@@ -115,13 +122,13 @@ const NOTHING_CARRIED: StateImportCarried = {
 
 /** The report of a plan: for a dry run, what it would carry; for an import, what `applied` says it carried and what failed. */
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
-  const carriedItems = applied === null ? itemsOf(plan) : applied.carried;
+  const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.previewFailure === undefined) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length },
+    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, skillSources: carriedItems.filter((item) => item.kind === "skill-source" && item.contributes?.() !== false).length, alwaysOnSkills: carriedItems.filter((item) => item.kind === "skill-always-on" && item.contributes?.() !== false).length },
     reEnter: [],
     later: [...plan.later],
     notCarried: [...plan.notCarried],
-    failed: [...plan.failed, ...(applied?.failed ?? [])],
+    failed: [...plan.failed, ...(applied === null ? itemsOf(plan).flatMap((item) => item.previewFailure === undefined ? [] : [item.previewFailure]) : applied.failed)],
     clientLocal: plan.clientLocal,
     dryRun: applied === null,
   };

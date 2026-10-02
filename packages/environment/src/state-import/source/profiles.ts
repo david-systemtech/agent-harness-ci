@@ -12,12 +12,13 @@ export interface SourceProfile {
 
 export interface SourceProfiles {
   readonly profiles: readonly SourceProfile[];
+  readonly sourceIds: readonly string[];
   readonly failed: readonly StateImportFailure[];
   readonly later: readonly StateImportLater[];
 }
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const EMPTY: SourceProfiles = { profiles: [], failed: [], later: [] };
+const EMPTY: SourceProfiles = { profiles: [], sourceIds: [], failed: [], later: [] };
 
 export const readSourceProfiles = (folder: string) => readStore<SourceProfiles>(join(folder, DATA_FILES.profiles), { name: "The profile list", is: "is" }, (value): SourceProfiles | { refused: string } => {
   if (!record(value) || !Array.isArray(value["profiles"])) return { refused: "The profile list has no profiles array." };
@@ -45,5 +46,5 @@ export const readSourceProfiles = (folder: string) => readStore<SourceProfiles>(
     }
     profiles.push({ sourceId, label, directory: value["version"] === 1 ? resolve(folder, "profiles", path) : path });
   }
-  return { profiles, failed, later };
+  return { profiles, sourceIds: [...seen], failed, later };
 }, EMPTY);

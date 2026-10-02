@@ -1,0 +1,210 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, it, vi } from "vitest";
+import { snapshotOf } from "../../test/accounts.js";
+import { useCleanups } from "../../test/cleanups.js";
+import { fakeAdapter } from "../../test/fake-adapter.js";
+import { startTestEnvironment } from "../../test/helper.js";
+import { skill, skillRepositories, skillsInsteadOf, testGit } from "../../test/skill-repositories.js";
+import { NO_SETUP_STEPS } from "../../test/setup-steps.js";
+import { machinePointedAt } from "./source/folders.js";
+
+const { tempDir, onCleanup } = useCleanups();
+
+it("imports tracked sources through Skills with the checkout's branch and detached pin retained", async () => {
+  const source = tempDir();
+  const forge = skillRepositories(tempDir);
+  const branch = forge.commit("team/branch", { "skills/check/SKILL.md": skill("check") }, "work");
+  const pin = forge.commit("team/pin", { "SKILL.md": skill("write") });
+  const clones = join(source, "skill-sources");
+  mkdirSync(clones);
+  testGit(clones, "clone", "--quiet", "--branch", "work", join(forge.root, "team/branch.git"), "skills-test-team-branch-461078a2");
+  testGit(join(clones, "skills-test-team-branch-461078a2"), "branch", "--move", "work-local");
+  testGit(clones, "clone", "--quiet", join(forge.root, "team/pin.git"), "skills-test-team-pin-020dfcc1");
+  testGit(join(clones, "skills-test-team-pin-020dfcc1"), "checkout", "--quiet", "--detach", pin);
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
+    { id: "untrusted", url: "https://skills.test/team/branch", subdir: "skills" },
+    { url: "https://skills.test/team/pin", subdir: "." },
+  ], alwaysOn: [] }));
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS, harnessGitConfig: skillsInsteadOf(forge), stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const bytes = snapshotOf(source);
+  const skillRoot = join(t.dataDir, "skills");
+  const targets = existsSync(skillRoot) ? snapshotOf(skillRoot) : [];
+  const events = t.env.log.readStream({ kinds: ["skills", "state-import", "environment"] });
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).toMatchObject({ result: { carried: { skillSources: 2 }, failed: [] } });
+  expect(snapshotOf(source)).toEqual(bytes);
+  expect(existsSync(skillRoot) ? snapshotOf(skillRoot) : []).toEqual(targets);
+  expect(t.env.log.readStream({ kinds: ["skills", "state-import", "environment"] })).toEqual(events);
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { skillSources: 2 }, failed: [] } });
+  expect(await client.request("skills.get", {})).toMatchObject({ sources: [
+    { url: "https://skills.test/team/branch", folder: "skills", follow: { kind: "branch", branch: "work" }, commit: branch },
+    { url: "https://skills.test/team/pin", folder: ".", follow: { kind: "pinned", commit: pin }, commit: pin },
+  ] });
+});
+
+it("applies exact known names only to mapped Accounts and reports unknown and deferred choices", async () => {
+  const source = tempDir();
+  const work = tempDir();
+  const personal = tempDir();
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [
+    { id: "work", label: "Work", providerId: "claude", configDir: work },
+    { id: "personal", label: "Personal", providerId: "claude", configDir: personal },
+    { id: "later", label: "Later", providerId: "codex", configDir: tempDir() },
+  ] }));
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, alwaysOn: [
+    { name: "check", scope: { kind: "profiles", profileIds: ["work"] } },
+    { name: "write", scope: { kind: "all" } },
+    { name: "check-more", scope: { kind: "profiles", profileIds: ["personal"] } },
+    { name: "missing", scope: { kind: "profiles", profileIds: ["later", "unlisted"] } },
+  ] }));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [] });
+  const adapter = { ...base, observeIdentity: async (directory: string) => ({ provider: "claude", email: directory === work ? "work@example.com" : "personal@example.com", organisation: null }) };
+  const t = await startTestEnvironment({ adapter, accounts: [], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  for (const name of ["check", "write"]) await client.request("skills.own.create", { commandId: randomUUID(), name, description: "A fixture Skill." });
+  const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
+  expect(preview).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.arrayContaining([
+    { label: expect.stringContaining("check-more"), message: expect.stringContaining("unknown") },
+    { label: expect.stringContaining("later"), message: expect.stringContaining("mapped Account") },
+    { label: expect.stringContaining("unlisted"), message: expect.stringContaining("mapped Account") },
+  ]) } });
+  const answer = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(answer).toMatchObject({ result: { carried: { accounts: 2, alwaysOnSkills: 3 }, failed: expect.any(Array) } });
+  const { accounts } = await client.request("accounts.list", {});
+  const workId = accounts.find((account) => account.label === "Work")?.id;
+  const personalId = accounts.find((account) => account.label === "Personal")?.id;
+  expect((await client.request("skills.get", {})).choices).toEqual([
+    { kind: "always-on", name: "check", accountId: workId, on: true },
+    ...[workId, personalId].sort().map((accountId) => ({ kind: "always-on", name: "write", accountId, on: true })),
+  ]);
+});
+
+it("keeps earlier successes, retries repaired sources and names, and preserves edited and deleted imports across restart", async () => {
+  const source = tempDir();
+  const directory = tempDir();
+  const forge = skillRepositories(tempDir);
+  const pin = forge.commit("team/pin", { "SKILL.md": skill("write") });
+  forge.commit("team/broken", { "README.md": "No Skill yet.\n" });
+  const document = { version: 1, sources: [
+    { url: "https://skills.test/team/pin", subdir: "." },
+    { url: "https://skills.test/team/broken", subdir: "skills" },
+    { url: "https://bad:token-for-tests@skills.test/team/secret", subdir: "." },
+  ], alwaysOn: [{ name: "write", scope: { kind: "all" } }, { name: "repair", scope: { kind: "all" } }] };
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [{ id: "work", label: "Work", providerId: "claude", configDir: directory }] }));
+  writeFileSync(join(source, "skills.json"), JSON.stringify(document));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [] });
+  const adapter = { ...base, observeIdentity: async () => ({ provider: "claude", email: "work@example.com", organisation: null }) };
+  const options = { dataDir: tempDir(), adapter, accounts: [], setupSteps: NO_SETUP_STEPS, harnessGitConfig: skillsInsteadOf(forge), stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) };
+  const t = await startTestEnvironment(options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const first = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(first).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: expect.arrayContaining([
+    { label: expect.stringContaining("broken"), message: expect.stringContaining("no valid skill") },
+    { label: expect.stringContaining("repair"), message: expect.stringContaining("unknown") },
+  ]) } });
+  expect(JSON.stringify(first)).not.toContain("token-for-tests");
+  const view = await client.request("skills.get", {});
+  const sourceId = view.sources[0]!.id;
+  const accountId = (await client.request("accounts.list", {})).accounts[0]!.id;
+  await client.request("skills.sources.setFollow", { commandId: randomUUID(), sourceId, follow: { kind: "pinned", commit: pin } });
+  await client.request("skills.setAlwaysOn", { commandId: randomUUID(), accountId, name: "write", on: false });
+  forge.commit("team/broken", { "skills/repair/SKILL.md": skill("repair") });
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ ...document, sources: document.sources.slice(0, 2).reverse() }));
+  const retry = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect(retry).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 1 }, failed: [] } });
+  expect(await client.request("skills.get", {})).toMatchObject({ sources: expect.arrayContaining([expect.objectContaining({ id: sourceId, follow: { kind: "pinned", commit: pin } })]), choices: expect.arrayContaining([{ kind: "always-on", name: "write", accountId, on: false }, { kind: "always-on", name: "repair", accountId, on: true }]) });
+  await client.request("skills.sources.remove", { commandId: randomUUID(), sourceId });
+  await t.close();
+  const restarted = await startTestEnvironment({ ...options, dataDir: t.dataDir });
+  onCleanup(() => restarted.close());
+  const again = await restarted.client();
+  expect(await again.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { skillSources: 0, alwaysOnSkills: 0 }, failed: [] } });
+  expect((await again.request("skills.get", {})).sources).toHaveLength(1);
+});
+
+it("previews unresolved names and remote sources without git, sync, copies or target writes", async () => {
+  const source = tempDir();
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [{ url: "https://skills.test/team/remote", subdir: "skills" }], alwaysOn: [{ name: "check", scope: { kind: "profiles", profileIds: ["missing"] } }, { name: "write", scope: {} }] }));
+  const git = vi.fn(async () => { throw new Error("Preview must never fetch."); });
+  const t = await startTestEnvironment({ adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS, skillsGit: git, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const bytes = snapshotOf(source);
+  const events = t.env.log.readStream({ kinds: ["skills", "state-import", "environment"] });
+  const view = await client.request("skills.get", {});
+  const own = snapshotOf(view.ownDirectory);
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true })).toMatchObject({ result: { carried: { skillSources: 1, alwaysOnSkills: 0 }, failed: [
+    { label: 'Always-on Skill "check" (missing)', message: expect.stringContaining("mapped Account") },
+    { label: 'Always-on Skill "write"', message: expect.stringContaining("unreadable") },
+  ] } });
+  expect(git).not.toHaveBeenCalled();
+  expect(snapshotOf(source)).toEqual(bytes);
+  expect(snapshotOf(view.ownDirectory)).toEqual(own);
+  expect(await client.request("skills.get", {})).toEqual(view);
+  expect(t.env.log.readStream({ kinds: ["skills", "state-import", "environment"] })).toEqual(events);
+});
+
+it("retains durable source child receipts when an import stops before its final report", async () => {
+  const source = tempDir();
+  const forge = skillRepositories(tempDir);
+  for (const path of ["team/pin", "team/branch"]) forge.commit(path, { "SKILL.md": skill(path.split("/")[1]!) });
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, sources: [
+    { url: "https://skills.test/team/pin", subdir: "." },
+    { url: "https://skills.test/team/branch", subdir: "." },
+  ], alwaysOn: [] }));
+  const options = { dataDir: tempDir(), adapter: fakeAdapter(), setupSteps: NO_SETUP_STEPS, harnessGitConfig: skillsInsteadOf(forge), stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) };
+  const t = await startTestEnvironment({ ...options, stateImportHooks: { carried: () => { throw new Error("Fixture interruption after child commit."); } } });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await expect(client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).rejects.toMatchObject({ code: "internal" });
+  const held = (await client.request("skills.get", {})).sources[0]!.id;
+  await t.close();
+  const restarted = await startTestEnvironment({ ...options, dataDir: t.dataDir });
+  onCleanup(() => restarted.close());
+  const again = await restarted.client();
+  expect(await again.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { skillSources: 1 }, failed: [] } });
+  const sources = (await again.request("skills.get", {})).sources;
+  expect(sources).toHaveLength(2);
+  expect(sources[0]!.id).toBe(held);
+});
+
+it("reuses an existing natural source and Account choice, retains disable rules, and retries a failed mapped scope", async () => {
+  const source = tempDir();
+  const directory = tempDir();
+  const forge = skillRepositories(tempDir);
+  const pin = forge.commit("team/pin", { "SKILL.md": skill("write") });
+  const profiles = [
+    { id: "b", label: "Alias", providerId: "claude", configDir: directory },
+    { id: "a", label: "Work", providerId: "claude", configDir: directory },
+  ];
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles }));
+  const document = { version: 1, sources: [{ url: "https://skills.test/team/pin.git", subdir: "." }], alwaysOn: [{ name: "write", scope: { kind: "profiles", profileIds: ["b", "a"] } }] };
+  writeFileSync(join(source, "skills.json"), JSON.stringify(document));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [] });
+  const adapter = { ...base, observeIdentity: async () => ({ provider: "claude", email: "work@example.com", organisation: null }) };
+  const t = await startTestEnvironment({ adapter, accounts: [], setupSteps: NO_SETUP_STEPS, harnessGitConfig: skillsInsteadOf(forge), stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const added = await client.request("skills.sources.add", { commandId: randomUUID(), url: "https://skills.test/team/pin", folder: ".", follow: { kind: "pinned", commit: pin } });
+  const sourceId = added.result!.source.id;
+  // Give Account adoption its own import, leaving the Skill scope for a later retry.
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ ...document, alwaysOn: [{ name: "write", scope: { kind: "profiles", profileIds: ["missing"] } }] }));
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { accounts: 1, skillSources: 0, alwaysOnSkills: 0 }, failed: [{ label: expect.stringContaining("missing") }] } });
+  const accountId = (await client.request("accounts.list", {})).accounts[0]!.id;
+  await client.request("skills.setAlwaysOn", { commandId: randomUUID(), name: "write", accountId, on: false });
+  await client.request("skills.setEnabled", { commandId: randomUUID(), name: "write", accountId: null, enabled: false });
+  writeFileSync(join(source, "skills.json"), JSON.stringify(document));
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { skillSources: 0, alwaysOnSkills: 0 }, failed: [] } });
+  expect(await client.request("skills.get", {})).toMatchObject({ sources: [{ id: sourceId, follow: { kind: "pinned", commit: pin } }], choices: [
+    { kind: "enabled", name: "write", accountId: null, enabled: false },
+    { kind: "always-on", name: "write", accountId, on: false },
+  ], members: [{ name: "write", enabled: false }] });
+  // A held name remains held even after the person's off choice and the source scope are edited.
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: profiles.reverse() }));
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { alwaysOnSkills: 0 }, failed: [] } });
+});
