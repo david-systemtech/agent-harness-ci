@@ -14,7 +14,8 @@ import { applyItems, derivedUuid, stateImportProjector, type ImportItem } from "
 const IMPORT = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const caller: MethodContext = { clientSession: { id: "cs-import", kind: "tui", scopes: ["admin"], ceiling: "auto", local: true, expiresAt: 0 } };
 const ACTOR = "client_session:cs-import";
-const TARGETS = { kind: "test-targets", id: "env-1" } as const;
+/** Where the scripted owning service appends its targets' events: a stream of a kind the log knows, of a type no projector reads. */
+const TARGETS = { kind: "instructions", id: "env-1" } as const;
 
 let log: EventLog;
 afterEach(() => log.close());
@@ -53,7 +54,7 @@ describe("applying an import's items", () => {
       { label: "Instruction b", message: "The owner refuses b." },
       { label: "Instruction c", message: "The environment failed while carrying it: a re-run tries it again." },
     ]);
-    const events = log.readStream({ kinds: ["test-targets", "state-import"] });
+    const events = log.readStream({ kinds: ["instructions", "state-import"] });
     expect(events.map((event) => [event.type, (event.payload as { targetId: string }).targetId])).toEqual([
       ["test.target-made", "target-a"],
       ["state-import.item-carried", "target-a"],
@@ -86,7 +87,7 @@ describe("applying an import's items", () => {
     expect(fresh).toEqual(["b"]);
     expect(rerun).toMatchObject({ failed: [] });
     expect(rerun.carried.map((item) => item.sourceId)).toEqual(["b"]);
-    expect(log.readStream({ kinds: ["test-targets"] })).toHaveLength(3);
+    expect(log.readStream({ kinds: ["instructions"] })).toHaveLength(3);
     // The projection is rebuilt from the evidence alone.
     log.rebuildProjections();
     const again: string[] = [];

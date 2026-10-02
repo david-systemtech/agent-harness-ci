@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../../test/cleanups.js";
+import { sourcePrompt } from "../../../test/source-folder.js";
 import { readSourceStores, storeChanged } from "./stores.js";
 
 /**
@@ -25,7 +26,6 @@ const folderWith = (files: Readonly<Record<string, unknown>>): string => {
   return folder;
 };
 
-const prompt = (id: string, fields: Record<string, unknown> = {}) => ({ id, name: `Prompt ${id}`, markdown: `Text of ${id}.`, enabled: true, scope: { kind: "all" }, ...fields });
 
 describe("the instruction list", () => {
   it("reads custom and taken-over shipped prompts as owned instructions in their order, and counts what it drops", async () => {
@@ -33,14 +33,14 @@ describe("the instruction list", () => {
       "agent-prompts.json": {
         version: 1,
         prompts: [
-          prompt("p1"),
-          prompt("p2", { enabled: false, scope: { kind: "profiles", profileIds: ["work", 7, "home"] } }),
-          prompt("builtin:cerebro", { builtIn: "builtin:cerebro", markdown: "", name: "Old name" }),
-          prompt("p3", { builtIn: "builtin:cerebro", overridden: true, markdown: "My banks text.", scope: { kind: "profiles", profileIds: ["work"] } }),
-          prompt("p4", { name: "  " }),
+          sourcePrompt("p1"),
+          sourcePrompt("p2", { enabled: false, scope: { kind: "profiles", profileIds: ["work", 7, "home"] } }),
+          sourcePrompt("builtin:cerebro", { builtIn: "builtin:cerebro", markdown: "", name: "Old name" }),
+          sourcePrompt("p3", { builtIn: "builtin:cerebro", overridden: true, markdown: "My banks text.", scope: { kind: "profiles", profileIds: ["work"] } }),
+          sourcePrompt("p4", { name: "  " }),
           { id: "", name: "No id", markdown: "", enabled: true, scope: { kind: "all" } },
-          prompt("p5", { scope: { kind: "some" } }),
-          prompt("p1", { name: "A second p1" }),
+          sourcePrompt("p5", { scope: { kind: "some" } }),
+          sourcePrompt("p1", { name: "A second p1" }),
           "not a prompt",
         ],
         dismissedBuiltIns: ["builtin:other", "builtin:other"],
@@ -73,7 +73,7 @@ describe("the instruction list", () => {
     const noList = await readSourceStores(folderWith({ "agent-prompts.json": { version: 1, prompts: "p1" } }));
     expect(noList.instructions).toMatchObject({ status: "failed", diagnostic: "The instruction list holds no list of instructions." });
 
-    const newer = await readSourceStores(folderWith({ "agent-prompts.json": { version: 2, prompts: [prompt("p1")] } }));
+    const newer = await readSourceStores(folderWith({ "agent-prompts.json": { version: 2, prompts: [sourcePrompt("p1")] } }));
     expect(newer.instructions).toMatchObject({ status: "failed", diagnostic: "The instruction list was written as version 2, which this import does not read." });
 
     const folder = folderWith({ "agent-prompts.json": { version: 1, prompts: [] } });
@@ -125,7 +125,7 @@ describe("the preferences", () => {
 
 describe("a store's snapshot", () => {
   it("names the canonical folder, and tells a store whose bytes changed, appeared or went since it was read", async () => {
-    const folder = folderWith({ "agent-prompts.json": { version: 1, prompts: [prompt("p1")] } });
+    const folder = folderWith({ "agent-prompts.json": { version: 1, prompts: [sourcePrompt("p1")] } });
     const link = join(tempDir(), "linked");
     symlinkSync(folder, link);
     const read = await readSourceStores(link);
@@ -133,7 +133,7 @@ describe("a store's snapshot", () => {
     expect(await storeChanged(read.instructions.snapshot)).toBe(false);
     expect(await storeChanged(read.preferences.snapshot)).toBe(false);
 
-    writeFileSync(join(folder, "agent-prompts.json"), JSON.stringify({ version: 1, prompts: [prompt("p1"), prompt("p2")] }));
+    writeFileSync(join(folder, "agent-prompts.json"), JSON.stringify({ version: 1, prompts: [sourcePrompt("p1"), sourcePrompt("p2")] }));
     expect(await storeChanged(read.instructions.snapshot)).toBe(true);
     writeFileSync(join(folder, "prefs.json"), "{}");
     expect(await storeChanged(read.preferences.snapshot)).toBe(true);

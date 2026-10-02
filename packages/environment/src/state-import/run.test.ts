@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { registry, type StateImportReport, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -111,6 +112,29 @@ describe("stateImport.run, served", () => {
     const answer = await run(client, true);
     expect(answer.receipt).toMatchObject({ status: "rejected", reason: "conflict", error: { data: { reason: "no_source" } } });
     expect(answer.result).toBeUndefined();
+  });
+});
+
+describe("stateImport.run's scope and stores", () => {
+  it("is admin's, while detection stays a read any client may make", async () => {
+    const { t } = await start();
+    const reader = await t.client({ token: (await t.pair({ scopes: ["read"] })).token });
+    expect(await reader.request("stateImport.detect", {})).toMatchObject({ dataFolder: { holds: { instructions: 6 } }, terminalFolder: null });
+    await expect(run(reader, true)).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin" } });
+  });
+
+  it("fails a store that is not JSON on its own, the preferences still read, and plans nothing from it", async () => {
+    const { client, dataFolder } = await start({ source: { preferences: { theme: "light" } } });
+    writeFileSync(join(dataFolder ?? "", "agent-prompts.json"), '{"version": 1, "prompts": [{"id": "p1", "markdown": "token-for-tests"');
+    expect((await run(client, false)).result).toEqual({
+      carried: carried(),
+      reEnter: [],
+      later: [],
+      notCarried: [],
+      failed: [{ label: "Instructions", message: "The instruction list is not JSON." }],
+      clientLocal: { mode: "light" },
+      dryRun: false,
+    });
   });
 });
 
