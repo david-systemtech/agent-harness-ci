@@ -33,10 +33,16 @@ export const machineRules = (platform: NodeJS.Platform): DirectoryRules => (plat
 export const rulesOf = (path: string): DirectoryRules | undefined => (/^(?:[A-Za-z]:[\\/]|\\\\)/.test(path) ? WINDOWS : path.startsWith("/") ? POSIX : undefined);
 
 /** A directory as `rules` compare it: normalised, with no separator after its last name, its case folded where the machine folds it. */
-export const directoryKey = (rules: DirectoryRules, directory: string): string => {
+const keyOf = (rules: DirectoryRules, directory: string): string => {
   const normal = rules.path.normalize(directory);
   const { root } = rules.path.parse(normal);
   // Normalising leaves at most one separator at the end, and a root keeps its own.
   const trimmed = normal.length > root.length && normal.endsWith(rules.path.sep) ? normal.slice(0, -1) : normal;
   return rules.caseFolds ? trimmed.toLowerCase() : trimmed;
+};
+
+/** Whether a workspace's path is `directory`, an absolute path, both compared by `rules`. */
+export const isDirectory = (rules: DirectoryRules, directory: string): ((path: string) => boolean) => {
+  const key = keyOf(rules, directory);
+  return (path) => keyOf(rules, path) === key;
 };
