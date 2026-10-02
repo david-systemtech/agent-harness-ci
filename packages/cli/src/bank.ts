@@ -71,7 +71,7 @@ const onEnvironment = <T>(
   });
 
 /** `--scope org[/project[/area]]` as the tools' scope labels; a search may name an org alone. */
-const parseScope = (value: string): MemorySearchInput["scope"] => {
+const parseScope = (value: string): NonNullable<MemorySearchInput["scope"]> => {
   const [org, project, area, ...rest] = value.replace(/\/$/, "").split("/");
   if (org === undefined || org === "" || rest.length > 0) throw new UsageError(`--scope takes <org>[/<project>[/<area>]]; got ${value}.`);
   if (project === undefined) return { org };
@@ -159,7 +159,7 @@ const draft = async (args: readonly string[], context: BankContext): Promise<num
   const [name, ...rest] = positionals;
   if (name === undefined || rest.length > 0) throw new UsageError("bank draft takes one memory name.");
   const scope = parseScope(required("--scope", values.scope));
-  if (scope === undefined || !("project" in scope)) throw new UsageError(`--scope of a draft takes <org>/<project>[/<area>]; got ${values.scope}.`);
+  if (!("project" in scope)) throw new UsageError(`--scope of a draft takes <org>/<project>[/<area>]; got ${values.scope}.`);
   const type = MEMORY_TYPES.find((known) => known === values.type);
   if (type === undefined) throw new UsageError(`--type takes ${MEMORY_TYPES.join(", ")}; got ${values.type ?? "none"}.`);
   const description = required("--description", values.description);
