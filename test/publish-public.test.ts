@@ -102,6 +102,14 @@ it.each([
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
+it("refuses excluded test paths stored as UTF-16", () => {
+  const f = fixture();
+  f.write("test/public.test.ts", "");
+  writeFileSync(join(f.source, "test/public.test.ts"), Buffer.from('readFileSync(".forgejo/workflows/ci.yml")', "utf16le")); f.commit();
+  expect(() => f.publish()).toThrow(/test\/public.test.ts:1: excluded test input/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
 it("checks the committed repository's actual filtered test inventory before the privacy gate", () => {
   const f = fixture();
   let output: string;
@@ -178,6 +186,16 @@ it.each([
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
+it.each([false, true])("blocks a UTF-16 private term (big endian: %s)", (bigEndian) => {
+  const f = fixture();
+  f.write("test.ps1", "");
+  const encoded = Buffer.from(["SYSTEM", "SERVER"].join("-"), "utf16le");
+  if (bigEndian) encoded.swap16();
+  writeFileSync(join(f.source, "test.ps1"), encoded); f.commit();
+  expect(() => f.publish()).toThrow(/test.ps1:1: deployment-host/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
 it("allows only the listed synthetic fixture values, while scanning fixture prose", () => {
   const f = fixture();
   f.write("test/fixture.txt", "synthetic: 10.0.0.1, 192.168.1.2, 100.64.0.1; documentation: 192.0.2.1, tail1234, example.com\n");
@@ -215,6 +233,18 @@ sys.exit(1)
   const stderr = (failure as { stderr: string }).stderr;
   expect(stderr).toContain('"README.md":7: test-secret-rule');
   expect(stderr).toContain("publication blocked");
+  expect(stderr).not.toContain("fake-secret-for-tests");
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("identifies a failed Git operation without forwarding its remote or stderr", () => {
+  const f = fixture();
+  let failure: unknown;
+  try { f.publish("--remote", join(f.source, "..", "fake-secret-for-tests-not-a-repository")); }
+  catch (error) { failure = error; }
+  expect(failure).toMatchObject({ status: 1 });
+  const stderr = (failure as { stderr: string }).stderr;
+  expect(stderr).toContain("git ls-remote failed");
   expect(stderr).not.toContain("fake-secret-for-tests");
   expect(git(f.remote, "for-each-ref")).toBe("");
 });

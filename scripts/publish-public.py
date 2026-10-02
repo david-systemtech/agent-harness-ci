@@ -46,7 +46,7 @@ def check_test_inputs(tree, patterns):
     for file in sorted(tree.rglob('*')):
         if not file.is_file() or not file.name.endswith(('.test.ts', '.test.tsx')):
             continue
-        text = file.read_text(encoding='utf-8', errors='replace')
+        text = file.read_text(encoding='utf-8', errors='replace').replace('\0', '')
         # Recognise both literal paths and adjacent string arguments to join().
         text = text.replace('\\/', '/').replace('\\.', '.')
         text = re.sub(r'''['"`][ \t]*,[ \t]*['"`]''', '/', text)
@@ -117,15 +117,19 @@ def privacy(tree, policy):
         if not file.is_file():
             continue
         path = file.relative_to(tree).as_posix()
-        # Decode every blob, including binaries, and scan the filename as well.
-        for text in (path, file.read_bytes().decode('utf-8', errors='replace')):
+        # Scan raw UTF-8 and null-padded ASCII terms (UTF-16/32), plus filenames.
+        content = file.read_bytes().decode('utf-8', errors='replace')
+        views = [path, content]
+        if '\0' in content:
+            views.append(content.replace('\0', ''))
+        for text in views:
             for name, pattern in rules:
                 for match in pattern.finditer(text):
                     if not any(rule == name and p.search(path) and v.fullmatch(match.group())
                                for rule, p, v in allowances):
                         failures.append(f'{path}:{text[:match.start()].count(chr(10)) + 1}: {name}')
     if failures:
-        raise ValueError('Privacy deny-list failed:\n' + '\n'.join(failures))
+        raise ValueError('Privacy deny-list failed:\n' + '\n'.join(dict.fromkeys(failures)))
     print('Privacy deny-list: pass')
 
 
@@ -266,8 +270,12 @@ def main():
     parser.add_argument('--gitleaks', help='Path to pinned gitleaks (also the test seam)')
     try:
         publish(parser.parse_args())
-    except subprocess.CalledProcessError:
-        print('Publish failed: a required command or privacy scan failed; no successful publish reported', file=sys.stderr)
+    except subprocess.CalledProcessError as error:
+        operation = 'required command'
+        if error.cmd[:2] == ['git', '-C'] and len(error.cmd) > 3:
+            operation = 'git ' + error.cmd[3]
+        # Report the operation, never URLs, credentials or raw command output.
+        print(f'Publish failed: {operation} failed (exit {error.returncode}); publication blocked', file=sys.stderr)
         return 1
     except (ValueError, OSError, KeyError) as error:
         print(str(error), file=sys.stderr)

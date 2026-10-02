@@ -36,6 +36,8 @@ ID, parent and message. It writes only temporary local objects and may download
 the pinned scanner; it never pushes refs. A later run may have a different commit
 ID because the commit time or public parent changed. A failed check prints a rule
 and file/line, or a scanner failure, and exits nonzero without pushing.
+Git failures identify the operation and exit status; remote URLs and raw stderr
+are omitted to keep credentials and private connection details out of diagnostics.
 
 Review the list and remove `--dry-run` to publish. Omit `--tag` for a code-only
 snapshot. For a release, the tag must be `v` plus `--version`, including any
@@ -70,7 +72,8 @@ real publication always uses the selected ref's complete privacy policy.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob
-contents, including binary files. Its allow-list grants only a particular rule,
+contents, including binary files. Null-padded ASCII terms are also checked,
+covering UTF-16/32 private identifiers. Its allow-list grants only a particular rule,
 path pattern and matched synthetic value; fixture prose still gets checked.
 Change these policies only through review. When the scrub identifies another
 private runbook, add its path to the excludes before publishing. New fixtures
