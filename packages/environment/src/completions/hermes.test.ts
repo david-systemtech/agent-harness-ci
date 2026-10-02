@@ -1,4 +1,6 @@
-import { CompletionsModelList, type Mode, type RunPolicyResolvedPayload, type RunStartedPayload, type Scope } from "@agent-harness/contracts";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { CompletionsModelList, registry, type Mode, type RunPolicyResolvedPayload, type RunStartedPayload, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, say, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
@@ -113,5 +115,73 @@ describe("the butler's chat turn", () => {
     const client = run.toolServers.find((server) => server.name === "client");
     if (client === undefined || !isInProcess(client)) throw new Error("Hermes's tools were not served as the client server.");
     expect(client.tools.map((tool) => tool.name)).toEqual(HERMES_TOOLS.map((tool) => tool.function.name));
+  });
+
+  it("holds the namespace's bypassPermissions to the butler's ceiling as it is now: a lowered ceiling clamps the next turn, and the first chunk says so", async () => {
+    const t = await start(reply("Done."));
+    const { token, clientSessionId } = await program(t);
+    const butler = hermesCaller({ origin: origin(t), token, route: await liveRoute(t, token, "sonnet", "medium"), sessionIds: "never" });
+    const admin = await t.client();
+    const lowered = registry["access.sessions.setCeiling"].response.parse(
+      await admin.request("access.sessions.setCeiling", { commandId: randomUUID(), clientSessionId, ceiling: "acceptEdits" }),
+    );
+    expect(lowered.result).toMatchObject({ from: "bypassPermissions", to: "acceptEdits" });
+
+    const { final } = await butler.chat("Tidy the notes folder.");
+
+    expect(final.head).toMatchObject({
+      mode: "acceptEdits",
+      clamped: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", reason: "ceiling" },
+    });
+    expect(final.atFinish?.ended).toEqual({ reason: "completed", cause: null });
+    expect(t.adapter.lastRun().input).toMatchObject({ mode: "acceptEdits", ceiling: "acceptEdits" });
+  });
+});
+
+describe("a two-turn chat", () => {
+  it("runs a turn naming no session in a fresh scratch session, and the next turn naming the id it returned in that session, on the model and effort each turn's route picks", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const butler = hermesCaller({ origin: origin(t), token, route: await liveRoute(t, token, "sonnet", "medium"), sessionIds: "sent" });
+
+    const first = await butler.chat("The boiler is serviced in March.");
+    const sessionId = first.final.head.sessionId as string;
+    expect(t.adapter.lastRun().input.workspace).toEqual({ kind: "scratch", path: join(t.dataDir, "scratch", sessionId) });
+    // The second turn is a chat command's: /opus-max, with the whole conversation re-sent, as Hermes does.
+    const second = await butler.chat("When is the boiler serviced?", await liveRoute(t, token, "opus", "max"));
+
+    expect(butler.sent.map((body) => (body["agent-harness"] as { sessionId?: string }).sessionId)).toEqual([undefined, sessionId]);
+    expect(second.final.head.sessionId).toBe(sessionId);
+    expect(second.final.content).toBe("Done: When is the boiler serviced?");
+    expect(t.adapter.lastRun().input.prompt.map((message) => message.text)).toEqual(["When is the boiler serviced?"]);
+    expect(payloadsOf<RunStartedPayload>(t, sessionId, "run.started").map((run) => [run.accountId, run.model, run.effort])).toEqual([
+      ["Owner Max", "sonnet", "medium"],
+      ["Owner Max", "opus", "max"],
+    ]);
+    expect(first.final.chunks.every((chunk) => chunk.model === "owner-max/sonnet")).toBe(true);
+    expect(second.final.chunks.every((chunk) => chunk.model === "owner-max/opus")).toBe(true);
+    for (const turn of [first, second]) {
+      expect(turn.final).toMatchObject({ finishReason: "stop", done: true, atFinish: { ended: { reason: "completed", cause: null } } });
+    }
+  });
+
+  it("gives every turn of a caller that names no session, as the pinned Hermes, a fresh scratch session whose prompt carries the conversation so far", async () => {
+    const t = await start();
+    const { token } = await program(t);
+    const butler = hermesCaller({ origin: origin(t), token, route: await liveRoute(t, token, "sonnet", "medium"), sessionIds: "never" });
+
+    const first = await butler.chat("The boiler is serviced in March.");
+    const second = await butler.chat("When is the boiler serviced?");
+
+    const sessions = [first, second].map((turn) => turn.final.head.sessionId as string);
+    expect(new Set(sessions).size).toBe(2);
+    expect(t.adapter.lastRun().input.workspace).toEqual({ kind: "scratch", path: join(t.dataDir, "scratch", sessions[1] as string) });
+    const [prompt] = t.adapter.lastRun().input.prompt.map((message) => message.text);
+    expect(prompt).toMatch(/^Earlier in this conversation:/);
+    expect(prompt).toContain("User: The boiler is serviced in March.");
+    expect(prompt).toContain("Assistant: Done: The boiler is serviced in March.");
+    expect(prompt?.endsWith("When is the boiler serviced?")).toBe(true);
+    // Hermes's own system prompt is never part of the preamble: it is appended to the instructions on each turn.
+    expect(prompt).not.toContain(HERMES_SYSTEM_PROMPT);
   });
 });
