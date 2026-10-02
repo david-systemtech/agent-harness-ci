@@ -156,6 +156,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   const runtime = useRuntime();
   const session = useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]);
   const projection = useObservable(session);
+  const checks = useObservable(useMemo(() => runtime.projections.checks(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const environments = useObservable(runtime.projections.environments);
   const [textSize] = usePresentation("textSize");
   const [readingWidth] = usePresentation("readingWidth");
@@ -169,7 +170,7 @@ export const Transcript = ({ environmentId, sessionId }: TranscriptProps) => {
   if (liveFrom === null && projection.freshness === "live") setLiveFrom(headOf(projection));
   const quietMs = useQuietCalls(projection);
   const { revealed } = usePaneDocuments();
-  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.summary?.workspace.path ?? null, revealed, verbs: true };
+  const facts: RowFacts = { arrived: (sequence) => liveFrom !== null && sequence > liveFrom, quietMs, workspace: projection.summary?.workspace.path ?? null, revealed, verbs: true, checkOutput: checks.runningOutput };
   const follow = useFollow();
   useReveal(follow, revealed);
   const find = useFindBar(follow.column, follow.stop);

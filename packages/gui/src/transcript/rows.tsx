@@ -7,6 +7,7 @@ import {
   turnFacts,
   updateInterruptedText,
   type AssistantEntry,
+  type ChecksView,
   type PromptEntry,
   type SubagentEntry,
   type TranscriptRow,
@@ -47,6 +48,7 @@ export interface RowFacts {
    * cut, a subagent's transcript.
    */
   readonly verbs: boolean;
+  readonly checkOutput?: ChecksView["runningOutput"];
 }
 
 /** One row of the transcript, drawn by its kind. */
@@ -73,6 +75,18 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <Subagent entry={row.entry} facts={facts} />;
     case "prompt":
       return <Prompt entry={row.entry} />;
+    case "check": {
+      const entry = row.entry;
+      const live = entry.status === "running" ? facts.checkOutput?.get(entry.terminalId) : undefined;
+      return (
+        <article aria-label="Workspace check result" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
+          <pre className="font-mono whitespace-pre-wrap break-words"><Marked text={`$ ${entry.command}`} /></pre>
+          <p>{entry.status}{entry.status === "running" ? "" : `; exit ${entry.exitCode ?? "none"}`}{(live?.truncated ?? entry.truncated) ? "; output truncated" : ""}</p>
+          {entry.failure !== null && <p className="text-amber">{entry.failure}</p>}
+          {(live?.output ?? entry.output) !== "" && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={live?.output ?? entry.output} /></pre>}
+        </article>
+      );
+    }
     case "command":
       return (
         <article aria-label="Command" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">

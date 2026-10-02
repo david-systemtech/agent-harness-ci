@@ -27,6 +27,7 @@ import { useBox } from "./box.js";
 import { MenuList, optionId, useMenus, type Menu } from "./menus.js";
 import { useSessionDraft } from "./session-draft.js";
 import { notWired, typedCommand, useSlashCommand, useWiredCommands } from "./slash-commands.js";
+import { useWorkspaceChecks, WorkspaceCheck } from "./workspace-checks.js";
 import { usePromptWalk } from "./walk.js";
 
 export interface ComposerProps {
@@ -83,6 +84,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const runs = useObservable(useMemo(() => runtime.projections.runs.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
   const provider = useProvider(environmentId, projection);
   const [line, say] = usePaneLine();
+  const checks = useWorkspaceChecks(environmentId, sessionId, say);
   const box = useBox();
   useSessionDraft(environmentId, sessionId, projection, box);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
@@ -106,6 +108,13 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const stoppable = stopOffer(runtime.capability(environmentId, "runs.interrupt"), live, liveRunId, interruptAsked);
   const runShellLine = useShellLines({ environmentId, sessionId, line, say, lock, live });
 
+  const sendFailure = () => {
+    if (sending.status === "absent") return say(sending.message);
+    void runtime.checks.sendFailure(environmentId, sessionId, choice).then((outcome) => {
+      if (!outcome.ok) say(outcome.line);
+    });
+  };
+
   /** Sends `raw` as the box would: a command of the window's is run, anything else goes to the agent with the attachments. */
   const send = (raw: string) => {
     const shell = shellLine(raw);
@@ -122,7 +131,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
       return command.run(typed.argument);
     }
     const message = { text: raw.trim(), attachments: attachments.current() };
-    if (message.text.length === 0) return message.attachments.length > 0 ? say("Write a message to go with the attachments.") : undefined;
+    if (message.text.length === 0) return message.attachments.length > 0 ? say("Write a message to go with the attachments.") : raw.length === 0 && checks.offer !== null ? sendFailure() : undefined;
     if (lock.locked) return say(`Not sent: ${lock.reason}`);
     const refused = attachmentRefusal(message, provider);
     if (refused !== undefined) return say(refused);
@@ -206,6 +215,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
           <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3" onDragOver={attachments.dragging} onDrop={attachments.dropped}>
             {lock.locked && <p className="text-xs text-amber">Locked: {lock.reason}</p>}
             {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
+            <WorkspaceCheck view={checks} sendFailure={sendFailure} sending={sending} />
             <AttachmentChips attachments={attachments} />
             <div className="flex items-end gap-2">
               <textarea

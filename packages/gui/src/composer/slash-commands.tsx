@@ -25,7 +25,8 @@ export interface WiredCommand {
   readonly name: string;
   readonly usage: string;
   readonly description: string;
-  /** Runs it with what was typed after its name, trimmed. */
+  readonly availability?: Offer;
+  /** Runs it with what was typed after its name; check preserves shell text. */
   readonly run: (argument: string) => void;
 }
 
@@ -94,7 +95,7 @@ export const useSlashCommand = (name: string, run: (argument: string) => void, o
   useLayoutEffect(() => {
     latest.current = run;
   });
-  useEffect(() => wiring.wire({ name, usage, description, run: (argument) => latest.current(argument) }), [wiring, name, usage, description]);
+  useEffect(() => wiring.wire({ name, usage, description, run: (argument) => latest.current(argument), ...(offer === undefined ? {} : { availability: offer }) }), [wiring, name, usage, description, offer?.status, offer?.status === "absent" ? offer.message : undefined]);
   useWindowAction(action.id, () => latest.current(""), offer);
 };
 
@@ -116,6 +117,8 @@ export interface TypedCommand {
  * Any other text, another word after a `/` included, is for the agent.
  */
 export const typedCommand = (text: string): TypedCommand | undefined => {
+  const check = /^\/check(?:\s([\s\S]*)|$)/i.exec(text.trimStart());
+  if (check !== null) return { name: "check", argument: check[1] ?? "" };
   const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (match === null) return undefined;
   const typed = `command.${(match[1] ?? "").toLowerCase()}`;
