@@ -1,6 +1,7 @@
-import { bankInstructionsLayer } from "../banks/bank-layer.js";
-import { createBankLander } from "../banks/lander.js";
+import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
+import { createMemoryOperations } from "../banks/memory-operations.js";
+import { memoryMethods } from "../banks/memory-methods.js";
 import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
@@ -1093,6 +1094,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
   const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
   const autoMemory = createAutoMemory(autoMemoryRoot);
+  closers.push(connectBankMemory(log, autoMemory));
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -1184,10 +1186,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const seamServers = hostSeams.toolServers ?? noToolServers;
   // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
   // check asks this (#511), since the caller's tools are its request's alone.
-  const bankLander = createBankLander({ log, environmentId: record.id, banks: bankService, forge, clock, scrub,
+  bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankLander.close());
-  const memoryTools = createMemoryToolServers({ log, environmentId: record.id, scrub, promote: bankLander.promote });
+  closers.push(() => bankService.closeLanding());
+  // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
+  const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
+  const memoryTools = createMemoryToolServers(memoryOperations);
   const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
@@ -1214,7 +1218,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The session's own instructions (#506) fill the session layer.
   const sessionLayer = sessionInstructionsLayer({ all: (sql, ...params) => log.read(sql, ...params) });
   const instructions =
-    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), teamBank: bankInstructionsLayer(log), session: sessionLayer });
+    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), teamBank: bankInstructionsLayer(log, autoMemory), session: sessionLayer });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
@@ -1778,6 +1782,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...bankMethods(bankService, bankCredentials, bankSyncer),
+    ...memoryMethods(memoryOperations, () => accounts.defaultId()),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
       const session = readSessionFacts(log, reader, sessionId);

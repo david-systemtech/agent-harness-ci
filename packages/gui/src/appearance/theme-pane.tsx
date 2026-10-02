@@ -1,14 +1,11 @@
-import { homeEnvironment, rowKeys, rowSteps, type EnvironmentView } from "@agent-harness/client-runtime";
-import { THEME_SEED_NAMES, Theme, settingsRow } from "@agent-harness/contracts";
-import { LADDERS, SEED_TOKENS, clampWords, cssVariables, derive, type DerivedTheme, type LadderName } from "@agent-harness/theme";
-import { useId, useMemo, type CSSProperties, type ReactNode } from "react";
-import { THIS_MACHINE } from "../connections/words.js";
+import { homeEnvironment, rowSteps } from "@agent-harness/client-runtime";
+import { settingsRow } from "@agent-harness/contracts";
+import { useId, type ReactNode } from "react";
 import { READING_WIDTHS, TEXT_SIZE_LEAST, TEXT_SIZE_MOST, type LightOrDark, type ReadingWidth } from "../presentation.js";
-import { GenericEditor } from "../settings/generic-editor.js";
-import { useSettingsValues } from "../settings/settings-values.js";
 import { StepLinks } from "../settings/step-links.js";
 import { Select, Switch } from "../ui/index.js";
 import { useObservable, usePresentation, useRuntime } from "../window-context.js";
+import { ThemePicker } from "./theme-picker.js";
 
 /**
  * The Theme row, `appearance.theme` (docs/specs/gui.md, "Theme: tokens, the
@@ -16,12 +13,13 @@ import { useObservable, usePresentation, useRuntime } from "../window-context.js
  * `client` row. This client's own preferences, each kept in presentation and
  * taking effect at once: light or dark, and the transcript's text size,
  * reading width, reasoning shown and streaming fade. Then the home
- * environment's theme, the one the window paints: its name, each seed with
- * its hue and chroma and as a swatch in both ladders, and each seed the
- * derivation clamped to meet the rules, in the words the Appearance check
- * says; the generic editor writes it (`settings.update`, `admin`; the picker
- * is phase D), and every window repaints on the `settings.changed` it
- * brings.
+ * environment's theme, the one the window paints, in the theme picker
+ * (#1194): its name, each seed with its hue and chroma and as a swatch in
+ * both ladders, and each seed the derivation clamped to meet the rules, in
+ * the words the Appearance check says; the shipped themes, the seeds'
+ * controls, import and export make a candidate the window previews, Save
+ * writes it (`settings.update`, `admin`), and every window repaints on the
+ * `settings.changed` it brings.
  */
 export const ThemePane = () => {
   const home = homeEnvironment(useObservable(useRuntime().projections.environments));
@@ -30,7 +28,11 @@ export const ThemePane = () => {
       <p className="text-sm text-ink-muted">{settingsRow("appearance.theme").hint}</p>
       <StepLinks steps={rowSteps("appearance.theme")} />
       <ClientPreferences />
-      {home !== undefined && <HomeTheme key={home.environmentId} view={home} />}
+      {home !== undefined && (
+        <Part heading="The home environment's theme">
+          <ThemePicker key={home.environmentId} view={home} />
+        </Part>
+      )}
     </>
   );
 };
@@ -151,85 +153,3 @@ const ClientPreferences = () => {
     </Part>
   );
 };
-
-/** The home environment's theme as it read it, and the generic editor that writes it. */
-const HomeTheme = ({ view }: { readonly view: EnvironmentView }) => (
-  <Part heading="The home environment's theme">
-    <EnvironmentTheme view={view} />
-    <GenericEditor view={view} keys={rowKeys("appearance.theme")} />
-  </Part>
-);
-
-/**
- * An environment's theme as this window read it (`settings.get` in the
- * request cache): on the Theme row the home environment's, on the
- * Appearance step's card the environment the checklist checks (#594).
- * Nothing until a theme is read.
- */
-export const EnvironmentTheme = ({ view }: { readonly view: EnvironmentView }) => {
-  const { values } = useSettingsValues(view.environmentId);
-  const theme = Theme.safeParse(values?.["appearance.theme"]).data;
-  return theme === undefined ? null : <ThemeShown theme={theme} on={view.name ?? THIS_MACHINE} />;
-};
-
-/** How a swatch group is named, by its ladder. */
-const LADDER_WORDS: Readonly<Record<LadderName, string>> = { light: "Light ladder", dark: "Dark ladder" };
-
-/** A theme: its name and where it is set, its seeds, a swatch of each in both ladders, and each seed the derivation clamped. */
-const ThemeShown = ({ theme, on }: { readonly theme: Theme; readonly on: string }) => {
-  const derived = useMemo(() => derive(theme), [theme]);
-  const clamped = THEME_SEED_NAMES.flatMap((seed) => {
-    const own = derived.clamps.filter((clamp) => clamp.seed === seed);
-    return own.length === 0 ? [] : [`${seed}: ${clampWords(own)}`];
-  });
-  return (
-    <>
-      <p className="text-sm font-medium text-ink">
-        {theme.name}, on {on}
-      </p>
-      <ul aria-label="Seeds" className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
-        {THEME_SEED_NAMES.map((seed) => (
-          <li key={seed}>
-            {seed}: hue {theme.seeds[seed].hue}, chroma {theme.seeds[seed].chroma}
-          </li>
-        ))}
-      </ul>
-      <div className="flex flex-wrap gap-3">
-        {LADDERS.map((ladder) => (
-          <Swatches key={ladder} derived={derived} ladder={ladder} />
-        ))}
-      </div>
-      {clamped.length === 0 ? (
-        <p className="text-sm text-ink-muted">No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.</p>
-      ) : (
-        <ul aria-label="Clamped seeds" className="flex flex-col gap-1 text-sm text-amber">
-          {clamped.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      )}
-    </>
-  );
-};
-
-/**
- * Each seed's swatch in one ladder: the ladder is painted on the group
- * itself as the window paints its root (every token a CSS variable), so a
- * swatch is its seed's token and never a literal colour (ADR 0023), in the
- * ladder named whatever ladder the window paints.
- */
-const Swatches = ({ derived, ladder }: { readonly derived: DerivedTheme; readonly ladder: LadderName }) => (
-  <div
-    role="group"
-    aria-label={LADDER_WORDS[ladder]}
-    style={{ ...cssVariables(derived[ladder]), colorScheme: ladder } as CSSProperties}
-    className="flex flex-col gap-2 rounded-md border border-line bg-abyss p-3"
-  >
-    <span className="text-xs text-ink-muted">{LADDER_WORDS[ladder]}</span>
-    <div className="flex gap-2">
-      {THEME_SEED_NAMES.map((seed) => (
-        <span key={seed} role="img" aria-label={seed} title={seed} style={{ backgroundColor: `var(--${SEED_TOKENS[seed]})` }} className="size-6 rounded-sm border border-line" />
-      ))}
-    </div>
-  </div>
-);

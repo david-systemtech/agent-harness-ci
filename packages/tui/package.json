@@ -8,6 +8,11 @@
       "@agent-harness/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./terminal-state": {
+      "@agent-harness/source": "./src/platform/terminal-batch.ts",
+      "types": "./dist/platform/terminal-batch.d.ts",
+      "default": "./dist/platform/terminal-batch.js"
     }
   },
   "scripts": {

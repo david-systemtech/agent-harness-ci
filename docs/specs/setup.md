@@ -194,7 +194,7 @@ The vocabulary (`SETUP_ACTIONS`) gains the verbs the decisions name that it lack
 #### 11. Appearance (ADR 0023)
 
 - **Entry**: writes `appearance.theme` (GUI spec) and, having handed the session keys to Your machines, nothing else; state check `appearance.contrast` (`restore`); triggers `settings.updated` for the key.
-- **Card**: the client's light, dark or system preference (client-local, not a registry key), the home environment's theme name and swatches with its clamps; the picker arrives in phase D (ADR 0023). Done once set or preset.
+- **Card**: the client's light, dark or system preference (client-local, not a registry key), the home environment's theme name and swatches with its clamps, and from phase D the theme picker the Theme row shares, saving to the environment the checklist checks (ADR 0023; #1194). Done once set or preset.
 
 ### The headless path
 

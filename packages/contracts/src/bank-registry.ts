@@ -117,10 +117,11 @@ export const BankManifestStatus = z
   });
 export type BankManifestStatus = z.infer<typeof BankManifestStatus>;
 
-/** Its last landing: none failed, or the Lander's step that failed and why. */
+/** Its last landing: completed, awaiting review, or the Lander's step that failed and why. */
 export const BankLandingStatus = z
   .discriminatedUnion("state", [
     z.object({ state: z.literal("ok"), since }),
+    z.object({ state: z.literal("awaiting-review"), pullRequest: z.string().min(1), since }),
     z.object({
       state: z.literal("failed"),
       step: z.string().min(1).meta({ description: "The Lander's step the landing failed at." }),
@@ -128,7 +129,7 @@ export const BankLandingStatus = z
       since,
     }),
   ])
-  .meta({ description: "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why." });
+  .meta({ description: "The bank's last landing: ok, awaiting an owner's review, or failed at a step of the Lander, with why." });
 export type BankLandingStatus = z.infer<typeof BankLandingStatus>;
 
 /** A bank's status as its last verification and landing recorded it, each part with when it last changed. */
@@ -263,7 +264,7 @@ export const BankLandedPayload = z
 export type BankLandedPayload = z.infer<typeof BankLandedPayload>;
 
 export const BankLandingFailedPayload = z
-  .object({ bankId: BankId, sessionId: SessionId.nullable(), step: z.string().min(1), reason: z.string().min(1) })
+  .object({ bankId: BankId, sessionId: SessionId.nullable(), step: z.string().min(1), reason: z.string().min(1), reviewReleased: z.literal(true).optional().meta({ description: "The held review was closed, replaced or failed exact-file verification and was released; drafts remain queued for resubmission." }) })
   .meta({ description: "bank.landing-failed: a landing failed at a step of the Lander, with why." });
 export type BankLandingFailedPayload = z.infer<typeof BankLandingFailedPayload>;
 

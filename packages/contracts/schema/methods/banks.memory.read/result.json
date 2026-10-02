@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.memory.read result",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "description": "The memory tool's answer: the pointer's exact index or file, ending with its folder and count."
+    }
+  },
+  "required": [
+    "text"
+  ]
+}

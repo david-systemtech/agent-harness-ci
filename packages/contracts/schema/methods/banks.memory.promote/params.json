@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.memory.promote params",
+  "type": "object",
+  "properties": {
+    "bank": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "queue": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The caller's own draft queue: its own session's id, a version 4 UUID (a Claude Code session's), not a harness session's. Drafts join the queue per bank and promote lands it."
+    },
+    "repositoryIdentity": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+          "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The repository identity of the directory the caller works in (workspaces.inspect's); null for none, under which only banks scoped to every repository are in scope."
+    }
+  },
+  "required": [
+    "queue",
+    "repositoryIdentity"
+  ]
+}

@@ -1,4 +1,4 @@
-import { banksDraftsList } from "./memory-drafts.js";
+import { banksDraftsList, banksMemoryDraft, banksMemoryPromote, banksMemoryRead, banksMemorySearch } from "./memory-drafts.js";
 import type { z } from "zod";
 import {
   accessLogList,
@@ -308,6 +308,10 @@ export const methods = [
   banksJoinPreview,
   banksJoin,
   banksDraftsList,
+  banksMemorySearch,
+  banksMemoryRead,
+  banksMemoryDraft,
+  banksMemoryPromote,
   banksGet,
   banksRegister,
   banksCredentialSet,

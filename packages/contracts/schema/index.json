@@ -1459,6 +1459,10 @@
       "title": "MemoryPromoteResult"
     },
     {
+      "path": "banks/events/bank.review-held.json",
+      "title": "BankReviewHeldPayload"
+    },
+    {
       "path": "banks/events/bank.drafts-consumed.json",
       "title": "BankDraftsConsumedPayload"
     },
@@ -5367,6 +5371,54 @@
       "title": "banks.drafts.list error"
     },
     {
+      "path": "methods/banks.memory.search/params.json",
+      "title": "banks.memory.search params"
+    },
+    {
+      "path": "methods/banks.memory.search/result.json",
+      "title": "banks.memory.search result"
+    },
+    {
+      "path": "methods/banks.memory.search/error.json",
+      "title": "banks.memory.search error"
+    },
+    {
+      "path": "methods/banks.memory.read/params.json",
+      "title": "banks.memory.read params"
+    },
+    {
+      "path": "methods/banks.memory.read/result.json",
+      "title": "banks.memory.read result"
+    },
+    {
+      "path": "methods/banks.memory.read/error.json",
+      "title": "banks.memory.read error"
+    },
+    {
+      "path": "methods/banks.memory.draft/params.json",
+      "title": "banks.memory.draft params"
+    },
+    {
+      "path": "methods/banks.memory.draft/result.json",
+      "title": "banks.memory.draft result"
+    },
+    {
+      "path": "methods/banks.memory.draft/error.json",
+      "title": "banks.memory.draft error"
+    },
+    {
+      "path": "methods/banks.memory.promote/params.json",
+      "title": "banks.memory.promote params"
+    },
+    {
+      "path": "methods/banks.memory.promote/result.json",
+      "title": "banks.memory.promote result"
+    },
+    {
+      "path": "methods/banks.memory.promote/error.json",
+      "title": "banks.memory.promote error"
+    },
+    {
       "path": "methods/banks.get/params.json",
       "title": "banks.get params"
     },
@@ -8029,6 +8081,42 @@
       "params": "methods/banks.drafts.list/params.json",
       "result": "methods/banks.drafts.list/result.json",
       "error": "methods/banks.drafts.list/error.json"
+    },
+    {
+      "name": "banks.memory.search",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.memory.search/params.json",
+      "result": "methods/banks.memory.search/result.json",
+      "error": "methods/banks.memory.search/error.json"
+    },
+    {
+      "name": "banks.memory.read",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.memory.read/params.json",
+      "result": "methods/banks.memory.read/result.json",
+      "error": "methods/banks.memory.read/error.json"
+    },
+    {
+      "name": "banks.memory.draft",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.memory.draft/params.json",
+      "result": "methods/banks.memory.draft/result.json",
+      "error": "methods/banks.memory.draft/error.json"
+    },
+    {
+      "name": "banks.memory.promote",
+      "scope": "admin",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.memory.promote/params.json",
+      "result": "methods/banks.memory.promote/result.json",
+      "error": "methods/banks.memory.promote/error.json"
     },
     {
       "name": "banks.get",
