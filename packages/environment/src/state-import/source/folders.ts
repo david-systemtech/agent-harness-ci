@@ -37,7 +37,7 @@ export interface SourceMachine {
 }
 
 /** The files the source writes in its data folder, by what they hold. */
-const DATA_FILES = {
+export const DATA_FILES = {
   profiles: "profiles.json",
   banks: "memory-banks.json",
   desktopRoutines: "routines.json",
