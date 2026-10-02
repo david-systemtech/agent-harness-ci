@@ -33,6 +33,36 @@ const open = async (more: Partial<ScriptedEnvironment> = {}, initial: BankRecord
 };
 
 describe("the Memory bank card", () => {
+  it("offers an outdated bank's validator update and shows the returned review state", async () => {
+    const older = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "older", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }), validator: { installedVersion: 1, currentVersion: 2, needsUpdate: true } };
+    const current = { ...older, id: "0199aa00-0000-4000-8000-000000000003", name: "current", validator: { installedVersion: 2, currentVersion: 2, needsUpdate: false } };
+    const { app, desk, card } = await open({}, [older, current]);
+    desk.wire.answer("banks.validator.update", () => accepted({ version: 2, landing: { state: "awaiting-review", bank: "older", pullRequest: "https://github.com/david/older/pull/1", files: [{ path: ".agent-harness/validate.mjs", state: "pending" }] } }));
+    const olderCard = await within(card).findByRole("region", { name: "older" });
+    expect(within(await within(card).findByRole("region", { name: "current" })).queryByRole("button", { name: "Update validator" })).toBeNull();
+    await app.user.click(within(olderCard).getByRole("button", { name: "Update validator" }));
+    const review = await within(olderCard).findByRole("button", { name: "Awaiting owner review" });
+    expect(review.getAttribute("title")).toBe("https://github.com/david/older/pull/1");
+    expect(desk.requests("banks.validator.update").at(-1)?.params).toMatchObject({ bankId: older.id, commandId: expect.any(String) });
+  });
+
+  it.each(["failed", "landed"] as const)("shows the validator update's returned %s state", async (state) => {
+    const older = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "older", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }), validator: { installedVersion: 1, currentVersion: 2, needsUpdate: true } };
+    const { app, desk, card } = await open({}, [older]);
+    const landing = state === "failed" ? { state, bank: "older", step: "pull-request", reason: "The forge is unavailable.\nTry again." } : { state, bank: "older", pullRequest: null, files: [{ path: ".agent-harness/validate.mjs", state: "present" }] };
+    desk.wire.answer("banks.validator.update", () => accepted({ version: 2, landing }));
+    const row = await within(card).findByRole("region", { name: "older" });
+    await app.user.click(within(row).getByRole("button", { name: "Update validator" }));
+    if (state === "failed") expect((await within(row).findByRole("alert")).textContent).toBe("Validator update failed at pull-request: The forge is unavailable. Try again.");
+    else expect(await within(row).findByText("Validator update verified on main.")).toBeDefined();
+  });
+
+  it("disables an outdated bank's validator action without admin", async () => {
+    const older = { ...bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "older", creation: { kind: "personal", localOnly: false, org: "personal", project: "harness" } }), validator: { installedVersion: 1, currentVersion: 2, needsUpdate: true } };
+    const { card } = await open({ scopes: ["read"] }, [older]);
+    expect((await within(card).findByRole("button", { name: "Update validator" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("keeps each bank's authoring actions on its own card", async () => {
     const first = bank({ commandId: "0199aa00-0000-7000-8000-000000000001", bankId: "0199aa00-0000-4000-8000-000000000002", name: "first", creation: { kind: "personal", localOnly: true, org: "personal", project: "harness" } });
     const second = { ...first, id: "0199aa00-0000-4000-8000-000000000003", name: "second" };

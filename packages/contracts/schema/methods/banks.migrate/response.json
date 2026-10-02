@@ -337,6 +337,41 @@
                 ],
                 "description": "Name-prefix clusters suggested for explicit authoring. Proposing changes no files, declarations or landing state."
               }
+            },
+            "preservation": {
+              "type": "object",
+              "properties": {
+                "names": {
+                  "type": "boolean"
+                },
+                "links": {
+                  "type": "boolean"
+                },
+                "counts": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "names",
+                "links",
+                "counts"
+              ]
+            },
+            "headsUp": {
+              "description": "Draft only: the human posts it before switch-over; migration never creates a tracker issue.",
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "body"
+              ]
             }
           },
           "required": [

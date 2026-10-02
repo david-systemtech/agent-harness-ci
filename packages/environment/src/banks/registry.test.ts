@@ -112,6 +112,7 @@ describe("banks.register and banks.list", () => {
       folders: 3,
       line: PERSONAL_LINE,
       sharedAliases: [],
+      validator: { installedVersion: null, currentVersion: 1, needsUpdate: true },
     });
     expect(await list(client)).toEqual([bank]);
   });

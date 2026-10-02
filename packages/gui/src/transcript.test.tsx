@@ -36,6 +36,19 @@ const fadeEnds = (word: HTMLElement) => {
 const fading = (element: HTMLElement | undefined) => [...(element?.querySelectorAll("span") ?? [])].filter((span) => span.style.animationName === "word-in").map((span) => span.textContent);
 
 describe("streaming", () => {
+  it("draws Workspace check commands, running state and finished output from the shared projection", async () => {
+    const { env, transcript, session } = await opened();
+    const check = { terminalId: "0199a100-0000-4000-8000-000000000001", command: "pnpm lint", sourceRunId: null };
+    env.emit(session, "checks.started", check);
+    const row = await within(transcript).findByRole("article", { name: "Workspace check" });
+    expect(row.textContent).toContain("$ pnpm lint · running");
+    env.emit(session, "checks.finished", { ...check, output: "Lint failed\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null });
+    await waitFor(() => expect(row.textContent).toContain("$ pnpm lint · exit 1"));
+    expect(row.textContent).toContain("Earlier output omitted");
+    expect(row.textContent).toContain("Lint failed");
+    expect(within(transcript).getAllByRole("article", { name: "Workspace check" })).toHaveLength(1);
+  });
+
   it("draws the run's prompt, then its text as the deltas arrive, and the whole text once it settles", async () => {
     const { env, transcript, session } = await opened();
     const { runId } = env.startRun(session, "Fix the receipts");

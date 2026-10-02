@@ -6,8 +6,12 @@
     "instruction",
     "account",
     "account-default",
+    "forge-account",
+    "key-manager-connection",
+    "dev-site",
+    "page-policy",
     "skill-source",
     "skill-always-on"
   ],
-  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile), skill-source (a tracked repository), skill-always-on (an Account choice)."
+  "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a Forge account, a Key-manager connection, a dev site the local evaluate-everywhere policy, a tracked Skill repository or an Account Skill choice."
 }

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { matchDenylist, type Denylist, type PromptKind } from "@agent-harness/contracts";
 import type { PromptDetail, RunContainment, RunDenylist } from "../adapter/contract.js";
 import type { Clock } from "../serve/clock.js";
-import { blastRadiusLines, destructiveParts, networkLines, nodeBlastDeps, previewBlastRadius, type BlastRadiusDeps } from "./command-preview.js";
+import { blastRadiusLines, cleanPaths, destructiveParts, networkLines, nodeBlastDeps, previewBlastRadius, type BlastRadiusDeps } from "./command-preview.js";
 import { resolvePath } from "./gate.js";
 
 /** Total budget, shared by every disk read and child of one preview. */
@@ -69,7 +69,25 @@ export const previewLines = (kind: PromptKind, detail: PromptDetail, scope: Prev
     execFile: async (file, args, options) => {
       checked(options.cwd);
       try {
-        return await disk.execFile(file, args, { ...options, signal: controller.signal });
+        const stdout = await disk.execFile(file, args, { ...options, signal: controller.signal });
+        if (file === "git") {
+          const labels = args[0] === "clean" ? cleanPaths(stdout)
+            : args[0] === "status" ? stdout.split("\n").filter((line) => line.length > 0).flatMap((line) => line.slice(3).split(" -> "))
+              : args[0] === "diff" ? stdout.split("\n").filter((line) => line.length > 0) : [];
+          try {
+            // Git can quote names with C escapes. JSON handles its ordinary escapes;
+            // unsupported encodings (including octal) make the preview unavailable.
+            for (const label of labels) {
+              const path: unknown = label.startsWith('"') ? JSON.parse(label) : label;
+              if (typeof path !== "string" || path.length === 0) throw new Error("Unavailable Git path");
+              await disk.stat(checked(resolve(options.cwd, path)));
+            }
+          } catch (error) {
+            unavailable = true;
+            throw error;
+          }
+        }
+        return stdout;
       } catch (error) {
         if (typeof error === "object" && error !== null && (("killed" in error && error.killed === true) || ("code" in error && error.code === "ABORT_ERR"))) abort();
         throw error;

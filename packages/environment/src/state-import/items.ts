@@ -92,8 +92,10 @@ export interface ImportItem extends ItemKey {
   readonly sourceDirectory?: string;
   /** Preview cannot fetch sources: report a name not yet known without reserving it. */
   readonly previewFailure?: StateImportFailure;
-  /** Applies the item through its owning service inside the item's own command: the target's id, or the service's refusal. */
-  readonly apply: (context: CommandContext) => CommandAnswer<{ readonly targetId: string }>;
+  /** False in a preview when the owner will reuse a target; apply answers its actual carried count at commit. */
+  readonly counted?: boolean;
+  /** Applies the item through its owner; a reused target is mapped but not counted as newly carried. */
+  readonly apply: (context: CommandContext) => CommandAnswer<{ readonly targetId: string; readonly carried?: boolean }>;
   /** Optional owning-service preparation, outside the child transaction; its resources roll back on refusal. */
   readonly prepare?: (context: PrepareContext & { readonly commandId: string }) => Promise<ImportItem["apply"]>;
 }
@@ -149,7 +151,7 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
         const { sourceKey, store, sourceId, kind } = item;
         const payload: StateImportItemCarriedPayload = { importId, sourceKey, store, sourceId, kind, targetId: answer.result.targetId, origin: "import", ...(item.sourceDirectory !== undefined && { sourceDirectory: item.sourceDirectory }) };
         log.append(stream, [{ type: "state-import.item-carried", payload: { ...payload } }], { tx, actor, commandId, correlationId: importId });
-        return { aggregate: answer.aggregate, result: { carried: true }, ...(answer.events !== undefined && { events: answer.events }) };
+        return { aggregate: answer.aggregate, result: { carried: answer.result.carried !== false }, ...(answer.events !== undefined && { events: answer.events }) };
       });
       accepted = run.receipt.status === "accepted";
       if (run.receipt.status === "rejected") outcome = { label: item.label, message: run.receipt.error.message };

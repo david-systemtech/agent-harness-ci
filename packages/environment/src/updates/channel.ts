@@ -5,7 +5,6 @@ import {
   LAUNCHER_PROTOCOL,
   PRODUCT_NAME,
   RELEASE_MANIFEST_FILE,
-  normaliseRemote,
   ReleaseManifest,
   ReleaseVersion,
   compareReleaseVersions,
@@ -23,7 +22,6 @@ import {
   type UpdateTarget,
 } from "@agent-harness/contracts";
 import type { ForgeService } from "../forge/forge-service.js";
-import { servingAccount } from "../forge/git-helper.js";
 import type { ForgeAnswer } from "../forge/operations.js";
 import type { ForgeRelease, ForgeReleaseAsset } from "../forge/providers.js";
 
@@ -31,10 +29,8 @@ import type { ForgeRelease, ForgeReleaseAsset } from "../forge/providers.js";
  * Reading the release channel (launcher-update spec, "The release",
  * "Reading the channel" and "The target"; ADR 0007; #346). The release
  * source, an origin and a repository compiled into each build, is read
- * through the ForgeService with the forge account for its origin, since
- * every Forgejo repository is private: with none, the channel is not read
- * at all, anonymously or otherwise, and reads as `no_release_access`
- * (`update credential --stdin` gives it one).
+ * through the ForgeService anonymously for public releases, or with the
+ * forge account for its origin when configured (a higher rate limit).
  *
  * - **The channel's newest.** The newest 50 releases that are not drafts,
  *   ordered by SemVer precedence, a tag that is not `v` and a release
@@ -66,8 +62,8 @@ import type { ForgeRelease, ForgeReleaseAsset } from "../forge/providers.js";
  *   launcher cannot host it.
  */
 
-/** The release source this build reads: the project's Forgejo (ADR 0007); a move to GitHub changes it in one release. */
-export const RELEASE_SOURCE: ReleaseSource = { origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" };
+/** The public GitHub release source this build reads (ADR 0007). */
+export const RELEASE_SOURCE: ReleaseSource = { origin: "https://github.com", kind: "github", repository: "david-systemtech/agent-harness" };
 
 /** This machine's platform as a release names one, `<os>-<arch>` as Node names them. */
 export const RUNNING_PLATFORM = `${process.platform}-${process.arch}`;
@@ -241,17 +237,10 @@ export const createReleaseChannel = (options: ReleaseChannelOptions): ReleaseCha
 
   /**
    * The newest releases that are not drafts, by precedence, newest first; a
-   * tag that is no version is passed over. Read only with a forge account
-   * for the release origin, never anonymously.
+   * tag that is no version is passed over. The forge service uses the origin
+   * account when present, and otherwise reads anonymously.
    */
   const list = async (): Promise<readonly Versioned[] | ChannelFailure> => {
-    const remote = normaliseRemote(source.origin);
-    if (remote === null || servingAccount(remote, forge.list()) === null) {
-      return failed(
-        "no_release_access",
-        `No forge account on this environment covers ${source.origin}, where its releases are published: give it the release token with \`update credential --stdin\`, or add one in Set up, Forges.`,
-      );
-    }
     const answer = await forge.releases.list({ ...where, limit: RELEASE_LIST_LIMIT });
     if (answer.outcome !== "done") return failureOf(answer);
     const versioned = answer.value.flatMap((release) => {

@@ -5,6 +5,8 @@ import { isSettingsAddress, rowOfAddress, type StateImportClientLocal } from "@a
 import { readSourceSkills, type SourceSkills } from "./skills.js";
 import { readSourceProfiles, type SourceProfiles } from "./profiles.js";
 import { DATA_FILES } from "./folders.js";
+import { readSourceBrowser, type SourceBrowser } from "./browser.js";
+import { readSourceReportStores, type SourceReportStore } from "./report-stores.js";
 
 /**
  * The source reader's stores (ADR 0036; #1165): the files of a source data
@@ -72,6 +74,7 @@ export interface SourcePreferences {
   readonly modelChoices: number;
   /** Dock layouts: the window's and each session's. */
   readonly layouts: number;
+  readonly composerSeeds: number;
 }
 
 /** What a source data folder's stores hold, as one read of them. */
@@ -82,6 +85,8 @@ export interface SourceStores {
   readonly preferences: StoreRead<SourcePreferences>;
   readonly profiles: StoreRead<SourceProfiles>;
   readonly skills: StoreRead<SourceSkills>;
+  readonly browser: StoreRead<SourceBrowser>;
+  readonly reportStores: readonly SourceReportStore[];
 }
 
 /** A store's bytes: absent, too large, unreadable (with the error's code), or read. */
@@ -122,6 +127,12 @@ const digestNow = async (path: string): Promise<string | null | undefined> => {
   const now = await readBytes(path);
   if (now.kind === "absent") return null;
   return now.kind === "read" ? digestOf(now.bytes) : undefined;
+};
+
+/** A bounded snapshot of a checkout config, without returning any of its text. */
+export const readSnapshot = async (path: string): Promise<StoreSnapshot | null> => {
+  const digest = await digestNow(path);
+  return digest === undefined ? null : { path, digest };
 };
 
 /** Whether the store's bytes are no longer those `snapshot` read: changed, appeared, gone, or now unreadable. */
@@ -251,19 +262,21 @@ const parsePreferences = (value: unknown): SourcePreferences | Refusal => {
     ...(typeof value["showThinking"] === "boolean" && { showThinking: value["showThinking"] }),
     ...(isSettingsAddress(section) && { settingsRow: rowOfAddress(section) }),
   };
-  return { ...(typeof value["activeProfileId"] === "string" && { activeProfileId: value["activeProfileId"] }), clientLocal, modelChoices: entries(value["modelBySession"]), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]) };
+  const composerSeeds = ["cwd", "permissionMode", "model", "effort", "fastMode", "ultracode"].filter((key) => value[key] !== undefined && value[key] !== null).length;
+  return { ...(typeof value["activeProfileId"] === "string" && { activeProfileId: value["activeProfileId"] }), clientLocal, modelChoices: entries(value["modelBySession"]), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]), composerSeeds };
 };
 
-const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, layouts: 0 };
+const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, layouts: 0, composerSeeds: 0 };
 
 /** Reads the stores of the source data folder `folder`, each on its own. */
 export const readSourceStores = async (folder: string): Promise<SourceStores> => {
   const sourceKey = await realpath(folder).catch(() => folder);
-  const [instructions, preferences, profiles, skills] = await Promise.all([
+  const [instructions, preferences, profiles, browser, skills] = await Promise.all([
     readStore(join(sourceKey, DATA_FILES.instructions), INSTRUCTION_LIST, parseInstructions, NO_INSTRUCTIONS),
     readStore(join(sourceKey, DATA_FILES.preferences), PREFERENCES, parsePreferences, NO_PREFERENCES),
     readSourceProfiles(sourceKey),
+    readSourceBrowser(sourceKey),
     readSourceSkills(sourceKey),
   ]);
-  return { sourceKey, instructions, preferences, profiles, skills };
+  return { sourceKey, instructions, preferences, profiles, browser, skills, reportStores: profiles.status === "failed" ? [] : await readSourceReportStores(sourceKey, profiles) };
 };
