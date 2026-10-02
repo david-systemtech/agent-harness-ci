@@ -104,7 +104,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           ...combined,
           stores: [...combined.stores, ...organisationStores.flatMap((store) => store.read.status === "read" ? [{ snapshot: store.read.snapshot, label: store.label, items: [], dependencies: [
             ...(Object.values(store.read.records).some((entries) => Array.isArray(entries) && entries.length > 0) ? combined.stores.filter((s) => s.label === "Accounts").map((s) => s.snapshot) : []),
-            ...(store.store === "organisation.ledger" ? organisationStores.filter((s) => s.store === "organisation.routines").map((s) => s.read.snapshot) : []),
+            ...(store.store === "organisation.ledger" && store.read.records.ledger.length > 0 ? organisationStores.filter((s) => s.store === "organisation.routines").map((s) => s.read.snapshot) : []),
           ] }] : [])],
           failed: [...combined.failed, ...organisationStores.flatMap((store) => store.read.status === "failed" ? [{ label: store.label, message: store.read.diagnostic }] : [])],
         };

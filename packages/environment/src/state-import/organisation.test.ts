@@ -122,7 +122,7 @@ it("archives ledger program/bridge and ephemeral Workspaces and uncontinued Rout
     { sessionId: extra[1], profileId: "work", origin: "bridge", workspaceKey: "dir:/fixture", at: 1 },
     { sessionId: extra[2], profileId: "work", workspaceKey: "conn:fixture", at: 1 },
   ] }));
-  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", providerId: "claude", profileId: "work", instructions: "Check the repo", history: [{ sessionId: f.ids[1] }, { sessionId: f.ids[2] }] }] }));
+  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", name: "Fixture checks", cwd: f.directory, createdAt: 1, schedule: { kind: "manual" }, permissionMode: "bypassPermissions", providerId: "claude", profileId: "work", instructions: "Check the repo", history: [{ sessionId: f.ids[1] }, { sessionId: f.ids[2] }] }] }));
   const t = await startTestEnvironment(f.options);
   onCleanup(() => t.close());
   const client = await t.client();
@@ -226,7 +226,7 @@ it("recognises an uncontinued source Routine when the SDK normalises and truncat
   const f = fixture();
   const instructions = "Check\n" + "the repo ".repeat(40);
   f.listing[1] = { ...f.listing[1]!, firstPrompt: "Check " + "the repo ".repeat(21) + "the r…" };
-  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", providerId: "claude", profileId: "work", instructions, history: [{ sessionId: f.ids[1] }] }] }));
+  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", name: "Fixture checks", cwd: f.directory, createdAt: 1, schedule: { kind: "manual" }, permissionMode: "bypassPermissions", providerId: "claude", profileId: "work", instructions, history: [{ sessionId: f.ids[1] }] }] }));
   const t = await startTestEnvironment(f.options);
   onCleanup(() => t.close());
   const client = await t.client();

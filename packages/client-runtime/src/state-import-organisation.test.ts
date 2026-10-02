@@ -27,7 +27,7 @@ it("both Clients receive identical archive, pins, Groups and drafts through subs
     { sessionId: f.ids[1], profileId: "work", origin: "bridge", workspaceKey: "dir:/fixture", at: 1 },
     { sessionId: f.ids[2], profileId: "work", origin: "program", workspaceKey: "conn:fixture", at: 1 },
   ] }));
-  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", providerId: "claude", profileId: "work", instructions: "Check", history: [{ sessionId: f.ids[1] }, { sessionId: f.ids[2] }] }] }));
+  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", name: "Fixture checks", cwd: f.directory, createdAt: 1, schedule: { kind: "manual" }, permissionMode: "bypassPermissions", providerId: "claude", profileId: "work", instructions: "Check", history: [{ sessionId: f.ids[1] }, { sessionId: f.ids[2] }] }] }));
   writeFileSync(join(f.source, "prefs.json"), JSON.stringify({ archivedSessions: [`work:${f.ids[1]}`], pinnedSessions: [`work:${f.ids[2]}`], sessionGroups: [{ id: "work", name: "Work" }], sessionGroupOf: { [`work:${f.ids[2]}`]: "work" } }));
   writeFileSync(join(f.terminal, "preferences.json"), JSON.stringify({ version: 1, preferences: { pinned: [f.ids[2], ambiguous], drafts: [{ sessionId: f.ids[1], text: "Source race" }, { sessionId: f.ids[2], text: "Source draft" }] } }));
   const t = await harness.environment({ ...f.options, dataDir, stateImportHooks: { carried: async (item) => {

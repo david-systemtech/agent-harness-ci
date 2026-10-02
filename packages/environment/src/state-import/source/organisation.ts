@@ -92,6 +92,7 @@ export const readOrganisationStores = async (data: string | null, terminal: stri
       const firings: SourceOrganisation["firings"][number][] = [];
       let invalid = 0;
       for (const routine of value["routines"]) {
+        if (object(routine) && routine["history"] === undefined) continue;
         if (!object(routine) || typeof routine["profileId"] !== "string" || typeof routine["instructions"] !== "string" || !Array.isArray(routine["history"])) { invalid++; continue; }
         if (routine["providerId"] !== "claude") continue;
         for (const firing of routine["history"]) {
