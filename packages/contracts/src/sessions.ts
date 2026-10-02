@@ -482,7 +482,8 @@ export const SessionOrigin = z
     z
       .object({
         kind: z.literal("import"),
-        accountId: AccountId.meta({ description: "The adopted account whose directory holds the provider session." }),
+        accountId: AccountId.meta({ description: "The winning adopted Account used for continuation and credentials." }),
+        sourceDirectory: AbsolutePath.optional().meta({ description: "Retained import source for lazy history and first store hydration. When omitted, use the Account directory; never use this directory for authentication." }),
         providerSessionId: z.string().min(1).meta({ description: "The provider's own id for the session: what the import is deduplicated by, and what a run resumes." }),
         createdAt: Timestamp.meta({ description: "When the provider session began, as the listing gives it: the summary's createdAt." }),
         lastActivityAt: Timestamp.meta({ description: "When the provider session was last written, as the listing gives it: the summary's lastActivityAt." }),
