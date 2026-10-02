@@ -1,0 +1,14 @@
+# Root-relative globs. A matched directory excludes its whole subtree.
+# Development CI and publication policies stay on the development origin.
+.forgejo/
+.ci/
+.public-exclude
+.public-privacy.json
+scripts/publish-public.py
+test/publish-public.test.ts
+docs/agents/publish-public.md
+# Private operational runbooks identified by the publication scrub.
+docs/agents/switch-over-*
+docs/routines/hermes-delivery.md
+# Local operational state must never be a public snapshot input.
+.ah-*/
