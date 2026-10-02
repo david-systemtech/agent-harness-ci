@@ -110,7 +110,7 @@ The vocabulary (`SETUP_ACTIONS`) gains the verbs the decisions name that it lack
 
 ### The terminal UI
 
-`/setup [environment]` draws one line per step from `projections.setup`: the step's name, its state as the rail's glyph and word, and the reason when it needs attention; skipped steps dim. While any step on the session's environment needs attention the header carries "Set up on <environment>: N of 11 done, K need attention (<step names>). Run it in the desktop window." After the receipt of a write the terminal issues itself (`/pair`, `/mode`, `/containment`, a sign-in) it calls `setup.check` for that step. Actions whose command needs no card (`check-again`, `pull-now`, `restore`, `update`, `start-service`) run from the line with Enter; the rest point at the desktop (ADR 0016; tui spec's owed lines).
+`/setup [environment]` draws one line per registered step from `projections.setup`: its label, state glyph and word, and reason when it needs attention; skipped steps dim. With no name it uses the session environment. While a step on that environment needs attention the header carries "Set up on <environment>: N of M done, K need attention (<step names>). Run it in the desktop window.", with M its registered steps (eleven with every entry built). Snapshots and notices redraw both without a call. After accepted writes the terminal issues itself (`/pair`, `/mode`, `/containment`, a sign-in) it calls `setup.check` for that step. Actions needing no card (`check-again`, `pull-now`, `restore`, `update`, `start-service`) run from the line with Enter; the first offered action is selected by default and `picker.preview` (Space, remappable) previews the next. A tool's Update is absent with its reason where the environment does not serve it, otherwise opening its tool terminal in the pane. Other actions point at the desktop (ADR 0016). Unreachable results stay cached, marked stale with "unreachable since". #572 implements this, preserving #261's check on opening without the stream flag.
 
 ### The steps
 
@@ -194,7 +194,7 @@ The vocabulary (`SETUP_ACTIONS`) gains the verbs the decisions name that it lack
 #### 11. Appearance (ADR 0023)
 
 - **Entry**: writes `appearance.theme` (GUI spec) and, having handed the session keys to Your machines, nothing else; state check `appearance.contrast` (`restore`); triggers `settings.updated` for the key.
-- **Card**: the client's light, dark or system preference (client-local, not a registry key), the home environment's theme name and swatches with its clamps; the picker arrives in phase D (ADR 0023). Done once set or preset.
+- **Card**: the client's light, dark or system preference (client-local, not a registry key), the home environment's theme name and swatches with its clamps, and from phase D the theme picker the Theme row shares, saving to the environment the checklist checks (ADR 0023; #1194). Done once set or preset.
 
 ### The headless path
 

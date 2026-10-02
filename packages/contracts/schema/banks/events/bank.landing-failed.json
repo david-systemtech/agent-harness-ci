@@ -29,6 +29,11 @@
     "reason": {
       "type": "string",
       "minLength": 1
+    },
+    "reviewReleased": {
+      "description": "The held review was closed, replaced or failed exact-file verification and was released; drafts remain queued for resubmission.",
+      "type": "boolean",
+      "const": true
     }
   },
   "required": [

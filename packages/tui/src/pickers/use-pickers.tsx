@@ -12,8 +12,14 @@ import {
   labelProblem,
   modelsOf,
   noKeysLine,
+  oneLine,
   parseTyped,
+  pullSetupSources,
+  runTool,
+  restoreStep,
   saveSetting,
+  setupActions,
+  stepLine,
   sendSignInCode,
   sessionModeOf,
   setSessionContainment,
@@ -21,9 +27,11 @@ import {
   signInEnd,
   startSignIn as startSignInOf,
   startingAccount,
+  updateEnvironment,
   valueWords,
   writerOf,
   type EnvironmentView,
+  type OfferedSetupAction,
   type RunChoice,
   type Runtime,
   type SessionProjection,
@@ -40,6 +48,7 @@ import {
   type KeyActionId,
   type Mode,
   type SettingsKey,
+  type ResultOf,
 } from "@agent-harness/contracts";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { LinesCard } from "../screens/transcript.js";
@@ -50,7 +59,7 @@ import { wrap, type Line, type Span } from "../transcript/lines.js";
 import { findEnvironment, isPlaceholder, knownEnvironments, nameOf, type Question } from "../view.js";
 import { ListCard, LinesPanel, TypedLine, wrappedRows } from "./cards.js";
 import type { PickerCommand } from "./commands.js";
-import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, usageLines, type Panel, type PanelRow } from "./panel.js";
+import { accountRows, containmentRows, effortRows, modeFooter, modeRows, modelRows, reviewLines, setupLines, setupRows, usageLines, type Panel, type PanelRow } from "./panel.js";
 import { editorKeys, editorRows, noRowLine } from "./settings.js";
 
 /**
@@ -88,6 +97,8 @@ export interface PickersHost {
   say(line: string): void;
   ask(question: Question): void;
   openSession(opened: Opened): void;
+  openTool(environmentId: string, run: ResultOf<"tools.run">): void;
+  startService(environmentId: string): void;
   newCommandId(): string;
   keys(action: KeyActionId): string;
 }
@@ -102,6 +113,7 @@ export interface Pickers {
   move(panel: Panel, step: number): Panel;
   /** Enter. */
   choose(panel: Panel): void;
+  nextSetupAction(panel: Panel, direction: number): Panel;
   /** Esc: the card to go back to, or null to close it (a running sign-in this card started is cancelled). */
   back(panel: Panel): Panel | null;
   /** The card takes what is typed as text (a label, a code, a value). */
@@ -137,6 +149,8 @@ export const usePickers = (host: PickersHost): Pickers => {
   const drawn = useRef({ lines: 0, height: 1 });
   // A completed check only finishes the card that started it, even when /setup was reopened on the same environment.
   const setupCheck = useRef(0);
+  const latestPanel = useRef(panel);
+  latestPanel.current = panel;
   // The mode each session was last asked for, until its answer lands: what a step taken before then steps on from.
   const asked = useRef(new Map<string, Mode>());
 
@@ -167,6 +181,9 @@ export const usePickers = (host: PickersHost): Pickers => {
   // Without the stream flag following itself starts a check. The command already starts one, so draw that answer instead.
   const liveSetup = panelEnvironment !== undefined && environmentOf(panelEnvironment)?.flags.includes("setup") === true;
   useFollow(liveSetup ? setup : undefined, request);
+  const needsTools = panelEnvironment !== undefined && setup?.read().steps.some((step) => step.result?.targets?.some((target) => target.kind === "tool" && target.action === "update")) === true && runtime.capability(panelEnvironment, "tools.list").status !== "absent";
+  const setupTools = useMemo(() => needsTools && panelEnvironment !== undefined ? runtime.requests.cached(panelEnvironment, "tools.list", {}) : undefined, [runtime, needsTools, panelEnvironment]);
+  useFollow(setupTools, request);
 
   const signIn = useMemo(
     () => (kind === "signin" && panelEnvironment !== undefined ? runtime.requests.cached(panelEnvironment, "accounts.signin.get", {}) : undefined),
@@ -199,6 +216,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     if (ending === undefined) return;
     host.close(isSignIn);
     host.say(ending);
+    if (followedNow?.state === "done" && panel?.kind === "signin") void runtime.setup.check(panel.environmentId, "account");
   }, [ending]);
 
   /** The line a capability the connection lacks gives, or undefined when it has it. */
@@ -218,6 +236,7 @@ export const usePickers = (host: PickersHost): Pickers => {
         host.close(isSignIn);
         return host.say(answer.line);
       }
+      void runtime.setup.check(environmentId, "account");
       host.change((card) => (card.kind === "signin" && card.accountId === account.id ? { ...card, sending: null, startedAt: answer.startedAt } : card));
     });
   };
@@ -229,6 +248,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     host.change((c) => (c.kind === "signin" ? { ...c, label, sending: "add", error: null } : c));
     void addAccountOn(runtime, card.environmentId, label, host.newCommandId(), nameFor(card.environmentId)).then((added) => {
       if (added.kind === "refused") return host.change((c) => (c.kind === "signin" ? { ...c, sending: null, error: added.line } : c));
+      void runtime.setup.check(card.environmentId, "account");
       if (added.kind === "added") {
         host.close(isSignIn);
         return host.say(added.line);
@@ -241,9 +261,10 @@ export const usePickers = (host: PickersHost): Pickers => {
     const code = card.text.trim();
     if (code === "" || card.accountId === null) return;
     host.change((c) => (c.kind === "signin" ? { ...c, sending: "code", error: null } : c));
-    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((refused) =>
-      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(refused === undefined ? { text: "" } : { error: refused }) } : c)),
-    );
+    void sendSignInCode(runtime, card.environmentId, card.accountId, code, host.newCommandId()).then((refused) => {
+      if (refused === undefined) void runtime.setup.check(card.environmentId, "account");
+      host.change((c) => (c.kind === "signin" ? { ...c, sending: null, ...(refused === undefined ? { text: "" } : { error: refused }) } : c));
+    });
   };
 
   const cancelSignIn = (card: Extract<Panel, { kind: "signin" }>) => {
@@ -275,6 +296,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     void setSessionMode(runtime, target.environmentId, target.sessionId, mode, sessionName()).then((set) => {
       if (asked.current.get(keyOf(target)) === mode) asked.current.delete(keyOf(target));
       host.say(set.line);
+      if (set.ok) void runtime.setup.check(target.environmentId, "permissions");
     });
   };
 
@@ -282,6 +304,7 @@ export const usePickers = (host: PickersHost): Pickers => {
     void setSessionContainment(runtime, target.environmentId, target.sessionId, level, { session: sessionName(), environment: nameFor(target.environmentId) }).then((set) => {
       if (set.ok) setLevels((held) => new Map(held).set(keyOf(target), set.level));
       host.say(set.line);
+      if (set.ok) void runtime.setup.check(target.environmentId, "permissions");
     });
   };
 
@@ -399,6 +422,8 @@ export const usePickers = (host: PickersHost): Pickers => {
         const { report, own, fallback } = containmentView();
         return containmentRows(report, own, fallback);
       }
+      case "setup":
+        return setup ? setupRows(setup.read(), runtime.environmentNow(card.environmentId)) : [];
       case "settings":
         return settingsRows(card);
       default:
@@ -411,6 +436,7 @@ export const usePickers = (host: PickersHost): Pickers => {
       case "accounts":
         return accountCursor(card);
       case "models":
+      case "setup":
       case "settings":
         return card.kind === "settings" && card.edit?.kind === "choice" ? card.edit.cursor : card.cursor;
       case "modes":
@@ -424,6 +450,8 @@ export const usePickers = (host: PickersHost): Pickers => {
 
   const withCursor = (card: Panel, cursor: number): Panel => {
     switch (card.kind) {
+      case "setup":
+        return { ...card, cursor, action: 0 };
       case "accounts":
       case "modes":
       case "containment":
@@ -442,6 +470,36 @@ export const usePickers = (host: PickersHost): Pickers => {
     const view = named ?? (opened ? environmentOf(opened.environmentId) : undefined) ?? host.current;
     if (!view || isPlaceholder(view)) return host.say("There is no environment here yet: /pair one first.");
     then(view);
+  };
+
+  const selectedStep = (card: Extract<Panel, { kind: "setup" }>) => {
+    const steps = setup?.read().steps.filter((step) => step.registered) ?? [];
+    return steps[clamp(card.cursor, steps.length)];
+  };
+  const offered = (card: Extract<Panel, { kind: "setup" }>) => {
+    const step = selectedStep(card);
+    if (!step?.result) return [];
+    const actions = setupActions(step, step.result);
+    return step.id === "your-machines" && setup?.read().reach.status === "service-down"
+      ? [{ key: "start-service", action: "start-service" as const, words: "Start service", targets: [], plan: { kind: "start-service" as const } }, ...actions.filter((offer) => offer.action !== "start-service")]
+      : actions;
+  };
+  const toolUpdateReason = (card: Extract<Panel, { kind: "setup" }>, offer: OfferedSetupAction): { status: "loading" | "unavailable"; message: string } | undefined => {
+    if (offer.action !== "update" || offer.plan.kind !== "run-tool") return undefined;
+    const capability = runtime.capability(card.environmentId, "tools.run");
+    if (capability.status === "absent") return { status: "unavailable", message: capability.message };
+    const listCapability = runtime.capability(card.environmentId, "tools.list");
+    if (listCapability.status === "absent") return { status: "unavailable", message: listCapability.message };
+    const tools = setupTools?.read();
+    if (tools?.error) return { status: "unavailable", message: tools.error.message };
+    if (tools?.result === null || tools === undefined) return { status: "loading", message: "Reading managed tools…" };
+    const tool = tools.result.tools.find((tool) => offer.plan.kind === "run-tool" && tool.tool === offer.plan.tool);
+    return tool?.action === "update" ? undefined : { status: "unavailable", message: tool?.command ?? "The environment does not serve an update for this tool." };
+  };
+  const runnableOffers = (card: Extract<Panel, { kind: "setup" }>) => offered(card).filter((offer) => toolUpdateReason(card, offer) === undefined);
+  const selectedOffer = (card: Extract<Panel, { kind: "setup" }>) => {
+    const offers = runnableOffers(card);
+    return offers[clamp(card.action, offers.length)];
   };
 
   const pickers: Pickers = {
@@ -485,7 +543,8 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "setup":
           return withEnvironment((view) => {
             const check = ++setupCheck.current;
-            host.open({ kind: "setup", environmentId: view.environmentId, top: 0, checking: true, failed: null });
+            host.open({ kind: "setup", environmentId: view.environmentId, cursor: 0, action: 0, sending: false, checking: !view.flags.includes("setup"), failed: null });
+            if (view.flags.includes("setup")) return;
             void runtime.setup.check(view.environmentId).then((answer) =>
               host.change((card) =>
                 card.kind === "setup" && card.environmentId === view.environmentId && check === setupCheck.current
@@ -511,6 +570,12 @@ export const usePickers = (host: PickersHost): Pickers => {
 
     // A value being typed holds its key: the cursor stays on it until the value is saved or left.
     move: (card, step) => (card.kind === "settings" && card.edit?.kind === "text" ? card : withCursor(card, clamp(cursorOf(card) + step, rowsOf(card).length))),
+
+    nextSetupAction(card, direction) {
+      if (card.kind !== "setup") return card;
+      const count = runnableOffers(card).length;
+      return { ...card, action: count === 0 ? 0 : (card.action + direction + count) % count };
+    },
 
     choose(card) {
       switch (card.kind) {
@@ -547,6 +612,47 @@ export const usePickers = (host: PickersHost): Pickers => {
           if (model.efforts.length === 0) return choose(model.id, null);
           const effort = currentChoice()?.model === model.id ? (currentChoice()?.effort ?? null) : null;
           return host.change((c) => (c.kind === "models" ? { ...c, model, modelCursor: c.cursor, cursor: effort === null ? 0 : model.efforts.indexOf(effort) + 1 } : c));
+        }
+        case "setup": {
+          if (card.sending) return;
+          const offer = selectedOffer(card);
+          if (!offer) return;
+          const generation = setupCheck.current;
+          host.change((held) => held.kind === "setup" ? { ...held, sending: true } : held);
+          const stillOpen = () => latestPanel.current?.kind === "setup" && latestPanel.current.environmentId === card.environmentId && setupCheck.current === generation;
+          void (async () => {
+            const { plan } = offer;
+            switch (plan.kind) {
+              case "start-service":
+                return host.startService(card.environmentId);
+              case "update":
+                return host.say((await updateEnvironment(runtime, card.environmentId, nameFor(card.environmentId), host.newCommandId())).line);
+              case "restore": {
+                const outcome = await restoreStep(runtime, card.environmentId, plan.step, host.newCommandId(), plan.sections);
+                host.say(outcome.line);
+                if (outcome.ok) await runtime.setup.check(card.environmentId, plan.step);
+                return;
+              }
+              case "run-tool": {
+                if (offer.action !== "update") break;
+                const outcome = await runTool(runtime, card.environmentId, plan.tool, plan.action, runtime.environmentNow(card.environmentId));
+                if (outcome.ok && stillOpen()) host.openTool(card.environmentId, outcome.run);
+                else if (!outcome.ok) host.say(outcome.line);
+                return;
+              }
+              case "pull-sources":
+                return host.say((await pullSetupSources(runtime, card.environmentId, plan.sources, () => runtime.environmentNow(card.environmentId))).line);
+              case "check": {
+                const answer = await runtime.setup.check(card.environmentId, plan.step);
+                if (!answer.ok) host.say(`Set up could not be checked: ${answer.error.message}`);
+                return;
+              }
+            }
+            host.say(`${offer.words} runs in the desktop window.`);
+          })().catch((error: unknown) => host.say(`Set up action failed: ${oneLine(error instanceof Error ? error.message : String(error))}`)).finally(() => {
+            if (stillOpen()) host.change((held) => held.kind === "setup" ? { ...held, sending: false } : held);
+          });
+          return;
         }
         case "modes": {
           const mode = MODES[modeCursor(card)];
@@ -626,10 +732,10 @@ export const usePickers = (host: PickersHost): Pickers => {
       return card;
     },
 
-    isLines: (card) => card.kind === "usage" || card.kind === "review" || card.kind === "setup",
+    isLines: (card) => card.kind === "usage" || card.kind === "review",
 
     scroll(card, to) {
-      if (card.kind !== "usage" && card.kind !== "review" && card.kind !== "setup") return card;
+      if (card.kind !== "usage" && card.kind !== "review") return card;
       const most = Math.max(0, drawn.current.lines - drawn.current.height);
       return { ...card, top: Math.min(Math.max(to(Math.min(card.top, most)), 0), most) };
     },
@@ -647,9 +753,10 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "modes":
         case "containment":
           return list("sets", "close");
+        case "setup":
+          return `${list("runs the action", "close")} · ${k("picker.preview")} next action`;
         case "usage":
         case "review":
-        case "setup":
           return `${k("pager.line")} ${k("pager.halfDown")} ${k("pager.halfUp")} scroll · ${k("pager.close")} close`;
         case "settings":
           if (card.edit?.kind === "text") return `${k("picker.choose")} saves · ${k("picker.leave")} leaves it`;
@@ -749,9 +856,30 @@ export const usePickers = (host: PickersHost): Pickers => {
           return <LinesCard title="Plan usage, pooled by account identity" hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
         }
         case "setup": {
-          const lines = setup ? setupLines(setup.read(), nameFor(card.environmentId), card.checking, card.failed, liveSetup, runtime.environmentNow(card.environmentId)).flatMap(text) : [];
-          drawn.current = { lines: lines.length, height: size.height };
-          return <LinesCard title={`Set up on ${nameFor(card.environmentId)}`} hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
+          const footer = setup ? setupLines(setup.read(), nameFor(card.environmentId), card.checking, card.failed, liveSetup) : [];
+          const offer = selectedOffer(card);
+          const step = selectedStep(card);
+          const blockedOffers = offered(card).flatMap((offer) => {
+            const reason = toolUpdateReason(card, offer);
+            return reason === undefined ? [] : [{ offer, reason }];
+          });
+          const loadingTools = blockedOffers.some(({ reason }) => reason.status === "loading");
+          const reasons = blockedOffers.map(({ offer, reason }) => [{
+            text: reason.status === "loading" ? reason.message : `Update ${offer.targets[0]?.label ?? "tool"} is unavailable here: ${reason.message}`,
+            dim: true,
+          }]);
+          return (
+            <ListCard
+              title={`Set up on ${nameFor(card.environmentId)}`} hint={hint} rows={rows}
+              cursor={clamp(card.cursor, rows.length)} height={size.height} width={size.width}
+              footer={[
+                ...footer,
+                ...(step ? [[{ text: stepLine(step, runtime.environmentNow(card.environmentId)), dim: true }]] : []),
+                ...reasons,
+                [{ text: card.sending ? "Running the action…" : offer ? `Action: ${offer.words}` : loadingTools ? "Waiting for managed tools before offering Update." : "No action offered.", dim: true }],
+              ]}
+            />
+          );
         }
         case "review": {
           const titleOf = (sessionId: string) => runtime.projections.sessionList.read().rows.find((row) => row.environmentId === card.environmentId && row.summary.id === sessionId)?.summary.title;

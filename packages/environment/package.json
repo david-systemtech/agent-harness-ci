@@ -11,6 +11,11 @@
       "@agent-harness/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./terminal-source": {
+      "@agent-harness/source": "./src/state-import/terminal-source.ts",
+      "types": "./dist/state-import/terminal-source.d.ts",
+      "default": "./dist/state-import/terminal-source.js"
     }
   },
   "scripts": {
