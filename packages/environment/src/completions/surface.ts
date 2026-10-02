@@ -43,13 +43,13 @@ import { readTurnRequest, sameTools, withPreamble, type TurnRequest } from "./re
 /**
  * The completions surface (claude-adapter spec, "The completions surface";
  * ADR 0015, ADR 0006; #138): OpenAI's routes under `/v1/` on the wire's
- * port, for programs such as the Hermes bots.
+ * port, for programs such as the Hermes bots and TUI printing (#1179).
  *
  * - **Routes**: `POST /v1/chat/completions`, `GET /v1/models` and
  *   `GET /v1/models/<id>`, the id the rest of the path; every other path
  *   under `/v1/` is 501 with a sentence.
  * - **Authentication**: the bearer token of a client session of kind
- *   `program`: 401 for none, one not issued here, a revoked or an expired
+ *   `program` or `tui`: 401 for none, one not issued here, a revoked or an expired
  *   one; 403 for another kind of client session, or a scope the route needs
  *   (`read` for the models, `sessions:write` and `runs:drive` for a turn)
  *   that it lacks. 503 before the startup gate, and for a turn while the
@@ -59,14 +59,14 @@ import { readTurnRequest, sameTools, withPreamble, type TurnRequest } from "./re
  *   the request names, or a scratch workspace of its own under the data
  *   directory) or the one `sessionId` names, tagged `completions`; its run
  *   has origin `completions` and actor kind `completions`, attended only when
- *   the request says so, under the program's ceiling as it is now (#129,
+ *   the request says so, under the caller's ceiling as it is now (#129,
  *   #131). On a session whose run is live, the turn is a steer
  *   (`runs.send`'s queue path) and the answer follows the run that reads it,
  *   naming the live run's model.
  * - **Continuity**: no `sessionId` is a fresh session, and the earlier
  *   messages ride as a preamble; a session named is continued, and they are
  *   dropped. `forkSession` and `rewindToMessageId` go through
- *   `sessions.fork` and `sessions.rewind` (#137) as the program's client
+ *   `sessions.fork` and `sessions.rewind` (#137) as the caller's client
  *   session; the turn then runs on the fork, or on the rewound session, as
  *   a continued session.
  * - **The answer** (`answer.ts`) follows the session's events: live ones
@@ -111,7 +111,7 @@ export interface CompletionsSurfaceOptions {
   readonly clientSessions: Pick<ClientSessions, "verify" | "ceiling">;
   readonly readiness: () => EnvironmentReadiness;
   readonly catalogue: CompletionsCatalogue;
-  /** The method table, for `sessions.fork` and `sessions.rewind`, run as the program's client session. */
+  /** The method table, for `sessions.fork` and `sessions.rewind`, run as the caller's client session. */
   readonly methods: MethodTable;
   /** Client-tool passthrough (#139): the parked calls, and the tools each session's runs were served. */
   readonly passthrough: Passthrough;
@@ -150,22 +150,22 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
   const open = new Set<{ abandon(): void }>();
   const seconds = (): number => Math.floor(clock.now().getTime() / 1000);
 
-  /** The program's client session from the bearer token, with every scope `scopes` names. */
+  /** The caller's admitted client session from the bearer token, with every scope `scopes` names. */
   const authenticate = (request: IncomingMessage, scopes: readonly Scope[]): VerifiedClientSession => {
     const token = bearerToken(request);
     if (token === undefined) {
-      throw new CompletionsRefusal(401, "unauthorized", "Send the token of a program's client session as Authorization: Bearer <token>.", {
+      throw new CompletionsRefusal(401, "unauthorized", "Send the token of a program or TUI client session as Authorization: Bearer <token>.", {
         headers: { "www-authenticate": "Bearer" },
       });
     }
     const verified = options.clientSessions.verify(token);
     if (!verified.ok) throw new CompletionsRefusal(401, verified.reason, verified.message, { headers: { "www-authenticate": "Bearer" } });
     const { clientSession } = verified;
-    if (clientSession.kind !== "program") {
+    if (clientSession.kind !== "program" && clientSession.kind !== "tui") {
       throw new CompletionsRefusal(
         403,
         "client_kind",
-        `The completions surface serves the client sessions of programs; this one is a ${clientSession.kind}'s. Pair the program as kind program.`,
+        `The completions surface serves program and TUI client sessions; this one is a ${clientSession.kind}'s. Use a program or TUI credential.`,
       );
     }
     const missing = scopes.filter((scope) => !clientSession.scopes.includes(scope));
@@ -296,7 +296,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     };
   };
 
-  /** The run's actor: the completions surface, attended only when the request says so, under the program's ceiling as it is now (#129, #131). */
+  /** The run's actor: the completions surface, attended only when the request says so, under the caller's ceiling as it is now (#129, #131). */
   const actorFor = (turn: TurnRequest, clientSession: VerifiedClientSession): RunActor => ({
     kind: "completions",
     attended: turn.extension.attended,

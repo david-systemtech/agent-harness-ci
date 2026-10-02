@@ -234,6 +234,17 @@ describe("the Memory bank step's checks", () => {
     });
   });
 
+  it("shows a reviewed landing as awaiting your review with its pull request", async () => {
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, gitBank(PERSONAL_BANK, "maya-memory"));
+    const pullRequest = "https://git.example.test/maya/memory/pulls/7";
+    appendBankEvent(t, "bank.awaiting-review", { bankId: bank.id, sessionId: null, pullRequest });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], reason: `maya-memory is awaiting your review: ${pullRequest}.` });
+    appendBankEvent(t, "bank.landed", { bankId: bank.id, sessionId: null, pullRequest, files: [] });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "done", failing: [] });
+  });
+
   it("keeps a failed landing's step and reason through verifications until a landing passes, check-again targeting the bank", async () => {
     const t = await start();
     const client = await t.client();

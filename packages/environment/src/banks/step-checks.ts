@@ -76,9 +76,9 @@ const owners = perEnabledBank(null, ({ name, kind, status: { owners: { unresolve
     : `The owners ${listed(unresolved)} of the team bank ${name} do not resolve on its forge.`;
 });
 
-/** No landing on it has failed (`check-again`). */
+/** Landing is complete; a held review or failure offers `check-again`. */
 const landing = perEnabledBank("check-again", ({ name, status: { landing: failed } }) =>
-  failed.state === "ok" ? null : `The last landing on ${name} failed at its ${failed.step} step: ${sentence(failed.reason)} Check again once a landing passes.`,
+  failed.state === "ok" ? null : failed.state === "awaiting-review" ? `${name} is awaiting your review: ${failed.pullRequest}.` : `The last landing on ${name} failed at its ${failed.step} step: ${sentence(failed.reason)} Check again once a landing passes.`,
 );
 
 export const memoryBankStateChecks = (banks: BankRecords): { readonly [Id in MemoryBankStateCheckId]: StateChecker } => ({

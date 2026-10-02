@@ -72,7 +72,7 @@ export {
   type EnvironmentDescriptor,
 } from "./connections/records.js";
 export type { UpdateEnvironmentOutcome } from "./connections/environment-update.js";
-export type { Connections, RemoveResult } from "./connections/registry.js";
+export type { ConnectionCredential, Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
 export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject, type StepAction } from "./notices.js";
 export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
@@ -227,6 +227,7 @@ export type {
   WorkspaceChip,
   WorkspacePresetReason,
 } from "./projections/new-session.js";
+export { PRESET_SETTING_KEYS } from "./projections/new-session.js";
 export type { BrowserRow, BrowsersView, BrowserUnavailable, BrowserUnavailableReason } from "./projections/browsers.js";
 export {
   SETUP_AGE_TICK_MS,

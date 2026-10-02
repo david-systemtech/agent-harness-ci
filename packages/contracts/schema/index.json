@@ -1479,6 +1479,10 @@
       "title": "MemoryPromoteResult"
     },
     {
+      "path": "banks/events/bank.review-held.json",
+      "title": "BankReviewHeldPayload"
+    },
+    {
       "path": "banks/events/bank.drafts-consumed.json",
       "title": "BankDraftsConsumedPayload"
     },

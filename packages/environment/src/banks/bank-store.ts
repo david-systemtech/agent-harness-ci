@@ -2,6 +2,7 @@ import {
   ENVIRONMENT_STREAM_KIND,
   SESSION_STREAM_KIND,
   type BankAddedPayload,
+  type BankAwaitingReviewPayload,
   type BankEntry,
   type BankForgottenPayload,
   type BankLandingFailedPayload,
@@ -103,6 +104,10 @@ export const banksProjector: Projector = {
       case "bank.synced": {
         const { bankId } = event.payload as BankSyncedPayload;
         return rewrite(db, bankId, (entry) => ({ ...entry, status: { ...entry.status, lastSync: event.occurredAt } }));
+      }
+      case "bank.awaiting-review": {
+        const { bankId, pullRequest } = event.payload as BankAwaitingReviewPayload;
+        return rewrite(db, bankId, (entry) => ({ ...entry, status: { ...entry.status, landing: { state: "awaiting-review", pullRequest, since: event.occurredAt } } }));
       }
       case "bank.landed":
         return landed(db, event, event.payload as BankLandedPayload);

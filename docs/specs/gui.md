@@ -250,6 +250,7 @@ The GUI renders everything on the terminal UI's parity list (tui spec) with the 
 - Row ids `setup.checklist`, `access.forges`, `routines.bots` and `appearance.shortcuts`; Carry over homed on `accounts.accounts` beside Account; an unknown stored row opening Set up.
 - The three session keys on `environments.service`, where the session-state spec put them in an Appearance "Sessions" band: ADR 0027 closed the Appearance band at Theme and Keyboard shortcuts, and auto-settle and compaction are the environment's policy on its log. The Set up spec moved them from the Appearance step's entry to Your machines' (#568).
 - The `settings.changed` notice; documents as pages, SVG and markdown by extension.
+- The theme picker (phase D, #1194), one component on the Theme row (the home environment) and the Appearance card (the environment checked): the shipped themes Default, Ember (an orange accent) and Lagoon (a teal one), each only seeds that derive with no clamp; a hue and a chroma slider per seed inside the setting's bounds; the window paints the candidate as a live preview, which is never cached nor handed to the window background, until Save or Cancel; Export shows the theme file to copy and a download link, since the shell writes no file; Import reads one through the shell's file dialog (64 KiB at most) or the page's picker; without `admin` or while unreachable every control is greyed but Export.
 
 **Verify first** in the build session:
 

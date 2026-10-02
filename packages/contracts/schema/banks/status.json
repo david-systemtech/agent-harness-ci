@@ -239,6 +239,30 @@
           "properties": {
             "state": {
               "type": "string",
+              "const": "awaiting-review"
+            },
+            "pullRequest": {
+              "type": "string",
+              "minLength": 1
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When this part of the status last changed: never when it was last verified."
+            }
+          },
+          "required": [
+            "state",
+            "pullRequest",
+            "since"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
               "const": "failed"
             },
             "step": {
@@ -266,7 +290,7 @@
           ]
         }
       ],
-      "description": "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why."
+      "description": "The bank's last landing: ok, awaiting an owner's review, or failed at a step of the Lander, with why."
     }
   },
   "required": [

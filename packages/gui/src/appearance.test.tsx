@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { DEFAULT_THEME, type Theme } from "@agent-harness/contracts";
-import { cssVariables, derive, type LadderName } from "@agent-harness/theme";
+import { cssVariables, derive } from "@agent-harness/theme";
 import { beforeEach, describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -10,13 +10,12 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  * `client` row. It sets this client's light or dark preference and its
  * display preferences, each at once, and shows the home environment's
  * theme (its name, each seed as a swatch in both ladders, each clamp the
- * derivation made), which the generic editor writes with `settings.update`
- * at `admin`, repainting the window. Driven through the harness over the
- * scripted environments, `desk` this machine's.
+ * derivation made) in the theme picker, whose candidates, saves and
+ * refusals `theme-picker.test.tsx` drives. Driven through the harness over
+ * the scripted environments, `desk` this machine's.
  */
 
-/** Two themes: one whose seeds hold every rule, one whose accent and success no screen can show (the environment's check names both). */
-const OLIVE: Theme = { name: "Olive", seeds: { ...DEFAULT_THEME.seeds, canvas: { hue: 110, chroma: 0.02 }, accent: { hue: 130, chroma: 0.15 } } };
+/** A theme whose accent and success no screen can show (the environment's check names both). */
 const LOUD: Theme = { name: "Loud", seeds: { ...DEFAULT_THEME.seeds, success: { hue: 150, chroma: 0.4 }, accent: { hue: 264, chroma: 0.4 } } };
 
 /** The window over `desk`, this machine's, with one session open in the pane. */
@@ -38,13 +37,6 @@ const openTheme = async (app: RenderedApp) => {
 };
 
 const root = () => document.documentElement;
-
-/** Waits until the root carries `theme`'s `ladder`, as the theme package derives it. */
-const paintedWith = (theme: Theme, ladder: LadderName) =>
-  waitFor(() => {
-    const expected = cssVariables(derive(theme)[ladder]);
-    expect(Object.fromEntries(Object.keys(expected).map((name) => [name, root().style.getPropertyValue(name)]))).toEqual(expected);
-  });
 
 beforeEach(() => root().removeAttribute("style"));
 
@@ -147,38 +139,5 @@ describe("the home environment's theme", () => {
     expect(await within(shown).findByText("Default, on desk")).toBeDefined();
     expect(within(shown).getByText("No seed is clamped: both ladders meet the contrast, gamut and hue-separation rules.")).toBeDefined();
     expect(within(shown).queryByRole("list", { name: "Clamped seeds" })).toBeNull();
-  });
-});
-
-describe("writing the theme", () => {
-  it("writes appearance.theme through the generic editor with settings.update, and the window and the row show it at once", async () => {
-    const app = await opened();
-    const desk = app.environment("desk");
-    const row = await openTheme(app);
-    await paintedWith(DEFAULT_THEME, "dark");
-    expect(within(row).getByRole("button", { name: "Open the Appearance step in Set up" })).toBeDefined();
-
-    const field = within(row).getByRole("group", { name: "appearance.theme" });
-    const box = await within(field).findByRole("textbox");
-    await app.user.clear(box);
-    await app.user.click(box);
-    await app.user.paste(JSON.stringify(OLIVE));
-    await app.user.click(within(field).getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(desk.settings()["appearance.theme"]).toEqual(OLIVE));
-    expect(desk.requests("settings.update").map((request) => request.params)).toEqual([expect.objectContaining({ values: { "appearance.theme": OLIVE } })]);
-    await paintedWith(OLIVE, "dark");
-    expect(await within(homeTheme(row)).findByText("Olive, on desk")).toBeDefined();
-  });
-
-  it("is read-only without admin, with the capability's line", async () => {
-    const app = await renderApp({ environments: [{ name: "laptop", reach: "paired", scopes: ["read", "sessions:write", "runs:drive", "terminal"] }] });
-    const row = await openTheme(app);
-    expect(await within(row).findByText("Read-only: This client was paired with laptop without the admin scope.")).toBeDefined();
-    const field = within(row).getByRole("group", { name: "appearance.theme" });
-    expect(within(field).getByRole("textbox").hasAttribute("disabled")).toBe(true);
-    expect(within(field).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
-    // The preferences are this client's own: they are never read-only.
-    expect(within(row).getByRole("combobox", { name: "Text size" }).hasAttribute("disabled")).toBe(false);
   });
 });

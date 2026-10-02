@@ -43,6 +43,11 @@ const record = {
 } as const;
 
 describe("the bank events", () => {
+  it("carries terminal review release on a landing failure without a session", () => {
+    const notice = { type: "bank.landing-failed", payload: { bankId, sessionId: null, step: "review", reason: "The submitted review was closed.", reviewReleased: true } };
+    expect(EnvironmentNotice.parse(notice)).toEqual(notice);
+  });
+
   it("are the nine on the environment stream, none in the session list, each a notice environment.subscribe carries", () => {
     expect(Object.keys(BANK_EVENT_PAYLOADS)).toEqual([
       "bank.added",
