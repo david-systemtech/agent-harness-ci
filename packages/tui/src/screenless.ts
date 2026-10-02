@@ -10,6 +10,7 @@ export type {
   SessionSelection,
   TerminalSelection,
 } from "./startup/selection.js";
+export { listSessions, type ListIo, type ListRequest } from "./listing/listing.js";
 
 /**
  * The terminal UI's entry without a screen (`@agent-harness/tui/screenless`,
