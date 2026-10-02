@@ -557,18 +557,28 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
 
 const SHELLS = new Set(['sh', 'bash', 'dash', 'ash', 'ksh', 'zsh', 'fish', 'csh', 'tcsh']);
 const SHELL_VALUE_OPTIONS = new Set(['-o', '-O', '--rcfile', '--init-file']);
+const USER_SHELLS = new Set(['su', 'runuser']);
+const USER_SHELL_VALUE_OPTIONS = new Set(['-s', '--shell', '-g', '--group', '-G', '--supp-group', '-w', '--whitelist-environment', '-u', '--user']);
 
 /** Only invocation options count: `sh script -c text` passes data to a script. */
 function evaluatesShell(segment: Segment): boolean {
   const invocation = invocationOf(segment);
   if (invocation === null) return false;
   const { name, args } = invocation;
-  if (name === 'eval' || name === 'coproc') return args.length > 0;
-  if (!SHELLS.has(name)) return false;
+  if (name === 'eval' || name === 'coproc' || name === 'chroot') return args.length > 0;
+  const userShell = USER_SHELLS.has(name);
+  if (!SHELLS.has(name) && !userShell) return false;
   for (let at = 0; at < args.length; at += 1) {
     const option = args[at]?.text ?? '';
-    if (option === '--' || option === '-' || !/^[+-]/.test(option)) break;
-    if (/^-[^-]*c/.test(option) || option === '--command' || option.startsWith('--command=')) return true;
+    if (option === '--') break;
+    if (userShell && USER_SHELL_VALUE_OPTIONS.has(option)) { at += 1; continue; }
+    if (option === '-' || !/^[+-]/.test(option)) {
+      if (userShell) continue; // User-switching options can follow the username.
+      break;
+    }
+    const commandFlag = userShell ? hasShortFlag([option], 'c', 'sgGwu') : /^-[^-]*c/.test(option);
+    if (commandFlag || option === '--command' || option.startsWith('--command=')
+      || (userShell && (option === '--session-command' || option.startsWith('--session-command=')))) return true;
     if (SHELL_VALUE_OPTIONS.has(option)) at += 1;
   }
   return false;

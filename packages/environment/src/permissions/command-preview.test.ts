@@ -214,6 +214,20 @@ describe('reading a command line', () => {
     }
     expect(destructiveParts("echo 'coproc { rm -rf build; }'")).toEqual([]);
   });
+  it('warns when user-switching commands ask a shell to evaluate text, even after a username', () => {
+    for (const command of ["su -c 'rm -rf build'", "su root -c 'rm -rf build'", "sudo su root --command='rm -rf build'", "su -s /bin/sh root -lc 'rm -rf build'", "runuser root --session-command 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"su root -c 'rm -rf build'\"", "su -- root '-c' 'rm -rf build'", "su -s '-c' root", "runuser -u root -- echo '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('keeps changed-root execution opaque rather than inspecting targets in the original workspace', () => {
+    for (const command of ["chroot /mnt/root sh -c 'rm -rf build'", 'chroot /mnt/root rm -rf build']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo \"chroot /mnt/root sh -c 'rm -rf build'\"")).toEqual([]);
+  });
   it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
     const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
     expect(destructiveParts(command).map((part) => ({ kind: part.kind, targets: part.targets }))).toEqual([
