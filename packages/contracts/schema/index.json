@@ -687,6 +687,14 @@
       "title": "RunBrowserResolvedPayload"
     },
     {
+      "path": "sessions/events/checks.started.json",
+      "title": "ChecksStartedPayload"
+    },
+    {
+      "path": "sessions/events/checks.finished.json",
+      "title": "ChecksFinishedPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -2773,6 +2781,22 @@
     {
       "path": "state-import/report.json",
       "title": "StateImportReport"
+    },
+    {
+      "path": "checks/check-command.json",
+      "title": "CheckCommand"
+    },
+    {
+      "path": "checks/workspace-check.json",
+      "title": "WorkspaceCheck"
+    },
+    {
+      "path": "checks/check-failure.json",
+      "title": "CheckFailure"
+    },
+    {
+      "path": "checks/notices/checks.changed.json",
+      "title": "ChecksChangedPayload"
     },
     {
       "path": "settings/settings-key.json",
@@ -6295,6 +6319,50 @@
       "title": "terminals.subscribe error"
     },
     {
+      "path": "methods/checks.get/params.json",
+      "title": "checks.get params"
+    },
+    {
+      "path": "methods/checks.get/result.json",
+      "title": "checks.get result"
+    },
+    {
+      "path": "methods/checks.get/error.json",
+      "title": "checks.get error"
+    },
+    {
+      "path": "methods/checks.set/params.json",
+      "title": "checks.set params"
+    },
+    {
+      "path": "methods/checks.set/result.json",
+      "title": "checks.set result"
+    },
+    {
+      "path": "methods/checks.set/response.json",
+      "title": "checks.set response"
+    },
+    {
+      "path": "methods/checks.set/error.json",
+      "title": "checks.set error"
+    },
+    {
+      "path": "methods/checks.run/params.json",
+      "title": "checks.run params"
+    },
+    {
+      "path": "methods/checks.run/result.json",
+      "title": "checks.run result"
+    },
+    {
+      "path": "methods/checks.run/response.json",
+      "title": "checks.run response"
+    },
+    {
+      "path": "methods/checks.run/error.json",
+      "title": "checks.run error"
+    },
+    {
       "path": "methods/files.list/params.json",
       "title": "files.list params"
     },
@@ -8733,6 +8801,35 @@
       "params": "methods/terminals.subscribe/params.json",
       "result": "methods/terminals.subscribe/result.json",
       "error": "methods/terminals.subscribe/error.json"
+    },
+    {
+      "name": "checks.get",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/checks.get/params.json",
+      "result": "methods/checks.get/result.json",
+      "error": "methods/checks.get/error.json"
+    },
+    {
+      "name": "checks.set",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/checks.set/params.json",
+      "result": "methods/checks.set/result.json",
+      "response": "methods/checks.set/response.json",
+      "error": "methods/checks.set/error.json"
+    },
+    {
+      "name": "checks.run",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/checks.run/params.json",
+      "result": "methods/checks.run/result.json",
+      "response": "methods/checks.run/response.json",
+      "error": "methods/checks.run/error.json"
     },
     {
       "name": "files.list",
