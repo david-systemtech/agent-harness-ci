@@ -17,8 +17,9 @@ import { DATA_FILES } from "./folders.js";
  * Each store is normalised as the source's own reader reads it, so what the
  * import carries is what the source showed: the instruction list's prompts
  * by its rules (an entry with no id or no readable scope is not read, nor a
- * second entry under one id, nor any past the hundredth; a name past 80
- * characters and a text past 60,000 are cut; the memory-banks prompt reaches
+ * second entry under one id, nor any past the hundredth; an id past 200
+ * characters, a name past 80 and a text past 60,000 are cut, so two ids that
+ * differ only past the 200th are one id; the memory-banks prompt reaches
  * every profile), and the preferences' values with a settings row by the
  * desktop's (a font size rounded into 11 to 20).
  */
@@ -177,7 +178,13 @@ const parseInstructions = (value: unknown): SourceInstructions | Refusal => {
   if (!isRecord(value)) return { refused: `${INSTRUCTION_LIST.name} holds no list of instructions.` };
   const version = value["version"];
   if (version !== undefined && version !== 1) {
-    return { refused: `${INSTRUCTION_LIST.name} was written as version ${typeof version === "number" ? version : JSON.stringify(String(version)).slice(0, 40)}, which this import does not read.` };
+    // Only a number is named: any other value is the store's own text.
+    return {
+      refused:
+        typeof version === "number"
+          ? `${INSTRUCTION_LIST.name} was written as version ${version}, which this import does not read.`
+          : `${INSTRUCTION_LIST.name} was written as a version this import does not read.`,
+    };
   }
   const prompts = value["prompts"];
   if (!Array.isArray(prompts)) return { refused: `${INSTRUCTION_LIST.name} holds no list of instructions.` };

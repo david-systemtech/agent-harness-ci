@@ -76,6 +76,9 @@ describe("the instruction list", () => {
     const newer = await readSourceStores(folderWith({ "agent-prompts.json": { version: 2, prompts: [sourcePrompt("p1")] } }));
     expect(newer.instructions).toMatchObject({ status: "failed", diagnostic: "The instruction list was written as version 2, which this import does not read." });
 
+    const named = await readSourceStores(folderWith({ "agent-prompts.json": { version: "2 token-for-tests", prompts: [sourcePrompt("p1")] } }));
+    expect(named.instructions).toMatchObject({ status: "failed", diagnostic: "The instruction list was written as a version this import does not read." });
+
     const folder = folderWith({ "agent-prompts.json": { version: 1, prompts: [] } });
     chmodSync(join(folder, "agent-prompts.json"), 0o000);
     const unreadable = await readSourceStores(folder);
