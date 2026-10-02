@@ -24,6 +24,7 @@ import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
 import { ClaudeProcess, checkImages, type ProcessDeps, type ProcessTimings } from "./process.js";
 import { listDirectorySessions } from "./session-listing.js";
+import { worktreeCheckout } from "./workspace.js";
 
 /**
  * The Claude adapter (claude-adapter spec; ADR 0015, ADR 0018): the first
@@ -348,7 +349,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     async commands(account, workspace, scope): Promise<readonly ProviderCommand[]> {
       try {
         // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.
-        const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted };
+        const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted, checkoutRoot: worktreeCheckout(workspace.path) };
         const commands = await withControlQuery(asked, (query) => query.supportedCommands());
         // The pinned SDK marks Claude Code's own commands `builtin` and leaves a user's, a project's or a plugin's unmarked
         // (verified on 0.3.283, CLI 2.1.283, #503), so no list of the built-ins is kept here.

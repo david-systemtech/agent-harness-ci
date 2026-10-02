@@ -2666,6 +2666,31 @@ describe("the unsampled queries", () => {
     expect(fake.last().options).not.toHaveProperty("settings");
   });
 
+  it("lists commands in a worktree, or below its root, from its main checkout's project configuration as a run there loads it, and from none untrusted", async () => {
+    fake.controls = { supportedCommands: async () => [] };
+    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    try {
+      const checkout = join(root, "app");
+      git(root, "init", "-q", checkout);
+      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+      const worktree = join(root, "worktree");
+      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+      const below = join(worktree, "packages", "web");
+      mkdirSync(below, { recursive: true });
+      const adapter = adapterWith();
+      for (const path of [worktree, below]) {
+        await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+        expect(fake.last().options).toMatchObject({ cwd: path, settingSources: ["project"], projectConfigRoot: checkout });
+      }
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: worktree }, { trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: checkout }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("answers a member's invocation: /agent-harness:<name> for one the generation links, /<name> for a native one", () => {
     const adapter = adapterWith();
     expect(adapter.invocationText({ name: "tdd", native: false })).toBe("/agent-harness:tdd");
