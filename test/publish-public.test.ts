@@ -22,6 +22,7 @@ function fixture() {
   const write = (path: string, text: string) => { mkdirSync(join(source, path, ".."), { recursive: true }); writeFileSync(join(source, path), text); };
   write(".public-exclude", readFileSync(join(root, ".public-exclude"), "utf8") + "\nprivate/\n");
   write(".public-privacy.json", readFileSync(join(root, ".public-privacy.json"), "utf8"));
+  write(".public-map.json", "{}\n");
   write("README.md", "Public README from the ref\n");
   write(".github/workflows/release.yml", "name: public release\n");
   write("private/runbook.md", "private deployment notes\n");
@@ -68,6 +69,47 @@ it("preserves the selected ref's exact blob bytes and executable modes", () => {
   expect(execFileSync("git", ["-C", f.remote, "show", "main:README.md"], { encoding: "utf8" })).toBe("Committed public README\r\n");
   expect(git(f.remote, "ls-tree", "main", "launch.sh")).toMatch(/^100755 blob /);
 });
+
+it.each(["public/.github-workflows/release.yml", "public/custom.yml"])("installs the declared workflow mapping from %s without its source copy", (source) => {
+  const f = fixture();
+  f.write(".public-map.json", JSON.stringify({ [source]: ".github/workflows/release.yml" }));
+  f.write(".public-exclude", readFileSync(join(root, ".public-exclude"), "utf8") + "\n.public-map.json\npublic/.github-workflows/\nprivate/\n");
+  f.write(source, "name: mapped public release\n");
+  git(f.source, "rm", "-q", ".github/workflows/release.yml");
+  f.commit();
+  f.publish();
+  expect(git(f.remote, "show", "main:.github/workflows/release.yml")).toBe("name: mapped public release");
+  expect(git(f.remote, "ls-tree", "-r", "--name-only", "main").split("\n")).toEqual([".github/workflows/release.yml", "README.md"]);
+});
+
+it.each(["../escape.yml", "/escape.yml", ".git/config", ".forgejo/workflows/release.yml"])("refuses an unsafe or excluded mapping destination %s", (destination) => {
+  const f = fixture();
+  f.write(".public-map.json", JSON.stringify({ "README.md": destination })); f.commit();
+  expect(() => f.publish()).toThrow();
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it.each([
+  'readFileSync(".forgejo/workflows/ci.yml")',
+  'readFileSync(join(root, ".forgejo", "workflows", "ci.yml"))',
+  'readFileSync(join(root, "docs", "agents", "switch-over-runbook.md"))',
+  'readFileSync("docs/routines/hermes-delivery.md")',
+])("refuses a kept test naming an excluded input: %s", (contents) => {
+  const f = fixture();
+  f.write("test/public.test.ts", contents); f.commit();
+  expect(() => f.publish()).toThrow(/test\/public.test.ts:1: excluded test input/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("checks the committed repository's actual filtered test inventory before the privacy gate", () => {
+  const f = fixture();
+  let output: string;
+  // The scrub can still be pending; this check observes export and test closure.
+  try { output = f.publish("--source", root, "--dry-run"); }
+  catch (error) { output = (error as { stdout: string }).stdout; }
+  expect(output).toContain("Test inputs: pass");
+  expect(git(f.remote, "for-each-ref")).toBe("");
+}, 120_000);
 
 it("dry-runs the full checks and commit without moving public refs", () => {
   const f = fixture();

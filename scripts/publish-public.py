@@ -41,17 +41,51 @@ def excluded(path, patterns):
                    for i in range(1, len(path.split('/')))) for p in patterns)
 
 
+def check_test_inputs(tree, patterns):
+    roots = {p.rstrip('/').split('/')[0] for p in patterns}
+    for file in sorted(tree.rglob('*')):
+        if not file.is_file() or not file.name.endswith(('.test.ts', '.test.tsx')):
+            continue
+        text = file.read_text()
+        # Recognise both literal paths and adjacent string arguments to join().
+        text = text.replace('\\/', '/').replace('\\.', '.')
+        text = re.sub(r'''['"`][ \t]*,[ \t]*['"`]''', '/', text)
+        for match in re.finditer(r'[\w.@+-]+(?:/[\w.@+-]+)*', text):
+            token = match.group()
+            if '.' not in token and '/' not in token and token not in roots:
+                continue
+            parts = token.split('/')
+            if any(excluded('/'.join(parts[i:]), patterns) for i in range(len(parts))):
+                line = text[:match.start()].count('\n') + 1
+                path = file.relative_to(tree).as_posix()
+                raise ValueError(f'{path}:{line}: excluded test input {token}')
+    print('Test inputs: pass')
+
+
 def export_tree(source, ref, tree):
     sha = git(source, 'rev-parse', '--verify', ref + '^{commit}').decode().strip()
     patterns = [p.strip() for p in git(source, 'show', sha + ':.public-exclude').decode().splitlines()
                 if p.strip() and not p.lstrip().startswith('#')]
     policy = json.loads(git(source, 'show', sha + ':.public-privacy.json'))
+    overlays = json.loads(git(source, 'show', sha + ':.public-map.json'))
+    if not isinstance(overlays, dict):
+        raise ValueError('Public mapping must be a source-to-destination object')
+    for original, destination in overlays.items():
+        for path in (original, destination):
+            if not isinstance(path, str) or not path or Path(path).is_absolute() or any(
+                    part in ('..', '.git') for part in Path(path).parts) or Path(path) == Path('.'):
+                raise ValueError('Unsafe public mapping path')
+        if excluded(destination, patterns):
+            raise ValueError('Public mapping destination is excluded: ' + destination)
+    if len(set(overlays.values())) != len(overlays):
+        raise ValueError('Duplicate public mapping destination')
+    pending = set(overlays)
     for entry in git(source, 'ls-tree', '-rz', '--full-tree', sha).split(b'\0'):
         if not entry:
             continue
         metadata, raw_path = entry.split(b'\t', 1)
         path = raw_path.decode('utf-8')
-        if excluded(path, patterns):
+        if path not in overlays and excluded(path, patterns):
             continue
         mode, kind, oid = metadata.decode().split()
         # Fail closed on links: never let a scanner follow a link outside its tree.
@@ -59,12 +93,19 @@ def export_tree(source, ref, tree):
             raise ValueError('Unsupported link or submodule: ' + path)
         if Path(path).is_absolute() or '..' in Path(path).parts or '.git' in Path(path).parts:
             raise ValueError('Unsafe tree path')
-        target = tree / path
+        destination = overlays.get(path, path)
+        pending.discard(path)
+        target = tree / destination
+        if target.exists():
+            raise ValueError('Public mapping collides with a tree path: ' + destination)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(git(source, 'cat-file', 'blob', oid))
         target.chmod(0o755 if mode == '100755' else 0o644)
+    if pending:
+        raise ValueError('Missing public mapping sources: ' + ', '.join(sorted(pending)))
     if not (tree / 'README.md').is_file() or not list((tree / '.github/workflows').glob('*.y*ml')):
         raise ValueError('The selected ref must contain README.md and .github/workflows')
+    check_test_inputs(tree, patterns)
     return policy
 
 

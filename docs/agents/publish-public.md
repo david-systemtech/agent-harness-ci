@@ -13,6 +13,13 @@ Land the tree scrub, public README and GitHub release workflow first. Publish
 only a reviewed, cleaned ref containing all three; files come from that ref,
 never another branch or uncommitted working-tree edits. No licence is granted.
 
+`.public-map.json` declares source-to-destination file mappings. It installs
+`public/.github-workflows/release.yml` at `.github/workflows/release.yml`.
+Mapped sources are moved into their declared destinations; the source overlay
+directory and mapping policy are excluded from the snapshot. Missing sources,
+unsafe or excluded destinations, and collisions block publication. The installed
+files retain the selected ref's bytes and modes and pass the same privacy checks.
+
 Run from a development checkout with Python 3.11+ and Git installed. Git uses
 the maintainer's normal credential helper for the public remote. Keep tokens
 out of URLs and command arguments. Preview a publication:
@@ -46,6 +53,15 @@ runbooks. It also removes `.gitleaksignore` so committed fingerprints cannot
 suppress the privacy scan. README and `.github/workflows/` must survive the filter. Symlinks and
 submodules are rejected rather than followed or fetched. Regular files retain
 exact committed bytes and executable modes, unaffected by Git clean filters.
+
+The publisher refuses any retained `.test.ts` or `.test.tsx` file naming an
+excluded path, including adjacent string arguments in `join(...)`. Snapshot
+policy excludes private workflow/runbook checks and tests naming private inputs,
+including synthetic Forgejo bank fixtures. All remain in the development tree
+and private CI; the hosted release workflow tests remain public and read the
+installed workflow through the release input helper. This lexical check does
+not replace running the hosted release's typecheck, lint and full test suite
+in CI; paths computed without literal names still need ordinary test coverage.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob
