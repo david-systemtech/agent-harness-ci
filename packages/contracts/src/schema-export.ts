@@ -1,3 +1,4 @@
+import { SessionBankUsedPayload } from "./bank-use.js";
 import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, BankReviewHeldPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
 import { z } from "zod";
 import { Action, ActionCondition, ActionContext } from "./actions.js";
@@ -1063,6 +1064,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
   { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
   { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
+  { path: "sessions/events/session.bank-used.json", title: "SessionBankUsedPayload", schema: SessionBankUsedPayload },
   { path: "banks/tools/search.json", title: "MemorySearchInput", schema: MemorySearchInput },
   { path: "banks/tools/read.json", title: "MemoryReadInput", schema: MemoryReadInput },
   { path: "banks/tools/promote.json", title: "MemoryPromoteInput", schema: MemoryPromoteInput },

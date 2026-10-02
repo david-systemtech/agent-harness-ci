@@ -1,3 +1,4 @@
+import { bankInstructionsLayer } from "../banks/bank-layer.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
 import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
@@ -1212,7 +1213,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The session's own instructions (#506) fill the session layer.
   const sessionLayer = sessionInstructionsLayer({ all: (sql, ...params) => log.read(sql, ...params) });
   const instructions =
-    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), session: sessionLayer });
+    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), teamBank: bankInstructionsLayer(log), session: sessionLayer });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
