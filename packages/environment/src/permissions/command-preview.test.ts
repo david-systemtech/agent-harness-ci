@@ -381,6 +381,15 @@ describe('previewing rm against a directory', () => {
     expect(await only('rm src/?.ts', root)).toMatchObject({ summary: '2 files' });
   });
 
+  it('does not claim brace sequences are empty and keeps quoted braces literal', async () => {
+    const root = await tree();
+    await writeFile(join(root, 'build', '1'), 'keep');
+    expect((await only('rm build/{1..10}', root)).summary).toContain('could not preview:');
+    expect((await only('rm build/{a..z}', root)).summary).toContain('could not preview:');
+    await writeFile(join(root, '{1..10}'), 'keep');
+    expect(await only("rm '{1..10}'", root)).toMatchObject({ summary: '1 file', lines: ['{1..10}'] });
+  });
+
   it.skipIf(process.platform === 'win32')('leaves the dotfiles out of a bare star, and reads a quoted one as a filename', async () => {
     const root = await tree();
     const star = await only('rm -rf *', root);
@@ -544,6 +553,16 @@ describe('previewing git, with git standing in', () => {
     expect((await only('git checkout other -- src/a.ts', '/repo', disk)).summary).toBe('1 of 1 path would lose local changes');
     expect((await only('git restore --source=HEAD --staged --worktree src/a.ts', '/repo', disk)).summary).toBe('1 of 1 path would lose local changes');
     expect((await only('git checkout -- src/a.ts', '/repo', disk)).summary).toBe('none of these paths has local changes to lose');
+  });
+
+  it('warns about checkout with multiple operands when the source and paths are ambiguous', async () => {
+    for (const command of ['git checkout HEAD Makefile', 'git checkout Makefile README', 'git checkout HEAD src/a.ts']) {
+      const { execFile, calls } = recorder();
+      expect((await only(command, '/repo', { execFile })).summary).toContain('cannot tell:');
+      expect(calls).toEqual([]);
+    }
+    const disk = recorder({ 'git diff --name-only --relative': '', 'git diff --cached --name-only --relative': 'Makefile\n' });
+    expect(await only('git checkout HEAD -- Makefile', '/repo', disk)).toMatchObject({ summary: '1 of 1 path would lose local changes' });
   });
 
   it('says whether each branch being deleted is merged', async () => {

@@ -8,6 +8,7 @@ import { ask, fakeAdapter } from "../../test/fake-adapter.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import type { RunContainment } from "../adapter/contract.js";
+import { nodeBlastDeps } from "./command-preview.js";
 import { openedPayload } from "./broker.js";
 import { PREVIEW_TIMEOUT_MS, previewLines } from "./preview.js";
 
@@ -119,6 +120,31 @@ describe("the preview's budget and workspace boundary", () => {
     controller.abort();
     expect(await preview).toBeNull();
     expect(clock.pending()).toBe(0);
+  });
+
+  it.skipIf(process.platform === "win32")("previews files through a globbed directory link inside the workspace", async () => {
+    const workspace = await tempDir();
+    await mkdir(join(workspace, "build"));
+    await writeFile(join(workspace, "build", "one.js"), "keep");
+    await symlink(join(workspace, "build"), join(workspace, "linked"));
+    const scope = { workspace, clock: manualClock(), containment: contained(workspace) };
+    expect(await previewLines("permission", { input: { command: "rm li*/one.js" } }, scope)).toEqual(["⚠ 1 file", "  linked/one.js"]);
+    expect(await previewLines("permission", { input: { command: "rm li*/*.js" } }, scope)).toEqual(["⚠ 1 file", "  linked/one.js"]);
+    expect(await previewLines("permission", { input: { command: "rm linked" } }, scope)).toEqual(["⚠ 1 file", "  linked"]);
+    expect(await readFile(join(workspace, "build", "one.js"), "utf8")).toBe("keep");
+  });
+
+  it.skipIf(process.platform === "win32")("stops at an outside directory link matched by an intermediate glob", async () => {
+    const workspace = await tempDir();
+    const outside = await tempDir();
+    await writeFile(join(outside, "private.txt"), "private");
+    await symlink(outside, join(workspace, "linked"));
+    const reads: string[] = [];
+    expect(await previewLines("permission", { input: { command: "rm li*/*" } }, { workspace, clock: manualClock(), containment: contained(workspace) }, {
+      readdir: async (path) => { reads.push(path); return nodeBlastDeps.readdir(path); },
+      stat: async (path) => { reads.push(path); return nodeBlastDeps.stat(path); },
+    })).toBeNull();
+    expect(reads).toEqual([workspace]);
   });
 
   it.skipIf(process.platform === "win32")("does not inspect an outside path or a directory link that leaves the workspace", async () => {

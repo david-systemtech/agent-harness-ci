@@ -85,6 +85,8 @@ export interface Destructive {
   readonly flags: readonly string[];
   /** A source checkout or restore that replaces the index as well as the worktree. */
   readonly overwritesIndex?: boolean;
+  /** Multiple checkout operands without `--` may start with a source or a path. */
+  readonly ambiguousCheckout?: boolean;
 }
 
 /** What one {@link Destructive} would do, read off the disk. */
@@ -100,10 +102,11 @@ export interface Preview {
   readonly truncated?: boolean;
 }
 
-/** One entry of a directory, reduced to the two facts this module uses. */
+/** One entry of a directory, with its type before following any link. */
 export interface DirEntry {
   readonly name: string;
   readonly directory: boolean;
+  readonly symlink?: boolean;
 }
 
 /** One path, reduced likewise. A symlink is a file: deleting one deletes the link. */
@@ -150,7 +153,7 @@ export const nodeBlastDeps: BlastRadiusDeps = {
     });
     return stdout;
   },
-  readdir: async (path) => (await readdir(path, { withFileTypes: true })).map((entry) => ({ name: entry.name, directory: entry.isDirectory() })),
+  readdir: async (path) => (await readdir(path, { withFileTypes: true })).map((entry) => ({ name: entry.name, directory: entry.isDirectory(), symlink: entry.isSymbolicLink() })),
   stat: async (path) => {
     const info = await lstat(path);
     return { size: info.size, directory: info.isDirectory() };
@@ -638,6 +641,7 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
       if (separator === -1) {
         if (hasShortFlag(flags, 'f', 'bB') || flags.includes('--force')) return { kind: 'git-checkout-discard', text, targets: operands, flags };
         if (hasShortFlag(flags, 'b', 'bB') || hasShortFlag(flags, 'B', 'bB') || flags.includes('--orphan')) return null;
+        if (operands.length > 1) return { kind: 'git-checkout-discard', text, targets: operands, flags, ambiguousCheckout: true };
         // A branch name remains ambiguous; path-shaped operands can discard work.
         if (!operands.some((path) => path.includes('/') || path.includes('.') || isGlob(path))) return null;
       }
@@ -914,6 +918,7 @@ function expandBraces(pattern: string): readonly string[] {
     }
   }
   if (close === -1) return [pattern];
+  if (pieces.length === 1) throw new Error('brace expression needs the shell to expand');
   const head = pattern.slice(0, open);
   const tail = pattern.slice(close + 1);
   const out: string[] = [];
@@ -1019,8 +1024,9 @@ async function entriesOf(directory: string, deps: BlastRadiusDeps, budget: Budge
  *
  * A leading dot is matched only by a pattern that has one, which is the rule
  * every shell uses and the reason `rm *` does not claim it will take `.git`.
- * Symlinks are never descended: `directory` comes from a `lstat`-shaped entry,
- * so a link to a tree is a leaf here exactly as it is to `rm`.
+ * Recursive `**` does not descend symlinks. A fixed intermediate segment can
+ * match a directory link; subsequent reads use the same scope check as literal
+ * paths. Deleting a link itself still treats it as a leaf.
  */
 async function expandGlob(pattern: string, cwd: string, deps: BlastRadiusDeps, budget: Budget): Promise<readonly string[]> {
   const found = new Set<string>();
@@ -1063,7 +1069,7 @@ async function expandGlob(pattern: string, cwd: string, deps: BlastRadiusDeps, b
         if (!hidden && entry.name.startsWith('.')) continue;
         if (!matches(entry.name)) continue;
         // A pattern with more segments to go can only continue through a directory.
-        if (!last && !entry.directory) continue;
+        if (!last && !entry.directory && entry.symlink !== true) continue;
         await visit(join(directory, entry.name), index + 1, depth + 1);
       }
     };
@@ -1310,6 +1316,9 @@ async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiu
 }
 
 async function previewCheckoutDiscard(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
+  if (part.ambiguousCheckout === true) {
+    return { kind: part.kind, summary: 'cannot tell: checkout operands may include a source; local changes and staged changes may be lost', lines: [...part.targets].slice(0, MAX_LISTED) };
+  }
   if (hasShortFlag(part.flags, 'f', 'bB') || part.flags.includes('--force')) {
     return { kind: part.kind, summary: 'forced checkout may discard local changes, including files obstructing the checkout', lines: [] };
   }
