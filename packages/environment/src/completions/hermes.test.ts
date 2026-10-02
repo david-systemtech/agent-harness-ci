@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { CompletionsModelList, registry, type ChatMessage, type MessageSentPayload, type Mode, type RunPolicyResolvedPayload, type RunStartedPayload, type Scope } from "@agent-harness/contracts";
+import { CompletionsErrorBody, CompletionsModelList, registry, type ChatMessage, type MessageSentPayload, type Mode, type PromptAnsweredPayload, type RunPolicyResolvedPayload, type RunStartedPayload, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { callClientTool, end, fakeAdapter, say, toolResultText, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
+import { ask, callClientTool, end, fakeAdapter, say, toolResultText, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { BUTLER_INSTRUCTIONS, HERMES_SYSTEM_PROMPT, HERMES_TOOLS, chatTurn, hermesCaller, postCompletion, readStream, type HermesRoute } from "../../test/hermes-caller.js";
+import { BUTLER_INSTRUCTIONS, HERMES_SYSTEM_PROMPT, HERMES_TOOLS, chatTurn, compressionCall, hermesCaller, postCompletion, readStream, titleCall, type HermesRoute, type StreamedAnswer } from "../../test/hermes-caller.js";
 import { isInProcess, type AdapterEvent } from "../adapter/contract.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { composeInstructions } from "../instructions/composer.js";
@@ -67,6 +67,12 @@ const liveRoute = async (t: TestEnvironment, token: string, family: string, thin
   const model = listed.data.find((entry) => entry["agent-harness"].accountId === "Owner Max" && entry.family === family);
   if (model === undefined) throw new Error(`The live listing has no ${family} on the owner's account.`);
   return { model: model.id, thinking };
+};
+
+/** A refused request's status and error body, checked against the contract. */
+const refusalOf = async (t: TestEnvironment, token: string, body: Record<string, unknown>) => {
+  const response = await postCompletion(origin(t), token, body);
+  return { status: response.status, body: CompletionsErrorBody.parse(await response.json()) };
 };
 
 const eventsOf = (t: TestEnvironment, sessionId: string, type: string): EventEnvelope[] => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === type);
@@ -263,6 +269,113 @@ describe("Hermes's tools", () => {
     const steeredAnswer = await steered;
     expect(steeredAnswer.head).toMatchObject({ sessionId, runId: asked.head.runId, delivery: "queued", messageId: sent?.messageId });
     expect(steeredAnswer.toolCalls).toEqual([]);
+  });
+});
+
+describe("the auxiliary calls", () => {
+  /** What an auxiliary call's run got: its model and effort, its mode, what it appended after the composed instructions, and what the answer reported ignored. */
+  const seen = (t: TestEnvironment, answer: StreamedAnswer) => {
+    const sessionId = answer.head.sessionId as string;
+    const [started] = payloadsOf<RunStartedPayload>(t, sessionId, "run.started");
+    const [policy] = payloadsOf<RunPolicyResolvedPayload>(t, sessionId, "run.policy.resolved");
+    const { instructions } = t.adapter.lastRun().input;
+    return {
+      accountId: started?.accountId,
+      model: started?.model,
+      effort: started?.effort,
+      mode: policy?.mode.effective,
+      appended: instructions.slice(instructions.indexOf("COMPOSED") + "COMPOSED".length),
+      ignored: answer.head.ignored,
+    };
+  };
+
+  /** The compression call with no override, as the pinned configuration sends it (`auxiliary.compression.provider: main`): none of the chat route's fields. */
+  const BASELINE = { accountId: "Owner Max", model: "sonnet", effort: null, mode: "acceptEdits", appended: "", ignored: [] };
+
+  it("runs the compression call with no override inheriting nothing of the chat route: a fresh session at the unattended default, no effort, no instructions of its own and no tools", async () => {
+    const t = await start(reply("Summary."));
+    const { token } = await program(t);
+    const route = await liveRoute(t, token, "sonnet", "high");
+
+    const answer = await readStream(await postCompletion(origin(t), token, compressionCall(route.model)));
+
+    expect(answer).toMatchObject({ content: "Summary.", finishReason: "stop", done: true, atFinish: { ended: { reason: "completed", cause: null } } });
+    expect(seen(t, answer)).toEqual(BASELINE);
+    expect(payloadsOf<RunPolicyResolvedPayload>(t, answer.head.sessionId as string, "run.policy.resolved")[0]).toMatchObject({ attended: false, unattendedDefaultApplied: true });
+    expect(t.adapter.lastRun().input.toolServers.map((server) => server.name)).not.toContain("client");
+  });
+
+  it.each([
+    { override: "agent-harness.thinking, a supported effort", extension: { thinking: "low" }, changes: { effort: "low" } },
+    { override: "reasoning_effort, auxiliary.compression.reasoning_effort as the custom profile sends it", top: { reasoning_effort: "low" }, changes: { effort: "low" } },
+    { override: "agent-harness.systemPrompt", extension: { systemPrompt: "Summarise only; call no tool." }, changes: { appended: "\n\nSummarise only; call no tool." } },
+    { override: "agent-harness.permissionMode", extension: { permissionMode: "plan" }, changes: { mode: "plan" } },
+    { override: "the model, auxiliary.compression.model", model: "owner-max/haiku", changes: { model: "haiku" } },
+    { override: "agent-harness.ignoreUnsupported, beside a temperature", top: { temperature: 0.1 }, extension: { ignoreUnsupported: true }, changes: { ignored: ["temperature"] } },
+  ])("takes the compression call's $override alone, changing that and nothing else", async ({ top, extension, model, changes }) => {
+    const t = await start(reply("Summary."));
+    const { token } = await program(t);
+
+    const answer = await readStream(await postCompletion(origin(t), token, compressionCall(model ?? "owner-max/sonnet", top, extension)));
+
+    expect(answer.finishReason).toBe("stop");
+    expect(seen(t, answer)).toEqual({ ...BASELINE, ...changes });
+  });
+
+  it("refuses what an auxiliary call cannot have, recording nothing: a temperature without ignoreUnsupported, and an effort its model does not take even with it", async () => {
+    const t = await start(reply("Summary."));
+    const { token } = await program(t);
+
+    expect(await refusalOf(t, token, compressionCall("owner-max/sonnet", { temperature: 0.1 }))).toMatchObject({ status: 400, body: { error: { code: "unsupported_parameter", param: "temperature" } } });
+    expect(await refusalOf(t, token, compressionCall("owner-max/haiku", {}, { ignoreUnsupported: true, thinking: "low" }))).toMatchObject({
+      status: 400,
+      body: { error: { code: "invalid_params", param: "agent-harness.thinking" } },
+    });
+    expect(t.adapter.runs).toHaveLength(0);
+  });
+
+  it("refuses the title call's shape, which is why title generation stays off: its response_format without ignoreUnsupported, and its reasoning_effort none with it", async () => {
+    const t = await start(reply("Title."));
+    const { token } = await program(t);
+
+    expect(await refusalOf(t, token, titleCall("owner-max/sonnet"))).toMatchObject({ status: 400, body: { error: { code: "unsupported_parameter", param: "response_format" } } });
+    expect(await refusalOf(t, token, titleCall("owner-max/sonnet", { ignoreUnsupported: true }))).toMatchObject({
+      status: 400,
+      body: { error: { code: "invalid_params", param: "reasoning_effort", message: expect.stringContaining("effort none") } },
+    });
+    expect(t.adapter.runs).toHaveLength(0);
+  });
+});
+
+describe("other programs beside the butler", () => {
+  it("keeps an ordinary program's clamp to its acceptEdits ceiling and its unattended denials visible, on a fresh session and on the butler's own", async () => {
+    // Every run asks to run a command; the butler's first run only replies.
+    const t = await start(ask("permission", { toolName: "Bash", toolCallId: "toolu_1", input: { command: "rm -rf build" } }));
+    const butler = await program(t);
+    const scripts = await program(t, "acceptEdits", "scripts");
+    const route = await liveRoute(t, butler.token, "sonnet", "medium");
+    t.adapter.nextScripts.push(reply("Done."));
+    const butlers = await readStream(await postCompletion(origin(t), butler.token, chatTurn(route, [{ role: "user", content: "Tidy up." }], null)));
+    expect(butlers.head).toMatchObject({ mode: "bypassPermissions", clamped: null });
+    const butlerSession = butlers.head.sessionId as string;
+
+    // The same request shape, the butler's bypass asked for, from the other program: fresh, then on the butler's session.
+    for (const sessionId of [null, butlerSession]) {
+      const answer = await readStream(await postCompletion(origin(t), scripts.token, chatTurn(route, [{ role: "user", content: "Clean the build." }], sessionId)));
+      expect(answer.head).toMatchObject({
+        mode: "acceptEdits",
+        clamped: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", reason: "ceiling" },
+      });
+      expect(answer.chunks.flatMap((chunk) => chunk["agent-harness"].activity ?? []).filter((activity) => activity.type === "prompt.answered")).toEqual([
+        expect.objectContaining({ decision: "deny", auto: "unattended" }),
+      ]);
+      expect(answer.atFinish?.ended).toEqual({ reason: "completed", cause: null });
+      const ran = answer.head.sessionId as string;
+      expect(ran === butlerSession).toBe(sessionId !== null);
+      expect(payloadsOf<RunPolicyResolvedPayload>(t, ran, "run.policy.resolved").at(-1)).toMatchObject({ attended: false, mode: { effective: "acceptEdits", clamped: true } });
+      expect(payloadsOf<PromptAnsweredPayload>(t, ran, "prompt.answered").at(-1)).toMatchObject({ decision: "deny", decidedBy: { auto: "unattended" } });
+    }
+    expect(t.adapter.runs.map((run) => run.input.mode)).toEqual(["bypassPermissions", "acceptEdits", "acceptEdits"]);
   });
 });
 
