@@ -118,6 +118,11 @@ describe("agent-harness tui", () => {
     });
   });
 
+  it("accepts --import-terminal-state and supplies the local source reader only on request", async () => {
+    expect((await harness().launch()).terminalSource).toBeUndefined();
+    expect((await harness().launch("--import-terminal-state")).terminalSource).toBeTypeOf("function");
+  });
+
   it("takes -c, and --continue, for the newest session whose workspace is the current directory", async () => {
     expect(await harness().launch("-c")).toMatchObject({ continueLatest: true });
     expect(await harness().launch("--continue")).toMatchObject({ continueLatest: true });
@@ -185,6 +190,7 @@ describe("agent-harness tui -p", () => {
       [["-p", "hi", "--session", "0199aa00-0000-4000-8000-000000000001", "-c"], "--session and -c each name the session to open; give one."],
       [["-p", "hi", "--session", "0199aa00-0000-4000-8000-000000000001", "--cwd", "/srv"], "--cwd names a new session's directory, or the one -c looks in; --session continues a session in its own."],
       [["-p", "hi", "--keybindings", "keys.json"], "--keybindings is the screen's; -p draws none."],
+      [["-p", "hi", "--import-terminal-state"], "--import-terminal-state is the screen's; -p draws none."],
       [["--model", "opus"], "--model, --mode, --effort and --output-format go with -p."],
       [["--output-format", "json"], "--model, --mode, --effort and --output-format go with -p."],
       [["-p", "hi", "--model", ""], "--model takes a value; got an empty one."],

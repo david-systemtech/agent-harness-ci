@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { MODES, PRODUCT_NAME, type Mode } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION } from "@agent-harness/environment";
+import { readLocalTerminalSource } from "@agent-harness/environment/terminal-source";
 import type { LocalService, ServiceOutcome, TuiOptions } from "@agent-harness/tui";
 import type { PrintFormat, PrintRequest, ScreenlessOptions, SelectionOutcome } from "@agent-harness/tui/screenless";
 import { parseOptions, UsageError } from "./args.js";
@@ -19,7 +20,7 @@ import { service, serviceInstalled, servicePort, type ServiceContext } from "./s
  * answer through the terminal UI's screenless entry (#1180).
  */
 
-export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file> | -p <prompt> [--model <id>] [--mode <mode>] [--effort <level>] [--output-format text|json|stream-json]]`;
+export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [[--keybindings <file>] [--import-terminal-state] | -p <prompt> [--model <id>] [--mode <mode>] [--effort <level>] [--output-format text|json|stream-json]]`;
 
 /** The terminal UI's entry point: `runTui`, loaded only when `tui` runs, so `serve` never loads Ink and React. */
 export type RunTui = (options: TuiOptions) => Promise<number>;
@@ -32,7 +33,7 @@ export interface TuiContext extends Pick<ServiceContext, "fetch" | "user" | "sea
 /** The formats `--output-format` takes, every one of the screenless entry's: the CLI loads that entry only to print. */
 const PRINT_FORMATS = Object.keys({ text: true, json: true, "stream-json": true } satisfies Record<PrintFormat, true>);
 
-type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings"> & {
+type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings" | "terminalSource"> & {
   /** `-p` and what goes with it: what to print, and how. */
   readonly print: PrintRequest | undefined;
 };
@@ -51,6 +52,7 @@ const TUI_OPTIONS = {
   continue: { type: "boolean", short: "c" },
   cwd: { type: "string" },
   keybindings: { type: "string" },
+  "import-terminal-state": { type: "boolean" },
   print: { type: "string", short: "p" },
   model: { type: "string" },
   mode: { type: "string" },
@@ -72,7 +74,8 @@ const parsePrint = (values: ReturnType<typeof parseOptions<typeof TUI_OPTIONS>>,
   if (format !== undefined && !isFormat(format)) throw new UsageError(`--output-format takes ${PRINT_FORMATS.join(", ").replace(/, (?=[^,]*$)/, " or ")}; got ${format}.`);
   const mode = values.mode;
   if (mode !== undefined && !isMode(mode)) throw new UsageError(`--mode takes ${MODES.join(", ").replace(/, (?=[^,]*$)/, " or ")}; got ${mode}.`);
-  if (values.keybindings !== undefined) throw new UsageError("--keybindings is the screen's; -p draws none.");
+  const screenFlag = values.keybindings !== undefined ? "--keybindings" : values["import-terminal-state"] === true ? "--import-terminal-state" : undefined;
+  if (screenFlag !== undefined) throw new UsageError(`${screenFlag} is the screen's; -p draws none.`);
   if (session !== undefined && values.cwd !== undefined) {
     throw new UsageError("--cwd names a new session's directory, or the one -c looks in; --session continues a session in its own.");
   }
@@ -86,6 +89,7 @@ const parseTui = (args: readonly string[]): TuiFlags => {
   const cwd = nonEmpty("--cwd", values.cwd);
   const keybindings = nonEmpty("--keybindings", values.keybindings);
   return {
+    ...(values["import-terminal-state"] ? { terminalSource: readLocalTerminalSource } : {}),
     environment: nonEmpty("--environment", values.environment),
     session,
     continueLatest: values.continue ?? false,

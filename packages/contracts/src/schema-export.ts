@@ -1,3 +1,4 @@
+import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 import { SessionBankUsedPayload } from "./bank-use.js";
 import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, BankReviewHeldPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
 import { z } from "zod";
@@ -1062,6 +1063,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/split-pointer.json", title: "BankSplitPointer", schema: BankSplitPointer },
+  { path: "banks/split-topics.json", title: "BankSplitTopics", schema: BankSplitTopics },
+  { path: "banks/split-proposal.json", title: "BankSplitProposal", schema: BankSplitProposal },
   { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
   { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
   { path: "sessions/events/session.bank-used.json", title: "SessionBankUsedPayload", schema: SessionBankUsedPayload },

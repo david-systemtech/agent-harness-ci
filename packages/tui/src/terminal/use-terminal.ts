@@ -66,7 +66,12 @@ export interface PaneSize {
 }
 
 /** The pane as the screen draws it. */
-export interface PaneView extends Opened {
+interface PaneTarget {
+  readonly environmentId: string;
+  readonly sessionId: string | null;
+}
+
+export interface PaneView extends PaneTarget {
   /** Null while its terminal is being found or opened. */
   readonly terminalId: string | null;
   /** The command a `!` pane runs; null for the session's shell. */
@@ -83,6 +88,8 @@ export interface TerminalPane {
   open(target: Opened, size: PaneSize): boolean;
   /** `!command`: runs it in a terminal of its own, shown in the pane; false, with the line said, when it cannot. */
   run(target: Opened, size: PaneSize, command: string): boolean;
+  /** Watches a Managed tools terminal, which belongs to no session. */
+  watchTool(environmentId: string, id: string, command: string, size: PaneSize, has: PaneSize): void;
   /** A terminal id for a one-off this client runs elsewhere (`!!`), which `open` never reopens. */
   oneOffId(): string;
   /** A key, as the bytes the user's terminal sent; any key closes a pane whose command has ended. */
@@ -113,7 +120,7 @@ export interface PaneHost {
 }
 
 interface Live {
-  readonly target: Opened;
+  readonly target: PaneTarget;
   terminalId: string | null;
   readonly screen: Screen;
   handle: TerminalHandle | null;
@@ -140,7 +147,7 @@ interface Live {
   truncated: boolean;
 }
 
-const same = (a: Opened, b: Opened) => a.environmentId === b.environmentId && a.sessionId === b.sessionId;
+const same = (a: PaneTarget, b: PaneTarget) => a.environmentId === b.environmentId && a.sessionId === b.sessionId;
 const sameSize = (a: PaneSize | null, b: PaneSize) => a !== null && a.cols === b.cols && a.rows === b.rows;
 
 export const useTerminalPane = (host: PaneHost): TerminalPane => {
@@ -156,7 +163,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
 
   const closeTerminal = (entry: Live) => {
     const { runtime, newCommandId } = hostRef.current;
-    if (entry.terminalId !== null) closeById(runtime, entry.target.environmentId, entry.terminalId, newCommandId);
+    if (entry.target.sessionId !== null && entry.terminalId !== null) closeById(runtime, entry.target.environmentId, entry.terminalId, newCommandId);
   };
 
   const drop = (entry: Live) => {
@@ -174,7 +181,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
     for (const stop of entry.stops.splice(0)) stop();
     // After whatever the emulator is still taking in.
     void entry.feeding.then(() => entry.screen.dispose());
-    if (entry.command !== null && entry.ended === null && entry.handle !== null) {
+    if (entry.target.sessionId !== null && entry.command !== null && entry.ended === null && entry.handle !== null) {
       // A `!` command still running goes on unseen; its terminal is closed when it exits (`feed`), or let go when it is gone.
       detached.current.add(entry);
       entry.stops.push(entry.handle.state.subscribe((view) => view.status === "ended" && view.exit === null && drop(entry)));
@@ -213,7 +220,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
   };
 
   const send = (entry: Live, data: string) => {
-    if (entry.command !== null) return;
+    if (entry.command !== null && entry.target.sessionId !== null) return;
     entry.outgoing += data;
     pump(entry);
   };
@@ -310,7 +317,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
   };
 
   /** A new pane for `target` in place of the one there (a `!` command running on unseen), its terminal not yet known. */
-  const begin = (target: Opened, size: PaneSize, command: string | null): Live => {
+  const begin = (target: PaneTarget, size: PaneSize, command: string | null): Live => {
     close();
     const entry: Live = {
       target,
@@ -409,6 +416,10 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
     status: () => live.current?.handle?.state.read().status ?? "opening",
     open,
     run,
+    watchTool(environmentId, id, command, size, has) {
+      const entry = begin({ environmentId, sessionId: null }, size, command);
+      attach(entry, id, has);
+    },
     oneOffId,
     key(bytes) {
       const entry = live.current;

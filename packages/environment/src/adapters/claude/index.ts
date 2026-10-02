@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   getSessionMessages as sdkGetSessionMessages,
@@ -15,6 +15,7 @@ import { autoMemoryName } from "../../workspace/auto-memory.js";
 import { configDirQueue as processQueue, type ConfigDirQueue } from "./config-dir-queue.js";
 import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
+import { readClaudeDirectoryIdentity } from "./directory-identity.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readStoredSession, readSubagentTranscript, resolveForkPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { readDirectoryHistory, seedStoreFromDirectory } from "./imported-history.js";
@@ -24,6 +25,7 @@ import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
 import { createPlanUsageReader, readUsageMethod, type UsageOutcome } from "./plan-usage.js";
 import { ClaudeProcess, checkImages, type ProcessDeps, type ProcessTimings } from "./process.js";
 import { listDirectorySessions } from "./session-listing.js";
+import { worktreeCheckout } from "./workspace.js";
 
 /**
  * The Claude adapter (claude-adapter spec; ADR 0015, ADR 0018): the first
@@ -280,6 +282,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
+    observeIdentity: (directory) => readClaudeDirectoryIdentity(directory, hostEnv["HOME"] ?? hostEnv["USERPROFILE"] ?? homedir()),
     ...(store !== undefined && {
       seedSessionStore: async (account: AccountRef, sessionId: string, providerSessionId: string) => {
         await seedStoreFromDirectory({
@@ -348,7 +351,7 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     async commands(account, workspace, scope): Promise<readonly ProviderCommand[]> {
       try {
         // What a run here would offer: the skill set's generation, less its hidden native names, and a trusted repository's own commands.
-        const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted };
+        const asked = { ...control(account, workspace.path), skillSet: scope.skillSet, trusted: scope.trusted, checkoutRoot: worktreeCheckout(workspace.path) };
         const commands = await withControlQuery(asked, (query) => query.supportedCommands());
         // The pinned SDK marks Claude Code's own commands `builtin` and leaves a user's, a project's or a plugin's unmarked
         // (verified on 0.3.283, CLI 2.1.283, #503), so no list of the built-ins is kept here.
