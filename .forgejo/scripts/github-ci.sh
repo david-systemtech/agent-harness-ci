@@ -31,8 +31,11 @@ group=$(printf '%s' "$GROUP" | tr -c 'A-Za-z0-9._-' '-')
 event=${GH_CI_EVENT:-ci}
 case "$event" in ci | catalogue) ;; *) echo "::error::unknown CI event"; exit 1 ;; esac
 
+# Bounded, so a stalled response on a flaky uplink is retried within seconds instead of
+# hanging for many minutes (2026-10-02: polls hung 12-15 min each while the site's
+# connection swung between 2 and 77 Mbit/s).
 gh_api() {
-  curl -sS --retry 3 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
+  curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
 
