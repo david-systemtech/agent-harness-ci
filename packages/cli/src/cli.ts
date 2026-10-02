@@ -36,6 +36,7 @@ import { harnessCommand } from "./harness-command.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
 import { service, type ServiceSeams } from "./service/verbs.js";
+import { STATE_IMPORT_USAGE, stateImport } from "./state-import.js";
 import { status } from "./status.js";
 import { GIT_CREDENTIAL_USAGE, gitCredential, readStandardInput } from "./git-credential.js";
 import { LocalFailure, type Net } from "./local-session.js";
@@ -60,6 +61,7 @@ const USAGE = [
   ...BANK_USAGE.map((line) => `       ${line}`),
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
+  `       ${STATE_IMPORT_USAGE}`,
   "",
 ].join("\n");
 
@@ -288,6 +290,7 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         stdin: context.stdin ?? readStandardInput,
       });
     }
+    if (args[0] === "state-import") return await stateImport(args.slice(1), { stdout: context.stdout, stderr: context.stderr, net: netOf(context) });
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
