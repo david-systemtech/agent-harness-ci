@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readlink, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   CHECK_OUTPUT_MAX_BYTES,
   CHECK_TIMEOUT_MS,
@@ -123,6 +123,33 @@ const outputTail = (): OutputTail => {
   };
 };
 
+/** How many links a gone directory's path is followed through before the rest is taken as written. */
+const LINK_HOPS = 40;
+
+/**
+ * The real path a directory that is gone had, as far as what is left
+ * shows it: the nearest part still there resolved, a link left dangling
+ * followed, and the missing rest appended. So a gone directory reached
+ * through a link reads the check set under its real path.
+ */
+const realpathOfGone = async (path: string): Promise<string> => {
+  let at = resolve(path);
+  const missing: string[] = [];
+  for (let hops = 0; ; ) {
+    try {
+      return join(await realpath(at), ...missing);
+    } catch {
+      const target = await readlink(at).catch(() => null);
+      if (target !== null && hops++ < LINK_HOPS) at = resolve(dirname(at), target);
+      else if (dirname(at) === at) return join(at, ...missing);
+      else {
+        missing.unshift(basename(at));
+        at = dirname(at);
+      }
+    }
+  }
+};
+
 const conflict = (reason: string, message: string, data: Record<string, string>): CommandRejection<"conflict"> => ({ code: "conflict", message, data: { reason, ...data } });
 
 const workspaceMissing = (path: string): CommandRejection<"conflict"> =>
@@ -227,7 +254,7 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     "checks.get": async (params): Promise<WorkspaceCheck> => {
       const sessionId = params.sessionId.toLowerCase();
       const recorded = requireSessionWorkspace(log, sessionId);
-      const workspace = (await located(sessionId, recorded)) ?? resolve(recorded);
+      const workspace = (await located(sessionId, recorded)) ?? (await realpathOfGone(recorded));
       return { workspace, command: readWorkspaceCheck(reader, workspace)?.command ?? null };
     },
 

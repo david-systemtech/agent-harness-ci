@@ -1,6 +1,6 @@
 import { CHECK_OUTPUT_MAX_BYTES, CHECK_TIMEOUT_MS, type EventEnvelope, type EventFrame } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
-import { realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -82,6 +82,27 @@ describe("a Workspace directory's check command", () => {
     const back = await restartAfter(t, 0, (options) => start(options));
     expect(await (await back.client()).request("checks.get", { sessionId: here })).toEqual({ workspace, command });
   });
+
+  it("is read, its directory gone, under the real path it was set by, for a session recorded through a link to it or to a folder above it", async () => {
+    const t = await start();
+    const client = await t.client();
+    const real = tempDir("agent-harness-checks-real-");
+    const dir = join(real, "project");
+    mkdirSync(dir);
+    const workspace = join(realpathSync(real), "project");
+    const links = tempDir("agent-harness-checks-links-");
+    symlinkSync(dir, join(links, "project"));
+    symlinkSync(real, join(links, "above"));
+    const throughLink = await sessionIn(client, join(links, "project"));
+    const belowLink = await sessionIn(client, join(links, "above", "project"));
+    await client.apply("checks.set", { commandId: randomUUID(), sessionId: throughLink, command: "make check" });
+
+    rmSync(dir, { recursive: true });
+    for (const sessionId of [throughLink, belowLink]) {
+      expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toMatchObject({ data: { reason: "workspace_missing" } });
+      expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check" });
+    }
+  });
 });
 
 describe("a manual check", () => {
@@ -148,7 +169,7 @@ describe("checks.run's refusals", () => {
 
   it("refuses a gone workspace and a session holding sixteen terminals, as terminals.run would, running nothing", async () => {
     const t = await start({ terminals: { pty: fakePty() } });
-    const { client, sessionId, dir } = await checkedSession(t, "make check");
+    const { client, sessionId, dir, workspace } = await checkedSession(t, "make check");
     for (let i = 0; i < 16; i++) await openTerminal(client, sessionId);
     expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toMatchObject({ code: "conflict", data: { reason: "too_many_terminals", limit: 16 } });
 
@@ -156,8 +177,8 @@ describe("checks.run's refusals", () => {
     const missing = { code: "conflict", data: { reason: "workspace_missing", path: dir } };
     expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toEqual(missing);
     expect(refusalOf(await client.request("checks.set", { commandId: randomUUID(), sessionId, command: "make other" }))).toEqual(missing);
-    // The directory gone, get answers the path the session recorded and that path's command.
-    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace: dir, command: "make check" });
+    // The directory gone, get answers the real path it had and that path's command.
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check" });
     expect(t.run.spawned).toEqual([]);
 
     const unknown = randomUUID();

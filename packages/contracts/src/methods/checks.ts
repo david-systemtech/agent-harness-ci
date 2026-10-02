@@ -17,7 +17,9 @@ import { TerminalId } from "../terminals.js";
 /**
  * The session's Workspace directory, as checks key it, and its check
  * command, null when none is set. A directory that is gone answers with the
- * path the session recorded.
+ * real path it had, as far as what is left of the path the session recorded
+ * shows it (the nearest part still there resolved, a dangling link followed),
+ * and that path's command.
  */
 export const checksGet = defineMethod({
   name: "checks.get",
