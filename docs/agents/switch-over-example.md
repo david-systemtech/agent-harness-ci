@@ -254,7 +254,7 @@ blocked until the missing condition is supplied; no other passing row can replac
 | Evaluate on April 9 before example-monthly fires; only Run-now exists | Every enabled Routine needs a scheduled Firing | blocked until May 1 scheduled Firing, even after one week |
 | Two days of normal use only | At least one week after cut-over | blocked even if all schedules already fired |
 | Wrong-signature delivery accepted, or lost-ack retry duplicates | External signature/retry failure beyond the two [#1009][1009] gaps | blocked; the example two-gap acceptance does not cover it |
-| Known-gap rows cite [#1009][1009] but their probes were not run | Required known-gap observations missing | blocked; accepted limitation still needs recorded observation |
+| Known gaps have recorded acceptance, but their required probes were not run | Required known-gap observations missing | blocked; accepted limitation still needs recorded observation |
 | Forge sign-in or secondary continuation still fails; unexpected notCarried/reEnter remains | Unresolved repair/external failure | blocked; cannot rename it a milestone-2 provider |
 | Only notebook lands, or a validator ran on a pre-reconciliation head | Both same-day reviewed migrations/landing-head validation | blocked; record partial state and rollback decision |
 | Source stopped for apply but updater/autostart remains, no restart proof | Final retirement and post-restart exchange | blocked; preparation pause is insufficient |
