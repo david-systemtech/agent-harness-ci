@@ -3,12 +3,9 @@
 # rather than as a user service. Each release publishes this file with its
 # own image as the default below.
 #
-# The image is in the project's registry, which is private. Log in once, as
-# the user that runs docker here (the host-side updater pulls as that user
-# too), with a Forgejo access token with the read:package scope
-# (git.systemtech.dev: Settings > Applications), then start it:
+# The release's image is public at ghcr.io/david-systemtech/agent-harness;
+# no registry login is required. Start it with:
 #
-#   docker login git.systemtech.dev:5526
 #   docker compose up -d
 #   docker compose logs environment
 #
@@ -33,7 +30,7 @@
 # its database, recreates it and rolls it back on failure, writing the image
 # it moves to into the .env file beside this one as AGENT_HARNESS_IMAGE.
 # Installing it, with cron or a systemd timer, is in its documentation:
-# https://git.systemtech.dev:5526/david/agent-harness/src/branch/main/docs/host-updater.md
+# https://github.com/david-systemtech/agent-harness/blob/main/docs/host-updater.md
 #
 # From a checkout, where no release wrote its image in, build the image and
 # name it:
