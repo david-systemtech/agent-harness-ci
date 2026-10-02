@@ -234,6 +234,10 @@ export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; resu
     params: { valid: [{}, { bankId }], invalid: [{ bankId: "maya-memory" }, []] },
     result: { valid: [{ banks: [] }, { banks: [record, teamRecord] }], invalid: [{}, { banks: [entry] }] },
   },
+  "banks.publish": {
+    params: { valid: [{ commandId, bankId }, { commandId, bankId, transferIssues: true }], invalid: [{ bankId }, { commandId, bankId, transferIssues: "yes" }] },
+    result: { valid: [{ bank: record, review: { state: "awaiting-review", bank: "maya-memory", pullRequest: "https://git.example.test/maya/memory/pulls/1", files: [{ path: "BANK.md", state: "pending" }] }, followUps: [{ path: "issues/sensor.md", title: "Repair sensor", body: "## Done when\n\n- [ ] Readings arrive.", issue: null }] }], invalid: [{ bank: record }, { bank: entry, review: {}, followUps: [] }] },
+  },
   "banks.create": {
     params: {
       valid: [

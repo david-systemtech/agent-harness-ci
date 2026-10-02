@@ -51,6 +51,24 @@ const answersSent = (env: EnvironmentHandle) => env.requests("permissions.prompt
 const rowOf = (app: RenderedApp, text: string) => app.rows().findIndex((row) => row.includes(text));
 
 describe("the permission card", () => {
+  it("draws the environment's preview under the command, including file and network lines", async () => {
+    const { app, env } = await opened();
+    await park(app, env, { previewLines: ["⚠ 2 files", "  build/a.js", "  build/b.js", "⚠ network: preview.example.test"] });
+    await app.waitFor("⚠ network: preview.example.test");
+    expect(rowOf(app, "⚠ 2 files")).toBeGreaterThan(rowOf(app, "$ rm -rf build"));
+    expect(rowOf(app, "build/a.js")).toBeGreaterThan(rowOf(app, "⚠ 2 files"));
+    expect(rowOf(app, "⚠ network: preview.example.test")).toBeLessThan(rowOf(app, "❯ Deny"));
+  });
+
+  it("keeps a prompt answerable when its preview timed out", async () => {
+    const { app, env } = await opened();
+    await park(app, env, { previewLines: null });
+    expect(app.frame()).toContain("$ rm -rf build");
+    expect(app.frame()).not.toContain("⚠");
+    await app.press(KEY.enter);
+    await app.waitFor("Bash: rm -rf build — denied");
+  });
+
   it("draws a parked prompt below the transcript and above the composer, the cursor on Deny, and a bare Enter denies", async () => {
     const { app, env } = await opened();
     const promptId = await park(app, env);

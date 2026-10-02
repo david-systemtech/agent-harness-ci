@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ENVIRONMENT_STREAM_KIND, registry, type BankRecord, type EventFrame, type Frame, type ParamsOf, type ResponseOf, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { changed, markdown, PERSONAL_BANK, personalManifest, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
@@ -136,22 +137,62 @@ describe("the Memory bank step's checks", () => {
     });
   });
 
-  it("counts an open pull request from a describe branch holding BANK.md as landed and awaiting review: done, the record naming it", async () => {
-    const client = await (await start()).client();
-    const forge = await forgeFor(client);
+  it("reports a valid describe PR as awaiting review without claiming its manifest is on main", async () => {
+    const forge = await startFakeForge();
+    onCleanup(() => forge.close());
+    forge.user(TOKEN, DAVID);
+    const remote = forge.gitRepository("acme/bank", { files: changed(TEAM_BANK, { "BANK.md": null }) });
+    const client = await (await start({ harnessCommand: [process.execPath, "fake-credential-helper.mjs"], harnessGitConfig: [[`url.${pathToFileURL(remote).href}.insteadOf`, `${forge.origin}/acme/bank.git`]] })).client();
+    await added(client, { url: forge.origin, kind: "forgejo" });
     const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
     const bank = await register(client, checkout);
     const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
     // Finish the run's before-run sync before authoring the review fixture and verifying it.
     await runEnded(client, sessionId);
-    const { path } = (await get(client, sessionId)).workspace;
+    const workspace = (await get(client, sessionId)).workspace;
+    if (workspace.kind !== "worktree") throw new Error("Describe needs a worktree.");
+    const { path } = workspace;
     writeFileSync(join(path, "BANK.md"), TEAM_BANK["BANK.md"] ?? "");
     git(path, "add", "BANK.md");
     git(path, "commit", "--quiet", "-m", "Describe the bank.");
-    forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, state: "open" });
+    git(path, "push", "--quiet", remote, `HEAD:refs/heads/setup/describe-${TODAY}`);
+    forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, sha: git(path, "rev-parse", "HEAD").trim(), state: "open" });
     const verified = await client.request("banks.verify", { bankId: bank.id });
     expect(verified.banks[0]?.status.manifest).toEqual({ state: "awaiting-review", pullRequest: `${forge.origin}/acme/bank/pulls/7`, since: MANUAL_CLOCK_START });
-    expect(await checkMemoryBank(client)).toMatchObject({ state: "done", reason: ALL_HOLD, failing: [] });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.landing"], reason: expect.stringContaining("awaiting your review") });
+    expect(existsSync(join(checkout, "BANK.md"))).toBe(false);
+  });
+
+  it("leaves an invalid describe PR needing attention rather than counting its manifest as awaiting review", async () => {
+    const client = await (await start()).client();
+    const forge = await forgeFor(client);
+    const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
+    const bank = await register(client, checkout);
+    const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    await runEnded(client, sessionId);
+    const { path } = (await get(client, sessionId)).workspace;
+    writeFileSync(join(path, "BANK.md"), (TEAM_BANK["BANK.md"] ?? "").replace("where-work-is-tracked", "missing-orientation"));
+    git(path, "add", "BANK.md");
+    git(path, "commit", "--quiet", "-m", "Describe the bank.");
+    forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, sha: git(path, "rev-parse", "HEAD").trim(), state: "open" });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest", "memory-bank.landing"], reason: expect.stringContaining("orientation_missing") });
+    expect((await client.request("banks.get", { bankId: bank.id })).bank?.status.manifest.state).toBe("missing");
+  });
+
+  it("does not count a local describe commit as the manifest of a PR still on an older head", async () => {
+    const client = await (await start()).client();
+    const forge = await forgeFor(client);
+    const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
+    const bank = await register(client, checkout);
+    const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    await runEnded(client, sessionId);
+    const { path } = (await get(client, sessionId)).workspace;
+    const oldHead = git(path, "rev-parse", "HEAD").trim();
+    writeFileSync(join(path, "BANK.md"), TEAM_BANK["BANK.md"] ?? "");
+    git(path, "add", "BANK.md");
+    git(path, "commit", "--quiet", "-m", "Describe the bank.");
+    forge.pullRequest(TOKEN, "acme/bank", 7, { head: `setup/describe-${TODAY}`, sha: oldHead, state: "open" });
+    expect(await checkMemoryBank(client)).toMatchObject({ state: "needs-attention", failing: ["memory-bank.manifest"] });
   });
 
   it("needs attention on an invalid bank, naming the validator's rule it fails, with revise targeting it", async () => {
