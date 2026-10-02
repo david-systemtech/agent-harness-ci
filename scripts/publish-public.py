@@ -10,10 +10,12 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 VERSION = '8.30.1'
@@ -191,6 +193,38 @@ def scanner_path(explicit, scratch):
     return str(target)
 
 
+def rehearse(repo, commit, checkout):
+    # Run on a separate checkout: install/build/test output must never enter the
+    # scanned tree or alter the commit that will be pushed.
+    git(repo, 'update-ref', 'refs/heads/main', commit)
+    git(repo, 'clone', '-q', '--branch', 'main', str(repo), str(checkout))
+    deadline = time.monotonic() + 30 * 60
+    for args in (['install', '--frozen-lockfile'], ['typecheck'], ['lint'], ['test', '--maxWorkers=4']):
+        print('Public checkout rehearsal: pnpm ' + ' '.join(args), flush=True)
+        # Keep raw output out of diagnostics, as with Git and the scanner.
+        with subprocess.Popen(['pnpm', *args], cwd=checkout, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, start_new_session=True) as process:
+            try:
+                status = process.wait(timeout=max(0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                if os.name == 'posix':
+                    # pnpm launches child processes; stop the whole rehearsal.
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    # Terminate descendants before their launcher disappears.
+                    subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    process.kill()
+                process.wait()
+                raise ValueError('Public checkout rehearsal exceeded 30 minutes; publication blocked') from None
+            if status:
+                raise subprocess.CalledProcessError(status, process.args)
+    print('Public checkout rehearsal: pass')
+
+
 def publish(args):
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?', args.version):
         raise ValueError('Version must be a semantic version')
@@ -259,6 +293,7 @@ def publish(args):
         for path in git(repo, 'ls-tree', '-r', '--name-only', commit).decode().splitlines():
             print(path)
         print(f'Commit: {commit}\nParent: {parent or "(root)"}\nMessage: Publish {args.version}')
+        rehearse(repo, commit, scratch / 'rehearsal')
         if args.dry_run:
             print('Dry run: no refs pushed')
             return
@@ -283,6 +318,8 @@ def main():
         operation = 'required command'
         if error.cmd[:2] == ['git', '-C'] and len(error.cmd) > 3:
             operation = 'git ' + error.cmd[3]
+        elif error.cmd[0] == 'pnpm':
+            operation = 'pnpm ' + ' '.join(error.cmd[1:])
         # Report the operation, never URLs, credentials or raw command output.
         print(f'Publish failed: {operation} failed (exit {error.returncode}); publication blocked', file=sys.stderr)
         return 1

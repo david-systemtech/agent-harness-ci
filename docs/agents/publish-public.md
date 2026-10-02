@@ -20,7 +20,9 @@ directory and mapping policy are excluded from the snapshot. Missing sources,
 unsafe or excluded destinations, and collisions block publication. The installed
 files retain the selected ref's bytes and modes and pass the same privacy checks.
 
-Run from a development checkout with Python 3.11+ and Git installed. Git uses
+Run from a development checkout with Python 3.11+, Git, Node 24+ and the
+workspace's pinned pnpm installed (activate it with Corepack). The rehearsal
+needs the same native build tools as CI: Python, make and g++ on Linux. Git uses
 the maintainer's normal credential helper for the public remote. Keep tokens
 out of URLs and command arguments. Installing the workflow needs repository
 write access and permission to add/update workflow files. Classic personal
@@ -36,14 +38,23 @@ python3 scripts/publish-public.py \
 ```
 
 The preview prints the included file list, privacy check results, proposed commit
-ID, parent and message. It writes only temporary local objects and may download
-the pinned scanner; it never pushes refs. A later run may have a different commit
-ID because the commit time or public parent changed. A failed check prints a rule
-and file/line, or a scanner failure, and exits nonzero without pushing.
+ID, parent and message, then rehearses that exact proposed public commit in a
+separate temporary checkout: `pnpm install --frozen-lockfile`, `pnpm typecheck`,
+`pnpm lint` and `pnpm test --maxWorkers=4`. Those commands share a 30-minute
+budget and print progress; a failure or timeout blocks publication. Command
+output is withheld to protect credentials; failure diagnostics report the
+failed command and exit status. It writes temporary objects, dependency
+caches and rehearsal build output and may download the pinned scanner; it never
+pushes refs. Rehearsal changes cannot enter the scanned snapshot. A later run may
+have a different commit ID because the commit time or public parent changed.
+A failed check prints a rule and file/line, or a scanner failure, and exits
+nonzero without pushing.
 Git failures identify the operation and exit status; remote URLs and raw stderr
 are omitted to keep credentials and private connection details out of diagnostics.
 
-Review the list and remove `--dry-run` to publish. Omit `--tag` for a code-only
+Review the list and remove `--dry-run` to publish. Publication repeats the full
+rehearsal before the atomic push; a previous dry run is never treated as proof
+for a later ref or public parent. Omit `--tag` for a code-only
 snapshot. For a release, the tag must be `v` plus `--version`, including any
 prerelease suffix (for example `0.1.0-beta.1`). The script atomically pushes
 `main` and the optional lightweight version tag, without force. An existing tag
@@ -68,10 +79,11 @@ and private CI; the hosted release workflow tests remain public and read the
 installed workflow through the release input helper. This lexical check does
 not replace running the hosted release's typecheck, lint and full test suite
 in CI; paths computed without literal names still need ordinary test coverage.
-The publisher's hosted-only integration test copies the development tree into
-a local fixture, applies the real mapping/exclusion policies, and runs install,
-typecheck, lint and the full test suite on the resulting public checkout. Both
-the fixture and real publication use the selected ref's complete privacy policy.
+The publisher itself rehearses the proposed public commit after the selected
+ref's complete privacy and mapping policies have passed, before either a dry run
+succeeds or any public ref is pushed. This keeps the full rehearsal outside the
+sharded unit suite and enforces it even for a code-only snapshot. The hosted
+release workflow still checks the published tree before building release assets.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob
@@ -93,7 +105,9 @@ extraction. A missing scanner, unavailable download or wrong checksum blocks
 publication. Other platforms need the pinned scanner installed beforehand.
 
 Verification: `test/publish-public.test.ts` runs the command against local bare
-remotes and a stub scanner; it never pushes to GitHub. The real cleaned tree's
-privacy scan is a required maintainer dry-run after the scrub lands. The local
-tests demonstrate deny-list failures, synthetic allowances and scanner failures,
-not an audit of a tree that has yet to be cleaned.
+remotes, a stub scanner and a recording pnpm executable; it never pushes to
+GitHub or installs/runs a nested suite. It checks rehearsal ordering, the exact
+proposed commit, failure blocking and isolation of generated files. Run the real
+cleaned tree's privacy scan and full rehearsal as a maintainer dry-run before
+publication. The fast tests demonstrate deny-list failures, synthetic allowances
+and scanner failures; the maintainer run verifies the selected real snapshot.

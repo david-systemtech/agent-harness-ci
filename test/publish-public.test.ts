@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -35,9 +35,30 @@ function fixture() {
   const scanner = join(dir, "gitleaks");
   writeFileSync(scanner, `#!/usr/bin/env python3\nimport pathlib,sys\nif sys.argv[1:] == ['version']: print('8.30.1'); sys.exit(0)\nassert sys.argv[1] == 'dir' and '--redact' in sys.argv and '--no-banner' in sys.argv\nassert '--ignore-gitleaks-allow' in sys.argv\nassert not (pathlib.Path(sys.argv[-1]) / '.git').exists()\nsys.exit(1 if any(b'fake-secret-for-tests' in p.read_bytes() for p in pathlib.Path(sys.argv[-1]).rglob('*') if p.is_file()) else 0)\n`);
   chmodSync(scanner, 0o755);
-  const publishWithEnv = (env: NodeJS.ProcessEnv, ...args: string[]) => execFileSync("python3", [script, "--source", source, "--ref", "HEAD", "--remote", remote, "--version", "1.2.3", "--gitleaks", scanner, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  const rehearsalLog = join(dir, "rehearsal.jsonl");
+  writeFileSync(join(bin, "pnpm"), `#!/usr/bin/env python3
+import json,os,pathlib,subprocess,sys
+args = sys.argv[1:]
+def git(*args):
+    return subprocess.check_output(['git', *args], text=True).strip()
+with open(os.environ['REHEARSAL_LOG'], 'a') as log:
+    log.write(json.dumps({'args': args, 'head': git('rev-parse', 'HEAD'),
+                         'files': git('ls-tree', '-r', '--name-only', 'HEAD').split('\\n'),
+                         'remoteRefs': git('-C', os.environ['PUBLIC_REMOTE'], 'for-each-ref')}) + '\\n')
+if args[0] == os.environ.get('REHEARSAL_FAIL'):
+    print('fake-secret-for-tests', file=sys.stderr)
+    sys.exit(17)
+if os.environ.get('REHEARSAL_MUTATE'):
+    pathlib.Path('README.md').write_text('generated change')
+    pathlib.Path('generated.txt').write_text('generated file')
+`);
+  chmodSync(join(bin, "pnpm"), 0o755);
+  const rehearsal = () => readFileSync(rehearsalLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; head: string; files: string[]; remoteRefs: string });
+  const publishWithEnv = (env: NodeJS.ProcessEnv, ...args: string[]) => execFileSync("python3", [script, "--source", source, "--ref", "HEAD", "--remote", remote, "--version", "1.2.3", "--gitleaks", scanner, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: `${bin}:${process.env["PATH"]}`, REHEARSAL_LOG: rehearsalLog, PUBLIC_REMOTE: remote, ...env } });
   const publish = (...args: string[]) => publishWithEnv({}, ...args);
-  return { source, remote, scanner, write, commit, publish, publishWithEnv };
+  return { source, remote, scanner, write, commit, publish, publishWithEnv, rehearsal };
 }
 it("publishes a cleaned root snapshot and stacks a second snapshot with a release tag", () => {
   const f = fixture();
@@ -54,6 +75,104 @@ it("publishes a cleaned root snapshot and stacks a second snapshot with a releas
   expect(git(f.remote, "rev-list", "--count", "main")).toBe("2");
   expect(git(f.remote, "rev-parse", "main^")).toBe(previous);
   expect(git(f.remote, "for-each-ref", "--format=%(refname)").split("\n")).toEqual(["refs/heads/main", "refs/tags/v1.2.3", "refs/tags/v1.2.4"]);
+});
+
+it("rehearses the proposed public commit before publishing it", () => {
+  const f = fixture();
+  const output = f.publish("--tag", "v1.2.3");
+  const steps = f.rehearsal();
+  expect(steps.map((step) => step.args)).toEqual([
+    ["install", "--frozen-lockfile"], ["typecheck"], ["lint"], ["test", "--maxWorkers=4"],
+  ]);
+  for (const step of steps) {
+    expect(step.head).toBe(git(f.remote, "rev-parse", "main"));
+    expect(step.files).toEqual([".github/workflows/release.yml", "README.md"]);
+    expect(step.remoteRefs).toBe("");
+  }
+  expect(output).toContain("Public checkout rehearsal: pass");
+});
+
+it.each(["install", "typecheck", "lint", "test"])("blocks both public refs when the rehearsal's %s fails", (step) => {
+  const f = fixture();
+  f.publish("--tag", "v1.2.3");
+  const previous = git(f.remote, "for-each-ref");
+  f.write("README.md", "Next public snapshot\n"); f.commit();
+  let failure: unknown;
+  try { f.publishWithEnv({ REHEARSAL_FAIL: step }, "--version", "1.2.4", "--tag", "v1.2.4"); }
+  catch (error) { failure = error; }
+  const stderr = (failure as { stderr: string }).stderr;
+  expect(stderr).toContain(`pnpm ${step}`);
+  expect(stderr).toContain("failed (exit 17); publication blocked");
+  expect(stderr).not.toContain("fake-secret-for-tests");
+  expect(git(f.remote, "for-each-ref")).toBe(previous);
+  expect(f.rehearsal().slice(4).map((entry) => entry.args[0])).toEqual(
+    ["install", "typecheck", "lint", "test"].slice(0, ["install", "typecheck", "lint", "test"].indexOf(step) + 1),
+  );
+});
+
+it.each(["posix", "nt"])("stops the whole timed-out rehearsal on %s before blocking publication", (platform) => {
+  const f = fixture();
+  const result = spawnSync("python3", ["-c", `
+import os,runpy,signal,subprocess,sys,types
+publisher = runpy.run_path(sys.argv[1])['main']
+namespace = publisher.__globals__
+real_popen, real_run = subprocess.Popen, subprocess.run
+alive = {'launcher': True, 'worker': True}
+class RehearsalProcess:
+    pid = 12345
+    def __init__(self, args, **kwargs):
+        self.args = args
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        assert not any(alive.values()), 'rehearsal processes survived cleanup'
+    def wait(self, timeout=None):
+        if timeout is not None:
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        assert not alive['launcher'], 'launcher was not terminated'
+        return 1
+    def kill(self):
+        alive['launcher'] = False
+
+def popen(args, **kwargs):
+    if args[0] == 'pnpm':
+        return RehearsalProcess(args, **kwargs)
+    return real_popen(args, **kwargs)
+
+def run(args, **kwargs):
+    if args[0] == 'taskkill':
+        assert args == ['taskkill', '/PID', '12345', '/T', '/F']
+        assert kwargs['stdout'] == subprocess.DEVNULL
+        assert kwargs['stderr'] == subprocess.DEVNULL
+        alive.update(launcher=False, worker=False)
+        return subprocess.CompletedProcess(args, 0)
+    return real_run(args, **kwargs)
+
+def killpg(pid, sig):
+    assert pid == 12345 and sig == signal.SIGKILL
+    alive.update(launcher=False, worker=False)
+
+namespace['os'] = types.SimpleNamespace(**{**vars(os), 'name': sys.argv[2], 'killpg': killpg})
+subprocess.Popen, subprocess.run = popen, run
+sys.argv = [sys.argv[1], *sys.argv[3:]]
+assert publisher() == 1
+assert not any(alive.values())
+`, script, platform, "--source", f.source, "--ref", "HEAD", "--remote", f.remote,
+  "--version", "1.2.3", "--tag", "v1.2.3", "--gitleaks", f.scanner], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toContain("Public checkout rehearsal exceeded 30 minutes; publication blocked");
+  expect(result.stdout).not.toContain("Published ");
+  expect(result.stdout).not.toContain("Public checkout rehearsal: pass");
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("keeps rehearsal changes and generated files out of the public snapshot", () => {
+  const f = fixture();
+  f.publishWithEnv({ REHEARSAL_MUTATE: "true" });
+  expect(git(f.remote, "show", "main:README.md")).toBe("Public README from the ref");
+  expect(git(f.remote, "ls-tree", "-r", "--name-only", "main").split("\n")).toEqual([".github/workflows/release.yml", "README.md"]);
 });
 
 it("preserves the selected ref's exact blob bytes and executable modes", () => {
@@ -80,6 +199,7 @@ it.each(["public/.github-workflows/release.yml", "public/custom.yml"])("installs
   f.commit();
   f.publish();
   expect(git(f.remote, "show", "main:.github/workflows/release.yml")).toBe("name: mapped public release");
+  expect(f.rehearsal()[0]?.files).toEqual([".github/workflows/release.yml", "README.md"]);
   expect(git(f.remote, "ls-tree", "-r", "--name-only", "main").split("\n")).toEqual([".github/workflows/release.yml", "README.md"]);
 });
 
@@ -145,42 +265,19 @@ it("checks UTF-8 tests even when the caller's locale is ASCII", () => {
   expect(git(f.remote, "show", "main:test/public.test.ts")).toBe("// café");
 });
 
-it.skipIf(process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted")("runs the hosted check commands on an actual published-tree fixture", () => {
-  const f = fixture();
-  git(f.source, "rm", "-q", ".github/workflows/release.yml");
-  for (const path of git(root, "ls-files").split("\n")) {
-    mkdirSync(join(f.source, path, ".."), { recursive: true });
-    cpSync(join(root, path), join(f.source, path));
-  }
-  // Exercise the same checked-in privacy policy as real publication.
-  git(f.source, "add", "-f", ".");
-  git(f.source, "commit", "-qm", "public check fixture");
-  f.publish();
-  const published = join(f.source, "..", "published");
-  execFileSync("git", ["clone", "-q", "--branch", "main", f.remote, published]);
-  const run = (args: string[]) => {
-    try {
-      execFileSync("pnpm", args, {
-        cwd: published, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 20 * 1024 * 1024,
-      });
-    } catch (error) {
-      const failure = error as { stdout?: Buffer; stderr?: Buffer };
-      throw new Error(`Public checkout: pnpm ${args.join(" ")} failed\n${String(failure.stdout ?? "")}\n${String(failure.stderr ?? "")}`, { cause: error });
-    }
-  };
-  run(["install", "--frozen-lockfile"]);
-  run(["typecheck"]);
-  run(["lint"]);
-  // The publisher test itself is excluded, so this full run cannot recurse.
-  run(["test", "--maxWorkers=4"]);
-  expect(git(published, "ls-tree", "-r", "--name-only", "HEAD")).toContain(".github/workflows/release.yml");
-}, 1_200_000);
-
 it("dry-runs the full checks and commit without moving public refs", () => {
   const f = fixture();
   const output = f.publish("--dry-run", "--tag", "v1.2.3");
   expect(output).toContain("Privacy deny-list: pass");
   expect(output).toContain("gitleaks: pass");
+  expect(output).toContain("Public checkout rehearsal: pass");
+  expect(f.rehearsal().map((step) => step.args)).toEqual([
+    ["install", "--frozen-lockfile"], ["typecheck"], ["lint"], ["test", "--maxWorkers=4"],
+  ]);
+  for (const step of f.rehearsal()) {
+    expect(output).toContain(`Commit: ${step.head}\n`);
+    expect(step.remoteRefs).toBe("");
+  }
   expect(output).toMatch(/Commit: [a-f0-9]{40}\nParent: \(root\)\nMessage: Publish 1.2.3/);
   expect(output).toContain(".github/workflows/release.yml\nREADME.md");
   expect(git(f.remote, "for-each-ref")).toBe("");
