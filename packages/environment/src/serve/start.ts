@@ -1746,6 +1746,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
     orientation: readOrientation,
   });
+  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1759,7 +1760,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
+    ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -1895,6 +1896,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentId: record.id,
       coordinator: stateImports,
       createInstruction: instructionHandlers["instructions.create"],
+      getSettings: settingsHandlers["settings.get"],
+      updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
