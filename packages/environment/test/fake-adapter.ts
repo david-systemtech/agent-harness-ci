@@ -603,7 +603,11 @@ export async function* fileTool(controls: ScriptControls, script: FileToolScript
   try {
     await script.write();
   } catch (error) {
-    observer?.failed(call);
+    try {
+      observer?.failed(call);
+    } catch {
+      // Swallowed, as the adapter logs it.
+    }
     yield { type: "tool.ended", payload: { toolCallId, status: "error", output: error instanceof Error ? error.message : String(error), durationMs: 1 } };
     return;
   }
