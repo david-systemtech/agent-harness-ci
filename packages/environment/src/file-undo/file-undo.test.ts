@@ -154,6 +154,17 @@ describe("files.undo", () => {
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
   });
 
+  it("refuses file_changed when only the file's mode has changed since the Edit, leaving the mode as it is", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    chmodSync(join(root, "a.txt"), 0o644);
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    chmodSync(join(root, "a.txt"), 0o755);
+
+    expect(await refusal(client, sessionId)).toEqual({ code: "conflict", data: { reason: "file_changed", sessionId, changeId: expect.any(String), path: "a.txt" } });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\n");
+    expect(modeOf(join(root, "a.txt"))).toBe(0o755);
+  });
+
   it("never passes a newest change it cannot restore to undo an older one", async () => {
     const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
     await runScript(
