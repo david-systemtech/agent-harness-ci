@@ -1,4 +1,4 @@
-import { BANK_INDEX_BUDGET, formatBankPointer, parseBankPointer, utf8Bytes } from "@agent-harness/contracts";
+import { BANK_INDEX_BUDGET, formatBankPointer, parseBankPointer, utf8Bytes, type MemorySearchInput } from "@agent-harness/contracts";
 import type { BankIndex, IndexedFolder, IndexedMemory, IndexedOrg, IndexedTopic } from "./bank-index.js";
 
 /**
@@ -92,7 +92,7 @@ const topicPlace = (bank: BankIndex, topic: IndexedTopic): string => place(bank,
 // The tiers' lines.
 
 const bankLine = (bank: BankIndex): string =>
-  `## ${bank.name} (${bank.kind}, ${bank.role}) — ${counted(bank.count, "memory", "memories")} in ${counted(bank.folderCount, "folder", "folders")}${oneLiner(bank.purpose)}`;
+  `## ${bank.name} (${bank.kind ?? "unknown"}, ${bank.role}) — ${counted(bank.count, "memory", "memories")} in ${counted(bank.folderCount, "folder", "folders")}${oneLiner(bank.purpose)}`;
 
 const orientationLines = (bank: BankIndex): string[] =>
   bank.orientation.flatMap((memory) => [
@@ -324,4 +324,61 @@ export const readPointer = (banks: readonly BankIndex[], text?: string): Pointer
     }
   }
   return nothing;
+};
+
+
+/** Search hits use the same one-liners and pointers as reads, once per pointer. */
+export interface BankSearchHit {
+  readonly pointer: string;
+  readonly line: string;
+  /** The folder this hit searches into; null for the bank's own line. */
+  readonly folder: string | null;
+}
+
+/** Text search over the renderer's tree, before applying the caller's limit. */
+export const searchBanks = (banks: readonly BankIndex[], input: MemorySearchInput): { readonly hits: readonly BankSearchHit[]; readonly total: number; readonly text: string } => {
+  const query = input.query.trim().toLowerCase();
+  const scope = input.scope;
+  const prefix = scope === undefined ? null : [scope.org, ...("project" in scope ? [scope.project, ...(scope.area ? [scope.area] : [])] : [])].join("/") + "/";
+  const hits = new Map<string, BankSearchHit>();
+  for (const bank of [...banks].sort((a, b) => compare(a.name, b.name))) {
+    if (input.bank !== undefined && input.bank !== bank.name) continue;
+    const add = (pointer: string, line: string, path: string | null, texts: readonly (string | null)[]): void => {
+      if (prefix !== null && (path === null || !path.startsWith(prefix))) return;
+      if (!texts.some((text) => text !== null && text.toLowerCase().includes(query))) return;
+      hits.set(pointer, { pointer, line, folder: path === null ? null : formatBankPointer({ kind: "folder", bank: bank.name, path }) });
+    };
+    add(bank.name, bankLine(bank), null, [bank.name, bank.purpose]);
+    for (const org of bank.orgs) {
+      add(formatBankPointer({ kind: "folder", bank: bank.name, path: org.path }), orgHeader(bank, org), org.path, [org.line]);
+      for (const folder of org.folders) {
+        add(formatBankPointer({ kind: "folder", bank: bank.name, path: folder.path }), breadcrumb(bank, folder), folder.path, [folder.line]);
+        for (const topic of folder.topics) {
+          add(formatBankPointer({ kind: "folder", bank: bank.name, path: topic.path }), topicBreadcrumb(bank, topic), folder.path, [topic.name, topic.line]);
+        }
+        for (const memory of [...folder.memories, ...folder.topics.flatMap((topic) => topic.memories)].sort((a, b) => compare(a.name, b.name))) {
+          add(formatBankPointer({ kind: "memory", bank: bank.name, name: memory.name }), memoryLine(bank, memory), folder.path, [memory.name, memory.description, memory.body]);
+        }
+      }
+    }
+    for (const entity of bank.entities) {
+      const pointer = entity.folder === null ? bank.name : formatBankPointer({ kind: "folder", bank: bank.name, path: entity.folder });
+      const line = readPointer([bank], pointer);
+      if (line.found) add(pointer, line.text.split("\n")[0]!, entity.folder, [entity.name, ...entity.aliases]);
+    }
+  }
+  const all = [...hits.values()];
+  const shown = input.limit === undefined ? all : all.slice(0, input.limit);
+  return { hits: shown, total: all.length, text: rendered([...shown.map((hit) => hit.line), `${shown.length} of ${all.length}`]).text };
+};
+
+
+/** The canonical scope folder a successful pointer read uses; a topic or memory signals its holder. */
+export const pointerFolder = (banks: readonly BankIndex[], text: string): string | null => {
+  const named = parseBankPointer(text);
+  if (named === null || named.kind === "bank") return null;
+  const bank = banks.find((each) => each.name === named.bank);
+  if (bank === undefined) return null;
+  const path = named.kind === "folder" ? named.path.replace(TOPIC, "") : locate(bank, named.name)?.folder.path;
+  return path === undefined ? null : formatBankPointer({ kind: "folder", bank: bank.name, path });
 };

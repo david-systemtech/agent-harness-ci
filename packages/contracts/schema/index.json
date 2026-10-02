@@ -1439,6 +1439,10 @@
       "title": "MemoryDraftScope"
     },
     {
+      "path": "sessions/events/session.bank-used.json",
+      "title": "SessionBankUsedPayload"
+    },
+    {
       "path": "banks/tools/search.json",
       "title": "MemorySearchInput"
     },
