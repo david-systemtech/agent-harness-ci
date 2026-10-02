@@ -300,6 +300,7 @@ export {
 } from "./requests.js";
 export type {
   AssistantEntry,
+  CheckEntry,
   CommandEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
@@ -372,6 +373,7 @@ export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
 export {
   callsRowId,
+  checkStatus,
   environmentMessage,
   folded,
   forkedFrom,

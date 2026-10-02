@@ -63,6 +63,20 @@ const view = (items: readonly TranscriptEntry[], runs: readonly RunSummary[] = [
 const CONTEXT: LineContext = { width: 80, expanded: false };
 const shown = (lines: ReturnType<typeof transcriptLines>) => lines.map(lineText).filter((line) => line.length > 0);
 
+describe("Workspace check rows", () => {
+  it("draws the command, status and retained output without making an agent turn", () => {
+    const rows = transcriptRows(view([
+      { kind: "check", sequence: 1, terminalId: "terminal-1", command: "pnpm lint", sourceRunId: null, state: "running", result: null },
+      { kind: "check", sequence: 2, terminalId: "terminal-2", command: "pnpm typecheck", sourceRunId: RUN, state: "finished", result: { output: "Type error\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null } },
+    ]));
+    const lines = shown(transcriptLines(rows, CONTEXT)).join("\n");
+    expect(lines).toContain("$ pnpm lint · running");
+    expect(lines).toContain("$ pnpm typecheck · exit 1");
+    expect(lines).toContain("Earlier output omitted");
+    expect(lines).toContain("Type error");
+  });
+});
+
 describe("an opaque row's line", () => {
   it("keeps an entry it cannot show as an opaque row", () => {
     const rows = transcriptRows(view([{ kind: "opaque", sequence: 1, type: "weird.new-thing", payload: {} }]));
