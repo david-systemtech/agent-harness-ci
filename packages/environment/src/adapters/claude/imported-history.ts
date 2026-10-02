@@ -191,9 +191,11 @@ export interface StoreSeed {
  * transcript of it, when the resume goes on as it would have.
  */
 export const seedStoreFromDirectory = async (seed: StoreSeed): Promise<boolean> => {
+  const key = { projectKey: seed.harnessSessionId, sessionId: seed.providerSessionId };
+  const existing = await seed.store.load(key);
+  if (existing !== null && existing.length > 0) return false;
   const scoped = scopedStore(seed.store, seed.harnessSessionId);
   return seed.queue.run(seed.directory, async () => {
-    const key = { projectKey: seed.harnessSessionId, sessionId: seed.providerSessionId };
     const held = await seed.store.load(key);
     if (held !== null && held.length > 0) return false;
     // The main transcript is the completion evidence. Publish it in one owning-store append only after
