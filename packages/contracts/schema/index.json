@@ -1455,6 +1455,26 @@
       "title": "SessionBankUsedPayload"
     },
     {
+      "path": "files/change-id.json",
+      "title": "FileChangeId"
+    },
+    {
+      "path": "files/undo-action.json",
+      "title": "FileUndoAction"
+    },
+    {
+      "path": "files/undo-conflict-reason.json",
+      "title": "FileUndoConflictReason"
+    },
+    {
+      "path": "files/unrestorable-reason.json",
+      "title": "FileChangeUnrestorableReason"
+    },
+    {
+      "path": "sessions/events/files.undo-finished.json",
+      "title": "FilesUndoFinishedPayload"
+    },
+    {
       "path": "banks/tools/search.json",
       "title": "MemorySearchInput"
     },
@@ -6319,6 +6339,22 @@
       "title": "files.read error"
     },
     {
+      "path": "methods/files.undo/params.json",
+      "title": "files.undo params"
+    },
+    {
+      "path": "methods/files.undo/result.json",
+      "title": "files.undo result"
+    },
+    {
+      "path": "methods/files.undo/response.json",
+      "title": "files.undo response"
+    },
+    {
+      "path": "methods/files.undo/error.json",
+      "title": "files.undo error"
+    },
+    {
       "path": "methods/diffs.workingTree/params.json",
       "title": "diffs.workingTree params"
     },
@@ -8751,6 +8787,16 @@
       "params": "methods/files.read/params.json",
       "result": "methods/files.read/result.json",
       "error": "methods/files.read/error.json"
+    },
+    {
+      "name": "files.undo",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/files.undo/params.json",
+      "result": "methods/files.undo/result.json",
+      "response": "methods/files.undo/response.json",
+      "error": "methods/files.undo/error.json"
     },
     {
       "name": "diffs.workingTree",

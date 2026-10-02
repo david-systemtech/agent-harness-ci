@@ -144,6 +144,10 @@ _Avoid_: history, buffer, log (the event log holds none of it)
 Where a session's code lives on its environment: a directory the environment has, a worktree the environment created from a repository it has, or a scratch directory that lives with the session. Every session has exactly one.
 _Avoid_: folder, cwd, project (for the place), none (there is no session without a workspace)
 
+**Change record**:
+The environment's private record of one file a run's file tool changed in one call: where the file is, its bytes and mode from before the call, and a digest of what the call left, kept beside the log and never in an event. File undo restores a session's newest one and consumes it; one whose bytes could not be kept (unknown, binary, oversized, imported history, evicted past the session's bounds) stops undo there.
+_Avoid_: backup, checkpoint, undo entry
+
 **Repository identity**:
 The canonical remote URL of the repository a workspace belongs to, recorded on the session so clients can relate work on the same repository across environments; absent when the workspace is outside any repository, and copied to the new session on hand-off. Never a server-side object.
 _Avoid_: project, logical project

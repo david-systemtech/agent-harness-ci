@@ -115,6 +115,8 @@ export interface TestEnvironmentOptions {
   readonly launcher?: TestLauncher;
   /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
+  /** A hold on each file restore of `files.undo`, around its rename (#1183); preset: none. */
+  readonly fileUndoHooks?: EnvironmentOptions["fileUndoHooks"];
   /** Sections registered with the OrientationRenderer beside the environment's own, each in place of the environment's own of its name (#380, #381); preset: none. */
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
   /** An orientation seam in place of the OrientationRenderer's, which the composer and the Orientation row read (#505); preset: the renderer's. */
@@ -387,6 +389,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
+    ...(options.fileUndoHooks !== undefined && { fileUndoHooks: options.fileUndoHooks }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
     ...(options.orientation !== undefined && { orientation: options.orientation }),
     ...(options.catalogue !== undefined && { catalogue: options.catalogue }),
