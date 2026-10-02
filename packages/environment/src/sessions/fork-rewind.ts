@@ -470,7 +470,19 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
     if (draft !== "") events.push({ type: "session.draft-set", payload: { draft } });
     // The source's own instructions, which the fork keeps (#506).
     events.push(...forkedInstructions(reader, sourceId));
-    const forked: SessionForkedPayload = { fromSessionId: sourceId, atMessageId, fromProviderSessionId };
+    // The visible transcript is copied while the fork's transaction owns the log. Its requested UI anchor can differ
+    // from the provider anchor inherited by a fresh fork (#236), so never cut this copy using atMessageId.
+    const transcript = sessionTranscript(log, sourceId, true);
+    const historyItems = transcript.items.flatMap((item) => item.kind === "forked" ? ((item as Extract<TranscriptItem, { kind: "forked" }>).history?.items ?? []) : [item]);
+    const historyRuns = [...transcript.runs, ...transcript.items.flatMap((item) => item.kind === "forked" ? ((item as Extract<TranscriptItem, { kind: "forked" }>).history?.runs ?? []) : [])];
+    const cut = anchor?.sequence ?? Number.POSITIVE_INFINITY;
+    const copied = historyItems.filter((item) => item.sequence < cut);
+    const copiedRuns = new Set(copied.flatMap((item) => "runId" in item && typeof item.runId === "string" ? [item.runId] : []));
+    const forked: SessionForkedPayload = {
+      fromSessionId: sourceId, atMessageId, fromProviderSessionId,
+      history: { title: readSummary(reader, sourceId)?.title ?? "Untitled", anchor: anchor?.text ?? null,
+        items: copied, runs: historyRuns.filter((run) => copiedRuns.has(run.runId)) },
+    };
     events.push({ type: "session.forked", payload: forked });
     log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
     if (fromProviderSessionId !== null) options.store?.copySession(context.tx, sourceId, id);

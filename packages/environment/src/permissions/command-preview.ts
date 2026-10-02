@@ -1259,13 +1259,15 @@ async function previewRemove(part: Destructive, cwd: string, deps: BlastRadiusDe
  */
 async function previewClean(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
   const stdout = await gitIn(cwd, deps)(cleanArgv(part));
-  const paths = stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(/^Would (?:remove|skip repository|not remove) /, ''));
+  const paths = cleanPaths(stdout);
   if (paths.length === 0) return { kind: part.kind, summary: 'git clean would remove nothing', lines: [], count: 0 };
   return { kind: part.kind, summary: `git clean would remove ${plural(paths.length, 'path')}`, lines: paths.slice(0, MAX_LISTED), count: paths.length };
+}
+
+/** Raw path labels from the fixed clean dry run, shared with the broker's path checks. */
+export function cleanPaths(stdout: string): readonly string[] {
+  return stdout.split('\n').filter((line) => line.length > 0)
+    .map((line) => line.replace(/^Would (?:remove|skip repository|not remove) /, ''));
 }
 
 /** The dry-run argv: `-n` first, the flags that only narrow the search, then the pathspecs. */
@@ -1304,15 +1306,30 @@ async function previewResetHard(part: Destructive, cwd: string, deps: BlastRadiu
 }
 
 async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
-  if (part.targets.slice(1).some((refspec) => refspec.startsWith('+'))) {
-    return { kind: part.kind, summary: 'forced refspec may discard remote commits; remote state was not contacted', lines: part.targets.slice(1).slice(0, MAX_LISTED), count: part.targets.length - 1 };
+  const refspecs = part.targets.slice(1);
+  if (refspecs.length > 0) {
+    // HEAD and its upstream do not identify an explicit source/destination pair.
+    // Keep the typed refspecs rather than query a different pair or contact a remote.
+    return {
+      kind: part.kind,
+      summary: `force-push to ${unescape(part.targets[0] ?? 'the remote')}: cannot tell how many remote commits the forced refspecs may discard; remote state was not contacted`,
+      lines: refspecs.map(unescape).slice(0, MAX_LISTED),
+      count: refspecs.length,
+    };
+  }
+  const named = part.targets[0];
+  if (named !== undefined) {
+    // A named remote can select configured push refspecs unrelated to @{u}.
+    return {
+      kind: part.kind,
+      summary: `force-push to ${unescape(named)}: cannot tell which refs or how many remote commits may be overwritten; remote state was not contacted`,
+      lines: [],
+    };
   }
   const git = gitIn(cwd, deps);
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
   const remoteLine = ((await soft(git(['remote', '-v']))).split('\n')[0]?.trim() ?? '').replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/]+@/gi, '$1');
-  // The remote the command names beats the first one configured, which is only a guess.
-  const named = part.targets.find((target) => !target.startsWith('-'));
-  const remote = named ?? remoteLine.split(/\s+/)[0] ?? 'the remote';
+  const remote = remoteLine.split(/\s+/)[0] ?? 'the remote';
   const upstream = (await soft(git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']))).trim();
   const where = `force-push ${branch.length > 0 ? branch : 'HEAD'} to ${remote}`;
   const lines = remoteLine.length > 0 ? [remoteLine] : [];

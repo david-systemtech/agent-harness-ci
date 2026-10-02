@@ -37,8 +37,9 @@ const accountId = AccountId.meta({ description: "The adopted account whose direc
  * `skills.carryOver`'s dry run answers them, with the checkouts offered as
  * sources; the subagents and plugins not carried; and the hooks, personal
  * MCP servers and permission rules that do not carry. Reads alone.
+ * `source: state-import` previews every source-declared Claude directory,
+ * without an Account or a caller-supplied path.
  */
-/** `source: state-import` previews every source-declared Claude directory, without an Account or a caller-supplied path. */
 export const carryOverInventory = defineMethod({
   name: "carryOver.inventory",
   scope: "read",

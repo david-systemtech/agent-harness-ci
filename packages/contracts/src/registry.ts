@@ -1,3 +1,5 @@
+import { banksValidatorUpdate } from "./bank-validator-update.js";
+import { banksMigrate } from "./bank-migration.js";
 import { banksSplitPropose, banksSplitApply } from "./bank-split.js";
 import { banksDraftsList, banksMemoryDraft, banksMemoryPromote, banksMemoryRead, banksMemorySearch } from "./memory-drafts.js";
 import type { z } from "zod";
@@ -152,7 +154,7 @@ import {
   updatesSettingsSet,
   updatesStatus,
 } from "./methods/updates.js";
-import { filesList, filesRead } from "./methods/files.js";
+import { filesList, filesRead, filesUndo } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import {
   skillsCarryOver,
@@ -191,6 +193,7 @@ import {
   routinesUpdate,
 } from "./methods/routines.js";
 import { toolsDetail, toolsList, toolsRun, toolsVerify } from "./methods/tools.js";
+import { checksGet, checksRun, checksSet } from "./methods/checks.js";
 import {
   terminalsClose,
   terminalsList,
@@ -308,6 +311,8 @@ export const methods = [
   banksList,
   banksSplitPropose,
   banksSplitApply,
+  banksMigrate,
+  banksValidatorUpdate,
   banksJoinPreview,
   banksJoin,
   banksDraftsList,
@@ -374,8 +379,12 @@ export const methods = [
   terminalsClose,
   terminalsList,
   terminalsSubscribe,
+  checksGet,
+  checksSet,
+  checksRun,
   filesList,
   filesRead,
+  filesUndo,
   diffsWorkingTree,
   diffsSession,
   workspacesBrowse,

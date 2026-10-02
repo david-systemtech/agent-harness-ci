@@ -32,10 +32,12 @@ import {
   ttlWords,
   typedPath,
   undoableFold,
+  undoFile,
   userMessagesOf,
   withdrawQueued,
   workspaceLabel,
   type BrowseRow,
+  type CapabilityAnswer,
   type ClientCommandRow,
   type Clock,
   type EnvironmentView,
@@ -396,7 +398,7 @@ const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () 
  * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
  * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
  */
-const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[]): readonly CommandRow[] => {
+const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[], undo: CapabilityAnswer): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
     .map((id): ClientCommandRow => {
@@ -406,6 +408,7 @@ const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly S
   const taken = new Set(own.map((row) => row.name));
   return slashMenuRows(own, listed, (name) => taken.has(name)).map((row) => {
     const state = row.source === "skill" ? readiness.find((skill) => skill.name === row.name.replace(/^skill:/, "")) : undefined;
+    if (row.source === "client" && row.name === "undo") return { ...row, availability: undo };
     return state === undefined ? row : { ...row, readiness: state };
   });
 };
@@ -818,7 +821,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? []),
+      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? [], opened ? runtime.capability(opened.environmentId, "files.undo") : { status: "absent", reason: "unreachable", message: "No session is open." }),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],
@@ -1422,6 +1425,13 @@ export const App = (props: AppProps) => {
       case "files":
         openFiles(command.path);
         return true;
+      case "file-undo":
+        if (!opened) {
+          noSession();
+          return false;
+        }
+        void undoFile(runtime, clock, opened.environmentId, opened.sessionId).then((answer) => say(answer.line));
+        return false;
       case "diff":
         showDiff();
         return true;

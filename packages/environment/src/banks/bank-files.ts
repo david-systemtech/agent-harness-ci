@@ -3,7 +3,7 @@ import { runGit } from "../workspace/git.js";
 
 /**
  * A bank's files as the index reads them (banks spec, "Rendering the
- * index"): `BANK.md` and the Markdown under `projects/`, as committed at the
+ * index"): `BANK.md`, the vendored validator and the Markdown under `projects/`, as committed at the
  * checkout's head, never as the working tree holds them. A checkout is the
  * BankService's and nothing is written in it, but a run at containment
  * `off` can still write there until the next sync resets it (banks spec,
@@ -13,12 +13,12 @@ import { runGit } from "../workspace/git.js";
 /** The most a bank's listing, or its files together, may take: past it the read fails rather than index part of a bank. */
 const BANK_READ_BYTES = 64 * 1024 * 1024;
 
-/** Whether the index reads the file at `path`: the manifest, or Markdown under `projects/`. */
-const isIndexed = (path: string): boolean => path === "BANK.md" || (path.startsWith("projects/") && path.endsWith(".md"));
+/** Whether bank reads include `path`: the manifest, vendored validator or project Markdown. */
+const isBankFile = (path: string): boolean => path === ".agent-harness/validate.mjs" || path === "BANK.md" || (path.startsWith("projects/") && path.endsWith(".md"));
 
-/** The files the index reads in the bank checked out at `checkout`, as committed at `ref`; throws when git cannot list or read them. */
-export const readBankFiles = async (checkout: string, ref = "HEAD", options: { readonly signal?: AbortSignal } = {}): Promise<BankFiles> => {
-  const listing = await runGit(checkout, ["ls-tree", "-r", "-z", "--full-tree", ref, "--", "BANK.md", "projects"], { maxBytes: BANK_READ_BYTES, ...options });
+/** Committed blobs at `ref`: indexed files by default, or all regular files for migration planning; throws on a failed or truncated read. */
+export const readBankFiles = async (checkout: string, ref = "HEAD", options: { readonly signal?: AbortSignal; readonly allFiles?: boolean } = {}): Promise<BankFiles> => {
+  const listing = await runGit(checkout, ["ls-tree", "-r", "-z", "--full-tree", ref, ...(options.allFiles ? [] : ["--", "BANK.md", "projects", ".agent-harness/validate.mjs"])], { maxBytes: BANK_READ_BYTES, ...options });
   if (!listing.ok || listing.truncated) throw new Error(`git could not list the bank at ${checkout}: ${listing.stderr.trim() || "it gave no answer"}`);
   // Each entry is `<mode> <type> <object>\t<path>`; a link (120000) or a submodule is not read.
   const entries = listing.stdout
@@ -28,7 +28,7 @@ export const readBankFiles = async (checkout: string, ref = "HEAD", options: { r
       const tab = entry.indexOf("\t");
       const [mode, type, object] = entry.slice(0, tab).split(" ");
       const path = entry.slice(tab + 1);
-      return tab > 0 && type === "blob" && mode !== "120000" && object !== undefined && isIndexed(path) ? [{ path, object }] : [];
+      return tab > 0 && type === "blob" && mode !== "120000" && object !== undefined && (options.allFiles || isBankFile(path)) ? [{ path, object }] : [];
     });
   if (entries.length === 0) return {};
   const blobs = await runGit(checkout, ["cat-file", "--batch"], { maxBytes: BANK_READ_BYTES, ...options, input: Buffer.from(`${entries.map((entry) => entry.object).join("\n")}\n`) });
