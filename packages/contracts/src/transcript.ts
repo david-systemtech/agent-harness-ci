@@ -320,6 +320,9 @@ export type SessionProviderLinkedPayload = z.infer<typeof SessionProviderLinkedP
 export const SessionForkedPayload = z
   .object({
     fromSessionId: SessionId,
+    get history() {
+      return ForkHistory.optional().meta({ description: "The source title, requested anchor text and visible history copied in the fork transaction; absent on older forks. Independent of the source after deletion or purge." });
+    },
     atMessageId: MessageId.nullable().meta({
       description:
         "The user message the fork was taken before, or null for a fork of the whole session, except in two cases. A source no run of which had linked a provider session but which carried one in as a fork itself: what its own session.forked named (a message, or null), whichever message the fork was taken before, since nothing the source was sent reached the provider; the text of the message it was taken before is still the fork's draft. A fork of the whole of a source that had linked one and holds a rewind not yet continued from: the rewind's message, since that provider session still holds what the rewind hid.",
@@ -578,15 +581,6 @@ const HistoryUnreadableItem = z
   })
   .meta({ description: "The line an imported session shows where its history could not be read from the account's directory (session.history-imported, outcome unreadable)." });
 
-const ForkedItem = z
-  .object({
-    kind: z.literal("forked"),
-    ...itemPart,
-    fromSessionId: SessionForkedPayload.shape.fromSessionId,
-    atMessageId: SessionForkedPayload.shape.atMessageId,
-  })
-  .meta({ description: "A fork's first row: the source and anchor its session.forked named, at that event's sequence." });
-
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
 export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "check", "tasks", "prompt", "history-unreadable", "forked", "update-interrupted"] as const;
 
@@ -606,27 +600,43 @@ const OpaqueItem = z
   })
   .meta({ description: "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type." });
 
-/** One item of a session's transcript, in the order it opened; assistant text and thinking are settled, and unknown kinds are opaque. */
-export const TranscriptItem = z
-  .union([
-    UserMessageItem,
-    assistantItem("assistant-text", "text"),
-    assistantItem("assistant-thinking", "thinking"),
-    ToolCallItem,
-    CommandItem,
-    RunningCheckItem,
-    FinishedCheckItem,
-    TasksItem,
-    PromptItem,
-    HistoryUnreadableItem,
-    ForkedItem,
-    ...UpdateInterruptedItems,
-    OpaqueItem,
-  ])
+/** One settled item of a session's transcript, in the order it came; unknown kinds are opaque. */
+const historyItemSchemas = [
+  UserMessageItem,
+  assistantItem("assistant-text", "text"),
+  assistantItem("assistant-thinking", "thinking"),
+  ToolCallItem,
+  CommandItem,
+  RunningCheckItem,
+  FinishedCheckItem,
+  TasksItem,
+  PromptItem,
+  HistoryUnreadableItem,
+] as const;
+
+const ForkHistoryItem = z.union([...historyItemSchemas, ...UpdateInterruptedItems, OpaqueItem])
   .meta({
     description:
-      "One item of a transcript: a user message, assistant text or thinking, a tool call, a command, a running or finished Workspace check, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque.",
+      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a running or finished Workspace check, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque.",
   });
+/** The copied content of a fork. Earlier fork seeds are flattened into these items; rewind-hidden branches are excluded. */
+export const ForkHistory = z.object({
+  title: z.string(),
+  anchor: z.string().nullable(),
+  items: z.array(ForkHistoryItem),
+  runs: z.array(RunSummary),
+}).meta({ description: "A fork's independent copy of the source's visible transcript, before the requested anchor or at the end, and the labels at the time it was copied. Source ids remain provenance, never command targets of this fork." });
+export type ForkHistory = z.infer<typeof ForkHistory>;
+
+const ForkedItem = z.object({
+  kind: z.literal("forked"),
+  ...itemPart,
+  fromSessionId: SessionId,
+  atMessageId: MessageId.nullable(),
+  history: ForkHistory.optional(),
+}).meta({ description: "A fork's folded row with the source's copied visible history; retained in session snapshots." });
+
+export const TranscriptItem = z.union([...historyItemSchemas, ForkedItem, ...UpdateInterruptedItems, OpaqueItem]).meta({ description: "One transcript item, including a fork's copied history fold; unknown kinds are opaque." });
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
 
 /**

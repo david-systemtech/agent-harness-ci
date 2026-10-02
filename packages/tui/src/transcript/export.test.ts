@@ -183,6 +183,12 @@ describe("what a rewind cut, in /export (#232)", () => {
     const header = { environment: "desk", at: new Date("2026-09-25T11:00:00.000Z"), forked: { title: "Receipts", anchor: "Add the tests" } };
     expect(exportMarkdown({ items: [forked, said(5, "Carry on")], runs: [], summary: null }, header)).toContain("_Forked from Receipts at Add the tests._\n\n### You · ");
     expect(exported([forked])).toContain("_Forked from another session._");
+    const copied = said(1, "Fix the receipts");
+    if (copied.kind !== "user-message") throw new Error("Expected a user message.");
+    const seeded: TranscriptEntry = { ...forked, history: { title: "Saved receipts", anchor: "Add the tests", items: [copied], runs: [] } };
+    const document = exported([seeded]);
+    expect(document).toContain("_Forked from Saved receipts at Add the tests._");
+    expect(document).toContain("Fix the receipts");
   });
 
   it("writes an unreadable history's line on one line, whatever lines its reason spans (#579)", () => {

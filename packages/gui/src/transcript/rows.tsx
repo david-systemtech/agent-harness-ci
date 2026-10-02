@@ -110,7 +110,13 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
     case "rewound":
       return <RewoundFold row={row} facts={facts} />;
     case "forked":
-      return <ForkedRow entry={row.entry} />;
+      return (
+        <ForkedRow entry={row.entry}>
+          <div role="group" aria-label="Copied fork history" className="flex flex-col gap-3 border-l border-hairline pl-3">
+            {row.rows.map((inner) => <TranscriptRowView key={inner.id} row={inner} facts={{ ...facts, verbs: false }} />)}
+          </div>
+        </ForkedRow>
+      );
     case "update-interrupted":
       return <p className="text-[0.85em] text-ink-muted"><Marked text={updateInterruptedText(row.entry)} /></p>;
     case "history-unreadable":

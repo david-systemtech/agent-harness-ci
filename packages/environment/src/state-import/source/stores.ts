@@ -3,6 +3,8 @@ import { open, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { isSettingsAddress, rowOfAddress, type StateImportClientLocal } from "@agent-harness/contracts";
 import { DATA_FILES } from "./folders.js";
+import { readSourceBrowser, type SourceBrowser } from "./browser.js";
+import { readSourceReportStores, type SourceReportStore } from "./report-stores.js";
 
 /**
  * The source reader's stores (ADR 0036; #1165): the files of a source data
@@ -69,6 +71,7 @@ export interface SourcePreferences {
   readonly modelChoices: number;
   /** Dock layouts: the window's and each session's. */
   readonly layouts: number;
+  readonly composerSeeds: number;
 }
 
 /** What a source data folder's stores hold, as one read of them. */
@@ -77,6 +80,8 @@ export interface SourceStores {
   readonly sourceKey: string;
   readonly instructions: StoreRead<SourceInstructions>;
   readonly preferences: StoreRead<SourcePreferences>;
+  readonly browser: StoreRead<SourceBrowser>;
+  readonly reportStores: readonly SourceReportStore[];
 }
 
 /** A store's bytes: absent, too large, unreadable (with the error's code), or read. */
@@ -136,7 +141,7 @@ interface StoreName {
 }
 
 /** Reads the store at `path` with `parse`; `empty` when it is absent. */
-const readStore = async <Records extends object>(path: string, { name, is }: StoreName, parse: (value: unknown) => Records | Refusal, empty: Records): Promise<StoreRead<Records>> => {
+export const readStore = async <Records extends object>(path: string, { name, is }: StoreName, parse: (value: unknown) => Records | Refusal, empty: Records): Promise<StoreRead<Records>> => {
   const bytes = await readBytes(path);
   const failed = (snapshot: StoreSnapshot, diagnostic: string): StoreRead<Records> => ({ status: "failed", snapshot, diagnostic });
   if (bytes.kind === "absent") return { status: "read", snapshot: { path, digest: null }, records: empty };
@@ -246,17 +251,20 @@ const parsePreferences = (value: unknown): SourcePreferences | Refusal => {
     ...(typeof value["showThinking"] === "boolean" && { showThinking: value["showThinking"] }),
     ...(isSettingsAddress(section) && { settingsRow: rowOfAddress(section) }),
   };
-  return { clientLocal, modelChoices: entries(value["modelBySession"]), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]) };
+  const composerSeeds = ["cwd", "permissionMode", "model", "effort", "fastMode", "ultracode"].filter((key) => value[key] !== undefined && value[key] !== null).length;
+  return { clientLocal, modelChoices: entries(value["modelBySession"]), layouts: (value["dockLayout"] === undefined ? 0 : 1) + entries(value["dockLayouts"]), composerSeeds };
 };
 
-const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, layouts: 0 };
+const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, layouts: 0, composerSeeds: 0 };
 
 /** Reads the stores of the source data folder `folder`, each on its own. */
 export const readSourceStores = async (folder: string): Promise<SourceStores> => {
   const sourceKey = await realpath(folder).catch(() => folder);
-  const [instructions, preferences] = await Promise.all([
+  const [instructions, preferences, browser, reportStores] = await Promise.all([
     readStore(join(sourceKey, DATA_FILES.instructions), INSTRUCTION_LIST, parseInstructions, NO_INSTRUCTIONS),
     readStore(join(sourceKey, DATA_FILES.preferences), PREFERENCES, parsePreferences, NO_PREFERENCES),
+    readSourceBrowser(sourceKey),
+    readSourceReportStores(sourceKey),
   ]);
-  return { sourceKey, instructions, preferences };
+  return { sourceKey, instructions, preferences, browser, reportStores };
 };

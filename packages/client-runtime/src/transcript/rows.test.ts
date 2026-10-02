@@ -154,11 +154,22 @@ describe("transcriptRows", () => {
     const forked: TranscriptEntry = { kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2" };
     const rows = transcriptRows(view([forked, message(5, "Carry on"), text(6, "Carrying on.")], [run(RUN, "ended")]));
     expect(rows.map((row) => row.kind)).toEqual(["forked", "user", "assistant", "turn"]);
-    expect(rows[0]).toEqual({ kind: "forked", id: "forked:4", runId: null, entry: forked });
+    expect(rows[0]).toEqual({ kind: "forked", id: "forked:4", runId: null, entry: forked, rows: [] });
   });
 });
 
 describe("forkedFrom", () => {
+  it("uses copied labels without opening the source and keeps carried rows under one fold", () => {
+    const copied = message(1, "Fix the receipts");
+    if (copied.kind !== "user-message") throw new Error("Expected a user message.");
+    const entry = { kind: "forked" as const, sequence: 4, fromSessionId: "s-source", atMessageId: "m-2",
+      history: { title: "Receipts", anchor: "Add the tests", items: [copied], runs: [] } };
+    expect(forkedFrom(entry, undefined)).toEqual({ title: "Receipts", anchor: "Add the tests" });
+    const rows = transcriptRows(view([entry, message(5, "Carry on")]));
+    expect(rows.map((row) => row.kind)).toEqual(["forked", "user"]);
+    expect(rows[0]?.kind === "forked" && rows[0].rows.map((row) => row.kind)).toEqual(["user"]);
+  });
+
   const forked = (atMessageId: string | null) => ({ kind: "forked" as const, sequence: 4, fromSessionId: "s-source", atMessageId });
   const source = (items: readonly TranscriptEntry[], title: string | null = "Receipts") => ({ summary: title === null ? null : { title }, items });
 

@@ -158,18 +158,19 @@ const knownType = (type: string): boolean => eventTypeEntry(SESSION_STREAM_KIND,
  * only sessions long left untouched (ADR 0002), so for a live session the
  * read grows with it.
  */
-export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: string, afterSequence = 0): EventEnvelope[] =>
+export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: string, afterSequence = 0, includeOpenItems = false): EventEnvelope[] =>
   log
     .read<EventRow>(
       `SELECT * FROM events
        WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND sequence > ?
-         AND (type <> 'assistant.delta' OR sequence IN (
+         AND (type <> 'assistant.delta' OR ? OR sequence IN (
            SELECT MIN(d.sequence) FROM events d, json_each(d.payload, '$.fragments') f
            WHERE d.stream_kind = '${SESSION_STREAM_KIND}' AND d.stream_id = ? AND d.sequence > ? AND d.type = 'assistant.delta'
            GROUP BY json_extract(d.payload, '$.itemId'), json_extract(f.value, '$.kind')))
        ORDER BY sequence`,
       sessionId,
       afterSequence,
+      includeOpenItems ? 1 : 0,
       sessionId,
       afterSequence,
     )
@@ -180,10 +181,10 @@ export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: str
  * it has been compacted (`sessions/compaction.ts`), folded on with the
  * events after it; else the fold of its whole stream.
  */
-export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, sessionId: string): TranscriptParts => {
+export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, sessionId: string, includeOpenItems = false): TranscriptParts => {
   const snapshot = log.readSnapshot(sessionStream(sessionId));
-  const events = readTranscriptEvents(log, sessionId, snapshot?.sequence ?? 0);
-  return snapshot === null ? foldTranscript(events) : foldTranscript(events, readCompactedTranscript(log, snapshot));
+  const events = readTranscriptEvents(log, sessionId, snapshot?.sequence ?? 0, includeOpenItems);
+  return foldTranscript(events, snapshot === null ? undefined : readCompactedTranscript(log, snapshot), includeOpenItems);
 };
 
 /** A stored fold from before #632 omitted the fork's row; its retained session.forked restores it without rebuilding the removed transcript. */
@@ -213,7 +214,7 @@ export const readCompactedTranscript = (log: Pick<EventLog, "read">, snapshot: S
  * folding every event would: the rewinds it carries hold what they hid. A
  * compaction's stored fold is read through `storedTranscriptParts` first.
  */
-export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts): TranscriptParts => {
+export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts, includeOpenItems = false): TranscriptParts => {
   const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[]; rewinds: StandingRewind[] });
   const runs = new Map<string, Mutable<RunSummary>>(start?.runs.map((run) => [run.runId, run]));
   let suggestion = from?.suggestion ?? null;
@@ -229,7 +230,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   /** Prompt items not yet answered, by prompt id. */
   const prompts = new Map<string, ItemOf<"prompt">>();
   /** Where each assistant item not yet settled was opened: its first delta's sequence, by `<fragment kind> <item id>`. */
-  const opened = new Map<string, number>();
+  const opened = new Map<string, { sequence: number; runId: string; itemId: string; kind: "assistant-text" | "assistant-thinking"; text: string }>();
   // The items of the fold it goes on from that later events update, by the ids those carry, a rewind's hidden ones too.
   for (const item of everyItem(items)) {
     if (item.kind === "user-message") {
@@ -364,7 +365,9 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         const payload = event.payload as AssistantDeltaPayload;
         for (const fragment of payload.fragments) {
           const key = `${fragment.kind} ${payload.itemId}`;
-          if (!opened.has(key)) opened.set(key, sequence);
+          const held = opened.get(key);
+          if (held === undefined) opened.set(key, { sequence, runId: payload.runId, itemId: payload.itemId, kind: fragment.kind === "text" ? "assistant-text" : "assistant-thinking", text: fragment.text });
+          else if (includeOpenItems) held.text += fragment.text;
         }
         break;
       }
@@ -372,7 +375,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
       case "assistant.thinking": {
         const payload = event.payload as AssistantTextPayload;
         const key = `${event.type === "assistant.text" ? "text" : "thinking"} ${payload.itemId}`;
-        const at = opened.get(key) ?? sequence;
+        const at = opened.get(key)?.sequence ?? sequence;
         opened.delete(key);
         place({
           kind: event.type === "assistant.text" ? "assistant-text" : "assistant-thinking",
@@ -476,8 +479,8 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         break;
       }
       case "session.forked": {
-        const { fromSessionId, atMessageId } = event.payload as SessionForkedPayload;
-        push<ItemOf<"forked">>({ kind: "forked", sequence, fromSessionId, atMessageId });
+        const { fromSessionId, atMessageId, history } = event.payload as SessionForkedPayload;
+        push<ItemOf<"forked">>({ kind: "forked", sequence, fromSessionId, atMessageId, ...(history !== undefined && { history }) });
         break;
       }
       case "session.history-imported": {
@@ -491,6 +494,9 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         if (!knownType(event.type)) push({ kind: "opaque", sequence, type: event.type, payload: event.payload });
     }
   }
+  // Copy-at-fork freezes even the partial assistant text visible during a live run. Ordinary snapshots remain settled
+  // only; this option reads all deltas, and never changes what the source will later settle.
+  if (includeOpenItems) for (const item of opened.values()) place({ ...item, aborted: false });
   const parts = partsOf(items);
   return { suggestion, runs: [...runs.values()], items: parts.items, parkedPrompts: [...parked.values()], rewinds: parts.rewinds };
 };
