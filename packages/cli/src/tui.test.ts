@@ -5,6 +5,10 @@ import { join, resolve } from "node:path";
 import { BOOTSTRAP_GRANT_FILE, DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
 import type { TuiOptions } from "@agent-harness/tui";
+import * as screenless from "@agent-harness/tui/screenless";
+import { chunkOf, fakeCompletions, listed } from "../../tui/test/fake-completions.js";
+import { machine, noneOpen, openSockets } from "../../tui/test/machine.js";
+import { selectOn } from "../../tui/src/startup/selection.js";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { bundledVersion, installContextAt, makeTempDir, stubRunner, type Answer } from "../test/service-helpers.js";
 import { runCli, type CliContext } from "./cli.js";
@@ -160,6 +164,84 @@ describe("agent-harness tui -p", () => {
     const run = (...args: string[]) => runCli(["tui", ...args], { ...cli.context, stopRequested: never, outputClosed: never });
     return { ...cli, run };
   };
+
+  /** CLI argv and output over the selection seam, with the selected Environment answering on the typed wire. */
+  const onEnvironment = async (reach: "local" | "paired", directory: string) => {
+    const cli = printing();
+    const account = { id: "account-1", label: "Work" };
+    const on = await machine({ environments: [{
+      name: "laptop", reach,
+      environmentId: "0199aa00-0000-7000-8000-0000000014a7",
+      accounts: [{ ...account, identity: { provider: "claude", email: "seth@work.test", organisation: null } }],
+      models: [{ accountId: account.id, live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] }],
+      sessions: [{ workspace: { kind: "directory", path: directory } }],
+    }] });
+    const selection = vi.spyOn(screenless, "selectTerminalEnvironment").mockImplementation((options) =>
+      selectOn(on.platform, { ...options, currentDirectory: process.cwd() }));
+    onTestFinished(() => selection.mockRestore());
+    const environment = on.world.environment("laptop");
+    const http = fakeCompletions(environment.wire.origin, [listed("work", "claude-opus-5", "opus", 3, account)]);
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const response = http.fetch(input, init);
+      if (init?.method === "POST") {
+        const answer = (await http.turn()).open();
+        answer.chunk(chunkOf(1, { finish: "stop", ext: { ended: { reason: "completed", cause: null } } }));
+        answer.done();
+      }
+      return response;
+    };
+    const never = () => new Promise<never>(() => undefined);
+    const run = (...args: string[]) => runCli(["tui", "-p", "Say hello", ...args], { ...cli.context, fetch, stopRequested: never, outputClosed: never });
+    return { ...cli, run, on, http, environment };
+  };
+
+  it.each([
+    "/srv/Code/../Code/",
+    String.raw`C:\Users\Seth\Code`,
+    "C:/Users/Seth/Code/",
+    String.raw`\\server\share\Seth\Code/`,
+  ])("keeps the paired directory %s intact for a new workspace and -c matching", async (directory) => {
+    for (const selectors of [[], ["--environment", "laptop", "-c"]]) {
+      const cli = await onEnvironment("paired", directory);
+      expect(await cli.run(...selectors, "--cwd", directory), cli.err()).toBe(0);
+      expect(cli.http.sent().find((request) => request.method === "POST")?.body?.["agent-harness"]).toEqual(
+        selectors.length === 0 ? { workspace: directory, attended: false } : { sessionId: cli.environment.sessionId(0), attended: false },
+      );
+      expect(cli.err()).toBe("");
+      expect(openSockets(cli.on)).toEqual(noneOpen(cli.on));
+    }
+  });
+
+  it.each(["code", "code/../code/", join(process.cwd(), "code")])("resolves the local directory %s for a new workspace and -c matching", async (directory) => {
+    for (const selectors of [[], ["--environment", "laptop", "-c"]]) {
+      const absolute = join(process.cwd(), "code");
+      const cli = await onEnvironment("local", absolute);
+      expect(await cli.run(...selectors, "--cwd", directory), cli.err()).toBe(0);
+      expect(cli.http.sent().find((request) => request.method === "POST")?.body?.["agent-harness"]).toEqual(
+        selectors.length === 0 ? { workspace: absolute, attended: false } : { sessionId: cli.environment.sessionId(0), attended: false },
+      );
+      expect(cli.err()).toBe("");
+      expect(openSockets(cli.on)).toEqual(noneOpen(cli.on));
+    }
+  });
+
+  it.each(["code", "~", "C:code", String.raw`\code`])("refuses the paired relative directory %s with exit 2 and one line before sending a turn", async (directory) => {
+    for (const selectors of [[], ["--environment", "laptop", "-c"]]) {
+      for (const format of ["text", "json", "stream-json"]) {
+        const cli = await onEnvironment("paired", "/srv/code");
+        const message = `--cwd names a directory on laptop by its absolute path there; got ${directory}.`;
+        expect(await cli.run(...selectors, "--cwd", directory, "--output-format", format)).toBe(2);
+        expect(cli.err()).toBe(`${message}\n`);
+        if (format === "text") expect(cli.out()).toBe("");
+        else {
+          expect(cli.out().trim().split("\n")).toHaveLength(1);
+          expect(JSON.parse(cli.out())).toMatchObject({ type: "result", environmentId: "0199aa00-0000-7000-8000-0000000014a7", sessionId: null, runId: null, text: "", reason: "error", error: message });
+        }
+        expect(cli.http.sent()).toEqual([]);
+        expect(openSockets(cli.on)).toEqual(noneOpen(cli.on));
+      }
+    }
+  });
 
   it("prints on the environment tui would choose, in the format asked for, and says why there is none, the screen never loaded", async () => {
     const cli = printing();
