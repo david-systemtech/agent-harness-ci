@@ -1,4 +1,4 @@
-import { MEMORY_TYPES, PRODUCT_NAME, SessionId, type MemoryDraftInput, type MemoryPromoteResult, type MemorySearchInput } from "@agent-harness/contracts";
+import { BankRequiredError, MEMORY_TYPES, PRODUCT_NAME, SessionId, ValidationFailedError, type BankFinding, type MemoryDraftInput, type MemoryPromoteResult, type MemorySearchInput } from "@agent-harness/contracts";
 import { defaultDataDirectory } from "@agent-harness/environment";
 import { parsePort, parseVerb, UsageError } from "./args.js";
 import { LocalFailure, LocalRefusal, withLocalSession, type LocalCall, type Net } from "./local-session.js";
@@ -190,6 +190,18 @@ const promote = async (args: readonly string[], context: BankContext): Promise<n
   return 0;
 };
 
+/** A finding as the bank's CI prints it: refused or warning, the rule's id, and the sentence for the bank's author. */
+const findingLine = (finding: BankFinding): string => `${finding.severity === "refusal" ? "refused" : "warning"} ${finding.rule}: ${finding.message}\n`;
+
+/** What the environment refused, for the caller: a validator refusal's findings first, and the writable banks to name one of. */
+const refusalText = (refusal: LocalRefusal): string => {
+  const invalid = ValidationFailedError.safeParse(refusal.error);
+  if (invalid.success) return `${invalid.data.data.findings.map(findingLine).join("")}${refusal.message}\n`;
+  const unnamed = BankRequiredError.safeParse(refusal.error);
+  if (unnamed.success) return `${refusal.message} The writable banks in scope: ${unnamed.data.data.banks.join(", ")}; name one with --bank.\n`;
+  return `${refusal.message}\n`;
+};
+
 /** The `bank` verbs by name. */
 const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { search, read, draft, promote };
 
@@ -206,7 +218,7 @@ export const bank = async (args: readonly string[], context: BankContext): Promi
     return await run(rest, context);
   } catch (error) {
     if (!(error instanceof LocalFailure)) throw error;
-    context.stderr(`${error.message}\n`);
+    context.stderr(error instanceof LocalRefusal ? refusalText(error) : `${error.message}\n`);
     return 1;
   }
 };

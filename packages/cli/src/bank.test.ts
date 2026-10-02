@@ -162,3 +162,33 @@ it("drafts in one invocation and another, each its own client session, then prom
   // Each invocation revoked the client session it was exchanged for.
   expect((await h.client.request("access.sessions.list", { live: true })).sessions.map((entry) => entry.label).filter((label) => label.includes(" bank "))).toEqual([]);
 });
+
+it("refuses a draft as the memory tool does: with the validator's rule ids, for several writable banks none named, and for a read-only bank", async () => {
+  const h = await start();
+  await register(h, PERSONAL_BANK);
+  await register(h, TEAM_BANK);
+  await register(h, { ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ name: "maya-archive" })) }, { role: "read-only" });
+  const fact = { scope: { org: "personal", project: "homelab" }, name: "short-fact", description: "Too short.", body: "Roll out once.", type: "project" };
+  const [invalid, unnamed, readOnly] = await toolAnswers(h, [
+    tool("draft", { ...fact, bank: "maya-memory" }),
+    tool("draft", { ...fact, description: DESCRIPTION }),
+    tool("draft", { ...fact, description: DESCRIPTION, bank: "maya-archive" }),
+  ]);
+  const wire = (answer: { text: string } | undefined) => JSON.parse(answer?.text ?? "null") as { code: string; message: string; data: { findings?: { severity: string; rule: string; message: string }[] } };
+  expect([invalid, unnamed, readOnly].map((answer) => wire(answer).code)).toEqual(["validation_failed", "bank_required", "bank_read_only"]);
+
+  const args = (description: string, ...more: string[]) => ["draft", "short-fact", "--scope", "personal/homelab", "--type", "project", "--description", description, "--body", "Roll out once.", "--session", randomUUID(), ...more];
+  const refused = await bankCli(h, args("Too short.", "--bank", "maya-memory"));
+  expect(refused).toMatchObject({ code: 1, out: "" });
+  expect(refused.err).toMatch(/^refused description_length: /);
+  expect(refused.err).toBe([
+    ...(wire(invalid).data.findings ?? []).map((finding) => `${finding.severity === "refusal" ? "refused" : "warning"} ${finding.rule}: ${finding.message}`),
+    `The environment refused banks.memory.draft: ${wire(invalid).message}`,
+    "",
+  ].join("\n"));
+  expect(await bankCli(h, args(DESCRIPTION))).toMatchObject({
+    code: 1, out: "", err: `The environment refused banks.memory.draft: ${wire(unnamed).message} The writable banks in scope: maya-memory, acme; name one with --bank.\n`,
+  });
+  expect(await bankCli(h, args(DESCRIPTION, "--bank", "maya-archive"))).toMatchObject({ code: 1, out: "", err: `The environment refused banks.memory.draft: ${wire(readOnly).message}\n` });
+  expect(await bankCli(h, ["promote", "--session", randomUUID()])).toMatchObject({ code: 1, err: expect.stringContaining("The writable banks in scope: maya-memory, acme; name one with --bank.") });
+});
