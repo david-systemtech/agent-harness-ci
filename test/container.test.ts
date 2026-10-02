@@ -94,7 +94,7 @@ describe("the container image", () => {
     const build = instructions(dockerfile).find((line) => line.startsWith("RUN --mount=type=cache"));
     expect(build).toBeDefined();
     expect(build).toContain("id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,sharing=shared");
-    expect(build).toContain("bash .forgejo/scripts/image-deps.sh && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store");
+    expect(build).toContain("bash scripts/image-deps.sh && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store");
     expect(build).toContain("pnpm exec tsc -b packages/cli");
     expect(build).toContain("pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod");
   });

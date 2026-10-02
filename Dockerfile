@@ -33,7 +33,7 @@ COPY . .
 # offline. The bounded fetch leaves time for compilation in the image job.
 # node-pty compiles with this image's python3, make and g++.
 RUN --mount=type=cache,id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,sharing=shared \
-  bash .forgejo/scripts/image-deps.sh \
+  bash scripts/image-deps.sh \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store \
   && pnpm exec tsc -b packages/cli \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false

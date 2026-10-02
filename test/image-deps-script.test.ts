@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
 
-const script = join(import.meta.dirname, "..", ".forgejo", "scripts", "image-deps.sh");
+const script = join(import.meta.dirname, "..", "scripts", "image-deps.sh");
 const run = promisify(execFile);
 const cleanups: string[] = [];
 afterEach(() => {

@@ -26,5 +26,7 @@ jobs:
       # Pinned to a commit, not a tag, as ci.yml's.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The Dockerfile fetches dependencies through scripts/image-deps.sh,
+      # which is kept in the public snapshot too.
       - name: Build the image and throw it away
         run: bash .forgejo/scripts/image.sh build
