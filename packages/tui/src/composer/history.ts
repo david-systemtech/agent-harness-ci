@@ -49,6 +49,11 @@
  * line per prompt means the rewrite is paid once every couple of thousand
  * prompts instead of on every prompt after the first two thousand.
  *
+ * Every disk read and write takes the terminal persistence lock first. A
+ * committed batch is recovered before reading these lines; failed recovery is
+ * surfaced instead of exposing a partial import. Compaction holds that same
+ * lock from its fresh disk read through the rename, preserving other writers.
+ *
  * **Two rules borrowed from readline**, because a history that remembers
  * everything is harder to walk than one that forgets a little: a blank prompt
  * is never stored, and sending the same text twice in a row stores it once
@@ -73,7 +78,8 @@
  * it is missing.
  */
 
-import { appendFile, mkdir, open, readFile, rename, writeFile, type FileHandle } from "node:fs/promises";
+import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
+import { readTerminalText, withTerminalFiles } from "../platform/terminal-files.js";
 import { dirname } from "node:path";
 
 /** One prompt, as it went to a provider. */
@@ -129,7 +135,7 @@ export class PromptHistory {
     this.#entries = loaded.entries;
   }
 
-  /** Read the file at `path`, skipping whatever cannot be read. A missing file is an empty history. */
+  /** Recover first, then read valid entries. A missing/unreadable history is empty; failed recovery rejects. */
   static async load(path: string): Promise<PromptHistory> {
     return new PromptHistory(path, await readEntries(path));
   }
@@ -218,24 +224,27 @@ export class PromptHistory {
    * is closed with a newline of its own rather than glued onto.
    */
   async #appendLine(entry: HistoryEntry): Promise<void> {
-    await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
-    const prefix = (await endsCutShort(this.#path)) ? "\n" : "";
-    await appendFile(this.#path, prefix + serialise(entry), { encoding: "utf8", mode: 0o600 });
+    withTerminalFiles(dirname(this.#path), (files) => {
+      mkdirSync(dirname(this.#path), { recursive: true, mode: 0o700 });
+      const text = files.read(this.#path) ?? "";
+      const entries = [...parseHistoryEntries(text), entry];
+      if (entries.length > HISTORY_MAX_ENTRIES) {
+        files.write(this.#path, entries.slice(-HISTORY_KEPT_ENTRIES).map(serialise).join(""));
+        return;
+      }
+      const prefix = text.length > 0 && !text.endsWith("\n") ? "\n" : "";
+      appendFileSync(this.#path, prefix + serialise(entry), { encoding: "utf8", mode: 0o600 });
+      if (process.platform !== "win32") chmodSync(this.#path, 0o600);
+    });
   }
 
-  /**
-   * The rewrite past the cap reads the file again first, so what another
-   * terminal appended since this one loaded is kept: the newest entries of
-   * the file as it is now, with the one that crossed the cap, and this
-   * process's own view (`fallback`) only when the file cannot be read.
-   */
+  /** Re-read and trim under the same process-safe lock as appends and imports. */
   async #rewrite(entry: HistoryEntry, fallback: readonly HistoryEntry[]): Promise<void> {
-    await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
-    const onDisk = await readEntries(this.#path);
-    const entries = onDisk.entries.length > 0 ? [...onDisk.entries, entry].slice(-HISTORY_KEPT_ENTRIES) : fallback;
-    const temp = `${this.#path}.${String(process.pid)}.tmp`;
-    await writeFile(temp, entries.map(serialise).join(""), { encoding: "utf8", mode: 0o600 });
-    await rename(temp, this.#path);
+    withTerminalFiles(dirname(this.#path), (files) => {
+      const onDisk = parseHistoryEntries(files.read(this.#path) ?? "");
+      const entries = onDisk.length > 0 ? [...onDisk, entry].slice(-HISTORY_KEPT_ENTRIES) : fallback;
+      files.write(this.#path, entries.map(serialise).join(""));
+    });
   }
 }
 
@@ -288,25 +297,6 @@ export class HistoryCursor {
   }
 }
 
-/** Whether the file has content and its last byte is not a newline: its last line was cut short. A missing file is not. */
-async function endsCutShort(path: string): Promise<boolean> {
-  let file: FileHandle;
-  try {
-    file = await open(path, "r");
-  } catch {
-    return false;
-  }
-  try {
-    const { size } = await file.stat();
-    if (size === 0) return false;
-    const last = Buffer.alloc(1);
-    await file.read(last, 0, 1, size - 1);
-    return last[0] !== 0x0a;
-  } finally {
-    await file.close();
-  }
-}
-
 /**
  * Lower case, one code unit for one: a character whose lower case is longer
  * (`İ` becomes `i` and a combining dot) is kept as it is, so an offset found
@@ -344,13 +334,11 @@ interface LoadedFile {
 }
 
 async function readEntries(path: string): Promise<LoadedFile> {
-  let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch {
-    return { entries: [] };
-  }
+  return { entries: parseHistoryEntries(readTerminalText(path) ?? "") };
+}
 
+/** Internal storage codec shared by the batch seam. Occurrences are never deduplicated here. */
+export function parseHistoryEntries(text: string): HistoryEntry[] {
   const entries: HistoryEntry[] = [];
   for (const line of text.split("\n")) {
     // Trimmed so a stray `\r` from a file that has been through Windows, and
@@ -366,7 +354,7 @@ async function readEntries(path: string): Promise<LoadedFile> {
     const entry = toEntry(parsed);
     if (entry !== undefined) entries.push(entry);
   }
-  return { entries };
+  return entries;
 }
 
 /** A parsed line, or nothing if it is not an entry after all. */
