@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { PassThrough } from "node:stream";
 import { join, resolve } from "node:path";
 import { BOOTSTRAP_GRANT_FILE, DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
@@ -7,7 +8,8 @@ import type { TuiOptions } from "@agent-harness/tui";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { bundledVersion, installContextAt, makeTempDir, stubRunner, type Answer } from "../test/service-helpers.js";
 import { runCli, type CliContext } from "./cli.js";
-import { selectEnvironment } from "./tui.js";
+import { outputClosedOn } from "./process-context.js";
+import { selectEnvironment, TUI_USAGE } from "./tui.js";
 
 // The terminal UI is a recorder here, and its screenless entry draws nothing: Ink loaded by anything this file runs fails.
 vi.mock("ink", () => {
@@ -82,7 +84,7 @@ const harness = (options: { answer?: Answer; fetch?: typeof fetch; privileged?: 
     if (!handed) throw new Error("tui did not start the terminal UI");
     return handed;
   };
-  return { home, installContext, run, launch, launched, calls: stub.calls, out: () => out, err: () => err };
+  return { home, installContext, context, run, launch, launched, calls: stub.calls, out: () => out, err: () => err };
 };
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", "agent-harness.service");
@@ -116,6 +118,11 @@ describe("agent-harness tui", () => {
     });
   });
 
+  it("accepts --import-terminal-state and supplies the local source reader only on request", async () => {
+    expect((await harness().launch()).terminalSource).toBeUndefined();
+    expect((await harness().launch("--import-terminal-state")).terminalSource).toBeTypeOf("function");
+  });
+
   it("takes -c, and --continue, for the newest session whose workspace is the current directory", async () => {
     expect(await harness().launch("-c")).toMatchObject({ continueLatest: true });
     expect(await harness().launch("--continue")).toMatchObject({ continueLatest: true });
@@ -126,9 +133,8 @@ describe("agent-harness tui", () => {
     expect(await cli.run("tui")).toBe(1);
   });
 
-  it("prints its usage and exits 2 on arguments it cannot parse, and carries neither -p nor ls", async () => {
+  it("prints its usage and exits 2 on arguments it cannot parse, and carries no ls", async () => {
     for (const args of [
-      ["tui", "-p", "hello"],
       ["tui", "ls"],
       ["tui", "--session"],
       ["tui", "--environment", ""],
@@ -138,11 +144,77 @@ describe("agent-harness tui", () => {
     ]) {
       const cli = harness();
       expect(await cli.run(...args), args.join(" ")).toBe(2);
-      expect(cli.err(), args.join(" ")).toContain(
-        "agent-harness tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]",
-      );
+      expect(cli.err(), args.join(" ")).toContain(TUI_USAGE);
       expect(cli.launched).toEqual([]);
     }
+  });
+});
+
+describe("agent-harness tui -p", () => {
+  /** The CLI as `harness` makes it, with no signal and no closing of standard output to hear, and the terminal UI's state under its home. */
+  const printing = () => {
+    const cli = harness();
+    vi.stubEnv("AGENT_HARNESS_TUI_STATE_DIR", join(cli.home, "tui-state"));
+    onTestFinished(() => void vi.unstubAllEnvs());
+    const never = () => new Promise<never>(() => undefined);
+    const run = (...args: string[]) => runCli(["tui", ...args], { ...cli.context, stopRequested: never, outputClosed: never });
+    return { ...cli, run };
+  };
+
+  it("prints on the environment tui would choose, in the format asked for, and says why there is none, the screen never loaded", async () => {
+    const cli = printing();
+    const message = "No environment is known here: `agent-harness service install` sets up this machine's, and `/pair` in `agent-harness tui` adds another.";
+
+    expect(await cli.run("-p", "Say hello", "--output-format", "json")).toBe(1);
+    expect(JSON.parse(cli.out())).toEqual({
+      type: "result",
+      environmentId: null,
+      sessionId: null,
+      runId: null,
+      text: "",
+      usage: null,
+      durationMs: expect.any(Number),
+      reason: "error",
+      error: message,
+    });
+    expect(cli.err()).toBe(`${message}\n`);
+    expect(cli.launched).toEqual([]);
+  });
+
+  it("exits 2 on a print it cannot make, before choosing anything, with a JSON result when the format asked for one", async () => {
+    for (const [args, said] of [
+      [["--print", ""], "-p takes the prompt; got an empty one."],
+      [["-p", "  "], "-p takes the prompt; got an empty one."],
+      [["-p", "hi", "--output-format", "yaml"], "--output-format takes text, json or stream-json; got yaml."],
+      [["-p", "hi", "--mode", "yolo"], "--mode takes plan, acceptEdits, auto or bypassPermissions; got yolo."],
+      [["-p", "hi", "--session", "0199aa00-0000-4000-8000-000000000001", "-c"], "--session and -c each name the session to open; give one."],
+      [["-p", "hi", "--session", "0199aa00-0000-4000-8000-000000000001", "--cwd", "/srv"], "--cwd names a new session's directory, or the one -c looks in; --session continues a session in its own."],
+      [["-p", "hi", "--keybindings", "keys.json"], "--keybindings is the screen's; -p draws none."],
+      [["-p", "hi", "--import-terminal-state"], "--import-terminal-state is the screen's; -p draws none."],
+      [["--model", "opus"], "--model, --mode, --effort and --output-format go with -p."],
+      [["--output-format", "json"], "--model, --mode, --effort and --output-format go with -p."],
+      [["-p", "hi", "--model", ""], "--model takes a value; got an empty one."],
+    ] as const) {
+      const cli = printing();
+      expect(await cli.run(...args), args.join(" ")).toBe(2);
+      expect(cli.err().split("\n")[0], args.join(" ")).toBe(said);
+      expect(cli.err(), args.join(" ")).toContain(TUI_USAGE);
+      expect(cli.out(), args.join(" ")).toBe("");
+      expect(cli.launched).toEqual([]);
+    }
+
+    const json = printing();
+    expect(await json.run("-p", "", "--output-format", "stream-json")).toBe(2);
+    expect(JSON.parse(json.out())).toMatchObject({ type: "result", environmentId: null, text: "", usage: null, reason: "error", error: "-p takes the prompt; got an empty one." });
+  });
+});
+
+describe("standard output closing", () => {
+  it("is heard as the stream's error, a closed pipe's or any other", async () => {
+    const stream = new PassThrough();
+    const closed = outputClosedOn(stream);
+    stream.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    await expect(closed).resolves.toBeUndefined();
   });
 });
 

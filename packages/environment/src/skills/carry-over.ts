@@ -11,7 +11,8 @@ import {
   type SkillNotCarried,
   type SkillsCarryOverReport,
 } from "@agent-harness/contracts";
-import { adoptedAccount, isCarryOverRefusal, type AdoptedAccount } from "../carry-over/adopted.js";
+import { adoptedAccount, isCarryOverRefusal } from "../carry-over/adopted.js";
+import type { AccountRef } from "../adapter/contract.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import { readCheckoutSource } from "./checkout.js";
@@ -157,6 +158,8 @@ export const holdsSkillOriginals = async (directory: string): Promise<boolean> =
 export interface SkillsCarryOver extends PreparedCommand<"skills.carryOver"> {
   /** What a dry run answers for the account `accountId`, having written nothing; the refusal, not held or not adopted, thrown. */
   dryRun(accountId: string): Promise<SkillsCarryOverReport>;
+  /** Internal, read-only inventory for a validated explicit source before its Account exists. */
+  dryRunDirectory(account: AccountRef & { readonly directory: string }): Promise<SkillsCarryOverReport>;
 }
 
 /** How a run undoes what it made when its command is not accepted. */
@@ -219,7 +222,7 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): SkillsCarryOve
   };
 
   /** What a run of the adopted account does, or with `dryRun` would do: its report. */
-  const carry = async (account: AdoptedAccount, dryRun: boolean, context: Undoing): Promise<SkillsCarryOverReport> => {
+  const carry = async (account: AccountRef & { readonly directory: string }, dryRun: boolean, context: Undoing): Promise<SkillsCarryOverReport> => {
     // The own directory's names before the run, each with the path of the member that wins it; the run adds what it copies.
     const held = new Map<string, string>();
     for (const member of resolveSkillSet(await own.members(), [])) if (member.name !== null && !held.has(member.name)) held.set(member.name, member.path);
@@ -267,7 +270,10 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): SkillsCarryOve
     return { accountId: account.id, dryRun, copied, kept, offered, invalid, notCarried: await notCarriedIn(account.directory) };
   };
 
+  const dryRunDirectory = (account: AccountRef & { readonly directory: string }): Promise<SkillsCarryOverReport> => carry(account, true, { onUndo: () => undefined });
+
   return {
+    dryRunDirectory,
     async prepare({ accountId, dryRun }, context): Promise<MethodHandler<"skills.carryOver">> {
       const account = adoptedAccount(options.account, accountId);
       if (isCarryOverRefusal(account)) return () => ({ aggregate: stream, rejected: account });
@@ -282,7 +288,7 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): SkillsCarryOve
     async dryRun(accountId) {
       const account = adoptedAccount(options.account, accountId);
       if (isCarryOverRefusal(account)) throw new ContractError(account);
-      return carry(account, true, { onUndo: () => undefined });
+      return dryRunDirectory(account);
     },
   };
 };

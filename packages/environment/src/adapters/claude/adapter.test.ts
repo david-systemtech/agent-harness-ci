@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { EMPTY_RUN_SKILL_SET, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
@@ -346,20 +346,38 @@ describe("a run", () => {
   });
 });
 
+/** A checkout with one commit and a linked worktree of it holding a directory below its root, under a temporary `root`. */
+const linkedWorktree = () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+  const checkout = join(root, "app");
+  git(root, "init", "-q", checkout);
+  git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+  const worktree = join(root, "worktree");
+  git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+  const below = join(worktree, "packages", "web");
+  mkdirSync(below, { recursive: true });
+  return { root, checkout, worktree, below };
+};
+
 describe("a run in a worktree", () => {
   it("takes the project settings of the worktree's main checkout when the repository is trusted, and none when it is not", async () => {
-    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    const { root, checkout, worktree } = linkedWorktree();
     try {
-      const checkout = join(root, "app");
-      git(root, "init", "-q", checkout);
-      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
-      const worktree = join(root, "worktree");
-      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
       const workspace = { kind: "worktree", path: worktree, repository: checkout, branch: "fix" } as const;
       adapterWith().createRun(runInput({ trusted: true, workspace }), contextWith());
       expect((await started()).options).toMatchObject({ cwd: worktree, projectConfigRoot: checkout });
       adapterWith().createRun(runInput({ trusted: false, workspace }), contextWith());
       expect((await started(2)).options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("takes the main checkout's project settings for a workspace below the worktree's root too", async () => {
+    const { root, checkout, below } = linkedWorktree();
+    try {
+      adapterWith().createRun(runInput({ trusted: true, workspace: { kind: "directory", path: below } }), contextWith());
+      expect((await started()).options).toMatchObject({ cwd: below, projectConfigRoot: checkout });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -2710,6 +2728,24 @@ describe("the unsampled queries", () => {
     expect(fake.last().options.settingSources).toEqual([]);
     expect(fake.last().options).not.toHaveProperty("plugins");
     expect(fake.last().options).not.toHaveProperty("settings");
+  });
+
+  it("lists commands in a worktree, or below its root, from its main checkout's project configuration as a run there loads it, and from none untrusted", async () => {
+    fake.controls = { supportedCommands: async () => [] };
+    const { root, checkout, worktree, below } = linkedWorktree();
+    try {
+      const adapter = adapterWith();
+      for (const path of [worktree, below]) {
+        await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+        expect(fake.last().options).toMatchObject({ cwd: path, settingSources: ["project"], projectConfigRoot: checkout });
+      }
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: worktree }, { trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: checkout }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("answers a member's invocation: /agent-harness:<name> for one the generation links, /<name> for a native one", () => {

@@ -985,6 +985,8 @@ export interface Adapter {
   readonly descriptor: AdapterDescriptor;
   readonly credentials: AdapterCredentialSpec;
   status(account: AccountRef): Promise<AuthStatus>;
+  /** Read cached identity metadata only: no sign-in, credential refresh, process launch or writes. Internal import planning, not a wire capability. */
+  observeIdentity?(directory: string): Promise<AccountIdentity | null>;
   /**
    * The machine's own config directory for this provider (Claude's
    * `CLAUDE_CONFIG_DIR`, else `~/.claude`), which `accounts.adopt` registers

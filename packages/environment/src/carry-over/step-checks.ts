@@ -2,6 +2,9 @@ import { readdir } from "node:fs/promises";
 import {
   CarryOverImportedPayload,
   ENVIRONMENT_STREAM_KIND,
+  STATE_IMPORT_STREAM_KIND,
+  StateImportFinishedPayload,
+  StateImportStartedPayload,
   type AccountRecord,
   type SetupAction,
   type SetupTarget,
@@ -30,7 +33,12 @@ import { listAccountSessions } from "./sessions.js";
  * is named by `carry-over.readable`. `carry-over.last-import` names each
  * adopted account with something to carry that was never imported, or whose
  * last import (`carry-over.imported`) failed part way; new sessions after an
- * import that finished do not turn the step amber (ADR 0021).
+ * import that finished do not turn the step amber (ADR 0021). It names the
+ * state import too (#1165): its last import, when it failed part way
+ * (`state-import.finished` naming what failed), or when it started and never
+ * finished, the environment having stopped under it, until a re-run
+ * finishes. What a state import names to enter again is the Forges', Key
+ * manager's and Memory bank's to check, not this one's.
  */
 
 /** The Carry over step's state checks, by id. */
@@ -45,6 +53,8 @@ export interface CarryOverStateChecksOptions {
   readonly reader: Reader;
   /** Whether a source data folder or terminal-client state folder is on the machine (`stateImport.detect`). */
   readonly detect: () => Promise<StateImportDetection>;
+  /** The state import's: the environment's id, which its target names, and the id of the import under way, null when none is. */
+  readonly stateImport: { readonly environmentId: string; readonly underWay: () => string | null };
 }
 
 /** The most failures of an import a line names; the rest are counted. */
@@ -107,6 +117,29 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
     return latest;
   };
 
+  /** The state import's last one, as the log records it: its latest start, or its latest end when that came after; null before any. */
+  const lastStateImport = (): Finding | null => {
+    const [row] = options.reader.all<{ stream_kind: string; payload: string; correlation_id: string | null }>(
+      `SELECT stream_kind, payload, correlation_id FROM events
+        WHERE (stream_kind = ? AND type = 'state-import.started') OR (stream_kind = ? AND type = 'state-import.finished')
+        ORDER BY sequence DESC LIMIT 1`,
+      STATE_IMPORT_STREAM_KIND,
+      ENVIRONMENT_STREAM_KIND,
+    );
+    if (row === undefined) return null;
+    const target: SetupTarget = { action: "import-again", kind: "environment", id: options.stateImport.environmentId, label: "The state import" };
+    if (row.stream_kind === STATE_IMPORT_STREAM_KIND) {
+      const started = StateImportStartedPayload.parse(JSON.parse(row.payload));
+      if (started.importId === options.stateImport.underWay()) return null;
+      return { line: `The state import from ${started.sourceKey} stopped before it finished: Import again to carry the rest.`, target };
+    }
+    const { failed } = StateImportFinishedPayload.parse(JSON.parse(row.payload));
+    if (failed.length === 0) return null;
+    const named = failed.slice(0, FAILURES_NAMED).map((failure) => `${failure.label}: ${failure.message.replace(/\.?$/, ".")}`);
+    const more = failed.length - named.length;
+    return { line: ["The last state import failed part way:", ...named, ...(more > 0 ? [`${more} more failed.`] : []), "Import again to retry what failed."].join(" "), target };
+  };
+
   const present = async (): Promise<StateCheckAnswer> => {
     for (const account of adopted()) {
       const found = await look(account.directory.path);
@@ -157,7 +190,8 @@ export const carryOverStateChecks = (options: CarryOverStateChecksOptions): { re
       ].join(" ");
       findings.push({ line, target: accountTarget("import-again", account) });
     }
-    return answerOf(findings);
+    const stateImport = lastStateImport();
+    return answerOf(stateImport === null ? findings : [...findings, stateImport]);
   };
 
   return { "carry-over.present": present, "carry-over.readable": readable, "carry-over.last-import": lastImport };

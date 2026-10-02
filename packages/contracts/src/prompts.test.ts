@@ -59,6 +59,13 @@ const answered = {
 };
 
 describe("the prompt vocabulary", () => {
+  it("carries nullable environment preview lines and accepts events recorded before the field existed", () => {
+    expect(PromptOpenedPayload.parse({ ...opened, previewLines: ["⚠ 2 files", "  build/a.js"] }).previewLines).toEqual(["⚠ 2 files", "  build/a.js"]);
+    expect(PromptOpenedPayload.parse({ ...opened, previewLines: null }).previewLines).toBeNull();
+    expect(PromptOpenedPayload.parse(opened).previewLines).toBeUndefined();
+    expect(PromptOpenedPayload.safeParse({ ...opened, previewLines: "2 files" }).success).toBe(false);
+  });
+
   it("has the permissions kinds and never the adapter spec's tool", () => {
     expect(PROMPT_KINDS).toEqual(["permission", "denylist", "question", "plan"]);
   });
