@@ -4,6 +4,7 @@ import { open, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { isSettingsAddress, rowOfAddress, type StateImportClientLocal } from "@agent-harness/contracts";
 import { readSourceProfiles, type SourceProfiles } from "./profiles.js";
+import { readSourceRoutines, type SourceRoutines } from "./routines.js";
 import { DATA_FILES } from "./folders.js";
 import { readSourceBrowser, type SourceBrowser } from "./browser.js";
 import { readSourceReportStores, type SourceReportStore } from "./report-stores.js";
@@ -85,6 +86,8 @@ export interface SourceStores {
   readonly instructions: StoreRead<SourceInstructions>;
   readonly preferences: StoreRead<SourcePreferences>;
   readonly profiles: StoreRead<SourceProfiles>;
+  readonly desktopRoutines: StoreRead<SourceRoutines>;
+  readonly serviceRoutines: StoreRead<SourceRoutines>;
   readonly browser: StoreRead<SourceBrowser>;
   readonly reportStores: readonly SourceReportStore[];
 }
@@ -271,12 +274,14 @@ const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, la
 /** Reads the stores of the source data folder `folder`, each on its own. */
 export const readSourceStores = async (folder: string): Promise<SourceStores> => {
   const sourceKey = await realpath(folder).catch(() => folder);
-  const [instructions, preferences, profiles, browser, banks] = await Promise.all([
+  const [instructions, preferences, profiles, browser, banks, desktopRoutines, serviceRoutines] = await Promise.all([
     readStore(join(sourceKey, DATA_FILES.instructions), INSTRUCTION_LIST, parseInstructions, NO_INSTRUCTIONS),
     readStore(join(sourceKey, DATA_FILES.preferences), PREFERENCES, parsePreferences, NO_PREFERENCES),
     readSourceProfiles(sourceKey),
     readSourceBrowser(sourceKey),
     readSourceBanks(sourceKey),
+    readSourceRoutines(sourceKey, false),
+    readSourceRoutines(sourceKey, true),
   ]);
-  return { sourceKey, banks, instructions, preferences, profiles, browser, reportStores: await readSourceReportStores(sourceKey, profiles) };
+  return { sourceKey, banks, instructions, preferences, profiles, browser, desktopRoutines, serviceRoutines, reportStores: profiles.status === "failed" ? [] : await readSourceReportStores(sourceKey, profiles) };
 };

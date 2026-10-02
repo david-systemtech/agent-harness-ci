@@ -90,6 +90,8 @@ interface ImportItemKey extends ItemKey {
   /** Whether this item adds a report count; alias/reused Account mappings do not. */
   readonly contributes?: () => boolean;
   readonly sourceDirectory?: string;
+  /** Read-only owner checks immediately before this child's transaction; null permits it, a message fails it independently. */
+  readonly validate?: () => Promise<string | null>;
   /** False in a preview when the owner will reuse a target; apply answers its actual carried count at commit. */
   readonly counted?: boolean;
 }
@@ -139,6 +141,10 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
     let outcome: "carried" | "held" | StateImportFailure;
     const undos: (() => void | Promise<void>)[] = [];
     try {
+      // A mapped item stays held even if its source or target conditions changed.
+      if (mappedTarget(log, item) !== undefined) continue;
+      const refusal = item.validate === undefined ? null : await item.validate();
+      if (refusal != null) { failed.push({ label: item.label, message: refusal }); continue; }
       const apply = item.prepare === undefined ? item.apply : await item.prepare({ ...caller, onUndo: (undo) => undos.push(undo) }, commandId);
       const run = log.command<{ readonly carried: boolean }>({ actor, commandId }, (tx) => {
         if (mappedTarget(log, item) !== undefined) return { aggregate: stream, result: { carried: false } };
