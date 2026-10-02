@@ -27,6 +27,7 @@ import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { joinBank, previewBank } from "./join.js";
+import { prepareBankPublication } from "./publish.js";
 import { createBankCommand } from "./create.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
@@ -214,7 +215,7 @@ export interface BankServiceOptions {
     readonly dataDir: string;
     readonly localPersonName: string;
     readonly scrub: Pick<ScrubRegistry, "check">;
-    readonly forge: Pick<ForgeService, "list" | "owners" | "repositories" | "git">;
+    readonly forge: Pick<ForgeService, "list" | "owners" | "repositories" | "pullRequests" | "issues" | "git">;
     readonly accounts: () => readonly { readonly id: string }[];
     readonly keyManager: () => BankKeyManager | null;
   };
@@ -248,6 +249,7 @@ export interface BankService {
   readonly join: PreparedCommand<"banks.join">;
   readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
+  readonly publish: PreparedCommand<"banks.publish">;
 }
 
 export const createBankService = (options: BankServiceOptions): BankService => {
@@ -649,6 +651,41 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     preview: (url) => previewBank(options, url),
     join: joinBank({ ...options, register: { prepare: (params) => prepareRegister(params, false, "managed") } }),
     create,
+    publish: {
+      async prepare(params, context) {
+        const bank = liveBank(reader, params.bankId);
+        if (!bank) throw new ContractError({ code: "not_found", message: "No such bank is registered.", data: {} });
+        if (bank.location.kind !== "local") throw new ContractError({ code: "conflict", message: "Only a local-only bank can be published.", data: { reason: "not_local_only", bankId: bank.id } });
+        if (!bank.enabled || bank.role !== "read-write") throw new ContractError({ code: "bank_read_only", message: "Enable a writable bank before publishing it.", data: { bank: bank.name } });
+        if (!lander || !options.creation) throw new ContractError({ code: "not_found", message: "Bank publication is unavailable.", data: {} });
+        const release = lander.reserve(bank.id);
+        if (!release) throw new ContractError({ code: "conflict", message: "A landing is already in progress for this bank.", data: { reason: "landing_in_progress", bankId: bank.id } });
+        context.onUndo(release);
+        try {
+          const publication = await prepareBankPublication({ bank, commandId: params.commandId, transferIssues: params.transferIssues === true, dataDir: options.dataDir, forge: options.creation.forge, scrub: options.scrub });
+          const remote = await runGit(bank.checkout, ["remote", "get-url", "origin"], { maxBytes: 64 * 1024 });
+          const oldUrl = remote.ok ? remote.stdout.toString("utf8").trim() : null;
+          const installed = await runGit(bank.checkout, ["remote", oldUrl === null ? "add" : "set-url", "origin", publication.url], { maxBytes: 64 * 1024 });
+          if (!installed.ok) throw new Error("The published bank's remote could not be recorded.");
+          context.onUndo(async () => { await runGit(bank.checkout, oldUrl === null ? ["remote", "remove", "origin"] : ["remote", "set-url", "origin", oldUrl], { maxBytes: 64 * 1024 }); });
+          const reading = await readingOf(bank);
+          const claims = (await readAll()).map(({ entry, reading: its }) => claimOf(entry, its));
+          return (_params, command) => {
+            try {
+              const current = liveBank(reader, bank.id);
+              if (!current || current.location.kind !== "local") return { aggregate: stream, rejected: { code: "conflict", message: "The bank changed while publication was prepared.", data: { reason: "not_local_only", bankId: bank.id } } };
+              log.append(stream, [
+                { type: "bank.updated", payload: { bankId: bank.id, location: publication.location, credential: "forge", credentialEntry: null, credentialReference: null } },
+                { type: "bank.review-held", payload: publication.review },
+                { type: "bank.awaiting-review", payload: { bankId: bank.id, sessionId: null, pullRequest: publication.review.pullRequest } },
+              ], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+              const entry = liveBank(reader, bank.id)!;
+              return { aggregate: stream, result: { bank: recordOf(entry, reading, claims), review: { state: "awaiting-review", bank: entry.name, pullRequest: publication.review.pullRequest, files: Object.keys(publication.review.writes).map((path) => ({ path, state: "pending" })) }, followUps: publication.followUps } };
+            } finally { release(); }
+          };
+        } catch (error) { release(); throw error; }
+      },
+    },
   };
   return service;
 };

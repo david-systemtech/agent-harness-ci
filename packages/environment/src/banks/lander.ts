@@ -323,6 +323,12 @@ export const createBankLander = (options: {
     }
   }, REVIEW_POLL_MS);
   const lander = {
+    /** Publication holds the same exclusion as promotion until its receipt records the remote review. */
+    reserve(bankId: string): (() => void) | null {
+      if (busy.has(bankId) || heldReview(bankId) !== null) return null;
+      busy.add(bankId);
+      return () => busy.delete(bankId);
+    },
     reconcile(bank: BankEntry): Promise<MemoryPromoteResult | null> {
       if (busy.has(bank.id)) return active.get(bank.id) ?? Promise.resolve(null);
       const review = heldReview(bank.id);

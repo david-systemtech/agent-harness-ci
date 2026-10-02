@@ -256,6 +256,7 @@ describe("the method registry", () => {
       "banks.credential.set",
       "banks.credential.swap",
       "banks.create",
+      "banks.publish",
       "banks.registry.update",
       "banks.pin",
       "banks.forget",
@@ -506,6 +507,7 @@ describe("the method registry", () => {
       | "banks.credential.set"
       | "banks.credential.swap"
       | "banks.create"
+      | "banks.publish"
       | "banks.verify"
       | "banks.sync"
       | "keyManagers.list"
