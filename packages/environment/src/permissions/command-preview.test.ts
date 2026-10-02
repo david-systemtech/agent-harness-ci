@@ -182,6 +182,15 @@ describe('reading a command line', () => {
       expect(destructiveParts(`xargs ${option} rm -rf build`)[0]).toMatchObject({ kind: 'rm', targets: ['build'] });
     }
   });
+
+  it('warns when xargs supplies removal targets through input without inventing filenames', async () => {
+    const disk = recorder();
+    const command = 'find . -type f | xargs -n 1 rm';
+    expect(kinds(command)).toEqual(['input-targets']);
+    expect(await only(command, '/repo', disk)).toMatchObject({ summary: 'cannot tell: xargs supplies destructive targets from input', lines: [] });
+    expect(disk.calls).toEqual([]);
+    expect(destructiveParts('xargs echo')).toEqual([]);
+  });
   it('preserves which glob characters were quoted within a word', () => {
     expect(destructiveParts("rm *'foo'")[0]?.targets).toEqual(['*foo']);
     expect(destructiveParts("rm '*'foo")[0]?.targets).toEqual(['\\*foo']);
@@ -291,6 +300,15 @@ describe('the verbs it knows', () => {
     // `-d` refuses to drop an unmerged branch, so it destroys nothing git kept.
     expect(destructiveParts('git branch -d feature')).toEqual([]);
     expect(destructiveParts('git branch -a')).toEqual([]);
+  });
+
+  it('decodes clustered Git flags without consuming attached branch names as flags', () => {
+    for (const command of ['git branch -df feature', 'git branch -Df feature', 'git branch -fd feature']) expect(kinds(command)).toEqual(['git-branch-delete']);
+    expect(kinds('git branch -vd feature')).toEqual([]);
+    expect(kinds('git checkout -fb feature')).toEqual(['git-checkout-discard']);
+    expect(kinds('git checkout -bfeature')).toEqual([]);
+    expect(kinds('git push -fu origin main')).toEqual(['git-push-force']);
+    expect(kinds('git restore -SW src/a.ts')).toEqual(['git-checkout-discard']);
   });
 
   it('recognises a DROP inside psql -c and mysql -e', () => {

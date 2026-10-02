@@ -64,6 +64,7 @@ export type DestructiveKind =
   | 'chmod-recursive'
   | 'find-delete'
   | 'shell-expansion'
+  | 'input-targets'
   | 'other';
 
 /** One segment of a command line that would destroy something. */
@@ -464,6 +465,18 @@ const baseName = (text: string): string => {
 
 const isFlag = (word: Word): boolean => !word.quoted && word.text.length > 1 && word.text.startsWith('-');
 
+/** Decode short-option clusters, stopping where a flag consumes an attached value. */
+const hasShortFlag = (flags: readonly string[], wanted: string, takesValue = ''): boolean => {
+  for (const flag of flags) {
+    if (!/^-[A-Za-z]/.test(flag)) continue;
+    for (const letter of flag.slice(1)) {
+      if (letter === wanted) return true;
+      if (takesValue.includes(letter)) break;
+    }
+  }
+  return false;
+};
+
 /**
  * Split a word list into flags and operands, honouring `--`.
  *
@@ -494,8 +507,9 @@ const operandOf = (word: Word): string => word.operand;
 const needsShell = (target: string): boolean => target.startsWith('~') || /(^|[^\\])(?:\\\\)*[$`]/.test(target);
 
 /** Strip the command's wrappers and leading assignments; `null` when nothing is left. */
-function invocationOf(segment: Segment): { readonly name: string; readonly args: readonly Word[] } | null {
+function invocationOf(segment: Segment): { readonly name: string; readonly args: readonly Word[]; readonly inputTargets: boolean } | null {
   let words = segment.words;
+  let inputTargets = false;
   for (let guard = 0; guard < 8; guard += 1) {
     const head = words[0];
     if (head === undefined) return null;
@@ -504,7 +518,8 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
       continue;
     }
     const name = baseName(head.text);
-    if (!PREFIXES.has(name)) return { name, args: words.slice(1) };
+    if (!PREFIXES.has(name)) return { name, args: words.slice(1), inputTargets };
+    if (name === 'xargs') inputTargets = true;
     let at = 1;
     while (at < words.length) {
       const word = words[at];
@@ -527,7 +542,10 @@ export function destructiveParts(command: string): readonly Destructive[] {
   for (const segment of tokenize(command)) {
     if (segment.unresolvedHereDoc === true) found.push({ kind: 'shell-expansion', text: segment.text, targets: [], flags: [] });
     const invocation = invocationOf(segment);
-    if (invocation !== null) found.push(...classify(invocation.name, invocation.args, segment.text));
+    if (invocation !== null) {
+      found.push(...classify(invocation.name, invocation.args, segment.text));
+      if (invocation.inputTargets && ['rm', 'shred'].includes(invocation.name)) found.push({ kind: 'input-targets', text: segment.text, targets: [], flags: [] });
+    }
     for (const redirect of segment.redirects) {
       // `>>` appends, `<` reads, and `/dev/null` is not a file anybody loses.
       if (redirect.op !== '>') continue;
@@ -607,19 +625,19 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
     }
     case 'push': {
       const { flags, operands } = split(rest);
-      const forcing = flags.filter((flag) => flag === '-f' || flag === '--force' || flag.startsWith('--force-with-lease'));
+      const forcing = hasShortFlag(flags, 'f', 'o') || flags.some((flag) => flag === '--force' || flag.startsWith('--force-with-lease'));
       const refspecs = operands.slice(1);
-      const deleting = flags.includes('-d') || flags.includes('--delete');
+      const deleting = hasShortFlag(flags, 'd', 'o') || flags.includes('--delete');
       if (deleting || refspecs.some((refspec) => refspec.startsWith(':'))) return { kind: 'git-push-delete', text, targets: deleting ? refspecs : refspecs.filter((refspec) => refspec.startsWith(':')), flags };
-      if (forcing.length === 0 && !refspecs.some((refspec) => refspec.startsWith('+'))) return null;
+      if (!forcing && !refspecs.some((refspec) => refspec.startsWith('+'))) return null;
       return { kind: 'git-push-force', text, targets: operands, flags };
     }
     case 'checkout': {
       const separator = rest.findIndex((word) => !word.quoted && word.text === '--');
       const { flags, operands } = split(rest);
       if (separator === -1) {
-        if (flags.includes('-f') || flags.includes('--force')) return { kind: 'git-checkout-discard', text, targets: operands, flags };
-        if (flags.some((flag) => ['-b', '-B', '--orphan'].includes(flag))) return null;
+        if (hasShortFlag(flags, 'f', 'bB') || flags.includes('--force')) return { kind: 'git-checkout-discard', text, targets: operands, flags };
+        if (hasShortFlag(flags, 'b', 'bB') || hasShortFlag(flags, 'B', 'bB') || flags.includes('--orphan')) return null;
         // A branch name remains ambiguous; path-shaped operands can discard work.
         if (!operands.some((path) => path.includes('/') || path.includes('.') || isGlob(path))) return null;
       }
@@ -631,8 +649,8 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
     case 'restore': {
       const { flags, operands } = split(rest);
       // `--staged` alone only unstages: the work tree keeps every byte.
-      const staged = flags.includes('--staged') || flags.includes('-S');
-      if (staged && !flags.includes('--worktree') && !flags.includes('-W')) return null;
+      const staged = flags.includes('--staged') || hasShortFlag(flags, 'S', 's');
+      if (staged && !flags.includes('--worktree') && !hasShortFlag(flags, 'W', 's')) return null;
       if (operands.length === 0) return null;
       return { kind: 'git-checkout-discard', text, targets: operands, flags, overwritesIndex: staged };
     }
@@ -641,7 +659,7 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
       // `-d` refuses to drop a branch whose commits are not reachable elsewhere,
       // so it destroys nothing git would not have kept. `-D` is the one to warn
       // about — and `--delete --force`, which is the same key with a long name.
-      const forced = flags.includes('-D') || (flags.some((flag) => flag === '-d' || flag === '--delete') && flags.some((flag) => flag === '-f' || flag === '--force'));
+      const forced = hasShortFlag(flags, 'D') || ((hasShortFlag(flags, 'd') || flags.includes('--delete')) && (hasShortFlag(flags, 'f') || flags.includes('--force')));
       if (!forced || operands.length === 0) return null;
       return { kind: 'git-branch-delete', text, targets: operands, flags };
     }
@@ -1119,6 +1137,8 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
         return previewDrop(part);
       case 'shell-expansion':
         return { kind: part.kind, summary: 'cannot tell: command substitution in a here-document needs the shell', lines: [] };
+      case 'input-targets':
+        return { kind: part.kind, summary: 'cannot tell: xargs supplies destructive targets from input', lines: [] };
       case 'truncate-redirect':
         return await previewTruncate(part, cwd, deps, budget);
       case 'chmod-recursive':
@@ -1290,7 +1310,7 @@ async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiu
 }
 
 async function previewCheckoutDiscard(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
-  if (part.flags.includes('-f') || part.flags.includes('--force')) {
+  if (hasShortFlag(part.flags, 'f', 'bB') || part.flags.includes('--force')) {
     return { kind: part.kind, summary: 'forced checkout may discard local changes, including files obstructing the checkout', lines: [] };
   }
   if (part.targets.some((target) => needsShell(target) || isGlob(target))) {
