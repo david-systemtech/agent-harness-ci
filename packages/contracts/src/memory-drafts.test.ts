@@ -28,3 +28,9 @@ it("uses the same bank, scope and pointer vocabulary in all five published tool 
   expect(MemoryReadInput.parse({})).toEqual({});
   expect(MemorySearchInput.safeParse({ query: "fact", bank: "../secret" }).success).toBe(false);
 });
+
+it("publishes the durable reviewed change snapshot, including non-draft files and no session", () => {
+  const held = { type: "bank.review-held", payload: { bankId: "6f1c2c1e-8a8f-4b5e-9a65-1d7c5b0f2a10", sessionId: null, pullRequest: "https://git.example.test/maya/memory/pulls/7", number: 7, head: "0".repeat(40), writes: { ".agent-harness/validate.mjs": "A validator update." }, drafts: [] } };
+  expect(EnvironmentNotice.safeParse(held).success).toBe(true);
+  expect(eventTypeEntry("environment", held.type)?.list).toBe(false);
+});
