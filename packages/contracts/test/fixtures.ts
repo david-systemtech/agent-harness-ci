@@ -35,6 +35,7 @@ import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { fileUndoMethodFixtures, fileUndoSchemaFixtures } from "./file-undo-fixtures.js";
 import { checkMethodFixtures, checkSchemaFixtures, checksChangedNotice } from "./check-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
@@ -559,6 +560,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...managedToolMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
+  ...fileUndoMethodFixtures,
   ...checkMethodFixtures,
   ...workspaceMethodFixtures,
   ...updateMethodFixtures,
@@ -1050,6 +1052,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...knownEnvironmentSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
+  ...fileUndoSchemaFixtures,
   ...checkSchemaFixtures,
   ...workspaceSchemaFixtures,
   ...completionsSchemaFixtures,

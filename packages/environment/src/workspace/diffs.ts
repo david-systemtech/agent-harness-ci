@@ -31,7 +31,8 @@ import { UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit } f
  * Claude SDK's tool result does), its hunks are used with the file's line
  * numbers; otherwise the hunk is built from the call's input (an edit's old
  * and new text, a write's content), with line numbers counted from that
- * text, since the input does not say where in the file it is.
+ * text, since the input does not say where in the file it is. A call whose
+ * change `files.undo` took back (#1183) is left out: its file no longer holds it.
  */
 
 /** The bytes of `text`, at most `cap`, cut after the last newline that fits; the whole text when it fits. */
@@ -304,13 +305,18 @@ type ToolCall = Extract<TranscriptItem, { kind: "tool-call" }>;
  * What the session's runs changed, per file: see the module comment. `roots`
  * are the workspace's paths a tool may have named its files by: the path the
  * session recorded and, while the directory is there, its real path.
+ * `undone` names the calls whose change was undone, which are left out.
  */
-export const sessionDiff = (roots: readonly string[], items: readonly TranscriptItem[]): { files: SessionDiffFile[]; truncated: boolean } => {
+export const sessionDiff = (
+  roots: readonly string[],
+  items: readonly TranscriptItem[],
+  undone: ReadonlySet<string> = new Set(),
+): { files: SessionDiffFile[]; truncated: boolean } => {
   const byFile = new Map<string, { inside: boolean; hunks: string[]; changes: SessionDiffChange[] }>();
   for (const item of items) {
     if (item.kind !== "tool-call") continue;
     const call = item as ToolCall;
-    if (call.status !== "ok" || !FILE_EDITING_TOOLS.has(call.name)) continue;
+    if (call.status !== "ok" || !FILE_EDITING_TOOLS.has(call.name) || undone.has(call.toolCallId)) continue;
     const change = fromInput(call.name, call.input);
     if (change === undefined) continue;
     const patch = outputPatch(call.output);
