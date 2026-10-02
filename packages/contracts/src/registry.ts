@@ -192,6 +192,7 @@ import {
   routinesUpdate,
 } from "./methods/routines.js";
 import { toolsDetail, toolsList, toolsRun, toolsVerify } from "./methods/tools.js";
+import { checksGet, checksRun, checksSet } from "./methods/checks.js";
 import {
   terminalsClose,
   terminalsList,
@@ -376,6 +377,9 @@ export const methods = [
   terminalsClose,
   terminalsList,
   terminalsSubscribe,
+  checksGet,
+  checksSet,
+  checksRun,
   filesList,
   filesRead,
   diffsWorkingTree,

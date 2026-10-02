@@ -29,7 +29,7 @@ describe("projections.environments", () => {
         icon: "laptop",
         colour: presetColour(local.env.id),
         version: HARNESS_VERSION,
-        flags: ["forge", "keyManagers", "managedTools", "banks", "setup", "stateImport"],
+        flags: ["forge", "keyManagers", "managedTools", "workspaceChecks", "banks", "setup", "stateImport"],
         scopes: [...SCOPES],
         ceiling: TOP_CEILING,
         enabled: true,
