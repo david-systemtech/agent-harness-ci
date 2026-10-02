@@ -636,6 +636,7 @@ export class ClaudeProcess implements TurnControl {
   async #start(input: RunInput, turn: ClaudeTurn, carried: readonly PromptMessage[]): Promise<void> {
     let options: Options;
     try {
+      if (input.target.kind === "resume" && input.target.sourceDirectory !== undefined && this.#deps.sessionStore === null) throw new Error("This imported Session is read-only: secondary continuation requires the harness store.");
       // A cold run that continues a provider session through the store runs the CLI in the SDK's temporary copy of the
       // account's directory, whose credentials have no refresh token: the login is refreshed in the account's own first.
       if (this.#deps.sessionStore !== null && input.target.kind !== "fresh") await this.#deps.freshLogin(input.account);
@@ -644,12 +645,14 @@ export class ClaudeProcess implements TurnControl {
       if (this.#deps.sessionStore !== null && input.target.kind === "resume") {
         await seedStoreFromDirectory({
           queue: this.#deps.queue,
-          directory: this.#deps.configDirectory(input.account),
+          directory: input.target.sourceDirectory ?? this.#deps.configDirectory(input.account),
+          required: input.target.sourceDirectory !== undefined,
           harnessSessionId: input.sessionId,
           providerSessionId: input.target.providerSessionId,
           store: this.#deps.sessionStore,
           importSessionToStore: (sessionId, store) => sdkImportSessionToStore(sessionId, store),
         });
+
       }
       const resumePoint = await this.#resumePoint(input);
       // Asked once for this spawn (#307), and not for one that will not happen; the pool releases it as it lets the process go.

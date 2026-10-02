@@ -216,7 +216,7 @@ export const runContinuation = (log: Pick<EventLog, "read">, reader: Reader, ses
     return descriptor.resume ? { target: { kind: "resume", providerSessionId: linked }, forkedFrom: null } : fresh;
   }
   const origin = readOrigin(reader, sessionId);
-  if (origin?.kind === "import") return descriptor.resume ? { target: { kind: "resume", providerSessionId: origin.providerSessionId }, forkedFrom: null } : fresh;
+  if (origin?.kind === "import") return descriptor.resume ? { target: { kind: "resume", providerSessionId: origin.providerSessionId, ...(origin.sourceDirectory !== undefined && { sourceDirectory: origin.sourceDirectory }) }, forkedFrom: null } : fresh;
   const fork = forkRecord(log, sessionId);
   if (fork === null) return fresh;
   if (fork.fromProviderSessionId === null || !descriptor.fork) return { target: { kind: "fresh" }, forkedFrom: fork.fromSessionId };
@@ -519,7 +519,7 @@ export const forkRewindMethods = (options: ForkRewindMethodsOptions): MethodHand
           const facts = host.account(origin.accountId);
           if (facts === null) throw new ContractError({ code: "conflict", message: `The account ${origin.accountId} holding the imported conversation is unavailable.`, data: { reason: "account_unavailable", accountId: origin.accountId } });
           const source = accountSource(host, facts);
-          await source.adapter.seedSessionStore?.(source.account, id, origin.providerSessionId);
+          await source.adapter.seedSessionStore?.(source.account, id, origin.providerSessionId, origin.sourceDirectory);
         }
         return forkNow(await storedHistoryBefore(id, anchor));
       },
