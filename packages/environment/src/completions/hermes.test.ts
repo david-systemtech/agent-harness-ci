@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { CompletionsModelList, registry, type Mode, type RunPolicyResolvedPayload, type RunStartedPayload, type Scope } from "@agent-harness/contracts";
+import { CompletionsModelList, registry, type ChatMessage, type MessageSentPayload, type Mode, type RunPolicyResolvedPayload, type RunStartedPayload, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import { end, fakeAdapter, say, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
+import { callClientTool, end, fakeAdapter, say, toolResultText, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { BUTLER_INSTRUCTIONS, HERMES_SYSTEM_PROMPT, HERMES_TOOLS, hermesCaller, type HermesRoute } from "../../test/hermes-caller.js";
+import { BUTLER_INSTRUCTIONS, HERMES_SYSTEM_PROMPT, HERMES_TOOLS, chatTurn, hermesCaller, postCompletion, readStream, type HermesRoute } from "../../test/hermes-caller.js";
 import { isInProcess, type AdapterEvent } from "../adapter/contract.js";
 import type { EventEnvelope } from "../event-log/event-log.js";
 import { composeInstructions } from "../instructions/composer.js";
@@ -185,3 +185,84 @@ describe("a two-turn chat", () => {
     expect(prompt).not.toContain(HERMES_SYSTEM_PROMPT);
   });
 });
+
+describe("Hermes's tools", () => {
+  /** Saves a note through Hermes's memory tool, then says what the tool answered, and completes. */
+  const remember: Script = async function* (controls) {
+    const result = yield* callClientTool(controls, { name: "memory", input: { action: "add", content: "The boiler is serviced in March." } });
+    yield say(toolResultText(result));
+    yield end();
+  };
+
+  it.each(["sent", "never"] as const)(
+    "round-trips a call to one of Hermes's tools: the answer returns it, and the follow-up's tool message with its id resumes the same run on the same session, on one credential (session ids %s)",
+    async (sessionIds) => {
+      const t = await start(remember);
+      const { token } = await program(t);
+      const saved: unknown[] = [];
+      const butler = hermesCaller({
+        origin: origin(t),
+        token,
+        route: await liveRoute(t, token, "sonnet", "medium"),
+        sessionIds,
+        tools: { memory: (args) => (saved.push(args), "Saved.") },
+      });
+
+      const { answers, final } = await butler.chat("Remember that the boiler is serviced in March.");
+
+      const [asked] = answers;
+      expect(answers).toHaveLength(2);
+      expect(asked?.finishReason).toBe("tool_calls");
+      expect(asked?.toolCalls).toEqual([{ id: expect.stringMatching(/^call_/), type: "function", function: { name: "memory", arguments: '{"action":"add","content":"The boiler is serviced in March."}' } }]);
+      expect(saved).toEqual([{ action: "add", content: "The boiler is serviced in March." }]);
+      const sessionId = asked?.head.sessionId as string;
+      // The follow-up answered the call with a tool message naming its id, and named the session only when the caller sends ids.
+      const followUp = butler.sent[1] as { messages: ChatMessage[]; "agent-harness": { sessionId?: string } };
+      expect(followUp.messages.at(-1)).toEqual({ role: "tool", tool_call_id: asked?.toolCalls[0]?.id, content: "Saved." });
+      expect(followUp["agent-harness"].sessionId).toBe(sessionIds === "sent" ? sessionId : undefined);
+      // The same run went on: no message was sent and no run started for the follow-up.
+      expect(final.head).toMatchObject({ sessionId, runId: asked?.head.runId });
+      expect(final.head.messageId).toBeUndefined();
+      expect(final.content).toBe("Tool said: Saved.");
+      expect(final.atFinish?.ended).toEqual({ reason: "completed", cause: null });
+      expect(t.adapter.runs).toHaveLength(1);
+      expect(eventsOf(t, sessionId, "message.sent")).toHaveLength(1);
+      expect(payloadsOf<{ name: string; output: unknown }>(t, sessionId, "tool.ended")).toMatchObject([{ output: "Saved." }]);
+    },
+  );
+
+  it("takes a call's result only as a tool message: the result sent back as fresh user text answers no call, in a fresh session without an id and as a steer of the live run with one", async () => {
+    const t = await start(remember);
+    const { token } = await program(t);
+    const route = await liveRoute(t, token, "sonnet", "medium");
+    const ask: ChatMessage = { role: "user", content: "Remember that the boiler is serviced in March." };
+    const asked = await readStream(await postCompletion(origin(t), token, chatTurn(route, [ask], null)));
+    const [call] = asked.toolCalls;
+    if (call === undefined) throw new Error("The answer returned no call.");
+    const sessionId = asked.head.sessionId as string;
+    const called: ChatMessage = { role: "assistant", content: asked.content, tool_calls: [{ ...call }] };
+    const asText: ChatMessage = { role: "user", content: "The memory tool said: Saved." };
+
+    // With no session id, the text is a fresh turn of a fresh session.
+    t.adapter.nextScripts.push(reply("Noted."));
+    const fresh = await readStream(await postCompletion(origin(t), token, chatTurn(route, [ask, called, asText], null)));
+    expect(fresh.head.sessionId).not.toBe(sessionId);
+    expect(fresh).toMatchObject({ content: "Noted.", finishReason: "stop" });
+    // With the session's id, it is a message sent to the live run, which still waits on the call.
+    const steering = await postCompletion(origin(t), token, chatTurn(route, [ask, called, asText], sessionId));
+    const steered = readStream(steering);
+    const [, sent] = payloadsOf<MessageSentPayload>(t, sessionId, "message.sent");
+    expect(sent).toMatchObject({ text: "The memory tool said: Saved.", delivery: "queued" });
+    expect(eventsOf(t, sessionId, "tool.ended")).toHaveLength(0);
+
+    // The call is still parked: the tool message answers it, and the model reads the tool's result, not the text.
+    const resumed = await readStream(await postCompletion(origin(t), token, chatTurn(route, [ask, called, { role: "tool", tool_call_id: call.id, content: "Saved." }], sessionId)));
+    expect(resumed.head).toMatchObject({ sessionId, runId: asked.head.runId });
+    expect(resumed.content).toBe("Tool said: Saved.");
+    expect(payloadsOf<{ output: unknown }>(t, sessionId, "tool.ended")).toMatchObject([{ output: "Saved." }]);
+    const steeredAnswer = await steered;
+    expect(steeredAnswer.head).toMatchObject({ sessionId, runId: asked.head.runId, delivery: "queued", messageId: sent?.messageId });
+    expect(steeredAnswer.toolCalls).toEqual([]);
+  });
+});
+
