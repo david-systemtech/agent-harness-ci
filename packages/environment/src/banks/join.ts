@@ -99,7 +99,7 @@ export const joinBank = (options: BankJoinOptions): PreparedCommand<"banks.join"
     }
     context.onUndo(() => rm(checkout, { recursive: true, force: true }));
     await cp(staged, checkout, { recursive: true });
-    const registerParams = { commandId: params.commandId, bankId: params.bankId, path: checkout, role: preview.canPush ? "read-write" as const : "read-only" as const, accounts: params.accounts, repositories: params.repositories, defaultFor: [] };
+    const registerParams = { commandId: params.commandId, bankId: params.bankId, path: checkout, role: preview.canPush ? "read-write" as const : "read-only" as const, accounts: params.accounts, repositories: params.repositories, defaultFor: [], ...(params.copiedFrom !== undefined && { copiedFrom: params.copiedFrom }) };
     const register = await options.register.prepare(registerParams, context);
     return (_params, command) => {
       const answer = register(registerParams, command);
