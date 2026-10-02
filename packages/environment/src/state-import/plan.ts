@@ -1,6 +1,7 @@
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
 import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { planRoutines, type PlanRoutinesOptions } from "./routines.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
 import { planPagePolicy, type PagePolicyOwner } from "./page-policy.js";
 import type { SourceReportStore } from "./source/report-stores.js";
@@ -50,7 +51,7 @@ export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & PagePolicyOwner): Promise<ImportPlan> => {
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanRoutinesOptions, "sourceKey" | "accountPlan" | "routineNames"> & PagePolicyOwner): Promise<ImportPlan> => {
   const { sourceKey, instructions, preferences, profiles, browser } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
@@ -83,6 +84,21 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     if (records.layouts > 0) excluded.push({ label: "Dock layouts", count: records.layouts, step: null });
     if (records.composerSeeds > 0) excluded.push({ label: "Composer seeds", count: records.composerSeeds, step: null });
     planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: defaultItems, notCarried: excluded });
+  }
+  const routineNames = new Set<string>();
+  for (const [read, store, label] of [
+    [stores.desktopRoutines, "desktop-routines", "Desktop Routines"],
+    [stores.serviceRoutines, "service-routines", "Service Routines"],
+  ] as const) {
+    if (read.status === "failed") { failed.push({ label, message: read.diagnostic }); continue; }
+    const part = await planRoutines(read.records, store, { ...options, sourceKey, accountPlan: accounts, routineNames });
+    planned.push({ snapshot: read.snapshot, label, items: part.items });
+    failed.push(...part.failed);
+    for (const omission of part.notCarried) {
+      const index = notCarried.findIndex((item) => item.label === omission.label);
+      if (index < 0) notCarried.push(omission);
+      else notCarried[index] = { ...omission, count: notCarried[index]!.count + omission.count };
+    }
   }
   if (browser.status === "failed") failed.push({ label: "Browser policy", message: browser.diagnostic });
   else {
@@ -151,7 +167,7 @@ const NOTHING_CARRIED: StateImportCarried = {
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
   const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
+    carried: { ...NOTHING_CARRIED, routines: carriedItems.filter((item) => item.kind === "routine").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
     reEnter: [...(plan.repairs?.(applied === null) ?? [])],
     later: plan.stores.flatMap((store) => store.later ?? []),
     notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],

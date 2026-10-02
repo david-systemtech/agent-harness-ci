@@ -71,7 +71,7 @@ The **definition** is what YAML carries:
 
 The **state** is the environment's, never exported: the id (a UUID the client mints, so a create can queue offline); `savedUnderCeiling`, the ceiling of the client session whose create, edit, import or enable last touched it (the permissions spec's name; disable and delete widen nothing and record nothing); who saved it; created and edited times; `movedFrom` and `movedTo` (environment, routine, when); the pre-check baseline; `handledThrough`; the live firing; the last outcome; the failure streak.
 
-Structural problems refuse a save (`invalid_params` with paths). What the environment lacks does not: a routine can be saved before its script, account or endpoint exists, and shows it as attention.
+Structural problems refuse a save (`invalid_params` with paths). What the environment lacks does not: a routine can be saved before its script, account or endpoint exists, and shows it as attention. Manual `routines.enable`, and an edit or document replacement that turns a disabled Routine on, revalidate the Account, model, permissions, skills, script and delivery against the actual caller Ceiling; unmet conditions refuse `conflict` with reason `enable_conditions` and attention codes, leaving the definition and saved Ceiling unchanged (#1171, switch-over specification). Past firing or delivery outcomes do not block a repaired configuration.
 
 ### Schedules
 
