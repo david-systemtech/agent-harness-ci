@@ -35,8 +35,9 @@ function fixture() {
   const scanner = join(dir, "gitleaks");
   writeFileSync(scanner, `#!/usr/bin/env python3\nimport pathlib,sys\nif sys.argv[1:] == ['version']: print('8.30.1'); sys.exit(0)\nassert sys.argv[1] == 'dir' and '--redact' in sys.argv and '--no-banner' in sys.argv\nassert '--ignore-gitleaks-allow' in sys.argv\nassert not (pathlib.Path(sys.argv[-1]) / '.git').exists()\nsys.exit(1 if any(b'fake-secret-for-tests' in p.read_bytes() for p in pathlib.Path(sys.argv[-1]).rglob('*') if p.is_file()) else 0)\n`);
   chmodSync(scanner, 0o755);
-  const publish = (...args: string[]) => execFileSync("python3", [script, "--source", source, "--ref", "HEAD", "--remote", remote, "--version", "1.2.3", "--gitleaks", scanner, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  return { source, remote, scanner, write, commit, publish };
+  const publishWithEnv = (env: NodeJS.ProcessEnv, ...args: string[]) => execFileSync("python3", [script, "--source", source, "--ref", "HEAD", "--remote", remote, "--version", "1.2.3", "--gitleaks", scanner, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } });
+  const publish = (...args: string[]) => publishWithEnv({}, ...args);
+  return { source, remote, scanner, write, commit, publish, publishWithEnv };
 }
 it("publishes a cleaned root snapshot and stacks a second snapshot with a release tag", () => {
   const f = fixture();
@@ -111,6 +112,13 @@ it("checks the committed repository's actual filtered test inventory before the 
   expect(git(f.remote, "for-each-ref")).toBe("");
 }, 120_000);
 
+it("checks UTF-8 tests even when the caller's locale is ASCII", () => {
+  const f = fixture();
+  f.write("test/public.test.ts", "// café\n"); f.commit();
+  f.publishWithEnv({ LC_ALL: "C", PYTHONUTF8: "0", PYTHONCOERCECLOCALE: "0" });
+  expect(git(f.remote, "show", "main:test/public.test.ts")).toBe("// café");
+});
+
 it.skipIf(process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted")("runs the hosted check commands on an actual published-tree fixture", () => {
   const f = fixture();
   git(f.source, "rm", "-q", ".github/workflows/release.yml");
@@ -136,7 +144,7 @@ it.skipIf(process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRO
       throw new Error(`Public checkout: pnpm ${args.join(" ")} failed\n${String(failure.stdout ?? "")}\n${String(failure.stderr ?? "")}`, { cause: error });
     }
   };
-  run(["install", "--frozen-lockfile", "--offline"]);
+  run(["install", "--frozen-lockfile"]);
   run(["typecheck"]);
   run(["lint"]);
   // The publisher test itself is excluded, so this full run cannot recurse.

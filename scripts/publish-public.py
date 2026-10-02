@@ -46,7 +46,7 @@ def check_test_inputs(tree, patterns):
     for file in sorted(tree.rglob('*')):
         if not file.is_file() or not file.name.endswith(('.test.ts', '.test.tsx')):
             continue
-        text = file.read_text()
+        text = file.read_text(encoding='utf-8', errors='replace')
         # Recognise both literal paths and adjacent string arguments to join().
         text = text.replace('\\/', '/').replace('\\.', '.')
         text = re.sub(r'''['"`][ \t]*,[ \t]*['"`]''', '/', text)
@@ -203,7 +203,7 @@ def publish(args):
         except subprocess.CalledProcessError as error:
             locations = []
             try:
-                for finding in json.loads(report.read_text()):
+                for finding in json.loads(report.read_text(encoding='utf-8')):
                     path = Path(finding['File'])
                     if path.is_absolute():
                         path = path.relative_to(tree)
