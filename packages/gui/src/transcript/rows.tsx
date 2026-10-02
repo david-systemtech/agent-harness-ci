@@ -1,6 +1,7 @@
 import {
   attachmentChip,
   endWords,
+  fileUndoWords,
   environmentMessage,
   oneLine,
   promptsIn,
@@ -86,6 +87,8 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
           )}
         </article>
       );
+    case "file-undo":
+      return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
     case "turn":
       return <CostLine run={row.run} />;
     case "opaque":

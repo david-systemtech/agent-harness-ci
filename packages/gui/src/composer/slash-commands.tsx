@@ -27,6 +27,10 @@ export interface WiredCommand {
   readonly description: string;
   /** Runs it with what was typed after its name, trimmed. */
   readonly run: (argument: string) => void;
+  /** Keeps the box while an asynchronous command decides whether it succeeded. */
+  readonly keepComposer: boolean;
+  /** The shared capability reason drawn dim in the slash menu. */
+  readonly unavailable: string | undefined;
 }
 
 /** The commands wired in one part of the window, and who hears them change. */
@@ -83,18 +87,20 @@ const useWiring = (): Wiring => {
  * the GUI column, and for an alias, since no key could then reach it as
  * wired.
  */
-export const useSlashCommand = (name: string, run: (argument: string) => void, offer?: Offer): void => {
+export const useSlashCommand = (name: string, run: (argument: string) => void, offer?: Offer, options: { readonly keepComposer?: boolean } = {}): void => {
   const wiring = useWiring();
   const action = actionById(`command.${name}`);
   if (action === undefined || action.aliasOf !== undefined || action.gui.status !== "wired" || action.usage === undefined) {
     throw new Error(`/${name} is not a slash command the GUI column wires.`);
   }
   const { usage, description } = action;
+  const keepComposer = options.keepComposer === true;
+  const unavailable = offer?.status === "absent" ? offer.message : undefined;
   const latest = useRef(run);
   useLayoutEffect(() => {
     latest.current = run;
   });
-  useEffect(() => wiring.wire({ name, usage, description, run: (argument) => latest.current(argument) }), [wiring, name, usage, description]);
+  useEffect(() => wiring.wire({ name, usage, description, keepComposer, unavailable, run: (argument) => latest.current(argument) }), [wiring, name, usage, description, keepComposer, unavailable]);
   useWindowAction(action.id, () => latest.current(""), offer);
 };
 
