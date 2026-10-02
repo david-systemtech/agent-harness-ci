@@ -264,7 +264,7 @@ export const BankLandedPayload = z
 export type BankLandedPayload = z.infer<typeof BankLandedPayload>;
 
 export const BankLandingFailedPayload = z
-  .object({ bankId: BankId, sessionId: SessionId.nullable(), step: z.string().min(1), reason: z.string().min(1), reviewReleased: z.literal(true).optional().meta({ description: "The held review was closed or replaced and released; drafts remain queued for resubmission." }) })
+  .object({ bankId: BankId, sessionId: SessionId.nullable(), step: z.string().min(1), reason: z.string().min(1), reviewReleased: z.literal(true).optional().meta({ description: "The held review was closed, replaced or failed exact-file verification and was released; drafts remain queued for resubmission." }) })
   .meta({ description: "bank.landing-failed: a landing failed at a step of the Lander, with why." });
 export type BankLandingFailedPayload = z.infer<typeof BankLandingFailedPayload>;
 

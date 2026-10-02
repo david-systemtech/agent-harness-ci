@@ -77,10 +77,21 @@ export const createBankLander = (options: {
       if (!answer.ok || answer.truncated) throw new Error(`Git ${args[0]} failed.`);
       return answer.stdout.toString("utf8").trim();
     };
+    const detachedAt = async (base: string) => {
+      const temporary = options.temporaryDirectory(sessionId ?? bank.id);
+      await mkdir(temporary, { recursive: true, mode: 0o700 });
+      root = await mkdtemp(join(temporary, "bank-landing-"));
+      worktree = join(root, "worktree");
+      await git(bank.checkout, ["worktree", "add", "--detach", worktree, base]);
+      return worktree;
+    };
     const blob = async (cwd: string, ref: string, path: string) => {
       const entries = (await git(cwd, ["--literal-pathspecs", "ls-tree", "-z", ref, "--", path])).split("\0").filter(Boolean);
       const entry = entries[0];
-      if (entries.length !== 1 || entry === undefined || !/^100(?:644|755) blob /.test(entry) || entry.slice(entry.indexOf("\t") + 1) !== path) throw new Error("A landed file is not a regular bank file.");
+      if (entries.length !== 1 || entry === undefined || !/^100(?:644|755) blob /.test(entry) || entry.slice(entry.indexOf("\t") + 1) !== path) {
+        reviewReleased = heldReview(bank.id) !== null;
+        throw new Error("A landed file is not a regular bank file.");
+      }
       const answer = await runGit(cwd, ["show", `${ref}:${path}`], { maxBytes: 64 * 1024 * 1024, signal: controller.signal });
       if (!answer.ok || answer.truncated) throw new Error("A landed file could not be read.");
       return answer.stdout.toString("utf8");
@@ -98,7 +109,10 @@ export const createBankLander = (options: {
       step = "verify";
       for (const [path, content] of Object.entries(writes)) {
         const mismatch = content === null ? await git(bank.checkout, ["--literal-pathspecs", "ls-tree", "-r", "--name-only", head, "--", path]) !== "" : await blob(bank.checkout, head, path) !== content;
-        if (mismatch) throw new Error("A landed file does not match main.");
+        if (mismatch) {
+          reviewReleased = heldReview(bank.id) !== null;
+          throw new Error("A landed file does not match main.");
+        }
       }
       step = "refresh";
       await git(bank.checkout, ["reset", "--hard", head]);
@@ -138,6 +152,7 @@ export const createBankLander = (options: {
           if (!bank.enabled || bank.role !== "read-write") return pending();
           step = "fetch-review-main";
           await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
+          const reviewBase = await git(bank.checkout, ["rev-parse", main]);
           const current = await readBankFiles(bank.checkout, main);
           const parsed = readBankMarkdown(current["BANK.md"] ?? "");
           const currentManifest = BankManifest.safeParse(parsed.ok ? parsed.data : null);
@@ -161,6 +176,17 @@ export const createBankLander = (options: {
           const check = valueOf(await options.forge.pullRequests.validateCheck({ ...target, sha: review.head, signal: controller.signal }));
           if (check === "failure") throw new Error("The bank's validate check failed.");
           if (check !== "success") return pending();
+          step = "validate-merge";
+          await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
+          // A moved main needs a fresh owner decision as well as a new combined-tree validation.
+          if (await git(bank.checkout, ["rev-parse", main]) !== reviewBase) return pending();
+          const combined = await detachedAt(reviewBase);
+          await git(combined, ["-c", "user.name=Bank validation", "-c", "user.email=bank-validation@users.noreply", "merge", "--no-commit", "--no-ff", review.head]);
+          const tree = await git(combined, ["write-tree"]);
+          const verdict = validateBank({ files: await readBankFiles(bank.checkout, tree) });
+          if (!verdict.valid) throw new Error(`The combined main refuses the changes: ${[...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))].join(", ")}.`);
+          await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
+          if (await git(bank.checkout, ["rev-parse", main]) !== reviewBase) return pending();
           step = "merge";
           valueOf(await options.forge.pullRequests.merge({ ...target, expectedHead: review.head }));
         }
@@ -173,11 +199,7 @@ export const createBankLander = (options: {
       step = "fetch";
       if (remote !== null) await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`, `+refs/heads/memory/${(sessionId ?? bank.id).slice(0, 8)}-*:refs/remotes/origin/memory/${(sessionId ?? bank.id).slice(0, 8)}-*`]);
       const base = await git(bank.checkout, ["rev-parse", main]);
-      const temporary = options.temporaryDirectory(sessionId ?? bank.id);
-      await mkdir(temporary, { recursive: true, mode: 0o700 });
-      root = await mkdtemp(join(temporary, "bank-landing-"));
-      worktree = join(root, "worktree");
-      await git(bank.checkout, ["worktree", "add", "--detach", worktree, base]);
+      worktree = await detachedAt(base);
       step = "validate";
       const files = await readBankFiles(worktree);
       const writes: Record<string, string | null> = { ...changes?.writes };

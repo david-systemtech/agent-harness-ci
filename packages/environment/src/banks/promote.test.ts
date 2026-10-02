@@ -442,6 +442,8 @@ it("reports verify failure when a manual merge did not put the reviewed files on
   expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "failed", step: "verify" });
   expect((await h.client.request("banks.get", { bankId: h.bankId })).bank?.status.landing).toMatchObject({ state: "failed", step: "verify" });
   expect((await h.client.request("banks.drafts.list", { sessionId: id })).queues[0]?.drafts).toHaveLength(1);
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toBeNull();
+  expect(JSON.parse((await call(h, id, tool("promote", {})))[0]!.text)).toMatchObject({ state: "awaiting-review", pullRequest: expect.stringContaining("/pulls/2") });
 });
 
 it.each(["pending", "failure"] as const)("keeps an owner-approved change unmerged when validate is %s", async (state) => {
@@ -455,6 +457,43 @@ it.each(["pending", "failure"] as const)("keeps an owner-approved change unmerge
   expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
   h.forge.validateCheck(TOKEN, "maya/memory", sha, "success");
   expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "landed" });
+});
+
+it("validates the combined tree when main adds an orientation requirement during review", async () => {
+  const manifest = personalManifest({ kind: "team", owners: ["david", "sam"] });
+  const h = await remoteBank({ ...PERSONAL_BANK, "BANK.md": markdown(manifest) });
+  scriptLanding(h, "success");
+  await h.t.env.banks.landChanges(h.bankId, { title: "Retire an unused memory", body: "Reviewed retirement.", writes: { "projects/personal/homelab/memories/backup-schedule.md": null } });
+  const sha = git(h.remote, "rev-parse", `memory/${h.bankId.slice(0, 8)}-1`).trim();
+  const editor = tempDir("review-orientation-main-");
+  git(editor, "clone", h.remote, ".");
+  writeFileSync(join(editor, "BANK.md"), markdown({ ...manifest, orientation: ["secrets-layout", "machines-at-a-glance", "backup-schedule"] }));
+  git(editor, "add", "BANK.md"); git(editor, "commit", "-m", "Require the backup schedule for orientation."); git(editor, "push", "origin", "main");
+  h.forge.reviews(TOKEN, "maya/memory", 1, [{ login: "sam", state: "APPROVED", commit: sha }]);
+  git(h.checkout, "config", "user.name", "");
+  git(h.checkout, "config", "user.email", "");
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "failed", step: "validate-merge", reason: expect.stringContaining("orientation_missing") });
+  expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
+  expect(git(h.remote, "show", "main:BANK.md")).toContain("backup-schedule");
+});
+
+it("rechecks owner authority when main moves during the approved head's validate check", async () => {
+  const manifest = personalManifest({ kind: "team", owners: ["david", "sam"] });
+  const h = await remoteBank({ ...PERSONAL_BANK, "BANK.md": markdown(manifest) });
+  scriptLanding(h, "success");
+  await h.t.env.banks.landChanges(h.bankId, { title: "Update reference", body: "Reviewed reference.", writes: { "README.md": "Reviewed reference.\n" } });
+  const sha = git(h.remote, "rev-parse", `memory/${h.bankId.slice(0, 8)}-1`).trim();
+  h.forge.reviews(TOKEN, "maya/memory", 1, [{ login: "sam", state: "APPROVED", commit: sha }]);
+  const editor = tempDir("review-owner-check-race-");
+  git(editor, "clone", h.remote, ".");
+  h.forge.answer(TOKEN, `GET /api/v1/repos/maya/memory/commits/${sha}/statuses`, () => {
+    writeFileSync(join(editor, "BANK.md"), markdown({ ...manifest, owners: ["david", "outsider"] }));
+    git(editor, "add", "BANK.md"); git(editor, "commit", "-m", "Update the current owners."); git(editor, "push", "origin", "main");
+    return { status: 200, body: [{ context: "validate", state: "success" }] };
+  });
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "awaiting-review" });
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "awaiting-review" });
+  expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
 });
 
 it.each(["head", "base", "closed"])("releases a reviewed PR whose %s changed, retaining drafts for resubmission after restart", async (rule) => {
