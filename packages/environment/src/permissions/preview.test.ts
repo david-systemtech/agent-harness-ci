@@ -51,6 +51,47 @@ const contained = (workspace: string): RunContainment => ({
 });
 
 describe("the preview's budget and workspace boundary", () => {
+  it.each(["EACCES", "EIO"])("reports unavailable reads (%s) through the broker preview boundary", async (code) => {
+    const workspace = await tempDir();
+    await mkdir(join(workspace, "build", "nested"), { recursive: true });
+    await writeFile(join(workspace, "build", "one.js"), "keep");
+    await writeFile(join(workspace, "build", "nested", "two.js"), "keep");
+    await writeFile(join(workspace, "protected.txt"), "keep");
+    const scope = { workspace, clock: manualClock(), containment: contained(workspace) };
+    const cannotRead = async (): Promise<never> => { throw { code }; };
+    const programs: string[] = [];
+    const noExec = async (file: string): Promise<never> => { programs.push(file); throw new Error("No program should run"); };
+    for (const command of ["rm *", "rm protected.txt", "echo hi > protected.txt", "shred protected.txt"]) {
+      const lines = await previewLines("permission", { input: { command } }, scope, {
+        readdir: cannotRead, stat: cannotRead, execFile: noExec,
+      });
+      expect(lines).toEqual([expect.stringContaining("⚠ could not preview:")]);
+    }
+    for (const command of ["rm -rf build", "rm build/**/*.js"]) {
+      const lines = await previewLines("permission", { input: { command } }, scope, {
+        readdir: async (path) => {
+          if (path === join(workspace, "build", "nested")) throw { code };
+          return nodeBlastDeps.readdir(path);
+        },
+        execFile: noExec,
+      });
+      expect(lines).toEqual([expect.stringContaining("⚠ could not preview:")]);
+    }
+    expect(await readFile(join(workspace, "protected.txt"), "utf8")).toBe("keep");
+    expect(programs).toEqual([]);
+  });
+
+  it("keeps genuinely absent targets and non-directory components empty through the broker preview boundary", async () => {
+    const workspace = await tempDir();
+    await writeFile(join(workspace, "file.txt"), "keep");
+    const scope = { workspace, clock: manualClock(), containment: contained(workspace) };
+    for (const command of ["rm missing.txt", "rm missing/*.txt", "rm file.txt/child", "rm file.txt/*.txt"]) {
+      expect(await previewLines("permission", { input: { command } }, scope)).toEqual([
+        "⚠ nothing matching is there, so nothing would be deleted",
+      ]);
+    }
+  });
+
   it("shows a no-network boundary without making a network request", async () => {
     const workspace = tempDir();
     expect(await previewLines("permission", { input: { command: "curl https://preview.example.test/notes" } }, { workspace, clock: manualClock(), containment: contained(workspace) }, {

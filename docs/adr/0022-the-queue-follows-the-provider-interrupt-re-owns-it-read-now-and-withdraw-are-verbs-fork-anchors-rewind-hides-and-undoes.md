@@ -26,3 +26,9 @@ Decided 2026-09-24 on the map ticket "Decision: fork, rewind and read-now for qu
 - The client runtime's `projections.runs` exposes the queue per session and the rewound state; `runs:drive` calls never queue in the outbox (ticket 80), so a withdraw on an unreachable environment fails at once with `unreachable`.
 - A fork's message ids are the fork's own; a rewind or withdraw names ids from the session it is issued on.
 - Fog: per-turn workspace snapshots so rewind can restore code; subagents' own queued messages.
+
+## Amendment: visible history is copied at fork (#242)
+
+Decided 2026-09-28 by David on #242: **copy at fork**. In the transaction that creates the fork and appends `session.forked`, the environment records the source's visible items before the requested anchor, or its whole visible transcript without one. The event's `history` seed holds the source title, the requested anchor's text, the items and their run summaries. Clients show it under one folded "Forked from <source title> at <anchored prompt>" row; no "at" for an unanchored fork. Deleting or purging the source does not remove or rename that copy. The extra log size per fork is accepted.
+
+The snapshot carries the same `forked` item, including its seed, so replay, bounded catch-up and compaction show the same row. A fork of a fork flattens the carried history into its one new fold; rewind-hidden items are excluded. Partial assistant output visible during a live source run is frozen in the copy. Copied ids are provenance and read-only, never targets of commands on the new session. The provider continuation's inherited anchor and its history check (#236) remain independent of the visible copy's requested anchor.

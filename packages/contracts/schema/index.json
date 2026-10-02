@@ -687,6 +687,14 @@
       "title": "RunBrowserResolvedPayload"
     },
     {
+      "path": "sessions/events/checks.started.json",
+      "title": "ChecksStartedPayload"
+    },
+    {
+      "path": "sessions/events/checks.finished.json",
+      "title": "ChecksFinishedPayload"
+    },
+    {
       "path": "sessions/events/group.created.json",
       "title": "GroupCreatedPayload"
     },
@@ -1429,6 +1437,14 @@
     {
       "path": "repository-identity.json",
       "title": "RepositoryIdentity"
+    },
+    {
+      "path": "banks/migration-choices.json",
+      "title": "BankMigrationChoices"
+    },
+    {
+      "path": "banks/migration-report.json",
+      "title": "BankMigrationReport"
     },
     {
       "path": "banks/split-pointer.json",
@@ -2243,6 +2259,10 @@
       "title": "RunSummary"
     },
     {
+      "path": "transcript/fork-history.json",
+      "title": "ForkHistory"
+    },
+    {
       "path": "transcript/transcript-item.json",
       "title": "TranscriptItem"
     },
@@ -2789,6 +2809,22 @@
     {
       "path": "state-import/events/state-import.item-carried.json",
       "title": "StateImportItemCarriedPayload"
+    },
+    {
+      "path": "checks/check-command.json",
+      "title": "CheckCommand"
+    },
+    {
+      "path": "checks/workspace-check.json",
+      "title": "WorkspaceCheck"
+    },
+    {
+      "path": "checks/check-failure.json",
+      "title": "CheckFailure"
+    },
+    {
+      "path": "checks/notices/checks.changed.json",
+      "title": "ChecksChangedPayload"
     },
     {
       "path": "settings/settings-key.json",
@@ -5387,6 +5423,22 @@
       "title": "banks.split.apply error"
     },
     {
+      "path": "methods/banks.migrate/params.json",
+      "title": "banks.migrate params"
+    },
+    {
+      "path": "methods/banks.migrate/result.json",
+      "title": "banks.migrate result"
+    },
+    {
+      "path": "methods/banks.migrate/response.json",
+      "title": "banks.migrate response"
+    },
+    {
+      "path": "methods/banks.migrate/error.json",
+      "title": "banks.migrate error"
+    },
+    {
       "path": "methods/banks.join.preview/params.json",
       "title": "banks.join.preview params"
     },
@@ -6325,6 +6377,50 @@
     {
       "path": "methods/terminals.subscribe/error.json",
       "title": "terminals.subscribe error"
+    },
+    {
+      "path": "methods/checks.get/params.json",
+      "title": "checks.get params"
+    },
+    {
+      "path": "methods/checks.get/result.json",
+      "title": "checks.get result"
+    },
+    {
+      "path": "methods/checks.get/error.json",
+      "title": "checks.get error"
+    },
+    {
+      "path": "methods/checks.set/params.json",
+      "title": "checks.set params"
+    },
+    {
+      "path": "methods/checks.set/result.json",
+      "title": "checks.set result"
+    },
+    {
+      "path": "methods/checks.set/response.json",
+      "title": "checks.set response"
+    },
+    {
+      "path": "methods/checks.set/error.json",
+      "title": "checks.set error"
+    },
+    {
+      "path": "methods/checks.run/params.json",
+      "title": "checks.run params"
+    },
+    {
+      "path": "methods/checks.run/result.json",
+      "title": "checks.run result"
+    },
+    {
+      "path": "methods/checks.run/response.json",
+      "title": "checks.run response"
+    },
+    {
+      "path": "methods/checks.run/error.json",
+      "title": "checks.run error"
     },
     {
       "path": "methods/files.list/params.json",
@@ -8146,6 +8242,16 @@
       "error": "methods/banks.split.apply/error.json"
     },
     {
+      "name": "banks.migrate",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.migrate/params.json",
+      "result": "methods/banks.migrate/result.json",
+      "response": "methods/banks.migrate/response.json",
+      "error": "methods/banks.migrate/error.json"
+    },
+    {
       "name": "banks.join.preview",
       "scope": "read",
       "kind": "query",
@@ -8775,6 +8881,35 @@
       "params": "methods/terminals.subscribe/params.json",
       "result": "methods/terminals.subscribe/result.json",
       "error": "methods/terminals.subscribe/error.json"
+    },
+    {
+      "name": "checks.get",
+      "scope": "terminal",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/checks.get/params.json",
+      "result": "methods/checks.get/result.json",
+      "error": "methods/checks.get/error.json"
+    },
+    {
+      "name": "checks.set",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/checks.set/params.json",
+      "result": "methods/checks.set/result.json",
+      "response": "methods/checks.set/response.json",
+      "error": "methods/checks.set/error.json"
+    },
+    {
+      "name": "checks.run",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/checks.run/params.json",
+      "result": "methods/checks.run/result.json",
+      "response": "methods/checks.run/response.json",
+      "error": "methods/checks.run/error.json"
     },
     {
       "name": "files.list",

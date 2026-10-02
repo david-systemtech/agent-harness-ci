@@ -15,6 +15,7 @@ import {
 import { ChromeUpdatedPayload } from "./browser-chromes.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
 import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carry-over.js";
+import { ChecksChangedPayload } from "./checks.js";
 import { ClientCallPayload } from "./client-calls.js";
 import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
@@ -179,6 +180,8 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "carry-over.memory-assigned",
   // A state import ended (#581's contract, #94's build).
   "state-import.finished",
+  // A Workspace directory's check command was set, changed or cleared (#1187): a client reads checks.get again.
+  "checks.changed",
   // A worktree the environment made stayed, unlocked, when the last session naming it was purged
   // (the reaper's notice, which the client runtime raises, #330).
   "workspace.kept",
@@ -267,6 +270,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "carry-over.imported": "Carry over's notice: an import of an adopted account's directory ended, with its counts and what failed; a client reads carryOver.inventory again.",
   "carry-over.memory-assigned": "A memory folder no transcript maps was assigned to a repository and copied; a client reads carryOver.inventory again.",
   "state-import.finished": "A state import ended, with its report and what failed; a client reads stateImport.detect again.",
+  "checks.changed": "A Workspace directory's check command was set, changed or cleared; a client reads checks.get again for its sessions in that directory.",
   "workspace.kept": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why.",
   "chrome.updated": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again.",
   "client.call": "A call addressed to one client session, which answers it with client.answer before its deadline; every other client leaves it alone.",
@@ -530,6 +534,11 @@ const StateImportFinished = describedNotice(
   StateImportFinishedPayload,
   "A state import ended, in the transaction of what it carried: what it carried per kind, what must be entered again, what arrives in milestone 2, what never carries, and what failed.",
 );
+const ChecksChanged = describedNotice(
+  "checks.changed",
+  ChecksChangedPayload,
+  "A Workspace directory's check command was set, changed or cleared by the client session the event's actor names: the canonical directory and its command, null once cleared.",
+);
 const ChromeUpdated = describedNotice(
   "chrome.updated",
   ChromeUpdatedPayload,
@@ -623,6 +632,7 @@ export const EnvironmentNotice = z
     CarryOverImported,
     CarryOverMemoryAssigned,
     StateImportFinished,
+    ChecksChanged,
     WorkspaceKept,
     ChromeUpdated,
     ClientCall,

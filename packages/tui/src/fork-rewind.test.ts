@@ -138,6 +138,20 @@ describe("the prompt picker (Esc Esc)", () => {
     expect(app.frame()).toContain("Receipts · directory receipts");
   });
 
+  it("unfolds copied history before the anchor while the fork's own transcript starts after it", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/fork 1");
+    await app.waitFor("Forked from Receipts at Add the tests");
+    expect(app.frame()).not.toContain("Reply to Fix the receipts.");
+    await cursorTo(app, "Forked from Receipts");
+    await app.press(KEY.enter);
+    await app.waitFor("Reply to Fix the receipts.");
+    expect(app.frame()).not.toContain("Reply to Add the tests.");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => !app.frame().includes("Reply to Fix the receipts."), "copied history folded again");
+  });
+
   it("opens only on two presses of Esc heard together: one Esc, a pause, another, is two single presses", async () => {
     const { app, env } = await launch();
     await converse(app, env, "Fix the receipts", "Add the tests");
