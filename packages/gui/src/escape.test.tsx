@@ -51,6 +51,27 @@ const answers = (env: EnvironmentHandle) => env.requests("permissions.prompts.an
 /** The interrupts the window sent. */
 const interrupts = (env: EnvironmentHandle) => env.requests("runs.interrupt").map((request) => request.params);
 
+describe("fresh GUI stop-key parity", () => {
+  it.each(["Stop", "palette"] as const)("leaves Esc and copy alone while %s interrupts the live run", async (surface) => {
+    const { app, env, session, runId } = await opened();
+    expect(app.presentation.values.read().escStopsRun).toBe(false);
+    expect(app.presentation.values.read().keyRemaps).toEqual({});
+    intoComposer();
+    await esc(app);
+    expect(fireEvent.keyDown(box(), { key: "c", code: "KeyC", ctrlKey: true })).toBe(true);
+    expect(interrupts(env)).toEqual([]);
+    expect(env.liveRun(session)).toBe(runId);
+    if (surface === "Stop") await app.user.click(screen.getByRole("button", { name: "Stop" }));
+    else {
+      await app.user.keyboard("{Control>}k{/Control}");
+      const palette = await screen.findByRole("dialog", { name: "Command palette" });
+      await app.user.click(within(palette).getByRole("option", { name: "Stop the run" }));
+    }
+    await waitFor(() => expect(interrupts(env)).toEqual([expect.objectContaining({ runId })]));
+    await waitFor(() => expect(env.liveRun(session)).toBeUndefined());
+  });
+});
+
 describe("Escape", () => {
   it("closes the palette, run info, a menu and the find bar first, then denies the focused pane's parked prompt, then closes Settings, and with the switch off stops nothing", async () => {
     const { app, env, session } = await opened();

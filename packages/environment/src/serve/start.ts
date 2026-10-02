@@ -1198,7 +1198,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // check asks this (#511), since the caller's tools are its request's alone.
   bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankService.closeLanding());
+  // Either bank worker can be queued behind the other: abort both before awaiting either.
+  closers.push(async () => { await Promise.all([bankSyncer.close(), bankService.closeLanding()]); });
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
   const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
@@ -1907,6 +1908,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentId: record.id,
       coordinator: stateImports,
       createInstruction: instructionHandlers["instructions.create"],
+      forge,
+      managers: keyManagerConnections,
       getSettings: settingsHandlers["settings.get"],
       updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
