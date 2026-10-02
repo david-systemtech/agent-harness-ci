@@ -421,7 +421,7 @@ describe("trust.get's offer", () => {
     });
   });
 
-  it("reads a worktree's settings, commands, subagents and servers from its main checkout, where the provider takes them, and its instructions and skills from the worktree", async () => {
+  it("reads a worktree's settings, commands, subagents, servers and skill roots from its main checkout, where the provider takes them, and its instructions from the worktree, below its root too", async () => {
     const t = await start();
     const client = await t.client();
     const root = repository();
@@ -429,17 +429,31 @@ describe("trust.get's offer", () => {
     git(root, "add", "-A");
     git(root, "commit", "-q", "-m", "instructions and a skill");
     // Only in the main checkout, never committed: what the branch carries is not what a trusted run is given.
-    write(root, { ".claude/commands/review.md": "Review.\n", ".mcp.json": JSON.stringify({ mcpServers: { github: {} } }) });
-    const id = await session(client, { kind: "worktree", repository: root });
-
-    const { offer } = await get(client, id);
-
-    expect(offer).toMatchObject({
-      instructionFiles: ["CLAUDE.md"],
-      skillRoots: [{ root: ".claude/skills", directory: ".", members: 1 }],
-      commands: 1,
-      mcpServers: [{ name: "github", loaded: false }],
+    write(root, {
+      ".claude/commands/review.md": "Review.\n",
+      ".mcp.json": JSON.stringify({ mcpServers: { github: {} } }),
+      ".claude/skills/main-probe/SKILL.md": "---\nname: main-probe\ndescription: Only in the main checkout.\n---\nMain.\n",
     });
+    const made = await session(client, { kind: "worktree", repository: root });
+    // A worktree David made, whose branch carries skills of its own, and a workspace below its root.
+    const worktree = join(tempDir("agent-harness-trust-worktrees-"), "branch");
+    git(root, "worktree", "add", "-q", "-b", "branch", worktree);
+    write(worktree, {
+      ".claude/skills/branch-probe/SKILL.md": "---\nname: branch-probe\ndescription: Only on the branch.\n---\nBranch.\n",
+      ".agents/skills/branch-linked/SKILL.md": "---\nname: branch-linked\ndescription: Only on the branch.\n---\nBranch.\n",
+      "packages/web/.claude/skills/nested/SKILL.md": "---\nname: nested\ndescription: Below the root, on the branch.\n---\nNested.\n",
+    });
+    const own = await session(client, { kind: "directory", path: worktree });
+    const below = await session(client, { kind: "directory", path: join(worktree, "packages", "web") });
+
+    for (const id of [made, own, below]) {
+      expect((await get(client, id)).offer).toMatchObject({
+        instructionFiles: ["CLAUDE.md"],
+        skillRoots: [{ root: ".claude/skills", directory: ".", members: 2 }],
+        commands: 1,
+        mcpServers: [{ name: "github", loaded: false }],
+      });
+    }
   });
 
   it("is empty for a repository that holds nothing trust would load", async () => {
