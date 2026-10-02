@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chownSync, chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { tmpdir } from "node:os";
@@ -39,4 +40,26 @@ it.skipIf(process.getuid?.() === 0).each([{ name: "async", remove: removeTree },
   expect(readFileSync(join(outside, "keep.md"), "utf8")).toBe("keep");
   expect(statSync(join(outside, "keep.md")).mode).toBe(outsideMode);
   await remove(tree);
+});
+
+// A root shard drops uid for the operation, so root cannot mask permission failures.
+it.skipIf(process.getuid?.() !== 0 || process.platform !== "linux").each(["removeTree", "removeTreeSync"] as const)("%s removes another uid's read-only files from an owned tree", (method) => {
+  const tree = tempDir();
+  const shared = join(tree, "shared");
+  mkdirSync(shared);
+  chmodSync(shared, 0o777);
+  writeFileSync(join(shared, "readonly.txt"), "fixture");
+  chmodSync(join(shared, "readonly.txt"), 0o444);
+  chownSync(tree, 65534, 65534);
+  chmodSync(tree, 0);
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import { ${method} } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
+    await ${method}(${JSON.stringify(tree)});
+    console.log(process.getuid());
+  `], { uid: 65534, gid: 65534, encoding: "utf8" });
+
+  expect(child.stderr).toBe("");
+  expect(child.status).toBe(0);
+  expect(child.stdout.trim()).toBe("65534");
+  expect(existsSync(tree)).toBe(false);
 });

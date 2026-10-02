@@ -7,8 +7,13 @@ const makeTreeWritable = async (path: string): Promise<void> => {
   try {
     const found = await lstat(path);
     if (found.isSymbolicLink()) return;
-    await chmod(path, found.mode | (found.isDirectory() ? 0o700 : 0o200));
-    if (found.isDirectory()) for (const entry of await readdir(path)) await makeTreeWritable(join(path, entry));
+    if (found.isDirectory()) {
+      if ((found.mode & 0o700) !== 0o700) await chmod(path, found.mode | 0o700);
+      for (const entry of await readdir(path)) await makeTreeWritable(join(path, entry));
+    } else if (process.platform === "win32" && (found.mode & 0o200) === 0) {
+      // POSIX unlink needs access to the parent, even when another uid owns the file.
+      await chmod(path, found.mode | 0o200);
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
@@ -25,8 +30,12 @@ const makeWritableSync = (path: string): void => {
   try {
     const found = lstatSync(path);
     if (found.isSymbolicLink()) return;
-    chmodSync(path, found.mode | (found.isDirectory() ? 0o700 : 0o200));
-    if (found.isDirectory()) for (const entry of readdirSync(path)) makeWritableSync(join(path, entry));
+    if (found.isDirectory()) {
+      if ((found.mode & 0o700) !== 0o700) chmodSync(path, found.mode | 0o700);
+      for (const entry of readdirSync(path)) makeWritableSync(join(path, entry));
+    } else if (process.platform === "win32" && (found.mode & 0o200) === 0) {
+      chmodSync(path, found.mode | 0o200);
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }

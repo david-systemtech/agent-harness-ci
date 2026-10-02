@@ -89,7 +89,7 @@ export const exportSnapshot = async (checkout: string, folder: string, path: str
   await walk(path, (entry, mode) => chmod(entry, mode & ~0o222));
 };
 
-/** Removes the snapshot at `path`, giving its files and folders their write permission back first. */
+/** Removes the snapshot at `path`, restoring the access needed to delete its contents first. */
 export const removeSnapshot = removeTree;
 
 /** A snapshot as the store answers it: where it lies, and whether this call made it rather than finding it there. */
