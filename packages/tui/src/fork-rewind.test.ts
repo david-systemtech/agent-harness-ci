@@ -1,4 +1,4 @@
-import { describe, afterEach, expect, it } from "vitest";
+import { describe, afterEach, expect, it, onTestFinished } from "vitest";
 import { KEY, renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 import { STOP_WAIT_MS } from "@agent-harness/client-runtime";
 
@@ -102,6 +102,48 @@ const cursorTo = async (app: RenderedApp, text: string) => {
   throw new Error(`The cursor never reached ${text}; the frame is:\n${app.frame()}`);
 };
 
+describe("live-source fork parity", () => {
+  it("forks from a user row without stopping the source and keeps its inherited state and copied history independent", async () => {
+    const { app, env } = await launch({ sessions: [{ title: "Receipts", tags: ["billing"], groupId: GROUP,
+      accountId: "account-1", pinnedAt: "2026-10-01T00:00:00.000Z", pinOrderKey: "b", settledAt: "2026-10-01T00:00:00.000Z",
+      workspace: { kind: "directory", path: "/home/seth/receipts" } }] });
+    await converse(app, env, "Fix the receipts");
+    await send(app, "Add the tests");
+    await app.waitFor("steer or queue a message");
+    const runId = env.liveRun(SESSION) ?? "";
+    env.list.change(SESSION, { archivedAt: "2026-10-01T00:00:00.000Z" });
+    const source = app.runtime().projections.session(env.environmentId, SESSION);
+    onTestFinished(source.subscribe(() => undefined));
+    await cursorTo(app, "Add the tests");
+    await app.press("f");
+    await app.waitFor("Forked from Receipts at Add the tests");
+    await app.waitUntil(() => composerRow(app).includes("Add the tests"), "the fork's anchored draft");
+    expect(params(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: SESSION, atMessageId: idOf(env, "Add the tests") })]);
+    expect(params(env, "runs.interrupt")).toEqual([]);
+    expect(env.liveRun(SESSION)).toBe(runId);
+    const fork = app.runtime().projections.session(env.environmentId, forkId(env));
+    expect(fork.read().summary).toMatchObject({ title: "Receipts", titleSource: "generated", tags: ["billing"], groupId: GROUP,
+      accountId: "account-1", draft: "Add the tests", workspace: { kind: "directory", path: "/home/seth/receipts" },
+      pinnedAt: null, pinOrderKey: null, archivedAt: null, settledAt: null });
+    env.emit(SESSION, "session.title-set", { title: "Source renamed", source: "user" }, { fields: { title: "Source renamed", titleSource: "user" } });
+    env.emit(SESSION, "assistant.text", { runId, itemId: "later", text: "Still working on the source.", aborted: false });
+    await app.waitUntil(() => source.read().items.some((item) => item.kind === "assistant-text" && item.text === "Still working on the source."), "the source's continuing output");
+    await cursorTo(app, "Forked from Receipts");
+    await app.press(KEY.enter);
+    await app.waitFor("Reply to Fix the receipts.");
+    expect(app.frame()).not.toContain("Reply to Add the tests.");
+    expect(app.frame()).not.toContain("Still working on the source.");
+    expect(fork.read().summary?.title).toBe("Receipts");
+    expect(env.liveRun(SESSION)).toBe(runId);
+
+    env.endRun(SESSION, runId, { reason: "interrupted" });
+    expect(await app.runtime().commands.dispatch(env.environmentId, "sessions.delete", { sessionId: SESSION })).toMatchObject({ ok: true });
+    await app.press(KEY.enter, KEY.enter);
+    await app.waitFor("Reply to Fix the receipts.");
+    expect(fork.read().summary?.title).toBe("Receipts");
+  });
+});
+
 describe("the prompt picker (Esc Esc)", () => {
   it("lists the session's prompts, the newest under the cursor, says files are not restored, and rewinds to the row with Enter", async () => {
     const { app, env } = await launch();
@@ -136,6 +178,20 @@ describe("the prompt picker (Esc Esc)", () => {
     const fork = app.runtime().projections.sessionList.read().rows.find((row) => row.summary.id === forkId(env))?.summary;
     expect(fork).toMatchObject({ title: "Receipts", tags: ["billing"], groupId: GROUP, draft: "Fix the receipts" });
     expect(app.frame()).toContain("Receipts · directory receipts");
+  });
+
+  it("unfolds copied history before the anchor while the fork's own transcript starts after it", async () => {
+    const { app, env } = await launch();
+    await converse(app, env, "Fix the receipts", "Add the tests");
+    await command(app, "/fork 1");
+    await app.waitFor("Forked from Receipts at Add the tests");
+    expect(app.frame()).not.toContain("Reply to Fix the receipts.");
+    await cursorTo(app, "Forked from Receipts");
+    await app.press(KEY.enter);
+    await app.waitFor("Reply to Fix the receipts.");
+    expect(app.frame()).not.toContain("Reply to Add the tests.");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => !app.frame().includes("Reply to Fix the receipts."), "copied history folded again");
   });
 
   it("opens only on two presses of Esc heard together: one Esc, a pause, another, is two single presses", async () => {
@@ -284,9 +340,15 @@ describe("/rewind and /fork", () => {
     await command(app, "/rewind 2");
     await app.waitFor("Rewound to Add the tests · /rewind undo");
     expect(params(env, "sessions.rewind")).toEqual([expect.objectContaining({ messageId: idOf(env, "Add the tests") })]);
+    const view = app.runtime().projections.session(env.environmentId, SESSION);
+    expect(view.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts"]);
+    expect(view.read().runs).toHaveLength(3);
     await command(app, "/rewind undo");
     await app.waitFor("Reply to Write the docs.");
     expect(params(env, "sessions.undoRewind")).toEqual([expect.objectContaining({ sessionId: SESSION })]);
+    expect(view.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts", "Add the tests", "Write the docs"]);
+    expect(view.read().runs).toHaveLength(3);
+    expect(params(env, "runs.start")).toHaveLength(3);
     await app.waitUntil(() => !app.frame().includes("/rewind undo"), "the strip to go with the undo");
     await command(app, "/rewind");
     await app.waitFor("Rewound to Write the docs · /rewind undo");

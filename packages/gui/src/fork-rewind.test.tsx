@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { STOP_WAIT_MS } from "@agent-harness/client-runtime";
 import type { FakeAnswer } from "@agent-harness/client-runtime/testing/fake-wire";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -12,8 +12,8 @@ import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvir
  * "Stop and rewind here" while a live run can be stopped for it; a rewind to
  * the first message opens the session the runtime starts; after a rewind
  * one fold at the rewind point, Undo rewind on it and the rewound strip over
- * the composer; and a fork opens on its `forked` row, which opens its
- * source. Driven through the harness over the scripted environment.
+ * the composer; and a fork opens on its `forked` row with copied history and an
+ * explicit source link. Driven through the harness over the scripted environment.
  */
 
 const WORK = { provider: "claude", email: "seth@work.test", organisation: null };
@@ -141,14 +141,83 @@ describe("Fork", () => {
     const forked = await within(pane).findByRole("button", { name: "Forked from Receipts at Add the tests" });
     expect(within(pane).queryByText("Nothing said yet.")).toBeNull();
 
-    // And it opens the source.
+    expect(forked.getAttribute("aria-expanded")).toBe("false");
+    expect(within(pane).queryByText("Reply to Fix the receipts.")).toBeNull();
     await app.user.click(forked);
+    const history = within(pane).getByRole("group", { name: "Copied fork history" });
+    expect(within(history).getByText("Reply to Fix the receipts.")).toBeTruthy();
+    expect(within(history).queryByText("Reply to Add the tests.")).toBeNull();
+    await app.user.hover(within(history).getByText("Fix the receipts"));
+    expect(within(history).queryByRole("button", { name: "Fork" })).toBeNull();
+    await app.user.click(within(pane).getByRole("button", { name: "Open source session" }));
     await waitFor(() => expect(inPane(app)).toEqual({ environmentId: env.environmentId, sessionId: session }));
     expect(await screen.findByText("Reply to Add the tests.")).toBeTruthy();
   });
 });
 
+describe("live-source fork parity", () => {
+  it("keeps the source running and freezes its carried title, organisation, workspace and copied conversation", async () => {
+    const { app, env, transcript, session } = await opened({
+      groups: [{ id: "0199bb00-0000-4000-8000-000000000001", name: "Money" }],
+      sessions: [{ title: "Receipts", accountId: "account-1", tags: ["billing"], groupId: "0199bb00-0000-4000-8000-000000000001",
+        pinnedAt: "2026-10-01T00:00:00.000Z", pinOrderKey: "b", settledAt: "2026-10-01T00:00:00.000Z",
+        workspace: { kind: "directory", path: "/home/seth/receipts" } }],
+    });
+    await converse(env, session, transcript, "Fix the receipts");
+    const { runId, messageId } = env.startRun(session, "Add the tests");
+    await within(transcript).findByText("Add the tests");
+    env.list.change(session, { archivedAt: "2026-10-01T00:00:00.000Z" });
+    const source = app.runtime.projections.session(env.environmentId, session);
+    onTestFinished(source.subscribe(() => undefined));
+    await app.user.click(within(await actionsOn(app, transcript, "Add the tests")).getByRole("button", { name: "Fork" }));
+    const forkId = String(sent(env, "sessions.fork")[0]?.["id"]);
+    await waitFor(() => expect(inPane(app)?.sessionId).toBe(forkId));
+    await waitFor(() => expect(box().value).toBe("Add the tests"));
+    expect(sent(env, "sessions.fork")).toEqual([expect.objectContaining({ sessionId: session, atMessageId: messageId })]);
+    expect(sent(env, "runs.interrupt")).toEqual([]);
+    expect(env.liveRun(session)).toBe(runId);
+    const fork = app.runtime.projections.session(env.environmentId, forkId);
+    expect(fork.read().summary).toMatchObject({ title: "Receipts", titleSource: "generated", tags: ["billing"],
+      groupId: "0199bb00-0000-4000-8000-000000000001", accountId: "account-1", draft: "Add the tests",
+      workspace: { kind: "directory", path: "/home/seth/receipts" }, pinnedAt: null, pinOrderKey: null, archivedAt: null, settledAt: null });
+
+    // The source changes after the copy; neither its new title nor its ongoing output changes the fork.
+    env.emit(session, "session.title-set", { title: "Source renamed", source: "user" }, { fields: { title: "Source renamed", titleSource: "user" } });
+    env.emit(session, "assistant.text", { runId, itemId: "later", text: "Still working on the source.", aborted: false });
+    await waitFor(() => expect(source.read().items).toContainEqual(expect.objectContaining({ text: "Still working on the source." })));
+    const pane = screen.getByRole("region", { name: "Transcript" });
+    await app.user.click(within(pane).getByRole("button", { name: "Forked from Receipts at Add the tests" }));
+    const history = within(pane).getByRole("group", { name: "Copied fork history" });
+    expect(within(history).getByText("Reply to Fix the receipts.")).toBeTruthy();
+    expect(within(history).queryByText("Add the tests")).toBeNull();
+    expect(within(pane).queryByText("Still working on the source.")).toBeNull();
+    expect(fork.read().summary?.title).toBe("Receipts");
+    expect(env.liveRun(session)).toBe(runId);
+
+    env.endRun(session, runId, { reason: "interrupted" });
+    expect(await app.runtime.commands.dispatch(env.environmentId, "sessions.delete", { sessionId: session })).toMatchObject({ ok: true });
+    await app.user.click(within(pane).getByRole("button", { name: "Forked from Receipts at Add the tests" }));
+    await app.user.click(within(pane).getByRole("button", { name: "Forked from Receipts at Add the tests" }));
+    expect(within(within(pane).getByRole("group", { name: "Copied fork history" })).getByText("Reply to Fix the receipts.")).toBeTruthy();
+  });
+});
+
 describe("the forked row", () => {
+  it("opens copied history without subscribing to a source that is gone", async () => {
+    const { app, env, transcript, session } = await opened();
+    const source = "0199a100-0000-4000-8000-000000000003";
+    const runId = "0199a100-0000-4000-8000-000000000004";
+    env.emit(session, "session.forked", {
+      fromSessionId: source, atMessageId: null, fromProviderSessionId: null,
+      history: { title: "Purged source", anchor: null, runs: [], items: [
+        { kind: "assistant-text", sequence: 1, runId, itemId: "copied", text: "The saved conversation.", aborted: false },
+      ] },
+    });
+    await app.user.click(await within(transcript).findByRole("button", { name: "Forked from Purged source" }));
+    expect(within(within(transcript).getByRole("group", { name: "Copied fork history" })).getByText("The saved conversation.")).toBeTruthy();
+    expect(sent(env, "sessions.subscribeSession").filter((params) => params["sessionId"] === source)).toEqual([]);
+  });
+
   it("names the source alone for a fork of the whole session, as the status line's hand-off makes, and is drawn only on the fork", async () => {
     const { app, env, transcript, session } = await opened();
     await converse(env, session, transcript, "Fix the receipts");
@@ -235,6 +304,9 @@ const rewoundToSecond = async (more: Partial<ScriptedEnvironment> = {}) => {
 describe("Undo rewind", () => {
   it("is offered on the fold and over the composer, and takes the rewind back with sessions.undoRewind: the branch in place, the strip gone", async () => {
     const { app, env, transcript, session } = await rewoundToSecond();
+    const view = app.runtime.projections.session(env.environmentId, session);
+    expect(view.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts"]);
+    expect(view.read().runs).toHaveLength(3);
     const shown = strip() as HTMLElement;
     expect(shown.textContent).toContain("Rewound to Add the tests");
     expect(within(shown).getByRole("button", { name: "Undo" })).toBeTruthy();
@@ -245,6 +317,9 @@ describe("Undo rewind", () => {
     expect(within(transcript).queryByRole("button", { name: /^Rewound: / })).toBeNull();
     await waitFor(() => expect(strip()).toBeNull());
     await waitFor(() => expect(box().value).toBe(""));
+    expect(view.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts", "Add the tests", "Write the docs"]);
+    expect(view.read().runs).toHaveLength(3);
+    expect(sent(env, "runs.start")).toEqual([]);
   });
 
   it("from the strip sends what this window typed first, so the draft from before the rewind is the environment's to put back", async () => {

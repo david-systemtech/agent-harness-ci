@@ -895,7 +895,7 @@ describe("session continuity", () => {
     const forkId = forked["agent-harness"].sessionId as string;
     expect(forkId).not.toBe(sessionId);
     const [record] = ofType(t, forkId, "session.forked");
-    expect(record?.payload).toEqual({ fromSessionId: sessionId, atMessageId: anchor, fromProviderSessionId: "provider-1" });
+    expect(record?.payload).toMatchObject({ fromSessionId: sessionId, atMessageId: anchor, fromProviderSessionId: "provider-1", history: { anchor: "Second" } });
     expect(record?.actor).toBe(`client_session:${clientSessionId}`);
     // The fork's first run continues the source's conversation up to the anchor: the request's earlier messages are not replayed.
     expect(t.adapter.lastRun().input).toMatchObject({ sessionId: forkId, target: { kind: "fork", providerSessionId: "provider-1", atMessageId: anchor } });

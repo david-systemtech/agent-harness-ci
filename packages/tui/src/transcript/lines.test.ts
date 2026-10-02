@@ -63,6 +63,20 @@ const view = (items: readonly TranscriptEntry[], runs: readonly RunSummary[] = [
 const CONTEXT: LineContext = { width: 80, expanded: false };
 const shown = (lines: ReturnType<typeof transcriptLines>) => lines.map(lineText).filter((line) => line.length > 0);
 
+describe("Workspace check rows", () => {
+  it("draws the command, status and retained output without making an agent turn", () => {
+    const rows = transcriptRows(view([
+      { kind: "check", sequence: 1, terminalId: "terminal-1", command: "pnpm lint", sourceRunId: null, state: "running", result: null },
+      { kind: "check", sequence: 2, terminalId: "terminal-2", command: "pnpm typecheck", sourceRunId: RUN, state: "finished", result: { output: "Type error\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null } },
+    ]));
+    const lines = shown(transcriptLines(rows, CONTEXT)).join("\n");
+    expect(lines).toContain("$ pnpm lint · running");
+    expect(lines).toContain("$ pnpm typecheck · exit 1");
+    expect(lines).toContain("Earlier output omitted");
+    expect(lines).toContain("Type error");
+  });
+});
+
 describe("an opaque row's line", () => {
   it("keeps an entry it cannot show as an opaque row", () => {
     const rows = transcriptRows(view([{ kind: "opaque", sequence: 1, type: "weird.new-thing", payload: {} }]));
@@ -123,6 +137,15 @@ describe("a fork's first row", () => {
     expect(shown(transcriptLines(rows.slice(0, 1), { ...CONTEXT, forkedFrom: { title: "Receipts", anchor: "Then the tests" } }))).toEqual([
       "⑂ Forked from Receipts at Then the tests · o opens it",
     ]);
+  });
+
+  it("names and unfolds the independent seed after the source is gone", () => {
+    const copied = message(1, "Fix the receipts");
+    if (copied.kind !== "user-message") throw new Error("Expected a user message.");
+    const seeded = transcriptRows(view([{ kind: "forked", sequence: 4, fromSessionId: "s-source", atMessageId: "m-2",
+      history: { title: "Receipts", anchor: "Add the tests", items: [copied], runs: [] } }]));
+    expect(shown(transcriptLines(seeded, CONTEXT))).toEqual(["⑂ Forked from Receipts at Add the tests · o opens it · Enter unfolds"]);
+    expect(shown(transcriptLines(seeded, { ...CONTEXT, expanded: true }))).toEqual(["⑂ Forked from Receipts at Add the tests", "┊ ", "┊ ▌ Fix the receipts"]);
   });
 
   it("names what it knows: another session while the source is not read, no prompt for a fork of the whole session; and no key in the pager", () => {
