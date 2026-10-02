@@ -145,6 +145,18 @@ describe("the task ledger", () => {
     expect(tasks.dirty).toBe(false);
   });
 
+  it("reports no change, and stays clean, when a message repeats what the row already holds", () => {
+    const { tasks } = ledger();
+    tasks.observe(started({ task_id: "t1", description: "Explore the parser", subagent_type: "Explore", tool_use_id: "toolu_1" }));
+    tasks.snapshot();
+    expect(tasks.observe(progress({ task_id: "t1", description: "Explore the parser", usage: { total_tokens: 1, tool_uses: 1, duration_ms: 1 } }))).toBe(false);
+    expect(tasks.observe(started({ task_id: "t1", description: "Explore the parser" }))).toBe(false);
+    expect(tasks.observe(updated("t1", { description: "Explore the parser" }))).toBe(false);
+    expect(tasks.dirty).toBe(false);
+    expect(tasks.observe(progress({ task_id: "t1", description: "Explore the lexer" }))).toBe(true);
+    expect(tasks.dirty).toBe(true);
+  });
+
   it("counts the live rows", () => {
     const { tasks } = ledger();
     tasks.observe(level({ task_id: "t1" }, { task_id: "t2" }));
