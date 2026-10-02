@@ -350,9 +350,9 @@ const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineConte
 };
 
 /**
- * A fork's first row (#390): one line naming the session it was forked from
- * and the prompt it was taken at, as far as its source shows them, with the
- * key that opens the source (not in the pager, which opens nothing).
+ * A fork's first row (#242): the copied source title and anchor, closed
+ * until unfolded, with its saved conversation under it. Older forks name
+ * the source from its projection; the open key still opens that source.
  */
 const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext): Line[] => {
   const { title, anchor } = row.entry.history ?? context.forkedFrom ?? { title: null, anchor: null };

@@ -85,10 +85,9 @@ import type { SessionLease } from "../streams/streams.js";
  *   as the snapshot has them;
  * - **`session.forked`** is a fork's first entry, `forked` (#390): the
  *   session it was forked from and the user message it was taken before
- *   (null for the whole session), as the event names them. The fork's own
- *   stream starts at its creation, so nothing of the source's history is
- *   among its entries; a renderer names the source from the source's own
- *   projection (`forkedFrom`, `transcript/rows.ts`);
+ *   (null for the whole session), with the visible history copied at fork
+ *   under its folded row (#242). Older forks without a seed name the source
+ *   from its projection (`forkedFrom`, `transcript/rows.ts`);
  * - **`session.rewound`** cuts the message rewound to and every entry after
  *   it out of the transcript (they stay in the log; ADR 0022) into one
  *   `rewound` fold at the rewind point (#230): the cut branch, never mixed
@@ -208,9 +207,9 @@ export type HistoryUnreadableEntry = SnapshotItem<"history-unreadable">;
 
 /**
  * A fork's first entry (#390): where it came from, as its `session.forked`
- * names it. The fork's stream holds nothing of its source's history, so a
- * renderer draws this as one row naming the source and the message, which
- * opens the source.
+ * names it, with the source's visible history copied under one folded row
+ * (#242). The source and anchor labels are frozen with that copy; older
+ * forks without a seed read those labels from the source.
  */
 export interface ForkedEntry {
   readonly kind: "forked";

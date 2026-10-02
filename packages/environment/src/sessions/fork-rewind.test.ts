@@ -87,7 +87,7 @@ describe("sessions.fork", () => {
     const t = await start();
     const client = await t.client();
     const source = await create(client, { title: "Receipts" });
-    await runTo(t, client, source.id, "Fix the receipts");
+    const first = await runTo(t, client, source.id, "Fix the receipts");
     const second = await runTo(t, client, source.id, "Add the tests");
     const anchored = randomUUID();
     const whole = randomUUID();
@@ -98,6 +98,7 @@ describe("sessions.fork", () => {
 
     const before = await snapshotOf(t, client, anchored);
     const end = await snapshotOf(t, client, whole);
+    expect(before.items[0]).toMatchObject({ history: { runs: [expect.objectContaining({ runId: first.runId })] } });
     expect(before.items).toEqual([expect.objectContaining({ kind: "forked", fromSessionId: source.id,
       history: expect.objectContaining({ title: "Receipts", anchor: "Add the tests", items: [
         expect.objectContaining({ kind: "user-message", text: "Fix the receipts" }),

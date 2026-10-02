@@ -595,22 +595,21 @@ const OpaqueItem = z
   .meta({ description: "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type." });
 
 /** One settled item of a session's transcript, in the order it came; unknown kinds are opaque. */
-const ForkHistoryItem = z
-  .union([
-    UserMessageItem,
-    assistantItem("assistant-text", "text"),
-    assistantItem("assistant-thinking", "thinking"),
-    ToolCallItem,
-    CommandItem,
-    TasksItem,
-    PromptItem,
-    HistoryUnreadableItem,
-    ...UpdateInterruptedItems,
-    OpaqueItem,
-  ])
+const historyItemSchemas = [
+  UserMessageItem,
+  assistantItem("assistant-text", "text"),
+  assistantItem("assistant-thinking", "thinking"),
+  ToolCallItem,
+  CommandItem,
+  TasksItem,
+  PromptItem,
+  HistoryUnreadableItem,
+] as const;
+
+const ForkHistoryItem = z.union([...historyItemSchemas, ...UpdateInterruptedItems, OpaqueItem])
   .meta({
     description:
-      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque.",
+      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque.",
   });
 /** The copied content of a fork. Earlier fork seeds are flattened into these items; rewind-hidden branches are excluded. */
 export const ForkHistory = z.object({
@@ -629,7 +628,7 @@ const ForkedItem = z.object({
   history: ForkHistory.optional(),
 }).meta({ description: "A fork's folded row with the source's copied visible history; retained in session snapshots." });
 
-export const TranscriptItem = z.union([...ForkHistoryItem.options.slice(0, -1), ForkedItem, OpaqueItem]).meta({ description: "One transcript item, including a fork's copied history fold; unknown kinds are opaque." });
+export const TranscriptItem = z.union([...historyItemSchemas, ForkedItem, ...UpdateInterruptedItems, OpaqueItem]).meta({ description: "One transcript item, including a fork's copied history fold; unknown kinds are opaque." });
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
 
 /**

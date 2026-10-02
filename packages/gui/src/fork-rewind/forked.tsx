@@ -3,25 +3,21 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Fold } from "../ui/index.js";
 import { useOpenInPane } from "../session/pane-line.js";
 import { Marked } from "../transcript/find.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useFollowed, useObservable, useRuntime } from "../window-context.js";
 import { useSessionForkRewind } from "./session-fork-rewind.js";
 
 /**
- * A fork's first row (docs/specs/gui.md, "A session pane"; #390's `forked`
- * entry; #403): "Forked from <source title> at <prompt>", which opens the
- * source in the pane. The title and the prompt are read from the source's
- * own projection (`forkedFrom`), which the row follows while it is drawn;
- * the session list's title stands in until the source loads, and "another
- * session" for a title not known. "at <prompt>" is left out for a fork of
- * the whole session and while the source does not show the prompt. It holds
- * nothing of the source's conversation: that is #242's seed.
+ * A fork's saved history under one folded row (#242), named by its copied
+ * source title and requested anchor. The source link opens the original
+ * session when it remains available. Older forks without a seed name it
+ * from the source projection and the session list (#390, #403).
  */
 export const ForkedRow = ({ entry, children }: { readonly entry: ForkedEntry; readonly children?: ReactNode }) => {
   const [expanded, setExpanded] = useState(false);
   const runtime = useRuntime();
   const { environmentId } = useSessionForkRewind();
   const openInPane = useOpenInPane();
-  const source = useObservable(useMemo(() => runtime.projections.session(environmentId, entry.fromSessionId), [runtime, environmentId, entry.fromSessionId]));
+  const source = useFollowed(useMemo(() => entry.history === undefined ? runtime.projections.session(environmentId, entry.fromSessionId) : undefined, [runtime, environmentId, entry.fromSessionId, entry.history]));
   const list = useObservable(runtime.projections.sessionList);
   const from = forkedFrom(entry, source);
   const listed = list.rows.find((row) => row.environmentId === environmentId && row.summary.id === entry.fromSessionId.toLowerCase())?.summary.title;

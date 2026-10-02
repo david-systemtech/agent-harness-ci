@@ -2243,6 +2243,10 @@
       "title": "RunSummary"
     },
     {
+      "path": "transcript/fork-history.json",
+      "title": "ForkHistory"
+    },
+    {
       "path": "transcript/transcript-item.json",
       "title": "TranscriptItem"
     },

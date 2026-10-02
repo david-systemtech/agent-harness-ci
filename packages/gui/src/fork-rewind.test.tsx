@@ -156,6 +156,21 @@ describe("Fork", () => {
 });
 
 describe("the forked row", () => {
+  it("opens copied history without subscribing to a source that is gone", async () => {
+    const { app, env, transcript, session } = await opened();
+    const source = "0199a100-0000-4000-8000-000000000003";
+    const runId = "0199a100-0000-4000-8000-000000000004";
+    env.emit(session, "session.forked", {
+      fromSessionId: source, atMessageId: null, fromProviderSessionId: null,
+      history: { title: "Purged source", anchor: null, runs: [], items: [
+        { kind: "assistant-text", sequence: 1, runId, itemId: "copied", text: "The saved conversation.", aborted: false },
+      ] },
+    });
+    await app.user.click(await within(transcript).findByRole("button", { name: "Forked from Purged source" }));
+    expect(within(within(transcript).getByRole("group", { name: "Copied fork history" })).getByText("The saved conversation.")).toBeTruthy();
+    expect(sent(env, "sessions.subscribeSession").filter((params) => params["sessionId"] === source)).toEqual([]);
+  });
+
   it("names the source alone for a fork of the whole session, as the status line's hand-off makes, and is drawn only on the fork", async () => {
     const { app, env, transcript, session } = await opened();
     await converse(env, session, transcript, "Fix the receipts");

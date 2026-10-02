@@ -1080,9 +1080,10 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       if (item.kind === "subagent") return item.calls.map((call) => TranscriptItem.parse(call));
       return [TranscriptItem.parse(item.kind === "question" || item.kind === "plan" ? { ...item, kind: "prompt" } : item)];
     });
-    const history = { title: source.title, anchor: anchor?.text ?? null,
-      items: copied.filter((item) => item.sequence < (anchor?.sequence ?? Number.POSITIVE_INFINITY)),
-      runs: [...transcript.runs, ...transcript.items.flatMap((item) => item.kind === "forked" ? item.history?.runs ?? [] : [])],
+    const items = copied.filter((item) => item.sequence < (anchor?.sequence ?? Number.POSITIVE_INFINITY));
+    const copiedRuns = new Set(items.flatMap((item) => "runId" in item && typeof item.runId === "string" ? [item.runId] : []));
+    const history = { title: source.title, anchor: anchor?.text ?? null, items,
+      runs: [...transcript.runs, ...transcript.items.flatMap((item) => item.kind === "forked" ? item.history?.runs ?? [] : [])].filter((run) => copiedRuns.has(run.runId)),
     };
     // In the environment's order: created, title-generated, draft-set, forked.
     emit(

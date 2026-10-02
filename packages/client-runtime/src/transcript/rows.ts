@@ -71,7 +71,7 @@ export type TranscriptRow =
   | { readonly kind: "subagent"; readonly id: string; readonly runId: string; readonly entry: SubagentEntry }
   | { readonly kind: "turn"; readonly id: string; readonly runId: string; readonly run: RunSummary }
   | { readonly kind: "opaque"; readonly id: string; readonly runId: null; readonly entry: OpaqueEntry }
-  /** A fork's first row: the session it was forked from and the message it was taken before, which opening the row opens. */
+  /** A fork's first row: its frozen source and anchor labels, with copied history under a fold; older forks have no copied rows. */
   | { readonly kind: "forked"; readonly id: string; readonly runId: null; readonly entry: ForkedEntry; readonly rows: readonly TranscriptRow[] }
   /** An imported session's line saying its history could not be read from the account's directory, and why (#579). */
   | { readonly kind: "history-unreadable"; readonly id: string; readonly runId: null; readonly entry: HistoryUnreadableEntry }
