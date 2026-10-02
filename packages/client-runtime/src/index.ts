@@ -303,6 +303,7 @@ export type {
   CommandEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
+  FileUndoEntry,
   OpaqueEntry,
   PromptEntry,
   PromptState,
@@ -673,3 +674,5 @@ export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
 
 export { terminalAnswers } from "./terminals/answers.js";
 export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";
+
+export { undoFile, fileUndoWords, type FileUndoResult } from "./files/undo.js";
