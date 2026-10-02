@@ -1,6 +1,7 @@
+import { removeTreeSync } from "../serve/remove-tree.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { cp, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { ARTEFACT_CLI_ENTRY, ARTEFACT_CLI_PACKAGE, artefactNode } from "@agent-harness/contracts";
@@ -138,20 +139,20 @@ export const stageArtefact = async (options: {
     if (shape === "archive") await options.unpack(artefact, partial);
     else await cp(await realpath(artefact), partial, { recursive: true, verbatimSymlinks: true });
   } catch (error) {
-    rmSync(partial, { recursive: true, force: true });
+    removeTreeSync(partial);
     const failed = shape === "archive" ? "did not unpack" : "did not copy";
     throw new StagingError("unusable", `The artefact at ${artefact} ${failed}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   const staged = stagedVersion(dataDir, version);
   try {
-    rmSync(staged, { recursive: true, force: true });
+    removeTreeSync(staged);
     renameSync(partial, staged);
   } catch (error) {
-    rmSync(partial, { recursive: true, force: true });
+    removeTreeSync(partial);
     throw error;
   }
   return staged;
 };
 
 /** Removes `version` from the staging area of `dataDir`: the launcher refused it. */
-export const unstage = (dataDir: string, version: string): void => rmSync(stagedVersion(dataDir, version), { recursive: true, force: true });
+export const unstage = (dataDir: string, version: string): void => removeTreeSync(stagedVersion(dataDir, version));

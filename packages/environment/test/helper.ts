@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { removeTree } from "../src/serve/remove-tree.js";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -453,7 +454,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       ...(options.subscriptionHooks !== undefined && { subscriptionHooks: options.subscriptionHooks }),
     });
   } catch (error) {
-    if (ownDir) rmSync(ownDir, { recursive: true, force: true });
+    if (ownDir) await removeTree(ownDir);
     throw error;
   }
 
@@ -550,7 +551,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       try {
         await env.close();
       } finally {
-        if (ownDir) rmSync(ownDir, { recursive: true, force: true });
+        if (ownDir) await removeTree(ownDir);
       }
     },
   };

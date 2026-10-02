@@ -1,5 +1,6 @@
+import { removeTree } from "./remove-tree.js";
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { Clock } from "./clock.js";
 
@@ -43,7 +44,7 @@ const move = async (from: string, to: string): Promise<void> => {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
     await cp(from, to, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });
-    await rm(from, { recursive: true, force: true });
+    await removeTree(from);
   }
 };
 
@@ -63,7 +64,7 @@ export const createTrash = (options: { readonly dataDir: string; readonly clock:
       const trashedAt = ENTRY.exec(entry)?.[1];
       if (trashedAt === undefined || Number(trashedAt) > cutoff) continue;
       try {
-        await rm(join(root, entry), { recursive: true, force: true });
+        await removeTree(join(root, entry));
       } catch (error) {
         console.error(`Deleting ${entry} from the trash failed; the next sweep will try again:`, error);
       }
@@ -79,14 +80,14 @@ export const createTrash = (options: { readonly dataDir: string; readonly clock:
       try {
         await move(path, trashed);
       } catch (error) {
-        await rm(entry, { recursive: true, force: true });
+        await removeTree(entry);
         throw error;
       }
       return trashed;
     },
     async restore(trashed, to) {
       await move(trashed, to);
-      await rm(dirname(trashed), { recursive: true, force: true });
+      await removeTree(dirname(trashed));
     },
     sweep,
     start() {

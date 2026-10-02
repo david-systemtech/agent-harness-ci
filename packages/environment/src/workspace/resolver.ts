@@ -1,4 +1,5 @@
-import { constants, mkdirSync, rmSync } from "node:fs";
+import { removeTreeSync } from "../serve/remove-tree.js";
+import { constants, mkdirSync } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -239,7 +240,7 @@ export const createWorkspaceResolver = (options: WorkspaceResolverOptions): Envi
       if (errorCode(error) === "EEXIST") return { workspace, repositoryIdentity: null };
       throw error;
     }
-    return { workspace, repositoryIdentity: null, undo: () => rmSync(path, { recursive: true, force: true }) };
+    return { workspace, repositoryIdentity: null, undo: () => removeTreeSync(path) };
   };
 
   /** The named session's workspace and identity as it recorded them, while that workspace is there. */

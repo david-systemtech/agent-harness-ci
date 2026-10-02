@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID as uuid } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -412,6 +412,14 @@ describe("the session's directories", () => {
     const { scratchDirectory, temporaryDirectory } = adapter.lastRun().input.containment;
     expect(scratchDirectory.startsWith(t.dataDir)).toBe(true);
     expect(existsSync(scratchDirectory) && existsSync(temporaryDirectory)).toBe(true);
+    for (const directory of [scratchDirectory, temporaryDirectory]) {
+      const nested = join(directory, "locked");
+      mkdirSync(nested);
+      writeFileSync(join(nested, "readonly.txt"), "scratch");
+      chmodSync(join(nested, "readonly.txt"), 0o400);
+      chmodSync(nested, 0o500);
+      chmodSync(directory, 0o500);
+    }
     await deleteSession(client, id);
     await purgeSession(client, id);
     await vi.waitFor(() => expect(existsSync(scratchDirectory) || existsSync(temporaryDirectory)).toBe(false));

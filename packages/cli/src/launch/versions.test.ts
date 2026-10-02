@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { removeVersion } from "./prune.js";
 import { completeVersions, isComplete, VERSION_SENTINEL, versionCommand, versionDirectory, VERSIONS_DIRECTORY } from "./versions.js";
 
 /**
@@ -44,6 +45,23 @@ describe("the versions directory", () => {
     writeFileSync(join(versionDirectory(dataDir, "0.5.0"), VERSION_SENTINEL), "");
     expect(isComplete(dataDir, "0.5.0")).toBe(true);
     for (const reached of ["../versions/0.5.0", "0.5.0/.", "latest/../0.5.0"]) expect(isComplete(dataDir, reached), reached).toBe(false);
+  });
+
+  it("prunes a version holding read-only artefact directories", () => {
+    const dataDir = dataDirectory();
+    const folder = versionDirectory(dataDir, "0.5.0");
+    const nested = join(folder, "packages");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(folder, VERSION_SENTINEL), "");
+    writeFileSync(join(nested, "entry.js"), "runtime");
+    chmodSync(join(nested, "entry.js"), 0o400);
+    chmodSync(nested, 0o500);
+    try {
+      removeVersion(dataDir, "0.5.0");
+      expect(existsSync(folder)).toBe(false);
+    } finally {
+      if (existsSync(nested)) chmodSync(nested, 0o700);
+    }
   });
 
   it("holds no complete version when it does not exist", () => {

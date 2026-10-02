@@ -1,3 +1,4 @@
+import { removeTree } from "../serve/remove-tree.js";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -103,7 +104,7 @@ export const extensionFolder = (options: { readonly dataDir: string; readonly so
     await Promise.all(
       entries
         .filter((entry) => entry.startsWith(STAGING_PREFIX) || entry.startsWith(REPLACED_PREFIX))
-        .map((entry) => rm(join(directory, entry), { recursive: true, force: true })),
+        .map((entry) => removeTree(join(directory, entry))),
     );
   };
 
@@ -128,9 +129,9 @@ export const extensionFolder = (options: { readonly dataDir: string; readonly so
         if (moved) await rename(replaced, path).catch(() => undefined);
         throw error;
       }
-      if (moved) await rm(replaced, { recursive: true, force: true });
+      if (moved) await removeTree(replaced);
     } finally {
-      await rm(staging, { recursive: true, force: true });
+      await removeTree(staging);
     }
   };
 

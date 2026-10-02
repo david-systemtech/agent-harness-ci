@@ -1,3 +1,4 @@
+import { removeTree } from "../serve/remove-tree.js";
 import { constants } from "node:fs";
 import { copyFile, cp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -193,7 +194,7 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): SkillsCarryOve
       if (alreadyThere(error)) return false;
       throw error;
     }
-    context.onUndo(() => rm(target, { recursive: true, force: true }));
+    context.onUndo(() => removeTree(target));
     // A checkout whose remote no source takes is copied as a plain folder, its repository left behind.
     await cp(original.resolved, target, { recursive: true, dereference: true, force: false, filter: (from) => basename(from) !== ".git" });
     return true;

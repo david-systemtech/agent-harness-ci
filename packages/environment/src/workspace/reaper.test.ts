@@ -95,11 +95,18 @@ describe("a scratch workspace", () => {
     write(path, { "notes.md": "draft\n", "build/out/app.js": "console.log(1);\n", "locked/readonly.txt": "keep?\n" });
     // Read-only, as a Go module cache leaves its directories.
     chmodSync(join(path, "locked", "readonly.txt"), 0o400);
-    chmodSync(join(path, "locked"), 0o500);
+    chmodSync(join(path, "locked"), 0);
+    const outside = tempDir();
+    write(outside, { "keep.md": "keep\n" });
+    chmodSync(join(outside, "keep.md"), 0o400);
+    const mode = lstatSync(join(outside, "keep.md")).mode;
+    symlinkSync(outside, join(path, "link"), process.platform === "win32" ? "junction" : "dir");
 
     await purge(t, client, id);
     expect(existsSync(path)).toBe(false);
     expect(existsSync(join(t.dataDir, "scratch"))).toBe(true);
+    expect(readFileSync(join(outside, "keep.md"), "utf8")).toBe("keep\n");
+    expect(lstatSync(join(outside, "keep.md")).mode).toBe(mode);
   });
 });
 

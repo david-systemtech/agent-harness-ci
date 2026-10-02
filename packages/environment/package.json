@@ -16,6 +16,11 @@
       "@agent-harness/source": "./src/state-import/terminal-source.ts",
       "types": "./dist/state-import/terminal-source.d.ts",
       "default": "./dist/state-import/terminal-source.js"
+    },
+    "./remove-tree": {
+      "@agent-harness/source": "./src/serve/remove-tree.ts",
+      "types": "./dist/serve/remove-tree.d.ts",
+      "default": "./dist/serve/remove-tree.js"
     }
   },
   "scripts": {

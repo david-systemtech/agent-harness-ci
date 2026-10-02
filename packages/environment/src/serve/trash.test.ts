@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -43,6 +43,20 @@ describe("the trash", () => {
     expect(readdirSync(trash.root)).toHaveLength(1);
     clock.advance(1);
     await trash.sweep();
+    expect(readdirSync(trash.root)).toEqual([]);
+  });
+
+  it("deletes read-only trees when their thirty days are up", async () => {
+    const { dataDir, folder } = withFolder();
+    const clock = manualClock();
+    const trash = createTrash({ dataDir, clock });
+    const trashed = await trash.put(folder);
+    chmodSync(join(trashed, "SKILL.md"), 0o400);
+    chmodSync(trashed, 0o500);
+    clock.advance(TRASH_KEPT_MS);
+
+    await trash.sweep();
+    expect(existsSync(trashed)).toBe(false);
     expect(readdirSync(trash.root)).toEqual([]);
   });
 

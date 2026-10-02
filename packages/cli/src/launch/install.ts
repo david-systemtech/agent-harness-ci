@@ -1,3 +1,4 @@
+import { removeTreeSync } from "@agent-harness/environment/remove-tree";
 import { spawn } from "node:child_process";
 import * as nodeFs from "node:fs";
 import { lstatSync, realpathSync, statSync } from "node:fs";
@@ -129,7 +130,7 @@ const inspectStaged = (dataDir: string, version: string, staged: string): { read
 export const moveIntoVersions = (dataDir: string, version: string, staged: string, fs: DurableFs = nodeFs, platform: NodeJS.Platform = process.platform): void => {
   const target = versionDirectory(dataDir, version);
   syncTree(staged, fs, platform);
-  fs.rmSync(target, { force: true, recursive: true });
+  removeTreeSync(target, fs.rmSync.bind(fs));
   fs.renameSync(staged, target);
   try {
     syncDirectory(join(dataDir, VERSIONS_DIRECTORY), fs, platform);
@@ -139,7 +140,7 @@ export const moveIntoVersions = (dataDir: string, version: string, staged: strin
     try {
       fs.renameSync(target, staged);
     } catch {
-      fs.rmSync(target, { force: true, recursive: true });
+      removeTreeSync(target, fs.rmSync.bind(fs));
     }
     throw error;
   }
@@ -218,7 +219,7 @@ export const createInstaller = (options: InstallerOptions): Installer => {
       // The staged copy is of no use now; failing to remove it costs only the room it takes.
       if (inStagingArea(dataDir, staged)) {
         try {
-          fs.rmSync(staged, { force: true, recursive: true });
+          removeTreeSync(staged, fs.rmSync.bind(fs));
         } catch (error) {
           log(`${staged} could not be removed: ${messageOf(error)}`);
         }

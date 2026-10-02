@@ -1,3 +1,4 @@
+import { removeTreeSync } from "@agent-harness/environment/remove-tree";
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -88,7 +89,7 @@ const clearPartials = (versions: string): void => {
   } catch {
     return;
   }
-  for (const entry of entries) if (entry.isDirectory() && PARTIAL.test(entry.name)) rmSync(join(versions, entry.name), { recursive: true, force: true });
+  for (const entry of entries) if (entry.isDirectory() && PARTIAL.test(entry.name)) removeTreeSync(join(versions, entry.name));
 };
 
 /**
@@ -117,8 +118,8 @@ export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): Placed
   const target = versionDirectory(dataDir, version);
   const partial = join(versions, partialFolder(version));
   const undo = () => {
-    rmSync(partial, { recursive: true, force: true });
-    rmSync(target, { recursive: true, force: true });
+    removeTreeSync(partial);
+    removeTreeSync(target);
     removeEmptyDirectories(created);
   };
   try {
@@ -126,7 +127,7 @@ export const placeVersion = (dataDir: string, unpacked: UnpackedVersion): Placed
     clearPartials(versions);
     cpSync(root, partial, { recursive: true, verbatimSymlinks: true, filter: (source) => source !== join(root, VERSION_SENTINEL) });
     syncTree(partial);
-    rmSync(target, { recursive: true, force: true });
+    removeTreeSync(target);
     renameSync(partial, target);
     syncDirectory(versions);
     writeFileDurably(join(target, VERSION_SENTINEL), "");
