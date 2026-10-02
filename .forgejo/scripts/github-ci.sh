@@ -38,6 +38,16 @@ gh_api() {
   curl -sS --connect-timeout 15 --max-time 120 --retry 5 --retry-delay 3 --retry-all-errors -H "Authorization: Bearer $GH_CI_TOKEN" \
     -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "$@"
 }
+# A GET whose reply gets parsed. Through a file, because curl cannot rewind stdout: a retry after
+# a reply cut off mid-way appended the new reply to the partial one, and the parse then failed the
+# job (2026-10-02). Prints nothing when every try failed; the callers read that as "not yet".
+gh_get() {
+  local out
+  out=$(mktemp -p "$gl")
+  gh_api -o "$out" "$@" || true
+  cat "$out"
+  rm -f "$out"
+}
 
 # The same gitleaks pin as david/ci scripts/secret-scan.sh; only HEAD's history.
 gl_version=8.30.1
@@ -104,6 +114,9 @@ fi
 
 payload=$(python3 -c 'import json,sys; print(json.dumps({"event_type":sys.argv[5],"client_payload":{"sha":sys.argv[1],"id":sys.argv[2],"group":sys.argv[3],"forgejo_run":sys.argv[4]}}))' \
   "$sha" "$id" "$group" "$FORGEJO_RUN" "$event")
+# Runs created from a minute before the dispatch, so the lookup reads a few runs, not 30
+# (30 were 485 KB, which a slow uplink did not finish in two minutes).
+since=$(python3 -c 'import datetime as d; print((d.datetime.now(d.timezone.utc) - d.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))')
 code=$(gh_api -o /dev/null -w '%{http_code}' -X POST "$api/dispatches" -d "$payload")
 [ "$code" = 204 ] || { echo "::error::repository_dispatch answered HTTP $code"; exit 1; }
 
@@ -111,16 +124,22 @@ title="$event $sha $id"
 run_id=
 for _ in $(seq 1 30); do
   sleep 5
-  run_id=$(gh_api "$api/actions/runs?event=repository_dispatch&per_page=30" |
-    python3 -c 'import json,sys; t=sys.argv[1]; print(next((str(r["id"]) for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("display_title")==t),""))' "$title")
+  run_id=$(gh_get "$api/actions/runs?event=repository_dispatch&created=%3E%3D$since&per_page=30" | python3 -c '
+import json,sys
+try: runs=json.load(sys.stdin).get("workflow_runs",[])
+except ValueError: runs=[]
+print(next((str(r["id"]) for r in runs if r.get("display_title")==sys.argv[1]),""))' "$title")
   [ -n "$run_id" ] && break
 done
 [ -n "$run_id" ] || { echo "::error::no GitHub run appeared for $title within 150 s"; exit 1; }
 echo "GitHub run: https://github.com/$repo/actions/runs/$run_id"
 
 while :; do
-  read -r status conclusion < <(gh_api "$api/actions/runs/$run_id" |
-    python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("status") or "unknown", r.get("conclusion") or "-")')
+  read -r status conclusion < <(gh_get "$api/actions/runs/$run_id" | python3 -c '
+import json,sys
+try: r=json.load(sys.stdin)
+except ValueError: r={}
+print(r.get("status") or "unknown", r.get("conclusion") or "-")')
   [ "$status" = completed ] && break
   sleep 15
 done
@@ -128,9 +147,11 @@ echo "GitHub run finished: $conclusion"
 [ "$conclusion" = success ] && exit 0
 
 # Print the failed steps of each failed job, then fail.
-gh_api "$api/actions/runs/$run_id/jobs" | python3 -c '
+gh_get "$api/actions/runs/$run_id/jobs" | python3 -c '
 import json,sys
-for j in json.load(sys.stdin).get("jobs",[]):
+try: jobs=json.load(sys.stdin).get("jobs",[])
+except ValueError: jobs=[]
+for j in jobs:
     if j.get("conclusion") not in ("success","skipped"):
         bad=[s["name"] for s in j.get("steps",[]) if s.get("conclusion")=="failure"]
         print(j["id"], j["name"], "failed at:", ", ".join(bad) or j.get("conclusion"))
