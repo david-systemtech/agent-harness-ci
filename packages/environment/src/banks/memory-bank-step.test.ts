@@ -145,7 +145,11 @@ describe("the Memory bank step's checks", () => {
     const remote = forge.gitRepository("acme/bank", { files: changed(TEAM_BANK, { "BANK.md": null }) });
     const client = await (await start({ harnessCommand: [process.execPath, "fake-credential-helper.mjs"], harnessGitConfig: [[`url.${pathToFileURL(remote).href}.insteadOf`, `${forge.origin}/acme/bank.git`]] })).client();
     await added(client, { url: forge.origin, kind: "forgejo" });
-    const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
+    const checkout = tempDir("agent-harness-bank-clone-");
+    git(checkout, "clone", "--quiet", remote, ".");
+    git(checkout, "remote", "set-url", "origin", `${forge.origin}/acme/bank.git`);
+    forge.repository(TOKEN, "acme/bank");
+    users(forge, { "maya-reyes": true, "sam-ortiz": true });
     const bank = await register(client, checkout);
     const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
     // Finish the run's before-run sync before authoring the review fixture and verifying it.

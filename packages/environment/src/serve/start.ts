@@ -1769,6 +1769,19 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
     inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
   });
+  const skillHandlers = skillsMethods({
+    log,
+    trust: (place) => trustStore.of(place),
+    nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
+    environmentId: record.id,
+    own: ownSkills,
+    defaultAccountId: () => accounts.defaultId(),
+    accounts: listedAccounts,
+    carryOver: carrySkills,
+    probe: skillProbes.probe,
+    sources: skillSources,
+    sync: skillSync,
+  });
   const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
   const routineHandlers = routineMethods({
     log,
@@ -1883,19 +1896,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The skill set (#494): skills.get, and the own directory's create and remove.
     // Carry over's skills half (#513): an adopted account's skills and commands, and the machine's ~/.agents/skills, copied
     // into the own directory, a checkout among them offered as a source. The choices (#501), on the skills stream.
-    ...skillsMethods({
-      log,
-      trust: (place) => trustStore.of(place),
-      nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
-      environmentId: record.id,
-      own: ownSkills,
-      defaultAccountId: () => accounts.defaultId(),
-      accounts: listedAccounts,
-      carryOver: carrySkills,
-      probe: skillProbes.probe,
-      sources: skillSources,
-      sync: skillSync,
-    }),
+    ...skillHandlers,
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
     ...skillReadinessMethods({
@@ -1934,6 +1935,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       archive: sessionHandlers["sessions.archive"],
       pin: sessionHandlers["sessions.pin"],
       coordinator: stateImports,
+      sources: skillSources,
+      forgeAccounts: () => verifiedOrigins(forge.list()),
+      setAlwaysOn: skillHandlers["skills.setAlwaysOn"],
+      knownSkillNames: async () => {
+        const [own, sources] = await Promise.all([ownSkills.read(), skillSources.read()]);
+        return new Set([...own, ...sources.members].flatMap((member) => member.name !== null && member.problems.length === 0 ? [member.name] : []));
+      },
       accounts,
       listSessions: listImportSessions,
       carryOver,
