@@ -2,7 +2,7 @@
 
 Milestone 1, phase D. Date: 2026-10-02. Implements ADRs 0017, 0015, 0021, 0022, 0036 and 0037, with the owning decisions in ADRs 0003, 0004, 0006, 0008, 0010, 0013, 0016, 0018, 0020 and 0027 to 0035. Ticket: [#94](https://git.systemtech.dev:5526/david/agent-harness/issues/94).
 
-Inputs: #94, #34, #29, #56, #39, #152, #88 and #90, including comments, Resolutions and corrections; all sixteen peer specifications and Further Notes, contracts and seams at main `1410d314ceb30f26aabdf7a39fe3f52d4490136c`, command contracts rechecked at `9228bd71d31e9e839447b09bb77531a68a71065c`; receiver inventory and surfaces audit; private operational inventory, switch-over decisions and routine records. Verify observations live.
+Inputs: #94, #34, #29, #56, #39, #152, #88 and #90, including comments, Resolutions and corrections; all sixteen peer specifications and Further Notes, contracts and seams at main `1410d314ceb30f26aabdf7a39fe3f52d4490136c`, command contracts rechecked at `9228bd71d31e9e839447b09bb77531a68a71065c`; Hermes inventory and surfaces audit; private operational inventory, switch-over decisions and routine records. Verify observations live.
 
 ## Problem Statement
 
@@ -118,13 +118,13 @@ Pair only the butler on SAMPLE-SERVER as `program` with `read`, `sessions:write`
 
 Update deployment code to SAMPLE-SERVER's harness URL and built `agent-harness` namespace, without inventing an alias. Set `permissionMode: bypassPermissions`, supported `thinking`, appended `systemPrompt`, required `ignoreUnsupported`, `attended: false`. Preserve fresh scratch Sessions where no `sessionId` is sent. Hermes runs caller tools and returns matching `tool_call_id` on the same `agent-harness.sessionId`/credential, never as fresh user messages. Prove streaming, tool round trip, two-turn chat, model/effort routing, `/keep` and `/save` (#29, #9).
 
-Configure compression/auxiliary calls explicitly; overrides need not inherit. Keep title generation off until effort/unsupported parameters pass. Retain the privately recorded receiver version pin, butler-only scope and parked librarian; verify deployment inventory live. Notebook remains durable memory; Hermes profiles/memory/cron are not imported. Retirement/native Matrix/Slack remain milestone 3 (#29).
+Configure compression/auxiliary calls explicitly; overrides need not inherit. Keep title generation off until effort/unsupported parameters pass. Retain the privately recorded Hermes version pin, butler-only scope and parked librarian; verify deployment inventory live. Notebook remains durable memory; Hermes profiles/memory/cron are not imported. Retirement/native Matrix/Slack remain milestone 3 (#29).
 
 A configured Routine webhook uses the built Standard Webhooks signature and a delivery-only Hermes route. Prove signature verification, Matrix destination and idempotent retries. Preserve existing alert routes in their configured state and preserve Matrix rooms. Record deployment-specific selections in the private acceptance record.
 
 Record clean Bank heads/reconcile branches. `banks.migrate {bankId, dryRun}` previews then prepares reviewed PRs. Notebook gains org metadata, manifest, renamed keys, repository identities, topics and orientation pointers. Meadowstudios uses team org, brands as projects, systems as areas, holding facts under holding; `SYSTEM.md` becomes `AREA.md`. Preserve memory names/pointers, remove generated indexes/obsolete keys, vendor validation for each forge (ADR 0037, #90).
 
-Before meadowstudios lands, its heads-up issue tells team owner moves/day/open-work effects. Both PRs need owner review and green vendored validation on landing heads. Land together on switch-over day, sync checkouts, prove harness read/search/reviewed write. Replace cerebro with CLI `bank`, including terminal Claude's local grant; retain source checkouts/PR links (#90).
+Before meadowstudios lands, its heads-up issue tells the team owner moves/day/open-work effects. Both PRs need owner review and green vendored validation on landing heads. Land together on switch-over day, sync checkouts, prove harness read/search/reviewed write. Replace cerebro with CLI `bank`, including terminal Claude's local grant; retain source checkouts/PR links (#90).
 
 ### Operational order and milestone-1 done
 

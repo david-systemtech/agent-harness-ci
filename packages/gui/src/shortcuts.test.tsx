@@ -117,7 +117,7 @@ describe("the list", () => {
     expect(actionRow(pane, "Anywhere", "Show or hide the sidebar").hasAttribute("aria-disabled")).toBe(false);
     // The terminal answers it absent: its reason, dim.
     expect(cells(actionRow(pane, "Slash commands", "Take back the last file change the agent made"))[1]).toBe(
-      "/undo: Deferred to phase D, carried if Milo relies on it (docs/specs/tui.md, Out of Scope).",
+      "/undo: Deferred to phase D, carried if a teammate relies on it (docs/specs/tui.md, Out of Scope).",
     );
   });
 
