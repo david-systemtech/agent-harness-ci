@@ -3,6 +3,7 @@ const bankId = "6f1c2c1e-8a8f-4b5e-9a65-1d7c5b0f2a10";
 const change = { kind: "draft", name: "fact", path: "projects/personal/homelab/memories/fact.md", content: "A fact." };
 const input = { scope: { org: "personal", project: "homelab" }, name: "fact", description: "When reading the homelab facts, follow these verified steps and measurements.", body: "A fact.", type: "project" };
 export const memoryDraftSchemaFixtures = {
+  "sessions/events/session.bank-used.json": { valid: [{ bankId, pointers: ["maya-memory:personal/homelab/"] }], invalid: [{ bankId, pointers: [] }, { bankId, pointers: ["/etc/passwd"] }] },
   "banks/scope-segment.json": { valid: ["personal"], invalid: ["../secret", ""] },
   "banks/draft-scope.json": { valid: [input.scope, { ...input.scope, area: "deploy" }], invalid: [{ org: "personal" }, { ...input.scope, area: "../secret" }] },
   "banks/tools/search.json": { valid: [{ query: "backup" }, { query: "backup", bank: "maya-memory", scope: { org: "personal" }, limit: 10 }, { query: "backup", scope: input.scope }], invalid: [{ query: "" }, { query: "fact", bank: "../secret" }, { query: "fact", scope: { org: "personal", area: "nas" } }] },
