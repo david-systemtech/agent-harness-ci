@@ -102,6 +102,24 @@ it.each([
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 
+it.each([
+  'readFileSync(join(\n  "docs",\n  "routines",\n  "hermes-delivery.md"\n))',
+  'readFileSync(join(\n  "docs",\n  "agents",\n  "switch-over-runbook.md"\n))',
+  'readFileSync(join(\n  "test",\n  "container.test.ts"\n))',
+])("refuses multiline joins naming excluded test inputs: %s", (contents) => {
+  const f = fixture();
+  f.write("test/public.test.ts", contents); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/excluded test input/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("reports the original line after earlier multiline joins", () => {
+  const f = fixture();
+  f.write("test/public.test.ts", 'readFileSync(join(\n  "public",\n  "notes.md"\n));\nreadFileSync(join(\n  "docs",\n  "routines",\n  "hermes-delivery.md"\n));'); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/test\/public.test.ts:6: excluded test input/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
 it("refuses excluded test paths stored as UTF-16", () => {
   const f = fixture();
   f.write("test/public.test.ts", "");
@@ -214,6 +232,20 @@ it.each([
   const f = fixture();
   f.write(path, content); f.commit();
   expect(() => f.publish()).toThrow();
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it.each(["Gateway at 10.44.55.66.", ".10.44.55.66", "(10.44.55.66).", "10.44.55.66, next"])("blocks a private address with prose punctuation: %s", (contents) => {
+  const f = fixture();
+  f.write("README.md", contents); f.commit();
+  expect(() => f.publish("--dry-run")).toThrow(/Privacy deny-list failed/);
+  expect(git(f.remote, "for-each-ref")).toBe("");
+});
+
+it("keeps private address matching bounded to complete dotted numbers", () => {
+  const f = fixture();
+  f.write("README.md", "9.10.44.55.66; 10.44.55.66.7; 110.44.55.66"); f.commit();
+  f.publish("--dry-run");
   expect(git(f.remote, "for-each-ref")).toBe("");
 });
 

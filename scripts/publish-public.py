@@ -49,14 +49,23 @@ def check_test_inputs(tree, patterns):
         text = file.read_text(encoding='utf-8', errors='replace').replace('\0', '')
         # Recognise both literal paths and adjacent string arguments to join().
         text = text.replace('\\/', '/').replace('\\.', '.')
-        text = re.sub(r'''['"`][ \t]*,[ \t]*['"`]''', '/', text)
+        original = text
+        separators = re.compile(r'''['"`]\s*,\s*['"`]''')
+        joins = list(separators.finditer(original))
+        text = separators.sub('/', original)
         for match in re.finditer(r'[\w.@+-]+(?:/[\w.@+-]+)*', text):
             token = match.group()
             if '.' not in token and '/' not in token and token not in roots:
                 continue
             parts = token.split('/')
             if any(excluded('/'.join(parts[i:]), patterns) for i in range(len(parts))):
-                line = text[:match.start()].count('\n') + 1
+                # Map past collapsed arguments back to the original source.
+                offset = match.start()
+                for seam in joins:
+                    if seam.start() > offset:
+                        break
+                    offset += seam.end() - seam.start() - 1
+                line = original[:offset].count('\n') + 1
                 path = file.relative_to(tree).as_posix()
                 raise ValueError(f'{path}:{line}: excluded test input {token}')
     print('Test inputs: pass')
