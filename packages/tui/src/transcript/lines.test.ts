@@ -71,8 +71,8 @@ describe("Workspace check rows", () => {
     ]));
     const lines = shown(transcriptLines(rows, CONTEXT)).join("\n");
     expect(lines).toContain("$ pnpm lint · running");
-    expect(lines).toContain("$ pnpm typecheck · exit 1");
-    expect(lines).toContain("Earlier output omitted");
+    expect(lines).toContain("$ pnpm typecheck · failure · exit 1");
+    expect(lines).toContain("(output truncated to last 64 KiB)");
     expect(lines).toContain("Type error");
   });
 });

@@ -69,3 +69,11 @@ describe("Workspace checks in the shared session projection", () => {
     expect(caughtUp.items).toEqual(reduceSession(empty, events).items);
   });
 });
+
+
+it("retains a finished-only manual check and renders the shared row on replay", () => {
+  const event = { terminalId: FIXTURE_MESSAGE, command: "pnpm test", sourceRunId: null, ...result, timedOut: true, exitCode: null };
+  const view = reduceSession(empty, numbered(4, [["checks.finished", event]]));
+  expect(view.items).toMatchObject([{ kind: "check", sequence: 4, state: "finished", result: { output: "Lint failed\n", truncated: true, timedOut: true, exitCode: null } }]);
+  expect(reduceSession(empty, numbered(4, [["checks.finished", event]])).items).toEqual(view.items);
+});

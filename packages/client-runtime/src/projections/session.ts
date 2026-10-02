@@ -728,9 +728,11 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         return;
       }
       case "checks.finished": {
-        const { terminalId, output, truncated, exitCode, signal, timedOut, failure } = ChecksFinishedPayload.parse(event.payload);
+        const { terminalId, command, sourceRunId, output, truncated, exitCode, signal, timedOut, failure } = ChecksFinishedPayload.parse(event.payload);
         const check = checks.get(terminalId);
-        if (check !== undefined) Object.assign(check, { state: "finished", result: { output, truncated, exitCode, signal, timedOut, failure } });
+        const result = { output, truncated, exitCode, signal, timedOut, failure };
+        if (check !== undefined) Object.assign(check, { state: "finished", result });
+        else checks.set(terminalId, push<Mutable<CheckEntry>>({ kind: "check", sequence, terminalId, command, sourceRunId, state: "finished", result }));
         return;
       }
       case "tasks.changed": {
