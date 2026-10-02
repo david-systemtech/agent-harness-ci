@@ -54,6 +54,15 @@ gl_url=https://github.com/gitleaks/gitleaks/releases/download/v$gl_version/gitle
 gl_kept=${RUNNER_TOOL_CACHE:-$HOME/.cache}/gitleaks/$gl_version/$gl_sum.tar.gz
 if cp "$gl_kept" "$gl/g.tgz" 2>/dev/null && echo "$gl_sum  $gl/g.tgz" | sha256sum -c --status -; then
   echo "gitleaks $gl_version: the copy kept at $gl_kept"
+elif [ -n "${FORGEJO_TOKEN:-}" ] &&
+  curl -sSfL --connect-timeout 10 --max-time 60 -H "Authorization: token $FORGEJO_TOKEN" \
+    -o "$gl/g.tgz" "${FORGEJO_URL:-https://git.systemtech.dev:5526}/api/packages/david/generic/gitleaks/$gl_version/gitleaks_${gl_version}_linux_$gl_arch.tar.gz" 2>/dev/null &&
+  echo "$gl_sum  $gl/g.tgz" | sha256sum -c --status -; then
+  # The same pinned build, kept in this Forgejo's generic package registry
+  # (linked to the repository, so the job's own token reads it): the site's
+  # uplink fell back to Wi-Fi on 2026-10-02 and GitHub's release downloads
+  # stalled at a few hundred bytes a second. The checksum above still decides.
+  echo "gitleaks $gl_version: the copy in Forgejo's package registry"
 else
   # GitHub's release downloads answered 504 for minutes on 2026-10-01 (#1096),
   # past curl's default backoff of 1, 2 and 4 s: so 5 s apart for up to two
