@@ -97,13 +97,13 @@ export const stateImportSchemaFixtures: Record<string, Fixtures> = {
     invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }],
   },
   "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried"], invalid: ["state-import.finished", "state-import.carried", ""] },
-  "state-import/item-kind.json": { valid: ["instruction"], invalid: ["instructions", "account-mapping", ""] },
+  "state-import/item-kind.json": { valid: ["instruction", "forge-account", "key-manager-connection"], invalid: ["instructions", "account-mapping", ""] },
   "state-import/events/state-import.started.json": {
     valid: [started],
     invalid: [{ importId: commandId }, { ...started, importId: "not-a-uuid" }, { ...started, sourceKey: "" }],
   },
   "state-import/events/state-import.item-carried.json": {
-    valid: [itemCarried],
+    valid: [itemCarried, { ...itemCarried, kind: "forge-account", store: "forge-credentials", sourceId: "https://github.com" }, { ...itemCarried, kind: "key-manager-connection", store: "key-manager-connections", sourceId: commandId }],
     invalid: [{ ...itemCarried, origin: "client" }, { ...itemCarried, kind: "routine-firing" }, { ...itemCarried, sourceId: "" }, { ...itemCarried, targetId: undefined }],
   },
 };

@@ -33,6 +33,8 @@ export interface KeyManagerStateChecksOptions {
   /** Verifies every connection, joining one running, and answers the records after (`KeyManagerConnections.verify`). */
   readonly verify: () => Promise<readonly KeyManagerConnectionRecord[]>;
   /** The Managed tools rows, once any probe under way has ended (`ManagedTools.list`). */
+  /** Connection ids preserved by Forge references, including records still to be repaired. */
+  readonly requiredConnections?: () => readonly string[];
   readonly toolRows: () => Promise<readonly ManagedToolRow[]>;
 }
 
@@ -160,9 +162,16 @@ const cliInstalled = async (connections: readonly KeyManagerConnectionRecord[], 
   );
 };
 
-export const keyManagerStateChecks = ({ connections, verify, toolRows }: KeyManagerStateChecksOptions): { readonly [Id in KeyManagerStateCheckId]: StateChecker } => ({
-  "key-manager.present": () => connectionPresent(connections()),
-  "key-manager.signed-in": async () => signedIn(await verify()),
+export const keyManagerStateChecks = ({ connections, verify, toolRows, requiredConnections = () => [] }: KeyManagerStateChecksOptions): { readonly [Id in KeyManagerStateCheckId]: StateChecker } => ({
+  "key-manager.present": () => requiredConnections().length > 0 || connectionPresent(connections()),
+  "key-manager.signed-in": async () => {
+    const held = await verify();
+    const answer = signedIn(held);
+    const missing = [...new Set(requiredConnections())].filter((id) => !held.some((connection) => connection.id === id));
+    if (missing.length === 0) return answer;
+    const reason = `Preserved Forge references need Key-manager connections ${missing.join(", ")}: add their connection records and sign in on this step.`;
+    return answer === true ? { reason } : { reason: `${answer.reason} ${reason}`, targets: answer.targets ?? [] };
+  },
   "key-manager.reachable": async () => reachable(await verify()),
   "key-manager.run-tokens": async () => runTokensMint(await verify()),
   "key-manager.cli": async () => cliInstalled(await verify(), toolRows),

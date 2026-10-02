@@ -1895,6 +1895,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       environmentId: record.id,
       coordinator: stateImports,
       createInstruction: instructionHandlers["instructions.create"],
+      forge,
+      managers: keyManagerConnections,
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
