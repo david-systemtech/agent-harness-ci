@@ -301,3 +301,56 @@ it("refreshes healthy repository blocks even if another repository's owned block
   await vi.waitFor(() => expect(readFileSync(healthy, "utf8")).toContain("acme (team, read-only)"), { timeout: WAIT_MS });
   expect(readFileSync(h.memoryFile, "utf8")).toBe("Own line.\n<!-- agent-harness:banks -->\nIncomplete block.\n");
 });
+
+it("keeps runs and previews available with scoped bank instructions when the shared block is malformed", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => errors.mockRestore());
+  const h = await start();
+  await h.register(TEAM_BANK);
+  await h.register(PERSONAL_BANK, { accounts: ["first"] });
+  const first = await create(h.client, { workspace: h.workspace, account: "first" });
+  const second = await create(h.client, { workspace: h.workspace, account: "second" });
+  await h.run(first.id);
+  const damaged = "Own line.\n<!-- agent-harness:banks -->\nIncomplete block.\n";
+  writeFileSync(h.memoryFile, damaged);
+
+  const preview = await h.client.request("instructions.preview", { sessionId: first.id });
+  expect(preview.text).toContain("acme:where-work-is-tracked");
+  expect(preview.text).toContain("maya-memory:secrets-layout");
+  expect(await h.run(first.id)).toBe(preview.text);
+  const other = await h.run(second.id);
+  expect(other).toContain("acme:where-work-is-tracked");
+  expect(other).not.toContain("maya-memory");
+  expect(readFileSync(h.memoryFile, "utf8")).toBe(damaged);
+  expect(errors).toHaveBeenCalledWith("Writing memory bank block failed; using instructions:", expect.any(Error));
+});
+
+it.each(["not JSON", "[]"])("keeps runs and previews available after restarting with corrupt repository metadata: %s", async (damaged) => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => errors.mockRestore());
+  const h = await start();
+  await h.register(TEAM_BANK);
+  await h.register(PERSONAL_BANK, { accounts: ["first"] });
+  const { id } = await create(h.client, { workspace: h.workspace, account: "first" });
+  await h.run(id);
+  const memory = readFileSync(h.memoryFile, "utf8");
+  await h.t.close();
+  const metadata = join(h.t.dataDir, "auto-memory", ".bank-repositories.json");
+  writeFileSync(metadata, damaged);
+
+  const adapter = fakeAdapter({ provider: "claude" });
+  const t = await startTestEnvironment({ dataDir: h.t.dataDir, adapter });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const preview = await client.request("instructions.preview", { sessionId: id });
+  expect(preview.text).toContain("acme:where-work-is-tracked");
+  expect(preview.text).toContain("maya-memory:secrets-layout");
+  adapter.nextScripts.push(() => [end()]);
+  const answer = await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Continue." });
+  expect(answer.receipt.status).toBe("accepted");
+  await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id }).some((event) => event.type === "run.ended" && event.payload["runId"] === answer.result?.runId)).toBe(true), { timeout: WAIT_MS });
+  expect(adapter.lastRun().input.instructions).toBe(preview.text);
+  expect(readFileSync(h.memoryFile, "utf8")).toBe(memory);
+  expect(readFileSync(metadata, "utf8")).toBe(damaged);
+  expect(errors).toHaveBeenCalledWith("Writing memory bank block failed; using instructions:", expect.any(Error));
+});

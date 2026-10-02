@@ -90,8 +90,13 @@ export const bankInstructionsLayer = (log: EventLog, autoMemory?: AutoMemory): L
   if (claude) {
     const layers = renderBankLayers(indicesOf(scoped), new Set(scoped.filter(({ entry }) => entry.accounts === "all").map(({ entry }) => entry.name)), relevance, remaining(BANK_INDEX_BUDGET, header + unavailable(scoped)), sharedBudget(readings));
     // Render inside the shared Carry over queue, from the registry current when the write runs.
-    await autoMemory.banks(scope, (identity) => renderSharedBanks(log, identity));
-    text = layers.instructions.text + unavailable(scoped.filter(({ entry }) => entry.accounts !== "all"));
+    try {
+      await autoMemory.banks(scope, (identity) => renderSharedBanks(log, identity));
+      text = layers.instructions.text + unavailable(scoped.filter(({ entry }) => entry.accounts !== "all"));
+    } catch (error) {
+      console.error("Writing memory bank block failed; using instructions:", error);
+      text = renderTrail(indicesOf(scoped), relevance, remaining(BANK_INDEX_BUDGET, header + unavailable(scoped))).text + unavailable(scoped);
+    }
   } else text = renderTrail(indicesOf(scoped), relevance, remaining(BANK_INDEX_BUDGET, header + unavailable(scoped))).text + unavailable(scoped);
   if (scoped.length === 0) return [];
   return [{ id: "banks", version: null, title: "Memory banks", text: header + text }];
