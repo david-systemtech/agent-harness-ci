@@ -208,3 +208,63 @@ it("reuses an existing natural source and Account choice, retains disable rules,
   writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: profiles.reverse() }));
   expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: { carried: { alwaysOnSkills: 0 }, failed: [] } });
 });
+
+it("identifies each mapped Account when an always-on name is unknown or invalid", async () => {
+  const source = tempDir();
+  const work = tempDir();
+  const personal = tempDir();
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [
+    { id: "work", label: "Work", providerId: "claude", configDir: work },
+    { id: "personal", label: "Personal", providerId: "claude", configDir: personal },
+  ] }));
+  writeFileSync(join(source, "skills.json"), JSON.stringify({ version: 1, alwaysOn: [
+    { name: "missing", scope: { kind: "all" } },
+    { name: "Invalid!", scope: { kind: "all" } },
+  ] }));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [] });
+  const adapter = { ...base, observeIdentity: async (directory: string) => ({ provider: "claude", email: directory === work ? "work@example.com" : "personal@example.com", organisation: null }) };
+  const t = await startTestEnvironment({ adapter, accounts: [], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  for (const dryRun of [true, false]) {
+    const answer = await client.request("stateImport.run", { commandId: randomUUID(), dryRun });
+    expect(answer.result?.failed).toEqual([
+      { label: 'Always-on Skill "Invalid!" (personal)', message: expect.stringContaining("validation") },
+      { label: 'Always-on Skill "Invalid!" (work)', message: expect.stringContaining("validation") },
+      { label: 'Always-on Skill "missing" (personal)', message: expect.stringContaining("unknown") },
+      { label: 'Always-on Skill "missing" (work)', message: expect.stringContaining("unknown") },
+    ]);
+    expect(answer.result?.carried.alwaysOnSkills).toBe(0);
+  }
+  expect((await client.request("skills.get", {})).choices).toEqual([]);
+});
+
+it.each(["sources", "alwaysOn"])("reports malformed %s fields without blocking Account adoption and retries after repair", async (field) => {
+  const source = tempDir();
+  const directory = tempDir();
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [
+    { id: "work", label: "Work", providerId: "claude", configDir: directory },
+  ] }));
+  const path = join(source, "skills.json");
+  writeFileSync(path, JSON.stringify({ version: 1, [field]: {} }));
+  const base = fakeAdapter({ provider: "claude", ambientDirectory: null, sessions: [] });
+  const adapter = { ...base, observeIdentity: async () => ({ provider: "claude", email: "work@example.com", organisation: null }) };
+  const t = await startTestEnvironment({ adapter, accounts: [], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  const bytes = snapshotOf(source);
+  for (const dryRun of [true, false]) {
+    expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun })).toMatchObject({ result: {
+      carried: { accounts: 1, skillSources: 0, alwaysOnSkills: 0 },
+      failed: [{ label: "Skills", message: expect.stringContaining(field) }],
+    } });
+  }
+  expect(snapshotOf(source)).toEqual(bytes);
+  const accountId = (await client.request("accounts.list", {})).accounts[0]!.id;
+  await client.request("skills.own.create", { commandId: randomUUID(), name: "check", description: "A fixture Skill." });
+  writeFileSync(path, JSON.stringify({ version: 1, sources: [], alwaysOn: [{ name: "check", scope: { kind: "profiles", profileIds: ["work"] } }] }));
+  expect(await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).toMatchObject({ result: {
+    carried: { accounts: 0, skillSources: 0, alwaysOnSkills: 1 }, failed: [],
+  } });
+  expect((await client.request("skills.get", {})).choices).toEqual([{ kind: "always-on", name: "check", accountId, on: true }]);
+});

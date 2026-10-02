@@ -93,14 +93,15 @@ export const planSkills = async (records: SourceSkills, options: PlanSkillsOptio
       // The source profile remains stable when adoption replaces a preview id with a minted Account id.
       const key = { sourceKey, store: "skill-always-on", sourceId: JSON.stringify([choice.name, profile]) };
       if (mappedTarget(log, key) !== undefined) continue;
+      const accountLabel = `${label} (${profile})`;
       const parsed = registry["skills.setAlwaysOn"].params.safeParse({ commandId: "00000000-0000-4000-8000-000000000000", name: choice.name, accountId: previewAccountId, on: true });
       if (!parsed.success) {
-        failed.push({ label, message: "Its exact name fails the Skills owner's validation; it was not renamed." });
+        failed.push({ label: accountLabel, message: "Its exact name fails the Skills owner's validation; it was not renamed." });
         continue;
       }
       let contributed = !readSkillChoices(log).some((held) => held.kind === "always-on" && held.name === choice.name && held.accountId === previewAccountId);
-      const unknown = { label, message: "Its exact name is unknown in the Skills set; restore the Skill and retry." };
-      items.push({ ...key, kind: "skill-always-on", label, contributes: () => contributed,
+      const unknown = { label: accountLabel, message: "Its exact name is unknown in the Skills set; restore the Skill and retry." };
+      items.push({ ...key, kind: "skill-always-on", label: accountLabel, contributes: () => contributed,
         ...(!known.has(choice.name) && { previewFailure: unknown }),
         apply: () => ({ aggregate: { kind: SKILLS_STREAM_KIND, id: options.environmentId }, rejected: { code: "conflict", message: unknown.message } }),
         prepare: async () => {

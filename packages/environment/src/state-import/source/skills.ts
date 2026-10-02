@@ -36,6 +36,9 @@ const cloneId = (url: string): string => {
 export const readSourceSkills = (folder: string) => readStore<SourceSkills>(join(folder, DATA_FILES.skills), { name: "The Skills library", is: "is" }, (value): SourceSkills | { refused: string } => {
   if (!record(value)) return { refused: "The Skills library holds no object." };
   if (value["version"] !== 1) return { refused: "The Skills library has an unsupported version." };
+  for (const field of ["sources", "alwaysOn"]) {
+    if (value[field] !== undefined && !Array.isArray(value[field])) return { refused: `The Skills library ${field} field is not an array.` };
+  }
   const sources: SourceSkillRepository[] = [];
   const alwaysOn: SourceAlwaysOn[] = [];
   const failed: StateImportFailure[] = [];
