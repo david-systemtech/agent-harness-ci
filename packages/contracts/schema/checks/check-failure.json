@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CheckFailure",
+  "type": "string",
+  "enum": [
+    "launch_failed",
+    "closed",
+    "interrupted"
+  ],
+  "description": "Why a check ended without its command's exit: launch_failed (the command could not start in its terminal), closed (its terminal was closed, or its session deleted, before the command exited) or interrupted (the environment stopped while it ran; the command is not run again)."
+}
