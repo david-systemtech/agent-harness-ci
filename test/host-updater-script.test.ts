@@ -29,7 +29,7 @@ afterEach(() => {
   cleanups = [];
 });
 
-const REPOSITORY = "git.systemtech.dev:5526/david/agent-harness";
+const REPOSITORY = "ghcr.io/david-systemtech/agent-harness";
 const OLDER = `${REPOSITORY}:0.4.0`;
 const OLD = `${REPOSITORY}:0.5.0`;
 const NEW = `${REPOSITORY}:0.6.0`;
@@ -921,14 +921,14 @@ describe.skipIf(process.platform === "win32")("scripts/host-updater.sh", () => {
     expect(done.code).toBe(0);
     expect(logged(done)).toEqual(["Nothing to update: the environment runs 0.5.0."]);
   });
-  it("is documented where the compose file's header points: installing with cron or a systemd timer, its docker login, every variable its usage names, what to do when a rollback fails, and what it does when a tick is cut short", async () => {
+  it("is documented where the compose file's header points: installing with cron or a systemd timer, public image pulls, every variable its usage names, what to do when a rollback fails, and what it does when a tick is cut short", async () => {
     const docs = readFileSync(join(import.meta.dirname, "..", "docs", "host-updater.md"), "utf8");
     const help = await tick(fixture(), {}, ["--help"]);
     const variables = new Set([...help.stdout.matchAll(/AGENT_HARNESS_[A-Z_]+/g)].map((match) => match[0]));
     expect(variables.size).toBe(6);
     for (const variable of variables) expect(docs, variable).toContain(variable);
-    for (const phrase of ["crontab -e", "OnCalendar=", "docker login git.systemtech.dev:5526", "read:package", "## When a rollback fails", "## When a tick is cut short", ".host-updater.update"]) {
-      expect(docs, phrase).toContain(phrase);
+    for (const phrase of ["crontab -e", "OnCalendar=", "ghcr.io/david-systemtech/agent-harness", "no registry login is required", "## When a rollback fails", "## When a tick is cut short", ".host-updater.update"]) {
+      expect(docs.replace(/\s+/g, " "), phrase).toContain(phrase);
     }
   });
 });

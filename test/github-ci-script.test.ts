@@ -1,9 +1,10 @@
 /**
- * The `ci` relay's gitleaks step (`.forgejo/scripts/github-ci.sh`, #1096), run
+ * The `ci` relay (`.forgejo/scripts/github-ci.sh`), run
  * by `bash` on a fake PATH: nothing here reaches GitHub. A fake `curl` serves
  * a fixture tarball whose `gitleaks` logs its call and reports a leak, so every
- * run stops at the scan, before the relay pushes anything. The fixture is not
- * the pinned release, so a `sha256sum` wrapper checks it against its own digest
+ * scan test stops before the relay pushes anything. API tests pass the scan
+ * and fake git pushes, curl replies and sleep; nothing leaves the fixture.
+ * The fixture is not the pinned release, so a `sha256sum` wrapper checks it against its own digest
  * wherever the script names the pinned one, and still compares real bytes: a
  * damaged copy fails the check as it would on the runner.
  */
@@ -49,13 +50,79 @@ esac
 
 const FAKE_GITLEAKS = `#!/bin/sh
 printf 'gitleaks %s\\n' "$*" >> "$FAKE_LOG"
-exit 1
+exit "\${FAKE_SCAN_EXIT:-1}"
+`;
+
+/** Models curl's bounded retry contract, including a partial file overwritten by a retry. */
+const FAKE_API_CURL = `#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+def value(flag, default=None):
+    return args[args.index(flag)+1] if flag in args else default
+url = next(arg for arg in args if arg.startswith('https://'))
+if 'api.github.com/' not in url:
+    os.execv('/bin/sh', ['sh', os.environ['FAKE_DOWNLOAD_CURL'], *args])
+stage = ('dispatch' if url.endswith('/dispatches') else
+         'discovery' if '?' in url else
+         'logs' if url.endswith('/logs') else
+         'jobs' if url.endswith('/jobs') else 'status')
+state = pathlib.Path(os.environ['FAKE_API_STATE'] + '-' + stage)
+count = int(state.read_text()) + 1 if state.exists() else 1
+state.write_text(str(count))
+with open(os.environ['FAKE_LOG'], 'a') as log:
+    log.write('api ' + json.dumps({'stage':stage, 'args':args}) + '\\n')
+out = pathlib.Path(value('-o')) if value('-o') else None
+mode = os.environ.get('FAKE_API_MODE', 'success')
+target = os.environ.get('FAKE_API_STAGE', 'status')
+if mode == 'hang' and stage == target:
+    # A held transport ends only when the caller supplies both timeout bounds.
+    if not value('--connect-timeout') or not value('--max-time'):
+        sys.stderr.write('fake hanging transport has no request bounds\\n')
+        sys.exit(99)
+# A later valid reply lets a regressed, unbounded loop finish and fail the assertion.
+if stage == target and mode in ('hang', 'exhausted', 'incomplete') and count <= 4:
+    if out: out.write_text('{"status":')
+    if mode == 'incomplete': sys.exit(0)
+    sys.stderr.write('curl: (28) Operation timed out after bounded retries\\n')
+    sys.exit(28)
+if mode == 'incomplete-once' and stage == target and count == 1:
+    out.write_text('{"reply":')
+    sys.exit(0)
+if stage == 'dispatch':
+    payload = json.loads(value('-d'))
+    pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').write_text(
+        payload['event_type'] + ' ' + payload['client_payload']['sha'] + ' ' + payload['client_payload']['id'])
+    print('204', end='')
+elif stage == 'discovery':
+    title = pathlib.Path(os.environ['FAKE_API_STATE'] + '-title').read_text()
+    if mode == 'retry-truncated' and stage == target:
+        out.write_text('{"workflow_runs":')
+        with open(os.environ['FAKE_LOG'], 'a') as log: log.write('partial reply\\n')
+        if '--retry-all-errors' not in args or int(value('--retry', '0')) < 1: sys.exit(18)
+        # curl rewinds -o files before retrying; stdout cannot be rewound.
+        with open(os.environ['FAKE_LOG'], 'a') as log: log.write('retried reply\\n')
+    out.write_text(json.dumps({'workflow_runs':[{'id':42, 'display_title':title}]}))
+elif stage == 'jobs':
+    out.write_text(json.dumps({'jobs':[{'id':7, 'name':'checks', 'conclusion':'failure',
+                                      'steps':[{'name':'tests', 'conclusion':'failure'}]}]}))
+elif stage == 'logs':
+    if out: out.write_text('test failure details\\n')
+    else: print('test failure details')
+else:
+    if mode == 'reset' and count in (1, 2, 4, 5):
+        out.write_text('{"status":')
+        sys.exit(28)
+    if mode == 'reset' and count == 3:
+        out.write_text(json.dumps({'status':'in_progress', 'conclusion':None}))
+        sys.exit(0)
+    out.write_text(json.dumps({'status':'completed', 'conclusion':os.environ.get('FAKE_API_CONCLUSION', 'success')}))
 `;
 
 interface Fixture {
   readonly log: string;
   readonly cache: string;
   readonly checkout: string;
+  readonly bin: string;
   readonly env: NodeJS.ProcessEnv;
 }
 
@@ -88,6 +155,7 @@ const fixture = async (): Promise<Fixture> => {
     log,
     cache,
     checkout,
+    bin,
     env: {
       PATH: `${bin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`,
       HOME: dir,
@@ -97,8 +165,25 @@ const fixture = async (): Promise<Fixture> => {
       FAKE_LOG: log,
       FAKE_TARBALL: tarball,
       FAKE_CURL: "ok",
+      FAKE_API_STATE: join(dir, "api-state"),
     },
   };
+};
+
+const apiFixture = async () => {
+  const f = await fixture();
+  const git = (await run("bash", ["-c", "command -v git"])).stdout.trim();
+  writeFileSync(join(f.bin, "git"), `#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = push ]; then echo 'git push' >> "$FAKE_LOG"; exit 0; fi
+done
+exec ${git} "$@"
+`, { mode: 0o755 });
+  writeFileSync(join(f.bin, "sleep"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const download = join(f.bin, "download-curl");
+  writeFileSync(download, FAKE_CURL);
+  writeFileSync(join(f.bin, "curl"), FAKE_API_CURL, { mode: 0o755 });
+  return { ...f, env: { ...f.env, FAKE_SCAN_EXIT: "0", FAKE_DOWNLOAD_CURL: download } };
 };
 
 const relay = async (f: Fixture, env: NodeJS.ProcessEnv = {}) => {
@@ -119,6 +204,8 @@ const calls = (f: Fixture) => {
 };
 
 const kept = (f: Fixture) => join(f.cache, "gitleaks", VERSION, `${PINNED}.tar.gz`);
+const apiCalls = (f: Fixture): { stage: string; args: string[] }[] => readFileSync(f.log, "utf8")
+  .split("\n").filter((line) => line.startsWith("api ")).map((line) => JSON.parse(line.slice(4)) as { stage: string; args: string[] });
 
 describe("the relay's gitleaks", () => {
   it("keeps the checked download for the next run, which checks the kept copy again and does not download", async () => {
@@ -190,5 +277,97 @@ describe("the relay's gitleaks", () => {
     const result = await relay(f);
     expect(result.stdout).toContain("::error::gitleaks found a secret; nothing was pushed to GitHub");
     expect(calls(f)).toEqual(["curl", "sha256sum", "gitleaks"]);
+  });
+});
+
+describe("the relay's GitHub API", () => {
+  it.each(["jobs", "logs"])("names an exhausted %s API request while reporting failed CI", async (stage) => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_CONCLUSION: "failure", FAKE_API_MODE: "exhausted", FAKE_API_STAGE: stage });
+    expect(result.code).toBe(1);
+    expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      expect.stringContaining(`GitHub API transport failed: GET https://api.github.com/repos/david-systemtech/agent-harness-ci/actions/${stage === "jobs" ? "runs/42/jobs" : "jobs/7/logs"}`),
+    ]);
+    expect(result.stderr).not.toContain("Traceback");
+  });
+
+  it.each(["success", "incomplete-once"])("prints failed steps and logs with %s job replies", async (mode) => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_CONCLUSION: "failure", FAKE_API_MODE: mode, FAKE_API_STAGE: "jobs" });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("checks failed at: tests");
+    expect(result.stdout).toContain("test failure details");
+    expect(result.stdout).toContain("::error::GitHub CI failure:");
+    expect(result.stdout).not.toContain("GitHub API transport failed");
+  });
+
+  it.each(["retry-truncated", "incomplete-once"])("discovers and completes a run after %s", async (mode) => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_MODE: mode, FAKE_API_STAGE: "discovery" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("GitHub run finished: success");
+    expect(result.stdout).not.toContain("::error::");
+    expect(result.stderr).not.toContain("Traceback");
+    if (mode === "retry-truncated") {
+      expect(readFileSync(f.log, "utf8")).toContain("partial reply\nretried reply");
+      expect(apiCalls(f).filter((call) => call.stage === "discovery")).toHaveLength(1);
+    } else {
+      expect(apiCalls(f).filter((call) => call.stage === "discovery")).toHaveLength(2);
+    }
+    expect(apiCalls(f).find((call) => call.stage === "discovery")?.args.join(" ")).toContain("created=%3E%3D");
+    expect(readFileSync(f.log, "utf8")).toContain("git push");
+  });
+
+  it("resets consecutive failures on a valid in-progress status", async () => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_MODE: "reset" });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("GitHub run finished: success");
+    expect(apiCalls(f).filter((call) => call.stage === "status")).toHaveLength(6);
+  });
+
+  it.each([
+    ["discovery", "exhausted"], ["discovery", "incomplete"], ["status", "incomplete"],
+  ])("reports exhausted %s %s replies instead of waiting for the job timeout", async (stage, mode) => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_MODE: mode, FAKE_API_STAGE: stage });
+    expect(result.code).toBe(1);
+    expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      expect.stringContaining(`GitHub API transport failed: GET https://api.github.com/repos/david-systemtech/agent-harness-ci/actions/runs${stage === "discovery" ? "?" : "/42"}`),
+    ]);
+    expect(apiCalls(f).filter((call) => call.stage === stage)).toHaveLength(3);
+    expect(result.stderr).not.toContain("Traceback");
+  });
+
+  it("bounds a hanging status request and stops after consecutive transport failures", async () => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_MODE: "hang" });
+    expect(result.code).toBe(1);
+    expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      expect.stringContaining("GitHub API transport failed: GET"),
+    ]);
+    expect(result.stdout).toContain("/actions/runs/42");
+    const requests = apiCalls(f).filter((call) => call.stage === "status");
+    expect(requests).toHaveLength(3);
+    for (const { args } of apiCalls(f)) {
+      const value = (flag: string) => Number(args[args.indexOf(flag) + 1]);
+      expect(value("--connect-timeout")).toBe(15);
+      expect(value("--max-time")).toBe(120);
+      expect(value("--retry")).toBe(5);
+      expect(value("--retry-max-time")).toBe(180);
+      expect(args).toContain("--retry-all-errors");
+    }
+    expect(result.stderr).not.toContain("Traceback");
+  });
+
+  it("names a dispatch whose transport exhausted its retries in one error line", async () => {
+    const f = await apiFixture();
+    const result = await relay(f, { FAKE_API_MODE: "exhausted", FAKE_API_STAGE: "dispatch" });
+    expect(result.code).toBe(1);
+    expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual([
+      expect.stringContaining("GitHub API transport failed: POST"),
+    ]);
+    expect(result.stdout).toContain("/dispatches");
+    expect(result.stderr).not.toContain("Traceback");
   });
 });

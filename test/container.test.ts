@@ -161,11 +161,11 @@ describe("the published compose file", () => {
     expect(compose.split(UNRELEASED_IMAGE)).toHaveLength(2);
   });
 
-  it("names, in its header, the registry's docker login with a read-package token and the host-side updater's documentation", () => {
+  it("names, in its header, the public image without registry login and the host-side updater's documentation", () => {
     const header = composeHeader();
-    expect(header).toContain("#   docker login git.systemtech.dev:5526");
-    expect(header).toContain("read:package");
-    expect(header).toContain("https://git.systemtech.dev:5526/david/agent-harness/src/branch/main/docs/host-updater.md");
+    expect(header).toContain("ghcr.io/david-systemtech/agent-harness");
+    expect(header).toContain("no registry login is required");
+    expect(header).toContain("https://github.com/david-systemtech/agent-harness/blob/main/docs/host-updater.md");
     expect(header).toContain("host-updater.sh");
   });
 
