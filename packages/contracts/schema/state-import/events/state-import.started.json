@@ -12,12 +12,12 @@
     "sourceKey": {
       "type": "string",
       "minLength": 1,
-      "description": "The source data folder's canonical path on the environment's machine: symbolic links resolved."
+      "description": "The source folder's canonical path on the environment's machine, symbolic links resolved: its data folder, or its terminal-client state folder when it has none."
     }
   },
   "required": [
     "importId",
     "sourceKey"
   ],
-  "description": "state-import.started: an import is about to apply what it planned: its id and the source data folder it reads."
+  "description": "state-import.started: an import is about to apply what it planned: its id and the source folder it reads (its data folder, or its terminal-client state folder when it has none)."
 }

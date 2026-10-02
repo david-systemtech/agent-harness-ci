@@ -181,8 +181,17 @@ const sourceKey = z.string().min(1).meta({ description: "The source data folder'
  * way, which Carry over's last-import check names.
  */
 export const StateImportStartedPayload = z
-  .object({ importId, sourceKey })
-  .meta({ description: "state-import.started: an import is about to apply what it planned: its id and the source data folder it reads." });
+  .object({
+    importId,
+    sourceKey: z.string().min(1).meta({
+      description:
+        "The source folder's canonical path on the environment's machine, symbolic links resolved: its data folder, or its terminal-client state folder when it has none.",
+    }),
+  })
+  .meta({
+    description:
+      "state-import.started: an import is about to apply what it planned: its id and the source folder it reads (its data folder, or its terminal-client state folder when it has none).",
+  });
 export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
 
 /** The kinds of item a state import carries, each written through the service that owns it. */
