@@ -1,10 +1,10 @@
 import { EMPTY_RUN_SKILL_SET, type RunSkillSet } from "@agent-harness/contracts";
-import type { CanUseTool, HookCallback, SessionStore } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, HookCallback, HookInput, HookJSONOutput, Options, PreToolUseHookInput, SessionStore } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
 import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
-import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type RunOptionsInput } from "./options.js";
+import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type FileToolHooks, type RunOptionsInput } from "./options.js";
 
 /**
  * The options table (claude-adapter spec, "The Claude adapter, ported after
@@ -23,6 +23,31 @@ const store: SessionStore = {
 
 const canUseTool: CanUseTool = async () => ({ behavior: "deny", message: "no" });
 const preToolUse: HookCallback = async () => ({});
+const answersNothing: HookCallback = async () => ({});
+const fileTools: FileToolHooks = { before: answersNothing, completed: answersNothing, failed: answersNothing };
+
+/** What the gate answers for a call it denies, as the process's gate hook does. */
+const gateDenial = (message: string): HookJSONOutput => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: message } });
+
+/** A tool event's hook input, as the pinned CLI builds it (`tool_use_id`, the working directory at the call). */
+const toolHookInput = <E extends "PreToolUse" | "PostToolUse" | "PostToolUseFailure">(event: E, toolName: string, toolInput: Record<string, unknown>, toolUseId: string) => ({
+  hook_event_name: event,
+  session_id: "s",
+  transcript_path: "/tmp/transcript.jsonl",
+  cwd: "/work/repo",
+  tool_name: toolName,
+  tool_input: toolInput,
+  tool_use_id: toolUseId,
+  ...(event === "PostToolUse" && { tool_response: {} }),
+  ...(event === "PostToolUseFailure" && { error: "The tool failed." }),
+});
+
+/** Runs the options' one PreToolUse callback as the CLI does for a call: its answer, or whatever is pending. */
+const callPreToolUse = (options: Options, toolName: string, toolInput: Record<string, unknown>, toolUseId = "toolu_1", signal = new AbortController().signal): Promise<HookJSONOutput> => {
+  const hook = options.hooks?.PreToolUse?.[0]?.hooks[0];
+  if (hook === undefined) throw new Error("The options register no PreToolUse hook.");
+  return hook(toolHookInput("PreToolUse", toolName, toolInput, toolUseId) as HookInput, toolUseId, { signal });
+};
 
 const run = (overrides: Partial<RunInput> = {}): RunInput => ({
   sessionId: SESSION_ID,
@@ -78,6 +103,7 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   resumePoint: null,
   canUseTool,
   preToolUse,
+  fileTools,
   abortController: new AbortController(),
   ...extra,
 });
@@ -136,16 +162,26 @@ describe("the options a run is handed", () => {
     expect(buildRunOptions(input({ mode: null as never })).permissionMode).toBe("acceptEdits");
   });
 
-  it("hands the process's Stop hook to the SDK when it has one, beside the gate's", async () => {
+  it("hands the process's Stop hook to the SDK when it has one, beside the tool hooks", async () => {
     const onStop = async () => ({});
-    expect(buildRunOptions(input({}, { onStop })).hooks).toEqual({ PreToolUse: [{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }], Stop: [{ hooks: [onStop] }] });
+    const hooks = buildRunOptions(input({}, { onStop })).hooks;
+    expect(Object.keys(hooks ?? {})).toEqual(["PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"]);
+    expect(hooks?.Stop).toEqual([{ hooks: [onStop] }]);
     expect(buildRunOptions(input()).hooks).not.toHaveProperty("Stop");
   });
 
-  it.each(CLAUDE_MODES)("asks the tool gate first for every tool call in %s: a PreToolUse hook matching every tool, waiting as long as the CLI's timer can", (mode) => {
-    const options = buildRunOptions(input({ mode, ceiling: mode }));
-    expect(options.hooks?.PreToolUse).toEqual([{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }]);
+  it.each(CLAUDE_MODES)("asks the tool gate first for every tool call in %s: one PreToolUse hook matching every tool, waiting as long as the CLI's timer can", async (mode) => {
+    const asked: string[] = [];
+    const gate: HookCallback = async (hookInput) => {
+      asked.push((hookInput as PreToolUseHookInput).tool_name);
+      return gateDenial("Denied by containment.");
+    };
+    const options = buildRunOptions(input({ mode, ceiling: mode }, { preToolUse: gate }));
+    // One callback, not one per concern: the CLI runs an event's callbacks in parallel, so only one can come first.
+    expect(options.hooks?.PreToolUse).toEqual([{ hooks: [expect.any(Function)], timeout: GATE_HOOK_TIMEOUT_SECONDS }]);
     expect(options.hooks?.PreToolUse?.[0]).not.toHaveProperty("matcher");
+    expect(await callPreToolUse(options, "Bash", { command: "ls" })).toEqual(gateDenial("Denied by containment."));
+    expect(asked).toEqual(["Bash"]);
     // The CLI arms a timer of the timeout's seconds in milliseconds: past 2^31 - 1 ms a JavaScript timer fires at once.
     expect(GATE_HOOK_TIMEOUT_SECONDS * 1000).toBeLessThanOrEqual(2 ** 31 - 1);
     expect((GATE_HOOK_TIMEOUT_SECONDS + 1) * 1000).toBeGreaterThan(2 ** 31 - 1);
@@ -495,5 +531,65 @@ describe("the options a run is handed", () => {
       expect(options.sandbox?.filesystem).not.toHaveProperty("denyRead");
       expect(options.sandbox?.filesystem).not.toHaveProperty("allowRead");
     });
+  });
+});
+
+describe("the file tools' observation beside the gate (#1182)", () => {
+  /** A gate and a file tools' observation recording, in one list, what each was handed and when it finished. */
+  const recording = (gateAnswer: () => Promise<HookJSONOutput> = async () => ({})) => {
+    const order: string[] = [];
+    const named = (hookInput: HookInput): string => `${(hookInput as PreToolUseHookInput).tool_name} ${(hookInput as PreToolUseHookInput).tool_use_id}`;
+    const gate: HookCallback = async (hookInput) => {
+      order.push(`gate ${named(hookInput)}`);
+      const answer = await gateAnswer();
+      order.push("gate ruled");
+      return answer;
+    };
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const observed: FileToolHooks = {
+      before: async (hookInput) => {
+        order.push(`before ${named(hookInput)}`);
+        await held;
+        order.push("before done");
+        return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+      },
+      completed: async (hookInput) => {
+        order.push(`completed ${named(hookInput)}`);
+        return {};
+      },
+      failed: async (hookInput) => {
+        order.push(`failed ${named(hookInput)}`);
+        return {};
+      },
+    };
+    return { order, release, extra: { preToolUse: gate, fileTools: observed } satisfies Partial<RunOptionsInput> };
+  };
+
+  it("observes a call the gate let through only after the gate rules, and answers only once the observation has finished", async () => {
+    const { order, release, extra } = recording();
+    const answer = callPreToolUse(buildRunOptions(input({}, extra)), "Edit", { file_path: "/work/repo/a.ts" }, "toolu_edit");
+    let answered = false;
+    void answer.then(() => (answered = true));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(order).toEqual(["gate Edit toolu_edit", "gate ruled", "before Edit toolu_edit"]);
+    expect(answered).toBe(false);
+    release();
+    // The gate's answer, never the observation's: an observer cannot allow a call on the provider's behalf.
+    expect(await answer).toEqual({});
+    expect(order.at(-1)).toBe("before done");
+  });
+
+  it("never observes a call the gate denies, and answers the gate's denial", async () => {
+    const { order, extra } = recording(async () => gateDenial("Denied by containment."));
+    expect(await callPreToolUse(buildRunOptions(input({}, extra)), "Write", { file_path: "/etc/passwd" }, "toolu_write")).toEqual(gateDenial("Denied by containment."));
+    expect(order).toEqual(["gate Write toolu_write", "gate ruled"]);
+  });
+
+  it("hands the observation the completion and the failure of the four recognised file tools' calls, and of no other tool's", () => {
+    const { extra } = recording();
+    const hooks = buildRunOptions(input({}, extra)).hooks;
+    expect(hooks?.PostToolUse).toEqual([{ matcher: "Edit|MultiEdit|Write|NotebookEdit", hooks: [extra.fileTools.completed] }]);
+    expect(hooks?.PostToolUseFailure).toEqual([{ matcher: "Edit|MultiEdit|Write|NotebookEdit", hooks: [extra.fileTools.failed] }]);
   });
 });
