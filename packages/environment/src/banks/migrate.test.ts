@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { readBankMarkdown } from "@agent-harness/contracts/bank-validator";
 import { PERSONAL_BANK, markdown, personalManifest } from "../../../contracts/test/fixture-banks.js";
 import { planBankMigration } from "./migration-planner.js";
 
@@ -86,4 +87,29 @@ it("requires retaining the bank's secret scan when replacing its Python gate", (
   const planned = planBankMigration(bank, { ...choices, secretScan: "gitleaks detect --source ." }, target);
   expect(planned.report.valid).toBe(true);
   expect(planned.files[".forgejo/workflows/validate.yml"]).toContain("gitleaks detect --source .");
+});
+
+
+it("excludes rejected orientation names from the manifest and preserves their existing memories", () => {
+  const plan = planBankMigration(PERSONAL_BANK, { orientationDrafts: [{ name: "backup-schedule", description: "Before using this bank - follow the project memory for its details", body: "New draft.\n" }, { name: "bank-tracker", description: "Before tracking this bank - follow the project memory for its details", body: "See [[backup-schedule]].\n" }] }, { name: "maya-memory", land: "pull-request", forge: "forgejo", validator: "// validator-for-tests\n" });
+  expect(plan.report.decisions).toContainEqual(expect.objectContaining({ value: "backup-schedule" }));
+  const manifest = readBankMarkdown(plan.files["BANK.md"]!);
+  expect(manifest.ok && manifest.data.orientation).toEqual(["bank-tracker"]);
+  expect(plan.files["projects/personal/homelab/memories/backup-schedule.md"]).toBe(PERSONAL_BANK["projects/personal/homelab/memories/backup-schedule.md"]);
+  expect(plan.files["projects/personal/memory-bank/memories/backup-schedule.md"]).toBeUndefined();
+});
+
+
+it("keeps unrelated Python workflows and independent Python secret scanners", () => {
+  const workflow = "steps:\n  - uses: actions/setup-python@v5\n    with:\n      python-version: '3.12'\n  - run: python scripts/check-links.py\n";
+  const scanner = "#!/usr/bin/env python3\nprint('Scan synthetic secrets')\n";
+  const bank = { ...PERSONAL_BANK, ".forgejo/workflows/docs.yml": workflow, "scripts/scan-secrets.py": scanner };
+  const target = { name: "maya-memory", land: "pull-request" as const, forge: "forgejo" as const, validator: "// validator-for-tests\n" };
+  const plan = planBankMigration(bank, { secretScan: "python scripts/scan-secrets.py" }, target);
+  expect(plan.report.valid).toBe(true);
+  expect(plan.report.decisions).toEqual([]);
+  expect(plan.files[".forgejo/workflows/docs.yml"]).toBe(workflow);
+  expect(plan.files["scripts/scan-secrets.py"]).toBe(scanner);
+  const retired = planBankMigration({ ...bank, ".forgejo/workflows/old.yml": "steps:\n  - run: python -m bank check\n" }, {}, target);
+  expect(retired.report.decisions).toContainEqual(expect.objectContaining({ path: ".forgejo/workflows/old.yml", value: "workflow" }));
 });

@@ -128,6 +128,7 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
       const drafts = choices.orientationDrafts ?? [{ name: "bank-orientation", description: "Before using this bank - short pointers into its existing facts for orientation", body: `Start with ${names.map((name) => `[[${name}]]`).join(", ") || "this bank's project folders"}. Follow the bank's folder pointers for further facts.\n` }];
       const oldOrientation = new Set(Array.isArray(data.orientation) ? data.orientation : []);
       const authored = new Set<string>();
+      const accepted: string[] = [];
       for (const draft of drafts) {
         if (authored.has(draft.name)) throw new Error("Orientation drafts must have distinct names.");
         authored.add(draft.name);
@@ -136,9 +137,10 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
           decisions.push({ path: "BANK.md", value: draft.name, reason: "The proposed orientation name is already in use outside orientation; choose a new name." });
           continue;
         }
+        accepted.push(draft.name);
         files[`${home}memories/${draft.name}.md`] = markdown({ name: draft.name, description: draft.description, metadata: { type: "reference" } }, draft.body);
       }
-      data.orientation = [...authored];
+      data.orientation = accepted;
     }
     files["BANK.md"] = markdown(data, parsedManifest.body);
   }
@@ -188,9 +190,9 @@ export const planBankMigration = (source: BankFiles, choices: BankMigrationChoic
   const workflow = bankValidatorWorkflow({ forge: target.forge, ...(choices.secretScan && { secretScan: choices.secretScan }) });
   for (const path of choices.retiredWorkflows ?? []) delete files[path];
   for (const [path, text] of Object.entries(source)) {
-    if (/^\.(?:forgejo|github|gitea)\/workflows\//.test(path) && !choices.retiredWorkflows?.includes(path) && /python|cerebro|bank check/i.test(text)) decisions.push({ path, value: "workflow", reason: "Confirm replacement of the old bank check and retain its secret scan explicitly." });
+    if (/^\.(?:forgejo|github|gitea)\/workflows\//.test(path) && !choices.retiredWorkflows?.includes(path) && /\bcerebro\b|\bbank\s+check\b/i.test(text)) decisions.push({ path, value: "workflow", reason: "Confirm replacement of the old bank check and retain its secret scan explicitly." });
     if (/^\.(?:forgejo|github|gitea)\/workflows\//.test(path) && (path === workflow.path || choices.retiredWorkflows?.includes(path)) && /gitleaks|secret[-_ ]?scan|scripts\/validate\.sh/i.test(text) && !choices.secretScan) decisions.push({ path, value: "secret-scan", reason: "Supply the retained secret-scan command before replacing this workflow." });
-    if (/^scripts\//.test(path) && choices.secretScan?.includes(path) && /python|cerebro|bank check/i.test(text)) decisions.push({ path, value: "secret-scan", reason: "The selected scan still invokes the retired bank check; select an independent secret scan." });
+    if (/^scripts\//.test(path) && choices.secretScan?.includes(path) && /\bcerebro\b|\bbank\s+check\b/i.test(text)) decisions.push({ path, value: "secret-scan", reason: "The selected scan still invokes the retired bank check; select an independent secret scan." });
   }
   files[workflow.path] = workflow.text;
   files[VENDORED_VALIDATOR_PATH] = target.validator;

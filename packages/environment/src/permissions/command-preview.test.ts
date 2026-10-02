@@ -38,6 +38,7 @@ import {
   cleanArgv,
   destructiveParts,
   networkLines,
+  nodeBlastDeps,
   previewBlastRadius,
   type BlastRadiusDeps,
   type Destructive,
@@ -359,6 +360,59 @@ describe('the verbs it knows', () => {
 });
 
 describe('previewing rm against a directory', () => {
+  it.each(['EACCES', 'EIO'])('reports unavailable inspection (%s) even after finding another target', async (code) => {
+    const root = await tree();
+    for (const command of ['rm log.txt', 'rm keep.txt log.txt', 'rm *.txt']) {
+      expect(await only(command, root, {
+        stat: async (path) => {
+          if (path === join(root, 'log.txt')) throw Object.assign(new Error('Cannot inspect target'), { code });
+          return nodeBlastDeps.stat(path);
+        },
+      })).toMatchObject({ summary: 'could not preview: Cannot inspect target', lines: [] });
+    }
+  });
+
+  it.each(['EACCES', 'EIO'])('reports an unavailable directory read (%s) instead of an empty glob', async (code) => {
+    const root = await tree();
+    expect(await only('rm *', root, {
+      readdir: async () => { throw { code }; },
+    })).toMatchObject({ summary: expect.stringContaining('could not preview:'), lines: [] });
+  });
+
+  it.each(['EACCES', 'EIO'])('discards partial glob and recursive counts when a nested read fails (%s)', async (code) => {
+    const root = await tree();
+    for (const command of ['rm build/**/*.js', 'rm -rf build', 'chmod -R 700 build', 'find build -delete']) {
+      const preview = await only(command, root, {
+        readdir: async (path) => {
+          if (path === join(root, 'build', 'nested')) throw Object.assign(new Error('Cannot read nested directory'), { code });
+          return nodeBlastDeps.readdir(path);
+        },
+      });
+      expect(preview).toMatchObject({ summary: 'could not preview: Cannot read nested directory', lines: [] });
+      expect(preview.count).toBeUndefined();
+    }
+  });
+
+  it('does not treat filesystem errors without an absence code as missing', async () => {
+    const root = await tree();
+    expect(await only('rm *', root, {
+      readdir: async () => { throw new Error('Unknown directory failure'); },
+    })).toMatchObject({ summary: 'could not preview: Unknown directory failure', lines: [] });
+    expect(await only('rm log.txt', root, {
+      stat: async () => { throw new Error('Unknown inspection failure'); },
+    })).toMatchObject({ summary: 'could not preview: Unknown inspection failure', lines: [] });
+  });
+
+  it.each(['ENOENT', 'ENOTDIR'])('retains an empty target for absent path components (%s)', async (code) => {
+    const root = await tree();
+    const missing = async (): Promise<never> => { throw { code }; };
+    for (const command of ['rm missing.txt', 'rm missing/*.txt']) {
+      expect(await only(command, root, { stat: missing, readdir: missing })).toMatchObject({
+        summary: 'nothing matching is there, so nothing would be deleted', lines: [], count: 0,
+      });
+    }
+  });
+
   it('expands a glob one level deep and lists what it matched', async () => {
     const root = await tree();
     expect(await only('rm build/*.js', root)).toMatchObject({ kind: 'rm', summary: '2 files', lines: ['build/a.js', 'build/b.js'], count: 2 });
@@ -405,6 +459,9 @@ describe('previewing rm against a directory', () => {
     const root = await tree();
     expect(await only('rm -rf nope.txt', root)).toMatchObject({ summary: 'nothing matching is there, so nothing would be deleted', count: 0 });
     expect(await only('rm -rf build/*.ts', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf nope/*.txt', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf keep.txt/child', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf keep.txt/*.txt', root)).toMatchObject({ count: 0 });
   });
 
   it('names a path it cannot expand rather than calling it empty', async () => {
