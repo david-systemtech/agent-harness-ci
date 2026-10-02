@@ -99,6 +99,11 @@ describe("the container image", () => {
     expect(build).toContain("pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod");
   });
 
+  it("checks the required SDK after the production install before copying the image", () => {
+    const build = instructions(dockerfile).find((line) => line.startsWith("RUN --mount=type=cache"));
+    expect(build).toMatch(/--prod .*&& node scripts\/image-sdk-cache\.mjs check && rm -rf/);
+  });
+
   it("has a last stage that starts at a FROM", () => {
     expect(finalStage()[0]).toBe("FROM node:24-bookworm-slim");
   });

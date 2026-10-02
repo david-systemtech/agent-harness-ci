@@ -39,6 +39,7 @@ RUN --mount=type=cache,id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,shar
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store \
   && pnpm exec tsc -b packages/cli \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false \
+  && node scripts/image-sdk-cache.mjs check \
   && rm -rf .image-sdk-cache
 
 FROM node:24-bookworm-slim

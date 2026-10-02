@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it } from "vitest";
 
+const packageManager = (JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { packageManager: string }).packageManager;
 const script = join(import.meta.dirname, "..", "scripts", "image-sdk-cache.mjs");
 const run = promisify(execFile);
 const cleanups: (() => void)[] = [];
@@ -36,7 +37,7 @@ snapshots:
   writeFileSync(join(dir, "pnpm-lock.yaml"), lock);
   writeFileSync(join(dir, "pnpm-workspace.yaml"), "packages: []\n");
   writeFileSync(join(dir, "package.json"), JSON.stringify({
-    name: "image-fixture", version: "1.0.0", packageManager: "pnpm@10.34.5",
+    name: "image-fixture", version: "1.0.0", packageManager,
     dependencies: { "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.283" },
   }));
   return {
@@ -44,7 +45,7 @@ snapshots:
     archive: join(dir, ".image-sdk-cache", "sdk.tgz"),
     invoke: async (args: string[], env: NodeJS.ProcessEnv = {}) => {
       try {
-        const result = await run("node", [script, ...args], { cwd: dir, env: { ...process.env, ...env } });
+        const result = await run("node", [script, ...args], { cwd: dir, env: { ...process.env, NODE_PATH: "", ...env } });
         return { ...result, code: 0 };
       } catch (error) {
         return error as { code: number; stdout: string; stderr: string };
@@ -83,12 +84,12 @@ it("downloads the exact lockfile pin from the authenticated generic registry wit
   expect(result.stdout + result.stderr).not.toContain("token-for-tests");
 });
 
-it("refuses a corrupt source instead of importing or retaining an unchecked archive", async () => {
+it("warns and falls back to npm without retaining a corrupt source", async () => {
   const f = fixture(Buffer.from("expected archive"));
   const source = await registry(Buffer.from("different archive"));
   const result = await f.invoke(["download"], { IMAGE_SDK_CACHE_BASE: source.base, FORGEJO_TOKEN: "token-for-tests" });
-  expect(result.code).toBe(1);
-  expect(result.stderr).toContain("does not match lockfile integrity");
+  expect(result.code).toBe(0);
+  expect(result.stderr).toContain("does not match lockfile integrity; using npm");
   expect(existsSync(f.archive)).toBe(false);
   expect(readFileSync(join(f.dir, "pnpm-lock.yaml"), "utf8")).toBe(f.lock);
 });
@@ -159,4 +160,69 @@ packages:
   // The public path also works with no source archive and no network access.
   expect((await f.invoke(["fetch", "--frozen-lockfile", "--offline", store])).code).toBe(0);
   expect(source.requests).toHaveLength(2);
+});
+
+it("fails the image check when the optional SDK binary was skipped, and passes when it resolves", async () => {
+  const f = fixture(Buffer.from("unused archive"));
+  const sdk = join(f.dir, "node_modules", "@anthropic-ai", "claude-agent-sdk");
+  mkdirSync(sdk, { recursive: true });
+  writeFileSync(join(sdk, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", main: "sdk.js" }));
+  writeFileSync(join(sdk, "sdk.js"), "");
+  const missing = await f.invoke(["check"]);
+  expect(missing.code).toBe(1);
+  expect(missing.stderr).toContain("required Linux SDK is missing");
+  const native = join(f.dir, "node_modules", "@anthropic-ai", "claude-agent-sdk-linux-x64");
+  mkdirSync(native, { recursive: true });
+  writeFileSync(join(native, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk-linux-x64" }));
+  writeFileSync(join(native, "claude"), "fixture binary");
+  expect((await f.invoke(["check"])).code).toBe(0);
+});
+
+it("warns and falls back to npm when the cache cannot read the lockfile pin", async () => {
+  const f = fixture(Buffer.from("unused archive"));
+  writeFileSync(join(f.dir, "pnpm-lock.yaml"), "lockfileVersion: '10.0'\n");
+  const source = await registry(Buffer.from("unused"));
+  const result = await f.invoke(["download"], { IMAGE_SDK_CACHE_BASE: source.base, FORGEJO_TOKEN: "token-for-tests" });
+  expect(result.code).toBe(0);
+  expect(result.stderr).toContain("lockfile pin not found; using npm");
+  expect(source.requests).toEqual([]);
+  expect(existsSync(f.archive)).toBe(false);
+});
+
+it("seeds only the SDK before fetching the real workspace, without a second workspace install", async () => {
+  const f = fixture(Buffer.from("verified fixture archive"));
+  mkdirSync(join(f.dir, ".image-sdk-cache"));
+  writeFileSync(f.archive, "verified fixture archive");
+  const workspaceLock = f.lock.replace("packages:\n", "packages:\n  fixture-other@1.0.0:\n    resolution: {integrity: sha512-Zml4dHVyZQ==}\n").replace("snapshots:\n", "snapshots:\n  fixture-other@1.0.0: {}\n");
+  writeFileSync(join(f.dir, "pnpm-lock.yaml"), workspaceLock);
+  const bin = join(f.dir, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "pnpm"), `#!/bin/sh
+if [ "$1" = --dir ]; then
+  cp "$2/pnpm-lock.yaml" "$FETCH_SCRATCH_LOCK"
+  printf 'scratch\n' >> "$FETCH_CALLS"
+else
+  printf 'workspace\n' >> "$FETCH_CALLS"
+fi
+`, { mode: 0o755 });
+  const calls = join(f.dir, "fetch-calls");
+  const scratchLock = join(f.dir, "scratch-lock");
+  const result = await f.invoke(["fetch", "--frozen-lockfile"], {
+    PATH: `${bin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`,
+    FETCH_SCRATCH_LOCK: scratchLock, FETCH_CALLS: calls,
+  });
+  expect(result.code, result.stderr).toBe(0);
+  expect(readFileSync(scratchLock, "utf8")).not.toContain("fixture-other");
+  expect(readFileSync(calls, "utf8")).toBe("scratch\nworkspace\n");
+  expect(readFileSync(join(f.dir, "pnpm-lock.yaml"), "utf8")).toBe(workspaceLock);
+});
+
+it.each([401, 404, 503])("logs HTTP %s before falling back without credentials or an unchecked archive", async (status) => {
+  const f = fixture(Buffer.from("expected archive"));
+  const source = await registry(Buffer.from("unavailable"), status);
+  const result = await f.invoke(["download"], { IMAGE_SDK_CACHE_BASE: source.base, FORGEJO_TOKEN: "token-for-tests" });
+  expect(result.code).toBe(0);
+  expect(result.stderr).toContain(`HTTP ${status}; using npm`);
+  expect(result.stdout + result.stderr).not.toContain("token-for-tests");
+  expect(existsSync(f.archive)).toBe(false);
 });

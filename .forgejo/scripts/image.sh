@@ -51,8 +51,11 @@ build() {
   # lockfile enters Docker's context; public builds need no private source.
   rm -rf "$root/.image-sdk-cache"
   if [ -n "${FORGEJO_TOKEN:-${PACKAGES_TOKEN:-}}" ]; then
-    (cd "$root" && IMAGE_SDK_CACHE_BASE="$GITHUB_SERVER_URL/api/packages/${GITHUB_REPOSITORY%%/*}/generic" \
-      FORGEJO_TOKEN="${FORGEJO_TOKEN:-${PACKAGES_TOKEN:-}}" node scripts/image-sdk-cache.mjs download)
+    if ! (cd "$root" && IMAGE_SDK_CACHE_BASE="$GITHUB_SERVER_URL/api/packages/${GITHUB_REPOSITORY%%/*}/generic" \
+      FORGEJO_TOKEN="${FORGEJO_TOKEN:-${PACKAGES_TOKEN:-}}" node scripts/image-sdk-cache.mjs download); then
+      rm -rf "$root/.image-sdk-cache"
+      echo "image: SDK cache preparation failed; using npm" >&2
+    fi
   fi
   local labels=(--label "org.opencontainers.image.source=$source_url" --label "org.opencontainers.image.revision=$GITHUB_SHA")
   local label

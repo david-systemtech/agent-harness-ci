@@ -99,6 +99,7 @@ const fixture = (ref: string): Fixture => {
   write(join(fakeBin, "node"), `#!/bin/sh
 printf '%s\\n' "$IMAGE_SDK_CACHE_BASE" > "$FAKE_STATE/download-source"
 printf '%s\\n' "$FORGEJO_TOKEN" > "$FAKE_STATE/download-token"
+exit "\${FAKE_DOWNLOAD_EXIT:-0}"
 `, 0o755);
   return {
     env: {
@@ -140,6 +141,8 @@ describe("a pull request's build", () => {
     expect(f.calls()).toEqual([buildOf(local), inspectOf(local), `docker image rm ${local}`]);
     expect(f.outputs()).toBe("");
     expect(f.loginStdin()).toBeNull();
+    expect(f.downloadSource()).toBeNull();
+    expect(f.downloadToken()).toBeNull();
   });
 
   it("uses the job token to prepare the pinned download before Docker, without giving Docker any credential", async () => {
@@ -151,6 +154,16 @@ describe("a pull request's build", () => {
     expect(f.calls().join("\n") + result.stdout + result.stderr).not.toContain(TOKEN);
     expect(f.loginStdin()).toBeNull();
   });
+  it("warns and still builds when cache preparation fails", async () => {
+    const f = fixture("refs/pull/12/head");
+    const local = `david/agent-harness:${SHA.slice(0, 12)}`;
+    const result = await image(f, "build", { FORGEJO_TOKEN: TOKEN, FAKE_DOWNLOAD_EXIT: "1" });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("SDK cache preparation failed; using npm");
+    expect(f.calls()).toEqual([buildOf(local), inspectOf(local), `docker image rm ${local}`]);
+    expect(result.stdout + result.stderr + f.calls().join("\n")).not.toContain(TOKEN);
+  });
+
 });
 
 describe("a v tag's release image", () => {
