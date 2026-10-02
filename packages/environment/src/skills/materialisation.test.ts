@@ -7,7 +7,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { manualClock } from "../../test/clock.js";
 import { fakeAdapter, say, end, toolCall, type FakeAdapterOptions, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
-import { create, workspace } from "../../test/sessions.js";
+import { create } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { GENERATION_SWEEP_INTERVAL_MS } from "./generations.js";
 
@@ -70,7 +70,7 @@ describe("a run's skill set", () => {
     expect(set).toEqual({
       generation: join(t.dataDir, "skills", "generations", set.fingerprint as string),
       fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/),
-      members: [{ name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false }],
+      members: [{ name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "tdd", "SKILL.md"), commit: null }],
       hiddenNativeNames: [],
     });
     const link = join(set.generation as string, "skills", "tdd");
@@ -124,21 +124,22 @@ describe("a run's skill set", () => {
     await runIn(t, client, id);
 
     const set = lastSet(t);
-    expect(set.members).toEqual([{ name: "review", origin: null, invocation: "model+slash", native: false, alwaysOn: false }]);
+    expect(set.members).toEqual([{ name: "review", description: "Review the branch.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "review", "SKILL.md"), commit: null }]);
     expect(readlinkSync(join(set.generation as string, "skills", "review", "SKILL.md"))).toBe(join(own, "commands", "review.md"));
   });
 });
 
 describe("commands.list", () => {
-  it("hands the adapter the set it resolves for the account and workspace, whose members it lists", async () => {
-    const { t, client } = await start({ commands: [{ name: "compact", description: "Compact the conversation." }] });
+  it("hands the adapter the set it resolves for the session, whose members it lists and the listing folds into skill entries", async () => {
+    const { t, client } = await start({ commands: [{ name: "compact", description: "Compact the conversation.", builtin: true }] });
     await createSkill(client, "tdd");
-    const { commands } = await client.request("commands.list", { accountId: "claude-max", workspace: { kind: "directory", path: t.dataDir } });
+    const { id } = await create(client);
+    const { entries } = await client.request("commands.list", { sessionId: id });
 
     const listing = t.adapter.commandListings.at(-1);
     expect(listing?.scope.skillSet).toMatchObject({ fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/), members: [{ name: "tdd", native: false }] });
     expect(existsSync(join(listing?.scope.skillSet.generation as string, "skills", "tdd"))).toBe(true);
-    expect(commands.map((command) => command.name)).toContain("agent-harness:tdd");
+    expect(entries.map((entry) => `${entry.kind} ${entry.name}`)).toEqual(["skill tdd", "command compact"]);
   });
 });
 
@@ -148,8 +149,8 @@ describe("the generations' sweep", () => {
     const { t, client } = await start({ commands: [] }, { clock, processIdleMinutes: () => 24 * 60 });
     // A commands listing resolves the set, and the materialiser's work runs one piece at a time: it answers once every
     // sweep begun before it has finished.
-    const swept = () => client.request("commands.list", { workspace });
     const kept = await create(client);
+    const swept = () => client.request("commands.list", { sessionId: kept.id });
     const other = await create(client);
     await createSkill(client, "tdd");
     await runIn(t, client, kept.id);

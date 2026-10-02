@@ -35,7 +35,10 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   snapshot: {
     args: { valid: [{}, { filter: "all", depth: 2, ref: "f1e4", maxChars: 200_000 }], invalid: [{ filter: "visible" }, { maxChars: 200_001 }, { depth: 0 }] },
-    value: { valid: [{ ...location, ...snapshotText }, { ...location, ...snapshotText, truncated: true, challenge: "hcaptcha" }], invalid: [location, { ...location, ...snapshotText, totalChars: -1 }] },
+    value: {
+      valid: [{ ...location, ...snapshotText }, { ...location, ...snapshotText, truncated: true, challenge: "hcaptcha" }, { ...location, ...snapshotText, truncated: true, midLine: true }],
+      invalid: [location, { ...location, ...snapshotText, totalChars: -1 }, { ...location, ...snapshotText, truncated: true, midLine: false }],
+    },
   },
   click: {
     args: { valid: [{ target: { ref: "e12" } }, { target: { selector: "button.buy" }, snapshot: {} }], invalid: [{ target: { ref: "e12", selector: "a" } }, { target: {} }, {}] },
@@ -61,7 +64,7 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   screenshot: {
     args: { valid: [{}], invalid: [null, "now", []] },
-    value: { valid: [{ mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" }, { mimeType: "image/png", data: "" }], invalid: [{ mimeType: "image/gif", data: "R0lG" }, { mimeType: "image/jpeg", data: "not base64!" }] },
+    value: { valid: [{ url: location.url, mimeType: "image/jpeg", data: "/9j/4AAQSkZJRg==" }, { url: location.url, mimeType: "image/png", data: "" }], invalid: [{ url: location.url, mimeType: "image/gif", data: "R0lG" }, { url: location.url, mimeType: "image/jpeg", data: "not base64!" }] },
   },
   scroll: {
     args: { valid: [{ to: { direction: "down" } }, { to: { direction: "left", amount: 0.5 } }, { to: { ref: "e9" } }], invalid: [{ to: { direction: "sideways" } }, { to: { direction: "up", amount: 0 } }, { to: { direction: "down", ref: "e9" } }, {}] },
@@ -77,22 +80,22 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   console: {
     args: { valid: [{}], invalid: [null] },
     value: {
-      valid: [[], [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }, { level: "log", text: "ready", at }]],
-      invalid: [[{ level: "fatal", text: "x", at }], [{ level: "log", text: "x", at: 1_700_000_000 }], {}],
+      valid: [{ url: location.url, entries: [] }, { url: location.url, entries: [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }, { level: "log", text: "ready", at }] }],
+      invalid: [{ url: location.url, entries: [{ level: "fatal", text: "x", at }] }, { url: location.url, entries: [{ level: "log", text: "x", at: 1_700_000_000 }] }, { entries: [] }, []],
     },
   },
   network: {
     args: { valid: [{}, { failedOnly: true }], invalid: [{ failedOnly: "yes" }] },
     value: {
-      valid: [[], [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }, { method: "POST", url: "https://example.com/x", failure: "net::ERR_FAILED", at }]],
-      invalid: [[{ method: "GET", url: "https://example.com/", status: 200.5, at }], [{ url: "https://example.com/", at }]],
+      valid: [{ url: location.url, entries: [] }, { url: location.url, entries: [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }, { method: "POST", url: "https://example.com/x", failure: "net::ERR_FAILED", at }] }],
+      invalid: [{ url: location.url, entries: [{ method: "GET", url: "https://example.com/", status: 200.5, at }] }, { url: location.url, entries: [{ url: "https://example.com/", at }] }, { entries: [] }, []],
     },
   },
   cookies: {
     args: { valid: [{}], invalid: ["cookies"] },
     value: {
-      valid: [[], [{ name: "session", value: "v", domain: ".example.com", path: "/", expires: at, httpOnly: true, secure: true, sameSite: "Lax" }, { name: "id", domain: "example.com", path: "/", httpOnly: false, secure: false }]],
-      invalid: [[{ name: "session", domain: "example.com", path: "/", httpOnly: true, secure: true, sameSite: "lax" }], [{ name: "id" }]],
+      valid: [{ url: location.url, entries: [] }, { url: location.url, entries: [{ name: "session", value: "v", domain: ".example.com", path: "/", expires: at, httpOnly: true, secure: true, sameSite: "Lax" }, { name: "id", domain: "example.com", path: "/", httpOnly: false, secure: false }] }],
+      invalid: [{ url: location.url, entries: [{ name: "session", domain: "example.com", path: "/", httpOnly: true, secure: true, sameSite: "lax" }] }, { url: location.url, entries: [{ name: "id" }] }, { entries: [] }, []],
     },
   },
   storage: {
@@ -101,7 +104,7 @@ const verbs: Record<string, { readonly args: Fixtures; readonly value: Fixtures 
   },
   evaluate: {
     args: { valid: [{ expression: "document.title" }], invalid: [{ expression: "" }, {}] },
-    value: { valid: [{ result: "Example" }, { result: null }, { result: { a: [1, "two", false] } }], invalid: [{}, "Example"] },
+    value: { valid: [{ url: location.url, result: "Example" }, { url: location.url, result: null }, { url: location.url, result: { a: [1, "two", false] } }], invalid: [{}, "Example"] },
   },
   close: {
     args: { valid: [{}], invalid: [null] },
@@ -137,10 +140,29 @@ const listening = { state: "listening", port: 47615 };
 const portInUse = { state: "not-listening", reason: "port-in-use", message: "Ports 47615 to 47634 on loopback are all in use." };
 const folder = { path: "/home/david/.local/state/agent-harness/extension/current", problem: null };
 const noBuild = { path: "C:\\Users\\david\\AppData\\Local\\agent-harness\\extension\\current", problem: "This environment carries no built extension." };
-const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: true };
+/** The headless browser's part (#555): launched, an endpoint, and none with the reason. */
+const launched = { allowRuns: true, availability: { available: true, source: { kind: "launched", executable: "/usr/bin/chromium" } }, liveContexts: 1 };
+const endpoint = { allowRuns: true, availability: { available: true, source: { kind: "endpoint", endpoint: "http://127.0.0.1:9222" } }, liveContexts: 0 };
+const noHeadless = { allowRuns: false, availability: { available: false, reason: "No Chromium or Chrome was found on PATH." }, liveContexts: 0 };
+const headlessFixtures: Fixtures = {
+  valid: [launched, endpoint, noHeadless],
+  invalid: [
+    { ...launched, liveContexts: -1 },
+    { ...noHeadless, availability: { available: false } },
+    { ...endpoint, availability: { available: true, source: { kind: "endpoint", endpoint: "127.0.0.1:9222" } } },
+    { availability: launched.availability, liveContexts: 0 },
+  ],
+};
+const status = { listener: listening, folder, shippedVersion: "0.4.2", unpairedConnected: true, headless: launched };
 const statusFixtures: Fixtures = {
-  valid: [status, { listener: portInUse, folder: noBuild, shippedVersion: null, unpairedConnected: false }],
-  invalid: [{ ...status, unpairedConnected: undefined }, { ...status, shippedVersion: "" }, { ...status, listener: { state: "listening" } }, { listener: listening, folder }],
+  valid: [status, { listener: portInUse, folder: noBuild, shippedVersion: null, unpairedConnected: false, headless: noHeadless }],
+  invalid: [
+    { ...status, unpairedConnected: undefined },
+    { ...status, shippedVersion: "" },
+    { ...status, listener: { state: "listening" } },
+    { listener: listening, folder },
+    { ...status, headless: undefined },
+  ],
 };
 
 /** Pairing and paired Chromes (#548): the code, a Chrome as the list answers it, the chrome stream and chrome.updated. */
@@ -170,6 +192,10 @@ export const browserMethodFixtures: Record<string, { params: Fixtures; result: F
   "browser.chromes.unpair": {
     params: { valid: [{ commandId, chromeId }], invalid: [{ commandId }, { chromeId }, { commandId, chromeId: "work" }] },
     result: { valid: [{ chrome: { ...chrome, connected: false } }], invalid: [{}, { chrome: { id: chromeId } }] },
+  },
+  "browser.chromes.perform": {
+    params: { valid: [{ chromeId, ...call }, { chromeId: null, pageKey: "k", command: { verb: "close", args: {} } }], invalid: [call, { chromeId: "work", ...call }, { chromeId, pageKey: "k" }] },
+    result: { valid: [{ outcome: { ok: true, value: location } }, { outcome: denylisted }], invalid: [{}, { outcome: { ok: false } }, { ok: true, value: location }] },
   },
 };
 
@@ -253,6 +279,11 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ state: "listening", port: 0 }, { state: "not-listening", reason: "port-in-use" }, { state: "not-listening", reason: "busy", message: "Busy." }, { port: 47615 }],
   },
   "browser/status/folder.json": { valid: [folder, noBuild], invalid: [{ path: "", problem: null }, { path: folder.path, problem: "" }, { path: folder.path }] },
+  "browser/status/headless-source.json": {
+    valid: [launched.availability.source, endpoint.availability.source, { kind: "endpoint", endpoint: "wss://browser.example:9222/devtools/browser/abc" }],
+    invalid: [{ kind: "launched" }, { kind: "launched", executable: "" }, { kind: "endpoint", endpoint: "ftp://127.0.0.1" }, { kind: "container" }],
+  },
+  "browser/status/headless.json": headlessFixtures,
   "browser/status/status.json": statusFixtures,
   "browser/chrome-pairing-code.json": { valid: ["K7Q2MXH4", "23456789"], invalid: ["K7Q2MXH", "K7Q2MXH4R", "k7q2mxh4", "K7Q2-MXH", "K7Q2MXH1"] },
   "browser/chrome-name.json": { valid: ["Work", "A browser", "x".repeat(80)], invalid: ["", "x".repeat(81), 7] },

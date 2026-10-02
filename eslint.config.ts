@@ -1,5 +1,6 @@
 import css from "@eslint/css";
 import eslint from "@eslint/js";
+import html from "@html-eslint/eslint-plugin";
 import type { Linter } from "eslint";
 import { builtinModules } from "node:module";
 import { defineConfig, globalIgnores } from "eslint/config";
@@ -59,6 +60,8 @@ const forbidImports = (regex: string, message: string): Linter.RulesRecord => ({
 export default defineConfig([
   // `.ci/` is david/ci, which CI checks out inside the workspace.
   globalIgnores(["**/dist/", "**/coverage/", ".tsbuild/", ".ci/"]),
+  // Mozilla's Readability, vendored as Mozilla wrote it (#545): it is linted by Mozilla's own rules, not these.
+  globalIgnores(["packages/browser/src/vendor/readability*.ts"]),
   // The JavaScript rules read scripts only: a stylesheet has no comments or tokens of theirs to read.
   { files: [`**/*.${scripts}`], extends: [eslint.configs.recommended, tseslint.configs.recommended] },
   { plugins: { "agent-harness": plugin } },
@@ -78,7 +81,8 @@ export default defineConfig([
     rules: { "agent-harness/no-session-types-in-shell": "error" },
   },
 
-  // ADR 0023: every colour a window paints is a token, in the painting packages' scripts, tests included, and stylesheets.
+  // ADR 0023: every colour a window paints is a token, in the painting packages' scripts, tests included, stylesheets, SVG
+  // assets and HTML documents.
   {
     files: tokenPackages.map((p) => `packages/${p}/**/*.${scripts}`),
     ignores: literalColourAllowed,
@@ -91,6 +95,14 @@ export default defineConfig([
     plugins: { css },
     language: "css/css",
     languageOptions: { tolerant: true },
+    rules: { "agent-harness/no-literal-colour": "error" },
+  },
+  // SVG assets and HTML documents through html-eslint's HTML language, which parses an SVG file as markup too (#455).
+  {
+    files: tokenPackages.map((p) => `packages/${p}/**/*.{html,svg}`),
+    ignores: literalColourAllowed,
+    plugins: { html },
+    language: "html/html",
     rules: { "agent-harness/no-literal-colour": "error" },
   },
   // The terminal UI draws the terminal's sixteen, each colour a role or an environment colour the theme package maps

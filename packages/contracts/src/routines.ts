@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { KeyManagerReference } from "./key-managers.js";
+import { KeyManagerReferenceDisplay } from "./key-manager-connections.js";
 import { AccountIdentity, RunId } from "./adapter.js";
 import { SchemaIssue } from "./errors.js";
 import type { EventTypeEntry } from "./event-types.js";
@@ -291,6 +293,7 @@ export const RoutineMoveLink = z
     environmentId: EnvironmentId,
     routineId: RoutineId,
     at: Timestamp.meta({ description: "When the move was recorded here." }),
+    definitionSequence: z.int().positive().optional().meta({ description: "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot." }),
   })
   .meta({ description: "The other copy of a moved routine: its environment, its id there, and when the move was recorded here." });
 export type RoutineMoveLink = z.infer<typeof RoutineMoveLink>;
@@ -340,6 +343,7 @@ export const RoutineState = z
     savedBy: ClientSessionId.meta({ description: "The client session whose create, edit, import or enable last touched it." }),
     createdAt: Timestamp,
     editedAt: Timestamp.nullable().meta({ description: "When its definition was last edited or replaced by an import; null until then." }),
+    definitionSequence: z.int().positive().optional().meta({ description: "The event sequence of its latest create, edit, enable or disable; unchanged by firings. Absent when an environment does not supply it." }),
     movedFrom: RoutineMoveLink.nullable().meta({ description: "The routine this one is a moved copy of; null for one made here." }),
     movedTo: RoutineMoveLink.nullable().meta({ description: "The copy this one was moved to, which disabled it; null until moved, and cleared when it is enabled." }),
     baseline: z
@@ -373,9 +377,12 @@ export const ROUTINE_ATTENTION = [
 ] as const;
 export const RoutineAttention = z.enum(ROUTINE_ATTENTION).meta({
   description:
-    "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a skill is not in the skill set), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally).",
+    "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a name in its skills is not in the skill set of the account it resolves to; unknownSkills names each), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally).",
 });
 export type RoutineAttention = z.infer<typeof RoutineAttention>;
+
+/** The names in a routine's skills that the skill set of the account it resolves to does not hold (#531). */
+const unknownSkills = setOf(SkillName);
 
 /** A routine as `routines.list` answers it. */
 export const ListedRoutine = z
@@ -387,8 +394,11 @@ export const ListedRoutine = z
       description: "Its effective mode: its mode, else permissions.unattended.mode, clamped to the ceiling it was saved under and the account's modes, as the policy resolver clamps a firing's run.",
     }),
     attention: setOf(RoutineAttention).meta({ description: "What needs attention on it, each code once; empty when nothing does." }),
+    unknownSkills: unknownSkills.meta({
+      description: "The names in its skills that the skill set of the account it resolves to does not hold, in their order: what skill_unknown names; empty when the set holds each.",
+    }),
   })
-  .meta({ description: "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, and what needs attention." });
+  .meta({ description: "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, what needs attention, and the skills its account's skill set lacks." });
 export type ListedRoutine = z.infer<typeof ListedRoutine>;
 
 /** The longest final text a firing keeps, in characters. */
@@ -579,8 +589,18 @@ export const RoutineFiringStartedPayload = z
     requestedBy: FiringEntry.shape.requestedBy,
     preCheck: entryPart.preCheck,
     targets: FiringEntry.shape.targets,
+    silenceMarker: silenceMarker.meta({ description: "The marker its final text is read against by the silence rule (isSilent): its routine's when it was asked for, whatever an edit changes meanwhile." }),
+    maxDurationMinutes: maxDurationMinutes.meta({
+      description: "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
+    skills: setOf(SkillName).meta({
+      description: "The skills its runs load always-on, which a run the environment starts to continue it after a restart reads back: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
   })
-  .meta({ description: "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to whatever an edit changes meanwhile." });
+  .meta({
+    description:
+      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker, its maximum duration and its skills, whatever an edit changes meanwhile.",
+  });
 export type RoutineFiringStartedPayload = z.infer<typeof RoutineFiringStartedPayload>;
 
 export const RoutineFiringContinuedPayload = z
@@ -718,7 +738,7 @@ export const EndpointUrl = HttpUrl.meta({
 });
 
 export const RoutineEndpointSetPayload = z
-  .object({ name: EndpointName, url: EndpointUrl, secretKind: EndpointSecretKind })
+  .object({ name: EndpointName, url: EndpointUrl, secretKind: EndpointSecretKind, reference: KeyManagerReference.optional() })
   .meta({ description: "routine.endpoint-set: a webhook endpoint was made or replaced: its name, URL and where its secret is, never the secret." });
 export type RoutineEndpointSetPayload = z.infer<typeof RoutineEndpointSetPayload>;
 
@@ -733,6 +753,7 @@ export const WebhookEndpoint = z
     name: EndpointName,
     url: EndpointUrl,
     secretKind: EndpointSecretKind,
+    reference: KeyManagerReferenceDisplay.optional().meta({ description: "The secret reference in display form, only for a reference: never its value." }),
     lastResult: z
       .object({ at: Timestamp, result: DeliveryAttemptResult, status: DeliveryAttempt.shape.status, error: DeliveryAttempt.shape.error })
       .nullable()
@@ -824,6 +845,7 @@ export type RoutineConflictReason = z.infer<typeof RoutineConflictReason>;
 export const RoutineImportWarnings = z
   .object({
     attention: setOf(RoutineAttention).meta({ description: "What the routine would need attention for here: an account, model, skill, script or endpoint this environment lacks." }),
+    unknownSkills: unknownSkills.meta({ description: "The names in its skills that the skill set of the account it would resolve to here does not hold, in their order: what skill_unknown names." }),
     workspace: RoutineWorkspace.nullable().meta({
       description: "The workspace as re-resolved here, when the document's path is not usable on this environment: the most recently used checkout with its repository identity, else scratch; null when it is used as written.",
     }),
@@ -835,7 +857,9 @@ export type RoutineImportWarnings = z.infer<typeof RoutineImportWarnings>;
 export const RoutineImportCheck = z
   .object({
     index: z.int().nonnegative().meta({ description: "The document's place in the file, from 0." }),
-    definition: RoutineDefinition.nullable().meta({ description: "The definition as it would be saved; null when an issue refuses it." }),
+    definition: RoutineDefinition.nullable().meta({
+      description: "The definition as it would be saved, its workspace placed on this environment; null when the document does not read as a routine. A name another routine holds is an issue beside it.",
+    }),
     issues: z.array(SchemaIssue).meta({ description: "What is wrong in the document, each at its path; empty when nothing is." }),
     warnings: RoutineImportWarnings,
   })

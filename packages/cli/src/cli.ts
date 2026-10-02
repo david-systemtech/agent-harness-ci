@@ -1,5 +1,20 @@
 import { parseArgs } from "node:util";
-import { Ceiling, DISCOVERY_PATH, MODES, PAIRING_PRESET_IDS, PRODUCT_NAME, PairingPresetId, SCOPES, ScopeSet, pairingPreset, presetGrant } from "@agent-harness/contracts";
+import {
+  Ceiling,
+  DISCOVERY_PATH,
+  MODES,
+  NEW_ENVIRONMENT_CHANNEL_VARIABLE,
+  NEW_ENVIRONMENT_NAME_VARIABLE,
+  PAIRING_PRESET_IDS,
+  PRODUCT_NAME,
+  PairingPresetId,
+  RELEASE_CHANNELS,
+  ReleaseChannel,
+  SCOPES,
+  ScopeSet,
+  pairingPreset,
+  presetGrant,
+} from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
   defaultDataDirectory,
@@ -8,11 +23,15 @@ import {
   RootRefusedError,
   StartupError,
   startEnvironment,
+  systemClock,
+  type Clock,
   type EnvironmentHandle,
   type EnvironmentOptions,
   type PreflightSeams,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { BANK_USAGE, bank } from "./bank.js";
+import { BROWSER_USAGE, browser } from "./browser.js";
 import { harnessCommand } from "./harness-command.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
@@ -37,6 +56,8 @@ const USAGE = [
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
+  ...BROWSER_USAGE.map((line) => `       ${line}`),
+  ...BANK_USAGE.map((line) => `       ${line}`),
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
   "",
@@ -55,25 +76,50 @@ export interface CliContext extends ProcessContext {
   /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
   readonly preflight?: PreflightSeams;
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector" | "browser">;
-  /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
+  /** The network `pair`, the `update` verbs and `browser pair` use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
+  /** What `browser pair`'s countdown runs on; preset: the system clock. A seam for tests. */
+  readonly clock?: Pick<Clock, "now" | "setTimeout">;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
-  /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
+  /** What `git-credential` reads git's attributes from, `update credential` the token, and `bank draft --body -` the body; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
-  /** The variables `git-credential` reads; preset: the process's own. */
+  /** The variables `git-credential` reads, `serve` its new environment's name and channel from, and the `bank` verbs a Claude Code session's id from; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
+  /** The directory the `bank` verbs work in, whose repository scopes the banks; preset: the process's working directory. */
+  readonly cwd?: string;
 }
 
-const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
+/** A variable's value trimmed, or undefined when it is unset or blank, as the compose file passes one left unset. */
+const given = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed === "" ? undefined : trimmed;
+};
+
+/**
+ * `serve`'s options. A new environment's name is `--name`, else
+ * `AGENT_HARNESS_NAME`, and its channel `AGENT_HARNESS_CHANNEL` (#846): the
+ * variables the published compose file passes into the container. Only the
+ * start that creates the environment uses either.
+ */
+const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel"> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
   const port = parsePort(values.port, 0);
+  const name = values.name ?? given(env[NEW_ENVIRONMENT_NAME_VARIABLE]);
+  const channelValue = given(env[NEW_ENVIRONMENT_CHANNEL_VARIABLE]);
+  let channel: ReleaseChannel | undefined;
+  if (channelValue !== undefined) {
+    const parsed = ReleaseChannel.safeParse(channelValue);
+    if (!parsed.success) throw new UsageError(`${NEW_ENVIRONMENT_CHANNEL_VARIABLE} takes ${RELEASE_CHANNELS.join(" or ")}; got ${channelValue}.`);
+    channel = parsed.data;
+  }
   return {
     ...(values["data-dir"] !== undefined && { dataDir: values["data-dir"] }),
     ...(port !== undefined && { port }),
-    ...(values.name !== undefined && { name: values.name }),
+    ...(name !== undefined && { name }),
+    ...(channel !== undefined && { channel }),
   };
 };
 
@@ -156,11 +202,12 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   let environment: EnvironmentHandle;
   try {
     refusePrivilegedUser(user);
-    const options = parseServe(args);
-    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459).
+    const options = parseServe(args, context.env ?? process.env);
+    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459), with
+    // what it reads as it runs, which a contained run's sandbox must let it read (#705).
     const underLauncher = context.environment?.launcher?.present() ?? typeof process.send === "function";
-    const command = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
-    environment = await startEnvironment({ ...options, harnessCommand: command, ...context.environment, user });
+    const { command, reads } = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
+    environment = await startEnvironment({ ...options, harnessCommand: command, harnessReads: reads, ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);
@@ -220,6 +267,25 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         stderr: context.stderr,
         env: context.env ?? process.env,
         ...(context.gitCredentialTimeoutMs !== undefined && { timeoutMs: context.gitCredentialTimeoutMs }),
+      });
+    }
+    if (args[0] === "browser") {
+      return await browser(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        clock: context.clock ?? systemClock,
+        stopRequested: context.stopRequested,
+      });
+    }
+    if (args[0] === "bank") {
+      return await bank(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        cwd: context.cwd ?? process.cwd(),
+        env: context.env ?? process.env,
+        stdin: context.stdin ?? readStandardInput,
       });
     }
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });

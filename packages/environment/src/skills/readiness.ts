@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto";
 import { lstat, open, realpath, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   ContractError,
   READINESS_OVERLAY,
   invalidParams,
+  normaliseRemote,
   overlayDeclaration,
+  referenceLocator,
+  type ForgeAccountRecord,
   type ParamsOf,
   type ReadinessCheck,
   type ReadinessCheckOf,
@@ -16,13 +20,16 @@ import {
   type SkillReadiness,
 } from "@agent-harness/contracts";
 import type { InstructionTarget } from "../adapter/host.js";
-import type { InstructionScope, SkillSetScope } from "../adapter/seams.js";
+import { noToolServers, type InstructionScope, type SkillSetScope, type ToolServerFactory } from "../adapter/seams.js";
 import type { HostEnvironment } from "../adapters/claude/credentials.js";
+import { servingAccount } from "../forge/git-helper.js";
+import { noKeyManagerConnections, type KeyManagerRegistry } from "../key-managers/registry.js";
 import { findOnPath } from "../managed-tools/detection.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import { runGit, type GitAnswer, type GitOptions } from "../workspace/git.js";
+import { identityRemote } from "../workspace/identity.js";
 import { isInside } from "../workspace/paths.js";
 import { fingerprintOf, type PlacedMember, type PlacedSet } from "./generations.js";
 import { readSidecar } from "./sidecar.js";
@@ -36,14 +43,20 @@ import { readSidecar } from "./sidecar.js";
  * run gets), `git` (`repository`, `merge-in-progress`, `changes-since`),
  * `skill` (in the account's set, on and, unless the check says otherwise,
  * one the model may invoke) and `provider` (the account's provider, or a
- * capability its adapter declares). `secret`, `mcp` and git `forge-account`
- * fail as not evaluated yet, until the tickets that reach those services.
+ * capability its adapter declares). Three ask something beyond the file
+ * system (#511): `secret` resolves its reference through the key-manager
+ * registry in process, never asking anyone for the value, and lets the
+ * value go as soon as it is answered; `mcp` asks the tool-server factory for
+ * the session's next run, or a new session's of the account and workspace;
+ * git `forge-account` looks among the ForgeService's forge accounts for one
+ * serving the repository's remote on its origin or a verified alias.
  *
  * Each check gets five seconds and the call ten, from when it is asked; a
  * check still running then fails as could not be checked in time. A
- * member's answer is kept sixty seconds per workspace, account and set
- * fingerprint, unless `refresh`; one with a check that ran out is not
- * kept, so the next read checks again. Readiness is advisory: nothing here
+ * member's answer is kept sixty seconds per workspace, account, session
+ * (none for a new session's) and set fingerprint, unless `refresh`, as an
+ * `mcp` check answers for the session; one with a check that ran out is
+ * not kept, so the next read checks again. Readiness is advisory: nothing here
  * blocks an invocation or changes the set. All git goes through the
  * hardened runner, and reads refs and paths only: nothing is diffed, so no
  * filter or textconv the repository names runs.
@@ -53,7 +66,7 @@ import { readSidecar } from "./sidecar.js";
 export const READINESS_CHECK_BUDGET_MS = 5_000;
 /** How long a whole `skills.readiness` call may take, from when it is asked (a chosen default). */
 export const READINESS_CALL_BUDGET_MS = 10_000;
-/** How long a member's answer is kept for its workspace, account and fingerprint (a chosen default). */
+/** How long a member's answer is kept for its workspace, account, session and fingerprint (a chosen default). */
 export const READINESS_CACHE_MS = 60_000;
 
 /** The most of a file a `file` check reads for its headings. */
@@ -61,8 +74,8 @@ const MAX_FILE_BYTES = 1024 * 1024;
 /** The most of a git answer read: a ref, a path, a line or two. */
 const GIT_BYTES = 64 * 1024;
 
-/** What a readiness read is checked under: the session (null for a new one), the account, the workspace and the trust. */
-export type ReadinessScope = Pick<InstructionScope, "sessionId" | "accountId" | "workspace" | "trust">;
+/** What a readiness read is checked under: the session (null for a new one), the account, the workspace and its repository identity, and the trust. */
+export type ReadinessScope = Pick<InstructionScope, "sessionId" | "accountId" | "workspace" | "repositoryIdentity" | "trust">;
 
 /** Git as the checks run it: the hardened runner's signature. */
 export type ReadinessGit = (cwd: string, args: readonly string[], options: GitOptions) => Promise<GitAnswer>;
@@ -77,6 +90,15 @@ export interface SkillReadinessOptions {
   /** The environment a run starts from, whose PATH a `tool` check looks on. */
   readonly hostEnv: HostEnvironment;
   readonly clock: Clock;
+  /** The key-manager registry's resolve seam a `secret` check reads its reference through (#312); preset: no key-manager connection, so every reference is unavailable. */
+  readonly keyManagers?: KeyManagerRegistry;
+  /** The ForgeService's forge accounts, which a git `forge-account` check looks for one serving the repository's remote among; preset: none. */
+  readonly forgeAccounts?: () => readonly ForgeAccountRecord[];
+  /**
+   * The tool-server factory a run's servers come from, an `mcp` check's: the environment's own and the seam's, less a
+   * completions request's client tools, which are that request's own. Preset: none.
+   */
+  readonly toolServers?: ToolServerFactory;
   /** Preset: the overlay the contracts ship. */
   readonly overlay?: ReadinessOverlay;
   /** Preset: the hardened runner. */
@@ -89,6 +111,9 @@ export interface SkillReadinessService {
   read(params: ParamsOf<"skills.readiness">): Promise<ResultOf<"skills.readiness">>;
 }
 
+/** Who holds a `secret` check's value for the moment it is held, as the scrub registry names owners. */
+const READINESS_OWNER = "skills:readiness";
+
 /** A check that failed, before it is paired with the check. */
 type Failure = Pick<ReadinessFailure, "outcome" | "message">;
 
@@ -98,9 +123,6 @@ type Outcome = Failure | null;
 const failed = (message: string): Failure => ({ outcome: "failed", message });
 
 const TIMED_OUT: Failure = { outcome: "timed-out", message: "It could not be checked in time." };
-
-/** A check of a kind this environment does not evaluate yet. */
-const notEvaluated = (what: string): Failure => ({ outcome: "not-evaluated", message: `This environment does not evaluate ${what} checks yet.` });
 
 /** What a member declares, and where. */
 interface Declared {
@@ -202,9 +224,12 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
   const overlay = options.overlay ?? READINESS_OVERLAY;
   const git = options.git ?? runGit;
   const platform = options.platform ?? process.platform;
+  const keyManagers = options.keyManagers ?? noKeyManagerConnections;
+  const toolServers = options.toolServers ?? noToolServers;
+  const forgeAccounts = options.forgeAccounts ?? (() => []);
   const pathValue = options.hostEnv["PATH"] ?? options.hostEnv["Path"] ?? "";
 
-  /** Answers kept per workspace, account and fingerprint: each member's, with when it was checked. */
+  /** Answers kept per workspace, account, session (null for a new session's) and fingerprint: each member's, with when it was checked. */
   const kept = new Map<string, Map<string, { readonly at: number; readonly readiness: SkillReadiness }>>();
 
   /** Drops every answer older than the cache's sixty seconds, and each key left with none. */
@@ -319,11 +344,25 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       return failed("No merge or rebase is in progress in the repository.");
     });
 
+    /**
+     * Whether a forge account here serves the repository's remote, the one its identity comes from, on its canonical
+     * origin or a verified alias (ADR 0012, ADR 0020). The remote's URL is never shown: it can hold a token.
+     */
+    const forgeAccount = once(async (): Promise<Outcome> => {
+      const answer = await gitIn(["remote", "--verbose"]);
+      if (!answer.ok || answer.truncated) return failed("git could not list the repository's remotes.");
+      const url = identityRemote(answer.stdout.toString("utf8"));
+      if (url === undefined) return failed("The repository has no remote, so no forge account serves it.");
+      const remote = normaliseRemote(url);
+      if (remote === null) return failed("The repository's remote is a local path or a URL that names no forge.");
+      return servingAccount(remote, forgeAccounts()) === null ? failed(`No forge account on this environment serves ${remote.origin}, where the repository's remote is.`) : null;
+    });
+
     const gitCheck = async (check: ReadinessCheckOf<"git">): Promise<Outcome> => {
-      if (check.condition === "forge-account") return notEvaluated("git forge-account");
       const where = await inRepository();
       if (!("root" in where)) return where;
       if (check.condition === "repository") return null;
+      if (check.condition === "forge-account") return forgeAccount();
       if (check.condition === "merge-in-progress") return mergeInProgress();
       return changesSince(check.ref ?? "");
     };
@@ -333,6 +372,41 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       if (member === undefined) return failed(`No skill named ${check.name} is in this account's set, or it is switched off.`);
       if (check.modelInvocable !== false && member.invocation !== "model+slash") return failed(`${check.name} is slash-only: the model cannot call it.`);
       return null;
+    };
+
+    /** Resolves the reference in process, never asking anyone for its value, and lets the value go as soon as it is answered. */
+    const secret = async (check: ReadinessCheckOf<"secret">): Promise<Outcome> => {
+      const answer = await keyManagers.resolve({ reference: check.reference, owner: READINESS_OWNER, purpose: "readiness check" });
+      if (answer.outcome === "resolved") {
+        answer.release();
+        return null;
+      }
+      return failed(`The key-manager reference ${referenceLocator(check.reference)} does not resolve (${answer.code}): ${answer.message}`);
+    };
+
+    /**
+     * The names of the servers the factory gives the session's next run, or a new session's first under an id of its
+     * own: a fresh run under the scope's repository identity, with no client tools and no browser resolved, as the
+     * browser server has one name whichever browser it drives. Asked once for the call's checks; nothing is started or
+     * recorded.
+     */
+    const serverNames = once(async (): Promise<ReadonlySet<string>> => {
+      const servers = toolServers({
+        sessionId: scope.sessionId ?? randomUUID(),
+        runId: randomUUID(),
+        accountId: scope.accountId,
+        workspace: scope.workspace,
+        repositoryIdentity: scope.repositoryIdentity,
+        clientTools: [],
+        browser: { kind: "none" },
+      });
+      return new Set(servers.map((server) => server.name));
+    });
+
+    const mcp = async (check: ReadinessCheckOf<"mcp">): Promise<Outcome> => {
+      if ((await serverNames()).has(check.server)) return null;
+      const run = scope.sessionId === null ? "A new session of this account in this workspace" : "The session's next run";
+      return failed(`${run} is given no tool server named ${check.server}.`);
     };
 
     const provider = async (check: ReadinessCheckOf<"provider">): Promise<Outcome> => {
@@ -359,8 +433,9 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
         case "provider":
           return provider(check);
         case "secret":
+          return secret(check);
         case "mcp":
-          return Promise.resolve(notEvaluated(check.kind));
+          return mcp(check);
       }
     };
 
@@ -413,7 +488,7 @@ export const createSkillReadiness = (options: SkillReadinessOptions): SkillReadi
       const facts = options.account(scope.accountId);
       if (facts === null) throw new ContractError({ code: "not_found", message: `No account ${scope.accountId} is on this environment.`, data: { kind: "account", accountId: scope.accountId } });
       const set = await options.place({ ...scope, nativeRoots: facts.descriptor.nativeSkillRoots });
-      const key = JSON.stringify([scope.workspace.path, scope.accountId, fingerprintOf(set)]);
+      const key = JSON.stringify([scope.workspace.path, scope.accountId, scope.sessionId, fingerprintOf(set)]);
       prune(clock.now().getTime());
       const answers = kept.get(key) ?? new Map<string, { readonly at: number; readonly readiness: SkillReadiness }>();
       const check = evaluation(scope, set, facts.descriptor, callEndsAt);

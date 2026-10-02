@@ -29,14 +29,14 @@ export interface FakeReleaseSources {
   formula(name: string, version: string): string;
   /** Publishes a Homebrew cask's version. */
   cask(name: string, version: string): string;
-  /** Publishes the version an npm package's `latest` tag names. */
-  npm(name: string, version: string): string;
+  /** Publishes the version an npm package's dist-tag names (default: `latest`). */
+  npm(name: string, version: string, tag?: string): string;
   /** Publishes a WinGet package's manifests: a directory per version, and `others` as files beside them. */
   winget(id: string, versions: readonly string[], others?: readonly string[]): string;
   /** Publishes a GitHub repository's releases, newest first. */
   github(repository: string, releases: readonly (string | FakeGithubRelease)[]): string;
-  /** Publishes the version Claude Code's `latest` channel points at. */
-  claude(version: string): string;
+  /** Publishes the version Claude Code's channel points at (default: `latest`). */
+  claude(version: string, channel?: string): string;
   /** Publishes the version 1Password's update feed offers its CLI. */
   onePassword(version: string): string;
   /** Publishes a HashiCorp product's latest version. */
@@ -71,7 +71,7 @@ export const startFakeReleaseSources = async (): Promise<FakeReleaseSources> => 
     },
     formula: (name, version) => publish(`/homebrew/formula/${name}.json`, json({ name, versions: { stable: version, head: "HEAD", bottle: true } })),
     cask: (name, version) => publish(`/homebrew/cask/${name}.json`, json({ token: name, version })),
-    npm: (name, version) => publish(`/npm/${name.replace("/", "%2F")}/latest`, json({ name, version })),
+    npm: (name, version, tag = "latest") => publish(`/npm/${name.replace("/", "%2F")}/${tag}`, json({ name, version })),
     winget: (id, versions, others = []) => {
       const [publisher = "", ...rest] = id.split(".");
       const directory = `manifests/${publisher.charAt(0).toLowerCase()}/${[publisher, ...rest].join("/")}`;
@@ -83,7 +83,7 @@ export const startFakeReleaseSources = async (): Promise<FakeReleaseSources> => 
         `/github/repos/${repository}/releases?per_page=30`,
         json(releases.map((release) => (typeof release === "string" ? { tag_name: release, draft: false, prerelease: false } : { tag_name: release.tag, draft: release.draft ?? false, prerelease: release.prerelease ?? false }))),
       ),
-    claude: (version) => publish("/claude/latest", { headers: { "content-type": "text/plain" }, body: `${version}\n` }),
+    claude: (version, channel = "latest") => publish(`/claude/${channel}`, { headers: { "content-type": "text/plain" }, body: `${version}\n` }),
     onePassword: (version) => publish("/onepassword/check/1/0/CLI2/en/2.0.0/N", json({ available: "1", version })),
     hashicorp: (product, version) => publish(`/hashicorp/v1/releases/${product}/latest`, json({ name: product, version, is_prerelease: false, license_class: "oss" })),
     fail: (path) => server.route(path, { status: 500, headers: { "content-type": "text/plain" }, body: "Internal Server Error" }),

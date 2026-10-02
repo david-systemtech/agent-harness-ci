@@ -4,6 +4,7 @@ import {
   KEY_MANAGER_METHOD_WORDS,
   KEY_MANAGER_PROVIDER_WORDS,
   addConnection,
+  asksAddress,
   credentialOf,
   formProblem,
   type TypedCredential,
@@ -68,7 +69,8 @@ export interface SignInFormProps {
 /**
  * A key manager's sign-in form (key-managers spec, "Wire methods"; ADR 0028;
  * #425, #590): the provider where it offers more than one, a label, the
- * address (preset for Doppler and Bitwarden), and for OpenBao the CA it is
+ * address (preset for Doppler and Bitwarden; none for 1Password, whose token
+ * names it, #1118), and for OpenBao the CA it is
  * to pin, read from the certificate the address presents (`CaChoice`), how
  * it signs in, the mount (preset the method's name, following it until
  * typed at), the username for userpass and an optional token role; then the
@@ -133,9 +135,13 @@ export const SignInForm = ({ environmentId, providers, name, send, close, say }:
       <Field label="Label">
         <Input value={label} onChange={(event) => setLabel(event.target.value)} />
       </Field>
-      <Field label="Address">
-        <Input value={address} placeholder={openBao ? "https://bao.example.com:8200" : undefined} onChange={(event) => setAddress(event.target.value)} />
-      </Field>
+      {asksAddress(provider) ? (
+        <Field label="Address">
+          <Input value={address} placeholder={openBao ? "https://bao.example.com:8200" : undefined} onChange={(event) => setAddress(event.target.value)} />
+        </Field>
+      ) : (
+        <p className="text-xs text-ink-muted">No address: it is the account URL the token names, learned at sign-in.</p>
+      )}
       {openBao && (
         <>
           <CaChoice environmentId={environmentId} address={address} ca={ca} choose={setCa} />

@@ -128,6 +128,10 @@ _Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser
 A pseudo-terminal an environment owns, running the user's login shell in a session's workspace, which outlives every client connected to it and closes with its session; its output is kept only in its scrollback, never in the event log.
 _Avoid_: shell (the program inside it), console, the terminal UI (a client) or the user's terminal emulator (where a client runs)
 
+**One-off command**:
+A command an environment starts for a session through `terminals.run`, with closed stdin and pipe output, without a login shell or controlling terminal; its output uses terminal scrollback and the terminal stream, whose exit carries its status. `!` shows it in a pane; `!!` sends its bounded output to the agent.
+_Avoid_: interactive terminal, tool terminal (an install or update), shell (the program interpreting it)
+
 **Tool terminal**:
 A terminal the Managed tools registry owns rather than a session, running one install or update command through the user's login shell where a person can watch it and answer its prompts; no session lists it, counts it or closes it, so the Terminal entry's "closes with its session" does not cover it: it closes thirty minutes after its command exits, or when the environment stops. Any client session with the terminal scope may watch it; only one holding `admin` may type at it, resize it or close it.
 _Avoid_: install terminal, installer (the command it runs), admin terminal
@@ -181,7 +185,7 @@ A permission prompt or question a run is waiting on with nobody having answered 
 _Avoid_: pending approval, ask (already a UI word for permission prompts; fine for the "Parked asks" view name)
 
 **Idle**:
-The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
+The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended, nor the environment itself started, within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
 _Avoid_: quiet, inactive, free
 
 **Drain**:
@@ -323,6 +327,10 @@ _Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue 
 **Skill source**:
 A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
 _Avoid_: mirror, skills repo, marketplace
+
+**Snapshot**:
+A skill source's folder exported at one commit into an immutable, read-only copy under the data directory, with any provenance manifest one level up; the source's members are read from its current snapshot and a generation links into it, so a later sync, which makes a new snapshot, never changes a running process's files. Distinct from the database snapshot, the launcher's copy of the database.
+_Avoid_: checkout (the probe's or a sync's working copy), mirror, cache
 
 **Catalogue**:
 The suggestions list for skills and instructions that ships with the harness, versioned with the build: skills entries, each a repository folder a person may tick to track as a skill source, with its licence, members and any always-on hint; and suggested instructions in the groups Setup, Coding, Working with me and Custom, each versioned with every earlier text, which a person ticks to own a copy of. Whether an entry is tracked is derived from the environment's sources, never stored, and nothing in it is ticked or always-on until a person acts. An account's list of models is its model catalogue, never this.

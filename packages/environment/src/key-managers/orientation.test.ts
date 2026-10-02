@@ -245,6 +245,21 @@ posix("the key managers section", () => {
     expect(t.adapter.processesOf(session.id).map((process) => process.instructions)).toEqual([before]);
   });
 
+  it("tells a run given Bitwarden to pass bws the block's configuration file through --config-file, which bws below 0.5.0 reads from no variable, and no server URL, which would bypass its profile and state folder", async () => {
+    const { t, client } = await withOpenBao();
+    const bitwarden = await added(client, { provider: "bitwarden", label: "Bitwarden", address: "https://bitwarden.example.test" });
+    expect((await setInjected(client, bitwarden.id)).receipt).toMatchObject({ status: "accepted" });
+    const session = await create(client);
+
+    const text = await runTo(t, client, session.id);
+
+    expect(keyManagersOf(text).slice(2, 5)).toEqual([
+      "Its variables, names only: BWS_ACCESS_TOKEN, BWS_CONFIG_FILE, BWS_PROFILE.",
+      'Run bws as bws --config-file "$BWS_CONFIG_FILE" <command>, never with --server-url: below 0.5.0 bws reads its configuration file from that option alone, else this host\'s ~/.bws/config, and that file\'s profile names the server and keeps bws\'s state in this run\'s own folder, where a server URL would keep it in this host\'s ~/.bws/state.',
+      "Its CLI: bws is not installed.",
+    ]);
+  });
+
   it("never holds a credential, a login or run token, or the pinned CA", async () => {
     const { t, bao, client } = await withOpenBao();
     await connected(client, bao, { label: "Home" });
@@ -392,21 +407,6 @@ posix("why a run has no token", () => {
       "Home is injected into this run but unreachable from it: this run's containment, workspace-no-network, lets its commands reach no host.",
     ]);
     for (const withheld of ["BAO_", "Policies ticked", "Its CLI", "signed in"]) expect(keyManagersOf(text).join("\n\n")).not.toContain(withheld);
-  });
-
-  it("says of an injecting connection whose provider this version gives no block that runs get none of its variables", async () => {
-    const { t, client } = await withOpenBao();
-    const doppler = await added(client, { provider: "doppler", label: "Doppler", address: "https://api.doppler.com" });
-    expect((await setInjected(client, doppler.id)).receipt).toMatchObject({ status: "accepted" });
-    const session = await create(client);
-
-    const text = await runTo(t, client, session.id);
-
-    expect(keyManagersOf(text).slice(1, 4)).toEqual([
-      "Doppler, injected into this run: awaiting its sign-in since 2026-09-24 00:00 UTC; runs get no token from it until the user signs it in.",
-      "This version gives runs none of its variables yet.",
-      "Its CLI: doppler is not installed.",
-    ]);
   });
 
   it("says a run is given no key-manager variables or token while no connection injects", async () => {

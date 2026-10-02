@@ -26,6 +26,11 @@ import {
   SkillProbeUnreachable,
   SkillsProbeResult,
   SKILL_PROBE_PROBLEMS,
+  SKILL_SOURCE_LIMIT,
+  SkillSourceAddConflict,
+  SkillSourceFollowConflict,
+  SkillSourcePullConflict,
+  SkillsViewSource,
   approximateTokens,
   eventTypeEntry,
   isListEvent,
@@ -38,6 +43,10 @@ import {
   type SkillsCarryOverReport as SkillsCarryOverReportType,
   type SkillsProbeResult as SkillsProbeResultType,
   type SkillsView as SkillsViewType,
+  type SkillSourceAddConflict as SkillSourceAddConflictType,
+  type SkillSourceFollowConflict as SkillSourceFollowConflictType,
+  type SkillSourceNoSkills as SkillSourceNoSkillsType,
+  type SkillsViewSource as SkillsViewSourceType,
 } from "./index.js";
 
 /**
@@ -164,13 +173,22 @@ describe("a run's skill set", () => {
     generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
     fingerprint: "3f9a",
     members: [
-      { name: "tdd", origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" }, invocation: "model+slash", native: false, alwaysOn: true },
-      { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+      {
+        name: "tdd",
+        description: "Test-driven development.",
+        origin: { kind: "manifest", repository: "https://github.com/mattpocock/skills", path: "skills/engineering/tdd", commit: "c55ee46", licence: "MIT" },
+        invocation: "model+slash",
+        userInvocable: true,
+        argumentHint: "<feature>",
+        native: false,
+        alwaysOn: true,
+      },
+      { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: false, argumentHint: null, native: true, alwaysOn: false },
     ],
     hiddenNativeNames: ["triage"],
   };
 
-  it("hands an adapter the generation, the fingerprint, every member with its name, origin, invocation, whether it is native and whether its account made it always-on, and the native names to hide, through the wire and the published schema", () => {
+  it("hands an adapter the generation, the fingerprint, every member with its name, description, origin, invocation, whether a person may invoke it, its argument hint, whether it is native and whether its account made it always-on, and the native names to hide, through the wire and the published schema", () => {
     const validate = published("skills/run-skill-set.json");
     for (const value of [set, EMPTY_RUN_SKILL_SET]) {
       expect(roundTrip(RunSkillSet, value)).toEqual(value);
@@ -182,6 +200,8 @@ describe("a run's skill set", () => {
     expect(RunSkillSet.safeParse({ ...set, hiddenNativeNames: ["Triage"] }).success).toBe(false);
     expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], native: undefined }] }).success).toBe(false);
     expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], alwaysOn: undefined }] }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], description: "" }] }).success).toBe(false);
+    expect(RunSkillSet.safeParse({ ...set, members: [{ ...set.members[0], userInvocable: undefined }] }).success).toBe(false);
   });
 
   it("names the plugin a generation is after the product, and knows the roots an adapter may load itself: a repository's two skill roots and its commands", () => {
@@ -216,10 +236,24 @@ describe("the skills methods and notice", () => {
   const offForLocal = { kind: "enabled", name: "tdd", accountId: "local", enabled: false } as const;
   const alwaysOn = { kind: "always-on", name: "tdd", accountId: "claude-max", on: true } as const;
   const inert = { kind: "enabled", name: "unslop", accountId: null, enabled: false } as const;
-  const choices = { enabled: true, alwaysOn: true, choices: [offForLocal, alwaysOn] };
+  const choices = { native: false, enabled: true, alwaysOn: true, choices: [offForLocal, alwaysOn] };
+  const unslop: SkillsViewSourceType = {
+    id: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    url: "https://github.com/theclaymethod/unslop",
+    identity: "https://github.com/theclaymethod/unslop",
+    folder: ".",
+    follow: { kind: "branch", branch: null },
+    position: 1,
+    addedBy: { kind: "client_session", id: "cs-1" },
+    addedAt: "2026-10-01T06:30:00.000Z",
+    commit,
+    skillCount: 1,
+    sync: { outcome: "ok", since: "2026-10-01T06:30:00.000Z" },
+    attemptedAt: "2026-10-01T06:30:00.000Z",
+  };
   const view: SkillsViewType = {
     ownDirectory: "/home/david/.local/state/agent-harness/skills/own",
-    sources: [],
+    sources: [unslop],
     choices: [offForLocal, alwaysOn, inert],
     accountId: "claude-max",
     accounts: [
@@ -238,6 +272,7 @@ describe("the skills methods and notice", () => {
         size: 0,
         tokens: 0,
         shadowedBy: null,
+        native: false,
         enabled: true,
         alwaysOn: false,
         choices: [],
@@ -245,7 +280,7 @@ describe("the skills methods and notice", () => {
     ],
   };
 
-  it("are skills.get and skills.readiness at read, skills.probe as an admin query, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn and skills.setEnabled as admin commands", () => {
+  it("are skills.get and skills.readiness at read, skills.probe as an admin query, and skills.own.create, .remove, skills.carryOver, skills.setAlwaysOn, skills.setEnabled and skills.sources.add, .remove, .pull and .setFollow as admin commands", () => {
     const owned = methods.filter((m) => m.name.startsWith("skills."));
     expect(Object.fromEntries(owned.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "skills.get": ["query", "read"],
@@ -256,6 +291,10 @@ describe("the skills methods and notice", () => {
       "skills.carryOver": ["command", "admin"],
       "skills.setAlwaysOn": ["command", "admin"],
       "skills.setEnabled": ["command", "admin"],
+      "skills.sources.add": ["command", "admin"],
+      "skills.sources.remove": ["command", "admin"],
+      "skills.sources.pull": ["command", "admin"],
+      "skills.sources.setFollow": ["command", "admin"],
     });
   });
 
@@ -271,6 +310,9 @@ describe("the skills methods and notice", () => {
     expect(SkillsView.safeParse({ ...view, accountId: null }).success).toBe(true);
     expect(validate({ ...view, members: [{ ...view.members[0], choices: undefined }] })).toBe(false);
     expect(validate({ ...view, accounts: [{ accountId: "local", channel: "none" }] })).toBe(false);
+    expect(validate({ ...view, sources: [{ ...unslop, commit: undefined }] })).toBe(false);
+    expect(validate({ ...view, sources: [{ ...unslop, skillCount: -1 }] })).toBe(false);
+    expect(SkillsViewSource.parse(unslop)).toEqual(unslop);
   });
 
   it("list a choice by name: enabled for an account or the whole environment, or always-on for an account", () => {
@@ -314,7 +356,7 @@ describe("the skills methods and notice", () => {
 
   it("record each choice on the skills stream, skills.enabled-set and skills.always-on-set, neither of which changes the session list, in the table and the published schema", () => {
     expect(SKILLS_STREAM_KIND).toBe("skills");
-    expect(Object.keys(EVENT_TYPES.skills)).toEqual(["skills.enabled-set", "skills.always-on-set"]);
+    expect(Object.keys(EVENT_TYPES.skills)).toEqual(["skills.enabled-set", "skills.always-on-set", "skills.source-added", "skills.source-synced", "skills.source-removed", "skills.source-follow-set"]);
     for (const type of Object.keys(EVENT_TYPES.skills)) expect(isListEvent("skills", type), type).toBe(false);
     const enabled = { name: "tdd", accountId: null, enabled: false };
     const on = { name: "unslop", accountId: "claude-max", on: true };
@@ -444,5 +486,179 @@ describe("skills.probe", () => {
     expect(roundTrip(SkillProbeUnreachable, data)).toEqual(data);
     expect(published("skills/probe-unreachable.json")(data)).toBe(true);
     expect(SkillProbeUnreachable.safeParse({ ...data, problem: "timeout" }).success).toBe(false);
+  });
+});
+
+describe("skill sources", () => {
+  const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const sourceId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const source: SkillsViewSourceType = {
+    id: sourceId,
+    url: "git@github.com:mattpocock/skills.git",
+    identity: "https://github.com/mattpocock/skills",
+    folder: "skills/engineering",
+    follow: { kind: "branch", branch: null },
+    position: 3,
+    addedBy: { kind: "client_session", id: "cs-1" },
+    addedAt: "2026-10-01T06:30:00.000Z",
+    commit,
+    skillCount: 2,
+    sync: { outcome: "ok", since: "2026-10-01T06:30:00.000Z" },
+    attemptedAt: null,
+  };
+  const added = { id: sourceId, url: source.url, identity: source.identity, folder: source.folder, follow: source.follow, position: source.position };
+  const synced = {
+    sourceId,
+    outcome: "ok",
+    commit,
+    members: [
+      { name: "tdd", path: "tdd", description: "Test-driven development.", invocation: "model+slash", problems: [] },
+      { name: null, path: "Bad_Name", description: "No name passes.", invocation: "model+slash", problems: [{ kind: "name", message: "No name passes." }] },
+    ],
+  } as const;
+
+  it("are at most twenty on an environment", () => {
+    expect(SKILL_SOURCE_LIMIT).toBe(20);
+  });
+
+  it("are added by skills.sources.add with a URL and a folder by their rules, what to follow and an optional probe, answering the source with its commit and skill count", () => {
+    const add = registry["skills.sources.add"];
+    expect([add.kind, add.scope]).toEqual(["command", "admin"]);
+    const params = { commandId, url: "https://github.com/theclaymethod/unslop", folder: ".", follow: { kind: "branch", branch: null } };
+    expect(add.params.safeParse(params).success).toBe(true);
+    expect(add.params.safeParse({ ...params, probeId: "9b2e6f1c-3a4d-4e5f-8a7b-1c2d3e4f5a6b", follow: { kind: "pinned", commit } }).success).toBe(true);
+    expect(add.params.safeParse({ ...params, url: "https://token-for-tests@github.com/theclaymethod/unslop" }).error?.issues).toEqual([
+      expect.objectContaining({ path: ["url"], params: { rule: "source-url", reason: "credential" } }),
+    ]);
+    expect(add.params.safeParse({ ...params, folder: "../skills" }).error?.issues).toEqual([expect.objectContaining({ path: ["folder"], params: { rule: "source-folder", reason: "parent" } })]);
+    expect(add.params.safeParse({ ...params, follow: undefined }).success).toBe(false);
+    expect(add.params.safeParse({ ...params, probeId: "p-1" }).success).toBe(false);
+    const response = { receipt: { status: "accepted", sequence: 7, changed: true }, result: { source } } as const;
+    expect(roundTrip(add.response, response)).toEqual(response);
+    const validate = published("methods/skills.sources.add/response.json");
+    expect(validate(JSON.parse(JSON.stringify(response))), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it("are removed by skills.sources.remove naming the source, answering it as it was", () => {
+    const remove = registry["skills.sources.remove"];
+    expect([remove.kind, remove.scope]).toEqual(["command", "admin"]);
+    expect(remove.params.safeParse({ commandId, sourceId }).success).toBe(true);
+    expect(remove.params.safeParse({ commandId, sourceId: "s-1" }).success).toBe(false);
+    const response = { receipt: { status: "accepted", sequence: 9, changed: true }, result: { source } } as const;
+    expect(roundTrip(remove.response, response)).toEqual(response);
+    expect(published("methods/skills.sources.remove/response.json")(JSON.parse(JSON.stringify(response)))).toBe(true);
+  });
+
+  it("are refused, beyond the probe's unreachable, as no_skills with the folders found, source_limit, or duplicate naming the source held", () => {
+    const validate = published("skills/source-add-conflict.json");
+    const conflicts: SkillSourceAddConflictType[] = [
+      { reason: "unreachable", problem: "not_found", line: "fatal: repository not found", origin: "https://github.com" },
+      { reason: "no_skills", folders: [".", "skills/engineering"] },
+      { reason: "no_skills", folders: [] },
+      { reason: "source_limit", limit: 20 },
+      { reason: "duplicate", sourceId },
+    ];
+    for (const data of conflicts) {
+      expect(roundTrip(SkillSourceAddConflict, data)).toEqual(data);
+      expect(validate(data), JSON.stringify(data)).toBe(true);
+    }
+    expect(validate({ reason: "no_skills", folders: ["../skills"] })).toBe(false);
+    expect(validate({ reason: "duplicate" })).toBe(false);
+  });
+
+  it("are recorded on the skills stream as skills.source-added (the record), skills.source-synced (the commit, the members and the outcome) and skills.source-removed, none of which changes the session list, in the table and the published schema", () => {
+    const removed = { sourceId };
+    for (const [type, payload] of [
+      ["skills.source-added", added],
+      ["skills.source-synced", synced],
+      ["skills.source-removed", removed],
+    ] as const) {
+      expect(isListEvent("skills", type), type).toBe(false);
+      expect(eventTypeEntry("skills", type)?.payload.parse(JSON.parse(JSON.stringify(payload)))).toEqual(payload);
+      expect(published(`skills/events/${type}.json`)(JSON.parse(JSON.stringify(payload))), type).toBe(true);
+      expect(published("skills/event-type.json")(type)).toBe(true);
+    }
+    expect(published("skills/events/skills.source-added.json")({ ...added, follow: { kind: "pinned", commit } })).toBe(true);
+    expect(published("skills/events/skills.source-added.json")({ ...added, position: 0 })).toBe(false);
+    expect(published("skills/events/skills.source-synced.json")({ ...synced, outcome: "failed" })).toBe(false);
+    expect(published("skills/events/skills.source-synced.json")({ ...synced, commit: "main" })).toBe(false);
+  });
+
+  it("record a sync that failed with the probe's problem and what git said, or whose layout moved with the commit and the folders that would, and what a source follows, in the table and the published schema", () => {
+    const failed = { sourceId, outcome: "failed", problem: "network", line: "fatal: unable to access 'https://github.com/mattpocock/skills/': Could not resolve host: github.com" };
+    const moved = { sourceId, outcome: "layout_moved", commit, folders: [".", "skills/engineering"] };
+    for (const payload of [failed, moved, { ...moved, folders: [] }]) {
+      expect(eventTypeEntry("skills", "skills.source-synced")?.payload.parse(payload)).toEqual(payload);
+      expect(published("skills/events/skills.source-synced.json")(payload), JSON.stringify(payload)).toBe(true);
+    }
+    for (const payload of [{ ...failed, problem: "timeout" }, { ...failed, line: "" }, { ...moved, folders: ["../skills"] }, { ...moved, commit: undefined }, { ...synced, outcome: "layout_moved" }]) {
+      expect(published("skills/events/skills.source-synced.json")(payload), JSON.stringify(payload)).toBe(false);
+    }
+
+    const pinned = { sourceId, follow: { kind: "pinned", commit } };
+    const unpinned = { sourceId, follow: { kind: "branch", branch: "release/2" } };
+    for (const payload of [pinned, unpinned]) {
+      expect(isListEvent("skills", "skills.source-follow-set")).toBe(false);
+      expect(eventTypeEntry("skills", "skills.source-follow-set")?.payload.parse(payload)).toEqual(payload);
+      expect(published("skills/events/skills.source-follow-set.json")(payload)).toBe(true);
+    }
+    expect(published("skills/events/skills.source-follow-set.json")({ sourceId })).toBe(false);
+    expect(published("skills/event-type.json")("skills.source-follow-set")).toBe(true);
+  });
+
+  it("are listed with what their last sync came to and since when, and when a fetch of them last ended or null", () => {
+    const validate = published("skills/view-source.json");
+    const since = "2026-10-01T12:30:00.000Z";
+    const syncs: SkillsViewSourceType["sync"][] = [
+      { outcome: "ok", since },
+      { outcome: "failed", since, problem: "authentication", line: "fatal: Authentication failed for 'https://github.com/mattpocock/skills/'" },
+      { outcome: "layout_moved", since, commit, folders: ["skills"] },
+    ];
+    for (const sync of syncs) {
+      const listed: SkillsViewSourceType = { ...source, sync, attemptedAt: "2026-10-01T18:30:00.000Z" };
+      expect(roundTrip(SkillsViewSource, listed)).toEqual(listed);
+      expect(validate(JSON.parse(JSON.stringify(listed))), JSON.stringify(sync)).toBe(true);
+    }
+    expect(validate({ ...source, sync: undefined })).toBe(false);
+    expect(validate({ ...source, attemptedAt: undefined })).toBe(false);
+    expect(validate({ ...source, sync: { outcome: "failed", since } })).toBe(false);
+    expect(validate({ ...source, sync: { outcome: "ok" } })).toBe(false);
+  });
+
+  it("are synced now by skills.sources.pull naming the source, answering it as the sync left it, and refused conflict, reason pinned, for a pinned one", () => {
+    const pull = registry["skills.sources.pull"];
+    expect([pull.kind, pull.scope]).toEqual(["command", "admin"]);
+    expect(pull.params.safeParse({ commandId, sourceId }).success).toBe(true);
+    expect(pull.params.safeParse({ commandId }).success).toBe(false);
+    const response = { receipt: { status: "accepted", sequence: 9, changed: false }, result: { source } } as const;
+    expect(roundTrip(pull.response, response)).toEqual(response);
+    expect(published("methods/skills.sources.pull/response.json")(JSON.parse(JSON.stringify(response)))).toBe(true);
+    const conflict = { reason: "pinned", commit };
+    expect(roundTrip(SkillSourcePullConflict, conflict)).toEqual(conflict);
+    expect(published("skills/source-pull-conflict.json")(conflict)).toBe(true);
+    expect(published("skills/source-pull-conflict.json")({ reason: "pinned" })).toBe(false);
+  });
+
+  it("are pinned at a commit or follow a branch again by skills.sources.setFollow, refused unreachable or no_skills for a commit that cannot be fetched or yields nothing", () => {
+    const setFollow = registry["skills.sources.setFollow"];
+    expect([setFollow.kind, setFollow.scope]).toEqual(["command", "admin"]);
+    for (const follow of [{ kind: "pinned", commit }, { kind: "branch", branch: null }, { kind: "branch", branch: "release/2" }]) {
+      expect(setFollow.params.safeParse({ commandId, sourceId, follow }).success).toBe(true);
+    }
+    expect(setFollow.params.safeParse({ commandId, sourceId, follow: { kind: "pinned", commit: "main" } }).success).toBe(false);
+    expect(setFollow.params.safeParse({ commandId, sourceId, follow: { kind: "branch", branch: "-x" } }).success).toBe(false);
+    const response = { receipt: { status: "accepted", sequence: 9, changed: true }, result: { source: { ...source, follow: { kind: "pinned", commit } } } } as const;
+    expect(roundTrip(setFollow.response, response)).toEqual(response);
+    expect(published("methods/skills.sources.setFollow/response.json")(JSON.parse(JSON.stringify(response)))).toBe(true);
+    const validate = published("skills/source-follow-conflict.json");
+    const conflicts: SkillSourceFollowConflictType[] = [
+      { reason: "unreachable", problem: "not_found", line: "fatal: remote error: upload-pack: not our ref", origin: "https://github.com" },
+      { reason: "no_skills", folders: ["skills"] } satisfies SkillSourceNoSkillsType,
+    ];
+    for (const data of conflicts) {
+      expect(roundTrip(SkillSourceFollowConflict, data)).toEqual(data);
+      expect(validate(data)).toBe(true);
+    }
+    expect(validate({ reason: "duplicate", sourceId })).toBe(false);
   });
 });

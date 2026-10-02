@@ -122,6 +122,9 @@ const added = {
 };
 
 export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
+  "key-managers/bitwarden-move-locator.json": { valid: [{ provider: "bitwarden", connectionId, project: "harness", key: "forge-home" }], invalid: [{ provider: "bitwarden", connectionId, key: "forge-home" }] },
+  "key-managers/move-locator.json": { valid: [reference, { provider: "bitwarden", connectionId, project: "harness", key: "forge-home" }], invalid: [{ provider: "bitwarden", connectionId }] },
+  "key-managers/reference-provider-unavailable-error.json": { valid: [{ code: "provider_unavailable", message: "SDK unavailable for tests", data: { connectionId } }], invalid: [{ code: "provider_unavailable", message: "SDK unavailable for tests", data: {} }] },
   "key-managers/address.json": {
     valid: [address, "http://100.101.102.103:8200", "https://api.doppler.com"],
     invalid: ["https://bao.systemtech.dev:8200/", "https://bao.systemtech.dev:443", "https://Bao.example.com", "bao.systemtech.dev:8200", "https://bao.example.com/v1", ""],
@@ -226,12 +229,12 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     valid: [{ connectionId, basePath: "personal/harness" }],
     invalid: [{ connectionId }, { connectionId, basePath: "personal/harness/" }, { basePath: "personal/harness" }],
   },
-  "key-managers/move-item-kind.json": { valid: ["forge-account"], invalid: ["bank-token", "", 1] },
+  "key-managers/move-item-kind.json": { valid: ["forge-account", "bank"], invalid: ["bank-token", "", 1] },
   "key-managers/move-item-ref.json": { valid: [item], invalid: [{ kind: "forge-account" }, { ...item, id: "" }, { ...item, kind: "session" }] },
   "key-managers/move-target.json": { valid: [target], invalid: [{ connectionId }, { connectionId: "openbao", reference }, { connectionId, reference: { ...reference, key: "" } }] },
   "key-managers/move-item.json": {
-    valid: [movable, { ...movable, targets: [] }],
-    invalid: [{ ...movable, name: "" }, { ...movable, targets: undefined }, { ...movable, kind: "bank" }],
+    valid: [movable, { ...movable, targets: [] }, { ...movable, kind: "bank" }],
+    invalid: [{ ...movable, name: "" }, { ...movable, targets: undefined }, { ...movable, kind: "session" }],
   },
   "key-managers/move-step.json": { valid: ["read", "write", "read-back", "swap"], invalid: ["delete", "", "sign-in"] },
   "key-managers/move-item-result.json": {
@@ -291,11 +294,11 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...display, provider: "vault" }, { ...display, label: "" }, { ...display, locator: "" }, { provider: "openbao", locator: "personal/harness/forge-github (key token)" }],
   },
   "key-managers/reference-holder.json": {
-    valid: [holder],
+    valid: [holder, { ...holder, kind: "bank" }],
     invalid: [{ ...holder, kind: "session" }, { ...holder, id: "" }, { kind: "forge-account", id: otherId }],
   },
   "key-managers/reference-problem.json": {
-    valid: [notSignedIn, notFound, denied],
+    valid: [notSignedIn, notFound, denied, { code: "provider_unavailable", message: "SDK unavailable for tests", data: { connectionId } }],
     invalid: [{ ...denied, data: {} }, { code: "unreachable", message: "m", data: { connectionId } }, { ...notFound, message: undefined }],
   },
   "errors/reference_not_found.json": {

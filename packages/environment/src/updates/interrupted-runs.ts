@@ -42,8 +42,9 @@ import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
  * - otherwise `continued`: one run as `system:updates` with the origin
  *   `update`, in the same transaction, resolved for the actor the cut run's
  *   policy names under the ceiling it was resolved under (as the run of the
- *   queue after a restart is, #131), in its model and effort, resuming its
- *   provider session, whose first message is the environment's own: why the
+ *   queue after a restart is, #131), in its model and effort, with the
+ *   skills a routine's firing started with (#531), resuming its provider
+ *   session, whose first message is the environment's own: why the
  *   turn stopped, and to check the current state before repeating anything.
  *   The session's queued messages follow it.
  *
@@ -67,8 +68,12 @@ import { readUpdateHistory, type UpdateHistory } from "./outcomes.js";
 
 export interface InterruptedRunsOptions {
   readonly log: EventLog;
-  /** What a continuation starts through: the facts a start decides on, and the launch once it has committed. */
-  readonly host: Pick<AdapterHost, "startFacts" | "launch">;
+  /**
+   * What a continuation starts through: the facts a start decides on, the
+   * run before's basis (a routine's skills, #531), and the launch once it
+   * has committed.
+   */
+  readonly host: Pick<AdapterHost, "startFacts" | "nextRunBasis" | "launch">;
   /** The environment's name, which the continuation's message says. */
   readonly environmentName: string;
   /** The version this start runs: the update took when it is the update's target. */
@@ -194,6 +199,8 @@ export const settleInterruptedRuns = async (options: InterruptedRunsOptions): Pr
       message: { messageId: randomUUID(), text, attachments: [] },
       model: model.id,
       ...(cut.effort !== null && model.efforts.includes(cut.effort) && { effort: cut.effort }),
+      // A routine's continuation loads the skills its firing started with (#531).
+      alwaysOn: host.nextRunBasis(cut.sessionId)?.alwaysOn ?? [],
       messageFirst: true,
     });
     if (decision.rejected !== undefined) {

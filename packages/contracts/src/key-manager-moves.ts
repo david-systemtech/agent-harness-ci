@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { WireError, errorSchema } from "./errors.js";
-import { KeyManagerConnectionId, KeyManagerReference } from "./key-managers.js";
+import { KeyManagerConnectionId, KeyManagerReference, KeyManagerMoveLocator } from "./key-managers.js";
 import { ClientSessionId } from "./primitives.js";
 
 /**
@@ -22,10 +22,10 @@ import { ClientSessionId } from "./primitives.js";
  * reads back what was pasted, and swaps and deletes as a Move does.
  */
 
-/** What holds a stored value Move can take: a forge account's pasted token. */
-export const KEY_MANAGER_MOVE_ITEM_KINDS = ["forge-account"] as const;
+/** What holds a stored value Move can take: a forge account's pasted token, a bank's fallback token or an endpoint's pasted secret. */
+export const KEY_MANAGER_MOVE_ITEM_KINDS = ["forge-account", "endpoint", "bank"] as const;
 export const KeyManagerMoveItemKind = z.enum(KEY_MANAGER_MOVE_ITEM_KINDS).meta({
-  description: "What holds a stored value Move can take: forge-account (a forge account's pasted token).",
+  description: "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token).",
 });
 export type KeyManagerMoveItemKind = z.infer<typeof KeyManagerMoveItemKind>;
 
@@ -38,7 +38,7 @@ export const KeyManagerMoveItemRef = z
       .min(1)
       .max(256)
       .regex(/^[^\p{Cc}]+$/u)
-      .meta({ description: "The item's id with its owner: a forge account's id." }),
+      .meta({ description: "The item's id with its owner: a forge account's or bank's id, or a webhook endpoint's name." }),
   })
   .meta({ description: "An item Move takes, by its kind and its owner's id for it." });
 export type KeyManagerMoveItemRef = z.infer<typeof KeyManagerMoveItemRef>;
@@ -47,7 +47,7 @@ export type KeyManagerMoveItemRef = z.infer<typeof KeyManagerMoveItemRef>;
 export const KeyManagerMoveTarget = z
   .object({
     connectionId: KeyManagerConnectionId.meta({ description: "The connection the target is on." }),
-    reference: KeyManagerReference.meta({ description: "The reference the item holds once moved there: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key." }),
+    reference: KeyManagerMoveLocator.meta({ description: "Where the item will be written: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key; for Bitwarden, the base project and key until creation returns the secret id for the reference." }),
   })
   .meta({ description: "Where an item would go on one connection with a base path: the reference it would hold once moved." });
 export type KeyManagerMoveTarget = z.infer<typeof KeyManagerMoveTarget>;
@@ -81,7 +81,7 @@ export const KeyManagerTargetExistsError = errorSchema(
   z.object({
     reason: z.literal("target_exists"),
     connectionId: KeyManagerConnectionId.meta({ description: "The connection the target is on." }),
-    reference: KeyManagerReference.meta({ description: "The target, as the reference the item would hold." }),
+    reference: KeyManagerMoveLocator.meta({ description: "The target, as the reference the item would hold." }),
   }),
 ).meta({
   description:
@@ -94,7 +94,7 @@ export const KeyManagerCannotWriteError = errorSchema(
   "cannot_write",
   z.object({
     connectionId: KeyManagerConnectionId.meta({ description: "The connection whose login cannot write the target." }),
-    reference: KeyManagerReference.meta({ description: "The target, as the reference the item would hold." }),
+    reference: KeyManagerMoveLocator.meta({ description: "The target, as the reference the item would hold." }),
   }),
 ).meta({
   description:
@@ -169,7 +169,7 @@ export const KeyManagerValueCopiedPayload = z
   .object({
     connectionId: KeyManagerConnectionId.meta({ description: "The connection whose login cannot write the target." }),
     item: KeyManagerMoveItemRef,
-    reference: KeyManagerReference.meta({ description: "The target the value was copied to be pasted at." }),
+    reference: KeyManagerMoveLocator.meta({ description: "The target the value was copied to be pasted at." }),
     clientSessionId: ClientSessionId.meta({ description: "The client session the value was answered to." }),
   })
   .meta({

@@ -54,6 +54,10 @@ export {
   type ShellTray,
   type ShellUpdate,
   type ShellWebView,
+  type ShellWebViewDebugger,
+  type ShellDebuggerMessage,
+  type ShellWebViewState,
+  type ShellWebViewKey,
   type ShellWindow,
 } from "./shell.js";
 export {
@@ -68,12 +72,14 @@ export {
   type EnvironmentDescriptor,
 } from "./connections/records.js";
 export type { UpdateEnvironmentOutcome } from "./connections/environment-update.js";
-export type { Connections, RemoveResult } from "./connections/registry.js";
+export type { ConnectionCredential, Connections, RemoveResult } from "./connections/registry.js";
 export type { ConnectionAction } from "./connections/state-machine.js";
 export { NOTICE_LIMIT, type Notice, type NoticeAction, type NoticeKind, type NoticeSubject, type StepAction } from "./notices.js";
 export { FORGE_NOTICE_ACTION } from "./projections/forge-notices.js";
 export { KEY_MANAGER_NOTICE_ACTION } from "./projections/key-manager-notices.js";
 export type { Forges, HandOverParams } from "./forges.js";
+export type { SkillsCopies, SkillsCopySelection, SkillsCopyItem, SkillsCopyItemReport } from "./skills-copy.js";
+export type { BankCopyItemReport } from "./banks-copy.js";
 export type { KeyManagers } from "./key-managers.js";
 export {
   INJECTION_SWITCH_WORDS,
@@ -103,6 +109,7 @@ export {
   KEY_MANAGER_ADDRESS_PRESETS,
   KEY_MANAGER_LABEL_PRESETS,
   addConnection,
+  asksAddress,
   copyValue,
   moveItems,
   previewCertificate,
@@ -136,24 +143,35 @@ export {
   FORGE_PROBLEM_WORDS,
   PULL_REQUEST_STATE_WORDS,
   capabilitiesWords,
+  capabilityName,
+  capabilityStateWords,
   credentialWords,
   forgeAccountName,
+  forgeAliasWords,
   forgeCopyLine,
   forgeIdentityWords,
   forgeOriginWords,
+  forgeProblemAction,
+  forgeRowProblem,
   forgeStatusWords,
+  machineGhAbsence,
+  machineGhLogin,
   primaryWords,
   pullRequestNumber,
   pullRequestWords,
   shownPullRequest,
   tokenPageWords,
+  type ForgeProblemAction,
 } from "./forges/words.js";
 export {
+  addForgeAlias,
   addFromGh,
+  addFromMachineGh,
   addPastedForge,
   detectForge,
   removeForge,
   setPrimaryForge,
+  signInForgeAgain,
   verifyForge,
   type Detection,
   type ForgeOutcome,
@@ -195,6 +213,8 @@ export {
 export type {
   AccountChip,
   AccountPresetReason,
+  BrowserChip,
+  BrowserPresetReason,
   EnvironmentChip,
   EnvironmentOption,
   EnvironmentPresetReason,
@@ -207,6 +227,8 @@ export type {
   WorkspaceChip,
   WorkspacePresetReason,
 } from "./projections/new-session.js";
+export { PRESET_SETTING_KEYS } from "./projections/new-session.js";
+export type { BrowserRow, BrowsersView, BrowserUnavailable, BrowserUnavailableReason } from "./projections/browsers.js";
 export {
   SETUP_AGE_TICK_MS,
   SETUP_CHECK_TIMEOUT_MS,
@@ -221,6 +243,7 @@ export {
   RESTORE_METHODS,
   SETUP_ACTION_WORDS,
   planSetupAction,
+  pullSetupSources,
   restoreStep,
   setupActions,
   updateEnvironment,
@@ -291,6 +314,7 @@ export type {
   TasksEntry,
   ToolCallEntry,
   TranscriptEntry,
+  UpdateInterruptedEntry,
   UserMessageEntry,
 } from "./projections/session.js";
 export {
@@ -331,6 +355,7 @@ export {
 } from "./attention/policy.js";
 export { CLIENT_CALL_ANSWER_METHOD, CLIENT_CALL_EVENT, type ClientCall, type ClientCallHandler, type ClientCalls } from "./projections/client-calls.js";
 export type { AccountsAnswer, EnvironmentAnswer, ModelsAnswer, UsageGauge, UsageView } from "./projections/accounts.js";
+export type { RoutineGroup, RoutineHistory, RoutineHistoryView, RoutineRow, RoutinesView, SentDefinition } from "./projections/routines.js";
 export type { ModeChoice, ModePicker } from "./projections/modes.js";
 export type {
   ByRepositoryHeading,
@@ -347,6 +372,7 @@ export type { Freshness } from "./streams/stream.js";
 export { SESSION_LINGER_MS, type SessionHandle, type SessionView } from "./streams/session-handles.js";
 export {
   callsRowId,
+  environmentMessage,
   folded,
   forkedFrom,
   lastReply,
@@ -356,11 +382,13 @@ export {
   rewoundRowId,
   transcriptRows,
   undoableFold,
+  updateInterruptedText,
   type ForkedFrom,
   type TranscriptRow,
 } from "./transcript/rows.js";
 export {
   TOOL_CATEGORIES,
+  attachmentChip,
   classifyTool,
   clockTime,
   describeActivity,
@@ -379,7 +407,7 @@ export { isLiveTask, sessionTasks, type SessionTask } from "./transcript/tasks.j
 export { subagentRows } from "./transcript/subagent.js";
 export { TOOL_QUIET_MS, hear, nextQuietChange, quietFor, runningCalls, type Heard, type QuietCalls } from "./transcript/quiet.js";
 export { MAX_ATTACHMENT_NAME, UNKNOWN_MEDIA_TYPE, attachmentFromBytes, mediaTypeOf, overLimit } from "./composer/attachments.js";
-export { matchCommands } from "./composer/commands.js";
+export { matchCommands, slashMenuRows, type ClientCommandRow, type SlashMenuRow, type SlashMenuSource } from "./composer/commands.js";
 export {
   FORK_USAGE,
   REWIND_USAGE,
@@ -391,6 +419,7 @@ export {
   type ForkAsked,
   type RewindAsked,
 } from "./composer/fork-rewind-commands.js";
+export { organiseUsage } from "./composer/organise-commands.js";
 export { shellLine } from "./composer/shell-line.js";
 export { followDraft, type DraftSides, type DraftStep, type InStep } from "./composer/draft.js";
 export { DEFAULT_MATCH_LIMIT, fuzzyMatch, mentionAt, replaceMention, type FileMatch, type FrecencyLike, type FuzzyMatchOptions, type Mention } from "./composer/mentions.js";
@@ -465,7 +494,6 @@ export {
   oneOffMessage,
   reusableTerminal,
   runOneOff,
-  shownEnv,
   type OneOffDeps,
   type OneOffResult,
   type OneOffTarget,
@@ -489,7 +517,7 @@ export {
   type SettingSaved,
   type SettingsWriter,
 } from "./settings/editor.js";
-export { matchSettingsRows, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, stepHome, type SettingsLink } from "./settings/rows.js";
+export { matchSettingsRows, noSettingsRowLine, parseSettingsLink, rowSteps, settingsDeepLink, settingsRowNamed, stepHome, type SettingsLink } from "./settings/rows.js";
 export {
   ACCOUNT_STATUS_WORDS,
   BETWEEN_ENVIRONMENTS,
@@ -640,3 +668,8 @@ export {
 } from "./managed-tools/words.js";
 export { runTool, verifyTool, type ToolRunOutcome } from "./managed-tools/actions.js";
 export type { ToolRunsView } from "./managed-tools/tool-runs.js";
+
+export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
+
+export { terminalAnswers } from "./terminals/answers.js";
+export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";

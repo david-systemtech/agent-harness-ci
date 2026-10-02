@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { KeyManagerConnectionRecord, Scope } from "@agent-harness/contracts";
+import { GH_MINIMUM_VERSION, type GhProbe, type KeyManagerConnectionRecord, type Scope } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { noticeEvent } from "../test/events.js";
 import { usePaired } from "../test/paired.js";
 import { subscription } from "../test/scripted.js";
 import { forgeEventPayload, forgeProblem, forgeRecord } from "../test/forges.js";
-import { keyManagerRecord, listedConnection } from "../test/key-managers.js";
+import { keyManagerRecord, listedConnection, toolRow, toolsUpdatedPayload } from "../test/key-managers.js";
+import { addForgeAlias } from "./forges/actions.js";
+import { forgeProblemAction, forgeRowProblem, machineGhAbsence, machineGhLogin } from "./forges/words.js";
 import { createRuntimeWithSeams } from "./internal.js";
 import type { Shell } from "./shell.js";
 import { fakeWire, flush, type FakeWire } from "./testing/fake-wire.js";
@@ -614,5 +616,75 @@ describe("copying a forge account to other environments", () => {
       { environmentId: server, name: "server" },
     ]);
     expect(runtime.projections.copyTargets(laptop).read().map((target) => target.environmentId)).toEqual([desk, server]);
+  });
+});
+
+describe("forge.gh.probe in the request cache", () => {
+  it("is fetched again when the managed tools change, whose gh row it reads (#589)", async () => {
+    const { runtime, wire, env, environment } = await paired();
+    let asked = 0;
+    wire.answer("forge.gh.probe", () => (asked++, { result: { installed: false, version: null, minimum: GH_MINIMUM_VERSION, meetsMinimum: false, accounts: [] } }));
+    runtime.requests.cached(env, "forge.gh.probe", {}).subscribe(() => undefined);
+    await flush();
+    expect(asked).toBe(1);
+    environment.event(noticeEvent(1, env, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
+    await flush();
+    expect(asked).toBe(2);
+  });
+});
+
+describe("the Forges step's row (#589)", () => {
+  it("offers Check again on an unreachable forge, the Key manager step for a reference it cannot read, Sign in again on every other problem, and draws no expiry", () => {
+    const reference = forgeRecord({
+      credential: { kind: "reference", reference: { provider: "openbao", connectionId: randomUUID(), mount: "personal", path: "harness/forge-github", key: "token" } },
+      problem: forgeProblem("credential-unavailable"),
+    });
+    expect(forgeProblemAction(forgeRecord())).toBeNull();
+    expect(forgeProblemAction(forgeRecord({ problem: forgeProblem("unreachable") }))).toBe("check-again");
+    expect(forgeProblemAction(reference)).toBe("key-manager");
+    expect(forgeProblemAction({ ...reference, problem: forgeProblem("credential-rejected") })).toBe("sign-in-again");
+    for (const kind of ["needs-credential", "credential-rejected", "credential-unavailable", "identity-changed"] as const) {
+      expect(forgeProblemAction(forgeRecord({ problem: forgeProblem(kind) })), kind).toBe("sign-in-again");
+    }
+    // The card's expiry warning is milestone 2's (ADR 0033): the row draws none.
+    const expiring = forgeRecord({ problem: forgeProblem("expiring") });
+    expect(forgeRowProblem(expiring)).toBeNull();
+    expect(forgeProblemAction(expiring)).toBeNull();
+    expect(forgeRowProblem(forgeRecord({ problem: forgeProblem("unreachable") }))).toMatchObject({ kind: "unreachable" });
+  });
+
+  it("offers the environment's own gh once it is installed at the minimum and signed in, reading the host's active login", () => {
+    const probe = (fields: Partial<GhProbe>): GhProbe => ({ installed: true, version: "2.63.2", minimum: GH_MINIMUM_VERSION, meetsMinimum: true, accounts: [], ...fields });
+    const account = (host: string, login: string, active: boolean) => ({ host, login, active, tokenKind: "oauth" as const, scopes: ["repo"] });
+    expect(machineGhAbsence(probe({ installed: false, version: null, meetsMinimum: false }), "desk")).toBe("desk has no gh to read a token from.");
+    expect(machineGhAbsence(probe({ version: null, meetsMinimum: false }), "desk")).toBe("The gh on desk is of a version it does not say, older than 2.40.0, the oldest a forge account reads.");
+    expect(machineGhAbsence(probe({}), "desk")).toBe("The gh on desk is signed in to no host: run gh auth login there, or paste a token.");
+    const signedIn = probe({ accounts: [account("github.com", "seth", false), account("github.com", "david", true), account("ghe.example.test:8443", "dvd", false)] });
+    expect(machineGhAbsence(signedIn, "desk")).toBeNull();
+    expect(machineGhLogin(signedIn, "github.com")).toBe("david");
+    expect(machineGhLogin(signedIn, "ghe.example.test:8443")).toBe("dvd");
+    expect(machineGhLogin(signedIn, "git.example.test")).toBeNull();
+  });
+
+  it("sends an alias with the aliases the environment holds when it is sent, so one added before the row's record is read again is kept", async () => {
+    const { runtime, clock, wire, env } = await paired();
+    // The row's record as the request cache held it before either alias: the cache reads the list again only once it hears the update's event.
+    const shown = forgeRecord({ origin: "https://git.example.test", kind: "forgejo", slug: "git_example_test" });
+    let held = shown;
+    let sequence = 0;
+    wire.answer("forge.accounts.list", () => ({ result: { accounts: [held] } }));
+    wire.answer("forge.accounts.update", (params) => {
+      held = { ...held, aliases: (params["aliases"] as readonly string[]).map((origin) => ({ origin, verifiedAt: clock.now().toISOString() })) };
+      return { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { account: held } } };
+    });
+    const sender = { runtime, clock };
+
+    expect(await addForgeAlias(sender, env, shown, "http://forge.tail.test:3000")).toMatchObject({ ok: true });
+    expect(await addForgeAlias(sender, env, shown, "http://forge.lan.test:3000/david/agent-harness.git")).toMatchObject({ ok: true });
+    expect(held.aliases.map((alias) => alias.origin)).toEqual(["http://forge.tail.test:3000", "http://forge.lan.test:3000"]);
+
+    // One the environment holds already is refused, sending no update, though the row's record does not list it yet.
+    expect(await addForgeAlias(sender, env, shown, "http://forge.tail.test:3000")).toEqual({ ok: false, line: "Not added: http://forge.tail.test:3000 is an alias of it already." });
+    expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "forge.accounts.update")).toHaveLength(2);
   });
 });

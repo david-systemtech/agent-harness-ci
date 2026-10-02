@@ -2,7 +2,9 @@ import { SettingsUpdatedPayload, triggerMatches, type RegisteredStepId } from "@
 import type { EventEnvelope } from "../event-log/envelope.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { Reader } from "../sessions/session-reads.js";
 import type { CheckedStep } from "./check.js";
+import { mintedRunEnd } from "./minted.js";
 import type { SetupService } from "./service.js";
 
 /**
@@ -26,12 +28,20 @@ import type { SetupService } from "./service.js";
  *   names include one the step writes. A change a step's checks read that
  *   the log does not record is named to `trigger` in process, and triggers
  *   the step the same way: each check of the release channel as it ends,
- *   for Your machines (#679).
+ *   for Your machines (#679). Every run end of a minted session, a
+ *   session tagged `setup` and a step's id (ADR 0019; #584), triggers that
+ *   step the same way, so an LLM step's check detects its artefact when the
+ *   conversation stops, never on a timeout.
  *
- * A trigger, the cadence or a `setup.check` that arrives while the step's
- * check runs takes that run's result (`service.ts`): a check never runs
- * twice at once, and what a check's own verification records (a forge
- * account's `forge.account.verified`) does not check it again.
+ * A step's check never runs twice at once: the cadence or a `setup.check`
+ * that arrives while it runs takes that run's result (`service.ts`). A
+ * trigger that arrives while it runs is heard again as the run ends, so the
+ * step is checked a second after it (#678): the run read the settings as it
+ * started and each state check as it asked it, so it may have missed the
+ * trigger's change. That is any trigger, what the check's own verification
+ * records included (a forge account's `forge.account.verified`, appended only
+ * on a change), so a check whose verification found a change is followed by
+ * one more.
  */
 
 /** How long after a trigger arrives its step is checked, every trigger inside it joining the one check. */
@@ -72,6 +82,8 @@ export const startSetupScheduler = (options: SetupSchedulerOptions): SetupSchedu
   let stopped = false;
   const cadences = new Map<RegisteredStepId, Timer>();
   const triggered = new Map<RegisteredStepId, Timer>();
+  /** The steps a trigger arrived for while their check ran, each heard again once that run ends. */
+  const owed = new Set<RegisteredStepId>();
 
   const cadenceMs = (step: CheckedStep): number => step.cadence.minutes * 60_000;
 
@@ -103,9 +115,18 @@ export const startSetupScheduler = (options: SetupSchedulerOptions): SetupSchedu
     arm(step, cadenceMs(step));
   };
 
-  /** A trigger of the step arrived: it is checked a second from now, unless an earlier trigger's second is running, or its check is, whose result the trigger takes. */
+  /**
+   * A trigger of the step arrived: it is checked a second from now, unless an
+   * earlier trigger's second is running, which this one joins. A check that
+   * started inside the second read the state after the trigger's change, so
+   * the trigger takes its result. One that arrives while the step's check
+   * runs is owed a check once the run ends.
+   */
   const trigger = (step: CheckedStep): void => {
-    if (stopped || triggered.has(step.id) || setup.checking(step.id)) return;
+    if (stopped) return;
+    const run = setup.running(step.id);
+    if (run !== undefined) return owe(step, run);
+    if (triggered.has(step.id)) return;
     triggered.set(
       step.id,
       clock.setTimeout(() => {
@@ -115,8 +136,20 @@ export const startSetupScheduler = (options: SetupSchedulerOptions): SetupSchedu
     );
   };
 
+  /** Hears the step's trigger again as `run`, the check it arrived during, ends: every trigger during one run is heard once. */
+  const owe = (step: CheckedStep, run: Promise<void>): void => {
+    if (owed.has(step.id)) return;
+    owed.add(step.id);
+    void run.then(() => {
+      owed.delete(step.id);
+      trigger(step);
+    });
+  };
+
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const unsubscribe = log.subscribe((event) => {
-    for (const step of steps) if (fires(step, event)) trigger(step);
+    const minted = mintedRunEnd(reader, event);
+    for (const step of steps) if (fires(step, event) || minted.has(step.id)) trigger(step);
   });
   const startPass = Promise.all(
     steps.map((step) => {

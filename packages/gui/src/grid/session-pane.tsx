@@ -1,4 +1,5 @@
 import { LOCAL_PLACEHOLDER_ID } from "@agent-harness/client-runtime";
+import type { ReactNode } from "react";
 import { Composer } from "../composer/composer.js";
 import { SlashCommands } from "../composer/slash-commands.js";
 import { LocalEnvironmentPane } from "../connections/local-environment.js";
@@ -13,6 +14,8 @@ import { SessionQueueProvider } from "../queue/session-queue.js";
 import { PaneDocumentsProvider } from "../session/pane-documents.js";
 import { PaneLine } from "../session/pane-line.js";
 import { SideColumnView } from "../side-column/side-column.js";
+import { PaneOrganising } from "../sidebar/pane-organising.js";
+import { TrustQuestion } from "../skills/trust.js";
 import { PaneDialogs } from "../status/pane-dialogs.js";
 import { StatusLine } from "../status/status-line.js";
 import { Transcript } from "../transcript/transcript.js";
@@ -34,13 +37,15 @@ export interface PaneContentsProps extends CaptionProps {
  * what offers them: the actions under each message, the rewound fold and the
  * rewound strip over the composer (#403); and beside it the session's side
  * column ("The seven panes and the grid"), whose refusals are said on the
- * pane's line and whose panes the pane's slash commands open. It holds what
- * its documents are asked (the Preview's document, the call the transcript
+ * pane's line and whose panes the pane's slash commands open; and its
+ * organising slash commands, with the sidebar's dialogs they open (#753). It
+ * holds what its documents are asked (the Preview's document, the call the transcript
  * shows), which the transcript and the column both ask. Another session
  * opened in the pane brings its own column, and its own line, or the line
- * handed to it as it opened.
+ * handed to it as it opened. An authoring card may supply its own header,
+ * keeping the same session controls below it (#585).
  */
-export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps & { readonly session: PaneSession }) => {
+export const SessionPane = ({ session, focused, header, ...caption }: PaneContentsProps & { readonly session: PaneSession; readonly header?: ReactNode }) => {
   const { environmentId, sessionId } = session;
   return (
     <div className="flex min-h-0 flex-1">
@@ -51,7 +56,8 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
               <PaneDialogs environmentId={environmentId} sessionId={sessionId}>
                 <SessionForkRewindProvider environmentId={environmentId} sessionId={sessionId}>
                   <section aria-label="Session pane" aria-current={focused ? "true" : undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <SessionCaption session={session} {...caption} />
+                    {header ?? <SessionCaption session={session} {...caption} />}
+                    <TrustQuestion environmentId={environmentId} sessionId={sessionId} />
                     <Transcript environmentId={environmentId} sessionId={sessionId} />
                     <QueueStrip />
                     <PromptCard environmentId={environmentId} sessionId={sessionId} />
@@ -60,6 +66,7 @@ export const SessionPane = ({ session, focused, ...caption }: PaneContentsProps 
                     <StatusLine environmentId={environmentId} sessionId={sessionId} />
                   </section>
                   <SideColumnView environmentId={environmentId} sessionId={sessionId} />
+                  <PaneOrganising environmentId={environmentId} sessionId={sessionId} />
                 </SessionForkRewindProvider>
               </PaneDialogs>
             </SlashCommands>

@@ -1,9 +1,11 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { SETUP_PENDING_MS } from "@agent-harness/client-runtime";
+import { SETUP_PENDING_MS, clockTime } from "@agent-harness/client-runtime";
 import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
 import { SETTINGS, STEP_ORDER, denylistPresets } from "@agent-harness/contracts";
+import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment, type ScriptedSetup } from "../test/harness.js";
+import { StepStatus } from "./setup/step-status.js";
 import type { StepCardProps } from "./setup/cards.js";
 
 /**
@@ -110,20 +112,20 @@ describe("Skip for now", () => {
     const card = () => within(checklist() as HTMLElement).getAllByRole("region")[0] as HTMLElement;
     const skippable: string[] = [];
     while (within(card()).queryByRole("button", { name: "Continue" }) !== null) {
-      if (within(card()).queryByRole("button", { name: "Skip for now" }) !== null) skippable.push(within(card()).getByRole("heading").textContent ?? "");
+      if (within(card()).queryByRole("button", { name: "Skip for now" }) !== null) skippable.push(within(card()).getByRole("heading", { level: 2 }).textContent ?? "");
       await app.user.click(within(card()).getByRole("button", { name: "Continue" }));
     }
-    // The steps this build registers as skippable: Carry over, Forges and Key manager, with nothing set up there when they are skipped.
-    expect(skippable).toEqual(["Carry over", "Forges", "Key manager"]);
+    // The steps this build registers as skippable: Carry over, Forges, Key manager, Memory bank, Skills and Browser, with nothing set up there when they are skipped.
+    expect(skippable).toEqual(["Carry over", "Forges", "Key manager", "Memory bank", "Skills", "Browser"]);
 
     await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
     const commands = () => desk.requests().filter((request) => request.params["commandId"] !== undefined).length;
     const sent = { commands: commands(), checks: desk.requests("setup.check").length };
     await app.user.click(within(card()).getByRole("button", { name: "Skip for now" }));
-    expect(within(card()).getByRole("heading").textContent).toBe("Key manager");
+    expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Key manager");
     expect(within(steps()).getByRole("button", { name: "Key manager" }).getAttribute("aria-current")).toBe("step");
     await app.user.click(within(card()).getByRole("button", { name: "Skip for now" }));
-    expect(within(card()).getByRole("heading").textContent).toBe("Memory bank");
+    expect(within(card()).getByRole("heading", { level: 2 }).textContent).toBe("Memory bank");
     expect({ commands: commands(), checks: desk.requests("setup.check").length }).toEqual(sent);
 
     // Nothing was recorded, the first-launch mark included: the next launch opens Set up again.
@@ -469,20 +471,106 @@ describe("a step's named actions on their targets", () => {
     expect(desk.requests("updates.apply").map((request) => request.params["when"])).toEqual(["idle"]);
   });
 
-  it("opens the step's home row for a verb whose method is not on the wire yet, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
+  it("pulls every named source on the checked environment and reports each sync, continuing after a refusal", async () => {
+    const ids = ["0f8fad5b-d9cb-469f-a165-70867728950e", "0f8fad5b-d9cb-469f-a165-70867728950f", "0f8fad5b-d9cb-469f-a165-708677289510"];
+    const labels = ["team-skills", "house-skills", "work-skills"];
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", setup: { skills: {
+      state: "needs-attention", reason: "Three sources need a pull.", failing: ["skills.sources-synced"], actions: ["pull-now"],
+      targets: ids.map((id, i) => ({ action: "pull-now", kind: "skill-source", id, label: labels[i]! })),
+    } } }] }, { stepCards: { skills: StepStatus } });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("desk");
+    desk.wire.answer("skills.sources.pull", (params) => {
+      if (params.sourceId === ids[0]) return { error: { code: "not_found", message: "The source was removed.", data: { kind: "source" } } };
+      const since = app.clock.now().toISOString();
+      const sync = params.sourceId === ids[1] ? { outcome: "failed", since, problem: "network", line: "Could not reach the repository." } : { outcome: "ok", since };
+      return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { source: {
+        id: params.sourceId, url: "https://git.example.test/team/skills", identity: "https://git.example.test/team/skills", folder: ".",
+        follow: { kind: "branch", branch: "main" }, position: 1, addedBy: { kind: "client_session", id: "desk" }, addedAt: since,
+        commit: "c".repeat(40), skillCount: 1, sync, attemptedAt: since,
+      } } } };
+    });
+    const skills = await cardOf(app, "Skills");
+    await app.user.click(within(skills).getByRole("button", { name: "Pull now: team-skills, house-skills, work-skills" }));
+    expect(await within(skills).findByText("team-skills: Not pulled: The source was removed. house-skills: Not pulled: Could not reach the repository. work-skills: Source pulled.")).toBeDefined();
+    expect(desk.requests("skills.sources.pull").map((request) => request.params.sourceId)).toEqual(ids);
+    expect(new Set(desk.requests("skills.sources.pull").map((request) => request.params.commandId)).size).toBe(3);
+    expect(checklist()).not.toBeNull();
+  });
+
+  it.each(["install", "update"] as const)("runs a named tool's %s in a terminal on its card and accepts its prompt", async (action) => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired", capabilities: ["managedTools"],
+      managedTools: { runs: { gh: { password: "password-for-tests", command: "sudo brew install gh" } } },
+      setup: { forges: { state: "needs-attention", reason: "gh needs attention.", failing: ["forges.gh"], actions: [action],
+        targets: [{ action, kind: "tool", id: "gh", label: "gh" }],
+      } },
+    }] });
+    await screen.findByText(NO_SESSION);
+    const desk = app.environment("laptop");
+    await cardOf(app, "Forges");
+    await app.user.selectOptions(within(checklist() as HTMLElement).getByRole("combobox", { name: "Environment" }), "laptop");
+    const forges = within(checklist() as HTMLElement).getByRole("region", { name: "Forges" });
+    await app.user.click(within(forges).getByRole("button", { name: `${action === "install" ? "Install" : "Update"} gh in a tool terminal` }));
+    const terminal = await within(forges).findByRole("region", { name: `${action === "install" ? "Installing" : "Updating"} GitHub CLI` });
+    expect(desk.requests("tools.run").map((request) => request.params)).toEqual([{ commandId: expect.any(String), id: expect.any(String), tool: "gh", action }]);
+    await waitFor(() => expect(terminal.textContent).toContain("[sudo] password for seth:"));
+    act(() => (terminal.querySelector("textarea") as HTMLTextAreaElement).focus());
+    await app.user.keyboard("password-for-tests{Enter}");
+    expect(await within(terminal).findByText("· exit 0")).toBeDefined();
+    expect(desk.requests("terminals.write").length).toBeGreaterThan(0);
+    await app.user.click(within(terminal).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(desk.requests("terminals.close")).toHaveLength(1));
+    expect(checklist()).not.toBeNull();
+  });
+
+  it("shows a named tool's refusal and its vendor command without opening a terminal", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["managedTools"],
+      managedTools: { runs: { gh: { refused: { message: "No supported install method.", command: "brew install gh" } } } },
+      setup: { forges: { state: "needs-attention", reason: "gh is missing.", failing: ["forges.gh"], actions: ["install"],
+        targets: [{ action: "install", kind: "tool", id: "gh", label: "gh" }],
+      } },
+    }] });
+    await screen.findByText(NO_SESSION);
+    const forges = await cardOf(app, "Forges");
+    await app.user.click(within(forges).getByRole("button", { name: "Install gh in a tool terminal" }));
+    expect(await within(forges).findByText("Not run: No supported install method.")).toBeDefined();
+    expect(within(forges).getByText("brew install gh")).toBeDefined();
+    expect(within(forges).queryByRole("region", { name: "Installing GitHub CLI" })).toBeNull();
+    expect(app.environment("desk").requests("terminals.subscribe")).toHaveLength(0);
+  });
+
+  it("dims named pulls and tool runs without admin and says why, sending neither", async () => {
+    const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["managedTools"], scopes: ["read"], setup: {
+      skills: { state: "needs-attention", reason: "The source needs a pull.", failing: ["skills.sources-synced"], actions: ["pull-now"],
+        targets: [{ action: "pull-now", kind: "skill-source", id: "0f8fad5b-d9cb-469f-a165-70867728950e", label: "team-skills" }],
+      },
+      forges: { state: "needs-attention", reason: "gh is missing.", failing: ["forges.gh"], actions: ["install"],
+        targets: [{ action: "install", kind: "tool", id: "gh", label: "gh" }],
+      },
+    } }] }, { stepCards: { skills: StepStatus } });
+    await screen.findByText(NO_SESSION);
+    const skills = await cardOf(app, "Skills");
+    const pull = within(skills).getByRole("button", { name: "Pull now: team-skills" });
+    expect(pull).toHaveProperty("disabled", true);
+    expect(within(skills).getByText(/admin/)).toBeDefined();
+    await app.user.click(pull);
+    await app.user.click(within(steps()).getByRole("button", { name: "Forges" }));
+    const forges = within(checklist() as HTMLElement).getByRole("region", { name: "Forges" });
+    const install = within(forges).getByRole("button", { name: "Install gh in a tool terminal" });
+    expect(install).toHaveProperty("disabled", true);
+    expect(within(forges).getByText(/admin/)).toBeDefined();
+    await app.user.click(install);
+    expect(app.environment("desk").requests("skills.sources.pull")).toHaveLength(0);
+    expect(app.environment("desk").requests("tools.run")).toHaveLength(0);
+  });
+
+  it("opens the step's home row for a verb whose card is not registered in this build, naming each item it applies to, and the step's card takes the authoring and import verbs", async () => {
     const app = await renderApp({
       environments: [
         {
           name: "desk",
           reach: "local",
           setup: {
-            skills: {
-              state: "needs-attention",
-              reason: "The team feed was last pulled two days ago.",
-              failing: ["skills.pulled"],
-              actions: ["pull-now"],
-              targets: [{ action: "pull-now", kind: "skill-source", id: "feed-1", label: "team feed" }],
-            },
             "memory-bank": {
               state: "needs-attention",
               reason: "The describe conversation stopped before BANK.md was written.",
@@ -496,14 +584,7 @@ describe("a step's named actions on their targets", () => {
     });
     await screen.findByText(NO_SESSION);
 
-    const skills = await cardOf(app, "Skills");
-    await app.user.click(within(skills).getByRole("button", { name: "Pull now: team feed" }));
-    expect(within(settings()).getByRole("region", { name: "Skills" })).toBeDefined();
-
-    await app.user.click(within(settings()).getByRole("button", { name: "Set up" }));
-    await app.user.click(within(within(settings()).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
-    await app.user.click(within(steps()).getByRole("button", { name: "Memory bank" }));
-    const bank = within(checklist() as HTMLElement).getByRole("region", { name: "Memory bank" });
+    const bank = await cardOf(app, "Memory bank");
     expect(within(bank).getByRole("button", { name: "Start over" })).toBeDefined();
     await app.user.click(within(bank).getByRole("button", { name: "Try again: Describe work-memory" }));
     expect(within(settings()).getByRole("region", { name: "Memory banks" })).toBeDefined();
@@ -609,7 +690,7 @@ describe("health dots", () => {
 });
 
 describe("a result this window did not ask for", () => {
-  it("turns the rail's dot, the pane's row and the header's line as the environment publishes it, with no call and no pending", async () => {
+  it("turns the rail's dot, the pane's row and the header's line as the environment publishes it, with no call and no pending, the row saying since when it is unchanged", async () => {
     const app = await renderApp({ environments: [{ name: "desk", reach: "local", capabilities: ["setup"], setup: onlySteps(PASSING) }] });
     await screen.findByText(NO_SESSION);
     const desk = app.environment("desk");
@@ -622,10 +703,12 @@ describe("a result this window did not ask for", () => {
     desk.setSetup({ permissions: { state: "needs-attention", reason: "The denylist lost 2 presets.", failing: ["permissions.denylist"], actions: ["restore"] } });
     act(() => app.clock.advance(SETUP_PENDING_MS));
     desk.passSetup(["permissions"]);
+    const passed = clockTime(app.clock.now().toISOString());
     await waitFor(() => expect(railDots()).toContain("Permissions: needs attention"));
     expect(railDots()[0]).toBe("Set up: needs attention");
     expect(await within(pane).findByText("5 done, 1 needs attention, 0 skipped")).toBeDefined();
-    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", "The denylist lost 2 presets."]);
+    // A re-check that finds nothing new is never heard, so the line says since when it is unchanged rather than how old it is.
+    expect(paneSteps(pane)).toContainEqual(["Permissions", "needs attention", `The denylist lost 2 presets. (unchanged since ${passed})`]);
     expect(screen.getByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" })).toBeDefined();
     expect(screen.queryByText("Checking…")).toBeNull();
     expect(desk.requests("setup.check")).toHaveLength(asked);
@@ -657,10 +740,12 @@ describe("a result this window did not ask for", () => {
 });
 
 describe("the header's Set up line", () => {
-  it("shows while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
+  it("shows in amber alone while a step needs attention on the home environment, opens the Set up pane on it, and goes once none does", async () => {
     const app = await twoEnvironments();
     const header = screen.getByRole("banner");
     const line = await within(header).findByRole("button", { name: "Set up on desk: 1 step needs attention (Permissions)" });
+    // Tailwind's stylesheet order, rather than className order, decides between conflicting colours.
+    expect([...line.classList].filter((name) => TOKEN_NAMES.some((token) => name === `text-${token}`))).toEqual(["text-amber"]);
     // laptop's Appearance needs attention too, but laptop is not the home environment.
     expect(within(header).queryByText(/laptop/)).toBeNull();
 

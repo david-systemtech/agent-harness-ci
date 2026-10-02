@@ -1,3 +1,5 @@
+import { MANUAL_CLOCK_START } from "@agent-harness/client-runtime/testing";
+import { TOOL_TERMINAL_KEPT_MS } from "@agent-harness/contracts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -10,8 +12,10 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
  * action; Verify; claude's detail beside what `claude doctor` reports;
  * Install and Update in a tool terminal drawn in About, where a `sudo`
  * password is typed; the one-run-at-a-time refusal; a Copy row's command;
- * and the row after a run. Driven through the harness over the scripted
- * environment's `tools.*` answers and its tool terminal, in jsdom.
+ * the row after a run; and the tool terminal going once the environment has
+ * closed it, thirty minutes on its clock after the command exited (#864).
+ * Driven through the harness over the scripted environment's `tools.*`
+ * answers and its tool terminal, in jsdom.
  */
 
 /** The flag the section reads. */
@@ -98,6 +102,24 @@ const BAO_RUN = { method: "apt", command: "sudo apt-get install openbao", passwo
 
 /** The buttons a row offers, by name. */
 const buttons = (region: HTMLElement) => within(region).queryAllByRole("button").map((button) => button.textContent);
+
+/** Lets the answers in flight arrive and be acted on: one turn of the event loop. */
+const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+
+/** gh's Update run to its end in a tool terminal drawn in About, its command exiting 0 as the window's clock starts: the terminal's id, and how often it was subscribed. */
+const updatedGh = async (app: RenderedApp) => {
+  await openAbout(app);
+  await app.user.click(within(await row("GitHub CLI")).getByRole("button", { name: "Update" }));
+  const terminal = await toolTerminal("Updating GitHub CLI");
+  expect(await within(terminal).findByText("· exit 0")).toBeDefined();
+  expect(app.clock.now().toISOString()).toBe(MANUAL_CLOCK_START);
+  const desk = app.environment("desk");
+  const id = String(desk.requests("tools.run")[0]?.params["id"]);
+  return { terminal, id, asked: () => desk.requests("terminals.subscribe").filter((request) => request.params["id"] === id).length };
+};
+
+/** Whether the section still draws gh's Update. */
+const ghDrawn = () => within(section()).queryByRole("region", { name: "Updating GitHub CLI" }) !== null;
 
 describe("About's Managed tools", () => {
   it("lists the picked environment's rows with each one's version, install method, minimum, latest, status and one action; claude reads claude in your terminal and is never required", async () => {
@@ -261,6 +283,75 @@ describe("About's Managed tools", () => {
     expect(await within(await row("GitHub CLI")).findByText("The update of gh was closed before it finished.")).toBeDefined();
   });
 
+  it("goes once the environment has closed a finished run's terminal, thirty minutes on its clock after the command exited, asking after it then and not before", async () => {
+    const app = await opened();
+    const { id, asked } = await updatedGh(app);
+    const desk = app.environment("desk");
+    expect(asked()).toBe(1);
+
+    // A moment short of the thirty minutes the environment keeps it: kept there, and the pane stays, asking nothing.
+    await act(async () => app.clock.advance(TOOL_TERMINAL_KEPT_MS - 1));
+    await settle();
+    expect(desk.terminal(id).closed).toBe(false);
+    expect(ghDrawn()).toBe(true);
+    expect(asked()).toBe(1);
+
+    // At them the environment closes it, telling no one: the pane asks after it, finds it gone, and goes, closing nothing.
+    await act(async () => app.clock.advance(1));
+    expect(desk.terminal(id).closed).toBe(true);
+    await waitFor(() => expect(ghDrawn()).toBe(false));
+    expect(asked()).toBe(2);
+    expect(desk.requests("terminals.close")).toEqual([]);
+    expect(within(await row("GitHub CLI")).getByText(/^The update of gh finished\./)).toBeDefined();
+  });
+
+  it("reckons the thirty minutes from the exit's time on the environment's clock as the window reckons it, and asks again while the environment still holds the terminal", async () => {
+    // The window reckons the environment's clock ninety seconds ahead of where it is (its hello's time), as a hello slow to arrive can leave it.
+    const ahead = 90_000;
+    const app = await opened({ hello: { serverTime: new Date(Date.parse(MANUAL_CLOCK_START) + ahead).toISOString() } });
+    const { id, asked } = await updatedGh(app);
+    const desk = app.environment("desk");
+
+    // Thirty minutes after the exit by that reckoning, ninety seconds early: asked after, and still held, so the pane stays.
+    await act(async () => app.clock.advance(TOOL_TERMINAL_KEPT_MS - ahead));
+    await settle();
+    expect(asked()).toBe(2);
+    expect(desk.terminal(id).closed).toBe(false);
+    expect(ghDrawn()).toBe(true);
+
+    // Asked again a minute after that answer on the environment's clock, thirty seconds early still: held, and the pane stays.
+    await act(async () => app.clock.advance(60_000));
+    await settle();
+    expect(asked()).toBe(3);
+    expect(desk.terminal(id).closed).toBe(false);
+    expect(ghDrawn()).toBe(true);
+
+    // The environment closes it at its own thirty minutes; asked again a minute later, it is gone, and the pane goes.
+    await act(async () => app.clock.advance(60_000));
+    expect(desk.terminal(id).closed).toBe(true);
+    await waitFor(() => expect(ghDrawn()).toBe(false));
+    expect(asked()).toBe(4);
+    expect(desk.requests("terminals.close")).toEqual([]);
+  });
+
+  it("goes at its Close saying nothing of the not_found that close is answered, when the environment closed the finished run's terminal unseen", async () => {
+    const app = await opened();
+    const { terminal, id } = await updatedGh(app);
+    const desk = app.environment("desk");
+
+    // Closed on the environment after its command exited, as another client's Close does: the pane's subscription ended with the exit, so it is not told.
+    desk.closeTerminal(id);
+    await settle();
+    expect(ghDrawn()).toBe(true);
+
+    await app.user.click(within(terminal).getByRole("button", { name: "Close" }));
+    expect(ghDrawn()).toBe(false);
+    await waitFor(() => expect(desk.requests("terminals.close").map((request) => request.params["id"])).toEqual([id]));
+    await settle();
+    expect(screen.queryByText(/not_found|No terminal|is open on this environment/)).toBeNull();
+    expect(within(await row("GitHub CLI")).getByText(/^The update of gh finished\./)).toBeDefined();
+  });
+
   it("copies a Copy-only row's command through the shell's clipboard, offering no run", async () => {
     const app = await opened();
     await openAbout(app);
@@ -312,15 +403,15 @@ describe("About's Managed tools", () => {
     expect(await within(claude).findByRole("region", { name: "What claude doctor says" })).toBeDefined();
   });
 
-  it("is where the Key manager step's Install of a tool goes: About opens with its Managed tools taking the focus", async () => {
+  it("is where the Key manager step's Install of a tool this build does not know goes: About opens with its Managed tools taking the focus", async () => {
     const app = await opened({
       setup: {
         "key-manager": {
           state: "needs-attention",
-          reason: "OpenBao injects, and no OpenBao CLI is installed.",
+          reason: "A tool this build does not know needs installing.",
           failing: ["key-manager.cli"],
           actions: ["install"],
-          targets: [{ action: "install", kind: "tool", id: "bao", label: "bao" }],
+          targets: [{ action: "install", kind: "tool", id: "future-tool", label: "future-tool" }],
         },
       },
     });
@@ -329,7 +420,7 @@ describe("About's Managed tools", () => {
     await app.user.click(within(within(settings).getByRole("region", { name: "Set up" })).getByRole("button", { name: "Open the full checklist" }));
     const checklist = screen.getByRole("region", { name: "Set up" });
     await app.user.click(within(within(checklist).getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Key manager" }));
-    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: bao" }));
+    await app.user.click(within(within(checklist).getByRole("region", { name: "Key manager" })).getByRole("button", { name: "Install: future-tool" }));
 
     await waitFor(() => expect(document.activeElement).toBe(section()));
     expect(await row("OpenBao CLI")).toBeDefined();

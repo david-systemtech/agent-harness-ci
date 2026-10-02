@@ -1,10 +1,10 @@
-import type { StepResult } from "@agent-harness/contracts";
+import { EnvironmentNotice, registry, type Frame, type SnapshotFrame, type StepResult } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { installFakeGh, type FakeGh, type FakeGhState } from "../../test/fake-gh.js";
-import { DAVID, TOKEN, added, remove, setPrimary } from "../../test/forge.js";
+import { DAVID, TOKEN, added, list, remove, setPrimary } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 
@@ -67,6 +67,20 @@ const checkForges = async (client: WireClient): Promise<StepResult> => {
   const { results } = await client.request("setup.check", { step: "forges" });
   expect(results.map((result) => result.step)).toEqual(["forges"]);
   return results[0] as StepResult;
+};
+
+/** The Forges step's result in a `setup.result-changed` on `subscription`, when `frame` is one. */
+const forgesNotice = (subscription: string, frame: Frame): StepResult | undefined => {
+  if (frame.type !== "event" || frame.subscription !== subscription) return undefined;
+  const notice = EnvironmentNotice.safeParse(frame.event);
+  return notice.success && notice.data.type === "setup.result-changed" && notice.data.payload.step === "forges" ? notice.data.payload : undefined;
+};
+
+/** The Forges step's next changed result `client` hears on `subscription`, an environment stream it subscribed to. */
+const nextForgesResult = async (client: WireClient, subscription: string): Promise<StepResult> => {
+  const result = forgesNotice(subscription, await client.next((frame) => forgesNotice(subscription, frame) !== undefined));
+  if (result === undefined) throw new Error("The frame waited for carries no Forges result.");
+  return result;
 };
 
 describe("the Forges step with no forge account", () => {
@@ -271,6 +285,69 @@ describe("forges.gh", () => {
     expect(result.reason).toContain(`gh is not installed on this environment for david on ${first.host}: Install gh 2.40.0 or later.`);
     expect(result.targets).toContainEqual({ action: "install", kind: "tool", id: "gh", label: "gh" });
   });
+
+  it("is checked again a second after tools.updated, so a gh updated past 2.40 and read on a refresh fifteen minutes on changes the step's cached result and raises setup.result-changed with no setup.check asked (#677)", async () => {
+    const forge = await fakeForge();
+    forge.user(GH_TOKEN, DAVID);
+    forge.repositories(GH_TOKEN, []);
+    const host = forge.origin.replace("http://", "");
+    const gh = fakeGh({ version: "2.39.1", accounts: [{ host, login: "david", token: GH_TOKEN }] });
+    const t = await start({ managedTools: gh.managedTools });
+    await t.env.setup.startPass;
+    const client = await t.client();
+    // The start probe has ended: finding gh, it appended tools.updated, which checks the step a second on. With no forge account
+    // yet that check answers skipped at once, as the start pass did, so it changes nothing.
+    await client.request("tools.list", {});
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    t.clock.advance(1_000);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Added five minutes on, so the step's cadence, counted from the check the addition triggers, falls due only after the refresh below.
+    t.clock.advance(5 * 60_000 - 1_000);
+    await added(client, { url: forge.origin, kind: "github", credential: { kind: "gh", login: "david" } });
+    t.clock.advance(1_000);
+    const before = await nextForgesResult(client, subscription);
+    expect(before).toEqual({
+      step: "forges",
+      state: "needs-attention",
+      reason: `The credential of ${host} could not be read: Sign in again to give it a new one. gh 2.39.1 on this environment is older than 2.40.0 for ${host}: Update gh.`,
+      failing: ["forges.identity", "forges.gh"],
+      actions: ["sign-in-again", "check-again", "install", "update"],
+      targets: [
+        { action: "sign-in-again", kind: "forge-account", id: forge.origin, label: host },
+        { action: "update", kind: "tool", id: "gh", label: "gh" },
+      ],
+      checkedAt: after(5 * 60_000 + 1_000),
+    });
+
+    // gh updated from a terminal: the registry's row, which forges.gh reads, changes on the refresh fifteen minutes after its start probe.
+    gh.set({ version: "2.63.2", accounts: [{ host, login: "david", token: GH_TOKEN }] });
+    t.clock.advance(10 * 60_000);
+    await client.request("tools.list", { refresh: true });
+    t.clock.advance(1_000);
+    // forges.gh holds at once. The credential's read is the last verification's, five minutes on, younger than the step's cadence (#680).
+    expect(await nextForgesResult(client, subscription)).toEqual({
+      step: "forges",
+      state: "needs-attention",
+      reason: `The credential of ${host} could not be read: Sign in again to give it a new one.`,
+      failing: ["forges.identity"],
+      actions: ["sign-in-again", "check-again"],
+      targets: [{ action: "sign-in-again", kind: "forge-account", id: forge.origin, label: host }],
+      checkedAt: after(15 * 60_000 + 2_000),
+    });
+
+    // The verifier's own schedule, fifteen minutes after that verification ended, reads the credential through the gh updated: the step reads it a second on.
+    t.clock.advance(5 * 60_000 - 1_000);
+    await vi.waitFor(async () => expect((await list(client))[0]?.problem).toBeNull(), { timeout: WAIT_MS });
+    t.clock.advance(1_000);
+    const result = await nextForgesResult(client, subscription);
+    expect(result).toEqual({ step: "forges", state: "done", reason: ALL_HOLD, failing: [], actions: [], checkedAt: after(20 * 60_000 + 2_000) });
+
+    // The cache holds it: the snapshot a client subscribing now is sent.
+    const { subscription: later } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
+    const { payload } = await client.next((f): f is SnapshotFrame => f.type === "snapshot" && f.subscription === later);
+    expect(registry["environment.subscribe"].result.parse(payload).setup?.find((cached) => cached.step === "forges")).toEqual(result);
+  });
 });
 
 describe("forges.expiry", () => {
@@ -317,6 +394,7 @@ describe("forges.coverage", () => {
     const { t, forge, client } = await withForge();
     await added(client, { url: forge.origin, kind: "forgejo" });
     const uncovered = await fakeForge();
+    uncovered.detectable("forgejo", "16.0.3+gitea-1.22.0");
     uncovered.answer(null, "GET /api/v1/repos/david/bank/releases", { status: 404, body: { message: "Not Found" } });
     expect(await t.env.forge.releases.list({ origin: uncovered.origin, repository: "david/bank", limit: 50, purpose: "read the release channel" })).toMatchObject({
       outcome: "refused",
@@ -335,6 +413,106 @@ describe("forges.coverage", () => {
     uncovered.repositories(TOKEN, []);
     await added(client, { url: uncovered.origin, kind: "forgejo" });
     expect(await checkForges(client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+  });
+});
+
+describe("the Forges step beside the verifier's own schedule (#680)", () => {
+  const MINUTE = 60_000;
+  const QUARTER = 15 * MINUTE;
+
+  /** How many times `forge` has been asked who the token is: once by its add, then once per verification of its forge account. */
+  const askedWho = (forge: FakeForge): number => forge.requests.filter((request) => request.path === "/api/v1/user").length;
+
+  /** The forge account on `forge`, as `forge.accounts.list` answers it. */
+  const accountOn = async (client: WireClient, forge: FakeForge) => (await list(client)).find((account) => account.origin === forge.origin);
+
+  /** Resolves once the forge account on `forge` holds what a verification at `at` found, its next one scheduled from then. */
+  const verifiedAt = (client: WireClient, forge: FakeForge, at: string) =>
+    vi.waitFor(async () => expect((await accountOn(client, forge))?.capabilities.readRepository.verifiedAt).toBe(at), { timeout: WAIT_MS });
+
+  /** The Forges step's cached result, as the snapshot a client subscribing now is sent. */
+  const cachedForges = async (t: TestEnvironment, client: WireClient): Promise<StepResult | undefined> => {
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() + 100 });
+    const { payload } = await client.next((frame): frame is SnapshotFrame => frame.type === "snapshot" && frame.subscription === subscription);
+    return registry["environment.subscribe"].result.parse(payload).setup?.find((cached) => cached.step === "forges");
+  };
+
+  /** Moves the clock a second on, to the step's check its cadence or a trigger holds there, and resolves once that check is cached. */
+  const checkedASecondOn = async (t: TestEnvironment, client: WireClient): Promise<StepResult | undefined> => {
+    t.clock.advance(1_000);
+    const at = t.clock.now().toISOString();
+    await vi.waitFor(async () => expect((await cachedForges(t, client))?.checkedAt).toBe(at), { timeout: WAIT_MS });
+    return cachedForges(t, client);
+  };
+
+  it("over an hour reads what the verifier found on its cadence and triggers: each forge account verified once every fifteen minutes, and one the forge paused asked nothing until its time", async () => {
+    const steady = await fakeForge();
+    const limited = await fakeForge();
+    for (const forge of [steady, limited]) {
+      forge.user(TOKEN, DAVID);
+      forge.repositories(TOKEN, []);
+    }
+    const t = await start();
+    await t.env.setup.startPass;
+    const client = await t.client();
+    await added(client, { url: steady.origin, kind: "forgejo" });
+    await added(client, { url: limited.origin, kind: "forgejo" });
+    // Each is verified at once, as a forge account given a credential is, and the additions check the step a second on.
+    t.clock.advance(0);
+    await verifiedAt(client, steady, MANUAL_CLOCK_START);
+    await verifiedAt(client, limited, MANUAL_CLOCK_START);
+    const steadyAsked = askedWho(steady);
+    const limitedAsked = askedWho(limited);
+    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([0, 0]);
+
+    // Fifteen minutes on, the verifier's schedule: the forge limits the second forge account's credential for forty minutes.
+    limited.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(40 * 60) } });
+    t.clock.advance(QUARTER - 1_000);
+    await verifiedAt(client, steady, after(QUARTER));
+    await vi.waitFor(async () => expect((await accountOn(client, limited))?.problem).toMatchObject({ kind: "unreachable", since: after(QUARTER) }), { timeout: WAIT_MS });
+    limited.user(TOKEN, DAVID);
+    // Its verification, a forge.account.* event, checks the step a second on, as the step's cadence falls due then too: it reads what was found.
+    expect(await checkedASecondOn(t, client)).toMatchObject({
+      state: "needs-attention",
+      reason: `${davidOn(limited)} did not answer its verification: Check again once its forge is reachable.`,
+      failing: ["forges.identity"],
+    });
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([1, 1]);
+
+    // Thirty and forty-five minutes on, the verifier's schedule and a second later the step's cadence: the paused forge account is asked nothing.
+    for (const quarter of [2, 3]) {
+      t.clock.advance(QUARTER - 1_000);
+      await verifiedAt(client, steady, after(quarter * QUARTER));
+      expect(await checkedASecondOn(t, client)).toMatchObject({ state: "needs-attention", failing: ["forges.identity"] });
+    }
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([3, 1]);
+
+    // Its time, fifty-five minutes on, it is verified again, and the step reads it so a second later; an hour on, the steady one is verified the fourth time.
+    t.clock.advance(10 * MINUTE - 1_000);
+    await vi.waitFor(async () => expect((await accountOn(client, limited))?.problem).toBeNull(), { timeout: WAIT_MS });
+    expect(await checkedASecondOn(t, client)).toMatchObject({ state: "done", reason: ALL_HOLD });
+    t.clock.advance(5 * MINUTE - 1_000);
+    await verifiedAt(client, steady, after(4 * QUARTER));
+    expect([askedWho(steady) - steadyAsked, askedWho(limited) - limitedAsked]).toEqual([4, 2]);
+  });
+
+  it("checks fresh when a client asks, so Check again verifies a forge account verified a moment ago, but asks a forge that paused it nothing", async () => {
+    const { t, forge, client } = await withForge();
+    await added(client, { url: forge.origin, kind: "forgejo" });
+    t.clock.advance(0);
+    await verifiedAt(client, forge, MANUAL_CLOCK_START);
+    const asked = askedWho(forge);
+    forge.answer(TOKEN, "GET /api/v1/user", { status: 429, headers: { "retry-after": String(60 * 60) } });
+
+    const unreachable = { state: "needs-attention", reason: `${davidOn(forge)} did not answer its verification: Check again once its forge is reachable.`, failing: ["forges.identity"] };
+    expect(await checkForges(client)).toMatchObject(unreachable);
+    expect(askedWho(forge)).toBe(asked + 1);
+
+    // The forge asked for an hour: a client's check reads what that verification found until then, however the forge would answer now.
+    forge.user(TOKEN, DAVID);
+    expect(await checkForges(client)).toMatchObject(unreachable);
+    expect(askedWho(forge)).toBe(asked + 1);
   });
 });
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryRetireInput",
+  "type": "object",
+  "properties": {
+    "bank": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "bank",
+    "name",
+    "reason"
+  ]
+}

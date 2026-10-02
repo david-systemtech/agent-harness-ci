@@ -133,7 +133,7 @@ const streamOf = (t: TestEnvironment, sessionId: string) => t.env.log.readStream
 
 /** The items a snapshot of the history shows, the history's run id and each message's id as the log gave them. */
 const historyItems = (runId: string, messageId: string, sequence: (index: number) => number) => [
-  { kind: "user-message", sequence: sequence(0), runId, messageId, text: "Find the flaky test", attachments: [], delivery: "prompt", heldBy: null, sentAt: said(0) },
+  { kind: "user-message", sequence: sequence(0), runId, messageId, text: "Find the flaky test", attachments: [], delivery: "prompt", heldBy: null, sentAt: said(0), sender: { kind: "system", id: "carry-over" } },
   { kind: "assistant-text", sequence: sequence(1), runId, itemId: "a1:0", text: "I will ask a helper.", aborted: false },
   { kind: "tool-call", sequence: sequence(2), runId, toolCallId: "toolu_agent", name: "Task", input: { prompt: "Find it" }, title: null, agentId: null, parentToolCallId: null, status: "ok", update: null, output: "It is in runs.test.ts.", durationMs: 7000 },
   { kind: "tool-call", sequence: sequence(3), runId, toolCallId: "toolu_grep", name: "Grep", input: { pattern: "flaky" }, title: null, agentId: "toolu_agent", parentToolCallId: "toolu_agent", status: "ok", update: null, output: "runs.test.ts:12", durationMs: 2000 },
@@ -229,7 +229,77 @@ describe("an imported session's first open", () => {
   });
 });
 
+describe("an imported session's message anchors", () => {
+  it.each([
+    { linked: false, action: "rewind" },
+    { linked: true, action: "rewind" },
+    { linked: false, action: "fork" },
+    { linked: true, action: "fork" },
+  ] as const)("refuses a $action into imported history with its own reason ($linked linked)", async ({ linked, action }) => {
+    const session = listed();
+    const { t, adapter } = await start([session], {
+      fake: {
+        capabilities: { fork: true, rewind: true },
+        histories: { [session.providerSessionId]: [...HISTORY, { type: "message.sent", payload: { text: "Then fix it", attachments: [] }, at: said(11) }] },
+        script: () => [{ type: "session.provider-linked", payload: { providerSessionId: session.providerSessionId } }, end()],
+      },
+    });
+    const client = await t.client();
+    const [sessionId = ""] = await importAll(t, client, [session]);
+    await snapshotOf(t, client, sessionId);
+    if (linked) {
+      const run = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Go on" }));
+      await expect.poll(() => streamOf(t, sessionId).some((event) => event.type === "run.ended" && event.payload["runId"] === run.result?.runId), { timeout: WAIT_MS }).toBe(true);
+    }
+    const before = await snapshotOf(t, client, sessionId);
+    // Imported anchors must be refused without consulting a provider chain that cannot contain these ids.
+    adapter.hasHistoryBefore = async () => { throw new Error("Imported message reached the provider history lookup."); };
+    for (const item of before.items.filter((item) => item.kind === "user-message" && item.text !== "Go on").toReversed()) {
+      if (item.kind !== "user-message") throw new Error("Not a user message.");
+      const id = randomUUID();
+      const answer = action === "rewind"
+        ? registry["sessions.rewind"].response.parse(await client.request("sessions.rewind", { commandId: randomUUID(), sessionId, messageId: item.messageId }))
+        : registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId, id, atMessageId: item.messageId }));
+      expect(streamOf(t, id)).toEqual([]);
+      expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "imported_history", sessionId, messageId: item.messageId } } });
+    }
+    const after = await snapshotOf(t, client, sessionId);
+    expect(after.items).toEqual(before.items);
+    expect(after.summary.draft).toBe(before.summary.draft);
+    expect(streamOf(t, sessionId).some((event) => event.type === "session.rewound")).toBe(false);
+    adapter.hasHistoryBefore = async () => true;
+    if (linked) {
+      // Only the imported run's messages are refused; a harness prompt remains a usable anchor.
+      const own = before.items.find((item) => item.kind === "user-message" && item.text === "Go on");
+      if (own?.kind !== "user-message") throw new Error("The harness prompt was not shown.");
+      const answer = action === "rewind"
+        ? registry["sessions.rewind"].response.parse(await client.request("sessions.rewind", { commandId: randomUUID(), sessionId, messageId: own.messageId }))
+        : registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId, id: randomUUID(), atMessageId: own.messageId }));
+      expect(answer.receipt.status).toBe("accepted");
+    } else {
+      const run = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text: "Continue after the refusal" }));
+      await expect.poll(() => streamOf(t, sessionId).some((event) => event.type === "run.ended" && event.payload["runId"] === run.result?.runId), { timeout: WAIT_MS }).toBe(true);
+      expect(adapter.lastRun().input.target).toEqual({ kind: "resume", providerSessionId: session.providerSessionId });
+    }
+  });
+});
+
 describe("an imported session's runs", () => {
+  it("forks the end of an unlinked imported session into its provider conversation", async () => {
+    const session = listed();
+    const { t, adapter } = await start([session], { fake: { capabilities: { fork: true } } });
+    const client = await t.client();
+    const [sessionId = ""] = await importAll(t, client, [session]);
+    const id = randomUUID();
+
+    const fork = registry["sessions.fork"].response.parse(await client.request("sessions.fork", { commandId: randomUUID(), sessionId, id }));
+    expect(fork.receipt.status).toBe("accepted");
+    const run = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId: id, text: "Go on" }));
+    expect(run.receipt.status).toBe("accepted");
+    await expect.poll(() => adapter.runs.length, { timeout: WAIT_MS }).toBe(1);
+    expect(adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: session.providerSessionId, atMessageId: null });
+  });
+
   it("resumes its provider session on the first run, and the session store's link on every later run, as any session's", async () => {
     const session = listed();
     const { t, adapter } = await start([session], {
@@ -306,5 +376,10 @@ describe("an imported session's appended history under compaction", () => {
 
     expect(compacted.snapshot?.items).toEqual(before.items);
     expect(later.adapter.historyReads).toEqual([]);
+    const imported = compacted.snapshot?.items.find((item) => item.kind === "user-message");
+    if (imported?.kind !== "user-message") throw new Error("Compaction lost the imported prompt.");
+    const rewind = registry["sessions.rewind"].response.parse(await reader.request("sessions.rewind", { commandId: randomUUID(), sessionId, messageId: imported.messageId }));
+    const fork = registry["sessions.fork"].response.parse(await reader.request("sessions.fork", { commandId: randomUUID(), sessionId, id: randomUUID(), atMessageId: imported.messageId }));
+    for (const answer of [rewind, fork]) expect(answer.receipt).toMatchObject({ status: "rejected", error: { data: { reason: "imported_history" } } });
   });
 });

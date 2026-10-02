@@ -11,5 +11,5 @@
     "types": ["vite/client"]
   },
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
-  "references": [{ "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }]
+  "references": [{ "path": "../browser" }, { "path": "../contracts" }, { "path": "../client-runtime" }, { "path": "../theme" }]
 }

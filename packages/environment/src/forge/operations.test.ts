@@ -189,16 +189,20 @@ describe("what an operation names", () => {
 });
 
 describe("an origin no forge account covers", () => {
-  it("reads a public repository anonymously, sending no credential", async () => {
+  it("reads a public repository anonymously, sending no credential, on the API of the kind detection finds", async () => {
     const forge = await fakeForge();
     const t = await start({ forgeFetch: forge.fetch });
+    forge.detectable("forgejo", "16.0.3+gitea-1.22.0");
     forge.answer(null, "GET /api/v1/repos/someone/skills", { status: 200, body: repositoryBody(forge, "someone/skills", false) });
 
     expect(await t.env.forge.repositories.get({ origin: forge.origin, repository: "someone/skills", purpose: "read a skill source" })).toMatchObject({
       outcome: "done",
       value: { fullName: "someone/skills", private: false },
     });
-    expect(forge.requests).toEqual([{ method: "GET", path: "/api/v1/repos/someone/skills", scheme: null }]);
+    expect(forge.requests).toEqual([
+      { method: "GET", path: "/api/forgejo/v1/version", scheme: null },
+      { method: "GET", path: "/api/v1/repos/someone/skills", scheme: null },
+    ]);
     expect(t.env.forge.missingOrigins()).toEqual([]);
   });
 
@@ -206,6 +210,7 @@ describe("an origin no forge account covers", () => {
     const forge = await fakeForge();
     const t = await start({ forgeFetch: forge.fetch });
     const client = await t.client();
+    forge.detectable("forgejo", "16.0.3+gitea-1.22.0");
     forge.answer(null, "GET /api/v1/repos/david/bank/releases", { status: 404, body: { message: "Not Found" } });
     const from = t.env.log.head();
 
@@ -228,7 +233,26 @@ describe("an origin no forge account covers", () => {
     expect((await forgeEvents(client, from)).map((event) => [event.type, event.payload])).toEqual([["forge.origin-missing", { origin: forge.origin, operation: "read the release channel" }]]);
   });
 
-  it("reads github.com's API anonymously for github.com, and the Gitea API elsewhere unless the kind named is GitHub", async () => {
+  it("reads an Enterprise origin answering the meta route on /api/v3, detecting its kind once for the process", async () => {
+    const forge = await fakeForge();
+    const t = await start({ forgeFetch: forge.fetch });
+    forge.detectable("github", "3.19.0");
+    forge.answer(null, "GET /api/v3/repos/someone/tool", { status: 200, body: repositoryBody(forge, "someone/tool", false) });
+    const read = () => t.env.forge.repositories.get({ origin: forge.origin, repository: "someone/tool", purpose: "read a skill source" });
+
+    expect(await read()).toMatchObject({ outcome: "done", value: { fullName: "someone/tool", private: false } });
+    expect(await read()).toMatchObject({ outcome: "done" });
+    expect(forge.requests).toEqual([
+      { method: "GET", path: "/api/forgejo/v1/version", scheme: null },
+      { method: "GET", path: "/api/v1/version", scheme: null },
+      { method: "GET", path: "/api/v3/meta", scheme: null },
+      { method: "GET", path: "/api/v3/repos/someone/tool", scheme: null },
+      { method: "GET", path: "/api/v3/repos/someone/tool", scheme: null },
+    ]);
+    expect(t.env.forge.missingOrigins()).toEqual([]);
+  });
+
+  it("reads github.com's API for github.com by its name, and an origin on the API of the kind the caller names, detecting nothing", async () => {
     const forge = await fakeForge();
     const t = await start({ forgeFetch: forge.fetch });
     forge.answer(null, "GET /api/v3/repos/someone/tool", { status: 200, body: repositoryBody(forge, "someone/tool", false) });
@@ -238,6 +262,36 @@ describe("an origin no forge account covers", () => {
       outcome: "done",
     });
     expect(forge.requests.map((request) => request.path)).toEqual(["/api/v3/repos/someone/tool", "/api/v3/repos/someone/tool"]);
+  });
+
+  it("reads on the Gitea API where detection finds no forge, as for a forge walled to anonymous callers, refuses a GitLab kind_unsupported without counting it missing, and answers one detection could not reach unreachable, detecting again on the next read", async () => {
+    const walled = await fakeForge();
+    const gitlab = await fakeForge();
+    gitlab.answer(null, "GET /api/v4/version", { status: 401, body: { message: "401 Unauthorized" } });
+    const busy = await fakeForge();
+    busy.answer(null, "GET /api/forgejo/v1/version", { status: 503, body: { message: "Service Unavailable" } });
+    const t = await start({ forgeFetch: walled.fetch });
+    const read = (origin: string) => t.env.forge.repositories.get({ origin, repository: "someone/tool", purpose: "read a skill source" });
+
+    expect(await read(walled.origin)).toEqual({
+      outcome: "refused",
+      error: {
+        code: "forge_account_missing",
+        message: `No forge account on this environment covers ${walled.origin}, and it refused an anonymous read (HTTP 401): add one in Set up, Forges.`,
+        data: { origin: walled.origin, step: "forges" },
+      },
+    });
+    expect(await read(gitlab.origin)).toMatchObject({ outcome: "refused", error: { code: "kind_unsupported", data: { origin: gitlab.origin, kind: "gitlab" } } });
+    expect(await read(busy.origin)).toEqual({ outcome: "unreachable", message: `The forge at ${busy.origin} answered HTTP 503.` });
+    expect([walled, gitlab, busy].flatMap((forge) => forge.requests.filter((request) => request.path.includes("/repos/")).map((request) => `${forge.origin}${request.path}`))).toEqual([
+      `${walled.origin}/api/v1/repos/someone/tool`,
+    ]);
+    expect(t.env.forge.missingOrigins()).toEqual([{ origin: walled.origin, operation: "read a skill source", recordedAt: MANUAL_CLOCK_START }]);
+
+    busy.detectable("forgejo", "16.0.3+gitea-1.22.0");
+    busy.answer(null, "GET /api/v1/repos/someone/tool", { status: 200, body: repositoryBody(busy, "someone/tool", false) });
+    expect(await read(busy.origin)).toMatchObject({ outcome: "done", value: { fullName: "someone/tool" } });
+    expect(busy.requests.map((request) => request.path)).toEqual(["/api/forgejo/v1/version", "/api/forgejo/v1/version", "/api/v1/repos/someone/tool"]);
   });
 });
 
@@ -392,6 +446,7 @@ describe("pull requests", () => {
     const other = await fakeForge();
     const list = "state=all&sort=recentupdate&limit=50";
     forge.answer(TOKEN, `GET /api/v1/repos/david/bank/pulls?${list}`, { status: 200, body: [pullBody(forge, 5), pullBody(forge, 4, { head: { ref: "other", sha: "x", repo: { full_name: "david/bank" } } })] });
+    other.detectable("gitea", "1.24.0");
     other.answer(null, `GET /api/v1/repos/someone/tool/pulls?${list}`, { status: 200, body: [pullBody(other, 2, { head: { ref: "memory", sha: "y", repo: { full_name: "someone/tool" } } })] });
 
     expect(await t.env.forge.pullRequests.listByHead({ repository: "david/bank", branch: "memory", limit: 20, purpose: "find a session's pull requests" })).toMatchObject({
@@ -402,7 +457,7 @@ describe("pull requests", () => {
       outcome: "done",
       value: [{ number: 2 }],
     });
-    expect(other.requests.map((request) => request.scheme)).toEqual([null]);
+    expect(other.requests.map((request) => request.scheme)).toEqual([null, null, null]);
   });
 });
 
@@ -450,9 +505,13 @@ describe("releases", () => {
     expect(forge.requests.at(-1)).toEqual({ method: "GET", path: "/api/v1/repos/david/agent-harness/releases/tags/v0.1.0", scheme: "token" });
 
     const open = await fakeForge();
+    open.detectable("forgejo", "16.0.3+gitea-1.22.0");
     open.answer(null, "GET /api/v1/repos/david/agent-harness/releases/tags/v0.2.0", { status: 200, body: releaseBody(open, 2, "v0.2.0") });
     expect(await t.env.forge.releases.byTag({ ...target, origin: open.origin, tag: "v0.2.0" })).toMatchObject({ outcome: "done", value: { id: 2 } });
-    expect(open.requests).toEqual([{ method: "GET", path: "/api/v1/repos/david/agent-harness/releases/tags/v0.2.0", scheme: null }]);
+    expect(open.requests).toEqual([
+      { method: "GET", path: "/api/forgejo/v1/version", scheme: null },
+      { method: "GET", path: "/api/v1/repos/david/agent-harness/releases/tags/v0.2.0", scheme: null },
+    ]);
   });
 });
 

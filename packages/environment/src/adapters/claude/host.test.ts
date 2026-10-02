@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { manualClock } from "../../../test/clock.js";
 import { FakeSdk, sdk, type FakeQuery } from "../../../test/fake-claude-sdk.js";
 import type { ContainmentLevel, ContainmentReport, PromptAnsweredPayload, PromptOpenedPayload } from "@agent-harness/contracts";
-import type { PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
-import type { PolicySeam, PromptAutoAnswer, ToolGateRule } from "../../adapter/seams.js";
+import type { PermissionUpdate, SDKPromptSuggestionMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { PolicySeam, PromptAutoAnswer, ToolGateRule, ToolServerFactory } from "../../adapter/seams.js";
 import type { RunDenylist } from "../../adapter/contract.js";
 import type { RunActor } from "../../permissions/resolver.js";
 
@@ -99,7 +99,7 @@ const setup = async (
   policy?: PolicySeam,
   gateRules?: readonly ToolGateRule[],
   account: { readonly sessionStore?: boolean; readonly signedIn?: () => boolean } = {},
-  hostOptions: { readonly autoAnswer?: PromptAutoAnswer; readonly providerDenylist?: () => RunDenylist } = {},
+  hostOptions: { readonly autoAnswer?: PromptAutoAnswer; readonly providerDenylist?: () => RunDenylist; readonly toolServers?: ToolServerFactory } = {},
 ) => {
   const clock = manualClock();
   const log = openEventLog({ path: ":memory:", projectors: [sessionListProjector, runsProjector, permissionsProjector, accountsProjector], clock: () => clock.now() });
@@ -158,6 +158,38 @@ const runQuery = async (t: Setup, index: number): Promise<FakeQuery> => {
   await query.promptsPushed(1);
   return query;
 };
+
+describe("prompt suggestions (#251)", () => {
+  it("records the pinned SDK's suggestion after the result, stamped with the completed run", async () => {
+    const t = await setup();
+    const first = startRun(t);
+    const query = await runQuery(t, 1);
+    expect(query.options.promptSuggestions).toBe(true);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1));
+    query.emit({ type: "prompt_suggestion", suggestion: "Add a regression test", session_id: PROVIDER_SESSION, uuid: randomUUID() } satisfies SDKPromptSuggestionMessage);
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.suggested")).toHaveLength(1));
+    expect(eventsOf(t).at(-1)).toMatchObject({ type: "run.suggested", correlationId: first.runId, payload: { runId: first.runId, suggestion: "Add a regression test" } });
+    expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(1);
+  });
+});
+
+describe("a prompt suggestion delivered with the result", () => {
+  it("records a suggestion in the same SDK burst as the result, but rejects an old turn's late suggestion after a new run starts", async () => {
+    const t = await setup();
+    const first = startRun(t);
+    const query = await runQuery(t, 1);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [first.messageId]), sdk.result(PROVIDER_SESSION), { type: "prompt_suggestion", suggestion: "Run the tests", session_id: PROVIDER_SESSION, uuid: randomUUID() });
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.suggested")).toHaveLength(1));
+    // The next turn's prompt has been accepted, but its init has not arrived yet.
+    const next = startRun(t, "Different follow-up");
+    await query.promptsPushed(2);
+    query.emit({ type: "prompt_suggestion", suggestion: "Old offer", session_id: PROVIDER_SESSION, uuid: randomUUID() });
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.messageId]), sdk.result(PROVIDER_SESSION));
+    await vi.waitFor(() => expect(eventsOf(t).filter((event) => event.type === "run.ended")).toHaveLength(2));
+    expect(eventsOf(t).filter((event) => event.type === "run.suggested")).toHaveLength(1);
+  });
+});
 
 describe("a Claude run through the adapter host", () => {
   it("starts, streams onto the session's stream stamped with its run, and ends once", async () => {
@@ -634,12 +666,32 @@ describe("a Claude run through the adapter host", () => {
       expect([...t.host.runs.runs()].find((run) => run.id === runId)?.state).toBe("running");
     });
 
-    it("gates a client tool's call (mcp__client__*, #139), which the provider lets through by its allow rule, like any other: its arguments meet the denylist", async () => {
-      const t = await setup(undefined, denylisted(), {}, { autoAnswer });
+    it.each(["configured", "in-process"])("a %s environment server named client is denied at the hook (#281)", async (kind) => {
+      const t = await setup(undefined, denylisted(), {}, {
+        autoAnswer,
+        toolServers: () => kind === "configured"
+          ? [{ name: "client", config: {} }]
+          : [{ name: "client", external: false, tools: [{ name: "read_file", description: "Read", inputSchema: {}, call: async () => ({ text: "", isError: false }) }] }],
+      });
       const { query } = await opened(t, routineActor);
-      const answer = await query.preToolUse("mcp__client__read_file", { path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_client" });
-      expect(answer).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
-      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__client__read_file", toolCallId: "toolu_client" })]);
+      const denied = await query.preToolUse("mcp__client__read_file", { path: "~/.ssh/id_rsa" }, { toolUseID: "toolu_local_client" });
+      expect(denied).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__client__read_file", toolCallId: "toolu_local_client" })]);
+    });
+
+    it("lets a client tool's denylisted arguments past the hook while still denying the environment tool (#281)", async () => {
+      const t = await setup(undefined, denylisted(), {}, {
+        autoAnswer,
+        toolServers: () => [{ name: "client", external: true, tools: [{ name: "read_file", description: "Read", inputSchema: {}, call: async () => ({ text: "", isError: false }) }] }],
+      });
+      const { query } = await opened(t, routineActor);
+      const input = { path: "~/.ssh/id_rsa" };
+      const allowed = await query.preToolUse("mcp__client__read_file", input, { toolUseID: "toolu_client" });
+      expect(allowed).toEqual({});
+      expect(openedOf(t)).toEqual([]);
+      const denied = await query.preToolUse("mcp__memory__read_file", input, { toolUseID: "toolu_memory" });
+      expect(denied).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny" } });
+      expect(openedOf(t)).toEqual([expect.objectContaining({ kind: "denylist", toolName: "mcp__memory__read_file", toolCallId: "toolu_memory" })]);
     });
 
     it("denies a write outside the workspace from the hook at workspace, recorded by containment, asking nobody, in bypassPermissions too", async () => {

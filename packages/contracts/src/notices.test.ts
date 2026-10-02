@@ -35,6 +35,8 @@ describe("environment notices", () => {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "denylist.updated",
+      "review.updated",
       "forge.account.added",
       "forge.account.updated",
       "forge.account.primary-set",
@@ -43,6 +45,18 @@ describe("environment notices", () => {
       "forge.account.git-rejected",
       "forge.account.removed",
       "forge.origin-missing",
+      "bank.added",
+      "bank.review-held",
+      "bank.draft-queued",
+      "bank.drafts-consumed",
+      "bank.updated",
+      "bank.pinned",
+      "bank.forgotten",
+      "bank.synced",
+      "bank.verified",
+      "bank.landed",
+      "bank.landing-failed",
+      "bank.awaiting-review",
       "key-manager.connection.added",
       "key-manager.connection.signed-in",
       "key-manager.connection.signed-out",
@@ -74,6 +88,7 @@ describe("environment notices", () => {
       "state-import.finished",
       "workspace.kept",
       "chrome.updated",
+      "client.call",
     ]);
     expect(ENVIRONMENT_STREAM_KIND).toBe("environment");
   });
@@ -135,6 +150,31 @@ describe("the settings.changed notice", () => {
     expect(eventTypeEntry("environment", "settings.changed")).toMatchObject({ list: false });
     expect(eventTypeEntry("access", "settings.changed")).toBeDefined();
     expect(eventTypeEntry("settings", "settings.changed")).toBeUndefined();
+  });
+});
+
+/** The denylist's and the Unattended review's notices (permissions spec, "Events"; #811): what a client's cached answers of them wait on. */
+describe("the denylist.updated and review.updated notices", () => {
+  const notice = (type: string, payload: unknown) => EnvironmentNotice.safeParse({ type, payload });
+
+  it("say the denylist changed, naming the sections that did, each a section and each once, at least one", () => {
+    expect(notice("denylist.updated", { sections: ["paths"] }).data).toEqual({ type: "denylist.updated", payload: { sections: ["paths"] } });
+    expect(notice("denylist.updated", { sections: ["browserDomains", "paths", "commandPatterns", "hosts"] }).success).toBe(true);
+    for (const bad of [{}, { sections: [] }, { sections: ["files"] }, { sections: ["paths", "paths"] }, { sections: "paths" }]) {
+      expect(notice("denylist.updated", bad).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("say the Unattended review changed, carrying nothing more", () => {
+    expect(notice("review.updated", {}).data).toEqual({ type: "review.updated", payload: {} });
+    expect(notice("review.updated", null).success).toBe(false);
+  });
+
+  it("go on the environment stream, never in the session list, the denylist's beside the access log's denylist.changed", () => {
+    expect(eventTypeEntry("environment", "denylist.updated")).toMatchObject({ list: false });
+    expect(eventTypeEntry("environment", "review.updated")).toMatchObject({ list: false });
+    expect(eventTypeEntry("access", "denylist.changed")).toBeDefined();
+    expect(eventTypeEntry("access", "denylist.updated")).toBeUndefined();
   });
 });
 

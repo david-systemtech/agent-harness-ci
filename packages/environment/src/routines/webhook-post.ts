@@ -24,6 +24,8 @@ export interface WebhookPost {
   readonly clock: Clock;
   /** Preset: `WEBHOOK_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
+  /** Cancels an in-flight delivery when its worker closes. */
+  readonly signal?: AbortSignal;
 }
 
 /** What a POST came to. */
@@ -38,7 +40,7 @@ export interface WebhookPostResult {
 const isRedirect = (status: number): boolean => status >= 300 && status < 400;
 
 /** A network error as a sentence's end: the cause fetch names (`connect ECONNREFUSED 127.0.0.1:9`), its code, or the error itself. */
-const networkReason = (error: unknown): string => {
+export const networkReason = (error: unknown): string => {
   const cause = error instanceof Error ? error.cause : undefined;
   if (cause instanceof Error) {
     if (cause.message !== "") return cause.message;
@@ -67,7 +69,7 @@ export const postWebhook = async (post: WebhookPost): Promise<WebhookPostResult>
       },
       body: post.body,
       redirect: "manual",
-      signal: controller.signal,
+      signal: post.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, post.signal]),
     });
     await response.body?.cancel().catch(() => undefined);
     const { status } = response;

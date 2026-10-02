@@ -1,4 +1,4 @@
-import type { ReleaseChannel, ReleaseSource } from "@agent-harness/contracts";
+import { NEW_ENVIRONMENT_CHANNEL_VARIABLE, NEW_ENVIRONMENT_NAME_VARIABLE, type ReleaseChannel, type ReleaseSource } from "@agent-harness/contracts";
 
 /**
  * Add a machine's Install on another machine (the Set up spec, "Add a
@@ -6,11 +6,12 @@ import type { ReleaseChannel, ReleaseSource } from "@agent-harness/contracts";
  * it: a copyable line per platform that fetches the install script from
  * the environment's own release and runs it with the environment's channel
  * and the name given (`install.sh` piped into `sh`, `install.ps1` made a
- * script block, as each runs), and the container's compose snippet with the
- * host-side updater's documentation. The repository is private, so each
- * fetch reads the token from `AGENT_HARNESS_TOKEN` and hands it to curl on
- * its standard input, as the scripts do, never on a command line; the
- * scripts read the same variable.
+ * script block, as each runs), and the container's compose snippet, whose
+ * `docker compose up -d` gives the same two to the container's first start
+ * (#846), with the host-side updater's documentation. The repository is
+ * private, so each fetch reads the token from `AGENT_HARNESS_TOKEN` and
+ * hands it to curl on its standard input, as the scripts do, never on a
+ * command line; the scripts read the same variable.
  */
 
 /** What the lines install from and with. */
@@ -28,7 +29,7 @@ export interface InstallLines {
   readonly unix: string;
   /** Windows, in PowerShell. */
   readonly windows: string;
-  /** The container: the release's compose file fetched, its registry logged in to, started, and its log read, one command a line. */
+  /** The container: the release's compose file fetched, its registry logged in to, started with the channel and the name for its first start, and its log read, one command a line. */
   readonly compose: readonly string[];
   /** The host-side updater's documentation at the release. */
   readonly updaterDocs: string;
@@ -53,10 +54,11 @@ export const installLines = (target: InstallTarget): InstallLines => {
   const name = target.name.trim();
   const unixOptions = ["--channel", target.channel, ...(name === "" ? [] : ["--name", name])].map(shWord).join(" ");
   const windowsOptions = ["-Channel", target.channel, ...(name === "" ? [] : ["-Name", name])].map(powerShellWord).join(" ");
+  const composeVariables = [`${NEW_ENVIRONMENT_CHANNEL_VARIABLE}=${shWord(target.channel)}`, ...(name === "" ? [] : [`${NEW_ENVIRONMENT_NAME_VARIABLE}=${shWord(name)}`])].join(" ");
   return {
     unix: `${TOKEN_TO_CURL} ${release}/install.sh | sh -s -- ${unixOptions}`,
     windows: `& ([scriptblock]::Create((${TOKEN_TO_CURL_EXE} ${release}/install.ps1) -join "\`n")) ${windowsOptions}`,
-    compose: [`${TOKEN_TO_CURL} -o compose.yaml ${release}/compose.yaml`, `docker login ${origin.replace(/^https?:\/\//, "")}`, "docker compose up -d", "docker compose logs environment"],
+    compose: [`${TOKEN_TO_CURL} -o compose.yaml ${release}/compose.yaml`, `docker login ${origin.replace(/^https?:\/\//, "")}`, `${composeVariables} docker compose up -d`, "docker compose logs environment"],
     updaterDocs: `${origin}/${repository}/${kind === "github" ? "blob" : "src/tag"}/v${target.version}/docs/host-updater.md`,
   };
 };

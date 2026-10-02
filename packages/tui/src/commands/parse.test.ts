@@ -5,6 +5,11 @@ import { parseCommand } from "./parse.js";
 /** The slash commands this build answers, and what goes to the agent (docs/specs/tui.md, "The composer"). */
 
 describe("parseCommand", () => {
+  it("reads the trust decision and rejects extra words", () => {
+    expect(parseCommand("/trust")).toEqual({ kind: "trust", decision: "trusted" });
+    expect(parseCommand("/trust decline")).toEqual({ kind: "trust", decision: "declined" });
+    for (const text of ["/trust accept", "/trust decline now"]) expect(parseCommand(text)).toEqual({ kind: "usage", line: "Usage: /trust or /trust decline" });
+  });
   it("reads the carried commands", () => {
     expect(parseCommand("/resume")).toEqual({ kind: "resume" });
     expect(parseCommand("/new")).toEqual({ kind: "new" });
@@ -42,6 +47,8 @@ describe("parseCommand", () => {
   });
 
   it("reads the cards' commands, which take nothing after them", () => {
+    expect(parseCommand("/browser")).toEqual({ kind: "browser" });
+    expect(parseCommand("/browser pair")).toEqual({ kind: "usage", line: "Usage: /browser" });
     expect(parseCommand("/asks")).toEqual({ kind: "asks" });
     expect(parseCommand("/notices")).toEqual({ kind: "notices" });
     expect(parseCommand("/asks all")).toEqual({ kind: "usage", line: "Usage: /asks" });
@@ -110,5 +117,24 @@ describe("the terminal's commands (#148)", () => {
   it("reads /documents bare (#427)", () => {
     expect(parseCommand("/documents")).toEqual({ kind: "documents" });
     expect(parseCommand("/documents notes.md")).toEqual({ kind: "usage", line: "Usage: /documents" });
+  });
+});
+
+describe("/routines (#533)", () => {
+  it("reads the list, a new routine, an import from a path, the webhook endpoints and a pre-check's test", () => {
+    expect(parseCommand("/routines")).toEqual({ kind: "routines", command: { name: "list" } });
+    expect(parseCommand("/routines new")).toEqual({ kind: "routines", command: { name: "new" } });
+    expect(parseCommand("/routines import ~/routines/nightly watch.yaml")).toEqual({ kind: "routines", command: { name: "import", path: "~/routines/nightly watch.yaml" } });
+    expect(parseCommand("/routines endpoints")).toEqual({ kind: "routines", command: { name: "endpoints" } });
+    expect(parseCommand("/routines test-precheck Upstream  watch")).toEqual({ kind: "routines", command: { name: "test-precheck", routine: "Upstream  watch" } });
+  });
+
+  it("says its usage for a form it does not have, or one missing what it needs", () => {
+    const usage = { kind: "usage", line: "Usage: /routines [new | import <path> | endpoints | test-precheck <name>]" };
+    expect(parseCommand("/routines import")).toEqual(usage);
+    expect(parseCommand("/routines test-precheck")).toEqual(usage);
+    expect(parseCommand("/routines new nightly")).toEqual(usage);
+    expect(parseCommand("/routines endpoints hermes")).toEqual(usage);
+    expect(parseCommand("/routines delete nightly")).toEqual(usage);
   });
 });

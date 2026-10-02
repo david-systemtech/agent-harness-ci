@@ -54,6 +54,18 @@
       "type": "boolean",
       "description": "Whether a person may invoke it: false exactly when its frontmatter sets user-invocable: false, which leaves it out of the / menu."
     },
+    "argumentHint": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What follows the member's name in a / menu, from its frontmatter's argument-hint: text trimmed, a number as its text, or a flow list of scalars written back in brackets; null when it declares none."
+    },
     "whileActive": {
       "type": "array",
       "items": {
@@ -201,9 +213,10 @@
               "type": "string",
               "enum": [
                 ".claude/skills",
-                ".agents/skills"
+                ".agents/skills",
+                ".claude/commands"
               ],
-              "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+              "description": "The repository root the member lies under: .claude/skills before .agents/skills, then .claude/commands."
             },
             "directory": {
               "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
@@ -340,9 +353,10 @@
                       "type": "string",
                       "enum": [
                         ".claude/skills",
-                        ".agents/skills"
+                        ".agents/skills",
+                        ".claude/commands"
                       ],
-                      "description": "The root the member lies under: .claude/skills, which wins a name over .agents/skills."
+                      "description": "The repository root the member lies under: .claude/skills before .agents/skills, then .claude/commands."
                     },
                     "directory": {
                       "description": "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
@@ -377,6 +391,11 @@
         }
       ],
       "description": "The member holding its name that wins over it by precedence, which leaves this one out of the set; null for a member in the set, and for an invalid one."
+    },
+    "native": {
+      "default": false,
+      "description": "Whether the session account's adapter loads this repository member itself under trust.",
+      "type": "boolean"
     },
     "enabled": {
       "type": "boolean",
@@ -475,6 +494,7 @@
     "description",
     "invocation",
     "userInvocable",
+    "argumentHint",
     "whileActive",
     "origin",
     "layer",

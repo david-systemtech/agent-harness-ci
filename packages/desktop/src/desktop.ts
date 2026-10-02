@@ -3,7 +3,8 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { APP_ID } from "./app-id.js";
 import { APP_SCHEME_REGISTRATION, serveApp } from "./app-scheme.js";
 import { canvasStore, presetCanvas } from "./canvas.js";
-import { ANSWERED, channelOf, TOLD } from "./channels.js";
+import { allowAppCamera } from "./camera-permission.js";
+import { ANSWERED, channelOf, TOLD, WEB_VIEW_DEBUG_CHANNEL, WEB_VIEW_DETACH_CHANNEL, WEB_VIEW_CHANNEL, WEB_VIEW_KEY_CHANNEL } from "./channels.js";
 import { deepLinkIn, deepLinkInbox } from "./deep-links.js";
 import { computerGh, NODE_GH_PROCESS, type GhProcess } from "./gh.js";
 import { grantFile } from "./local-grant.js";
@@ -14,6 +15,7 @@ import { desktopNotifications } from "./notifications.js";
 import type { DesktopPlatform } from "./platform.js";
 import { PREVIEW_SCHEME_REGISTRATION, previews } from "./preview.js";
 import { APP_SCHEME, APP_URL, PREVIEW_SCHEME, isAppPage } from "./schemes.js";
+import { webViews } from "./web-view.js";
 import { keychainSecrets } from "./secrets.js";
 import { bundledInstaller } from "./installer.js";
 import { bundledService, type ServiceWait } from "./service.js";
@@ -141,13 +143,24 @@ export const startDesktop = async (
   const canvas = canvasStore(platform.paths.data);
   const window = electron.openWindow(windowOptions(platform, (await canvas.read()) ?? presetCanvas(electron.nativeTheme.shouldUseDarkColors)));
   shown.window = window;
+  allowAppCamera(window.webContents);
   lockNavigation(window.webContents, (url) => void electron.shell.openExternal(url).catch(reportError));
   // The renderer's platform reports what it has no caller for to its console: its errors are the window's faults.
   window.webContents.on("console-message", ({ level, message, sourceId, lineNumber }) => {
     if (level === "error") reportError(`The window: ${message} (${sourceId}:${lineNumber})`);
   });
+  const webView = webViews(electron, window);
+  webView.debugger!.onEvent((id, event) => window.webContents.send(WEB_VIEW_DEBUG_CHANNEL, id, event));
+  webView.debugger!.onDetach((id, reason) => window.webContents.send(WEB_VIEW_DETACH_CHANNEL, id, reason));
+  webView.onKey((id, key) => window.webContents.send(WEB_VIEW_KEY_CHANNEL, id, key));
+  webView.onChange((id, state) => window.webContents.send(WEB_VIEW_CHANNEL, id, state));
   const network = lockNetwork(window.webContents.session.webRequest);
-  const secrets = keychainSecrets({ safeStorage: electron.safeStorage, os: platform.os, dir: join(platform.paths.data, SECRETS_DIRECTORY), report: reportError });
+  const secrets = keychainSecrets({
+    safeStorage: electron.safeStorage,
+    os: platform.os,
+    dir: join(platform.paths.data, SECRETS_DIRECTORY),
+    report: reportError,
+  });
   const localGrant = grantFile(platform.paths.environment, reportError);
   const service = bundledService({ os: platform.os, server: platform.paths.server, ...(serviceWait && { wait: serviceWait }) });
   const update = desktopUpdate({ app, platform, system: updateSystem, report: reportError });
@@ -156,7 +169,7 @@ export const startDesktop = async (
   const notifications = desktopNotifications({ notification: electron.notification, window });
   serveShell(
     electron.ipcMain,
-    shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh }),
+    shellMembers({ electron, secrets, localGrant, service, update, installer, platform, window, canvas, network, links, notifications, preview, gh, webView }),
     reportError,
   );
   await window.loadURL(APP_URL).catch(reportError);

@@ -23,6 +23,7 @@ const member = {
   description: "Test-driven development.",
   invocation: "model+slash",
   userInvocable: true,
+  argumentHint: null,
   whileActive: [],
   origin,
   layer: { kind: "source", sourceId },
@@ -53,16 +54,33 @@ const source = {
   addedAt: "2026-09-29T04:40:00.000Z",
 };
 
+const since = "2026-09-29T10:40:00.000Z";
+const viewSource = { ...source, commit, skillCount: 1, sync: { outcome: "ok", since }, attemptedAt: since };
+const failedSync = { outcome: "failed", since, problem: "network", line: "fatal: unable to access 'https://github.com/mattpocock/skills/': Could not resolve host: github.com" };
+const movedSync = { outcome: "layout_moved", since, commit, folders: ["skills"] };
+const addedSource = { id: sourceId, url: source.url, identity: source.identity, folder: source.folder, follow: source.follow, position: 1 };
+
 const own = { kind: "own" } as const;
 const ownMember = { ...member, path: "skills/tdd", origin: manifestOrigin, layer: own };
 const commandMember = { ...member, kind: "command", path: "commands/tdd.md", origin: null, layer: own, whileActive: ["allowed-tools"] };
 const setMember = { ...ownMember, shadowedBy: null };
 const shadowed = { ...commandMember, shadowedBy: { layer: own, path: "skills/tdd" } };
-const runMember = { name: "tdd", origin: manifestOrigin, invocation: "model+slash", native: false, alwaysOn: true };
+const runMember = {
+  name: "tdd",
+  description: "Test-driven development.",
+  origin: manifestOrigin,
+  invocation: "model+slash",
+  userInvocable: true,
+  argumentHint: "<feature>",
+  native: false,
+  alwaysOn: true,
+};
+const nativeRunMember = { ...runMember, name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", argumentHint: null, native: true, alwaysOn: false };
+const skillEntry = { kind: "skill", name: "tdd", description: "Test-driven development.", invocation: "model+slash", origin: manifestOrigin, alwaysOn: true, argumentHint: "<feature>" };
 const runSkillSet = {
   generation: "/home/david/.local/state/agent-harness/skills/generations/3f9a",
   fingerprint: "3f9a",
-  members: [runMember, { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false }],
+  members: [runMember, nativeRunMember],
   hiddenNativeNames: ["triage"],
 };
 const choices = [
@@ -79,7 +97,7 @@ const viewAccounts = [
 ];
 const view = {
   ownDirectory: "/home/david/.local/state/agent-harness/skills/own",
-  sources: [source],
+  sources: [viewSource],
   choices,
   accountId: "claude-max",
   accounts: viewAccounts,
@@ -146,8 +164,47 @@ export const skillMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { ...view, members: [setMember] },
         { ...view, choices: [{ kind: "always-on", name: "tdd", accountId: null, on: true }] },
         { ...view, sources: undefined },
+        { ...view, sources: [source] },
       ],
     },
+  },
+  "skills.sources.add": {
+    params: {
+      valid: [
+        { commandId, url: "https://github.com/theclaymethod/unslop", folder: ".", follow: { kind: "branch", branch: null } },
+        { commandId, url: source.url, folder: "skills/engineering", follow: { kind: "pinned", commit }, probeId },
+      ],
+      invalid: [
+        { commandId, url: "https://github.com/a/b?x=1", folder: ".", follow: { kind: "branch", branch: null } },
+        { commandId, url: source.url, folder: "../skills", follow: { kind: "branch", branch: null } },
+        { commandId, url: source.url, folder: "." },
+        { commandId, url: source.url, folder: ".", follow: { kind: "branch", branch: null }, probeId: "p-1" },
+        { url: source.url, folder: ".", follow: { kind: "branch", branch: null } },
+      ],
+    },
+    result: { valid: [{ source: viewSource }, { source: { ...viewSource, skillCount: 0 } }], invalid: [{}, { source }, { source: { ...viewSource, commit: "main" } }] },
+  },
+  "skills.sources.remove": {
+    params: { valid: [{ commandId, sourceId }], invalid: [{ commandId, sourceId: "s-1" }, { commandId }, { sourceId }] },
+    result: { valid: [{ source: viewSource }], invalid: [{}, { source: { ...viewSource, skillCount: -1 } }] },
+  },
+  "skills.sources.pull": {
+    params: { valid: [{ commandId, sourceId }], invalid: [{ commandId, sourceId: "s-1" }, { commandId }, { sourceId }] },
+    result: {
+      valid: [{ source: viewSource }, { source: { ...viewSource, sync: failedSync } }, { source: { ...viewSource, sync: movedSync, attemptedAt: null } }],
+      invalid: [{}, { source }, { source: { ...viewSource, sync: { outcome: "failed", since } } }],
+    },
+  },
+  "skills.sources.setFollow": {
+    params: {
+      valid: [
+        { commandId, sourceId, follow: { kind: "pinned", commit } },
+        { commandId, sourceId, follow: { kind: "branch", branch: null } },
+        { commandId, sourceId, follow: { kind: "branch", branch: "release/2" } },
+      ],
+      invalid: [{ commandId, sourceId }, { commandId, sourceId, follow: { kind: "pinned", commit: "main" } }, { sourceId, follow: { kind: "branch", branch: null } }],
+    },
+    result: { valid: [{ source: { ...viewSource, follow: { kind: "pinned", commit } } }], invalid: [{}, { source: { ...viewSource, attemptedAt: "yesterday" } }] },
   },
   "skills.own.create": {
     params: {
@@ -274,7 +331,38 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
       { kind: "hidden", name: "tdd", accountId: null },
     ],
   },
-  "skills/event-type.json": { valid: ["skills.enabled-set", "skills.always-on-set"], invalid: ["skills.updated", "skills.source-added", ""] },
+  "skills/event-type.json": {
+    valid: ["skills.enabled-set", "skills.always-on-set", "skills.source-added", "skills.source-synced", "skills.source-removed", "skills.source-follow-set"],
+    invalid: ["skills.updated", "skills.source-pulled", ""],
+  },
+  "skills/events/skills.source-added.json": {
+    valid: [addedSource, { ...addedSource, folder: ".", follow: { kind: "pinned", commit }, position: 20 }],
+    invalid: [{ ...addedSource, position: 0 }, { ...addedSource, url: "-oProxyCommand=touch" }, { ...addedSource, follow: undefined }],
+  },
+  "skills/events/skills.source-synced.json": {
+    valid: [
+      { sourceId, outcome: "ok", commit, members: [probeMember, invalidProbeMember] },
+      { sourceId, outcome: "ok", commit, members: [] },
+      { sourceId, outcome: "failed", problem: "not_found", line: "fatal: repository 'https://github.com/mattpocock/skills/' not found" },
+      { sourceId, outcome: "layout_moved", commit, folders: [".", "skills"] },
+      { sourceId, outcome: "layout_moved", commit, folders: [] },
+    ],
+    invalid: [
+      { sourceId, outcome: "failed", commit, members: [] },
+      { sourceId, outcome: "ok", commit: "main", members: [] },
+      { sourceId, outcome: "ok", commit },
+      { sourceId, outcome: "failed", problem: "timeout", line: "fatal: timed out" },
+      { sourceId, outcome: "layout_moved", commit },
+    ],
+  },
+  "skills/events/skills.source-follow-set.json": {
+    valid: [
+      { sourceId, follow: { kind: "pinned", commit } },
+      { sourceId, follow: { kind: "branch", branch: null } },
+    ],
+    invalid: [{ sourceId }, { sourceId, follow: { kind: "pinned", commit: "main" } }, { follow: { kind: "branch", branch: null } }],
+  },
+  "skills/events/skills.source-removed.json": { valid: [{ sourceId }], invalid: [{ sourceId: "s-1" }, {}] },
   "skills/events/skills.enabled-set.json": {
     valid: [
       { name: "tdd", accountId: null, enabled: false },
@@ -287,14 +375,39 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ name: "unslop", accountId: null, on: true }, { name: "unslop", accountId: "", on: true }, { name: "unslop", accountId: "claude-max" }],
   },
   "skills/view-member.json": { valid: viewMembers, invalid: [setMember, { ...viewMember, choices: [{ kind: "hidden", name: "tdd", accountId: null }] }, { ...viewMember, enabled: undefined }] },
+  "skills/view-source.json": {
+    valid: [viewSource, { ...viewSource, skillCount: 0 }, { ...viewSource, sync: failedSync, attemptedAt: null }, { ...viewSource, sync: movedSync }],
+    invalid: [source, { ...viewSource, commit: "74ca5fe" }, { ...viewSource, skillCount: 1.5 }, { ...viewSource, sync: undefined }, { ...viewSource, attemptedAt: undefined }],
+  },
+  "skills/source-sync.json": {
+    valid: [{ outcome: "ok", since }, failedSync, movedSync, { ...movedSync, folders: [] }],
+    invalid: [{ outcome: "ok" }, { ...failedSync, problem: undefined }, { ...movedSync, commit: "main" }, { outcome: "pinned", since }],
+  },
   "skills/view-account.json": { valid: viewAccounts, invalid: [{ accountId: "local", channel: "none" }, { accountId: "local", channel: "codex", reason: null }, { ...viewAccounts[1], reason: "" }] },
   "skills/view.json": { valid: [view], invalid: [{ ...view, members: undefined }, { ...view, ownDirectory: 7 }, { ...view, accounts: undefined }] },
   "skills/skills-updated.json": { valid: [{}], invalid: [null, "updated"] },
   "skills/native-root.json": { valid: [".claude/skills", ".agents/skills", ".claude/commands"], invalid: [".claude/agents", ".codex/skills", ""] },
   "skills/set-fingerprint.json": { valid: ["3f9a", "c".repeat(64)], invalid: ["", 7, null] },
   "skills/run-skill-set-member.json": {
-    valid: [runMember, { ...runMember, origin: null, invocation: "slash-only", native: true, alwaysOn: false }],
-    invalid: [{ ...runMember, name: "Tdd" }, { ...runMember, native: undefined }, { ...runMember, alwaysOn: undefined }, { ...runMember, invocation: "model" }],
+    valid: [runMember, nativeRunMember, { ...runMember, userInvocable: false }],
+    invalid: [
+      { ...runMember, name: "Tdd" },
+      { ...runMember, native: undefined },
+      { ...runMember, alwaysOn: undefined },
+      { ...runMember, invocation: "model" },
+      { ...runMember, description: "" },
+      { ...runMember, userInvocable: undefined },
+      { ...runMember, argumentHint: "" },
+    ],
+  },
+  "skills/argument-hint.json": { valid: ["<feature>", "[branch]", null], invalid: ["", 42, ["branch"]] },
+  "skills/entry.json": {
+    valid: [skillEntry, { ...skillEntry, invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: null }],
+    invalid: [{ ...skillEntry, kind: "command" }, { ...skillEntry, description: "" }, { ...skillEntry, argumentHint: undefined }, { ...skillEntry, name: "agent-harness:tdd" }],
+  },
+  "skills/commands-list-entry.json": {
+    valid: [skillEntry, { kind: "command", name: "compact", description: "Compact the conversation.", builtin: true }],
+    invalid: [{ ...skillEntry, kind: "member" }, { kind: "command", name: "compact", description: "Compact the conversation." }, { ...skillEntry, kind: "command" }],
   },
   "skills/run-skill-set.json": {
     valid: [runSkillSet, { generation: null, fingerprint: null, members: [], hiddenNativeNames: [] }],
@@ -310,11 +423,13 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
       member,
       invalidMember,
       { ...member, invocation: "slash-only", userInvocable: false, origin: manifestOrigin, layer: { kind: "own" }, path: "skills/tdd", size: 0, tokens: 0 },
-      { ...member, kind: "command", path: "commands/review.md", whileActive: ["hooks", "allowed-tools"], origin: null, layer: { kind: "own" } },
+      { ...member, kind: "command", path: "commands/review.md", whileActive: ["hooks", "allowed-tools"], argumentHint: "[branch]", origin: null, layer: { kind: "own" } },
       { ...member, path: "." },
     ],
     invalid: [
       { ...member, name: "Test Driven" },
+      { ...member, argumentHint: "" },
+      { ...member, argumentHint: undefined },
       { ...member, kind: "plugin" },
       { ...member, path: "../tdd" },
       { ...member, path: "/skills/tdd" },
@@ -369,6 +484,26 @@ export const skillSchemaFixtures: Record<string, Fixtures> = {
   "skills/probe-unreachable.json": {
     valid: [probeUnreachable, { ...probeUnreachable, problem: "git_failed", line: "fatal: bad object" }],
     invalid: [{ ...probeUnreachable, reason: "pinned" }, { ...probeUnreachable, line: "" }, { ...probeUnreachable, origin: "github.com" }],
+  },
+  "skills/source-add-conflict.json": {
+    valid: [probeUnreachable, { reason: "no_skills", folders: [".", "skills/engineering"] }, { reason: "no_skills", folders: [] }, { reason: "source_limit", limit: 20 }, { reason: "duplicate", sourceId }],
+    invalid: [{ reason: "no_skills" }, { reason: "no_skills", folders: ["/skills"] }, { reason: "source_limit", limit: 0 }, { reason: "duplicate", sourceId: "s-1" }, { reason: "pinned" }],
+  },
+  "skills/source-no-skills.json": {
+    valid: [{ reason: "no_skills", folders: [".", "skills/engineering"] }, { reason: "no_skills", folders: [] }],
+    invalid: [{ reason: "no_skills" }, { reason: "no_skills", folders: ["/skills"] }],
+  },
+  "skills/source-pull-conflict.json": {
+    valid: [{ reason: "pinned", commit }],
+    invalid: [{ reason: "pinned" }, { reason: "pinned", commit: "main" }, { reason: "duplicate", sourceId }],
+  },
+  "skills/source-follow-conflict.json": {
+    valid: [probeUnreachable, { reason: "no_skills", folders: ["skills"] }],
+    invalid: [{ reason: "no_skills" }, { reason: "pinned", commit }, { reason: "duplicate", sourceId }],
+  },
+  "skills/source-member.json": {
+    valid: [probeMember, invalidProbeMember],
+    invalid: [{ ...probeMember, path: "../tdd" }, { ...probeMember, name: "Tdd" }, { ...probeMember, description: undefined }],
   },
   "skills/source-id.json": {
     valid: [sourceId],

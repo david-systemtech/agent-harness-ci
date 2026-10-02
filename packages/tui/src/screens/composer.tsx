@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { cursorPosition, editorWindow, lines as editorLines, type EditorState } from "../composer/editor.js";
-import type { Popup } from "../composer/state.js";
+import type { CommandRow, Popup } from "../composer/state.js";
 
 /**
  * The composer on screen (docs/specs/tui.md, "The composer"): a box,
@@ -31,6 +31,8 @@ export interface ComposerViewProps {
   readonly search: { readonly query: string; readonly scope: string; readonly found: boolean } | undefined;
   /** A dim line under the box, when there is something to say. */
   readonly note: string | undefined;
+  readonly suggestion?: string | undefined;
+  readonly suggestionKey?: string | undefined;
 }
 
 const cellAt = (line: string, col: number): string => {
@@ -60,6 +62,14 @@ const BufferLine = (props: { readonly text: string; readonly cursor: number | un
   );
 };
 
+/** What a slash menu row says after its usage: its description, marked when the agent's own or a slash-only skill. */
+const rowNote = (row: CommandRow): string => {
+  const note = row.source === "provider" ? `${row.description} · the agent's` : row.slashOnly ? `${row.description} · slash-only` : row.description;
+  if (row.readiness?.state === "setup-needed") return `setup needed · ${note}`;
+  if (row.readiness?.state === "unsupported") return `unsupported: ${row.readiness.why ?? row.readiness.failing[0]?.message} · ${note}`;
+  return note;
+};
+
 /** The popup's rows, the highlighted one inverse. */
 const PopupRows = (props: { readonly popup: Popup; readonly highlight: number }) => {
   const { popup } = props;
@@ -75,10 +85,18 @@ const PopupRows = (props: { readonly popup: Popup; readonly highlight: number })
     <Box flexDirection="column" flexShrink={0}>
       {popup.kind === "commands" &&
         popup.rows.map((row, index) => (
-          <Text key={row.name} wrap="truncate-end" inverse={index === props.highlight}>
-            {"    "}
-            {row.usage.padEnd(22)} <Text dimColor>{row.provider ? `${row.description} · the agent's` : row.description}</Text>
-          </Text>
+          <Box key={row.name} flexDirection="column" flexShrink={0}>
+            <Text wrap="truncate-end" inverse={index === props.highlight} dimColor={row.readiness?.state === "unsupported"}>
+              {"    "}
+              {row.usage.padEnd(22)} <Text dimColor>{rowNote(row)}</Text>
+            </Text>
+            {index === props.highlight && row.readiness?.state === "setup-needed" && (
+              <Text color={TERMINAL_ROLES.warning}>
+                {"      "}{row.readiness.why ?? row.readiness.failing[0]?.message}
+                {row.readiness.fix !== null ? ` Fix: ${row.readiness.fix}` : ""}
+              </Text>
+            )}
+          </Box>
         ))}
       {popup.kind === "mentions" &&
         popup.rows.map((row, index) => (
@@ -145,6 +163,11 @@ export const ComposerView = (props: ComposerViewProps) => {
       {window.top + window.size < all.length && (
         <Text dimColor wrap="truncate-end">
           {"  "}↓ {all.length - window.top - window.size} more line{all.length - window.top - window.size === 1 ? "" : "s"}
+        </Text>
+      )}
+      {props.suggestion !== undefined && (
+        <Text color={TERMINAL_ROLES.accent} wrap="truncate-end">
+          {"  "}[{props.suggestionKey ?? "1"}] {props.suggestion.replace(/\s+/g, " ")}
         </Text>
       )}
       {props.locked !== undefined && (

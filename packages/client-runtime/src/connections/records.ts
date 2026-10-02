@@ -100,6 +100,19 @@ export type RemoveResult =
   | { readonly revoked: true }
   | { readonly revoked: false; readonly reason: "scope" | "unreachable"; readonly message: string };
 
+/**
+ * What a caller outside the socket authenticates with as this client on the
+ * environment's HTTP routes (the completions surface, ADR 0015): the
+ * connection's address and its client session's token as the connection
+ * holds it. Never written anywhere new: a local connection's token is the
+ * grant exchange's, in memory; a paired one's is in secret storage.
+ */
+export interface ConnectionCredential {
+  /** The connection's address, the origin its routes answer at. */
+  readonly origin: string;
+  readonly token: string;
+}
+
 /** A connection as `connections.list` shows it. */
 export interface ConnectionRecord extends SavedConnection {
   readonly environmentId: string;

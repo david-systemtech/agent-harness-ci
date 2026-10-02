@@ -44,12 +44,22 @@ export interface ClientTool {
   readonly parameters: JsonObject;
 }
 
-/** What a run's tool servers close over: the account, the workspace and the session, the tools its request declared for the caller to run, and its browser. */
+/**
+ * What a run's tool servers close over: the account, the workspace with its
+ * session's repository identity, the session, the tools its request
+ * declared for the caller to run, and its browser.
+ */
 export interface ToolServerScope {
   readonly sessionId: string;
   readonly runId: string;
   readonly accountId: string;
   readonly workspace: Workspace;
+  /**
+   * The session's repository identity as it was resolved when the run was planned (workspace-picker spec), the
+   * repository's for a worktree and never a path; null when the session has none. The memory tools' repository
+   * scope reads it (banks spec, "The seams"; #1022).
+   */
+  readonly repositoryIdentity: string | null;
   /** A completions request's own tools (#139), or those of the run before a run of the queue; empty for none. */
   readonly clientTools: readonly ClientTool[];
   /** The browser the run resolved at its start (#550), whose kind's verbs the `browser` server offers (#551); none for none. */
@@ -91,9 +101,10 @@ export const undecidedTrust: TrustSeam = (place) => ({ key: repositoryKey(place)
 
 /**
  * What a skill set is resolved for (skills spec, "Materialisation and the
- * Claude mapping"): the run's session (null for a commands listing, which
- * has none), its account and workspace, its trust, and the roots the
- * account's adapter loads itself under trust, whose members are native.
+ * Claude mapping"): the run's session (null for a preview of a session not
+ * yet made), its account and workspace, its trust, and the roots the
+ * account's adapter loads itself under trust, whose members are native. A
+ * commands listing is resolved as its session's next run would be (#503).
  */
 export interface SkillSetScope {
   readonly sessionId: string | null;
@@ -129,7 +140,8 @@ export const holdNothing: GenerationHold = () => () => undefined;
 /**
  * What a run's standing instructions are composed for (skills spec, "The
  * seam grows"): its session (null for a preview of a session not yet
- * made), account and workspace, its trust key and decision, who started it,
+ * made), account and workspace with its session's repository identity
+ * (banks spec, "The seams"), its trust key and decision, who started it,
  * its effective containment level and its injection answer with the level
  * that decided it (#380), the bot it is for, the always-on names it asks for
  * beside its account's, the instruction channel of its account's adapter
@@ -140,6 +152,12 @@ export interface InstructionScope {
   readonly sessionId: string | null;
   readonly accountId: string;
   readonly workspace: Workspace;
+  /**
+   * The session's repository identity as it was resolved (workspace-picker spec), the repository's for a worktree
+   * and never a path; for a preview of a session not yet made, the one its create will read (#1072); null for a
+   * session without one. The bank layer's repository scope reads it (banks spec, "The seams"; #1022).
+   */
+  readonly repositoryIdentity: string | null;
   readonly trust: RunTrust;
   /** The run's skill set, resolved before its instructions are composed: the manifest carries its fingerprint. */
   readonly skillSet: RunSkillSet;
@@ -151,7 +169,7 @@ export interface InstructionScope {
   readonly injection: InjectionDecision;
   /** The bot the run is for: null in milestone 1, the Bot object being milestone 2's (#92). */
   readonly bot: null;
-  /** The run's extra always-on names, after its account's: empty until the always-on layer is built (#507). */
+  /** The run's extra always-on names, after its account's: held in memory and inherited by runs of the queue (#507). */
   readonly alwaysOn: readonly string[];
   readonly channel: InstructionChannel;
   /** Whether the account's adapter loads a trusted repository's own instruction files itself; without it the project layer hands them over. */
@@ -250,6 +268,8 @@ export interface RuledRun {
   readonly workspace: string;
   /** The run's containment, as its adapter was handed it (#133). */
   readonly containment: RunContainment;
+  /** Additional readable directories for this run, exempt through the denylist's directory mechanism (registered bank checkouts). */
+  readonly readableDirectories?: readonly string[];
   /**
    * Asks through the broker, as the run's own prompt: recorded as
    * `prompt.opened`, parked for a person on an attended run, answered at once

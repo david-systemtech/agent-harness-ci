@@ -1,4 +1,4 @@
-import type { AccountUsage } from "@agent-harness/contracts";
+import { STEP_ORDER, type AccountUsage } from "@agent-harness/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -113,6 +113,8 @@ describe("/account", () => {
     env.signIn("done");
     await app.waitFor("side is signed in on desk.");
     expect(app.frame()).not.toContain("Checking the code");
+    await app.waitUntil(() => env.requests("setup.check").length >= 2, "the account checks after sign-in writes");
+    expect(env.requests("setup.check").every((r) => r.params.step === "account")).toBe(true);
   });
 
   it("says a sign-in that failed, expired or was cancelled in one line each", async () => {
@@ -302,6 +304,8 @@ describe("/mode", () => {
     await app.waitFor("Asked for bypassPermissions; Receipts has auto: clamped to this connection's ceiling (auto).");
     expect(env.requests("permissions.mode.set").map((r) => r.params)).toEqual([expect.objectContaining({ sessionId: SESSION, mode: "bypassPermissions" })]);
     await app.waitFor("⏸ auto");
+    await app.waitUntil(() => env.requests("setup.check").length === 1, "the mode's Permissions check");
+    expect(env.requests("setup.check")[0]?.params).toEqual({ step: "permissions" });
   });
 
   it("marks the attended default, acceptEdits lowered to the ceiling, as the session's mode and opens on it when the session has none of its own (PR review)", async () => {
@@ -346,6 +350,22 @@ describe("/containment", () => {
     await app.waitFor("◐ workspace");
   });
 
+  it("checks Permissions only after this terminal's containment receipt", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], containment })]);
+    let receipt: (() => void) | undefined;
+    env.wire.answer("permissions.containment.set", () => new Promise((resolve) => {
+      receipt = () => resolve({ result: { receipt: { status: "accepted", sequence: 0, changed: false } } });
+    }));
+    await command(app, "/containment");
+    await app.waitFor("Containment of Receipts");
+    await app.press(KEY.down, KEY.enter);
+    await app.waitUntil(() => receipt !== undefined, "the containment write");
+    expect(env.requests("setup.check")).toEqual([]);
+    receipt?.();
+    await app.waitUntil(() => env.requests("setup.check").length === 1, "Permissions checked after the receipt");
+    expect(env.requests("setup.check").map((r) => r.params)).toEqual([{ step: "permissions" }]);
+  });
+
   it("says containment_unavailable in one line", async () => {
     const { app } = await launch([desk({ containment })]);
     await command(app, "/containment");
@@ -367,6 +387,9 @@ describe("/usage", () => {
     await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d\d:\d\d/);
     expect(app.frame()).toMatch(/Week\s+█*░* ?10%/);
     expect(app.frame()).toContain("seth@home.test · personal on desk");
+    expect(app.frame()).toContain("scroll");
+    expect(app.frame()).not.toContain("runs the action");
+    expect(app.frame()).not.toContain("next action");
     expect(app.frame()).toContain("Not signed in.");
   });
 });
@@ -660,18 +683,243 @@ describe("/settings by row (#389)", () => {
 });
 
 describe("/setup", () => {
-  it("answers absent with the reason until the environment has a step-registry query, and points at the desktop window", async () => {
-    const { app } = await launch(undefined, false);
+  it("draws only registered steps from the snapshot without a check", async () => {
+    const { app, env } = await launch([desk({
+      capabilities: ["setup"],
+      setup: {
+        account: { state: "done" },
+        browser: { state: "skipped" },
+        permissions: { state: "needs-attention", reason: "The denylist could not be read." },
+        "memory-bank": null,
+        skills: null,
+      },
+    })]);
+    await app.waitFor("Set up on desk: 7 of 9 done, 1 need attention (Permissions). Run it in the desktop window.");
     await command(app, "/setup");
-    await app.waitFor(
-      "Set up on desk cannot be read from here yet: no step-registry query is on the wire (setup.check and the setup subscription, ADR 0031). Run it in the desktop window.",
-    );
+    await app.waitFor(/Account.*done/);
+    await app.waitFor(/Browser.*skipped/);
+    await app.waitFor(/Permissions.*needs attention.*The denylist could not be read\./);
+    await app.waitFor("7 done, 1 needs attention, 1 skipped");
+    expect(app.frame()).not.toContain("Memory bank:");
+    expect(app.frame()).not.toContain("Skills:");
+    expect(env.requests("setup.check")).toEqual([]);
   });
 
-  it("names the environment asked for, and says when none is known by that name", async () => {
+  it("updates the open card from the environment's setup notices without another check", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"] })]);
+    await command(app, "/setup");
+    await app.waitFor(/Permissions.*done/);
+    env.setSetup({ permissions: { state: "needs-attention", reason: "Containment is unavailable." } });
+    env.passSetup(["permissions"]);
+    await app.waitFor(/Permissions.*needs attention.*Containment is unavailable\./);
+    await app.waitFor(/Containment is unavailable\. \(unchanged since 00:00\)/);
+    expect(env.requests("setup.check")).toHaveLength(0);
+    env.setSetup({ permissions: { state: "done" } });
+    env.passSetup(["permissions"]);
+    await app.waitUntil(() => !app.frame().includes("need attention (Permissions)"), "the header to clear");
+    await app.press(KEY.esc);
+    await app.waitFor("Nothing said yet.");
+    await command(app, "/setup");
+    await app.waitFor(/Permissions.*done/);
+    expect(env.requests("setup.check")).toHaveLength(0);
+  });
+
+  it("runs Check again with Enter on the selected step", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      account: { state: "needs-attention", reason: "Account needs a check.", actions: ["check-again"] },
+    } })]);
+    await command(app, "/setup");
+    await app.waitFor("Check again");
+    env.setSetup({ account: { state: "done", actions: [] } });
+    await app.press(KEY.enter);
+    await app.waitFor(/Account.*done/);
+    expect(env.requests("setup.check").map((r) => r.params)).toEqual([{ step: "account" }]);
+  });
+
+  it("pulls both sources named by the line, even after a refusal", async () => {
+    const ids = ["0f8fad5b-d9cb-469f-a165-70867728950e", "0f8fad5b-d9cb-469f-a165-70867728950f"];
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+      skills: { state: "needs-attention", reason: "Two sources need a pull.", actions: ["pull-now"],
+        targets: ids.map((id, i) => ({ action: "pull-now", kind: "skill-source", id, label: i === 0 ? "team-skills" : "house-skills" })),
+      },
+    } })]);
+    env.wire.answer("skills.sources.pull", (params) => {
+      if (params.sourceId === ids[0]) return { error: { code: "not_found", message: "The source was removed.", data: { kind: "source" } } };
+      const since = app.clock.now().toISOString();
+      return { result: { receipt: { status: "accepted", sequence: 1, changed: true }, result: { source: {
+        id: params.sourceId, url: "https://git.example.test/team/skills", identity: "https://git.example.test/team/skills", folder: ".",
+        follow: { kind: "branch", branch: "main" }, position: 1, addedBy: { kind: "client_session", id: "desk" }, addedAt: since,
+        commit: "c".repeat(40), skillCount: 1, sync: { outcome: "ok", since }, attemptedAt: since,
+      } } } };
+    });
+    await command(app, "/setup");
+    await app.waitFor("Pull now: team-skills, house-skills");
+    await app.press(KEY.enter);
+    await app.waitFor("team-skills: Not pulled: The source was removed. house-skills: Source pulled.");
+    expect(env.requests("skills.sources.pull").map((r) => r.params?.sourceId)).toEqual(ids);
+  });
+
+  it("updates a named tool in the terminal pane on the checklist's environment", async () => {
+    const { app } = await launch([desk(), { name: "laptop", reach: "paired", capabilities: ["setup", "managedTools"],
+      keyManagers: { tools: [{ tool: "gh" }] }, managedTools: { runs: { gh: { password: "password-for-tests", command: "sudo brew upgrade gh" } } },
+      setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+        forges: { state: "needs-attention", reason: "gh needs attention.", actions: ["update"], targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }] },
+      },
+    }], false);
+    const laptop = app.environment("laptop");
+    await command(app, "/setup laptop");
+    await app.waitFor("Update gh in a tool terminal");
+    await app.press(KEY.enter);
+    await app.waitFor("[sudo] password for seth:");
+    expect(laptop.requests("tools.run").map((r) => r.params)).toEqual([{ commandId: expect.any(String), id: expect.any(String), tool: "gh", action: "update" }]);
+    await app.type("password-for-tests");
+    await app.press(KEY.enter);
+    await app.waitFor("exit 0");
+    expect(laptop.requests("terminals.write").length).toBeGreaterThan(0);
+    expect(app.environment("desk").requests("tools.run")).toEqual([]);
+  });
+
+  it("waits for managed tools before offering a tool update", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup", "managedTools"],
+      keyManagers: { tools: [{ tool: "gh" }] },
+      setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+        forges: { state: "needs-attention", reason: "gh needs attention.", actions: ["update"], targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }] },
+      },
+    })]);
+    let answer = () => {};
+    env.wire.answer("tools.list", () => new Promise((resolve) => {
+      answer = () => resolve({ result: { tools: [...env.toolRows()], probedAt: "2026-09-25T09:00:00.000Z" } });
+    }));
+    await command(app, "/setup");
+    await app.waitFor("Reading managed tools…");
+    expect(app.frame()).not.toContain("is unavailable here:");
+    expect(app.frame()).not.toContain("No action offered.");
+    expect(app.frame()).toContain("Waiting for managed tools before offering Update.");
+    await app.press(KEY.enter);
+    expect(env.requests("tools.run")).toEqual([]);
+    answer();
+    await app.waitFor("Action: Update gh in a tool terminal");
+    expect(app.frame()).not.toContain("Reading managed tools…");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.requests("tools.run").length === 1, "the update to start after the list answers");
+  });
+
+  it("restores the denylist sections named by the line then checks Permissions", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+      permissions: { state: "needs-attention", reason: "Denylist presets are missing.", actions: ["restore"],
+        targets: [{ action: "restore", kind: "denylist-section", id: "paths", label: "paths" }, { action: "restore", kind: "denylist-section", id: "hosts", label: "hosts" }],
+      },
+    } })]);
+    await command(app, "/setup");
+    await app.waitFor("Restore: paths, hosts");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => env.requests("setup.check").length === 1, "the restored step checked");
+    expect(env.requests("permissions.denylist.restorePresets").map((r) => r.params)).toEqual([expect.objectContaining({ sections: ["paths", "hosts"] })]);
+    expect(env.requests("setup.check").map((r) => r.params)).toEqual([{ step: "permissions" }]);
+  });
+
+  it("updates Your machines and points card actions at the desktop", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+      "your-machines": { state: "needs-attention", reason: "An update is available.", actions: ["update", "set-up-this-machine"] },
+    } })]);
+    env.wire.answer("updates.apply", () => ({ result: { receipt: { status: "accepted", sequence: 1, changed: false } } }));
+    await command(app, "/setup");
+    await app.waitFor("Action: Update now");
+    await app.press(KEY.space);
+    await app.waitFor("Action: Set up this machine");
+    await app.press(KEY.enter);
+    await app.waitFor("Set up this machine runs in the desktop window.");
+    expect(env.requests("updates.apply")).toEqual([]);
+    await app.press(KEY.space, KEY.enter);
+    await app.waitFor("Updating desk once it is idle.");
+    expect(env.requests("updates.apply").map((r) => r.params)).toEqual([expect.objectContaining({ when: "idle" })]);
+  });
+
+  it("starts this machine's service from the Your machines line", async () => {
+    const { app, env } = await launch([desk({ capabilities: ["setup"], setup: {
+      ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+      "your-machines": { state: "done", reason: "The service was running." },
+    } })], false);
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    await app.waitFor("service down");
+    await command(app, "/setup");
+    await app.waitFor("Action: Start service");
+    await app.press(KEY.enter);
+    await app.waitUntil(() => app.service.calls.includes("start"), "the local service started");
+    expect(app.service.calls).toEqual(["start"]);
+  });
+
+  it.each([false, true])("omits a tool update when it cannot run here (registry present: %s)", async (registered) => {
+    const { app, env } = await launch([desk({ capabilities: registered ? ["setup", "managedTools"] : ["setup"],
+      keyManagers: { tools: [{ tool: "gh", action: "copy", method: "manual", command: "upgrade-gh-by-hand" }] },
+      setup: { ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])),
+        forges: { state: "needs-attention", reason: "gh needs attention.", actions: ["update"], targets: [{ action: "update", kind: "tool", id: "gh", label: "gh" }] },
+      },
+    })]);
+    await command(app, "/setup");
+    await app.waitFor("Update gh is unavailable here:");
+    expect(app.frame()).not.toContain("Action: Update gh");
+    await app.press(KEY.enter);
+    expect(env.requests("tools.run")).toEqual([]);
+  });
+
+  it("keeps unreachable results cached and stale without checking them", async () => {
+    const { app } = await launch([desk(), { name: "laptop", reach: "paired", capabilities: ["setup"], setup: {
+      ...Object.fromEntries(STEP_ORDER.map((step) => [step, null])), account: { state: "done", reason: "Account ready." },
+    } }]);
+    const env = app.environment("laptop");
+    await command(app, "/setup laptop");
+    await app.waitFor(/Account.*done/);
+    env.autoAccept(false);
+    env.discovery("nothing");
+    env.server.drop();
+    await app.waitFor("laptop is unreachable since");
+    await app.waitFor(/Account.*done.*stale/);
+    expect(env.requests("setup.check")).toEqual([]);
+  });
+
+  it("keeps the Set up card and explains a refused check", async () => {
+    const { app, env } = await launch(undefined, false);
+    env.wire.answer("setup.check", () => ({ error: { code: "forbidden", message: "This grant cannot read setup.", data: { scope: "read" } } }));
+    await command(app, "/setup");
+    await app.waitFor("Set up on desk");
+    await app.waitFor("Set up could not be checked: This grant cannot read setup.");
+    expect(app.frame()).not.toContain("Checking Set up…");
+    expect(env.requests("setup.check")).toHaveLength(1);
+  });
+
+  it("keeps a reopened card checking when an earlier card's check answers", async () => {
+    const { app, env } = await launch(undefined, false);
+    const answers: (() => void)[] = [];
+    env.wire.answer("setup.check", () => new Promise((resolve) => answers.push(() => resolve({ result: { results: [] } }))));
+    await command(app, "/setup");
+    await app.waitFor("Checking Set up…");
+    await app.press(KEY.esc);
+    await command(app, "/setup");
+    await app.waitFor("Checking Set up…");
+    expect(answers).toHaveLength(2);
+    answers[0]?.();
+    await app.tick();
+    expect(app.frame()).toContain("Checking Set up…");
+    answers[1]?.();
+    await app.waitUntil(() => !app.frame().includes("Checking Set up…"), "the reopened check to answer");
+    expect(app.frame()).toContain("Set up on desk");
+  });
+
+  it("checks the named environment without a setup stream, and says when none is known by that name", async () => {
     const { app } = await launch([desk(), { name: "laptop", reach: "paired" }], false);
     await command(app, "/setup laptop");
-    await app.waitFor("Set up on laptop cannot be read from here yet");
+    await app.waitFor("Set up on laptop");
+    await app.waitFor(/Account.*done/);
+    await app.waitFor("Live Set up updates are unavailable on this environment; /setup checks again.");
+    expect(app.environment("laptop").requests("setup.check").map((r) => r.params)).toEqual([{}]);
+    expect(app.environment("desk").requests("setup.check")).toEqual([]);
+    await app.press(KEY.esc);
     await command(app, "/setup attic");
     await app.waitFor("No environment named attic is known here.");
   });

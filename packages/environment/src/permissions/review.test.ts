@@ -5,7 +5,8 @@ import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, fakeAdapter, say, toldText, type Script } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../test/helper.js";
-import { create, deleteSession, refusal } from "../../test/sessions.js";
+import { command, create, deleteSession, refusal } from "../../test/sessions.js";
+import { noticesOf } from "../../test/notices.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent, PromptDetail } from "../adapter/contract.js";
 import { openEventLog } from "../event-log/event-log.js";
@@ -236,8 +237,9 @@ describe("permissions.review.seen", () => {
     expect((await list(client)).runs.map((row) => row.runId)).toEqual([second.runId]);
 
     // Named nothing, it marks everything to the head seen; it never moves back.
+    const head = t.env.log.head();
     const all = await send(client, "permissions.review.seen", {});
-    expect(all.result?.watermark).toBe(t.env.log.head() - 1);
+    expect(all.result?.watermark).toBe(head);
     expect((await list(client)).runs).toEqual([]);
     const back = await send(client, "permissions.review.seen", { through: before.head });
     expect(back.result?.watermark).toBe(all.result?.watermark);
@@ -253,6 +255,80 @@ describe("permissions.review.seen", () => {
     expect((await refusal(reader.request("permissions.review.seen", { commandId: randomUUID() }))).code).toBe("forbidden");
     const writer = await t.client({ token: (await t.pair({ scopes: SCOPES.filter((scope) => scope !== "admin") })).token });
     expect((await send(writer, "permissions.review.seen", {})).result).toBeDefined();
+  });
+});
+
+describe("the review.updated notice (#811)", () => {
+  /** The events of `type` on the session's stream after `from`, by the run `runId`. */
+  const ofRun = (t: TestEnvironment, sessionId: string, runId: string, type: string) =>
+    t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === type && event.payload["runId"] === runId);
+
+  it("follows each decision in a run the review then lists, caused by it, and none in a run it does not list", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const from = t.env.log.head();
+    // Attended, its calls decided by the mode and a person: not listed.
+    t.adapter.nextScripts.push(listThenInstall);
+    const mine = (await send(client, "runs.start", { sessionId: id, text: "Go" })).result as { runId: string };
+    await untilOpened(t, id);
+    await send(client, "permissions.prompts.answer", { promptId: "toolu_1", decision: "allow" });
+    await untilEnded(t, id, mine.runId);
+    expect(await noticesOf(client, "review.updated", from)).toEqual([]);
+
+    // Unattended: its two calls, one allowed by the mode and one denied, each change the run the review lists.
+    t.adapter.nextScripts.push(listThenInstall);
+    const nightly = startAs(t, id, routine());
+    await untilEnded(t, id, nightly.runId);
+    const notices = await noticesOf(client, "review.updated", from);
+    expect(notices.map((event) => event.payload)).toEqual([{}, {}]);
+    expect(notices.map((event) => event.causationId)).toEqual(ofRun(t, id, nightly.runId, "tool.decision").map((event) => event.eventId));
+    expect(notices.map((event) => event.actor)).toEqual([{ kind: "system", id: "permissions" }, { kind: "system", id: "permissions" }]);
+  });
+
+  it("follows a review.seen that moves the watermark, and nothing for one that does not", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(listOnly);
+    const nightly = startAs(t, id, routine());
+    await untilEnded(t, id, nightly.runId);
+    const from = t.env.log.head();
+
+    const moved = await send(client, "permissions.review.seen", {});
+    const unmoved = await send(client, "permissions.review.seen", { through: moved.result?.watermark ?? 0 });
+    expect([moved.receipt.changed, unmoved.receipt.changed]).toEqual([true, false]);
+    const seen = t.env.log.readStream({ kind: "settings", id: t.env.id }).filter((event) => event.type === "review.seen");
+    expect((await noticesOf(client, "review.updated", from)).map((event) => event.causationId)).toEqual(seen.map((event) => event.eventId));
+  });
+
+  it("follows a session's deletion and restore when it holds a run the review lists, and nothing for a session that holds none", async () => {
+    const t = await start();
+    const client = await t.client();
+    const listed = await create(client);
+    const quiet = await create(client);
+    t.adapter.nextScripts.push(listOnly);
+    const nightly = startAs(t, listed.id, routine());
+    await untilEnded(t, listed.id, nightly.runId);
+    t.adapter.nextScripts.push(talkOnly);
+    const idle = startAs(t, quiet.id, routine());
+    await untilEnded(t, quiet.id, idle.runId);
+    const from = t.env.log.head();
+
+    await deleteSession(client, quiet.id);
+    expect(await noticesOf(client, "review.updated", from)).toEqual([]);
+    await deleteSession(client, listed.id);
+    expect((await list(client)).runs).toEqual([]);
+    await command(client, "sessions.restore", { sessionId: listed.id });
+    expect((await list(client)).runs.map((row) => row.runId)).toEqual([nightly.runId]);
+    const changes = t.env.log.readStream({ kind: "session", id: listed.id }).filter((event) => event.type === "session.deleted" || event.type === "session.restored");
+    expect((await noticesOf(client, "review.updated", from)).map((event) => event.causationId)).toEqual(changes.map((event) => event.eventId));
+
+    // Once it is seen, deleting it changes nothing the review lists.
+    await send(client, "permissions.review.seen", {});
+    const seenAt = t.env.log.head();
+    await deleteSession(client, listed.id);
+    expect(await noticesOf(client, "review.updated", seenAt)).toEqual([]);
   });
 });
 
@@ -316,7 +392,7 @@ describe("the review projection", () => {
     const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     onCleanup(() => errors.mockRestore());
-    const containment = { level: "workspace", mechanism: "bubblewrap", scratchDirectory: "/work/.scratch", temporaryDirectory: "/work/.tmp", writable: ["/work"], network: true } as const;
+    const containment = { level: "workspace", mechanism: "bubblewrap", scratchDirectory: "/work/.scratch", temporaryDirectory: "/work/.tmp", writable: ["/work"], readOnly: [], network: true } as const;
     const gate = createToolGate({ log, liveRunOf: () => undefined })({ runId, sessionId, workspace: "/work", containment });
     const write = (toolCallId: string) => ({ toolCallId, tool: "Write", summary: "Write /etc/hosts", access: { kind: "write", paths: ["/etc/hosts"] } }) as const;
     const decisions = () => log.readStream(stream).filter((event) => event.type === "tool.decision").map((event) => [event.payload["toolCallId"], event.payload["decidedBy"]]);

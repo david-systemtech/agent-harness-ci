@@ -14,7 +14,7 @@ import type { Address } from "../serve/http.js";
 import { UNTRANSLATED, runGit, type GitAnswer } from "../workspace/git.js";
 import { credentialHelper, gitConfigVariables, helperChain, servedOrigins, servingAccount, type GitConfigEntry } from "./git-helper.js";
 import { forgeAccountMissing } from "./missing-origins.js";
-import type { RunSecrets } from "./run-secrets.js";
+import type { RunSecret, RunSecrets } from "./run-secrets.js";
 
 /**
  * The harness's own git on a forge (forge spec, "The helper and the
@@ -49,11 +49,13 @@ const OUTPUT_BYTES = 1024 * 1024;
 /**
  * What git does: clone a repository into `directory` under the working
  * directory, of `depth` commits (all when absent) of `branch` (the remote's
- * default when absent), or fetch or push `refspecs` in the repository there.
+ * default when absent), or fetch (of `depth` commits, all when absent) or
+ * push `refspecs` in the repository there.
  */
 export type ForgeGitCommand =
   | { readonly operation: "clone"; readonly directory: string; readonly depth?: number; readonly branch?: string }
-  | { readonly operation: "fetch" | "push"; readonly refspecs: readonly string[] };
+  | { readonly operation: "fetch"; readonly refspecs: readonly string[]; readonly depth?: number }
+  | { readonly operation: "push"; readonly refspecs: readonly string[] };
 
 export type ForgeGitRequest = ForgeGitCommand & {
   /** The repository, as any remote git takes (https, http, ssh, scp-like): only its origin and path are kept. */
@@ -64,6 +66,8 @@ export type ForgeGitRequest = ForgeGitCommand & {
   readonly purpose: string;
   /** How long git may take; preset `FORGE_GIT_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
+  /** Stops git when it aborts: a skill source's sync the environment's close cuts. */
+  readonly signal?: AbortSignal;
   /**
    * An ssh or scp repository on a host no forge account covers is reached
    * over ssh as written, with the user's own keys and agent, ssh in batch
@@ -83,6 +87,8 @@ export interface HarnessGitOptions {
   /** The forge accounts the environment holds now. */
   readonly accounts: () => readonly ForgeAccountRecord[];
   readonly secrets: RunSecrets;
+  /** A BankService operation's fallback grant, bound by its owner to this bank's origin alone. */
+  readonly fallback?: { readonly slug: string; readonly mint: () => RunSecret };
   /** The scrub registry git's standard error passes before it is answered. */
   readonly scrub: Pick<ScrubRegistry, "scrubOutput">;
   /** The command line that runs `agent-harness` before its verb, which git names as its helper; undefined when the environment was given none. */
@@ -103,8 +109,9 @@ const PROMPT_REFUSED = /terminal prompts disabled/;
 
 /** git's arguments for `command` against `url`, which `--` keeps from being read as an option. */
 const argumentsOf = (command: ForgeGitCommand, url: string): string[] => {
-  if (command.operation !== "clone") return [command.operation, "--", url, ...command.refspecs];
+  if (command.operation === "push") return ["push", "--", url, ...command.refspecs];
   const depth = command.depth === undefined ? [] : [`--depth=${command.depth}`];
+  if (command.operation === "fetch") return ["fetch", ...depth, "--", url, ...command.refspecs];
   const branch = command.branch === undefined ? [] : [`--branch=${command.branch}`];
   return ["clone", ...depth, ...branch, "--", url, command.directory];
 };
@@ -126,12 +133,12 @@ export const createHarnessGit =
     let entries = helperChain([origin], null);
     let helperVariables: Record<string, string> = {};
     let release = (): void => undefined;
-    if (account !== null) {
+    if (account !== null || options.fallback !== undefined) {
       const address = options.address();
       if (options.command === undefined || address === undefined) throw new Error("The harness's git has no agent-harness command or address to name as git's credential helper.");
-      const secret = options.secrets.mint([account.id], `git: ${request.purpose}`);
+      const secret = account === null ? options.fallback!.mint() : options.secrets.mint([account.id], `git: ${request.purpose}`);
       release = secret.release;
-      entries = helperChain(servedOrigins(account), credentialHelper(options.command, account.slug));
+      entries = helperChain(account === null ? [origin] : servedOrigins(account), credentialHelper(options.command, account?.slug ?? options.fallback!.slug));
       helperVariables = { [ENVIRONMENT_ADDRESS_VARIABLE]: formatHostPort(address.host, address.port), [RUN_SECRET_VARIABLE]: secret.value };
     }
 
@@ -140,6 +147,7 @@ export const createHarnessGit =
       const ran = await runGit(request.cwd, argumentsOf(request, url), {
         maxBytes: OUTPUT_BYTES,
         timeoutMs: request.timeoutMs ?? FORGE_GIT_TIMEOUT_MS,
+        ...(request.signal !== undefined && { signal: request.signal }),
         env: {
           ...UNTRANSLATED,
           ...gitConfigVariables([...entries, ...(options.config ?? [])]),
@@ -153,7 +161,7 @@ export const createHarnessGit =
     } finally {
       release();
     }
-    if (account === null && !git.ok && PROMPT_REFUSED.test(git.stderr)) {
+    if (account === null && options.fallback === undefined && !git.ok && PROMPT_REFUSED.test(git.stderr)) {
       options.originMissing(origin, request.purpose);
       return { outcome: "refused", error: forgeAccountMissing(origin, "it asked for a credential") };
     }

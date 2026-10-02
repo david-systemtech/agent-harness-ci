@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { ONE_OFF_LINE } from "@agent-harness/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { KEY, renderApp, type RenderedApp } from "../test/harness.js";
 import { resolveKeymap, type Keymap } from "./keys.js";
 
@@ -20,6 +19,7 @@ let apps: RenderedApp[] = [];
 afterEach(async () => {
   for (const app of apps) await app.unmount();
   apps = [];
+  vi.restoreAllMocks();
 });
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
@@ -56,6 +56,21 @@ const rowsWith = (app: RenderedApp, text: string) =>
     .map((row) => row.slice(row.lastIndexOf("│") + 1).trim());
 
 describe("opening the pane", () => {
+  it("answers a newly opened shell's initial query while the composer has the keys, for one second", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(100);
+    const { app, env } = await opened({ terminalStartup: "\x1b[6n" });
+    const release = env.holdTerminalOpens();
+    await command(app, "/terminal");
+    await app.waitFor("terminal · desk");
+    await app.press(KEY.ctrlBackslash);
+    release();
+    await app.waitUntil(() => written(app, FIRST) === "\x1b[1;1R", "the startup query answer");
+    now.mockReturnValue(1100);
+    env.terminalOutput(FIRST, "\x1b[6ndone");
+    await app.waitFor("done");
+    expect(written(app, FIRST)).toBe("\x1b[1;1R");
+  });
+
   it("opens a terminal for the session with a client-minted id at the pane's size, and draws its output between the transcript and the composer", async () => {
     const { app, env } = await opened();
     await command(app, "/terminal");
@@ -413,13 +428,13 @@ describe("a shell line", () => {
     await command(app, "!ls -la");
     await app.waitFor("total 0");
     expect(app.frame()).toContain("!ls -la · desk");
-    expect(env.terminal(FIRST).env).toEqual({ AGENT_HARNESS_ONE_OFF: "ls -la" });
-    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
+    expect(env.requests("terminals.run")[0]?.params).toMatchObject({ command: "ls -la" });
+    expect(env.terminal(FIRST).writes).toEqual([]);
     expect(env.terminal(EXISTING).writes).toEqual([]);
     expect(app.frame()).not.toContain("The terminal has the keys");
     await app.type("next");
     await app.waitFor("› next");
-    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
+    expect(env.terminal(FIRST).writes).toEqual([]);
     expect(startsOf(app)).toEqual([]);
   });
 
@@ -437,7 +452,7 @@ describe("a shell line", () => {
     await app.waitFor("grep -q TODO notes.txt");
     await app.press(KEY.enter);
     await app.waitUntil(() => env.terminals().length === 1, "the command's terminal");
-    expect(env.terminal(FIRST).env).toEqual({ AGENT_HARNESS_ONE_OFF: "! grep -q TODO notes.txt" });
+    expect(env.requests("terminals.run")[0]?.params).toMatchObject({ command: "! grep -q TODO notes.txt" });
     await app.tick(5);
     expect(startsOf(app)).toEqual([]);
   });
@@ -455,10 +470,10 @@ describe("a shell line", () => {
     await app.type("q");
     await app.waitFor("message the agent");
     expect(app.frame()).not.toContain("total 0");
-    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
+    expect(env.terminal(FIRST).writes).toEqual([]);
   });
 
-  it("sends keys typed in a ! command's pane before its terminal is open after the command's line, in order", async () => {
+  it("drops keys typed in a one-off pane because its stdin is closed", async () => {
     const { app, env } = await opened({ oneOff: () => ({ output: "Continue? " }) });
     const release = env.holdTerminalOpens();
     await command(app, "!confirm");
@@ -469,7 +484,8 @@ describe("a shell line", () => {
     await app.press(KEY.enter);
     expect(env.terminals()).toEqual([]);
     release();
-    await app.waitUntil(() => written(app, FIRST) === `${ONE_OFF_LINE}y\r`, "the command's line, then the keys, to reach the terminal");
+    await app.waitUntil(() => env.terminals().length === 1, "the command to run");
+    expect(written(app, FIRST)).toBe("");
   });
 
   it("says nothing of a ! command's terminal refused after its pane was already replaced", async () => {
@@ -494,7 +510,7 @@ describe("a shell line", () => {
     await app.waitFor("watching");
     await command(app, "/terminal");
     await app.waitFor("terminal · desk");
-    expect(env.requests("terminals.open").map((r) => r.params["id"])).toEqual([FIRST, SECOND]);
+    expect(env.requests("terminals.open").map((r) => r.params["id"])).toEqual([SECOND]);
     expect(env.terminal(SECOND).env).toEqual({});
     env.exitTerminal(FIRST, 0);
     await app.waitFor("`watch ls` on desk exited with code 0.");
@@ -526,14 +542,15 @@ describe("a shell line", () => {
     await command(app, "!!echo hi");
     await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent to the agent");
     expect(startsOf(app)[0]).toMatchObject({ sessionId: SESSION, text: "Ran `echo hi`:\n```\nhi\n```" });
-    // The command rode the terminal's environment, never typed: the line typed is always the same.
+    // The command is a run parameter; no shell line is typed.
     const terminal = env.terminal(FIRST);
-    expect(terminal.env["AGENT_HARNESS_ONE_OFF"]).toMatch(/\necho hi$/);
+    expect(env.requests("terminals.run")[0]?.params).toMatchObject({ command: "echo hi" });
     expect(terminal.env).toMatchObject({ PAGER: "cat", GIT_PAGER: "cat", MANPAGER: "cat", SYSTEMD_PAGER: "cat" });
-    expect(terminal.writes).toEqual([ONE_OFF_LINE]);
+    expect(terminal.writes).toEqual([]);
     await app.waitUntil(() => env.terminal(FIRST).closed, "the one-off terminal to be closed");
     expect(app.frame()).not.toContain("terminal · desk");
-    // The prompt history holds the line typed, not the message it became.
+    // Observe persisted history instead of holding a particular filesystem implementation.
+    await app.waitUntil(() => history(app).length === 1, "the typed shell line to be persisted");
     expect(history(app)).toEqual(["!!echo hi"]);
   });
 
@@ -544,11 +561,12 @@ describe("a shell line", () => {
     expect(startsOf(app)[0]).toMatchObject({ text: "Ran `cat nope`:\n```\nno such file\nexit 2\n```" });
   });
 
-  it("sends nothing when the login shell never ran the command, and says what it showed", async () => {
-    const { app } = await opened({ posixShell: false });
+  it("runs !! without opening the session login shell", async () => {
+    const { app, env } = await opened({ oneOff: () => ({ output: "hi\n", exitCode: 0 }) });
     await command(app, "!!ls");
-    await app.waitFor("Not run: The shell never started it before its terminal ended; it last showed: nu: unknown command: exec");
-    expect(startsOf(app)).toEqual([]);
+    await app.waitUntil(() => startsOf(app).length === 1, "the output to be sent");
+    expect(startsOf(app)[0]).toMatchObject({ text: "Ran `ls`:\n```\nhi\n```" });
+    expect(env.requests("terminals.open")).toEqual([]);
   });
 
   it("sends a !! command's output to nobody when its session is no longer open, and leaves a later line alone", async () => {
@@ -586,13 +604,13 @@ describe("a shell line", () => {
   it("does not reopen a !! command's terminal for /terminal while the command runs", async () => {
     const { app, env } = await opened({ oneOff: () => ({ output: "slow\n" }) });
     await command(app, "!!sleep 5");
-    await app.waitUntil(() => env.terminals().length === 1 && env.terminal(FIRST).writes.length === 1, "the command to run");
+    await app.waitUntil(() => env.terminals().length === 1 && env.requests("terminals.run").length === 1, "the command to run");
     await command(app, "/terminal");
     await app.waitFor("terminal · desk");
-    await app.waitUntil(() => env.requests("terminals.open").length === 2, "a terminal to be opened for the shell");
+    await app.waitUntil(() => env.requests("terminals.open").length === 1, "a terminal to be opened for the shell");
     await app.type("x");
     await app.waitUntil(() => written(app, SECOND) === "x", "the key to reach the shell's terminal");
-    expect(env.terminal(FIRST).writes).toEqual([ONE_OFF_LINE]);
+    expect(env.terminal(FIRST).writes).toEqual([]);
   });
 
   it("refuses ! and !! at once with one line while the environment cannot be reached", async () => {

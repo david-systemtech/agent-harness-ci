@@ -23,12 +23,14 @@
   ],
   // The GUI's tests run in jsdom, the browser package's parse pages with it and the extension's drive its options page in
   // it, so each package's tsconfig.test.json checks them with the DOM's types.
-  "exclude": ["packages/gui/src", "packages/gui/test", "packages/browser/src", "packages/browser/test", "packages/extension/src", "packages/extension/test", "packages/extension/scripts/**/*.test.ts"],
+  "exclude": ["packages/gui/src", "packages/gui/test", "packages/browser/src", "packages/browser/test", "packages/extension/src", "packages/extension/test", "packages/extension/scripts/**/*.test.ts", "packages/desktop/src/preload/camera.test.ts", "packages/desktop/test/jsdom.d.ts"],
   "references": [
     { "path": "packages/contracts" },
     { "path": "packages/environment" },
     { "path": "packages/client-runtime" },
     { "path": "packages/theme" },
+    // The environment's headless browser tests drive the scripted CDP peer, the browser package's testing export.
+    { "path": "packages/browser/tsconfig.testing.json" },
     { "path": "packages/tui" },
     { "path": "packages/desktop" },
     { "path": "packages/extension" },

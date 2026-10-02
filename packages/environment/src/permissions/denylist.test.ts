@@ -24,6 +24,7 @@ import { useCleanups } from "../../test/cleanups.js";
 import { end, fakeAdapter, say, toolCall, type FakeAdapter, type FakeAdapterOptions, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { create, refusal } from "../../test/sessions.js";
+import { noticesOf } from "../../test/notices.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { GatedToolCall, ToolGate } from "../adapter/contract.js";
 import { CANCELLED_MESSAGE, RUN_ENDED_MESSAGE, UNRECORDED_MESSAGE } from "./broker.js";
@@ -136,6 +137,28 @@ const answer = (client: WireClient, promptId: string, decision: "allow" | "deny"
   send(client, "permissions.prompts.answer", { promptId, decision, ...extra });
 
 describe("the presets", () => {
+  it("keeps entries saved under the earlier host grammar through get, rebuild and restart", async () => {
+    const dataDir = tempDir();
+    const first = await start({}, { dataDir });
+    const client = await first.client();
+    const entries = ["1.2.3.4.5", "08", "169.254.169.254"].map((pattern) => ({ id: pattern, pattern, note: "Saved policy", preset: false, enabled: true }));
+    // The same payload an earlier version recorded through denylist.set.
+    for (const section of ["hosts", "browserDomains"] as const) {
+      first.env.log.append({ kind: "access", id: first.env.id }, [{ type: "denylist.changed", payload: { section, added: entries, removed: [], edited: [], entries } }], { actor: "system:permissions" });
+    }
+    expect((await getDenylist(client)).hosts).toEqual(entries);
+    await client.request("environment.rebuildProjections", { commandId: randomUUID() });
+    expect(await getDenylist(client)).toMatchObject({ hosts: entries, browserDomains: entries });
+    expect(await test(client, "host", "gopher://2852039166/")).toEqual([expect.objectContaining({ entry: entries[2] })]);
+    await first.close();
+    const second = await start({}, { dataDir });
+    const again = await second.client();
+    expect(await getDenylist(again)).toMatchObject({ hosts: entries, browserDomains: entries });
+    const changed = await send(again, "permissions.denylist.set", { sections: { paths: [{ pattern: "/etc/shadow" }] } });
+    expect(changed.result?.denylist.hosts).toEqual(entries);
+    expect(await refusal(again.request("permissions.denylist.set", { commandId: randomUUID(), sections: { hosts: entries } }))).toMatchObject({ code: "invalid_params" });
+  });
+
   it("are seeded on first start, recorded as denylist.changed on the access stream, and read back by permissions.denylist.get", async () => {
     const t = await start();
     const client = await t.client();
@@ -268,6 +291,19 @@ describe("permissions.denylist.set", () => {
     expect(await getDenylist(client)).toMatchObject({ hosts: reordered, commandPatterns: held.commandPatterns });
   });
 
+  it("refuses a numeric-only host entry that cannot match with invalid_params naming the entry and no change", async () => {
+    const t = await start();
+    const client = await t.client();
+    const held = await getDenylist(client);
+    for (const section of ["hosts", "browserDomains"] as const) {
+      for (const pattern of ["1.2.3.4.5", "1.2.3.256"]) {
+        const error = await refusal(client.request("permissions.denylist.set", { commandId: randomUUID(), sections: { [section]: [{ id: "bad", pattern }] } }));
+        expect(error).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["sections", section, 0, "pattern"], message: expect.stringContaining(pattern) })] } });
+      }
+    }
+    expect(await getDenylist(client)).toEqual(held);
+  });
+
   it("refuses a pattern outside its section's grammar, two entries under one id, and a call naming no section: invalid_params, nothing changed", async () => {
     const t = await start();
     const client = await t.client();
@@ -330,6 +366,31 @@ describe("permissions.denylist.restorePresets", () => {
     const after = await getDenylist(client);
     expect(after.paths).toEqual([...held.paths.slice(1), held.paths[0]]);
     expect(after.browserDomains).toEqual([]);
+  });
+});
+
+describe("the denylist.updated notice (#811)", () => {
+  it("says on the environment's own stream that a set or a restore changed the denylist, naming the sections it changed, in its transaction; nothing for one that changes nothing, nor for the seeding", async () => {
+    const t = await start();
+    const client = await t.client();
+    // Seeded before any client could hold a denylist: nothing to read again.
+    expect(await noticesOf(client, "denylist.updated", 0)).toEqual([]);
+    const held = await getDenylist(client);
+    const from = t.env.log.head();
+
+    const set = await send(client, "permissions.denylist.set", {
+      sections: { paths: held.paths.slice(1), commandPatterns: held.commandPatterns, hosts: [{ pattern: "169.254.169.254" }] },
+    });
+    const same = await send(client, "permissions.denylist.set", { sections: { commandPatterns: held.commandPatterns } });
+    const restored = await send(client, "permissions.denylist.restorePresets", {});
+    const again = await send(client, "permissions.denylist.restorePresets", {});
+    expect([same.receipt, again.receipt]).toEqual([expect.objectContaining({ changed: false }), expect.objectContaining({ changed: false })]);
+
+    const notices = await noticesOf(client, "denylist.updated", from);
+    expect(notices.map((event) => event.payload)).toEqual([{ sections: ["paths", "hosts"] }, { sections: ["paths"] }]);
+    // The last event each command appended, by the client session that sent it.
+    expect(notices.map((event) => event.sequence)).toEqual([set.receipt.sequence, restored.receipt.sequence]);
+    expect(notices.map((event) => event.actor)).toEqual([expect.objectContaining({ kind: "client_session" }), expect.objectContaining({ kind: "client_session" })]);
   });
 });
 
@@ -591,6 +652,7 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
       join(t.env.dataDir, "skills", "own"),
       join(t.env.dataDir, "skills", "snapshots"),
       join(t.env.dataDir, "skills", "generations"),
+      join(t.env.dataDir, "banks"),
     ]);
     expect(projected?.commandPatterns).toContain("sudo *");
     expect(projected?.commandPatterns).toContain("terraform destroy *");
@@ -610,19 +672,44 @@ describe("the denylist a provider projects onto its own rules (#140)", () => {
 describe("a client tool's call (mcp__client__*, #139)", () => {
   const clientRead: Omit<GatedToolCall, "toolCallId"> = {
     tool: "mcp__client__read_file",
+    external: true,
     summary: "read_file ~/.ssh/id_rsa",
     access: { kind: "other" },
     input: { path: "~/.ssh/id_rsa" },
   };
 
-  it("is read by the denylist like any other call, by default: its arguments are matched, though the tool runs on the caller's machine", async () => {
-    const t = await start({ script: calls(clientRead) });
-    const client = await t.client();
-    const { id } = await create(client);
-    const { runId } = startAsRoutine(t, id);
-    await untilEnded(t, id, runId);
-    expect(opened(t, id).map((prompt) => [prompt.toolName, prompt.denylist?.[0]?.entry.pattern])).toEqual([["mcp__client__read_file", "~/.ssh"]]);
-    expect(decisions(t, id)).toEqual([expect.objectContaining({ tool: "mcp__client__read_file", decision: "denied", decidedBy: "denylist" })]);
+  const subjects: { name: string; caller: Omit<GatedToolCall, "toolCallId">; environment: Omit<GatedToolCall, "toolCallId">; section: string }[] = [
+    { name: "path", caller: clientRead, environment: { ...clientRead, external: false, tool: "mcp__memory__read_file" }, section: "paths" },
+    {
+      name: "host",
+      caller: { external: true, tool: "mcp__client__fetch", summary: "Fetch metadata", access: { kind: "other" }, input: { url: "http://169.254.169.254/latest/" } },
+      environment: { tool: "WebFetch", summary: "Fetch metadata", access: { kind: "fetch", urls: ["http://169.254.169.254/latest/"] }, input: { url: "http://169.254.169.254/latest/" } },
+      section: "hosts",
+    },
+    { name: "command", caller: { ...sudo, external: true, tool: "mcp__client__shell", access: { kind: "other" } }, environment: sudo, section: "commandPatterns" },
+  ];
+
+  describe.each([true, false])("when attendance is %s", (attended) => {
+    it.each(subjects)("lets the caller's $name through and asks or denies the environment tool with the same arguments", async ({ caller, environment, section }) => {
+      const t = await start({ script: calls(caller, environment) });
+      const client = await t.client();
+      await send(client, "permissions.denylist.set", { sections: { hosts: [{ pattern: "169.254.169.254" }] } });
+      const { id } = await create(client);
+      const { runId } = attended ? await startRun(client, id, "bypassPermissions") : startAsRoutine(t, id, "bypassPermissions");
+      if (attended) {
+        const [prompt] = await untilOpened(t, id);
+        expect(prompt).toMatchObject({ kind: "denylist", toolName: environment.tool, denylist: [expect.objectContaining({ section })] });
+        expect(toolEnds(t, id)).toEqual([expect.objectContaining({ status: "ok" })]);
+        await answer(client, prompt!.promptId, "deny");
+      }
+      await untilEnded(t, id, runId);
+      expect(toolEnds(t, id).map((ended) => ended.status)).toEqual(["ok", "error"]);
+      expect(opened(t, id)).toEqual([expect.objectContaining({ kind: "denylist", toolName: environment.tool, denylist: [expect.objectContaining({ section })] })]);
+      expect(decisions(t, id)).toEqual([
+        expect.objectContaining({ tool: caller.tool, decision: "allowed" }),
+        expect.objectContaining({ tool: environment.tool, decision: "denied", decidedBy: attended ? "person" : "denylist" }),
+      ]);
+    });
   });
 
   it("is passed over by the rule when the one seam that says which calls the denylist reads leaves it out", async () => {
@@ -637,14 +724,20 @@ describe("a client tool's call (mcp__client__*, #139)", () => {
       runId: "run",
       sessionId: "session",
       workspace: "/work/repo",
-      containment: { level: "off", mechanism: null, scratchDirectory: "/s", temporaryDirectory: "/t", writable: ["/work/repo"], network: true },
+      containment: { level: "off", mechanism: null, scratchDirectory: "/s", temporaryDirectory: "/t", writable: ["/work/repo"], readOnly: [], network: true },
       ask: () => {
         throw new Error("Nobody is asked about a call the denylist does not read.");
       },
     };
     expect(await rule.check({ ...clientRead, toolCallId: "call_1" }, run)).toBeNull();
     await expect(rule.check({ ...readKey, toolCallId: "call_2" }, run)).rejects.toThrow(/Nobody is asked/);
-    expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(true);
+    expect(denylistReadsCall({ ...clientRead, toolCallId: "call_3" })).toBe(false);
+    expect(denylistReadsCall({ ...clientRead, external: false, toolCallId: "call_local" })).toBe(true);
+    expect(denylistReadsCall({ tool: clientRead.tool, summary: clientRead.summary, access: clientRead.access, toolCallId: "call_unknown" })).toBe(true);
+    for (const tool of ["Read", "mcp__memory__read_file", "mcp__client_backup__read_file", "mcp__client_read_file"]) {
+      expect(denylistReadsCall({ ...clientRead, tool, toolCallId: "call_4" })).toBe(true);
+    }
+    expect(denylistReadsCall({ ...clientRead, tool: "mcp__client__read_file_extra", toolCallId: "call_5" })).toBe(false);
   });
 });
 
@@ -667,6 +760,31 @@ describe("the workspace roots", () => {
     const { runId } = startAsRoutine(t, id);
     await untilEnded(t, id, runId);
     expect(decisions(t, id).map((decision) => [decision.decision, decision.decidedBy])).toEqual([["allowed", "mode"]]);
+  });
+});
+
+describe("the routines' scripts directory (#526)", () => {
+  it("stays under the data directory's preset, unlike the workspace roots: an attended run's write there opens a denylist prompt, and an unattended run's is denied", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { id } = await create(client);
+    const script = join(t.env.dataDir, "scripts", "watch.sh");
+    const write: Omit<GatedToolCall, "toolCallId"> = { tool: "Write", summary: "Write watch.sh", access: { kind: "write", paths: [script] }, input: { file_path: script } };
+
+    t.adapter.nextScripts.push(calls(write));
+    const attended = await startRun(client, id, "bypassPermissions");
+    const [prompt] = await untilOpened(t, id);
+    expect(prompt).toMatchObject({ runId: attended.runId, kind: "denylist", denylist: [{ section: "paths", entry: expect.objectContaining({ id: DATA_DIRECTORY_PRESET_ID }), matched: script }] });
+    await answer(client, prompt!.promptId, "deny");
+    await untilEnded(t, id, attended.runId);
+
+    t.adapter.nextScripts.push(calls(write));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id).map((decision) => [decision.tool, decision.decision, decision.decidedBy])).toEqual([
+      ["Write", "denied", "person"],
+      ["Write", "denied", "denylist"],
+    ]);
   });
 });
 
@@ -925,6 +1043,18 @@ describe("a tool server's input", () => {
       ["mcp__deep__read", "allowed", "mode"],
     ]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("mcp__deep__read"));
+  });
+
+  it.each(["gopher://2852039166/", "git://2852039166/repo", "sftp://0xa9fea9fe/x", "ldap://2852039166/"])("denies a numeric host after any scheme in a tool server's input: %s", async (url) => {
+    const t = await start();
+    const client = await t.client();
+    await send(client, "permissions.denylist.set", { sections: { hosts: [{ id: "metadata", pattern: "169.254.169.254" }] } });
+    const { id } = await create(client);
+    t.adapter.nextScripts.push(calls({ tool: "mcp__web__get", summary: "Get", access: { kind: "other" }, input: { target: { url } } }));
+    const { runId } = startAsRoutine(t, id);
+    await untilEnded(t, id, runId);
+    expect(decisions(t, id)).toEqual([expect.objectContaining({ tool: "mcp__web__get", decision: "denied", decidedBy: "denylist" })]);
+    expect(opened(t, id)).toEqual([expect.objectContaining({ kind: "denylist", summary: expect.stringContaining("169.254.169.254") })]);
   });
 
   it("reads a special scheme's address with fewer slashes than two as a URL, as the matcher does", () => {

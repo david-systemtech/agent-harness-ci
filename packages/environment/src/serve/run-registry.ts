@@ -45,6 +45,16 @@ export interface RunRegistry {
   admit(): void;
 }
 
+/** An admission held from a firing's pre-check to its run. */
+export interface RunAdmission {
+  /** Checks that this admission is still held. */
+  check(): void;
+  /** Transfers the starting record to its run, even if a drain began meanwhile. */
+  transfer(runId: string): void;
+  /** Ends a pre-check that made no run; transferred admissions are left alone. */
+  release(): void;
+}
+
 /**
  * The in-memory registry: the one the adapter host records its runs in, as
  * they start, run and end, and the one tests drive directly. Each change is
@@ -52,6 +62,8 @@ export interface RunRegistry {
  * forgotten once no idle window the setting can name would count it.
  */
 export interface MemoryRunRegistry extends RunRegistry {
+  /** Admits a firing before its pre-check, while it has no run yet. */
+  reserve(id: string): RunAdmission;
   /** A new run, starting: admitted first, so it is refused while the environment drains. */
   start(id: string): void;
   running(id: string): void;
@@ -117,6 +129,32 @@ export const createRunRegistry = (options: { readonly clock: Pick<Clock, "now"> 
       if (runs.has(id)) throw new Error(`A run ${id} is already in the registry.`);
       put({ id, state: "starting", startedAt: clock.now() });
     },
+    reserve(id) {
+      admit();
+      if (runs.has(id)) throw new Error(`A run ${id} is already in the registry.`);
+      const record: RunRecord = { id, state: "starting", startedAt: clock.now() };
+      put(record);
+      let held = true;
+      const check = (): void => {
+        if (!held || runs.get(id) !== record) throw new Error(`The admission ${id} is no longer held.`);
+      };
+      return {
+        check,
+        transfer(runId) {
+          check();
+          if (runs.has(runId)) throw new Error(`A run ${runId} is already in the registry.`);
+          runs.delete(id);
+          held = false;
+          put({ id: runId, state: "starting", startedAt: record.startedAt });
+        },
+        release() {
+          if (!held) return;
+          check();
+          held = false;
+          put({ id, state: "ended", startedAt: record.startedAt, endedAt: clock.now() });
+        },
+      };
+    },
     running: (id) => put({ id, state: "running", startedAt: find(id).startedAt }),
     park: (id) => put({ id, state: "parked", startedAt: find(id).startedAt, parkedSince: clock.now() }),
     resume: (id) => put({ id, state: "running", startedAt: find(id).startedAt }),
@@ -127,24 +165,35 @@ export const createRunRegistry = (options: { readonly clock: Pick<Clock, "now"> 
 /** The reasons a window of time holds the environment busy, rather than a run under way. */
 type WindowReason = Extract<BusyReason, "parked-prompt" | "recent-activity">;
 
+/** What holds the environment busy beside its runs, as the idle rule reads it. */
+export interface ActivityBesideRuns {
+  /** Whether a terminal's shell runs a command in its foreground (#343). */
+  readonly terminalRunning?: boolean;
+  /** When the environment's start was noted (`environment.started`), which counts as activity as a run's start does (#445); none before. */
+  readonly startedAt?: Date | undefined;
+}
+
 /**
  * The idle rule (ADR 0007, the glossary's Idle), a pure function of the
- * runs, the time, the idle window and whether a terminal runs a command:
- * busy while a run is starting or running, then while a terminal's shell
- * runs a command in its foreground (`terminal-running`, #343: a build or a
- * watcher counts as a run does, with no end known; a shell at its prompt
- * counts for nothing); otherwise busy until the window has passed since the
- * latest start or end of any run (`recent-activity`, which a parked run
- * holds too, from its start) or since the parking of a run still parked
- * (`parked-prompt`), with `busyUntil` the later of them and the reason the
- * one that holds longest (a parked prompt on a tie); otherwise idle. A
- * window ends at its instant: once it has passed, the run no longer counts.
+ * runs, the time, the idle window, whether a terminal runs a command and
+ * when the environment started: busy while a run is starting or running,
+ * then while a terminal's shell runs a command in its foreground
+ * (`terminal-running`, #343: a build or a watcher counts as a run does,
+ * with no end known; a shell at its prompt counts for nothing); otherwise
+ * busy until the window has passed since the latest start or end of any
+ * run, or since the environment's own start (`recent-activity`, which a
+ * parked run holds too, from its start; the start holds it as the runs the
+ * stop before it cut are in the log, not the registry, #445), or since the
+ * parking of a run still parked (`parked-prompt`), with `busyUntil` the
+ * later of them and the reason the one that holds longest (a parked prompt
+ * on a tie); otherwise idle. A window ends at its instant: once it has
+ * passed, the run or the start no longer counts.
  */
 export const activityOf = (
   runs: Iterable<RunRecord>,
   now: Date,
   windowMs: number,
-  terminalRunning = false,
+  { terminalRunning = false, startedAt }: ActivityBesideRuns = {},
 ): Exclude<EnvironmentActivity, { state: "draining" }> => {
   const at = now.getTime();
   let starting = false;
@@ -159,6 +208,7 @@ export const activityOf = (
       reason = why;
     }
   };
+  if (startedAt) hold(startedAt, "recent-activity");
   for (const run of runs) {
     if (run.state === "starting") starting = true;
     if (run.state === "running") running = true;

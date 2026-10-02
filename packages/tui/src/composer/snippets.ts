@@ -51,13 +51,17 @@
  * is a file someone will open in an editor and add one to by hand, and it
  * should diff cleanly and forgive them when they do.
  *
+ * Disk edits merge only the changed name under the terminal persistence lock,
+ * so a stale menu never rewrites another writer's names. Reads recover committed
+ * batches first and reject a recovery failure rather than expose partial data.
+ *
  * Nothing ships in it. A starter set would be three prompts in somebody else's
  * voice, sitting above their own in every list forever; {@link EXAMPLE_SNIPPETS}
  * is there for `/snip --examples` to copy in for anyone who wants a shape to
  * edit, and is examples only.
  */
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readTerminalText, withTerminalFiles } from "../platform/terminal-files.js";
 import { dirname } from "node:path";
 
 /** One saved template. */
@@ -135,7 +139,7 @@ export class Snippets {
   }
 
   /**
-   * Read the file at `path`, skipping whatever cannot be read. A missing file is no snippets.
+   * Recover first, then read valid entries. A missing/unreadable file is no snippets; failed recovery rejects.
    * `onWriteFailed` hears about each later write that could not happen.
    */
   static async load(path: string, onWriteFailed: (error: unknown) => void = () => undefined): Promise<Snippets> {
@@ -165,14 +169,14 @@ export class Snippets {
     if (!isSnippetName(name)) throw new RangeError(`not a snippet name: ${JSON.stringify(name)}`);
     const snippet: Snippet = { name, body, updatedAt: now };
     this.#snippets.set(name, snippet);
-    this.#queueWrite();
+    this.#queueWrite(snippet.name, snippet);
     return snippet;
   }
 
   /** Forget `name`; answers whether there was anything to forget. */
   remove(name: string): boolean {
     if (!this.#snippets.delete(name)) return false;
-    this.#queueWrite();
+    this.#queueWrite(name);
     return true;
   }
 
@@ -181,30 +185,31 @@ export class Snippets {
     return this.#writing;
   }
 
-  #queueWrite(): void {
-    // Snapshotted here, in order, so the queued writes agree with what was in
-    // memory when each change was made however they interleave with later ones.
-    const snapshot: FileShape = { version: FILE_VERSION, snippets: this.list() };
-    this.#writing = this.#writing
-      .then(() => this.#write(snapshot))
-      .catch((error: unknown) => this.#onWriteFailed(error))
-      .catch(() => undefined);
-  }
-
-  // Owner-only, as the rest of the state directory is.
-  async #write(snapshot: FileShape): Promise<void> {
-    await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
-    const temp = `${this.#path}.${String(process.pid)}.tmp`;
-    await writeFile(temp, `${JSON.stringify(snapshot, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    await rename(temp, this.#path);
+  #queueWrite(name: string, snippet?: Snippet): void {
+    this.#writing = this.#writing.then(() => {
+      withTerminalFiles(dirname(this.#path), (files) => {
+        const current = parseSnippets(files.read(this.#path) ?? "");
+        if (snippet) current.set(name, snippet);
+        else current.delete(name);
+        files.write(this.#path, serialiseSnippets([...current.values()]));
+      });
+    }).catch((error: unknown) => this.#onWriteFailed(error)).catch(() => undefined);
   }
 }
 
+export const serialiseSnippets = (snippets: readonly Snippet[]): string =>
+  `${JSON.stringify({ version: FILE_VERSION, snippets: [...snippets].sort((a, b) => a.name.localeCompare(b.name)) }, null, 2)}\n`;
+
 async function readSnippets(path: string): Promise<Map<string, Snippet>> {
+  return parseSnippets(readTerminalText(path) ?? "");
+}
+
+/** Internal storage codec shared by ordinary edits and the batch seam. */
+export function parseSnippets(text: string): Map<string, Snippet> {
   const snippets = new Map<string, Snippet>();
   let parsed: Partial<FileShape> | null;
   try {
-    parsed = JSON.parse(await readFile(path, "utf8")) as Partial<FileShape> | null;
+    parsed = JSON.parse(text) as Partial<FileShape> | null;
   } catch {
     return snippets; // Missing, mangled, or half-written: no snippets, which is a fine way to open.
   }

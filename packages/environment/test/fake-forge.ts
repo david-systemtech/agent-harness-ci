@@ -66,12 +66,18 @@ export interface FakeGitRequest {
   readonly path: string;
   /** The basic-auth username git sent; null for none. */
   readonly username: string | null;
+  /** A shallow clone's requested depth, from its upload-pack request; absent for a full clone. */
+  readonly depth?: number;
   /** The answer: 401 for a credential missing or refused. */
   readonly status: number;
 }
 
 /** A pull request as a test scripts one; every field has a preset. */
 export interface FakePullRequest {
+  /** The author's forge login; preset `david`. */
+  readonly author?: string;
+  /** The head commit; preset `0123abcd`. */
+  readonly sha?: string;
   /** Preset `open`. */
   readonly state?: "open" | "closed" | "merged";
   /** When it merged; preset: none, or `closedAt` for a merged one. */
@@ -137,6 +143,10 @@ export interface FakeForge {
    * and the Gitea API's answering them all. Scripting it again replaces it.
    */
   pullRequest(token: string | null, fullName: string, number: number, fields?: FakePullRequest): void;
+  /** Scripts the validate check for a pushed commit on both APIs; pending never permits a merge. */
+  validateCheck(token: string, fullName: string, sha: string, state: "pending" | "success" | "failure"): void;
+  /** Scripts the PR's reviews on both APIs in order; an omitted commit is null. */
+  reviews(token: string, fullName: string, number: number, reviews: readonly { readonly login: string; readonly state: string; readonly commit?: string }[]): void;
   /** Every request of the APIs so far, in order. */
   readonly requests: readonly FakeForgeRequest[];
   /**
@@ -245,7 +255,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
     const pushing = query.includes("service=git-receive-pack") || path.endsWith("/git-receive-pack");
     const given = basicCredential(request.headers.authorization);
     const accepted = given !== null && gitCredentials.has(keyOf(given.username, given.password));
-    const record = (status: number) => gitRequests.push({ method, path, username: given?.username ?? null, status });
+    const record = (status: number, depth?: number) => gitRequests.push({ method, path, username: given?.username ?? null, status, ...(depth !== undefined && { depth }) });
     if (held === undefined) {
       record(404);
       request.resume();
@@ -258,11 +268,19 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       response.writeHead(401, { "content-type": "text/plain", "www-authenticate": 'Basic realm="fake forge"' });
       return void response.end("Unauthorized\n");
     }
-    record(200);
     const body: Buffer[] = [];
     request.on("data", (chunk: Buffer) => body.push(chunk));
     request.on("end", () => {
       const input = Buffer.concat(body);
+      let depth: number | undefined;
+      for (let at = 0; at + 4 <= input.length;) {
+        const size = Number.parseInt(input.subarray(at, at + 4).toString("ascii"), 16);
+        if (!Number.isFinite(size)) break;
+        const deepen = /^deepen ([1-9][0-9]*)\n?$/.exec(input.subarray(at + 4, at + size).toString("utf8"))?.[1];
+        if (deepen !== undefined) depth = Number(deepen);
+        at += Math.max(size, 4);
+      }
+      record(200, depth);
       const backend = spawn("git", ["http-backend"], {
         env: {
           ...OWN_GIT,
@@ -393,6 +411,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
         const closedAt = scripted.closedAt !== undefined ? scripted.closedAt : state === "open" ? null : MERGED_OR_CLOSED_AT;
         const mergedAt = scripted.mergedAt !== undefined ? scripted.mergedAt : state === "merged" ? closedAt : null;
         return {
+          user: { login: scripted.author ?? "david" },
           number: pull,
           title: `Pull request ${pull}`,
           body: "",
@@ -400,7 +419,7 @@ export const startFakeForge = async (): Promise<FakeForge> => {
           ...(api === "/api/v1" && { merged: state === "merged" }),
           merged_at: mergedAt,
           closed_at: closedAt,
-          head: { ref: scripted.head ?? "feature", sha: "0123abcd", repo: { full_name: scripted.headRepository ?? fullName } },
+          head: { ref: scripted.head ?? "feature", sha: scripted.sha ?? "0123abcd", repo: { full_name: scripted.headRepository ?? fullName } },
           base: { ref: "main" },
           html_url: `${origin}/${fullName}/${api === "/api/v3" ? "pull" : "pulls"}/${pull}`,
         };
@@ -416,6 +435,13 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       });
       script(caller, `GET /api/v1/repos/${fullName}/pulls`, () => ({ status: 200, body: listed("/api/v1").map(({ answer }) => answer) }));
     },
+    reviews(token, fullName, number, reviews) {
+      for (const api of ["/api/v3", "/api/v1"]) script(token, `GET ${api}/repos/${fullName}/pulls/${number}/reviews`, { status: 200, body: reviews.map((review, index) => ({ id: index + 1, user: { login: review.login }, state: review.state, commit_id: review.commit ?? null })) });
+    },
+    validateCheck(token, fullName, sha, state) {
+      script(token, `GET /api/v1/repos/${fullName}/commits/${sha}/statuses`, { status: 200, body: [{ context: "validate", state }] });
+      script(token, `GET /api/v3/repos/${fullName}/commits/${sha}/check-runs`, { status: 200, body: { check_runs: [{ name: "validate", status: state === "pending" ? "in_progress" : "completed", conclusion: state === "pending" ? null : state }] } });
+    },
     requests,
     gitRepository(path, options = {}) {
       const repository = `${path}.git`;
@@ -427,7 +453,10 @@ export const startFakeForge = async (): Promise<FakeForge> => {
       const work = mkdtempSync(join(tmpdir(), "agent-harness-fake-forge-work-"));
       try {
         ownGit(work, "init", "--quiet", "--initial-branch=main");
-        for (const [name, content] of Object.entries(options.files ?? { "README.md": `# ${path}\n` })) writeFileSync(join(work, name), content);
+        for (const [name, content] of Object.entries(options.files ?? { "README.md": `# ${path}\n` })) {
+          mkdirSync(dirname(join(work, name)), { recursive: true });
+          writeFileSync(join(work, name), content);
+        }
         ownGit(work, "add", ".");
         ownGit(work, "commit", "--quiet", "-m", "first");
         ownGit(work, "push", "--quiet", bare, "main");

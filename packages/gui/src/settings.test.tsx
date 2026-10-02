@@ -1,14 +1,17 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
 import { BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
+import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
+import { scriptInstructions } from "../test/instructions.js";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
  * Settings (docs/specs/gui.md, "Settings: the rail, the rows and the
  * addresses"; ADR 0027; #412): a rail of eight bands with search at its top,
  * the pane on the right, opened by Mod+, (`app.settings.toggle`), the
- * palette, a step's link, a deep link or an existing address. An
+ * palette, a step's link, a deep link or an existing address, and by
+ * `/settings [row]` in a session pane's composer (#625). An
  * `environment` row's pane names the environment it edits with a picker; an
  * `everywhere` row's groups every environment; a `client` row's has no
  * picker. Driven through the harness over two scripted environments: `desk`,
@@ -41,6 +44,36 @@ const openSettings = async (app: RenderedApp) => {
 };
 
 describe("Settings", () => {
+  it("gives dim rail rows a transparent hover background while active rows keep their wash", async () => {
+    const app = await opened();
+    await openSettings(app);
+    const backgrounds = (label: string) => [...within(rail()).getByRole("button", { name: label }).classList].filter((name) => name.startsWith("hover:bg-"));
+    expect(backgrounds("Set up")).toEqual(["hover:bg-wash"]);
+    expect(backgrounds("Accounts")).toEqual(["hover:bg-wash"]);
+    expect(backgrounds("Bots")).toEqual(["hover:bg-transparent"]);
+
+    act(() => app.shell.openDeepLink(settingsDeepLink("routines.bots")));
+    expect(backgrounds("Bots")).toEqual(["hover:bg-transparent"]);
+  });
+
+  it("gives current, inactive and dim rail rows one text colour each, including a dim row opened by a deep link", async () => {
+    const app = await opened();
+    await openSettings(app);
+    const colours = (label: string) => [...within(rail()).getByRole("button", { name: label }).classList].filter((name) => TOKEN_NAMES.some((token) => name === `text-${token}`));
+    expect(colours("Set up")).toEqual(["text-ink"]);
+    expect(colours("Accounts")).toEqual(["text-ink-muted"]);
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+
+    await app.user.click(within(rail()).getByRole("button", { name: "Accounts" }));
+    expect(colours("Set up")).toEqual(["text-ink-muted"]);
+    expect(colours("Accounts")).toEqual(["text-ink"]);
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+
+    act(() => app.shell.openDeepLink(settingsDeepLink("routines.bots")));
+    expect(within(rail()).getByRole("button", { name: "Bots" }).getAttribute("aria-current")).toBe("page");
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+  });
+
   it("opens on Mod+, as a rail with search at its top, the eight bands and their rows, and the pane of Set up; Mod+, and its close control close it", async () => {
     const app = await opened();
     expect(settings()).toBeNull();
@@ -236,18 +269,14 @@ describe("an unreachable environment", () => {
   });
 });
 
-describe("a row whose feature is not built", () => {
-  it("shows its hint, its step's link and the generic editor for its keys, each drawn by its form", async () => {
+describe("built and unbuilt row controls", () => {
+  it("keeps its hint and step link beside built controls or generic keys", async () => {
     const app = await opened();
     await openSettings(app);
+    scriptInstructions(app.environment("desk"));
     const instructions = await openRow(app, "Instructions");
     expect(within(instructions).getByText("The standing instructions runs receive, beside the orientation block.")).toBeDefined();
-    expect(
-      within(instructions)
-        .getAllByRole("group")
-        .map((group) => within(group).getAllByText(/\./)[0]?.textContent),
-    ).toEqual(["instructions.orientation"]);
-    expect((await within(field(instructions, "instructions.orientation")).findByRole("switch")).getAttribute("aria-checked")).toBe("true");
+    expect((await within(instructions).findByRole("switch", { name: "Orientation enabled" })).getAttribute("aria-checked")).toBe("true");
 
     // A step's link opens the full checklist on its card; closing it comes back to Settings.
     await app.user.click(within(instructions).getByRole("button", { name: "Open the Instructions step in Set up" }));
@@ -255,7 +284,7 @@ describe("a row whose feature is not built", () => {
     expect(within(checklist).getByRole("region", { name: "Instructions" })).toBeDefined();
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
     const again = pane("Instructions");
-    expect(within(field(again, "instructions.orientation")).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+    expect(within(again).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox");
     expect(within(ceiling).getAllByRole("option").map((option) => option.textContent)).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);
@@ -405,5 +434,72 @@ describe("the command palette", () => {
     // Open or close Settings is the window's, listed with its key.
     await app.user.keyboard("{Control>}k{/Control}");
     expect(entriesUnder("Anywhere")).toContain("Open or close SettingsCtrl+,");
+  });
+});
+
+describe("/settings in a session pane's composer", () => {
+  /** The window with `laptop`'s session open in the pane; Settings last opened on `settingsRow` when one is given. */
+  const inSession = async (settingsRow?: string) => {
+    const app = await renderApp(
+      { environments: [{ name: "desk", reach: "local" }, { name: "laptop", reach: "paired", sessions: [{ title: "Receipts" }] }] },
+      settingsRow === undefined ? {} : { presentation: { settingsRow } },
+    );
+    app.open("laptop");
+    await within(await screen.findByRole("region", { name: "Transcript" })).findByText("Nothing said yet.");
+    return app;
+  };
+
+  /** Sends `text` from the composer's box, focused first: jsdom lays nothing out, so a click would land on the sidebar's divider. */
+  const send = async (app: RenderedApp, text: string) => {
+    act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+    await app.user.keyboard(`${text}{Enter}`);
+  };
+
+  it("opens Settings on the last row opened when typed bare, and the palette lists it among the slash commands and runs it so", async () => {
+    const app = await inSession("access.permissions");
+    await send(app, "/settings");
+    expect(await screen.findByRole("region", { name: "Settings" })).toBeDefined();
+    expect(pane("Permissions")).toBeDefined();
+    expect(within(rail()).getByRole("button", { name: "Permissions" }).getAttribute("aria-current")).toBe("page");
+
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    await screen.findByRole("region", { name: "Transcript" });
+    act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+    await app.user.keyboard("{Control>}k{/Control}");
+    const palette = screen.getByRole("dialog", { name: "Command palette" });
+    const listed = within(within(palette).getByRole("group", { name: "Slash commands" }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(listed).toContain("/settingsEvery environment setting under its row, in a generic editor; a row's id opens that row");
+    await app.user.keyboard("/settings{Enter}");
+    expect(await screen.findByRole("region", { name: "Settings" })).toBeDefined();
+    expect(pane("Permissions")).toBeDefined();
+  });
+
+  it("opens the row an address or a row id names, on the pane's environment: secrets and access.key-managers both open Key managers", async () => {
+    const app = await inSession();
+    await send(app, "/settings secrets");
+    expect(await screen.findByRole("region", { name: "Settings" })).toBeDefined();
+    expect(pickedIn(pane("Key managers"))).toBe("laptop");
+    expect(app.presentation.values.read().settingsRow).toBe("access.key-managers");
+
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    await screen.findByRole("region", { name: "Transcript" });
+    await openSettings(app);
+    await openRow(app, "Theme");
+    await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
+    await screen.findByRole("region", { name: "Transcript" });
+    await send(app, "/settings access.key-managers");
+    expect(await screen.findByRole("region", { name: "Settings" })).toBeDefined();
+    expect(pickedIn(pane("Key managers"))).toBe("laptop");
+  });
+
+  it("opens nothing for a name that is neither an address nor a row id, and says so in the pane's line", async () => {
+    const app = await inSession("access.permissions");
+    await send(app, "/settings nonsense");
+    expect(await screen.findByText("No settings row is named nonsense. Settings' search finds a row by its label or an old name.")).toBeDefined();
+    expect(settings()).toBeNull();
+    expect(app.presentation.values.read().settingsRow).toBe("access.permissions");
+    expect(screen.getByRole("region", { name: "Transcript" })).toBeDefined();
   });
 });

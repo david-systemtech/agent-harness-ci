@@ -1,4 +1,4 @@
-import { LIST_PATCH_KEY, SESSION_STREAM_KIND, type EventEnvelope, type Scope, type SessionSummary } from "@agent-harness/contracts";
+import { LIST_PATCH_KEY, SESSION_STREAM_KIND, type EnvironmentColour, type EnvironmentIcon, type EventEnvelope, type Scope, type SessionSummary } from "@agent-harness/contracts";
 import { uuidv4 } from "../src/ids.js";
 import { createRuntimeWithSeams } from "../src/internal.js";
 import { fakeWire, type FakeWire } from "../src/testing/fake-wire.js";
@@ -24,8 +24,18 @@ export interface ScriptedEnvironment {
 export interface ScriptedEnvironmentsOptions {
   /** Runs once the test is over: the test framework's `onTestFinished`, which closes the runtime. */
   readonly onCleanup: (cleanup: () => Promise<void>) => void;
-  /** One entry per environment: its name, how far its clock runs ahead of this client's, its session's title, and the scopes its `hello` grants (every scope when absent). */
-  readonly environments: readonly { readonly name: string; readonly skewMs?: number; readonly title?: string; readonly scopes?: readonly Scope[] }[];
+  /**
+   * One entry per environment: its name, icon and colour (none when absent), how far its clock runs ahead of this client's,
+   * its session's title, and the scopes its `hello` grants (every scope when absent).
+   */
+  readonly environments: readonly {
+    readonly name: string;
+    readonly icon?: EnvironmentIcon;
+    readonly colour?: EnvironmentColour;
+    readonly skewMs?: number;
+    readonly title?: string;
+    readonly scopes?: readonly Scope[];
+  }[];
 }
 
 /** An instant `ms` after the manual clock's start. */
@@ -50,7 +60,9 @@ export const listEvent = (sequence: number, sessionId: string, type: string, pay
 
 export const scriptedEnvironments = async (options: ScriptedEnvironmentsOptions) => {
   const clock: ManualClock = manualClock();
-  const wires = options.environments.map((environment, index) => fakeWire({ clock, name: environment.name, address: { host: `env-${index}.test`, port: 7433 } }));
+  const wires = options.environments.map(({ name, icon, colour }, index) =>
+    fakeWire({ clock, name, ...(icon !== undefined && { icon }), ...(colour !== undefined && { colour }), address: { host: `env-${index}.test`, port: 7433 } }),
+  );
   const route = (url: string) => wires.find((_, index) => url.includes(`env-${index}.test`)) ?? (wires[0] as FakeWire);
   for (const wire of wires) for (const method of ["sessions.subscribe", "environment.subscribe"]) wire.answer(method, () => undefined);
   const shell: FakeShell = fakeShell();

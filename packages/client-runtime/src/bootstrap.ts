@@ -59,6 +59,13 @@ export const exchangeGrant = async (options: {
   readonly grant: GrantReader | undefined;
   readonly client: ClientIdentity;
   readonly protocolVersion: number;
+  /**
+   * For the update asked across a protocol gap (#826): an environment older
+   * than this client is exchanged with too, since the exchange, like the
+   * update route, is HTTP outside the wire. Otherwise a protocol gap either
+   * way refuses before the secret is sent.
+   */
+  readonly acrossProtocolGap?: boolean;
 }): Promise<GrantExchange> => {
   const { fetch, client, grant } = options;
   if (!readsGrant(grant, client)) return { ok: false, status: { state: "none" } };
@@ -76,7 +83,8 @@ export const exchangeGrant = async (options: {
     if (!discovery.ok) return failed(discovery.kind === "unreachable" ? "service-down" : "refused", discovery.message, { origin });
     const seen = { origin, discovery: discovery.document };
     const check = checkDiscovery(discovery.document, { protocolVersion: options.protocolVersion });
-    if (!check.ok) return failed(check.reason === "different-environment" ? "refused" : check.reason, check.message, seen);
+    const acrossGap = options.acrossProtocolGap === true && !check.ok && check.reason === "protocol-mismatch";
+    if (!check.ok && !acrossGap) return failed(check.reason === "different-environment" ? "refused" : check.reason, check.message, seen);
 
     const answer = await postExchange(fetch, `${origin}${BOOTSTRAP_PATH}`, { secret: read.secret, kind: client.kind, label: client.label });
     if (answer.ok) return { ok: true, origin, discovery: discovery.document, credential: answer.credential };

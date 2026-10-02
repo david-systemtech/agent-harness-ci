@@ -100,7 +100,21 @@ describe("environment.status", () => {
   it("answers a read-only client session with readiness, idle, updates not managed outside, and what it binds beside loopback: nothing, on a machine with no tailnet or LAN address", async () => {
     const t = await start();
     const client = await narrowClient(t, ["read"]);
-    expect(await status(client)).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } });
+    // Past the idle window its start holds (#445).
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
+    expect(await status(client)).toEqual({ readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false, binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] } });
+  });
+
+  it("counts the environment's start as activity: busy for the idle window after its environment.started with no run known, then idle (#445)", async () => {
+    const t = await start();
+    const client = await t.client();
+    const started = t.env.log.readStream({ kinds: ["environment"] }).find((event) => event.type === "environment.started");
+    const until = new Date(Date.parse(started?.occurredAt ?? "") + PRESET_IDLE_WINDOW_MS).toISOString();
+    expect((await status(client)).activity).toEqual({ state: "busy", reason: "recent-activity", busyUntil: until });
+    t.clock.advance(PRESET_IDLE_WINDOW_MS - 1);
+    expect((await status(client)).activity).toEqual({ state: "busy", reason: "recent-activity", busyUntil: until });
+    t.clock.advance(1);
+    expect((await status(client)).activity).toEqual({ state: "idle" });
   });
 
   it("is busy while a run starts and runs, busy nine minutes after it ended, and idle at eleven", async () => {
@@ -166,6 +180,9 @@ describe("the launcher's idle query", () => {
       expect(activity.state).toBe(state);
       expect(t.launcher.ask({ type: "idle?" })).toEqual({ type: "idle", readiness, activity, updatesManagedOutside });
     };
+    await same("busy");
+    // Past the idle window its start holds (#445).
+    t.clock.advance(PRESET_IDLE_WINDOW_MS);
     await same("idle");
     t.runs.start("r1");
     await same("busy");
@@ -204,7 +221,7 @@ describe("the drain", () => {
     const notice = await watcher.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "environment.draining");
     expect(EnvironmentNotice.parse(notice.event)).toEqual({ type: "environment.draining", payload: { drainingSince, trigger: "command" } });
     expect(notice.event.actor).toEqual({ kind: "client_session", id: client.hello.clientSessionId });
-    expect(await status(client)).toEqual({ readiness: "draining", activity: { state: "draining", drainingSince }, updatesManagedOutside: false, binding: { tailnet: null, lan: null, lanAddresses: [] } });
+    expect(await status(client)).toEqual({ readiness: "draining", activity: { state: "draining", drainingSince }, updatesManagedOutside: false, binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] } });
 
     const refused = await client.call("probe.run", { commandId: randomUUID(), run: "r2" });
     expect(refused).toMatchObject({ error: { code: "unavailable", data: { readiness: "draining" } } });
@@ -389,7 +406,7 @@ describe("environment.rebuildProjections", () => {
     // A rebuild appends no event: its receipt is accepted and unchanged, in the transaction of the rebuild.
     expect(await client.request("environment.rebuildProjections", { commandId: randomUUID() })).toEqual({
       receipt: { status: "accepted", sequence: t.env.log.head(), changed: false },
-      result: { projectors: ["session-list", "runs", "settings", "permissions", "accounts", "forge-accounts", "key-manager-connections", "key-manager-moves", "routines", "routine-endpoints", "environment-look", "trust", "instructions", "skill-choices", "chromes", "probe-counts"], sequence: t.env.log.head() },
+      result: { projectors: ["session-list", "runs", "settings", "permissions", "accounts", "forge-accounts", "banks", "bank-drafts", "key-manager-connections", "key-manager-moves", "routines", "routine-endpoints", "environment-look", "trust", "instructions", "skill-choices", "skill-sources", "chromes", "routine-webhook-deliveries", "probe-counts"], sequence: t.env.log.head() },
     });
     expect(applied).toEqual(probeSequences);
     expect(await snapshot()).toEqual(before);

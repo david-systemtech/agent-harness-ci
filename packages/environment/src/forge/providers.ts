@@ -54,6 +54,12 @@ export type ForgeReply<T> =
   /** The forge could not answer now: no answer, a server error, a rate limit. */
   | { readonly outcome: "unreachable"; readonly message: string };
 
+/** This repository's access, read with this operation's credential, never inferred from account-wide capabilities. */
+export interface ForgeRepositoryCapabilities {
+  readonly canRead: boolean;
+  readonly canPush: boolean;
+}
+
 /** A repository as the harness reads one. */
 export interface ForgeRepository {
   /** The origin it is on. */
@@ -79,6 +85,8 @@ export interface ForgeIssue {
 
 /** A pull request as the harness reads one: merged is GitHub's `merged_at`, or the Gitea API's `merged`. */
 export interface ForgePullRequest {
+  /** Forge login of the PR author, null when the forge omits it. */
+  readonly author: string | null;
   readonly number: number;
   readonly title: string;
   /** Its body; empty for none. */
@@ -92,6 +100,14 @@ export interface ForgePullRequest {
   readonly base: { readonly ref: string };
   /** Its web address. */
   readonly url: string;
+}
+
+/** A forge review, ordered by its monotonically increasing id. */
+export interface ForgePullRequestReview {
+  readonly id: number;
+  readonly login: string;
+  readonly state: "approved" | "changes-requested" | "dismissed" | "commented" | "pending";
+  readonly commit: string | null;
 }
 
 /** What an issue or a pull request is opened with. */
@@ -160,7 +176,12 @@ export interface RepositoryCreation {
   readonly description?: string;
 }
 
+/** Only a completed, successful validate check permits a memory auto-merge. */
+export type ForgeValidateCheck = "pending" | "success" | "failure";
+
 export interface ForgeProvider {
+  pullRequestReviews(origin: ForgeOrigin, token: string | null, fullName: string, number: number, call?: CallOptions): Promise<ForgeReply<ForgePullRequestReview[]>>;
+  validateCheck(origin: ForgeOrigin, token: string | null, fullName: string, sha: string, call?: CallOptions): Promise<ForgeReply<ForgeValidateCheck>>;
   /** Asks the forge at `origin` who `token` is. The token goes in a header and nowhere else: never in a URL or an answer. */
   identity(origin: ForgeOrigin, token: string, call?: CallOptions): Promise<IdentityAnswer>;
   /** Probes `readRepository`: reads the repository `fullName` (`owner/name`), or with none, the list of repositories the token reads. */
@@ -171,8 +192,12 @@ export interface ForgeProvider {
   repositories(origin: ForgeOrigin, token: string, limit: number, call?: CallOptions): Promise<ListAnswer<string>>;
   /** Reads the repository `fullName` (`owner/name`); with no token, anonymously. */
   repository(origin: ForgeOrigin, token: string | null, fullName: string, call?: CallOptions): Promise<ForgeReply<ForgeRepository>>;
+  /** Reads read/push permissions for this repository; absent push permission is false. */
+  repositoryCapabilities(origin: ForgeOrigin, token: string | null, fullName: string, call?: CallOptions): Promise<ForgeReply<ForgeRepositoryCapabilities>>;
   /** Reads the organisation `name`: whether the token sees it. */
   organisation(origin: ForgeOrigin, token: string, name: string, call?: CallOptions): Promise<ForgeReply<null>>;
+  /** Reads the user `login`: whether the forge has one by that login (a team bank's owner, #1025). */
+  user(origin: ForgeOrigin, token: string | null, login: string, call?: CallOptions): Promise<ForgeReply<null>>;
   /** The names of up to `limit` organisations the token's user is a member of, page by page, in the order the forge lists them. */
   organisations(origin: ForgeOrigin, token: string, limit: number, call?: CallOptions): Promise<ForgeReply<string[]>>;
   /** Creates a repository, under the user or an organisation. */
@@ -188,7 +213,7 @@ export interface ForgeProvider {
   /** Opens a pull request on `fullName`. */
   createPullRequest(origin: ForgeOrigin, token: string, fullName: string, opening: PullRequestOpening, call?: CallOptions): Promise<ForgeReply<ForgePullRequest>>;
   /** Merges the pull request `number` of `fullName` by `method`. */
-  mergePullRequest(origin: ForgeOrigin, token: string, fullName: string, number: number, method: MergeMethod, call?: CallOptions): Promise<ForgeReply<null>>;
+  mergePullRequest(origin: ForgeOrigin, token: string, fullName: string, number: number, method: MergeMethod, call?: CallOptions, expectedHead?: string): Promise<ForgeReply<null>>;
   /** Up to `limit` of `fullName`'s newest releases that are not drafts, page by page; with no token, anonymously. */
   releases(origin: ForgeOrigin, token: string | null, fullName: string, limit: number, call?: CallOptions): Promise<ForgeReply<ForgeRelease[]>>;
   /** `fullName`'s release tagged `tag`; a draft there answers as not found, 404, since a draft is never read. With no token, anonymously. */
@@ -214,7 +239,7 @@ interface ApiDialect {
   /** Whether a pull request as the API answers it has merged. */
   readonly merged: (body: unknown) => boolean;
   /** How a merge is sent: its HTTP method and body. */
-  readonly merge: (method: MergeMethod) => { readonly method: "POST" | "PUT"; readonly body: unknown };
+  readonly merge: (method: MergeMethod) => { readonly method: "POST" | "PUT"; readonly body: Readonly<Record<string, unknown>> };
   /** How pull requests from a head are listed: the list's query, and the items kept and pages read when the API cannot filter by head itself. */
   readonly byHead: (head: PullRequestHead) => { readonly query: string; readonly keep?: (item: unknown) => boolean; readonly maxPages?: number };
   /** Where an asset's bytes are asked for, on the forge's own origin or its API's; null when the forge gave it no address that can be read. */
@@ -379,6 +404,7 @@ const pullRequestOf =
     const [ref, sha, base] = [text(field(head, "ref")), text(field(head, "sha")), text(field(field(body, "base"), "ref"))];
     if (issue === null || ref === null || sha === null || base === null) return null;
     return {
+      author: nonEmpty(field(field(body, "user"), "login")),
       number: issue.number,
       title: issue.title,
       body: issue.body,
@@ -390,6 +416,16 @@ const pullRequestOf =
       url: issue.url,
     };
   };
+
+const reviewOf = (body: unknown): ForgePullRequestReview | null => {
+  const id = positiveInteger(field(body, "id"));
+  const login = nonEmpty(field(field(body, "user"), "login"));
+  const raw = text(field(body, "state"))?.toUpperCase();
+  const state = raw === "APPROVED" ? "approved" : raw === "REQUEST_CHANGES" || raw === "CHANGES_REQUESTED" ? "changes-requested"
+    : raw === "DISMISSED" ? "dismissed" : raw === "COMMENT" || raw === "COMMENTED" ? "commented" : raw === "PENDING" ? "pending" : null;
+  if (id === null || login === null || state === null) return null;
+  return { id, login, state, commit: nonEmpty(field(body, "commit_id")) };
+};
 
 /** A release asset as both APIs list one; null for one that is none. */
 const assetOf = (item: unknown): ForgeReleaseAsset | null => {
@@ -501,9 +537,17 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
 
     repositories,
 
+    repositoryCapabilities: async (origin, token, fullName, call) =>
+      replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository permissions", (body) => {
+        if (repositoryOn(origin)(body) === null) return null;
+        const permissions = field(body, "permissions");
+        return { canRead: field(permissions, "pull") !== false, canPush: token !== null && field(permissions, "push") === true };
+      }),
+
     repository: async (origin, token, fullName, call) => replied(origin, await get(origin, `/repos/${repositoryPath(fullName)}`, token, call), "repository", repositoryOn(origin)),
 
     organisation: async (origin, token, organisation, call) => acknowledged(origin, await get(origin, `/orgs/${encodeURIComponent(organisation)}`, token, call)),
+    user: async (origin, token, login, call) => acknowledged(origin, await get(origin, `/users/${encodeURIComponent(login)}`, token, call)),
 
     async organisations(origin, token, limit, call) {
       const { path, query, keep, name } = dialect.organisations;
@@ -533,9 +577,41 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
     createPullRequest: async (origin, token, fullName, { title, body, head, base }, call) =>
       replied(origin, await send(origin, "POST", `/repos/${repositoryPath(fullName)}/pulls`, token, { title, body, head, base }, call), "pull request", pullRequestOfKind),
 
-    async mergePullRequest(origin, token, fullName, number, method, call) {
+    async pullRequestReviews(origin, token, fullName, number, call) {
+      const paged = await pages(origin, `/repos/${repositoryPath(fullName)}/pulls/${number}/reviews`, token, { limit: Number.POSITIVE_INFINITY }, call);
+      return listed(origin, paged, "pull request reviews", reviewOf);
+    },
+
+    async validateCheck(origin, token, fullName, sha, call) {
+      const path = `/repos/${repositoryPath(fullName)}/commits/${encodeURIComponent(sha)}`;
+      if (kind === "github") {
+        const reply = await get(origin, `${path}/check-runs?check_name=validate&filter=latest&per_page=100`, token, call);
+        return replied(origin, reply, "validate check", (body) => {
+          if (typeof body !== "object" || body === null || !("check_runs" in body) || !Array.isArray(body.check_runs)) return null;
+          const checks = body.check_runs as { name?: string; status?: string; conclusion?: string }[];
+          const matching = checks.filter((check) => check.name === "validate");
+          if (matching.length === 0 || matching.some((check) => check.status !== "completed")) return "pending";
+          return matching.every((check) => check.conclusion === "success") ? "success" : "failure";
+        });
+      }
+      const result = await pages(origin, `${path}/statuses`, token, { limit: 100 }, call);
+      if (result.outcome === "unanswered") return { outcome: "unreachable", message: "The validate check could not be read." };
+      if (result.outcome === "failed") return { outcome: "failed", status: result.status, message: "The validate check could not be read." };
+      // The API orders newest first. Never let a previous success mask a pending or failed rerun.
+      const latest = new Map<string, string>();
+      for (const item of result.items) {
+        if (typeof item !== "object" || item === null || !("context" in item) || typeof item.context !== "string" || !("state" in item) || typeof item.state !== "string") continue;
+        const context = item.context;
+        if ((context === "validate" || /^validate \/ validate(?: \((?:pull_request|push)\))?$/.test(context)) && !latest.has(context)) latest.set(context, item.state);
+      }
+      const states = [...latest.values()];
+      const value = states.some((state) => state === "failure" || state === "error") ? "failure" : states.length > 0 && states.every((state) => state === "success") ? "success" : "pending";
+      return { outcome: "done", status: 200, value };
+    },
+
+    async mergePullRequest(origin, token, fullName, number, method, call, expectedHead) {
       const merge = dialect.merge(method);
-      return acknowledged(origin, await send(origin, merge.method, `/repos/${repositoryPath(fullName)}/pulls/${number}/merge`, token, merge.body, call));
+      return acknowledged(origin, await send(origin, merge.method, `/repos/${repositoryPath(fullName)}/pulls/${number}/merge`, token, { ...merge.body, ...(expectedHead === undefined ? {} : kind === "github" ? { sha: expectedHead } : { head_commit_id: expectedHead }) }, call));
     },
 
     async releases(origin, token, fullName, limit, call) {

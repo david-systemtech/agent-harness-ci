@@ -16,7 +16,8 @@ import { resolvePath } from "./gate.js";
 /**
  * The tool gate's denylist rule (#132; permissions spec, "The denylist",
  * "Enforcement in every mode, bypass included"; ADR 0006): every tool call
- * an adapter asks the gate about is read into what it touches, matched
+ * an adapter asks the gate about, except the caller's own tools (#281),
+ * is read into what it touches, matched
  * against the denylist as it is when the call is made, and a match is handed
  * to the broker as a `denylist` prompt naming the section and entry. The
  * broker records it whatever happens next: on an attended run it parks for
@@ -141,6 +142,8 @@ export interface DenylistContext {
   readonly denylist: () => Denylist;
   /** The home directory `~` stands for. */
   readonly home: string;
+  /** The environment whose list is being read, named in browser refusals. */
+  readonly environmentId?: string;
   /** The directories the data directory's preset leaves out: where runs work, the containment directories (#133) and the scratch workspaces (#140). */
   readonly exempt: readonly string[];
   /** Follows symbolic links, null where it cannot say; preset: the file system's (`resolvePath`, the walk containment's rule shares). */
@@ -149,20 +152,18 @@ export interface DenylistContext {
   readonly user?: string;
   /** Whether paths compare without regard to case: preset, on macOS and Windows. */
   readonly caseInsensitive?: boolean;
-  /** Which calls the denylist reads at all; preset: `denylistReadsCall`, every one. */
+  /** Which calls the denylist reads at all; preset: `denylistReadsCall`, all except client tools. */
   readonly readsCall?: (call: GatedToolCall) => boolean;
 }
 
 /**
- * Which calls the denylist reads: every one, a client tool's included. A
- * client tool (`mcp__client__*`, the completions surface's passthrough,
- * #139) runs on the caller's machine, not the environment's, so whether its
- * arguments should meet this environment's denylist is David's open
- * question; until he answers, the safe default reads them like any other
- * call's (#140). The one seam an exemption would go in: a predicate here,
- * which the rule consults before it matches anything.
+ * Which calls the denylist reads: all except the completions caller's own
+ * tools (`mcp__client__*`, #139). Those tools run on the caller's machine,
+ * identified by the adapter from the run's external tool server,
+ * while the denylist protects the environment's machine (#281). Only the
+ * denylist skips them; containment and the provider's mode still apply.
  */
-export const denylistReadsCall: (call: GatedToolCall) => boolean = () => true;
+export const denylistReadsCall = (call: GatedToolCall): boolean => !(call.external === true && call.tool.startsWith("mcp__client__"));
 
 /** Every entry a call matches, and the paths whose links could not be followed. */
 export interface DenylistReading {
@@ -213,6 +214,18 @@ export const providerDenylist = (denylist: Denylist, context: Pick<DenylistConte
 };
 
 /**
+ * Each of `paths` (absolute) that an enabled path of the denylist covers
+ * outside its exempt directories, each once, in order: what a program the
+ * environment has a contained run execute reads as it runs, git's
+ * credential helper's (#705: the launcher's shim reads the service state
+ * and the versions directory), so an unattended run's sandbox, which reads
+ * the exempt directories again, lets it read them.
+ */
+export const coveredPaths = (context: DenylistContext, paths: readonly string[]): string[] => [
+  ...new Set(paths.filter((path) => readDenylistCall(context, { paths: [path] }, dirname(path)).matches.length > 0)),
+];
+
+/**
  * The directory of each of `paths` (absolute, as a command line names a
  * program and its files) that an enabled path of the denylist covers
  * outside its exempt directories, each once, in order: where a program the
@@ -220,15 +233,7 @@ export const providerDenylist = (denylist: Denylist, context: Pick<DenylistConte
  * helper (#315; forge spec, "Containment"), so an unattended run's sandbox,
  * which reads the exempt directories again, lets it run.
  */
-export const coveredDirectories = (context: DenylistContext, paths: readonly string[]): string[] => {
-  const directories: string[] = [];
-  for (const path of paths) {
-    const directory = dirname(path);
-    if (directories.includes(directory) || readDenylistCall(context, { paths: [path] }, directory).matches.length === 0) continue;
-    directories.push(directory);
-  }
-  return directories;
-};
+export const coveredDirectories = (context: DenylistContext, paths: readonly string[]): string[] => [...new Set(coveredPaths(context, paths).map(dirname))];
 
 /** What the model reads when a person denies a denylisted call and gives no message of their own. */
 export const denylistDenial = (reason: string): string => `Denied: ${reason}, and the person declined it. Continue without it and say what you could not do.`;
@@ -251,12 +256,22 @@ export const denylistRule = (context: DenylistContext): ToolGateRule => ({
   decider: "denylist",
   check: async (call, run, signal) => {
     if (!(context.readsCall ?? denylistReadsCall)(call)) return null;
-    const { matches, unresolvable } = readDenylistCall(context, denylistCall(call), run.workspace);
+    // A broken attachment grants no read exemption and must not make unrelated calls unresolvable.
+    const readable = (run.readableDirectories ?? []).filter((path) => resolvePath(path, run.workspace) !== null);
+    const { matches, unresolvable } = readDenylistCall({ ...context, exempt: [...context.exempt, ...readable] }, denylistCall(call), run.workspace);
+    if (call.access.kind === "browse" && call.access.match !== undefined) {
+      const browserMatch = call.access.match;
+      // The browser's list is authoritative too, even when this environment lists no such entry.
+      const others = matches.filter((match) => match.section !== browserMatch.section || match.entry.id !== browserMatch.entry.id || match.matched !== browserMatch.matched);
+      matches.splice(0, matches.length, browserMatch, ...others);
+      if (call.access.frame === "sub-frame") return { decision: "deny", message: call.summary };
+    }
     const [lost] = unresolvable;
     if (lost !== undefined) return { decision: "deny", message: unresolvableDenial(lost) };
     const [first] = matches;
     if (first === undefined) return null;
-    const named = describeDenylistMatch(first);
+    const environmentId = call.access.kind === "browse" ? (call.access.environmentId ?? context.environmentId) : undefined;
+    const named = `${describeDenylistMatch(first)}${environmentId === undefined ? "" : ` in environment ${environmentId}`}`;
     const reason = matches.length === 1 ? named : `${named}, and ${matches.length - 1} more`;
     const decision = await run.ask(
       "denylist",

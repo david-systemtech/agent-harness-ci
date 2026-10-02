@@ -103,7 +103,7 @@ describe("Add a machine", () => {
     expect(within(add).getByText("Scan a QR: This client cannot scan a QR code with a camera: its shell has no shell.camera.")).toBeDefined();
   });
 
-  it("shows a copyable install line per platform from this machine's release, with its channel and the name typed, and the container's compose snippet with the updater's documentation", async () => {
+  it("shows a copyable install line per platform from this machine's release, with its channel and the name typed, and the container's compose snippet, with them too, and the updater's documentation", async () => {
     const app = await opened({ desk: { settings: { "updates.channel": "beta" } } });
     const install = within(within(await openMachines(app)).getByRole("region", { name: "Add a machine" })).getByRole("region", { name: "Install on another machine" });
     const line = (platform: string) => within(within(install).getByRole("region", { name: platform })).getByText(/./, { selector: "pre" }).textContent;
@@ -123,9 +123,15 @@ describe("Add a machine", () => {
 
     const container = "A container (Docker or Podman), from the folder to keep its compose file in";
     expect(line(container)).toBe(
-      [`${tokenToCurl} -o compose.yaml ${release}/compose.yaml`, "docker login git.example.test", "docker compose up -d", "docker compose logs environment"].join("\n"),
+      [
+        `${tokenToCurl} -o compose.yaml ${release}/compose.yaml`,
+        "docker login git.example.test",
+        "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Build box' docker compose up -d",
+        "docker compose logs environment",
+      ].join("\n"),
     );
     expect(within(install).getByText(/^Until a client first pairs with it, the container prints its pairing link, QR and code to its log at each start/)).toBeDefined();
+    expect(within(install).getByText(/Its first start takes the channel and the name from the line that starts it; a later start keeps them, and its card changes either once paired\./)).toBeDefined();
     await app.user.click(within(install).getByRole("button", { name: "The host-side updater's documentation" }));
     expect(app.shell.calls).toContainEqual(["openExternal", "https://git.example.test/david/agent-harness/src/tag/v0.0.0-fake/docs/host-updater.md"]);
   });

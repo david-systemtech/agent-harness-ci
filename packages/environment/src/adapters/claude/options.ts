@@ -5,6 +5,7 @@ import type {
   HookCallback,
   HookCallbackMatcher,
   HookEvent,
+  HookJSONOutput,
   McpServerConfig,
   Options,
   PermissionMode,
@@ -14,7 +15,9 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
+import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
+import { CLAUDE_FILE_TOOLS } from "./gate-access.js";
 import { hostToolServer, serverRule } from "./host-tools.js";
 
 /**
@@ -45,7 +48,8 @@ export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
 
 /**
  * How long, in seconds, the CLI waits on the tool gate's `PreToolUse` hook
- * before it gives up on the call: as long as its timer can hold. The CLI
+ * (and the file tools' capture after it, #1182) before it gives up on the
+ * call: as long as its timer can hold. The CLI
  * arms `setTimeout(timeout * 1000)` for a callback hook (its own default is
  * ten minutes), and a JavaScript timer past 2^31 - 1 milliseconds fires at
  * once, so this is the longest wait there is: 24.8 days. A denylist prompt
@@ -77,6 +81,8 @@ export interface RunOptionsInput {
   readonly hostEnv: HostEnvironment;
   /** What the run's process environment supplied this spawn (#307), layered over the scrubbed environment. */
   readonly supplied: Readonly<Record<string, string>>;
+  /** The directories it supplied as the holder's own to write (#1119), which a contained run's commands may write beside its writable set. */
+  readonly suppliedWritable: readonly string[];
   /** The account's config directory, resolved: the ambient default for an account with none. */
   readonly configDirectory: string;
   /** The SDK's bundled binary; null leaves the SDK to find it itself. */
@@ -93,12 +99,29 @@ export interface RunOptionsInput {
   readonly canUseTool: CanUseTool;
   /** The tool gate, asked before the provider's own evaluation of every tool call (#140). */
   readonly preToolUse: HookCallback;
+  /** The observation of the recognised file tools' calls (#1182), around what the gate lets through. */
+  readonly fileTools: FileToolHooks;
   /** Called as each turn stops, with the session's scheduled jobs as the CLI lists them (`session_crons`). */
   readonly onStop?: HookCallback;
   /** The process's own spawn of the CLI, so a kill reaches the child; absent, the SDK spawns it. */
   readonly spawnProcess?: NonNullable<Options["spawnClaudeCodeProcess"]>;
   readonly abortController: AbortController;
   readonly stderr?: (data: string) => void;
+}
+
+/**
+ * The process's observation of the recognised file tools' calls
+ * (`file-tools.ts`; switch-over spec, "File undo"), as SDK callbacks:
+ * `before`, asked in the run's one `PreToolUse` callback once the gate has
+ * let a call through, which the CLI waits on before it evaluates the call and
+ * runs it; `completed`, the `PostToolUse` of a file tool's call that
+ * succeeded; `failed`, its `PostToolUseFailure`. What they answer is never
+ * the hook's answer: an observation decides nothing about a call.
+ */
+export interface FileToolHooks {
+  readonly before: HookCallback;
+  readonly completed: HookCallback;
+  readonly failed: HookCallback;
 }
 
 /** The mode a run runs in: its own, or the default; anything outside the four is refused, never downgraded. */
@@ -141,38 +164,71 @@ const mcpServers = (run: RunInput): Record<string, McpServerConfig> | null => {
  */
 const allowedTools = (run: RunInput): string[] => run.toolServers.filter((server) => isInProcess(server) && server.external).map((server) => serverRule(server.name));
 
+/** The recognised file tools as a hook matcher: the pinned CLI reads a list of plain names joined by `|` as those exact tools. */
+const FILE_TOOL_MATCHER = CLAUDE_FILE_TOOLS.join("|");
+
+/** Whether a `PreToolUse` answer denies the call. */
+const deniesCall = (output: HookJSONOutput): boolean =>
+  "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" && output.hookSpecificOutput.permissionDecision === "deny";
+
 /**
- * The run's hooks: the tool gate's `PreToolUse`, matching every tool (no
- * matcher) and waiting as long as the CLI can, and the process's `Stop`
- * when it has one.
+ * The gate, then, for a call it did not deny, the file tools' observation,
+ * as one callback answering the gate's answer: the CLI runs an event's
+ * callbacks in parallel, so an observer registered beside the gate would see
+ * calls the gate denies and could not wait for it to rule.
  */
-const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
-  PreToolUse: [{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
-  ...(onStop !== undefined && { Stop: [{ hooks: [onStop] }] }),
+const gatedThenObserved =
+  (gate: HookCallback, observe: HookCallback): HookCallback =>
+  async (hookInput, toolUseID, options) => {
+    const ruling = await gate(hookInput, toolUseID, options);
+    if (deniesCall(ruling)) return ruling;
+    await observe(hookInput, toolUseID, options);
+    return ruling;
+  };
+
+/**
+ * The run's hooks: one `PreToolUse`, matching every tool (no matcher) and
+ * waiting as long as the CLI can, which is the tool gate and then the file
+ * tools' observation of a call it let through; the file tools' `PostToolUse`
+ * and `PostToolUseFailure`, matching those tools alone; and the process's
+ * `Stop` when it has one.
+ */
+const hooksOf = (input: Pick<RunOptionsInput, "preToolUse" | "fileTools" | "onStop">): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
+  PreToolUse: [{ hooks: [gatedThenObserved(input.preToolUse, input.fileTools.before)], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
+  PostToolUse: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.completed] }],
+  PostToolUseFailure: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.failed] }],
+  ...(input.onStop !== undefined && { Stop: [{ hooks: [input.onStop] }] }),
 });
 
 /**
- * The shell side of the run's containment, as the SDK's sandbox (permissions
- * spec, "Enforcement for Claude"): none at `off`; at both workspace levels
- * enabled, failing the run rather than running a command unsandboxed, with
- * no way for the model to ask its way out (`allowUnsandboxedCommands`) and no
- * approval for being sandboxed (`autoAllowBashIfSandboxed`: containment
- * changes where a command may reach, never whether it asks). A command may
- * write in the run's writable set (the workspace is the CLI's working
- * directory already). The network is open at `workspace`, local binding
- * included; the pinned sandbox cannot name "any domain", so it asks the
- * host about each new host, which the adapter answers itself once the gate
- * lets the host through (`process.ts`, #140's verify note). At
- * `workspace-no-network` it is closed: no domain, no unix socket, no local
- * binding, and a host outside the (empty) list is refused without asking.
- * On an unattended run the denylist's paths are unreadable to a command,
- * the directories the denylist leaves out read again.
+ * The shell side of the run's containment, as the SDK's sandbox
+ * (permissions spec, "Enforcement for Claude"): none at `off`; at both
+ * workspace levels enabled, failing the run rather than running a command
+ * unsandboxed, with no way for the model to ask its way out
+ * (`allowUnsandboxedCommands`) and no approval for being sandboxed
+ * (`autoAllowBashIfSandboxed`: containment changes where a command may
+ * reach, never whether it asks). A command may write in the run's writable
+ * set (the workspace is the CLI's working directory already) and in the
+ * directories the spawn was supplied as its holder's own (a key-manager
+ * CLI's configuration directory, #1119), less what the run may not write
+ * inside them (`denyWrite`, which the sandbox puts above `allowWrite`: the
+ * repository git directory's hooks and config, #791, plus recursive git
+ * program paths under Seatbelt, #1094). The
+ * network is open at `workspace`, local binding included; the pinned
+ * sandbox cannot name "any domain", so it asks the host about each new
+ * host, which the adapter answers itself once the gate lets the host
+ * through (`process.ts`, #140's verify note). At `workspace-no-network` it
+ * is closed: no domain, no unix socket, no local binding, and a host
+ * outside the (empty) list is refused without asking. On an unattended run
+ * the denylist's paths are unreadable to a command, the directories the
+ * denylist leaves out read again.
  */
-export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): SandboxSettings | null => {
+export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">, suppliedWritable: readonly string[]): SandboxSettings | null => {
   const { containment, denylist } = run;
   if (containment.level === "off") return null;
   const denyRead = denylist?.paths ?? [];
   const allowRead = denyRead.length > 0 ? (denylist?.exempt ?? []) : [];
+  const denyWrite = [...containment.readOnly, ...(containment.mechanism === "seatbelt" ? GIT_PROGRAM_DENY_WRITE : [])];
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -182,7 +238,8 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
       ? { allowLocalBinding: true }
       : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: {
-      allowWrite: [...containment.writable],
+      allowWrite: [...containment.writable, ...suppliedWritable],
+      ...(denyWrite.length > 0 && { denyWrite }),
       ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
       ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
     },
@@ -261,7 +318,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const servers = mcpServers(run);
   const allowed = allowedTools(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
-  const sandbox = sandboxOf(run);
+  const sandbox = sandboxOf(run, input.suppliedWritable);
   const disallowedTools = disallowedShell(run.denylist);
   const plugins = skillPlugins(run.skillSet);
   const settings = flagSettings(input.autoMemoryDirectory, run.skillSet);
@@ -273,6 +330,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   }, input.supplied);
   return {
     cwd: run.workspace.path,
+    ...(run.additionalDirectories !== undefined && run.additionalDirectories.length > 0 && { additionalDirectories: [...run.additionalDirectories] }),
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
     ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
     env,
@@ -287,7 +345,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(run.ceiling === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
     permissionPrompts: "host",
     canUseTool: input.canUseTool,
-    hooks: hooksOf(input.preToolUse, input.onStop),
+    hooks: hooksOf(input),
     ...(sandbox !== null && { sandbox }),
     ...(disallowedTools.length > 0 && { disallowedTools }),
     ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),
@@ -298,9 +356,13 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(allowed.length > 0 && { allowedTools: allowed }),
     ...(plugins.length > 0 && { plugins }),
     ...(settings !== null && { settings }),
+    // The store mirrors successful local writes; disabling persistence would disable resume from the store (#622).
+    // Tool image copies follow these local transcripts and are removed by deleteTranscript when the purge asks for it.
+    persistSession: true,
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),
     includePartialMessages: true,
+    promptSuggestions: true,
     // An SDK-driven CLI otherwise returns every thinking block empty; the transcript shows reasoning.
     extraArgs: { "thinking-display": "summarized" },
   };

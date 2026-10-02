@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryReadInput",
+  "type": "object",
+  "properties": {
+    "pointer": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A bank pointer: bank, bank:org/project[/area]/, bank:org/project[/area]/memories/topic/, or bank:name. Parsed by parseBankPointer, never a filesystem path."
+    }
+  }
+}

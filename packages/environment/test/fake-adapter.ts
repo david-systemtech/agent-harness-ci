@@ -95,9 +95,10 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * (`statusReads`), and the fake names a directory of its own for
  * `accounts.adopt` (`ambientDirectory`), one that is not there unless a
  * test gives it one. It lists commands when a test gives it some, and
- * then, as Claude lists them, each member of the skill set it is handed:
- * `agent-harness:<name>` for one the generation links, `<name>` for a
- * native one; every listing is recorded with its scope (#495). A member's
+ * then, as Claude lists them, each member of the skill set it is handed
+ * that a person may invoke: `agent-harness:<name>` for one the generation
+ * links, `<name>` for a native one; every listing is recorded with its
+ * scope (#495). A member's
  * invocation text is Claude's too. It lists an account directory's
  * sessions for Carry over when a test scripts them (`sessions`, #578).
  *
@@ -151,6 +152,8 @@ export interface FakeProcessRecord {
   readonly key: string;
   /** Settles with the variables its spawn was supplied, which its scripted commands run in (`runCommand`). */
   readonly supplied: Promise<Readonly<Record<string, string>>>;
+  /** Settles with the directories its spawn was supplied as the holder's own to write (#1119), none when it was supplied none. */
+  readonly writable: Promise<readonly string[]>;
   /** The instruction text it was spawned with, fixed for its life: a run handed other text is served by a fresh process. */
   readonly instructions: string;
   /** Whether it was spawned for a trusted repository, fixed for its life as Claude's project settings are: a run with the other answer is served by a fresh process (#500). */
@@ -203,8 +206,12 @@ export interface FakeAdapterOptions {
   readonly status?: (account: AccountRef) => AuthStatus | Promise<AuthStatus>;
   /** The machine's own directory for the fake provider (`accounts.adopt`). Preset: a path that is not there. */
   readonly ambientDirectory?: string | null;
-  /** Declares `commands` with these commands, recording each listing. Preset: not declared. */
-  readonly commands?: readonly ProviderCommand[];
+  /**
+   * Declares `commands` with these commands, or those a function answers for
+   * the scope the host resolved (a trusted repository's own, say), recording
+   * each listing. Preset: not declared.
+   */
+  readonly commands?: readonly ProviderCommand[] | ((scope: CommandsScope) => readonly ProviderCommand[]);
   /**
    * Declares `sessionListing`: the sessions each account's directory holds,
    * given, or read per account from a function that may answer later or
@@ -309,6 +316,7 @@ export interface CommandListing {
 const listedMember = (member: RunSkillSetMember): ProviderCommand => ({
   name: member.native ? member.name : `${SKILL_PLUGIN_NAME}:${member.name}`,
   description: `The skill set's ${member.name}.`,
+  builtin: false,
 });
 
 /** A user title the environment mirrored into the provider's own title field. */
@@ -687,6 +695,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     interactivePrompts: true,
     partialMessages: true,
     providerQueue: true,
+    withdraw: true,
     steering: true,
     resume: true,
     fork: false,
@@ -747,14 +756,18 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
 
   /** Starts a process cold for the run: its process environment supplied once, for this spawn. */
   const spawn = (input: RunInput): FakeProcessRecord => {
-    const supplied = input.processEnvironment.supply().then((answer) => answer.variables);
+    const answer = input.processEnvironment.supply();
+    const supplied = answer.then((given) => given.variables);
+    const writable = answer.then((given) => given.writable ?? []);
     // A script that never asks for the variables leaves a failed supply unheard: it is not an unhandled rejection.
     supplied.catch(() => undefined);
+    writable.catch(() => undefined);
     const process: FakeProcessRecord = {
       sessionId: input.sessionId,
       runs: 0,
       key: input.processEnvironment.key,
       supplied,
+      writable,
       instructions: input.instructions,
       trusted: input.trusted,
       fingerprint: input.skillSet.fingerprint,
@@ -992,7 +1005,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     ...(options.commands !== undefined && {
       commands: async (account: AccountRef, workspace: { readonly path: string }, scope: CommandsScope) => {
         commandListings.push({ account, workspace: workspace.path, scope });
-        return [...(options.commands ?? []), ...scope.skillSet.members.map(listedMember)];
+        const own = typeof options.commands === "function" ? options.commands(scope) : (options.commands ?? []);
+        // Claude's CLI leaves a member a person may not invoke out of its listing (measured on 2.1.283, #503).
+        return [...own, ...scope.skillSet.members.filter((member) => member.userInvocable).map(listedMember)];
       },
     }),
     ...(listed !== undefined && {

@@ -149,12 +149,14 @@ export type InstallAnswer = { readonly type: "installed" } | { readonly type: "r
 /** The launcher's answer to `switch?`: after `switching` the environment closes, the channel last. */
 export type SwitchAnswer = { readonly type: "switching" } | { readonly type: "refused"; readonly reason: SwitchRefusal };
 
-/** The launcher's answer to `versions?`: the versions installed, and the launcher's own version and protocol. */
+/** The launcher's answer to `versions?`: the versions installed, its own version and protocol, and any failed handover's target. */
 export interface VersionsAnswer {
   readonly type: "versions";
   readonly installed: readonly string[];
   readonly launcherVersion: string;
   readonly launcherProtocol: number;
+  /** The version whose launcher handover failed, if any; absent on older launchers. */
+  readonly failedHandoverVersion?: string;
 }
 
 /** The answer each request takes. */
@@ -235,10 +237,11 @@ export const parseLauncherMessage = (value: unknown): LauncherMessage | undefine
       return { type, id, reason };
     }
     case "versions": {
-      const { installed, launcherVersion, launcherProtocol } = value;
+      const { installed, launcherVersion, launcherProtocol, failedHandoverVersion } = value;
       if (!isCount(id) || !Array.isArray(installed) || !installed.every(isText)) return undefined;
       if (!isText(launcherVersion) || !isCount(launcherProtocol)) return undefined;
-      return { type, id, installed: [...installed], launcherVersion, launcherProtocol };
+      if (failedHandoverVersion !== undefined && !isText(failedHandoverVersion)) return undefined;
+      return { type, id, installed: [...installed], launcherVersion, launcherProtocol, ...(failedHandoverVersion === undefined ? {} : { failedHandoverVersion }) };
     }
     default:
       return undefined;
@@ -287,6 +290,13 @@ export const artefactNode = (platform: string): readonly string[] => (platform =
 
 /** Where a release's server artefact, unpacked, holds its CLI's entry script. */
 export const ARTEFACT_CLI_ENTRY: readonly string[] = ["packages", "cli", "dist", "main.js"];
+
+/**
+ * Where a release's server artefact, unpacked, declares what it is: its
+ * CLI's `package.json`, whose `version` each release stamps and whose
+ * `launcherProtocol` is the launcher protocol its environment needs.
+ */
+export const ARTEFACT_CLI_PACKAGE: readonly string[] = ["packages", "cli", "package.json"];
 
 /**
  * What a version's `preflight` verb prints on its standard output once it
@@ -346,6 +356,9 @@ export const STAGING_DIRECTORY = "staging";
  * update, and deleted by it once settled.
  */
 export const OUTCOME_RECORD_FILE = "update-outcome.json";
+
+/** The outcome record held while a database snapshot is being restored; nothing may open the database until it is cleared. */
+export const RESTORE_MARKER_FILE = "restore-marker.json";
 
 /** Where an update failed and was rolled back: its trial (the startup gate), or the crash-loop watch after its commit. */
 export const OUTCOME_STAGES = ["trial", "crash-loop"] as const;

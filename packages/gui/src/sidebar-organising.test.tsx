@@ -91,9 +91,9 @@ const sent = (app: RenderedApp, environment: string, method: string) => app.envi
 describe("a row's context menu", () => {
   it("holds Rename, Pin, Archive, Settle, Snooze, Tags, Move to group, Fork and Delete, each toggle as the session stands", async () => {
     const app = await settled(await two());
-    expect(offered(await menuOf(app, "Fix the rail"))).toEqual(["Rename", "Pin", "Archive", "Settle", "Snooze▸", "Tags…", "Move to group▸", "Fork", "Open in a new pane", "Delete…"]);
+    expect(offered(await menuOf(app, "Fix the rail"))).toEqual(["Rename", "Pin", "Archive", "Settle", "Snooze▸", "Tags…", "Session instructions…", "Move to group▸", "Fork", "Open in a new pane", "Delete…"]);
     await app.user.keyboard("{Escape}");
-    expect(offered(await menuOf(app, "Pinned one"))).toEqual(["Rename", "Unpin", "Archive", "Settle", "Snooze▸", "Tags…", "Move to group▸", "Fork", "Open in a new pane", "Delete…"]);
+    expect(offered(await menuOf(app, "Pinned one"))).toEqual(["Rename", "Unpin", "Archive", "Settle", "Snooze▸", "Tags…", "Session instructions…", "Move to group▸", "Fork", "Open in a new pane", "Delete…"]);
   });
 
   it("pins, archives and settles, each sent once with its command id, the row marked until the environment's receipt", async () => {

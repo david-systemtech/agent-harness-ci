@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
-import { fakeShell } from "@agent-harness/client-runtime/testing";
+import { fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
 import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -194,15 +194,31 @@ const chips = () => {
   return list === null ? [] : within(list).getAllByRole("listitem").map((chip) => chip.firstChild?.textContent);
 };
 
+/** The recording fake shell without its file dialogs, as a browser tab has none: `shell.dialogs` absent with `no-shell`. */
+const withoutDialogs = () => ({ ...fakeShell(), dialogs: undefined }) as unknown as FakeShell;
+
+/** The page's own file picker, which jsdom never opens: user-event's `upload` chooses files in it. */
+const picker = () => screen.getByLabelText("Files to attach") as HTMLInputElement;
+
+/** How many times the page's picker has been opened (clicked) since this was called. */
+const pickerOpens = () => {
+  let opens = 0;
+  picker().addEventListener("click", () => opens++);
+  return () => opens;
+};
+
 describe("attachments", () => {
   it("come by the shell's file dialog, show as chips, and go with the message", async () => {
     const shell = fakeShell();
     shell.answer("dialogs.openFileContents", async () => [{ name: "shot.png", size: PNG.length, bytes: PNG }]);
     const { app, env, session } = await opened({}, shell);
+    const opens = pickerOpens();
 
     await app.user.click(screen.getByRole("button", { name: "Attach files" }));
     await waitFor(() => expect(chips()).toEqual(["shot.png"]));
     expect(shell.calls).toContainEqual(["dialogs.openFileContents", expect.objectContaining({ multiple: true, maxBytes: MAX_ATTACHMENT_BYTES })]);
+    // The desktop's shell has a file dialog, so the page's own picker is never opened.
+    expect(opens()).toBe(0);
 
     await write(app, "What is this?{Enter}");
     await waitFor(() =>
@@ -211,6 +227,38 @@ describe("attachments", () => {
       ]),
     );
     expect(chips()).toEqual([]);
+  });
+
+  it("come by the page's own file picker where the shell has no file dialog (a browser tab), Attach files opening it", async () => {
+    const { app, env, session } = await opened({}, withoutDialogs());
+    const opens = pickerOpens();
+
+    await app.user.click(screen.getByRole("button", { name: "Attach files" }));
+    expect(opens()).toBe(1);
+    await app.user.upload(picker(), [new File([PNG], "picked.png", { type: "image/png" })]);
+    await waitFor(() => expect(chips()).toEqual(["picked.png"]));
+
+    await write(app, "What is this?{Enter}");
+    await waitFor(() =>
+      expect(sent(env, "runs.start")).toEqual([
+        expect.objectContaining({ sessionId: session, text: "What is this?", attachments: [{ kind: "image", name: "picked.png", mediaType: "image/png", data: PNG_DATA }] }),
+      ]),
+    );
+  });
+
+  it("come by the page's picker from /attach too, what it chose meeting the wire's cap and the provider's input flags as a drop's does", async () => {
+    const { app } = await opened({ provider: { imageInput: true, fileInput: false } }, withoutDialogs());
+    await waitFor(() => expect(app.environment("desk").requests("providers.list").length).toBeGreaterThan(0));
+    const opens = pickerOpens();
+
+    await write(app, "/attach{Enter}");
+    expect(opens()).toBe(1);
+    const movie = new File([PNG], "screen.mov", { type: "video/quicktime" });
+    // Past the wire's cap without holding 31 MB: a file that large is refused by its size, never read.
+    Object.defineProperty(movie, "size", { value: 31 * 1024 * 1024 });
+    await app.user.upload(picker(), [new File([PNG], "shot.png", { type: "image/png" }), new File(["%PD"], "notes.pdf", { type: "application/pdf" }), movie]);
+    await screen.findByText("Claude takes images but no other files: notes.pdf was not attached. screen.mov is 31 MB; the limit is 20 MB.");
+    expect(chips()).toEqual(["shot.png"]);
   });
 
   it("come by a drop on the composer, and wait there for the message", async () => {
@@ -294,13 +342,13 @@ const rows = (name: "Commands" | "Files") => {
 const highlightedRow = () => screen.getAllByRole("option").find((option) => option.getAttribute("aria-selected") === "true")?.textContent;
 
 const PROVIDER_COMMANDS = [
-  { name: "compact", description: "Compact the conversation" },
-  { name: "model", description: "The provider's own model picker" },
-];
+  { kind: "command", name: "compact", description: "Compact the conversation", builtin: true },
+  { kind: "command", name: "model", description: "The provider's own model picker", builtin: true },
+] as const;
 
 /**
- * The slash commands the window wires (the composer's, the side column's, #408 and #427, the status line's pickers, #402,
- * and the session pane's fork and rewind, #665), in
+ * The slash commands the window wires (the composer's, /settings among them since #625, the side column's, #408 and #427,
+ * the status line's pickers, #402, the session pane's fork and rewind, #665, and its organising commands, #753), in
  * the shared list's order, as the menu and the palette list them; the menu offers the first `MENU_ROWS` at once.
  */
 const WINDOW_COMMANDS = [
@@ -308,10 +356,20 @@ const WINDOW_COMMANDS = [
   "/modeSet the permission mode for the next turn",
   "/attachSend an image or file with the next message",
   "/diffWhat this conversation changed, and the working tree's diff",
+  "/pinKeep this conversation at the top of its folder",
+  "/titleName this conversation",
   "/tasksBackground work: what is running, and what a delegated agent did",
   "/handoffMove this conversation to another account, or start it fresh there",
   "/accountSwitch the account this session's next run uses, or add one",
   "/containmentSet how contained this session's runs are",
+  "/settingsEvery environment setting under its row, in a generic editor; a row's id opens that row",
+  "/archiveArchive this session, or unarchive it",
+  "/groupPut this session in a group, or a new one",
+  "/tagTag this session",
+  "/settleSettle this session, or unsettle it",
+  "/snoozeSnooze this session until a time you pick",
+  "/restoreBring back a session deleted within the grace period",
+  "/searchSearch the sessions on every environment",
   "/terminalOpen a terminal on the session's environment, in a pane",
   "/filesBrowse the workspace's files, and read one in the pager",
   "/documentsThe pages, SVGs and markdown this session wrote, newest first",
@@ -320,7 +378,7 @@ const WINDOW_COMMANDS = [
 ];
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
-const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[7], WINDOW_COMMANDS[8], WINDOW_COMMANDS[10]];
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[9], WINDOW_COMMANDS[18], WINDOW_COMMANDS[20]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {
@@ -330,6 +388,23 @@ describe("slash commands", () => {
     // The provider's /model is shadowed by the window's; its /compact is listed after the window's own.
     await write(app, "m");
     await waitFor(() => expect(rows("Commands")).toEqual([...WINDOW_M, "/compactCompact the conversation · the agent's"]));
+  });
+
+  it("list the session's skills after the window's commands and before the provider's, slash-only ones marked and one the window's /model shadows as /skill:model", async () => {
+    const skill = (name: string, description: string, invocation: "model+slash" | "slash-only") =>
+      ({ kind: "skill", name, description, invocation, origin: null, alwaysOn: false, argumentHint: null }) as const;
+    const { app, env, session } = await opened({
+      commands: [skill("migrate", "Move the schema", "slash-only"), skill("model", "Sketch a data model", "model+slash"), ...PROVIDER_COMMANDS],
+    });
+    await write(app, "/m");
+    // Those /m begins first, then those holding an m, each group in the menu's order: the window's, the skills, the provider's.
+    const [model, mode, ...holding] = WINDOW_M;
+    await waitFor(() =>
+      expect(rows("Commands")).toEqual([model, mode, "/migrateMove the schema · slash-only", ...holding, "/skill:modelSketch a data model", "/compactCompact the conversation · the agent's"]),
+    );
+    await write(app, "ig");
+    await waitFor(() => expect(rows("Commands")).toEqual(["/migrateMove the schema · slash-only"]));
+    expect(env.requests("commands.list").map((request) => request.params)).toContainEqual({ sessionId: session });
   });
 
   it("list the provider's commands only while its adapter lists them", async () => {
@@ -394,8 +469,8 @@ describe("slash commands", () => {
     await screen.findByText("/quit is not here: The GUI's window closes as the platform's windows do.");
     expect(box().value).toBe("/quit");
 
-    await write(app, "{Control>}a{/Control}/pin{Enter}");
-    await screen.findByText("/pin is not in this build of the window yet.");
+    await write(app, "{Control>}a{/Control}/export{Enter}");
+    await screen.findByText("/export is not in this build of the window yet.");
     expect(env.requests("runs.start")).toEqual([]);
   });
 });

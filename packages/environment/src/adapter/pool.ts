@@ -74,6 +74,8 @@ export interface ProcessPoolOptions {
   readonly stopTimeoutMs?: number;
   /** The session's process has been parked for the idle time: the host ends its run `interrupted`, cause `parked`, and stops it. */
   readonly onParkedTooLong: (sessionId: string) => void;
+  /** The current process stopped or exited; a replaced process never calls this. */
+  readonly onStopped?: (sessionId: string) => void;
 }
 
 export interface ProcessPool {
@@ -245,6 +247,7 @@ export const createProcessPool = (options: ProcessPoolOptions): ProcessPool => {
     entry.state = "stopped";
     entry.stoppedAt = now();
     stopping.delete(entry);
+    if (entries.get(entry.sessionId) === entry) options.onStopped?.(entry.sessionId);
     if (closed) return;
     entry.forget = clock.setTimeout(() => {
       if (entries.get(entry.sessionId) === entry) entries.delete(entry.sessionId);

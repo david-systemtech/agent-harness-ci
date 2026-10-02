@@ -1,3 +1,5 @@
+import { SessionBankUsedPayload } from "./bank-use.js";
+import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, BankReviewHeldPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
 import { z } from "zod";
 import { Action, ActionCondition, ActionContext } from "./actions.js";
 import {
@@ -233,6 +235,8 @@ import {
   UpdatesStatus,
 } from "./updates.js";
 import { RegisteredStepId, SetupAction, SetupTarget, SetupTargetKind, StepResult, StepResults, StepState } from "./setup.js";
+import { SetupMintedPayload } from "./setup-minted.js";
+import { PromptVariant } from "./setup-prompts.js";
 import {
   ADDRESS_ROWS,
   SETTINGS_ADDRESSES,
@@ -290,7 +294,8 @@ import {
   ChromeUpdatedPayload,
   PairedChrome,
 } from "./browser-chromes.js";
-import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload } from "./browser-status.js";
+import { BrowserStatus, ExtensionFolderStatus, ExtensionListenerStatus, ExtensionSeenPayload, HeadlessBrowserStatus, HeadlessSource } from "./browser-status.js";
+import { BrowserDockCall, BrowserChromeCall, BrowserChromeListCall, BrowserChromeListResult, ClientCallId, ClientCallPayload } from "./client-calls.js";
 import {
   Catalogue,
   CatalogueAlwaysOnHint,
@@ -448,6 +453,9 @@ import {
 } from "./methods/forge.js";
 import {
   BitwardenReference,
+  BitwardenMoveLocator,
+  KeyManagerMoveLocator,
+  ReferenceProviderUnavailableError,
   CredentialSourceUnavailableError,
   DopplerReference,
   KeyManagerConnectionId,
@@ -502,6 +510,7 @@ import { SecretRule, SecretShapedError, ShapeRuleId } from "./shape-rules.js";
 import {
   INSTRUCTION_SESSION_EVENT_TYPES,
   INSTRUCTIONS_EVENT_TYPES,
+  AlwaysOnChooser,
   InstructionAccount,
   InstructionAlwaysOnSkill,
   InstructionBody,
@@ -540,6 +549,7 @@ import {
   ReviewCounts,
   ReviewDenial,
   ReviewRun,
+  ReviewUpdatedPayload,
   RunActorKind,
   RunPolicy,
   ToolDecider,
@@ -548,7 +558,7 @@ import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
-import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, HostPattern } from "./denylist.js";
+import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
   DecidedBy,
@@ -575,6 +585,28 @@ import {
   SkillReadiness,
 } from "./readiness.js";
 import { REPOSITORY_IDENTITY_CASES, RepositoryIdentity } from "./repository-identity.js";
+import {
+  BANK_EVENT_PAYLOADS,
+  BankAccountScope,
+  BankConflictReason,
+  BankCopiedFrom,
+  BankCredentialSource,
+  BankEntry,
+  BankFolderPointer,
+  BankId,
+  BankLandingStatus,
+  BankLocation,
+  BankManifestStatus,
+  BankMergeOverride,
+  BankReachability,
+  BankRecord,
+  BankRepositoryScope,
+  BankRole,
+  BankStatus,
+} from "./bank-registry.js";
+import { BankJoinPreview } from "./bank-join.js";
+import { BankIndexConflict, BankReadOnlyError, BankRequiredError, ValidationFailedError } from "./methods/banks.js";
+import { BANK_VALIDATOR_RULES, BankFinding, BankManifest, BankName, BankRuleId, BankValidatorRule, BankVerdict, MemoryFrontmatter, OrgFile, ScopeFile } from "./banks.js";
 import { SKILL_MEMBER_CASES, SKILL_NAME_CASES, SOURCE_FOLDER_CASES, SOURCE_URL_CASES } from "./skill-rule-cases.js";
 import {
   NativeSkillRoot,
@@ -640,17 +672,22 @@ import {
   WebhookEntry,
   WebhookPayload,
 } from "./routines.js";
+import { RoutineDocument } from "./routine-document.js";
 import { RoutineDay, RoutineSchedule, RoutineTime, RoutineTimeZone, ScheduleIssueParams, WrittenTimeZone } from "./schedule.js";
 import { SCHEDULE_DUE_TIME_CASES, SCHEDULE_VALIDATION_CASES } from "./schedule-cases.js";
+import { SILENCE_CASES } from "./silence-cases.js";
 import {
+  CommandsListEntry,
   GitCommit,
   RunSkillSet,
   RunSkillSetMember,
   SKILLS_EVENT_TYPES,
+  SkillArgumentHint,
   SkillCarriedItem,
   SkillCarryOverInvalid,
   SkillCarryOverOffer,
   SkillChoice,
+  SkillEntry,
   SkillLayer,
   SkillMember,
   SkillMemberKind,
@@ -669,12 +706,19 @@ import {
   SkillProbeMember,
   SkillProbeProblem,
   SkillProbeUnreachable,
+  SkillSourceAddConflict,
+  SkillSourceFollowConflict,
+  SkillSourceMember,
+  SkillSourceNoSkills,
+  SkillSourcePullConflict,
+  SkillSourceSync,
   SkillsProbeResult,
   SkillsEventType,
   SkillsUpdatedPayload,
   SkillsView,
   SkillsViewAccount,
   SkillsViewMember,
+  SkillsViewSource,
 } from "./skills.js";
 import {
   TRUST_EVENT_TYPES,
@@ -931,6 +975,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "key-managers/openbao-reference.json", title: "OpenBaoReference", schema: OpenBaoReference },
   { path: "key-managers/doppler-reference.json", title: "DopplerReference", schema: DopplerReference },
   { path: "key-managers/onepassword-reference.json", title: "OnePasswordReference", schema: OnePasswordReference },
+  { path: "key-managers/bitwarden-move-locator.json", title: "BitwardenMoveLocator", schema: BitwardenMoveLocator },
+  { path: "key-managers/move-locator.json", title: "KeyManagerMoveLocator", schema: KeyManagerMoveLocator },
+  { path: "key-managers/reference-provider-unavailable-error.json", title: "ReferenceProviderUnavailableError", schema: ReferenceProviderUnavailableError },
   { path: "key-managers/bitwarden-reference.json", title: "BitwardenReference", schema: BitwardenReference },
   { path: "key-managers/reference.json", title: "KeyManagerReference", schema: KeyManagerReference },
   { path: "key-managers/address.json", title: "KeyManagerAddress", schema: KeyManagerAddress },
@@ -1015,6 +1062,51 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
+  { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
+  { path: "sessions/events/session.bank-used.json", title: "SessionBankUsedPayload", schema: SessionBankUsedPayload },
+  { path: "banks/tools/search.json", title: "MemorySearchInput", schema: MemorySearchInput },
+  { path: "banks/tools/read.json", title: "MemoryReadInput", schema: MemoryReadInput },
+  { path: "banks/tools/promote.json", title: "MemoryPromoteInput", schema: MemoryPromoteInput },
+  { path: "banks/promote-result.json", title: "MemoryPromoteResult", schema: MemoryPromoteResult },
+  { path: "banks/events/bank.review-held.json", title: "BankReviewHeldPayload", schema: BankReviewHeldPayload },
+  { path: "banks/events/bank.drafts-consumed.json", title: "BankDraftsConsumedPayload", schema: BankDraftsConsumedPayload },
+  { path: "banks/tools/draft.json", title: "MemoryDraftInput", schema: MemoryDraftInput },
+  { path: "banks/tools/retire.json", title: "MemoryRetireInput", schema: MemoryRetireInput },
+  { path: "banks/draft.json", title: "BankDraft", schema: BankDraft },
+  { path: "banks/events/bank.draft-queued.json", title: "BankDraftQueuedPayload", schema: BankDraftQueuedPayload },
+  { path: "banks/name.json", title: "BankName", schema: BankName },
+  { path: "banks/manifest.json", title: "BankManifest", schema: BankManifest },
+  { path: "banks/org-file.json", title: "OrgFile", schema: OrgFile },
+  { path: "banks/scope-file.json", title: "ScopeFile", schema: ScopeFile },
+  { path: "banks/memory.json", title: "MemoryFrontmatter", schema: MemoryFrontmatter },
+  { path: "banks/rule-id.json", title: "BankRuleId", schema: BankRuleId },
+  { path: "banks/validator-rule.json", title: "BankValidatorRule", schema: BankValidatorRule },
+  { path: "banks/finding.json", title: "BankFinding", schema: BankFinding },
+  { path: "banks/verdict.json", title: "BankVerdict", schema: BankVerdict },
+  { path: "banks/id.json", title: "BankId", schema: BankId },
+  { path: "banks/role.json", title: "BankRole", schema: BankRole },
+  { path: "banks/folder-pointer.json", title: "BankFolderPointer", schema: BankFolderPointer },
+  { path: "banks/account-scope.json", title: "BankAccountScope", schema: BankAccountScope },
+  { path: "banks/repository-scope.json", title: "BankRepositoryScope", schema: BankRepositoryScope },
+  { path: "banks/location.json", title: "BankLocation", schema: BankLocation },
+  { path: "banks/merge-override.json", title: "BankMergeOverride", schema: BankMergeOverride },
+  { path: "banks/credential-source.json", title: "BankCredentialSource", schema: BankCredentialSource },
+  { path: "banks/copied-from.json", title: "BankCopiedFrom", schema: BankCopiedFrom },
+  { path: "banks/reachability.json", title: "BankReachability", schema: BankReachability },
+  { path: "banks/manifest-status.json", title: "BankManifestStatus", schema: BankManifestStatus },
+  { path: "banks/landing-status.json", title: "BankLandingStatus", schema: BankLandingStatus },
+  { path: "banks/status.json", title: "BankStatus", schema: BankStatus },
+  { path: "banks/entry.json", title: "BankEntry", schema: BankEntry },
+  { path: "banks/record.json", title: "BankRecord", schema: BankRecord },
+  { path: "banks/join-preview.json", title: "BankJoinPreview", schema: BankJoinPreview },
+  { path: "banks/conflict-reason.json", title: "BankConflictReason", schema: BankConflictReason },
+  { path: "banks/index-conflict.json", title: "BankIndexConflict", schema: BankIndexConflict },
+  ...Object.entries(BANK_EVENT_PAYLOADS).map(([type, payload]) => ({
+    path: `banks/events/${type}.json`,
+    title: `${pascal(type)}Payload`,
+    schema: payload as z.ZodType,
+  })),
   { path: "skills/name.json", title: "SkillName", schema: SkillName },
   { path: "skills/source-url.json", title: "SkillSourceUrl", schema: SkillSourceUrl },
   { path: "skills/source-folder.json", title: "SkillSourceFolder", schema: SkillSourceFolder },
@@ -1033,6 +1125,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/event-type.json", title: "SkillsEventType", schema: SkillsEventType },
   ...Object.entries(SKILLS_EVENT_TYPES).map(([type, entry]) => ({ path: `skills/events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
   { path: "skills/view-member.json", title: "SkillsViewMember", schema: SkillsViewMember },
+  { path: "skills/view-source.json", title: "SkillsViewSource", schema: SkillsViewSource },
   { path: "skills/view-account.json", title: "SkillsViewAccount", schema: SkillsViewAccount },
   { path: "skills/view.json", title: "SkillsView", schema: SkillsView },
   { path: "skills/skills-updated.json", title: "SkillsUpdatedPayload", schema: SkillsUpdatedPayload },
@@ -1040,11 +1133,15 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/set-fingerprint.json", title: "SkillSetFingerprint", schema: SkillSetFingerprint },
   { path: "skills/run-skill-set-member.json", title: "RunSkillSetMember", schema: RunSkillSetMember },
   { path: "skills/run-skill-set.json", title: "RunSkillSet", schema: RunSkillSet },
+  { path: "skills/argument-hint.json", title: "SkillArgumentHint", schema: SkillArgumentHint },
+  { path: "skills/entry.json", title: "SkillEntry", schema: SkillEntry },
+  { path: "skills/commands-list-entry.json", title: "CommandsListEntry", schema: CommandsListEntry },
   { path: "skills/source-id.json", title: "SkillSourceId", schema: SkillSourceId },
   { path: "skills/git-commit.json", title: "GitCommit", schema: GitCommit },
   { path: "skills/source-branch.json", title: "SkillSourceBranch", schema: SkillSourceBranch },
   { path: "skills/follow.json", title: "SkillSourceFollow", schema: SkillSourceFollow },
   { path: "skills/source.json", title: "SkillSource", schema: SkillSource },
+  { path: "skills/source-member.json", title: "SkillSourceMember", schema: SkillSourceMember },
   { path: "skills/carried-item.json", title: "SkillCarriedItem", schema: SkillCarriedItem },
   { path: "skills/carry-over-offer.json", title: "SkillCarryOverOffer", schema: SkillCarryOverOffer },
   { path: "skills/carry-over-invalid.json", title: "SkillCarryOverInvalid", schema: SkillCarryOverInvalid },
@@ -1056,6 +1153,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "skills/probe-result.json", title: "SkillsProbeResult", schema: SkillsProbeResult },
   { path: "skills/probe-problem.json", title: "SkillProbeProblem", schema: SkillProbeProblem },
   { path: "skills/probe-unreachable.json", title: "SkillProbeUnreachable", schema: SkillProbeUnreachable },
+  { path: "skills/source-add-conflict.json", title: "SkillSourceAddConflict", schema: SkillSourceAddConflict },
+  { path: "skills/source-no-skills.json", title: "SkillSourceNoSkills", schema: SkillSourceNoSkills },
+  { path: "skills/source-pull-conflict.json", title: "SkillSourcePullConflict", schema: SkillSourcePullConflict },
+  { path: "skills/source-follow-conflict.json", title: "SkillSourceFollowConflict", schema: SkillSourceFollowConflict },
+  { path: "skills/source-sync.json", title: "SkillSourceSync", schema: SkillSourceSync },
   { path: "skills/readiness/fix.json", title: "ReadinessFix", schema: ReadinessFix },
   { path: "skills/readiness/check.json", title: "ReadinessCheck", schema: ReadinessCheck },
   { path: "skills/readiness/declaration.json", title: "ReadinessDeclaration", schema: ReadinessDeclaration },
@@ -1188,14 +1290,17 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "permissions/denylist-input.json", title: "DenylistInput", schema: DenylistInput },
   { path: "permissions/denylist-match.json", title: "DenylistMatch", schema: DenylistMatch },
   { path: "permissions/denylist-test-kind.json", title: "DenylistTestKind", schema: DenylistTestKind },
+  { path: "permissions/notices/denylist.updated.json", title: "DenylistUpdatedPayload", schema: DenylistUpdatedPayload },
   { path: "permissions/listed-prompt.json", title: "ListedPrompt", schema: ListedPrompt },
   { path: "permissions/review-actor.json", title: "ReviewActor", schema: ReviewActor },
   { path: "permissions/review-counts.json", title: "ReviewCounts", schema: ReviewCounts },
   { path: "permissions/review-denial.json", title: "ReviewDenial", schema: ReviewDenial },
   { path: "permissions/review-run.json", title: "ReviewRun", schema: ReviewRun },
+  { path: "permissions/notices/review.updated.json", title: "ReviewUpdatedPayload", schema: ReviewUpdatedPayload },
   { path: "instructions/layer.json", title: "InstructionLayer", schema: InstructionLayer },
   { path: "instructions/manifest-part.json", title: "InstructionManifestPart", schema: InstructionManifestPart },
   { path: "instructions/manifest-layer.json", title: "InstructionManifestLayer", schema: InstructionManifestLayer },
+  { path: "instructions/always-on-chooser.json", title: "AlwaysOnChooser", schema: AlwaysOnChooser },
   { path: "instructions/always-on-skill.json", title: "InstructionAlwaysOnSkill", schema: InstructionAlwaysOnSkill },
   { path: "instructions/left-out-reason.json", title: "InstructionLeftOutReason", schema: InstructionLeftOutReason },
   { path: "instructions/left-out.json", title: "InstructionLeftOut", schema: InstructionLeftOut },
@@ -1402,6 +1507,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "routines/conflict-reason.json", title: "RoutineConflictReason", schema: RoutineConflictReason },
   { path: "routines/import-warnings.json", title: "RoutineImportWarnings", schema: RoutineImportWarnings },
   { path: "routines/import-check.json", title: "RoutineImportCheck", schema: RoutineImportCheck },
+  { path: "routines/document.json", title: "RoutineDocument", schema: RoutineDocument },
   { path: "errors/denylisted.json", title: "DenylistedError", schema: DenylistedError },
   { path: "errors/output_too_large.json", title: "OutputTooLargeError", schema: OutputTooLargeError },
   { path: "setup/step-id.json", title: "StepId", schema: StepId },
@@ -1412,6 +1518,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "setup/step-state.json", title: "StepState", schema: StepState },
   { path: "setup/step-result.json", title: "StepResult", schema: StepResult },
   { path: "setup/step-results.json", title: "StepResults", schema: StepResults },
+  { path: "setup/prompt-variant.json", title: "PromptVariant", schema: PromptVariant },
+  { path: "setup/minted-payload.json", title: "SetupMintedPayload", schema: SetupMintedPayload },
   { path: "browser/page-driver-kind.json", title: "PageDriverKind", schema: PageDriverKind },
   { path: "browser/page-key.json", title: "PageKey", schema: PageKey },
   ...PAGE_VERBS.flatMap((verb) => [
@@ -1444,6 +1552,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "browser/bridge/from-environment.json", title: "BridgeFromEnvironment", schema: BridgeFromEnvironment },
   { path: "browser/status/listener.json", title: "ExtensionListenerStatus", schema: ExtensionListenerStatus },
   { path: "browser/status/folder.json", title: "ExtensionFolderStatus", schema: ExtensionFolderStatus },
+  { path: "browser/status/headless-source.json", title: "HeadlessSource", schema: HeadlessSource },
+  { path: "browser/status/headless.json", title: "HeadlessBrowserStatus", schema: HeadlessBrowserStatus },
   { path: "browser/status/status.json", title: "BrowserStatus", schema: BrowserStatus },
   { path: "browser/extension-seen.json", title: "ExtensionSeenPayload", schema: ExtensionSeenPayload },
   { path: "browser/chrome-pairing-code.json", title: "ChromePairingCode", schema: ChromePairingCode },
@@ -1453,6 +1563,12 @@ export const exportedSchemas = (): ExportedSchema[] => [
   ...Object.entries(CHROME_EVENT_TYPES).map(([type, entry]) => ({ path: `browser/chrome-events/${type}.json`, title: `${pascal(type)}Payload`, schema: entry.payload as z.ZodType })),
   { path: "browser/chrome-change.json", title: "ChromeChange", schema: ChromeChange },
   { path: "browser/chrome-updated.json", title: "ChromeUpdatedPayload", schema: ChromeUpdatedPayload },
+  { path: "client-calls/call-id.json", title: "ClientCallId", schema: ClientCallId },
+  { path: "client-calls/browser-dock.json", title: "BrowserDockCall", schema: BrowserDockCall },
+  { path: "client-calls/browser-chrome-list.json", title: "BrowserChromeListCall", schema: BrowserChromeListCall },
+  { path: "client-calls/browser-chrome-list-result.json", title: "BrowserChromeListResult", schema: BrowserChromeListResult },
+  { path: "client-calls/browser-chrome.json", title: "BrowserChromeCall", schema: BrowserChromeCall },
+  { path: "client-calls/call.json", title: "ClientCallPayload", schema: ClientCallPayload },
   ...Object.entries(SETTINGS_EVENT_TYPES).map(([type, entry]) => ({
     path: `settings/events/${type}.json`,
     title: `${pascal(type)}Payload`,
@@ -1479,6 +1595,9 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "errors/reference_not_found.json", title: "ReferenceNotFoundError", schema: ReferenceNotFoundError },
   { path: "errors/reference_denied.json", title: "ReferenceDeniedError", schema: ReferenceDeniedError },
   { path: "errors/forge_account_missing.json", title: "ForgeAccountMissingError", schema: ForgeAccountMissingError },
+  { path: "errors/bank_required.json", title: "BankRequiredError", schema: BankRequiredError },
+  { path: "errors/bank_read_only.json", title: "BankReadOnlyError", schema: BankReadOnlyError },
+  { path: "errors/validation_failed.json", title: "ValidationFailedError", schema: ValidationFailedError },
   { path: "errors/kind_unsupported.json", title: "KindUnsupportedError", schema: KindUnsupportedError },
   { path: "errors/not_a_forge.json", title: "NotAForgeError", schema: NotAForgeError },
   { path: "errors/not_a_pull_request.json", title: "NotAPullRequestError", schema: NotAPullRequestError },
@@ -1540,13 +1659,14 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
     title: "Skill member",
     description: [
       "Reading a member, readSkillMember in the contracts package (skills spec, \"The skill set\" and \"Name\").",
-      "Each case gives a member's frontmatter as parsed (null for frontmatter that does not read as a YAML mapping) and its folder, and what the reading answers: name, description, invocation, userInvocable and whileActive, and each problem and warning by its kind.",
+      "Each case gives a member's frontmatter as parsed (null for frontmatter that does not read as a YAML mapping) and its folder, and what the reading answers: name, description, invocation, userInvocable, argumentHint and whileActive, and each problem and warning by its kind.",
       "The folder is {kind: folder, name}, the member's own folder; for a folder that is itself one skill, {kind: root, sourceFolderSegment, repositorySegment}: the source folder's last segment (null for .) and the repository's last path segment (null for none); or, for a command file, {kind: file, name}, its file's name without .md.",
       "The name is the frontmatter name when it is text the skill-name rule takes (never for a command, which is named by its file alone); else the first of the folder names (the folder's or file's; for a root, the source folder's segment, then the repository's) the rule takes; else null, with a name problem.",
       "A frontmatter name that is present but not taken is a frontmatter-name-invalid warning when a folder name is used; a name unlike the folder the member is in (for a root, the source folder's segment, else the repository's) is a name-unlike-folder warning.",
       "Frontmatter that does not read is a frontmatter problem, first, and the member is read as if its frontmatter were empty, with no description problem.",
       "The description is a frontmatter description that is text with more than white space, trimmed; else null, with a description problem, after any name problem.",
       "The invocation is slash-only exactly when disable-model-invocation is true, else model+slash; userInvocable is false exactly when user-invocable is false.",
+      "argumentHint is argument-hint as text, trimmed; a finite number or a boolean as its text; a list of such scalars (YAML reads argument-hint: [message] as one) written back as typed, its items joined by a comma and a space inside brackets; null when it is absent, blank, an empty list or anything else.",
       "whileActive lists hooks, then allowed-tools, each when its key holds anything: not absent, null, empty text, an empty list or an empty mapping.",
     ].join(" "),
     cases: SKILL_MEMBER_CASES,
@@ -1611,6 +1731,19 @@ export const publishedCaseTables = (): PublishedCaseTable[] => [
       "A wall-clock minute a clock change skips is due at the first minute after the gap, which is the change's own instant, and minutes inside one gap are one due time; a minute a clock change repeats is due once, at its first occurrence.",
     ].join(" "),
     cases: SCHEDULE_DUE_TIME_CASES,
+  },
+  {
+    path: "cases/silence.json",
+    title: "Silence",
+    description: [
+      "The silence rule, isSilent in the contracts package (routines spec, \"Silence\"): whether a firing's final text is its routine's silence marker, so the firing delivers nothing.",
+      "Each case gives a final text, the routine's marker ([SILENT] unless the routine names its own) and whether the text is silent.",
+      "Folding a text trims it, upper-cases it by Unicode's default case mapping and makes each run of white space one space; its bare form has the punctuation at either edge removed (any character of Unicode's general category P but [ and ], so a malformed [SILENT never reads as SILENT) and is trimmed again.",
+      "Empty text, or white space alone, is not silent. Otherwise a text is silent when the marker is bracketed (it begins with [ and ends with ] once trimmed) and the folded text begins with the folded marker; or when its whole text, its first non-blank line or its last non-blank line (lines split at \\r\\n, \\r and \\n) is the marker.",
+      "A line or the whole text is the marker when, trimmed, it is 1 to 64 characters (Unicode code points) and it folded, or its bare form folded, equals the marker folded or the marker's bare form folded, an empty form equalling nothing.",
+      "So a marker mid-sentence or on a middle line is delivered.",
+    ].join(" "),
+    cases: SILENCE_CASES,
   },
 ];
 
@@ -1724,6 +1857,18 @@ export const publishedData = (): PublishedData[] => [
     ].join(" "),
     schema: "catalogue/instruction-entry.json",
     entries: CATALOGUE.instructions.entries,
+  },
+  {
+    path: "data/bank-validator-rules.json",
+    title: "Bank validator rules",
+    description: [
+      "The bank validator's rules (banks spec, \"The validator\"; ADR 0013, ADR 0034, ADR 0037), in the order a verdict lists them: each id, whether it refuses or warns, and what it finds.",
+      "One validator gives every verdict: the contracts' validateBank at memory_draft, memory_promote and in the BankService, and validate.mjs in a bank's CI, stamped with the version of these rules on its first line (// bank-validator <version>).",
+      "A bank's files are BANK.md and the Markdown under projects/: ORG.md in projects/<org>/, PROJECT.md in projects/<org>/<project>/, AREA.md in projects/<org>/<project>/<area>/, and memories in a project's or an area's memories/, a topic declared in its topics: one folder deeper; any other file is a document the validator does not check, though validate.mjs refuses a Markdown one it cannot read (unreadable).",
+      "A finding names its rule, the file or folder, the field where it is one and, for secret_shaped, the shape rule or registered-value, never the value.",
+    ].join(" "),
+    schema: "banks/validator-rule.json",
+    entries: BANK_VALIDATOR_RULES,
   },
 ];
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.memory.search result",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "description": "The memory tool's answer: each hit as its pointer and line, then n of N."
+    }
+  },
+  "required": [
+    "text"
+  ]
+}

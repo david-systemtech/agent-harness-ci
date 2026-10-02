@@ -1,53 +1,10 @@
-import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, ONE_OFF_VARIABLE, oneOffEnv, oneOffOutput, type TerminalInfo } from "@agent-harness/contracts";
+import { NO_PAGERS, ONE_OFF_MAX_CHARS, oneOffOutput, type TerminalInfo } from "@agent-harness/contracts";
 import type { Clock } from "../platform.js";
 import type { Runtime } from "../runtime.js";
 import type { TerminalHandle } from "../streams/terminals.js";
 import type { TextScreens } from "./text-screen.js";
 
-/**
- * One-off commands (docs/specs/tui.md, "The composer": `!` runs a command
- * in an environment-owned terminal attached to the workspace, `!!` sends
- * its output). The environment has terminals, not a way to run one
- * command, so a one-off opens a terminal of its own for the session, whose
- * login shell is told to hand itself over to `/bin/sh` running the command:
- *
- * - **The command is never typed.** It goes in the terminal's environment
- *   (`terminals.open`'s variables); the line typed is always the same,
- *   `exec /bin/sh -c "$AGENT_HARNESS_ONE_OFF"`, which every POSIX shell and
- *   fish read alike, so no quoting of the command can go wrong in the
- *   user's shell. It starts with a space, which keeps it out of the history
- *   of fish, of bash with `ignorespace` and of zsh with `HIST_IGNORE_SPACE`.
- *   `sh` rather than the login shell: a command,
- *   not a session. The terminal's exit is the command's: `exec` replaced the
- *   shell with `sh`, whose status is its last command's.
- * - **`!`** (`shownEnv`) is the command alone: it runs in the pane, where a
- *   person can answer it, page it and read it.
- * - **`!!`** (`oneOffEnv`) has nobody to answer it, so its script prints a
- *   marker, then takes its input from `/dev/null` and tells every pager to
- *   print (`PAGER`, `GIT_PAGER`, `MANPAGER`, `SYSTEMD_PAGER` are `cat`, in
- *   the terminal's variables and again in the script, since a login
- *   shell's rc file may set its own), then runs the command. A program that
- *   opens the terminal itself (`less` named outright, `sudo` or `ssh` asking
- *   a password) still waits, until the minute is up.
- * - **What the command said is what comes after the marker.** Before it are
- *   the login shell's greeting, its prompt and the typed line's echo; the
- *   marker is printed by the script and appears in none of them. With no
- *   marker the command never ran (a shell that could not hand itself to
- *   `sh`): nothing is sent, and the last line the terminal showed says why.
- * - **It is read as a terminal would show it**: the output goes through the
- *   emulator the renderer's pane draws with (`TextScreens`), so
- *   carriage-return progress bars and colours come out as the text a person
- *   saw, cut to its first `ONE_OFF_MAX_LINES` lines with the rest counted.
- * - **A minute at most**: past `ONE_OFF_TIMEOUT_MS` the terminal is closed
- *   and the output says so. Every way it ends, the terminal is closed (a
- *   close the environment could not be asked is sent again once it can
- *   be), so it never counts against the session's sixteen.
- *
- * The variables, the line and the reading of the marker are contracts'
- * (`one-off.ts` there), where the environment's tests prove them against
- * real pseudo-terminals. Both renderers run one-offs through here (#409):
- * the terminal UI's `!` and `!!`, and the window's.
- */
+/** One-offs use terminals.run: closed stdin, no login startup and no controlling terminal. */
 
 /**
  * Closes terminal `id` (`terminals.close`). A close the environment could not
@@ -76,9 +33,6 @@ export const ONE_OFF_MAX_LINES = 200;
 
 /** The size a `!!` terminal opens at, and its output is read at. */
 const ONE_OFF_SIZE = { cols: 120, rows: 40 } as const;
-
-/** The variables a `!` terminal opens with: the command alone, run where a person can answer it. */
-export const shownEnv = (command: string): Record<string, string> => ({ [ONE_OFF_VARIABLE]: command });
 
 /** The first `max` lines, and a count of the rest, `more` lines past `text` among them. */
 export const clipOutput = (text: string, max = ONE_OFF_MAX_LINES, more = 0): string => {
@@ -193,24 +147,24 @@ export const runOneOff = async (deps: OneOffDeps, target: OneOffTarget, command:
   const { environmentId, sessionId } = target;
   const timeoutMs = deps.timeoutMs ?? ONE_OFF_TIMEOUT_MS;
   const id = deps.newTerminalId();
-  const marker = `agent-harness-one-off-${id}`;
-  const opened = await runtime.requests.call(environmentId, "terminals.open", {
+  const opened = await runtime.requests.call(environmentId, "terminals.run", {
     commandId: deps.newCommandId(),
     id,
     sessionId,
     ...ONE_OFF_SIZE,
-    env: oneOffEnv(command, marker),
+    command,
+    env: { ...NO_PAGERS },
   });
   if (!opened.ok) return { ok: false, line: opened.error.message };
   if (opened.result.receipt.status === "rejected") return { ok: false, line: opened.result.receipt.error.message };
 
-  const heard = oneOffOutput(marker);
+  const heard = oneOffOutput();
   let handle: TerminalHandle | undefined;
   let timer: { cancel(): void } | undefined;
   const ended = new Promise<Ended>((resolve) => {
     timer = clock.setTimeout(() => resolve({ exitCode: null, signal: null, timedOut: true, gone: false }), timeoutMs);
     handle = runtime.subscriptions.terminal(environmentId, id, (output) => {
-      if (output.kind === "reset") heard.reset(output.data);
+      if (output.kind === "reset") heard.reset(output.data, output.truncated);
       else if (output.kind === "output") heard.take(output.data);
       else resolve({ exitCode: output.exit.exitCode, signal: output.exit.signal, timedOut: false, gone: false });
     });
@@ -219,22 +173,11 @@ export const runOneOff = async (deps: OneOffDeps, target: OneOffTarget, command:
       if (view.status === "ended" && view.exit === null) resolve({ exitCode: null, signal: null, timedOut: false, gone: true });
     });
   });
-  const typed = await runtime.requests.call(environmentId, "terminals.write", { commandId: deps.newCommandId(), id, data: ONE_OFF_LINE });
-  const end: Ended = typed.ok && typed.result.receipt.status === "accepted" ? await ended : { exitCode: null, signal: null, timedOut: false, gone: false };
+  const end = await ended;
   timer?.cancel();
   handle?.release();
-  // Closed whichever way it ended: an exited terminal stays listed until it is.
   closeTerminal(runtime, environmentId, id, deps.newCommandId);
-  if (!typed.ok) return { ok: false, line: typed.error.message };
-  if (typed.result.receipt.status === "rejected") return { ok: false, line: typed.result.receipt.error.message };
-
   const said = heard.said();
-  if (said === null) {
-    // The command never ran: what the terminal showed is the shell's, never the command's, so none of it goes to the agent.
-    const last = (await shownText(deps.screens, heard.before())).split("\n").findLast((line) => line.trim().length > 0);
-    const why = end.timedOut ? `within ${seconds(timeoutMs)}` : "before its terminal ended";
-    return { ok: false, line: `The shell never started it ${why}${last === undefined ? "." : `; it last showed: ${last.trim()}`}` };
-  }
   return { ok: true, output: await shownOutput(deps.screens, said.text), ...end, timeoutMs, cut: said.cut, dropped: said.dropped };
 };
 

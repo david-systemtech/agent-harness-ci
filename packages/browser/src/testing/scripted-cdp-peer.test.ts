@@ -5,8 +5,9 @@ import { scriptedCdpPeer } from "./index.js";
 
 /**
  * The scripted CDP peer as the tests of other packages meet it: its
- * DevTools address found as a browser's is, and in-page functions answered
- * by name in the world and frame they were called in.
+ * DevTools address found as a browser's is, in-page functions answered by
+ * name in the world and frame they were called in, and a frame's owner
+ * element resolved into its parent's world.
  */
 
 const listening = async () => {
@@ -53,5 +54,85 @@ describe("the scripted CDP peer", () => {
     expect(await call()).toEqual({ result: { type: "string", value: "https://example.com/ ! tests" } });
     page.navigate("https://example.com/next");
     await expect(call()).rejects.toThrow("Cannot find context with specified id");
+  });
+
+  it("sends a document's request and response for a fetched address only: about:blank, which nothing serves, commits with none", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    const page = peer.createPage();
+    const session = await connection.attach(page.targetId);
+    const heard: string[] = [];
+    session.onEvent(({ method, params }) => {
+      if (method === "Page.frameNavigated") heard.push(`${method} ${(params.frame as { url: string }).url}`);
+      else if (method.startsWith("Network.") || method === "Page.frameStoppedLoading") heard.push(method);
+    });
+    const loadsStopped = () => heard.filter((method) => method === "Page.frameStoppedLoading").length;
+    await session.send("Page.enable");
+    await session.send("Network.enable");
+    page.navigate("https://example.com/");
+    await expect.poll(() => heard.at(-1), { timeout: 30_000 }).toBe("Network.loadingFinished");
+    page.navigate("about:blank");
+    await expect.poll(loadsStopped, { timeout: 30_000 }).toBe(2);
+    expect(heard).toEqual([
+      "Network.requestWillBeSent",
+      "Network.responseReceived",
+      "Page.frameNavigated https://example.com/",
+      "Page.frameStoppedLoading",
+      "Network.loadingFinished",
+      "Page.frameNavigated about:blank",
+      "Page.frameStoppedLoading",
+    ]);
+  });
+
+  it("names a frame's owner element in its parent's target and resolves it into the parent's world, where a function called on it hears which frame it holds", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    const page = peer.createPage("https://shop.example/");
+    const reviews = page.addFrame("https://shop.example/reviews");
+    const pay = page.addCrossSiteFrame("https://pay.example/embed");
+    const session = await connection.attach(page.targetId);
+    peer.inPage("ownedUrl", ({ frame, owner }) => `${owner?.url} in ${frame.url}`);
+    const { executionContextId } = await session.send("Page.createIsolatedWorld", { frameId: page.targetId, worldName: "tests" });
+    const ownedUrl = async (frameId: string) => {
+      const { backendNodeId } = await session.send("DOM.getFrameOwner", { frameId });
+      const { object } = await session.send("DOM.resolveNode", { backendNodeId, executionContextId });
+      const { objectId } = object as { objectId: string };
+      const { result } = await session.send("Runtime.callFunctionOn", { functionDeclaration: "function ownedUrl() { return this.src; }", objectId, returnByValue: true });
+      await session.send("Runtime.releaseObject", { objectId });
+      await expect(session.send("Runtime.callFunctionOn", { functionDeclaration: "function ownedUrl() {}", objectId })).rejects.toThrow("Could not find object with given id");
+      return (result as { value: string }).value;
+    };
+    expect(await ownedUrl(reviews.id)).toBe("https://shop.example/reviews in https://shop.example/");
+    expect(await ownedUrl(pay.targetId)).toBe("https://pay.example/embed in https://shop.example/");
+    await expect(session.send("DOM.getFrameOwner", { frameId: page.targetId })).rejects.toThrow("Frame with the given id was not found.");
+  });
+
+  it("keeps the cookies a document sets in the browser context of the page that loaded it, so another context reads none of them", async () => {
+    const { peer, url } = await listening();
+    const connection = cdpConnection(await webSocketTransport(url));
+    onTestFinished(() => connection.close());
+    peer.document("https://shop.example/login", { cookies: [{ name: "session", value: "cookie-for-tests" }] });
+    const pageIn = async () => {
+      const { browserContextId } = await connection.send("Target.createBrowserContext");
+      const { targetId } = await connection.send("Target.createTarget", { url: "about:blank", browserContextId });
+      return { browserContextId, session: await connection.attach(targetId as string), target: peer.target(targetId as string) };
+    };
+    const signedIn = await pageIn();
+    const other = await pageIn();
+    expect(signedIn.browserContextId).not.toBe(other.browserContextId);
+    expect(await connection.send("Target.getBrowserContexts")).toEqual({ browserContextIds: [signedIn.browserContextId, other.browserContextId] });
+    expect(await signedIn.session.send("Runtime.getHeapUsage")).toEqual({ usedSize: 0, totalSize: 0 });
+    signedIn.target.navigate("https://shop.example/login");
+    other.target.navigate("https://shop.example/");
+    const cookies = async (session: typeof signedIn.session) => ((await session.send("Network.getCookies", { urls: ["https://shop.example/"] })).cookies as { name: string; value: string; domain: string }[]);
+    expect(await cookies(signedIn.session)).toMatchObject([{ name: "session", value: "cookie-for-tests", domain: "shop.example" }]);
+    expect(await cookies(other.session)).toEqual([]);
+    expect((await signedIn.session.send("Network.getCookies", { urls: ["https://elsewhere.example/"] })).cookies).toEqual([]);
+    await connection.send("Target.disposeBrowserContext", { browserContextId: signedIn.browserContextId });
+    expect(await connection.send("Target.getBrowserContexts")).toEqual({ browserContextIds: [other.browserContextId] });
+    const again = await pageIn();
+    expect(await cookies(again.session)).toEqual([]);
   });
 });

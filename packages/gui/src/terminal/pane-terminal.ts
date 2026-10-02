@@ -2,14 +2,15 @@ import {
   closeTerminal,
   nextWrite,
   reusableTerminal,
-  shownEnv,
+  terminalAnswers,
   uuidv4,
+  type Clock,
   type Runtime,
   type TerminalHandle,
   type TerminalOutput,
   type TerminalStreamView,
 } from "@agent-harness/client-runtime";
-import { ONE_OFF_LINE, TERMINAL_SCROLLBACK } from "@agent-harness/contracts";
+import { TERMINAL_SCROLLBACK, TOOL_TERMINAL_KEPT_MS } from "@agent-harness/contracts";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import type { TerminalAsk } from "./terminal-panes.js";
@@ -46,9 +47,7 @@ import { openStyled } from "./xterm-styles.js";
  *   environment can be asked again; one refused (the terminal gone or its
  *   shell exited) is the terminal's end.
  * - **`!`** runs a command in a terminal of its own, shown in the pane in
- *   place of the shell, typed with the one-off's line (the client runtime's
- *   `runOneOff` rides the same variables); keys typed before its terminal
- *   is open go after the line. When it exits its terminal is closed and the
+ *   place of the shell, using `terminals.run` with stdin closed. When it exits its terminal is closed and the
  *   pane keeps what it showed, marked with how it ended, until a key there,
  *   `/terminal` or another `!` takes it away. One the pane goes from while it
  *   runs goes on unseen and is closed when it exits.
@@ -60,6 +59,13 @@ import { openStyled } from "./xterm-styles.js";
  *   pane on its own. Once its command exits the environment keeps it, and
  *   the pane keeps showing it with how it ended, until the close button
  *   closes it or it is gone from the environment, which the pane is told.
+ *   The environment closes it `TOOL_TERMINAL_KEPT_MS` after the exit on its
+ *   clock telling no one, since the subscription ended with the exit
+ *   (#864): once the environment's clock as this window reckons it
+ *   (`environmentNow`) is that long past the exit's time, the pane asks
+ *   after it again (`terminals.subscribe`), and is told it is gone when it
+ *   is not there; one still held is asked after again a minute later on
+ *   that clock.
  */
 
 /** What the pane says about the terminal it draws. */
@@ -76,8 +82,16 @@ export interface PaneView {
 export type PaneSource =
   /** The session's shell, and the one-offs this window started, which the pane never reopens as the shell and adds its `!` commands to. */
   | { readonly kind: "session"; readonly sessionId: string; readonly oneOffs: Set<string> }
-  /** A tool terminal `tools.run` opened, by its id, at the size the environment opened it at; `gone` hears that the environment no longer holds it. */
-  | { readonly kind: "tool"; readonly terminal: { readonly id: string; readonly cols: number; readonly rows: number }; readonly gone: () => void };
+  /**
+   * A tool terminal `tools.run` opened, by its id, at the size the environment opened it at; `gone` hears that the
+   * environment no longer holds it, and `clock`, the window's, wakes the pane to ask once its kept time is up.
+   */
+  | {
+      readonly kind: "tool";
+      readonly terminal: { readonly id: string; readonly cols: number; readonly rows: number };
+      readonly gone: () => void;
+      readonly clock: Clock;
+    };
 
 export interface PaneTerminalOptions {
   readonly runtime: Runtime;
@@ -112,6 +126,7 @@ interface Size {
 
 /** One terminal the pane draws, from being found or opened until another takes its place. */
 interface Drawn {
+  readonly answers: ReturnType<typeof terminalAnswers>;
   readonly command: string | null;
   terminalId: string | null;
   handle: TerminalHandle | null;
@@ -159,6 +174,9 @@ const endingSentence = (exit: Exit, name: string): string =>
 
 const sameSize = (a: Size | null, b: Size) => a !== null && a.cols === b.cols && a.rows === b.rows;
 
+/** How long after asking finds a kept tool terminal still held it is asked after again, on the environment's clock: this window's reckoning of that clock is off by the socket's latency, and by any drift since `hello`. */
+const KEPT_ASKED_AGAIN_MS = 60_000;
+
 /** The pane's fonts: the system's monospace faces, since the window bundles no font. */
 const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
@@ -186,6 +204,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   let feeding: Promise<void> = Promise.resolve();
   /** Whether what xterm.js sends now may go to the terminal: not while it parses output replayed rather than heard live. */
   let sendsAnswers = true;
+  let startupAnswer = false;
   const stops: (() => void)[] = [];
 
   const tell = () => {
@@ -197,14 +216,16 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     if (d === drawn) tell();
   };
 
-  const take = (data: string, live: boolean) => {
+  const take = (d: Drawn, data: string, live: boolean, startup = false) => {
     feeding = feeding.then(
       () =>
         new Promise<void>((resolve) => {
-          if (disposed) return resolve();
+          if (disposed || d.gone) return resolve();
           sendsAnswers = live;
+          startupAnswer = startup;
           term.write(data, () => {
             sendsAnswers = true;
+            startupAnswer = false;
             resolve();
           });
         }),
@@ -269,9 +290,13 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     if (d.gone) return;
     if (output.kind === "reset") {
       clear();
-      return take(output.data, false);
+      const startup = d.answers.take("reset", false, host.contains(document.activeElement));
+      return take(d, output.data, startup, startup);
     }
-    if (output.kind === "output") return take(output.data, output.live);
+    if (output.kind === "output") {
+      const answer = d.answers.take("output", output.live, host.contains(document.activeElement));
+      return take(d, output.data, output.live, answer);
+    }
     const { cause } = output.exit;
     const ended = cause === "exited" || cause === "failed";
     // An exited terminal stays listed until it is closed: closed now, so it is not reopened. A tool terminal the environment keeps.
@@ -279,7 +304,30 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     d.held = ended && source.kind === "tool";
     d.ended = endingMark(output.exit);
     say(d, d.command === null ? endingSentence(output.exit, nameOf()) : null);
-    if (!d.held && source.kind === "tool") source.gone();
+    if (d.held) askAt(d, Date.parse(output.occurredAt) + TOOL_TERMINAL_KEPT_MS);
+    else if (source.kind === "tool") source.gone();
+  };
+
+  /** Asks after the kept tool terminal `d` draws once the environment's clock, as this window reckons it, reaches `at`. */
+  const askAt = (d: Drawn, at: number) => {
+    if (source.kind !== "tool") return;
+    const timer = source.clock.setTimeout(() => askAfterKept(d), Math.max(0, at - runtime.environmentNow(environmentId).getTime()));
+    d.stops.push(() => timer.cancel());
+  };
+
+  /** Subscribes the kept tool terminal `d` draws again: not there, it is gone, and the pane is told; still held, it is asked after again a minute later. */
+  const askAfterKept = (d: Drawn) => {
+    if (d.gone || d.terminalId === null || source.kind !== "tool") return;
+    const asked = runtime.subscriptions.terminal(environmentId, d.terminalId, () => undefined);
+    const stop = asked.state.subscribe((view) => {
+      if (view.status !== "ended") return;
+      stop();
+      asked.release();
+      if (view.exit !== null) return askAt(d, runtime.environmentNow(environmentId).getTime() + KEPT_ASKED_AGAIN_MS);
+      d.held = false;
+      source.gone();
+    });
+    d.stops.push(stop, () => asked.release());
   };
 
   const followState = (d: Drawn, view: TerminalStreamView) => {
@@ -317,6 +365,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const begin = (command: string | null): Drawn => {
     if (drawn !== null) letGo(drawn);
     const d: Drawn = {
+      answers: terminalAnswers(),
       command,
       terminalId: null,
       handle: null,
@@ -359,8 +408,8 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   };
 
   /** Whether a new terminal cannot be opened now, the capability's line said at once when it cannot. */
-  const refusal = (d: Drawn, prefix: string): boolean => {
-    const capability = runtime.capability(environmentId, "terminals.open");
+  const refusal = (d: Drawn, prefix: string, method: "terminals.open" | "terminals.run" = "terminals.open"): boolean => {
+    const capability = runtime.capability(environmentId, method);
     if (capability.status !== "absent") return false;
     say(d, `${prefix}: ${capability.message}`);
     return true;
@@ -406,6 +455,7 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
       }
       if (!opened.ok) return failed(d, opened.error.message);
       if (opened.result.receipt.status === "rejected") return failed(d, opened.result.receipt.error.message);
+      d.answers.start();
       attach(d, id, asked);
     })();
   };
@@ -414,20 +464,20 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
     if (session === null) return;
     const { sessionId, oneOffs } = session;
     const d = begin(command);
-    if (refusal(d, "Not run")) {
+    if (refusal(d, "Not run", "terminals.run")) {
       d.ended = "not run";
       return tell();
     }
     const id = uuidv4();
     oneOffs.add(id);
     const asked = size();
-    void runtime.requests.call(environmentId, "terminals.open", { commandId: uuidv4(), id, sessionId, ...asked, env: shownEnv(command) }).then((opened) => {
+    void runtime.requests.call(environmentId, "terminals.run", { commandId: uuidv4(), id, sessionId, ...asked, command }).then((opened) => {
       const refused = !opened.ok ? opened.error.message : opened.result.receipt.status === "rejected" ? opened.result.receipt.error.message : undefined;
-      // Gone before its terminal came: an opened terminal is closed, the command not run.
+      // Gone before its receipt came: close the command already started for that pane.
       if (d.gone) return refused === undefined ? closeTerminal(runtime, environmentId, id, uuidv4) : undefined;
       if (refused !== undefined) return failed(d, refused);
-      // Keys typed in the pane while it opened go after the line, to the command, as a shell's typeahead would.
-      d.outgoing = ONE_OFF_LINE + d.outgoing;
+      d.outgoing = "";
+      d.answers.start();
       attach(d, id, asked);
     });
   };
@@ -443,11 +493,12 @@ export const createPaneTerminal = (options: PaneTerminalOptions): PaneTerminal =
   const keys = term.onData((data) => {
     const d = drawn;
     // What xterm.js answers while it parses replayed output, or while the pane does not have the keys, is not sent.
-    if (d === null || !sendsAnswers || !host.contains(document.activeElement)) return;
+    if (d === null || !sendsAnswers || (!startupAnswer && !host.contains(document.activeElement))) return;
     // A key in a `!` command's pane once it has ended takes the pane back to the shell.
     if (d.command !== null && d.ended !== null) return void shell();
     // With no terminal to take them (it ended, or none can be opened now), keys are dropped, never held for a later one.
     if (d.ended !== null || d.refused) return;
+    if (d.command !== null) return;
     d.outgoing += data;
     frameFor(d);
   });

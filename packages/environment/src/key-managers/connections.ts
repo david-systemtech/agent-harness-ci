@@ -27,9 +27,15 @@ import type { Clock } from "../serve/clock.js";
 import type { CommandAnswer, CommandContext, CommandRejection, MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
-import { basePathProblem, suggestBasePath } from "./base-path.js";
+import { createBackgroundWork } from "./background.js";
+import { basePathProblem, providerSuggestion } from "./base-path.js";
 import { addressHolder, connectionEver, importedHolder, injecting, listConnections, liveConnection, type StoredConnection } from "./connection-store.js";
 import { createLogins, letGo as letGoOf, type Login, type LoginToken } from "./logins.js";
+import { createBitwardenProvider } from "./bitwarden.js";
+import type { BitwardenSdkLoader } from "./bitwarden-sdk.js";
+import { createDopplerProvider } from "./doppler.js";
+import { createOnePasswordProvider } from "./onepassword.js";
+import type { OnePasswordSdk } from "./onepassword-sdk.js";
 import { createOpenBaoProvider } from "./openbao.js";
 import { KEY_MANAGER_BUDGET_MS, PROVIDER_NAMES, type ConnectionProvider, type LoginFailure, type SignInTarget, type VerifyAnswer } from "./provider.js";
 import { createRunTokens } from "./run-tokens.js";
@@ -115,7 +121,7 @@ const VAULT_PREFIX = "key-manager:";
 const newEntry = (connectionId: string): string => `${VAULT_PREFIX}${connectionId}:${randomUUID()}`;
 
 /** How a holder of a reference is named to people. */
-const HOLDER_KINDS: Record<KeyManagerReferenceHolder["kind"], string> = { "forge-account": "forge account" };
+const HOLDER_KINDS: Record<KeyManagerReferenceHolder["kind"], string> = { "forge-account": "forge account", endpoint: "webhook endpoint", bank: "bank" };
 
 /** The secrets of a credential, each registered for scrubbing: a role id and a secret id, a password, or a token. */
 const secretsOf = (credential: KeyManagerCredential): string[] => {
@@ -139,6 +145,7 @@ export interface KeyManagerConnectionsOptions {
   readonly clock: Clock;
   /** How long one verification may take, on the wall clock; preset `KEY_MANAGER_BUDGET_MS`. */
   readonly budgetMs?: number;
+  readonly bitwardenSdk?: BitwardenSdkLoader;
   /** The environment's id: the id of its stream, where the connections' events go. */
   readonly environmentId: string;
   /** The vault as the environment holds it: every entry registered with the scrub registry while it is held. */
@@ -148,6 +155,8 @@ export interface KeyManagerConnectionsOptions {
   readonly referenceHolders?: (connectionId: string) => readonly KeyManagerReferenceHolder[];
   /** The data directory's key-manager CLI directory, where the configuration the injected CLIs are pointed at is kept (#368). */
   readonly cliDirectory: string;
+  /** The 1Password SDK the 1Password provider signs in through (#378): the official one; tests give a scripted double. */
+  readonly onePasswordSdk: OnePasswordSdk;
 }
 
 /** A login the environment holds for a connection, as a reference is read with it: its token, and the provider and target it signed in through. */
@@ -189,6 +198,13 @@ export interface KeyManagerConnections {
   readable(connectionId: string): ReadableConnection | null;
   /** The key managers' part of every provider process and terminal (#368): the injecting connections' blocks and each holder's run tokens. */
   readonly processEnvironment: ProcessEnvironmentSupplier;
+  /**
+   * Settles once every renewal, verification, sign-in and revocation the
+   * connections took up off any request has ended, with what each took up in
+   * turn (#745): what a test on a held clock waits on after it moves the
+   * clock on, before it looks.
+   */
+  settled(): Promise<void>;
   /** Stops the sign-ins and verifications under way from recording anything, and lets go of every login and credential registration; a login is not revoked, and expires. */
   close(): void;
 }
@@ -207,10 +223,10 @@ type SignInResult =
 type Refusal<N extends MethodName> = CommandRejection<ErrorOf<N>["code"]>;
 
 /** The wire error of a sign-in that could not ask the key manager: a key manager asking the harness to slow down could not answer now. */
-const FAILURE_CODES = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected", "rate-limited": "unreachable" } as const;
+const FAILURE_CODES = { "provider-unavailable": "provider_unavailable", unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate_rejected", "rate-limited": "unreachable" } as const;
 
 /** The status a connection the key manager could not be asked about stands in: one asking the harness to slow down is unreachable for now. */
-const STATUS_OF: Record<CouldNotAsk, KeyManagerStatus["kind"]> = { unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate-rejected", "rate-limited": "unreachable" };
+const STATUS_OF: Record<CouldNotAsk, KeyManagerStatus["kind"]> = { "provider-unavailable": "provider-unavailable", unreachable: "unreachable", sealed: "sealed", "certificate-rejected": "certificate-rejected", "rate-limited": "unreachable" };
 
 /** What one verification found: the key manager's answer with the login it asked with, or the status it found the connection in. */
 type Checked =
@@ -235,8 +251,13 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const { log, clock, vault, scrub } = options;
   const budgetMs = options.budgetMs ?? KEY_MANAGER_BUDGET_MS;
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
-  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life; the rest arrive with their tickets (#377 to #379). */
-  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = { openbao: createOpenBaoProvider() };
+  /** The providers this environment signs in to, each keeping what it learns of its key managers for the environment's life. */
+  const providers: Partial<Record<KeyManagerProvider, ConnectionProvider>> = {
+    openbao: createOpenBaoProvider(),
+    doppler: createDopplerProvider(),
+    onepassword: createOnePasswordProvider(options.onePasswordSdk),
+    bitwarden: createBitwardenProvider(options.bitwardenSdk),
+  };
   // The log's query-only read: inside a command it reads that command's own transaction.
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
@@ -246,6 +267,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   const signingIn = new Map<string, string>();
   /** The startup's sign-in of each connection while it runs: a verification waits for it. */
   const startupSignIns = new Map<string, Promise<void>>();
+  /** What the connections, their logins and their run tokens do off any request. */
+  const background = createBackgroundWork();
   /** When each connection was last verified, whatever it found: beside the record, which keeps only the time of the last one that changed something. */
   const verifiedTimes = new Map<string, string>();
   /** The base path each connection's provider suggested at its last verification that asked, while it has none (#371). */
@@ -281,8 +304,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
   /** Lets go of a login no command or sign-in holds: one the environment made is revoked first, while its token is still registered. */
   const letGo = (connectionId: string, login: LoginToken): Promise<void> => letGoOf(connectionId, login, scrub);
 
-  /** The logins held, renewed and replaced on the clock; a login due, or one the key manager no longer knows, is verified at once, which signs in again. */
-  const logins = createLogins({ clock, scrub, budgetMs, due: (connectionId) => void schedule.verify(connectionId) });
+  /** The logins held, renewed and replaced on the clock; a login due, or one the key manager no longer knows, is verified again at once, which signs in again. */
+  const logins = createLogins({ clock, scrub, budgetMs, background, due: (connectionId) => void schedule.verifyAgain(connectionId) });
 
   /** Deletes a vault entry a committed command let go of; one left behind is deleted by the next start. */
   const deleteEntry = (entry: string): void => {
@@ -408,8 +431,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     ({ code: "verification_failed", message: `${refused.message} ${nothing}`, data: { connectionId, reason: refused.reason } }) as const;
 
   /** The refusal of a sign-in that could not ask the key manager: `unreachable`, `sealed` or `certificate_rejected`. */
-  const couldNotAsk = (connectionId: string, result: Extract<SignInResult, { outcome: keyof typeof FAILURE_CODES }>) =>
-    ({ code: FAILURE_CODES[result.outcome], message: `${result.message} Nothing was changed.`, data: { connectionId } }) as const;
+  const couldNotAsk = (connectionId: string, result: Extract<SignInResult, { outcome: keyof typeof FAILURE_CODES }>, provider: KeyManagerProvider) => {
+    if (result.outcome === "provider-unavailable") return { code: "provider_unavailable", message: `${result.message} Nothing was changed.`, data: { connectionId, provider } } as const;
+    return { code: FAILURE_CODES[result.outcome], message: `${result.message} Nothing was changed.`, data: { connectionId } } as const;
+  };
 
   const providerUnavailable = (provider: KeyManagerProvider) =>
     ({
@@ -449,7 +474,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     return null;
   };
 
-  /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none. */
+  /** OpenBao's settings of an add: its CA, method, mount, username and token role; all null for another provider, which takes none and signs in with a token. */
   const settingsOf = (params: ParamsOf<"keyManagers.connections.add">, address: string) => {
     if (params.provider !== "openbao") {
       for (const field of ["ca", "method", "mount", "username", "tokenRole"] as const) {
@@ -470,13 +495,43 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     };
   };
 
-  /** Where a connection signs in, at `address` with `ca`; null for one with no auth method, another provider's than OpenBao. */
-  const targetOf = (record: KeyManagerConnectionRecord, address = record.address, ca = record.ca): SignInTarget | null =>
-    record.method === null || record.mount === null ? null : { address, ca, method: record.method, mount: record.mount, username: record.username };
+  /**
+   * Where a connection signs in, at `address` with `ca`: OpenBao by its
+   * method at its mount, null while it has none; another provider with its
+   * token (Doppler's, #377; 1Password's service-account token, #378;
+   * Bitwarden's access token, #379), trusting no pinned CA.
+   */
+  const targetOf = (record: Pick<KeyManagerConnectionRecord, "provider" | "address" | "ca" | "method" | "mount" | "username">, address = record.address, ca = record.ca): SignInTarget | null => {
+    if (record.provider !== "openbao") return { address, ca: null, method: "token", mount: "token", username: null };
+    return record.method === null || record.mount === null ? null : { address, ca, method: record.method, mount: record.mount, username: record.username };
+  };
 
-  /** The fields a first sign-in sets beside its outcome: the ticks preset to the login's policies, and whether it now injects. */
+  /**
+   * The address a credential names for itself, for a provider whose
+   * connection's address is learned at sign-in (1Password's account URL,
+   * #378): refused as the key manager would refuse it when it names none,
+   * and as another account's when it is not `expected`. Undefined for a
+   * provider whose address is given, or no credential.
+   */
+  const namedAddress = (
+    connectionId: string,
+    provider: ConnectionProvider | undefined,
+    kind: KeyManagerProvider,
+    credential: KeyManagerCredential | undefined,
+    expected: string | null,
+    nothing: string,
+  ): string | { readonly refused: CommandRejection<"verification_failed"> } | undefined => {
+    if (provider?.addressOf === undefined || credential === undefined) return undefined;
+    const named = provider.addressOf(credential);
+    const refuse = (message: string) => ({ refused: { code: "verification_failed" as const, message: `${message} ${nothing}`, data: { connectionId, reason: "rejected" } } });
+    if (named === null) return refuse(`That is no ${PROVIDER_NAMES[kind]} credential that names its account.`);
+    if (expected !== null && named !== expected) return refuse(`That token is for the ${PROVIDER_NAMES[kind]} account at ${named}, and this connection is for ${expected}: add a connection for that account.`);
+    return named;
+  };
+
+  /** The fields a first sign-in sets beside its outcome: OpenBao's ticks preset to the login's policies (another provider's login holds none), and whether it now injects. */
   const firstSignIn = (record: KeyManagerConnectionRecord, information: KeyManagerTokenInformation): Pick<KeyManagerConnectionSignedInPayload, "ticks" | "injects"> => ({
-    ...(record.ticks === null && { ticks: information.policies }),
+    ...(record.provider === "openbao" && record.ticks === null && { ticks: information.policies }),
     ...(!record.injects && !injecting(reader, record.provider) && { injects: true as const }),
   });
 
@@ -487,13 +542,28 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       // Registered as it arrives, before anything can answer with it; let go unless the add is accepted.
       const arrival = given === undefined ? null : registerCredential(connectionId, given);
       if (arrival !== null) context.onUndo(arrival);
-      const address = httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin, as https://bao.example.com:8200.");
+      const provider = providers[params.provider];
+      // Only for a provider this environment signs in to: another's credential is provider_unavailable below, whatever its method.
+      if (params.provider !== "openbao" && provider !== undefined && given !== undefined && given.method !== "token") {
+        invalid(["credential", "method"], `${PROVIDER_NAMES[params.provider]} signs in with ${params.provider === "bitwarden" ? "an access token" : "a token"}.`);
+      }
+      const typed =
+        params.address === undefined ? null : (httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin, as https://bao.example.com:8200."));
+      const named = namedAddress(connectionId, provider, params.provider, given, null, "Nothing was stored.");
+      if (named !== undefined && typeof named !== "string") return rejecting<"keyManagers.connections.add">(named.refused);
+      if (named !== undefined && typed !== null && typed !== named) invalid(["address"], `The token is for the ${PROVIDER_NAMES[params.provider]} account at ${named}, not ${typed}.`);
+      const address =
+        named ??
+        typed ??
+        invalid(
+          ["address"],
+          params.provider === "onepassword" ? "A 1Password connection added without a token names its account URL, as https://my.1password.com." : "Give the key manager's address.",
+        );
       if (params.importedFrom !== undefined && params.copiedFrom !== undefined) invalid(["importedFrom"], "A connection is copied or imported, not both.");
       if (params.importedFrom !== undefined && given !== undefined) invalid(["credential"], "An imported connection signs in on this environment: the import sends no credential.");
       const settings = settingsOf(params, address);
       const basePathRefused = params.basePath === undefined ? null : basePathProblem(params.provider, params.basePath);
       if (basePathRefused !== null) invalid(["basePath"], basePathRefused);
-      const provider = providers[params.provider];
       if (given !== undefined && provider === undefined) return rejecting<"keyManagers.connections.add">(providerUnavailable(params.provider));
       /** The connection the state import made from the same source id, which a repeated import is answered with. */
       const imported = () => (params.importedFrom === undefined ? null : importedHolder(reader, params.importedFrom));
@@ -503,8 +573,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       let status = awaitingSignIn();
       let signed: Extract<SignInResult, { outcome: "signed-in" }> | null = null;
       let entry: string | null = null;
-      if (given !== undefined && provider !== undefined && settings.method !== null && settings.mount !== null) {
-        const target: SignInTarget = { address, ca: settings.ca, method: settings.method, mount: settings.mount, username: settings.username };
+      const target = targetOf({ provider: params.provider, address, ...settings });
+      if (given !== undefined && provider !== undefined && target !== null) {
         const result = await signInWith(connectionId, provider, target, given);
         if (result.outcome === "refused") return rejecting<"keyManagers.connections.add">(verificationFailed(connectionId, result, "Nothing was stored."));
         if (result.outcome === "signed-in") {
@@ -529,7 +599,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           label: params.label,
           address,
           ...settings,
-          ticks: params.ticks ?? signed?.information.policies ?? null,
+          ticks: params.ticks ?? (params.provider === "openbao" ? signed?.information.policies : undefined) ?? null,
           basePath: params.basePath ?? null,
           injects: signed !== null && !injecting(reader, params.provider),
           status,
@@ -560,14 +630,21 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       const { record } = held;
       const provider = providers[record.provider];
       if (provider === undefined) return rejecting<"keyManagers.connections.signIn">(providerUnavailable(record.provider));
+      if (record.provider !== "openbao") {
+        if (given.method !== "token") invalid(["credential", "method"], `${PROVIDER_NAMES[record.provider]} signs in with a token.`);
+        for (const field of ["mount", "username"] as const) if (params[field] !== undefined) invalid([field], `${field} is OpenBao's: a ${PROVIDER_NAMES[record.provider]} connection takes none.`);
+      }
+      const named = namedAddress(connectionId, provider, record.provider, given, record.address, "Nothing was changed.");
+      if (named !== undefined && typeof named !== "string") return rejecting<"keyManagers.connections.signIn">(named.refused);
       const method = given.method;
       const mount = mountFor(method, params.mount ?? (method === record.method ? (record.mount ?? undefined) : undefined));
       const username = usernameFor(method, params.username, record.username);
-      const target: SignInTarget = { address: record.address, ca: record.ca, method, mount, username };
+      const target = targetOf({ ...record, method, mount, username });
+      if (target === null) throw new Error(`The key-manager connection ${connectionId} has no sign-in target for ${method}.`);
 
       const result = await signInWith(connectionId, provider, target, given);
       if (result.outcome === "refused") return rejecting<"keyManagers.connections.signIn">(verificationFailed(connectionId, result, "Nothing was changed."));
-      if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.signIn">(couldNotAsk(connectionId, result));
+      if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.signIn">(couldNotAsk(connectionId, result, record.provider));
       context.onUndo(() => letGo(connectionId, result.login));
       const entry = await store(connectionId, given, context);
 
@@ -580,9 +657,10 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           status: signedInStatus(now.provider, result.information),
           tokenInformation: result.information,
           credential: entry,
-          ...(method !== now.method && { method }),
-          ...(mount !== now.mount && { mount }),
-          ...(username !== now.username && { username }),
+          // Only OpenBao's record keeps how it signs in; the others sign in with a token alone.
+          ...(now.provider === "openbao" && method !== now.method && { method }),
+          ...(now.provider === "openbao" && mount !== now.mount && { mount }),
+          ...(now.provider === "openbao" && username !== now.username && { username }),
           ...firstSignIn(now, result.information),
         };
         log.append(stream, [{ type: "key-manager.connection.signed-in", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
@@ -616,6 +694,9 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         if (params.ca !== undefined) invalid(["ca"], `ca is OpenBao's: a ${PROVIDER_NAMES[record.provider]} connection takes none.`);
         if (params.tokenRole !== undefined) invalid(["tokenRole"], `tokenRole is OpenBao's: a ${PROVIDER_NAMES[record.provider]} connection takes none.`);
       }
+      if (record.provider === "onepassword" && params.address !== undefined) {
+        invalid(["address"], "A 1Password connection's address is its account's URL, which its token names: sign in with another account's token on a connection of its own.");
+      }
       const address =
         params.address === undefined ? record.address : (httpOriginOf(params.address) ?? invalid(["address"], "The address is no https or http URL of a key manager: give its origin."));
       const ca = checkedCa(params.ca === undefined ? record.ca : params.ca, address, [params.ca === undefined ? "address" : "ca"]);
@@ -634,7 +715,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           if (refused !== null) return { aggregate: stream, rejected: refused };
           const changes = changesOf(now, wanted);
           if (Object.keys(changes).length === 0) {
-            if (signed !== null) command.tx.afterCommit(() => void letGo(connectionId, signed.login));
+            if (signed !== null) command.tx.afterCommit(() => background.run(letGo(connectionId, signed.login)));
             return { aggregate: stream, result: { connection: standing(now) } };
           }
           const at = { tx: command.tx, actor: command.actor, commandId: command.commandId };
@@ -667,7 +748,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         if (credential === null) return apply(null);
         const result = await signInWith(connectionId, provider, target, credential);
         if (result.outcome === "refused") return rejecting<"keyManagers.connections.update">(verificationFailed(connectionId, result, "Nothing was changed."));
-        if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.update">(couldNotAsk(connectionId, result));
+        if (result.outcome !== "signed-in") return rejecting<"keyManagers.connections.update">(couldNotAsk(connectionId, result, record.provider));
         context.onUndo(() => letGo(connectionId, result.login));
         return apply(result);
       })();
@@ -786,7 +867,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     });
     const working = work(controller.signal).then(
       (checked) => {
-        if (controller.signal.aborted && checked.outcome === "verified" && checked.fresh) void letGo(record.id, checked.login);
+        if (controller.signal.aborted && checked.outcome === "verified" && checked.fresh) background.run(letGo(record.id, checked.login));
         return checked;
       },
       (error: unknown) => {
@@ -794,6 +875,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         return failedWith(statusNow("unreachable", `Verifying ${PROVIDER_NAMES[record.provider]} at ${record.address} failed inside the environment; it is tried again in fifteen minutes.`));
       },
     );
+    // Past the budget the verification ends, and its work goes on until its signal stops it.
+    background.run(working);
     // On the wall clock, never the environment's, which a test may hold still.
     const timer = setTimeout(() => controller.abort(), budgetMs);
     timer.unref();
@@ -869,8 +952,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
       try {
         // Asked before anything is recorded, so the verification is seen whole: a client reading the records on its event reads the suggestion too (#689). On the wall clock, never the environment's, which a test may hold still.
         const suggested =
-          !closed && checked.outcome === "verified" && held.record.provider === "openbao" && held.record.basePath === null
-            ? await suggestBasePath(provider, target, checked.login.token, AbortSignal.timeout(budgetMs))
+          !closed && checked.outcome === "verified" && held.record.basePath === null
+            ? await providerSuggestion(held.record.provider, provider, target, checked.login.token, AbortSignal.timeout(budgetMs))
             : undefined;
         // Closed, the event log may be too: nothing is read or recorded, and a login made is let go.
         taken = !closed && recordFound(connectionId, subject, checked);
@@ -880,7 +963,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
         // A login the verification made is held once what it found is recorded; otherwise, a failed write included, it is let go.
         if (checked.outcome === "verified" && checked.fresh) {
           if (taken) logins.hold(connectionId, checked.login);
-          else void letGo(connectionId, checked.login);
+          else background.run(letGo(connectionId, checked.login));
         }
       }
     } catch (error) {
@@ -893,6 +976,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     connectionIds: () => listConnections(reader).map((held) => held.record.id),
     subjectOf,
     verifyNow,
+    background,
   });
 
   const readable = (connectionId: string): ReadableConnection | null => {
@@ -918,6 +1002,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     scrub,
     cliDirectory: options.cliDirectory,
     budgetMs,
+    background,
   });
 
   return {
@@ -945,6 +1030,7 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
           if (startupSignIns.get(record.id) === running) startupSignIns.delete(record.id);
         });
         startupSignIns.set(record.id, running);
+        background.run(running);
       }
       schedule.start();
     },
@@ -1045,6 +1131,8 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     readable,
 
     processEnvironment: runTokens.supplier,
+
+    settled: () => background.settled(),
 
     close() {
       closed = true;

@@ -1,14 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { registry, type ParamsOf, type ReadinessCheck, type SkillReadiness } from "@agent-harness/contracts";
+import { registry, type ParamsOf, type SkillReadiness } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { stringify } from "yaml";
 import { useCleanups } from "../../test/cleanups.js";
+import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
+import { DAVID, TOKEN, added } from "../../test/forge.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
+import { scriptedKeyManagers } from "../../test/key-managers.js";
 import { create, refusal } from "../../test/sessions.js";
 import { WAIT_MS, type WireClient } from "../../test/wire-client.js";
 import { git } from "../../test/workspaces.js";
+import type { ToolServerFactory, ToolServerScope } from "../adapter/seams.js";
 
 /**
  * Readiness through the primary seam (skills spec, "Readiness"; ADR 0009):
@@ -25,10 +29,23 @@ const { onCleanup, tempDir } = useCleanups();
 
 const SETUP = "/setup-matt-pocock-skills";
 
+/** The key-manager connection the secret checks' references name. */
+const CONNECTION = "c0ffee00-0000-4000-8000-000000000001";
+
+/** What the scripted key manager answers for a reference that resolves: nothing a secret scanner takes for a real one. */
+const SECRET_VALUE = "value-for-tests";
+
 const start = async (options: TestEnvironmentOptions = {}): Promise<{ t: TestEnvironment; client: WireClient }> => {
   const t = await startTestEnvironment(options);
   onCleanup(() => t.close());
   return { t, client: await t.client() };
+};
+
+/** A fake forge, closed after the test. */
+const fakeForge = async (): Promise<FakeForge> => {
+  const forge = await startFakeForge();
+  onCleanup(() => forge.close());
+  return forge;
 };
 
 /** Writes `text` at `path`, making its folders. */
@@ -110,10 +127,14 @@ describe("skills.readiness", () => {
     expect(await readiness(client, at(tempDir(), ["notes", "absent"]))).toEqual([{ name: "notes", state: "ready", declaredBy: null }]);
   });
 
-  it("matches a vendored Pocock copy to the overlay through its provenance manifest: setup-needed with every failing check and the first one's why and fix, then ready once the files are there", async () => {
+  it("matches a vendored Pocock copy to the overlay through its provenance manifest: setup-needed with every failing check and the first one's why and fix, then the Forges step once the files are there, then ready", async () => {
     const { t, client } = await start();
+    const forge = await fakeForge();
+    forge.user(TOKEN, DAVID);
+    forge.repositories(TOKEN, []);
     vendored(t, { "to-spec": "skills/engineering/to-spec", tdd: "skills/engineering/tdd", "codebase-design": "skills/engineering/codebase-design" });
-    const workspace = tempDir();
+    const workspace = repository();
+    git(workspace, "remote", "add", "origin", `${forge.origin}/david/agent-harness.git`);
 
     const before = await one(client, workspace, "to-spec");
     expect(before).toMatchObject({ name: "to-spec", state: "setup-needed", declaredBy: "overlay", fix: SETUP });
@@ -121,10 +142,12 @@ describe("skills.readiness", () => {
     expect(before.state !== "ready" && before.failing.map((failure) => failure.check)).toEqual([
       expect.objectContaining({ kind: "file", paths: ["docs/agents/issue-tracker.md"] }),
       expect.objectContaining({ kind: "file", paths: ["CLAUDE.md", "AGENTS.md"], headings: ["Agent skills"] }),
+      expect.objectContaining({ kind: "git", condition: "forge-account", fix: "forges" }),
     ]);
     expect(failures(before)).toEqual([
-      ["failed", "docs/agents/issue-tracker.md is not in the workspace."],
-      ["failed", 'No CLAUDE.md or AGENTS.md in the workspace holds the heading "Agent skills" with content under it.'],
+      ["failed", "docs/agents/issue-tracker.md is not in the repository."],
+      ["failed", 'No CLAUDE.md or AGENTS.md in the repository holds the heading "Agent skills" with content under it.'],
+      ["failed", `No forge account on this environment serves ${forge.origin}, where the repository's remote is.`],
     ]);
     // tdd's callee is in the set; the overlay has nothing for codebase-design.
     expect(await readiness(client, at(workspace, ["tdd", "codebase-design"]))).toEqual([
@@ -134,6 +157,10 @@ describe("skills.readiness", () => {
 
     write(join(workspace, "docs", "agents", "issue-tracker.md"), "Issues live on the forge.\n");
     write(join(workspace, "AGENTS.md"), "# The repository\n\n## Agent skills\n\n### Issue tracker\n\nSee docs/agents/issue-tracker.md.\n");
+    const files = await one(client, workspace, "to-spec");
+    expect(files).toMatchObject({ state: "setup-needed", fix: "forges" });
+    expect(files.state !== "ready" && files.why).toMatch(/forge account/);
+    await added(client, { url: forge.origin, kind: "forgejo" });
     expect(await one(client, workspace, "to-spec")).toEqual({ name: "to-spec", state: "ready", declaredBy: "overlay" });
   });
 
@@ -228,6 +255,36 @@ describe("skills.readiness", () => {
     expect(await one(client, root, "against-topic")).toMatchObject({ state: "ready" });
   });
 
+  it("passes git's forge-account when a forge account here serves the repository's remote on its origin or a verified alias", async () => {
+    const { t, client } = await start();
+    const forge = await fakeForge();
+    const tailnet = await fakeForge();
+    for (const origin of [forge, tailnet]) {
+      origin.user(TOKEN, DAVID);
+      origin.repositories(TOKEN, []);
+    }
+    await added(client, { url: forge.origin, kind: "forgejo", aliases: [tailnet.origin] });
+    declaring(t, "tracker", [{ kind: "git", condition: "forge-account", fix: "forges" }]);
+    /** A repository whose remote `name` is at `url`. */
+    const remoteAt = (url: string, name = "origin"): string => {
+      const root = repository();
+      git(root, "remote", "add", name, url);
+      return root;
+    };
+
+    expect(await one(client, remoteAt(`${forge.origin}/david/agent-harness.git`), "tracker")).toMatchObject({ state: "ready" });
+    expect(await one(client, remoteAt(`${tailnet.origin}/david/agent-harness`), "tracker")).toMatchObject({ state: "ready" });
+    // The remote a repository's identity comes from: origin, else the only one.
+    expect(await one(client, remoteAt(`${forge.origin}/david/agent-harness.git`, "upstream"), "tracker")).toMatchObject({ state: "ready" });
+
+    const elsewhere = await one(client, remoteAt("https://forge.example.invalid/david/agent-harness.git"), "tracker");
+    expect(elsewhere).toMatchObject({ state: "setup-needed", why: null, fix: "forges" });
+    expect(failures(elsewhere)).toEqual([["failed", "No forge account on this environment serves https://forge.example.invalid, where the repository's remote is."]]);
+    expect(failures(await one(client, remoteAt(tempDir()), "tracker"))).toEqual([["failed", "The repository's remote is a local path or a URL that names no forge."]]);
+    expect(failures(await one(client, repository(), "tracker"))).toEqual([["failed", "The repository has no remote, so no forge account serves it."]]);
+    expect(failures(await one(client, tempDir(), "tracker"))).toEqual([["failed", "The workspace is not in a git repository."]]);
+  });
+
   it("checks a skill check's member is in the account's set, on, and one the model may call unless the check says otherwise", async () => {
     const { t, client } = await start();
     ownSkill(t, "grilling");
@@ -269,25 +326,120 @@ describe("skills.readiness", () => {
     expect(failures(await one(client, workspace, "forks"))).toEqual([["failed", "This account's provider, fake, is not codex, and its adapter does not declare fork."]]);
   });
 
-  it("fails a secret, mcp or git forge-account check as not evaluated yet", async () => {
-    const { t, client } = await start();
-    const checks: ReadinessCheck[] = [
-      { kind: "secret", reference: { provider: "doppler", connectionId: "c0ffee00-0000-4000-8000-000000000001", name: "GITHUB_TOKEN" } },
-      { kind: "mcp", server: "linear" },
-      { kind: "git", condition: "forge-account", fix: "forges" },
-    ];
-    declaring(t, "remote", checks);
+  it("passes a secret check whose reference resolves, letting the value go at once and showing it nowhere, and fails one that does not, naming the refusal", async () => {
+    const keyManagers = scriptedKeyManagers();
+    const { t, client } = await start({ keyManagers: keyManagers.registry });
+    const resolves = { provider: "doppler", connectionId: CONNECTION, name: "TRACKER_TOKEN" } as const;
+    const refused = { provider: "doppler", connectionId: CONNECTION, name: "OTHER_TOKEN" } as const;
+    keyManagers.answer(resolves, SECRET_VALUE);
+    declaring(t, "tracked", [{ kind: "secret", reference: resolves }]);
+    declaring(t, "untracked", [{ kind: "secret", reference: refused, fix: "key-manager" }]);
+    const logged = (["log", "info", "warn", "error"] as const).map((method) => vi.spyOn(console, method));
+    for (const spy of logged) onCleanup(() => spy.mockRestore());
+    const head = t.env.log.head();
 
-    const answer = await one(client, repository(), "remote");
-    expect(answer).toMatchObject({ state: "setup-needed", why: null, fix: null });
-    expect(failures(answer)).toEqual([
-      ["not-evaluated", "This environment does not evaluate secret checks yet."],
-      ["not-evaluated", "This environment does not evaluate mcp checks yet."],
-      ["not-evaluated", "This environment does not evaluate git forge-account checks yet."],
+    const answers = await readiness(client, at(tempDir(), ["tracked", "untracked"], true));
+    expect(answers).toEqual([
+      { name: "tracked", state: "ready", declaredBy: "sidecar" },
+      expect.objectContaining({ name: "untracked", state: "setup-needed", why: null, fix: "key-manager" }),
     ]);
+    const [, untracked] = answers;
+    expect(untracked !== undefined && failures(untracked)).toEqual([
+      ["failed", `The key-manager reference OTHER_TOKEN does not resolve (credential_source_unavailable): The key manager answered no value for doppler reference ${CONNECTION}.`],
+    ]);
+    // The members are checked side by side, so the two resolves come in either order.
+    const asked = keyManagers.requests.map((request) => request.reference);
+    expect(asked).toHaveLength(2);
+    expect(asked).toEqual(expect.arrayContaining([resolves, refused]));
+    // Let go at once, and in no answer, event or log.
+    expect(keyManagers.outstanding()).toBe(0);
+    expect(JSON.stringify(answers)).not.toContain(SECRET_VALUE);
+    expect(t.env.log.head()).toBe(head);
+    expect(logged.flatMap((spy) => spy.mock.calls).some((call) => JSON.stringify(call).includes(SECRET_VALUE))).toBe(false);
   });
 
-  it("keeps each answer sixty seconds per workspace, account and fingerprint: refresh, another workspace or a changed set reads again", async () => {
+  it("never asks for a secret check's value in the session: the reference is resolved in process, and the session hears nothing", async () => {
+    const keyManagers = scriptedKeyManagers();
+    const { t, client } = await start({ keyManagers: keyManagers.registry });
+    const reference = { provider: "doppler", connectionId: CONNECTION, name: "TRACKER_TOKEN" } as const;
+    declaring(t, "tracked", [{ kind: "secret", reference, fix: "key-manager" }]);
+    const { id } = await create(client, { workspace: { kind: "directory", path: tempDir() } });
+    const head = t.env.log.head();
+
+    expect(await readiness(client, { sessionId: id })).toEqual([expect.objectContaining({ name: "tracked", state: "setup-needed", fix: "key-manager" })]);
+    keyManagers.answer(reference, SECRET_VALUE);
+    expect(await readiness(client, { sessionId: id, refresh: true })).toEqual([{ name: "tracked", state: "ready", declaredBy: "sidecar" }]);
+
+    expect(keyManagers.requests.map((request) => request.reference)).toEqual([reference, reference]);
+    // No run, prompt or message on the session asked anyone for it.
+    expect(t.env.log.head()).toBe(head);
+    expect(t.adapter.runs).toEqual([]);
+  });
+
+  it("passes an mcp check when the tool-server factory gives the session's next run a server of that name, and without a session asks for a new session of the account and workspace", async () => {
+    // A repository whose remote gives the session a repository identity, which its next run's servers are asked under (#1022).
+    const linearIn = tempDir();
+    git(linearIn, "init", "-q");
+    git(linearIn, "remote", "add", "origin", "https://github.com/acme/receipts.git");
+    const asked: ToolServerScope[] = [];
+    const toolServers: ToolServerFactory = (scope) => {
+      asked.push(scope);
+      return scope.workspace.path === linearIn ? [{ name: "linear", config: {} }] : [];
+    };
+    const { t, client } = await start({ adapterSeams: { toolServers } });
+    declaring(t, "tracker", [{ kind: "mcp", server: "linear", why: "It files issues through the linear tool server." }]);
+    // The environment's own servers are the factory's too.
+    declaring(t, "browsing", [{ kind: "mcp", server: "browser" }]);
+    const { id } = await create(client, { workspace: { kind: "directory", path: linearIn } });
+    const head = t.env.log.head();
+
+    expect(await readiness(client, { sessionId: id })).toEqual([
+      { name: "browsing", state: "ready", declaredBy: "sidecar" },
+      { name: "tracker", state: "ready", declaredBy: "sidecar" },
+    ]);
+    expect(asked).not.toHaveLength(0);
+    for (const scope of asked) {
+      expect(scope).toMatchObject({ sessionId: id, accountId: "claude-max", workspace: { kind: "directory", path: linearIn }, repositoryIdentity: "https://github.com/acme/receipts", clientTools: [] });
+    }
+
+    asked.length = 0;
+    const elsewhere = tempDir();
+    const [tracker] = await readiness(client, at(elsewhere, ["tracker"]));
+    expect(tracker).toMatchObject({ state: "setup-needed", why: "It files issues through the linear tool server." });
+    expect(tracker !== undefined && failures(tracker)).toEqual([["failed", "A new session of this account in this workspace is given no tool server named linear."]]);
+    const [newSession] = asked;
+    expect(newSession).toMatchObject({ accountId: "claude-max", workspace: { kind: "directory", path: elsewhere }, repositoryIdentity: null, clientTools: [] });
+    expect(newSession?.sessionId).not.toBe(id);
+    expect(await readiness(client, at(linearIn, ["tracker"]))).toEqual([{ name: "tracker", state: "ready", declaredBy: "sidecar" }]);
+    // A new session in the repository is asked under the identity its create will read (#1072).
+    expect(asked.at(-1)).toMatchObject({ sessionId: expect.not.stringMatching(id), workspace: { kind: "directory", path: linearIn }, repositoryIdentity: "https://github.com/acme/receipts" });
+
+    // Asking the factory starts no run and records nothing.
+    expect(t.env.log.head()).toBe(head);
+    expect(t.adapter.runs).toEqual([]);
+  });
+
+  it("keeps a session's answers apart from a new session's and another session's in the same workspace, as an mcp check answers for the session", async () => {
+    const given = new Set<string>();
+    const toolServers: ToolServerFactory = (scope) => (given.has(scope.sessionId) ? [{ name: "linear", config: {} }] : []);
+    const { t, client } = await start({ adapterSeams: { toolServers } });
+    declaring(t, "tracker", [{ kind: "mcp", server: "linear" }]);
+    const workspace = tempDir();
+    const { id } = await create(client, { workspace: { kind: "directory", path: workspace } });
+    const { id: other } = await create(client, { workspace: { kind: "directory", path: workspace } });
+    given.add(id);
+    const tracker = async (params: Params): Promise<SkillReadiness | undefined> => (await readiness(client, { ...params, names: ["tracker"] }))[0];
+
+    const newSession = await tracker(at(workspace));
+    expect(newSession !== undefined && failures(newSession)).toEqual([["failed", "A new session of this account in this workspace is given no tool server named linear."]]);
+    // Within the sixty seconds, each session is asked for its own.
+    expect(await tracker({ sessionId: id })).toEqual({ name: "tracker", state: "ready", declaredBy: "sidecar" });
+    const otherSession = await tracker({ sessionId: other });
+    expect(otherSession !== undefined && failures(otherSession)).toEqual([["failed", "The session's next run is given no tool server named linear."]]);
+    expect((await tracker(at(workspace)))?.state).toBe("setup-needed");
+  });
+
+  it("keeps each answer sixty seconds per workspace, account, session and fingerprint: refresh, another workspace or a changed set reads again", async () => {
     const { t, client } = await start();
     declaring(t, "tracked", [{ kind: "file", paths: ["docs/agents/issue-tracker.md"] }]);
     const workspace = tempDir();

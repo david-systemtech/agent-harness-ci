@@ -47,7 +47,15 @@ export const targetOf = (method: string, params: Readonly<Record<string, unknown
   return null;
 };
 
-/** How a notice names each organisation command; any other is named from its method's last word. */
+/**
+ * The routine a routine command names (`routineId`), in lowercase: every
+ * routine command's but an import's that makes routines, whose ids are
+ * routines still to be made; null for any other command.
+ */
+export const routineOf = (method: string, params: Readonly<Record<string, unknown>>): string | null =>
+  method.startsWith("routines.") ? (text(params, "routineId")?.toLowerCase() ?? null) : null;
+
+/** How a notice names each organisation and routine command; any other is named from its method's last word. */
 const VERBS: Readonly<Record<string, string>> = {
   "sessions.create": "Create session",
   "sessions.rename": "Rename",
@@ -72,6 +80,12 @@ const VERBS: Readonly<Record<string, string>> = {
   "groups.rename": "Rename group",
   "groups.reorder": "Reorder group",
   "groups.delete": "Delete group",
+  "routines.create": "Create routine",
+  "routines.update": "Edit routine",
+  "routines.enable": "Enable routine",
+  "routines.disable": "Disable routine",
+  "routines.delete": "Delete routine",
+  "routines.import": "Import routines",
 };
 
 /** The verb a notice says a command with: `Archive`, `Rename group`; `Stop task` for `runs.stopTask`. */

@@ -17,7 +17,7 @@ import {
   type SessionProjection,
   type SessionRunsView,
 } from "@agent-harness/client-runtime";
-import type { AdapterCapabilities, CommandEntry } from "@agent-harness/contracts";
+import type { AdapterCapabilities, CommandsListEntry } from "@agent-harness/contracts";
 import { markOf, planDelta, type PlanMark } from "../transcript/plan.js";
 
 /**
@@ -26,8 +26,9 @@ import { markOf, planDelta, type PlanMark } from "../transcript/plan.js";
  * is (following holds its subscription; letting go starts the runtime's five
  * minutes), its run state from `projections.runs`, and its queue and the
  * verbs of ADR 0022 from `projections.runs.session`, the composer's lock from
- * `capability`, its provider's descriptor and slash commands from the request
- * cache, and how long each running call has been quiet. A fork's source is
+ * `capability`, its provider's descriptor and its `/` menu's listing (its
+ * skills and the provider's own commands, `commands.list`, #503) from the
+ * request cache, and how long each running call has been quiet. A fork's source is
  * followed too while the fork opens on its `forked` entry, for what that row
  * names (#390). Which session is open is client-local presentation, held in
  * memory only.
@@ -50,8 +51,8 @@ export interface OpenSession {
   readonly lock: Lock;
   /** The session's provider, when `providers.list` has answered. */
   readonly provider: AdapterCapabilities | undefined;
-  /** The provider's own slash commands, when its adapter lists them. */
-  readonly providerCommands: readonly CommandEntry[];
+  /** The session's skills and its provider's own slash commands (`commands.list`), when its adapter lists them. */
+  readonly listedCommands: readonly CommandsListEntry[];
   /** When each running call was last heard. */
   readonly quiet: QuietCalls;
   /** The plan windows a finished run moved, in words, for a run this terminal saw running. */
@@ -102,16 +103,10 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
     summary?.accountId && accounts ? accounts.read().value?.find((a) => a.id === summary.accountId)?.provider : undefined;
   const provider = listed.find((p) => p.provider === accountProvider) ?? (listed.length === 1 ? listed[0] : undefined);
 
-  const workspace = summary?.workspace;
-  const accountId = summary?.accountId ?? undefined;
-  const commandsKey = workspace ? JSON.stringify([workspace, accountId ?? null]) : undefined;
+  // Keyed by the open session (#503): the environment lists it under that session's account, workspace and trust.
   const commands = useMemo(
-    () =>
-      environmentId !== undefined && workspace !== undefined && commandsKey !== undefined && provider?.commands === true
-        ? runtime.requests.cached(environmentId, "commands.list", { workspace, ...(accountId !== undefined && { accountId }) })
-        : undefined,
-    // The workspace and account are read through their key, so an equal summary does not make a new query.
-    [runtime, environmentId, commandsKey, provider?.commands],
+    () => (environmentId !== undefined && sessionId !== undefined && provider?.commands === true ? runtime.requests.cached(environmentId, "commands.list", { sessionId }) : undefined),
+    [runtime, environmentId, sessionId, provider?.commands],
   );
   useFollow(commands, request);
 
@@ -152,7 +147,7 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
     liveRunId: liveRunIdOf(projection ?? { runs: [] }, runs),
     lock: opened ? lockOf(runtime.capability(opened.environmentId, "runs.send")) : { locked: false },
     provider,
-    providerCommands: commands?.read().result?.commands ?? [],
+    listedCommands: commands?.read().result?.entries ?? [],
     quiet: heard.current,
     planDeltas: (runId) => moved.current.get(runId) ?? [],
     forkedFrom: from === undefined ? undefined : { title: from.title ?? listedTitle(), anchor: from.anchor },

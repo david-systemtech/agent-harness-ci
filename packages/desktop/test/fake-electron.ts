@@ -17,6 +17,10 @@ import type {
   RequestListener,
   SchemeRegistration,
   WindowOptions,
+  ViewOptions,
+  ViewBounds,
+  ElectronWebView,
+  MediaPermissionDetails,
 } from "../src/electron.js";
 import { APP_URL } from "../src/schemes.js";
 
@@ -67,6 +71,9 @@ export interface Navigation {
 }
 
 export interface FakeContents extends ElectronContents {
+  checkPermission(permission: string, details: MediaPermissionDetails, origin?: string, source?: ElectronContents | null): boolean;
+  requestPermission(permission: string, details: MediaPermissionDetails, source?: ElectronContents): boolean;
+  on(name: string, listener: (...args: never[]) => unknown): unknown;
   /** Every message sent to the page, by channel. */
   readonly sent: Call[];
   /** Hears each later message sent to the page on `channel`, as the page's `ipcRenderer.on` does. */
@@ -82,6 +89,8 @@ export interface FakeContents extends ElectronContents {
 }
 
 export interface FakeWindow extends ElectronBrowserWindow {
+  readonly children: ElectronWebView[];
+  close(): void;
   readonly options: WindowOptions;
   readonly calls: Call[];
   readonly webContents: FakeContents;
@@ -153,6 +162,7 @@ export interface FakeElectron extends DesktopElectron {
   readonly notifications: FakeNotification[];
   /** Every window opened, oldest first. */
   readonly windows: FakeWindow[];
+  readonly views: FakeWebView[];
   /** The one window; throws when none is open. */
   window(): FakeWindow;
 }
@@ -212,7 +222,9 @@ const fakeContents = (): FakeContents => {
   const sent: Call[] = [];
   let openHandler: ((details: { readonly url: string }) => { action: "deny" }) | undefined;
   let requestHook: RequestListener | undefined;
-  return {
+  let checkPermission: Parameters<ElectronContents["session"]["setPermissionCheckHandler"]>[0] | undefined;
+  let requestPermission: Parameters<ElectronContents["session"]["setPermissionRequestHandler"]>[0] | undefined;
+  const contents: FakeContents = {
     sent,
     on: heard.on,
     setWindowOpenHandler(handler) {
@@ -224,11 +236,21 @@ const fakeContents = (): FakeContents => {
     },
     listen: page.on,
     session: {
+      setPermissionCheckHandler(handler) { checkPermission = handler; },
+      setPermissionRequestHandler(handler) { requestPermission = handler; },
       webRequest: {
         onBeforeRequest(listener) {
           requestHook = listener;
         },
       },
+    },
+    checkPermission(permission, details, origin = APP_URL, source = contents) {
+      return checkPermission?.(source, permission, origin, details) ?? true;
+    },
+    requestPermission(permission, details, source = contents) {
+      let allowed = true;
+      requestPermission?.(source, permission, (answer) => { allowed = answer; }, details);
+      return allowed;
     },
     navigate(url) {
       let prevented = false;
@@ -250,9 +272,12 @@ const fakeContents = (): FakeContents => {
       heard.emit("console-message", { level, message, lineNumber: 1, sourceId: "agent-harness://app/assets/index.js" });
     },
   };
+  return contents;
 };
 
 const fakeWindow = (options: WindowOptions): FakeWindow => {
+  const closed: (() => void)[] = [];
+  let gone = false;
   const calls: Call[] = [];
   const record =
     (method: string) =>
@@ -261,6 +286,20 @@ const fakeWindow = (options: WindowOptions): FakeWindow => {
   const window: FakeWindow = {
     options,
     calls,
+    children: [],
+    addWebView: (view) => {
+      if (gone) throw new Error("The window is closed.");
+      window.children.push(view);
+    },
+    removeWebView: (view) => {
+      if (gone) throw new Error("The window is closed.");
+      const at = window.children.indexOf(view);
+      if (at !== -1) window.children.splice(at, 1);
+    },
+    on: (_name, listener) => {
+      closed.push(listener);
+    },
+    close: () => { gone = true; closed.forEach((listener) => listener()); },
     minimized: false,
     webContents: fakeContents(),
     setTitle: record("setTitle"),
@@ -426,8 +465,14 @@ const fakeNotification = (options: NotificationOptions): FakeNotification => {
  * `version` (preset 0.5.0) and run from a checkout until the test sets
  * `app.isPackaged`.
  */
-export const fakeElectron = ({ os = "linux", ready = true, dark = true, version = "0.5.0" }: { os?: ShellPlatform; ready?: boolean; dark?: boolean; version?: string } = {}): FakeElectron => {
+export const fakeElectron = ({
+  os = "linux",
+  ready = true,
+  dark = true,
+  version = "0.5.0",
+}: { os?: ShellPlatform; ready?: boolean; dark?: boolean; version?: string } = {}): FakeElectron => {
   const windows: FakeWindow[] = [];
+  const views: FakeWebView[] = [];
   const opened: string[] = [];
   const notifications: FakeNotification[] = [];
   const electron: FakeElectron = {
@@ -455,6 +500,12 @@ export const fakeElectron = ({ os = "linux", ready = true, dark = true, version 
       },
     },
     windows,
+    views,
+    openWebView(options) {
+      const view = fakeWebView(options);
+      views.push(view);
+      return view;
+    },
     openWindow(options) {
       const window = fakeWindow(options);
       windows.push(window);
@@ -467,4 +518,89 @@ export const fakeElectron = ({ os = "linux", ready = true, dark = true, version 
     },
   };
   return electron;
+};
+
+export interface FakeWebView extends ElectronWebView {
+  readonly options: ViewOptions;
+  bounds: ViewBounds;
+  visible: boolean;
+  closed: boolean;
+  readonly urls: string[];
+  reloads: number;
+  press(key: string, modifiers?: { control?: boolean; meta?: boolean; shift?: boolean; alt?: boolean }): void;
+  readonly webContents: FakeContents & ElectronWebView["webContents"] & { readonly debugger: ElectronWebView["webContents"]["debugger"] & {
+    readonly commands: unknown[];
+    emit(name: string, ...args: unknown[]): void;
+  } };
+}
+const fakeWebView = (options: ViewOptions): FakeWebView => {
+  const events = listeners();
+  const contents = fakeContents();
+  const debugEvents = listeners();
+  let attached = false;
+  const commands: unknown[] = [];
+  let at = -1;
+  const moved = () => events.emit("did-navigate");
+  const view: FakeWebView = {
+    options,
+    bounds: { x: 0, y: 0, width: 0, height: 0 },
+    visible: false,
+    closed: false,
+    urls: [],
+    reloads: 0,
+    press: (key, modifiers = {}) => events.emit("before-input-event", { preventDefault: () => undefined }, { type: "keyDown", key, code: `Key${key.toUpperCase()}`, control: false, meta: false, shift: false, alt: false, ...modifiers }),
+    webContents: {
+      ...contents,
+      debugger: {
+        commands,
+        emit: debugEvents.emit,
+        on: debugEvents.on,
+        isAttached: () => attached,
+        attach: () => { attached = true; },
+        detach: () => { attached = false; debugEvents.emit("detach", {}, "target_closed"); },
+        sendCommand: async (method, params, sessionId) => {
+          if (!attached) throw new Error("The debugger is not attached.");
+          commands.push([method, params, sessionId]);
+          return {};
+        },
+      },
+      on: (name: string, listener: (...args: never[]) => unknown) => {
+        contents.on(name, listener);
+        events.on(name, listener);
+      },
+      loadURL: async (url) => {
+        view.urls.splice(at + 1);
+        view.urls.push(url);
+        at++;
+        moved();
+      },
+      getURL: () => view.urls[at] ?? "",
+      close: () => {
+        view.closed = true;
+      },
+      reload: () => {
+        view.reloads++;
+        events.emit("did-stop-loading");
+      },
+      navigationHistory: {
+        canGoBack: () => at > 0,
+        canGoForward: () => at < view.urls.length - 1,
+        goBack: () => {
+          at--;
+          moved();
+        },
+        goForward: () => {
+          at++;
+          moved();
+        },
+      },
+    },
+    setBounds: (bounds) => {
+      view.bounds = bounds;
+    },
+    setVisible: (visible) => {
+      view.visible = visible;
+    },
+  };
+  return view;
 };

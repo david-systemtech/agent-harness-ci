@@ -1,10 +1,10 @@
 import { EMPTY_RUN_SKILL_SET, type RunSkillSet } from "@agent-harness/contracts";
-import type { CanUseTool, HookCallback, SessionStore } from "@anthropic-ai/claude-agent-sdk";
+import type { CanUseTool, HookCallback, HookInput, HookJSONOutput, Options, PreToolUseHookInput, SessionStore } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
 import type { RunInput, RunTarget } from "../../adapter/contract.js";
 import { EMPTY_PROCESS_ENVIRONMENT } from "../../adapter/process-environment.js";
 import { CLAUDE_STRIPPED_VARIABLES } from "./credentials.js";
-import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type RunOptionsInput } from "./options.js";
+import { CLAUDE_MODES, GATE_HOOK_TIMEOUT_SECONDS, buildRunOptions, type FileToolHooks, type RunOptionsInput } from "./options.js";
 
 /**
  * The options table (claude-adapter spec, "The Claude adapter, ported after
@@ -23,6 +23,31 @@ const store: SessionStore = {
 
 const canUseTool: CanUseTool = async () => ({ behavior: "deny", message: "no" });
 const preToolUse: HookCallback = async () => ({});
+const answersNothing: HookCallback = async () => ({});
+const fileTools: FileToolHooks = { before: answersNothing, completed: answersNothing, failed: answersNothing };
+
+/** What the gate answers for a call it denies, as the process's gate hook does. */
+const gateDenial = (message: string): HookJSONOutput => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: message } });
+
+/** A tool event's hook input, as the pinned CLI builds it (`tool_use_id`, the working directory at the call). */
+const toolHookInput = <E extends "PreToolUse" | "PostToolUse" | "PostToolUseFailure">(event: E, toolName: string, toolInput: Record<string, unknown>, toolUseId: string) => ({
+  hook_event_name: event,
+  session_id: "s",
+  transcript_path: "/tmp/transcript.jsonl",
+  cwd: "/work/repo",
+  tool_name: toolName,
+  tool_input: toolInput,
+  tool_use_id: toolUseId,
+  ...(event === "PostToolUse" && { tool_response: {} }),
+  ...(event === "PostToolUseFailure" && { error: "The tool failed." }),
+});
+
+/** Runs the options' one PreToolUse callback as the CLI does for a call: its answer, or whatever is pending. */
+const callPreToolUse = (options: Options, toolName: string, toolInput: Record<string, unknown>, toolUseId = "toolu_1", signal = new AbortController().signal): Promise<HookJSONOutput> => {
+  const hook = options.hooks?.PreToolUse?.[0]?.hooks[0];
+  if (hook === undefined) throw new Error("The options register no PreToolUse hook.");
+  return hook(toolHookInput("PreToolUse", toolName, toolInput, toolUseId) as HookInput, toolUseId, { signal });
+};
 
 const run = (overrides: Partial<RunInput> = {}): RunInput => ({
   sessionId: SESSION_ID,
@@ -44,6 +69,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -58,8 +84,8 @@ const skillSet: RunSkillSet = {
   generation: "/data/skills/generations/3f9a",
   fingerprint: "3f9a",
   members: [
-    { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
-    { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+    { name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+    { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: true, argumentHint: null, native: true, alwaysOn: false },
   ],
   hiddenNativeNames: ["triage"],
 };
@@ -68,6 +94,7 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   run: run(overrides),
   hostEnv: { PATH: "/usr/bin", HOME: "/home/david", ANTHROPIC_API_KEY: "sk-ant-shell", IS_SANDBOX: "1", CLAUDE_CODE_BUBBLEWRAP: "1" },
   supplied: {},
+  suppliedWritable: [],
   configDirectory: "/data/accounts/work",
   executablePath: "/sdk/claude-agent-sdk-linux-x64/claude",
   autoMemoryDirectory: "/data/auto-memory/repo",
@@ -76,11 +103,22 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   resumePoint: null,
   canUseTool,
   preToolUse,
+  fileTools,
   abortController: new AbortController(),
   ...extra,
 });
 
 describe("the options a run is handed", () => {
+  it("attaches bank checkouts as additional directories without granting containment writes", () => {
+    const directories = ["/data/banks/personal", "/registered/team"];
+    const containment = { ...run().containment, level: "workspace" as const, mechanism: "bubblewrap" as const, readOnly: directories };
+    const options = buildRunOptions(input({ additionalDirectories: directories, containment }));
+    expect(options.additionalDirectories).toEqual(directories);
+    expect(options.additionalDirectories).not.toBe(directories);
+    expect(options.sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"]);
+    expect(options.sandbox?.filesystem?.denyWrite).toEqual(directories);
+  });
+
   it("runs in the workspace, with the model and effort asked for", () => {
     const options = buildRunOptions(input());
     expect(options.cwd).toBe("/work/repo");
@@ -124,16 +162,26 @@ describe("the options a run is handed", () => {
     expect(buildRunOptions(input({ mode: null as never })).permissionMode).toBe("acceptEdits");
   });
 
-  it("hands the process's Stop hook to the SDK when it has one, beside the gate's", async () => {
+  it("hands the process's Stop hook to the SDK when it has one, beside the tool hooks", async () => {
     const onStop = async () => ({});
-    expect(buildRunOptions(input({}, { onStop })).hooks).toEqual({ PreToolUse: [{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }], Stop: [{ hooks: [onStop] }] });
+    const hooks = buildRunOptions(input({}, { onStop })).hooks;
+    expect(Object.keys(hooks ?? {})).toEqual(["PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"]);
+    expect(hooks?.Stop).toEqual([{ hooks: [onStop] }]);
     expect(buildRunOptions(input()).hooks).not.toHaveProperty("Stop");
   });
 
-  it.each(CLAUDE_MODES)("asks the tool gate first for every tool call in %s: a PreToolUse hook matching every tool, waiting as long as the CLI's timer can", (mode) => {
-    const options = buildRunOptions(input({ mode, ceiling: mode }));
-    expect(options.hooks?.PreToolUse).toEqual([{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }]);
+  it.each(CLAUDE_MODES)("asks the tool gate first for every tool call in %s: one PreToolUse hook matching every tool, waiting as long as the CLI's timer can", async (mode) => {
+    const asked: string[] = [];
+    const gate: HookCallback = async (hookInput) => {
+      asked.push((hookInput as PreToolUseHookInput).tool_name);
+      return gateDenial("Denied by containment.");
+    };
+    const options = buildRunOptions(input({ mode, ceiling: mode }, { preToolUse: gate }));
+    // One callback, not one per concern: the CLI runs an event's callbacks in parallel, so only one can come first.
+    expect(options.hooks?.PreToolUse).toEqual([{ hooks: [expect.any(Function)], timeout: GATE_HOOK_TIMEOUT_SECONDS }]);
     expect(options.hooks?.PreToolUse?.[0]).not.toHaveProperty("matcher");
+    expect(await callPreToolUse(options, "Bash", { command: "ls" })).toEqual(gateDenial("Denied by containment."));
+    expect(asked).toEqual(["Bash"]);
     // The CLI arms a timer of the timeout's seconds in milliseconds: past 2^31 - 1 ms a JavaScript timer fires at once.
     expect(GATE_HOOK_TIMEOUT_SECONDS * 1000).toBeLessThanOrEqual(2 ** 31 - 1);
     expect((GATE_HOOK_TIMEOUT_SECONDS + 1) * 1000).toBeGreaterThan(2 ** 31 - 1);
@@ -255,6 +303,10 @@ describe("the options a run is handed", () => {
       expect(buildRunOptions(input({ target }, { resumePoint: { resumeSessionAt: "entry-before" } })).sessionStore).toBe(store);
     });
 
+    it.each(targets)("keeps local persistence on a %s run so the session store can mirror it", (_kind, target) => {
+      expect(buildRunOptions(input({ target }, { resumePoint: { resumeSessionAt: "entry-before" } })).persistSession).toBe(true);
+    });
+
     it("starts a fresh run with nothing to resume", () => {
       const options = buildRunOptions(input());
       expect(options).not.toHaveProperty("resume");
@@ -313,6 +365,7 @@ describe("the options a run is handed", () => {
             scratchDirectory: "/data/containment/session/scratch",
             temporaryDirectory: "/data/containment/session/tmp",
             writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            readOnly: [],
             network: level !== "workspace-no-network",
           },
           denylist,
@@ -344,6 +397,7 @@ describe("the options a run is handed", () => {
             scratchDirectory,
             temporaryDirectory,
             writable: [worktree, scratchDirectory, temporaryDirectory, "/work/repo/.git"],
+            readOnly: [],
             network: level !== "workspace-no-network",
           },
         }),
@@ -351,11 +405,68 @@ describe("the options a run is handed", () => {
       expect(options.sandbox?.filesystem?.allowWrite).toEqual([worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"]);
     });
 
+    it.each(["workspace", "workspace-no-network"] as const)(
+      "closes to a command at %s what the run may not write inside its writable set, the git directory's hooks and config and a submodule's under it (#933), and names none when there is none (#791)",
+      (level) => {
+        const worktree = "/data/worktrees/repo-3f9a2c1b";
+        const readOnly = ["hooks", "config", "config.worktree", "worktrees/repo-3f9a2c1b/config.worktree", "modules/vendor/lib/hooks", "modules/vendor/lib/config", "modules/vendor/lib/config.worktree"].map(
+          (path) => `/work/repo/.git/${path}`,
+        );
+        const options = buildRunOptions(
+          input({
+            workspace: { kind: "worktree", path: worktree, repository: "/work/repo", branch: "agent-harness/3f9a2c1b" },
+            containment: {
+              level,
+              mechanism: "bubblewrap",
+              scratchDirectory: "/data/containment/session/scratch",
+              temporaryDirectory: "/data/containment/session/tmp",
+              writable: [worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"],
+              readOnly,
+              network: level !== "workspace-no-network",
+            },
+          }),
+        );
+        expect(options.sandbox?.filesystem?.denyWrite).toEqual(readOnly);
+        expect(at(level).sandbox?.filesystem).not.toHaveProperty("denyWrite");
+      },
+    );
+
     it("leaves the network open at workspace, local binding included, and names no domain", () => {
       const network = at("workspace").sandbox?.network;
       expect(network).toEqual({ allowLocalBinding: true });
       expect(network).not.toHaveProperty("allowedDomains");
       expect(network).not.toHaveProperty("strictAllowlist");
+    });
+
+    it.each(["workspace", "workspace-no-network"] as const)("at %s, Seatbelt closes programs below .git made during a command anywhere in the writable set (#1094)", (level) => {
+      const readOnly = ["/work/repo/.git/config"];
+      const containment: RunInput["containment"] = {
+        level,
+        mechanism: "seatbelt",
+        scratchDirectory: "/data/containment/session/scratch",
+        temporaryDirectory: "/data/containment/session/tmp",
+        writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+        readOnly,
+        network: level === "workspace",
+      };
+      expect(buildRunOptions(input({ containment })).sandbox?.filesystem?.denyWrite).toEqual([
+        ...readOnly,
+        "/**/.[gG][iI][tT]/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+      ]);
+      // Linux skips globs; its existing literal carve-outs still reach denyWrite.
+      expect(buildRunOptions(input({ containment: { ...containment, mechanism: "bubblewrap" } })).sandbox?.filesystem?.denyWrite).toEqual(readOnly);
+      expect(buildRunOptions(input({ containment: { ...containment, level: "off", mechanism: null } }))).not.toHaveProperty("sandbox");
     });
 
     it("closes the network at workspace-no-network: no domain, no unix socket, no local binding, and nothing asked about", () => {
@@ -384,6 +495,7 @@ describe("the options a run is handed", () => {
             scratchDirectory: "/data/containment/session/scratch",
             temporaryDirectory: "/data/containment/session/tmp",
             writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            readOnly: [],
             network: true,
           },
           denylist,
@@ -419,5 +531,65 @@ describe("the options a run is handed", () => {
       expect(options.sandbox?.filesystem).not.toHaveProperty("denyRead");
       expect(options.sandbox?.filesystem).not.toHaveProperty("allowRead");
     });
+  });
+});
+
+describe("the file tools' observation beside the gate (#1182)", () => {
+  /** A gate and a file tools' observation recording, in one list, what each was handed and when it finished. */
+  const recording = (gateAnswer: () => Promise<HookJSONOutput> = async () => ({})) => {
+    const order: string[] = [];
+    const named = (hookInput: HookInput): string => `${(hookInput as PreToolUseHookInput).tool_name} ${(hookInput as PreToolUseHookInput).tool_use_id}`;
+    const gate: HookCallback = async (hookInput) => {
+      order.push(`gate ${named(hookInput)}`);
+      const answer = await gateAnswer();
+      order.push("gate ruled");
+      return answer;
+    };
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const observed: FileToolHooks = {
+      before: async (hookInput) => {
+        order.push(`before ${named(hookInput)}`);
+        await held;
+        order.push("before done");
+        return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } };
+      },
+      completed: async (hookInput) => {
+        order.push(`completed ${named(hookInput)}`);
+        return {};
+      },
+      failed: async (hookInput) => {
+        order.push(`failed ${named(hookInput)}`);
+        return {};
+      },
+    };
+    return { order, release, extra: { preToolUse: gate, fileTools: observed } satisfies Partial<RunOptionsInput> };
+  };
+
+  it("observes a call the gate let through only after the gate rules, and answers only once the observation has finished", async () => {
+    const { order, release, extra } = recording();
+    const answer = callPreToolUse(buildRunOptions(input({}, extra)), "Edit", { file_path: "/work/repo/a.ts" }, "toolu_edit");
+    let answered = false;
+    void answer.then(() => (answered = true));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(order).toEqual(["gate Edit toolu_edit", "gate ruled", "before Edit toolu_edit"]);
+    expect(answered).toBe(false);
+    release();
+    // The gate's answer, never the observation's: an observer cannot allow a call on the provider's behalf.
+    expect(await answer).toEqual({});
+    expect(order.at(-1)).toBe("before done");
+  });
+
+  it("never observes a call the gate denies, and answers the gate's denial", async () => {
+    const { order, extra } = recording(async () => gateDenial("Denied by containment."));
+    expect(await callPreToolUse(buildRunOptions(input({}, extra)), "Write", { file_path: "/etc/passwd" }, "toolu_write")).toEqual(gateDenial("Denied by containment."));
+    expect(order).toEqual(["gate Write toolu_write", "gate ruled"]);
+  });
+
+  it("hands the observation the completion and the failure of the four recognised file tools' calls, and of no other tool's", () => {
+    const { extra } = recording();
+    const hooks = buildRunOptions(input({}, extra)).hooks;
+    expect(hooks?.PostToolUse).toEqual([{ matcher: "Edit|MultiEdit|Write|NotebookEdit", hooks: [extra.fileTools.completed] }]);
+    expect(hooks?.PostToolUseFailure).toEqual([{ matcher: "Edit|MultiEdit|Write|NotebookEdit", hooks: [extra.fileTools.failed] }]);
   });
 });
