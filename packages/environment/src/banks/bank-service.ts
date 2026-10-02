@@ -799,7 +799,7 @@ const entryOf = (params: ParamsOf<"banks.register">, name: string, manifest: Man
   location,
   checkout: params.path,
   role: params.role,
-  enabled: true,
+  enabled: params.enabled ?? true,
   accounts: params.accounts,
   repositories: params.repositories,
   defaultFor: params.defaultFor,

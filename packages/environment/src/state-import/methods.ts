@@ -1,3 +1,5 @@
+import { BANK_REGISTRY_LABEL } from "./banks.js";
+import type { BankService } from "../banks/bank-service.js";
 import { planOrganisation, type OrganisationOwners } from "./organisation.js";
 import { readOrganisationStores } from "./source/organisation.js";
 import type { KeyManagerConnections } from "../key-managers/connections.js";
@@ -55,6 +57,7 @@ export interface StateImportOptions extends OrganisationOwners, Omit<PlanSkillsO
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
   readonly accounts: AccountService;
+  readonly banks: BankService;
   readonly carryOver: CarryOverService;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   /** The Instructions service's create command, which carries each instruction. */
@@ -90,10 +93,21 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const dataPlan =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : await planImport(await readSourceStores(dataFolder.path), { ...options, caller, create: options.createInstruction, get: options.getSettings, update: options.updateSettings });
+            : await planImport(await readSourceStores(dataFolder.path), { ...options, importId, caller, create: options.createInstruction, get: options.getSettings, update: options.updateSettings });
         const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
-        const combined: ImportPlan = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };
+        const combined: ImportPlan = credentials === null ? planned : {
+          ...planned,
+          // Accounts commit before scoped Banks; credential sources exist before registration verifies its Forge.
+          stores: [
+            ...planned.stores.filter((store) => store.label !== BANK_REGISTRY_LABEL),
+            ...credentials.stores.filter((store) => store.label !== BANK_REGISTRY_LABEL),
+            ...planned.stores.filter((store) => store.label === BANK_REGISTRY_LABEL),
+          ],
+          failed: [...planned.failed, ...credentials.failed.filter((failure) => !planned.failed.some((held) => held.label === failure.label && held.message === failure.message))],
+          notCarried: [...planned.notCarried, ...credentials.notCarried],
+          repairs: (preview: boolean) => [...credentials.repairs(preview), ...(planned.repairs?.(preview) ?? [])],
+        };
         const organisationStores = await readOrganisationStores(dataFolder?.path ?? null, terminalFolder?.path ?? null);
         const listed = (await Promise.all(directoriesOf(combined).map(async (entry) => {
           const accountId = combined.accountIds?.get(entry.sourceId);

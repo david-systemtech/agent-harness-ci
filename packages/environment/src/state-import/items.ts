@@ -83,7 +83,7 @@ export const derivedUuid = (...parts: readonly string[]): string => {
 };
 
 /** One item an import plans to carry: where it came from, what it is called on the report, and how its owning service applies it. */
-export interface ImportItem extends ItemKey {
+interface ImportItemKey extends ItemKey {
   readonly kind: StateImportItemKind;
   /** The item as the report names it when it fails. */
   readonly label: string;
@@ -96,11 +96,15 @@ export interface ImportItem extends ItemKey {
   readonly previewFailure?: StateImportFailure;
   /** False in a preview when the owner will reuse a target; apply answers its actual carried count at commit. */
   readonly counted?: boolean;
-  /** Applies the item through its owner; a reused target is mapped but not counted as newly carried. */
-  readonly apply: (context: CommandContext) => CommandAnswer<{ readonly targetId: string; readonly carried?: boolean }>;
-  /** Optional owning-service preparation, outside the child transaction; its resources roll back on refusal. */
-  readonly prepare?: (context: PrepareContext & { readonly commandId: string }) => Promise<ImportItem["apply"]>;
 }
+
+/** Prepared owners finish bounded filesystem/provider reads before the item transaction. */
+type ImportApply = (context: CommandContext) => CommandAnswer<{ readonly targetId: string; readonly carried?: boolean }>;
+type ImportPrepare = (context: PrepareContext & { readonly commandId: string }) => Promise<ImportApply>;
+export type ImportItem = ImportItemKey & (
+  | { readonly apply: ImportApply; readonly prepare?: ImportPrepare }
+  | { readonly apply?: never; readonly prepare: ImportPrepare }
+);
 
 /** What applying a plan's items did: those carried, and those that failed, each with why. */
 export interface ItemsApplied {
@@ -144,11 +148,10 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
     const undos: Undo[] = [];
     let accepted = false;
     try {
-      // A mapped item stays held even if its source or target conditions changed.
-      if (mappedTarget(log, item) !== undefined) continue;
       const refusal = item.validate === undefined ? null : await item.validate();
       if (refusal != null) { failed.push({ label: item.label, message: refusal }); continue; }
-      const apply = await item.prepare?.({ ...caller, commandId, onUndo: (undo) => void undos.push(undo) }) ?? item.apply;
+      const preparation = { ...caller, commandId, onUndo: (undo: Undo) => void undos.push(undo) };
+      const apply = item.apply === undefined ? await item.prepare(preparation) : await item.prepare?.(preparation) ?? item.apply;
       const run = log.command<{ readonly carried: boolean }>({ actor, commandId }, (tx) => {
         if (mappedTarget(log, item) !== undefined) return { aggregate: stream, result: { carried: false } };
         const answer = apply({ ...caller, commandId, actor, tx });

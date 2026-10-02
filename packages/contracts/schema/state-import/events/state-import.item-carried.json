@@ -17,7 +17,7 @@
     "store": {
       "type": "string",
       "minLength": 1,
-      "description": "The source store or organisation decision kind, including provider-sessions and organisation.archive/pin/group/group-source/membership/draft."
+      "description": "The source store or organisation decision kind, including banks, banks.default, provider-sessions and organisation.archive/pin/group/group-source/membership/draft."
     },
     "sourceId": {
       "type": "string",
@@ -28,6 +28,8 @@
       "type": "string",
       "enum": [
         "instruction",
+        "bank",
+        "bank-default",
         "forge-account",
         "key-manager-connection",
         "dev-site",
@@ -44,7 +46,7 @@
         "skill-source",
         "skill-always-on"
       ],
-      "description": "The owning service kind for a carried instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy or a disabled local Routine, tracked Skill repository or Account Skill choice."
+      "description": "The owning service kind for a carried Bank/default, instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy or a disabled local Routine, tracked Skill repository or Account Skill choice."
     },
     "sourceDirectory": {
       "description": "The canonical listed Claude directory retained as an import source for an Account or Session mapping, including a secondary directory. No credentials.",
@@ -54,7 +56,7 @@
     "targetId": {
       "type": "string",
       "minLength": 1,
-      "description": "The target held by its owning service: an Account, Session, Group or instruction id, a dev-site host pattern, connection id or setting key."
+      "description": "The target held by its owning service: a Bank, Account, Session, Group or instruction id, a dev-site host pattern, connection id or setting key."
     },
     "origin": {
       "type": "string",

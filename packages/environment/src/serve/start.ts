@@ -1946,6 +1946,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       listSessions: listImportSessions,
       carryOver,
       createInstruction: instructionHandlers["instructions.create"],
+      banks: bankService,
       directoryRules: environmentResolver,
       timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       checkRoutineImport: routineHandlers["routines.checkImport"],
