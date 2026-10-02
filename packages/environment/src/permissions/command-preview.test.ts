@@ -137,9 +137,27 @@ it('reports unresolved substitutions instead of claiming nothing would be delete
   expect(await only("rm *'foo'", root)).toMatchObject({ summary: '1 file', lines: ['afoo'] });
 });
 
+it.skipIf(process.platform === 'win32')('matches shell bracket classes with a leading closing bracket and literal empty classes', async () => {
+  const root = await tree();
+  for (const name of ['x', ']', 'foo[]']) await writeFile(join(root, name), 'keep');
+  expect(await only('rm []x]', root)).toMatchObject({ summary: '2 files', lines: [']', 'x'] });
+  expect(await only('rm foo[]', root)).toMatchObject({ summary: '1 file', lines: ['foo[]'] });
+  expect(await only('rm [!]]', root)).toMatchObject({ summary: '2 files', lines: ['*', 'x'] });
+});
+
+it('reports locale-sensitive character classes as unavailable rather than an empty match', async () => {
+  const root = await tree();
+  expect((await only('rm [[:alpha:]]', root)).summary).toBe('could not preview: locale-sensitive character classes need the shell');
+});
+
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it('does not mistake read-write redirection for truncation', () => {
+    expect(destructiveParts('cat <> log.txt')).toEqual([]);
+    expect(destructiveParts('cat 3<>log.txt')).toEqual([]);
+    expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
+  });
   it('warns about command substitutions in unquoted heredocs without parsing their bodies as commands', async () => {
     expect((await only('cat <<EOF\n$(rm -rf build)\nEOF', '/repo')).summary).toBe('cannot tell: command substitution in a here-document needs the shell');
     expect(kinds("cat <<'EOF'\n$(rm -rf build)\nEOF")).toEqual([]);
@@ -235,6 +253,17 @@ describe('the verbs it knows', () => {
     expect(destructiveParts('git push origin main')).toEqual([]);
     // git's own options come before the subcommand and must not hide it.
     expect(kinds('git -C /srv/repo push -f')).toEqual(['git-push-force']);
+  });
+
+  it('warns about forced refspecs and remote deletion without contacting the remote', async () => {
+    const disk = recorder();
+    expect(kinds('git push origin +main')).toEqual(['git-push-force']);
+    expect((await only('git push origin +main', '/repo', disk)).summary).toContain('forced refspec');
+    for (const command of ['git push origin :main', 'git push origin --delete main', 'git push -d origin main']) {
+      expect(kinds(command)).toEqual(['git-push-delete']);
+      expect(await only(command, '/repo', disk)).toMatchObject({ summary: 'remote ref deletion requested; commits may become unreachable', lines: ['main'] });
+    }
+    expect(disk.calls).toEqual([]);
   });
 
   it('recognises the discarding forms of checkout and restore only', () => {
@@ -436,13 +465,20 @@ describe('previewing git, with git standing in', () => {
   it('counts what a reset --hard would lose and names where it would land', async () => {
     const replies = { 'git status --porcelain': ' M a.ts\nA  added.ts\n?? b.ts\n', 'git log --oneline -1': 'abc1234 the last commit\n' };
     expect(await only('git reset --hard origin/main', '/repo', recorder(replies))).toMatchObject({
-      summary: '2 uncommitted changes would be lost, back to origin/main — currently abc1234 the last commit; untracked paths may be overwritten if they obstruct the reset',
+      summary: 'cannot tell how reset to origin/main would change committed files and commit reachability; 2 uncommitted changes would be lost, back to origin/main — currently abc1234 the last commit; untracked paths may be overwritten if they obstruct the reset',
       lines: [' M a.ts', 'A  added.ts'],
       count: 2,
     });
     expect((await only('git reset --hard', '/repo', recorder({ ...replies, 'git status --porcelain': '' }))).summary).toBe(
       'no tracked changes reported, back to abc1234 the last commit',
     );
+  });
+
+  it('reports uncertainty about committed files and reachability for a named hard-reset target', async () => {
+    const disk = recorder({ 'git status --porcelain': '', 'git log --oneline -1': 'abc1234 current commit\n' });
+    const preview = await only('git reset --hard HEAD~1', '/repo', disk);
+    expect(preview.summary).toMatch(/^cannot tell/);
+    expect(preview.summary).toContain('committed files and commit reachability');
   });
 
   it('keeps the reset untracked warning separate from the truncated tracked-change count', async () => {

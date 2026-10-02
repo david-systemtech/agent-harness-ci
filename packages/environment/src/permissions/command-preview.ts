@@ -56,6 +56,7 @@ export type DestructiveKind =
   | 'git-clean'
   | 'git-reset-hard'
   | 'git-push-force'
+  | 'git-push-delete'
   | 'git-checkout-discard'
   | 'git-branch-delete'
   | 'drop'
@@ -419,7 +420,8 @@ function tokenize(command: string): readonly Segment[] {
       if (command[index + 1] === '<' && command[index + 2] !== '<') {
         pendingHereDoc = { stripTabs: command[index + 2] === '-' };
         index += pendingHereDoc.stripTabs ? 3 : 2;
-      } else index += command[index + 1] === '<' ? 3 : 1;
+      } else if (command[index + 1] === '>') index += 2;
+      else index += command[index + 1] === '<' ? 3 : 1;
       mark = index;
       continue;
     }
@@ -606,7 +608,10 @@ function gitOf(args: readonly Word[], text: string): Destructive | null {
     case 'push': {
       const { flags, operands } = split(rest);
       const forcing = flags.filter((flag) => flag === '-f' || flag === '--force' || flag.startsWith('--force-with-lease'));
-      if (forcing.length === 0) return null;
+      const refspecs = operands.slice(1);
+      const deleting = flags.includes('-d') || flags.includes('--delete');
+      if (deleting || refspecs.some((refspec) => refspec.startsWith(':'))) return { kind: 'git-push-delete', text, targets: deleting ? refspecs : refspecs.filter((refspec) => refspec.startsWith(':')), flags };
+      if (forcing.length === 0 && !refspecs.some((refspec) => refspec.startsWith('+'))) return null;
       return { kind: 'git-push-force', text, targets: operands, flags };
     }
     case 'checkout': {
@@ -944,13 +949,24 @@ function segmentMatcher(pattern: string): (name: string) => boolean {
       continue;
     }
     if (char === '[') {
-      const close = pattern.indexOf(']', at + 1);
+      const negated = pattern[at + 1] === '!' || pattern[at + 1] === '^';
+      const start = at + (negated ? 2 : 1);
+      // A first `]` belongs to the class; another `]` must close it.
+      const close = findUnescaped(pattern, ']', start + (pattern[start] === ']' ? 1 : 0));
       if (close === -1) {
         source += '\\[';
         continue;
       }
-      const body = pattern.slice(at + 1, close);
-      source += `[${body.startsWith('!') ? `^${body.slice(1)}` : body}]`;
+      if (/\[[:.=]/.test(pattern.slice(start, close))) throw new Error('locale-sensitive character classes need the shell');
+      let body = '';
+      for (let inner = start; inner < close; inner += 1) {
+        const member = pattern[inner] ?? '';
+        if (member === '\\' && inner + 1 < close) {
+          body += escapeRegExp(pattern[inner + 1] ?? '');
+          inner += 1;
+        } else body += '][^'.includes(member) ? `\\${member}` : member;
+      }
+      source += `[${negated ? '^' : ''}${body}]`;
       at = close;
       continue;
     }
@@ -1093,6 +1109,8 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
         return await previewResetHard(part, cwd, deps);
       case 'git-push-force':
         return await previewPushForce(part, cwd, deps);
+      case 'git-push-delete':
+        return { kind: part.kind, summary: 'remote ref deletion requested; commits may become unreachable', lines: part.targets.map((refspec) => unescape(refspec).replace(/^:/, '')).slice(0, MAX_LISTED), count: part.targets.length };
       case 'git-checkout-discard':
         return await previewCheckoutDiscard(part, cwd, deps);
       case 'git-branch-delete':
@@ -1242,12 +1260,16 @@ async function previewResetHard(part: Destructive, cwd: string, deps: BlastRadiu
   const target = part.targets[0];
   const back = head.length > 0 ? `, back to ${target === undefined ? head : `${target} — currently ${head}`}` : '';
   const tracked = changes.length === 0 ? `no tracked changes reported${back}` : `${plural(changes.length, 'uncommitted change')} would be lost${back}`;
-  const summary = status.split('\n').some((line) => line.startsWith('??')) ? `${tracked}; untracked paths may be overwritten if they obstruct the reset` : tracked;
+  const known = target === undefined ? tracked : `cannot tell how reset to ${target} would change committed files and commit reachability; ${tracked}`;
+  const summary = status.split('\n').some((line) => line.startsWith('??')) ? `${known}; untracked paths may be overwritten if they obstruct the reset` : known;
   const lines = changes.slice(0, MAX_LISTED);
   return { kind: part.kind, summary, lines, count: changes.length };
 }
 
 async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
+  if (part.targets.slice(1).some((refspec) => refspec.startsWith('+'))) {
+    return { kind: part.kind, summary: 'forced refspec may discard remote commits; remote state was not contacted', lines: part.targets.slice(1).slice(0, MAX_LISTED), count: part.targets.length - 1 };
+  }
   const git = gitIn(cwd, deps);
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
   const remoteLine = ((await soft(git(['remote', '-v']))).split('\n')[0]?.trim() ?? '').replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/]+@/gi, '$1');
