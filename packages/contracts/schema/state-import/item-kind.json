@@ -6,16 +6,21 @@
     "instruction",
     "bank",
     "bank-default",
-    "account",
-    "account-default",
-    "session",
     "forge-account",
     "key-manager-connection",
     "dev-site",
     "page-policy",
+    "account",
+    "account-default",
+    "session",
+    "archive",
+    "pin",
+    "group",
+    "group-membership",
+    "draft",
     "routine",
     "skill-source",
     "skill-always-on"
   ],
-  "description": "The kind of item a state import carried: an owned instruction, a Bank registry entry or default, an Account mapping or default, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy a disabled local Routine, a tracked Skill repository or an Account Skill choice."
+  "description": "The owning service kind for a carried Bank/default, instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy or a disabled local Routine, tracked Skill repository or Account Skill choice."
 }

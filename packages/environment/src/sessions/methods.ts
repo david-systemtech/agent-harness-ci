@@ -198,7 +198,7 @@ export const createSessionIn = (
   return {};
 };
 
-export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers => {
+export const sessionMethods = (options: SessionMethodsOptions): MethodHandlers & { readonly "sessions.archive": MethodHandler<"sessions.archive">; readonly "sessions.pin": MethodHandler<"sessions.pin">; readonly "sessions.setDraft": MethodHandler<"sessions.setDraft">; readonly "sessions.setGroup": MethodHandler<"sessions.setGroup"> } => {
   const { log } = options;
   const validateRunParameters = options.validateRunParameters ?? acceptAnyRunParameters;
   const clampSessionMode = options.clampSessionMode ?? keepSessionMode;

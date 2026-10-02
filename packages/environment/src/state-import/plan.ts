@@ -36,6 +36,7 @@ export interface ImportPlan {
   /** The source folder's canonical path: what the import's events name it by. */
   readonly sourceKey: string;
   readonly stores: readonly PlannedStore[];
+  readonly accountIds?: ReadonlyMap<string, string>;
   /** What fails before any item is applied: a store that could not be read, an item its owner's bounds refuse or that waits for a mapping. */
   readonly failed: readonly StateImportFailure[];
   /** Repair links read from the owners after application, or anticipated for the preview's new targets. */
@@ -123,7 +124,7 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: banks.snapshot, ...(profiles.status === "read" && bankPlan.items.length > 0 && { dependencies: [profiles.snapshot] }), label: BANK_REGISTRY_LABEL, items: bankPlan.items });
     failed.push(...bankPlan.failed);
   } else if (banks.status === "failed") failed.push({ label: "Bank registry", message: banks.diagnostic });
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, ...(bankPlan !== null && { repairs: bankPlan.repairs }) }, stores.reportStores);
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), ...(bankPlan !== null && { repairs: bankPlan.repairs }) }, stores.reportStores);
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */
@@ -182,11 +183,12 @@ const NOTHING_CARRIED: StateImportCarried = {
 /** The report of a plan: for a dry run, what it would carry; for an import, what `applied` says it carried and what failed. */
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
   const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false && item.previewFailure === undefined) : applied.carried;
+  const heldDrafts = applied === null ? itemsOf(plan).filter((item) => item.kind === "draft" && item.counted === false).length : applied.heldDrafts ?? 0;
   return {
-    carried: { ...NOTHING_CARRIED, banks: carriedItems.filter((item) => item.kind === "bank").length, routines: carriedItems.filter((item) => item.kind === "routine").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length, skillSources: carriedItems.filter((item) => item.kind === "skill-source" && item.contributes?.() !== false).length, alwaysOnSkills: carriedItems.filter((item) => item.kind === "skill-always-on" && item.contributes?.() !== false).length },
+    carried: { ...NOTHING_CARRIED, banks: carriedItems.filter((item) => item.kind === "bank").length, skillSources: carriedItems.filter((item) => item.kind === "skill-source" && item.contributes?.() !== false).length, alwaysOnSkills: carriedItems.filter((item) => item.kind === "skill-always-on" && item.contributes?.() !== false).length, routines: carriedItems.filter((item) => item.kind === "routine").length, archived: carriedItems.filter((item) => item.kind === "archive").length, pins: carriedItems.filter((item) => item.kind === "pin").length, groups: carriedItems.filter((item) => item.kind === "group").length, drafts: carriedItems.filter((item) => item.kind === "draft").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
     reEnter: [...(plan.repairs?.(applied === null) ?? [])],
     later: plan.stores.flatMap((store) => store.later ?? []),
-    notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],
+    notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? []), ...(heldDrafts > 0 ? [{ label: "Held drafts", count: heldDrafts, step: null }] : [])],
     failed: [...plan.failed, ...(applied === null ? itemsOf(plan).flatMap((item) => item.previewFailure === undefined ? [] : [item.previewFailure]) : applied.failed)],
     clientLocal: plan.clientLocal,
     dryRun: applied === null,

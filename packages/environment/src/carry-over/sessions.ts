@@ -83,15 +83,22 @@ export const listAccountSessions = async (adapter: Adapter, account: AccountRef)
  * session a run continued, or began, is never imported again. A session
  * deleted but not yet purged is held; a purged one is not.
  */
-export const heldProviderSessions = (reader: Reader, sourceKey?: string): ReadonlySet<string> =>
+/** Provider ids are Account-scoped; secondary directories of one Account share the same identity. */
+export const importedSessionSourceId = (accountId: string, providerSessionId: string): string => JSON.stringify([accountId, providerSessionId]);
+
+export const heldProviderSessions = (reader: Reader, sourceKey?: string, accountId?: string): ReadonlySet<string> =>
   new Set([
-    ...(sourceKey === undefined ? [] : reader.all<{ source_id: string }>("SELECT source_id FROM state_import_items WHERE source_key = ? AND kind = 'session'", sourceKey).map((row) => row.source_id)),
-    ...reader
-      .all<{ id: string | null }>(
-        `SELECT json_extract(origin, '$.providerSessionId') AS id FROM sessions WHERE json_extract(origin, '$.kind') = 'import'
-         UNION SELECT provider_session_id AS id FROM runs WHERE provider_session_id IS NOT NULL`,
-      )
-      .flatMap((row) => (row.id === null ? [] : [row.id])),
+    ...(sourceKey === undefined ? [] : reader.all<{ source_id: string }>("SELECT source_id FROM state_import_items WHERE source_key = ? AND kind = 'session'", sourceKey).flatMap((row) => {
+      try {
+        const key: unknown = JSON.parse(row.source_id);
+        return Array.isArray(key) && key[0] === accountId && typeof key[1] === "string" ? [key[1]] : [];
+      } catch { return []; }
+    })),
+    ...reader.all<{ id: string | null }>(
+      `SELECT json_extract(origin, '$.providerSessionId') AS id FROM sessions WHERE json_extract(origin, '$.kind') = 'import' AND (? IS NULL OR json_extract(origin, '$.accountId') = ?)
+       UNION SELECT provider_session_id AS id FROM runs WHERE provider_session_id IS NOT NULL AND (? IS NULL OR account_id = ?)`,
+      accountId ?? null, accountId ?? null, accountId ?? null, accountId ?? null,
+    ).flatMap((row) => row.id === null ? [] : [row.id]),
   ]);
 
 /** Runs `work` over `items`, at most `limit` at once, answering in the items' order. */

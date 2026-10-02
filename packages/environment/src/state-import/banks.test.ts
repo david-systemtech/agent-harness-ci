@@ -190,3 +190,21 @@ it("refuses a scope whose mapped Account disappears after preview planning", asy
   expect((await run(client)).result).toMatchObject({ carried: { banks: 0 }, failed: [{ label: 'Bank "scoped"' }, { label: "Sessions for work" }] });
   expect(await client.request("banks.list", {})).toEqual({ banks: [] });
 });
+
+it.each([{ role: "readwrite", enabled: false }, { role: "readonly", enabled: true }])("keeps an unapplied default visible after a source repair ($role, enabled=$enabled)", async ({ role, enabled }) => {
+  const source = tempDir();
+  const original = { ...bank("pending"), role, enabled };
+  store(source, "memory-banks.json", { version: 2, banks: [original], default: "pending" });
+  const { t, client } = await start(source, { accounts: [{ id: "work", provider: "claude", directory: tempDir() }] });
+  expect((await run(client)).result).toMatchObject({ carried: { banks: 1 }, failed: [{ label: "Default Bank" }] });
+  const registered = (await client.request("banks.list", {})).banks;
+  expect(registered).toMatchObject([{ role: role === "readonly" ? "read-only" : "read-write", enabled, defaultFor: [] }]);
+  store(source, "memory-banks.json", { version: 2, banks: [{ ...original, role: "readwrite", enabled: true }], default: "pending" });
+  const head = t.env.log.head();
+  const preview = (await run(client, true)).result!;
+  expect(preview).toMatchObject({ carried: { banks: 0 }, failed: [{ label: "Default Bank", message: "Its default was not carried when this Bank was registered; choose the default in Memory bank settings. The harness defaults are preserved." }] });
+  expect(t.env.log.head()).toBe(head);
+  expect((await run(client)).result).toMatchObject({ carried: { banks: 0 }, failed: preview.failed });
+  expect((await client.request("banks.list", {})).banks).toEqual(registered);
+  expect(t.env.log.readStream({ kinds: ["state-import"] }).filter((event) => event.type === "state-import.item-carried" && event.payload["kind"] === "bank-default")).toEqual([]);
+});
