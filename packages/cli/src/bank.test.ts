@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { JsonObject } from "@agent-harness/contracts";
+import { SCOPES, type JsonObject } from "@agent-harness/contracts";
 import { expect, it, vi } from "vitest";
 import { PERSONAL_BANK, TEAM_BANK, markdown, personalManifest, type FixtureBank } from "../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../environment/test/cleanups.js";
@@ -280,4 +280,19 @@ it("prints the pull request and each pending file of a landing awaiting review, 
   // No forge account serves the origin: the landing cannot fetch the bank.
   expect(landing?.payload).toMatchObject({ sessionId: session, step: "fetch", reason: expect.any(String) });
   expect(failed).toMatchObject({ code: 1, out: "", err: `Landing in sam-memory failed at ${String(landing?.payload["step"])}: ${String(landing?.payload["reason"])}\n` });
+});
+
+it("answers the memory methods to a local client session only: a paired client is forbidden, reason local, and queues nothing", async () => {
+  const h = await start();
+  const bankId = await register(h, PERSONAL_BANK);
+  const paired = await h.t.client({ token: (await h.t.pair({ scopes: [...SCOPES] })).token });
+  const sessionId = randomUUID();
+  const fact = { scope: { org: "personal", project: "homelab" }, name: "rollout-steps", description: DESCRIPTION, body: "Roll out once.", type: "project" as const };
+  await expect(paired.request("banks.memory.search", { query: "homelab", repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "read", reason: "local" } });
+  await expect(paired.request("banks.memory.read", { repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "read", reason: "local" } });
+  await expect(paired.request("banks.memory.draft", { ...fact, sessionId, repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
+  await expect(paired.request("banks.memory.promote", { sessionId, repositoryIdentity: null })).rejects.toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
+  expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).filter((event) => event.payload["bankId"] === bankId && event.type.startsWith("bank.dra"))).toEqual([]);
+  // The local client session the bank verbs exchange is answered.
+  expect(await h.client.request("banks.memory.draft", { ...fact, sessionId, repositoryIdentity: null })).toMatchObject({ bank: "maya-memory", change: { kind: "draft", name: "rollout-steps" } });
 });
