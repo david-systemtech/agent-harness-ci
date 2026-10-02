@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { BankManifest, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankReviewHeldPayload, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, validateBank } from "@agent-harness/contracts/bank-validator";
-import type { EventLog } from "../event-log/event-log.js";
+import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import type { ForgeAnswer } from "../forge/operations.js";
 import type { Clock } from "../serve/clock.js";
@@ -25,6 +25,7 @@ const REMOTE_MAIN = "refs/remotes/origin/main";
 const CHECK_BUDGET_MS = 10 * 60_000;
 const CHECK_POLL_MS = 5_000;
 const REVIEW_POLL_MS = 30_000;
+const REVIEW_REPLAY_BATCH = 1000;
 const valueOf = <T>(answer: ForgeAnswer<T>): T => {
   if (answer.outcome === "done") return answer.value;
   throw new Error(answer.outcome === "refused" ? answer.error.message : answer.message);
@@ -39,10 +40,25 @@ export const createBankLander = (options: {
   const controller = new AbortController();
   const running = new Set<Promise<MemoryPromoteResult>>();
   const active = new Map<string, Promise<MemoryPromoteResult>>();
-  const heldReview = (bankId: string): BankReviewHeldPayload | null => {
-    const last = options.log.readStream({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }).filter((event) => event.payload["bankId"] === bankId && ["bank.review-held", "bank.landed"].includes(event.type)).at(-1);
-    return last?.type === "bank.review-held" ? last.payload as unknown as BankReviewHeldPayload : null;
+  const reviews = new Map<string, BankReviewHeldPayload>();
+  const rememberReview = (event: EventEnvelope) => {
+    if (event.streamKind !== ENVIRONMENT_STREAM_KIND || event.streamId !== options.environmentId) return;
+    const bankId = event.payload["bankId"];
+    if (typeof bankId !== "string") return;
+    if (event.type === "bank.review-held") reviews.set(bankId, event.payload as unknown as BankReviewHeldPayload);
+    else if (event.type === "bank.landed" || event.type === "bank.forgotten") reviews.delete(bankId);
   };
+  // Rebuild once, in bounded batches; committed events maintain the index during this lifetime.
+  let cursor = 0;
+  for (;;) {
+    const events = options.log.readStream({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, cursor, REVIEW_REPLAY_BATCH);
+    for (const event of events) rememberReview(event);
+    const last = events.at(-1);
+    if (last === undefined || events.length < REVIEW_REPLAY_BATCH) break;
+    cursor = last.sequence;
+  }
+  const stopFollowing = options.log.subscribe(rememberReview);
+  const heldReview = (bankId: string): BankReviewHeldPayload | null => reviews.get(bankId) ?? null;
   const promote = async (bank: BankEntry, sessionId: string | null, drafts: readonly BankDraft[], changes?: BankChanges): Promise<MemoryPromoteResult> => {
     if (busy.has(bank.id)) {
       const reason = "A landing is already in progress for this bank.";
@@ -97,6 +113,7 @@ export const createBankLander = (options: {
       // The durable review record survives a restart and keeps the submitted bytes separate from later drafts.
       const review = heldReview(bank.id);
       if (review !== null) {
+        if (changes !== undefined) throw new Error("A reviewed change is already awaiting reconciliation for this bank.");
         sessionId = review.sessionId;
         pullRequest = review.pullRequest;
         const pending = (): MemoryPromoteResult => {
@@ -284,7 +301,7 @@ export const createBankLander = (options: {
     landChanges(bank: BankEntry, changes: BankChanges) {
       return track(bank.id, promote(bank, changes.sessionId ?? null, [], changes));
     },
-    async close() { interval.cancel(); controller.abort(); await Promise.allSettled(running); },
+    async close() { interval.cancel(); controller.abort(); await Promise.allSettled(running); stopFollowing(); },
   };
   return lander;
 };

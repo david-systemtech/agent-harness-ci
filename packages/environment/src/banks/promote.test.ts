@@ -330,6 +330,31 @@ it.each(["dismissed", "changes-requested", "stale", "comment-after-refusal"])("r
   expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
 });
 
+it.each(["open", "merged"])("refuses new non-draft writes while a held PR is %s, then permits retry after reconciliation", async (state) => {
+  const h = await remoteBank();
+  scriptLanding(h, "success");
+  const first = { title: "Update bank reference", body: "Reviewed reference.", writes: { "reference/first.txt": "First submitted change.\n" } };
+  const second = { title: "Update another reference", body: "Another reviewed reference.", writes: { "reference/second.txt": "Second submitted change.\n" } };
+  expect(await h.t.env.banks.landChanges(h.bankId, first)).toMatchObject({ state: "awaiting-review" });
+  const branch = `memory/${h.bankId.slice(0, 8)}-1`;
+  const sha = git(h.remote, "rev-parse", branch).trim();
+  if (state === "merged") {
+    git(h.remote, "update-ref", "refs/heads/main", sha);
+    h.forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch, sha, state: "merged" });
+  }
+  expect(await h.t.env.banks.landChanges(h.bankId, second)).toMatchObject({
+    state: "failed", step: "prepare", reason: "A reviewed change is already awaiting reconciliation for this bank.",
+  });
+  expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).at(-1)).toMatchObject({
+    type: "bank.landing-failed", payload: { bankId: h.bankId, step: "prepare" },
+  });
+  expect(h.forge.requests.filter((request) => request.method === "POST" && request.path.endsWith("/pulls"))).toHaveLength(1);
+  git(h.remote, "update-ref", "refs/heads/main", sha);
+  h.forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch, sha, state: "merged" });
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "landed", files: [{ path: "reference/first.txt" }] });
+  expect(await h.t.env.banks.landChanges(h.bankId, second)).toMatchObject({ state: "awaiting-review", files: [{ path: "reference/second.txt" }] });
+});
+
 it.each(["orientation", "decisions", "status", "manifest", "validator", "migration"])("lands the reviewed %s class through the common non-draft path", async (kind) => {
   const h = await remoteBank();
   scriptLanding(h, "success");
@@ -374,6 +399,17 @@ it("re-reads owners from fresh main before trusting a previous owner's approval"
   h.forge.reviews(TOKEN, "maya/memory", 1, [{ login: "sam", state: "APPROVED", commit: sha }]);
   expect(JSON.parse((await call(h, id, tool("promote", {})))[0]!.text).state).toBe("awaiting-review");
   expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
+});
+
+it("does not replay growing environment history when reconciling a bank without a held review", async () => {
+  const h = await remoteBank();
+  h.t.env.log.atomically((tx) => h.t.env.log.append({ kind: "environment", id: h.t.env.id },
+    Array.from({ length: 1500 }, () => ({ type: "test.unrelated", payload: {} })), { tx, actor: "system:test" }));
+  const read = vi.spyOn(h.t.env.log, "readStream");
+  onCleanup(() => read.mockRestore());
+  for (let i = 0; i < 3; i++) expect(await h.t.env.banks.reconcileLanding(h.bankId)).toBeNull();
+  h.t.clock.advance(30_000);
+  expect(read).not.toHaveBeenCalled();
 });
 
 it("resumes a held review after restart without losing newer drafts or creating another PR", async () => {
