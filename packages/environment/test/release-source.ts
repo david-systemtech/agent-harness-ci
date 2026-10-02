@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { LAUNCHER_PROTOCOL, PROTOCOL_VERSION, RELEASE_MANIFEST_FILE, type ReleaseAsset, type ReleaseManifest, type ReleaseSource } from "@agent-harness/contracts";
 import { DATABASE_SCHEMA_VERSION } from "../src/event-log/migrations.js";
 import { RUNNING_PLATFORM } from "../src/updates/channel.js";
-import { startFakeForge, type FakeForge, type FakeForgeRequest } from "./fake-forge.js";
+import { startFakeForge, type FakeForge, type FakeForgeRequest, type FakeForgeScript } from "./fake-forge.js";
 import { DAVID, TOKEN, pasted } from "./forge.js";
 import type { WireClient } from "./wire-client.js";
 
@@ -10,6 +10,8 @@ import type { WireClient } from "./wire-client.js";
  * The fake release source (launcher-update spec, "Testing Decisions"; #346):
  * the fake forge answering the Gitea API's release list, releases by tag and
  * the web route an asset downloads from, as a Forgejo release source does,
+ * or GitHub's releases and asset API via the fake forge's fetch mapping.
+ * GitHub reads answer anonymously as well as with the test token,
  * with a manifest and assets per release, and this platform's artefact's
  * bytes where a release is given them (#347), and the desktop builds a
  * release is given (#354). It answers the test's token, as
@@ -108,19 +110,25 @@ export const desktopEntry = (build: FakeDesktopBuild): ReleaseAsset => ({
 });
 
 const REPOSITORY = "david/agent-harness";
-const API = `/api/v1/repos/${REPOSITORY}/releases`;
-const DOWNLOAD = `/${REPOSITORY}/releases/download`;
 
 /** Starts a fake release source on a fake forge of its own; the caller closes its forge. */
-export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
+export const startFakeReleaseSource = async (kind: "forgejo" | "github" = "forgejo"): Promise<FakeReleaseSource> => {
   const forge = await startFakeForge();
-  const caller = TOKEN;
+  const source: ReleaseSource = kind === "github"
+    ? { origin: "https://github.com", kind, repository: "david-systemtech/agent-harness" }
+    : { origin: forge.origin, kind, repository: REPOSITORY };
+  const API = `/${kind === "github" ? "api/v3" : "api/v1"}/repos/${source.repository}/releases`;
+  const DOWNLOAD = `/${source.repository}/releases/download`;
+  const callers = kind === "github" ? [TOKEN, null] : [TOKEN];
+  const answer = (route: string, reply: FakeForgeScript) => {
+    for (const caller of callers) forge.answer(caller, route, reply);
+  };
   const published: { readonly id: number; readonly body: Record<string, unknown> }[] = [];
 
-  forge.answer(caller, `GET ${API}`, () => ({ status: 200, body: published.map((release) => release.body).reverse() }));
+  answer(`GET ${API}`, () => ({ status: 200, body: published.map((release) => release.body).reverse() }));
 
   return {
-    source: { origin: forge.origin, kind: "forgejo", repository: REPOSITORY },
+    source,
     forge,
     publish(...releases) {
       for (const release of releases) {
@@ -128,7 +136,7 @@ export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
         const tag = release.tag ?? `v${release.version}`;
         const desktop = release.desktop ?? [];
         const described =
-          release.manifest === null ? null : typeof release.manifest === "string" ? release.manifest : manifestOf(release.version, release.manifest, release.artefact);
+          release.manifest === null ? null : typeof release.manifest === "string" ? release.manifest : manifestOf(release.version, { ...(kind === "github" && { image: { reference: `ghcr.io/david-systemtech/agent-harness:${release.version}`, digest: `sha256:${"0".repeat(64)}` } }), ...release.manifest }, release.artefact);
         const manifest =
           described === null || typeof described === "string"
             ? described
@@ -157,19 +165,20 @@ export const startFakeReleaseSource = async (): Promise<FakeReleaseSource> => {
           assets,
         };
         published.push({ id, body });
-        forge.answer(caller, `GET ${API}/tags/${encodeURIComponent(tag)}`, { status: 200, body });
-        if (text !== null) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${RELEASE_MANIFEST_FILE}`, { status: 200, raw: text });
-        if (release.artefact !== undefined) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${ARTEFACT}`, { status: 200, raw: release.artefact });
-        for (const build of desktop) forge.answer(caller, `GET ${DOWNLOAD}/${encodeURIComponent(tag)}/${build.name}`, { status: 200, raw: build.bytes });
+        answer(`GET ${API}/tags/${encodeURIComponent(tag)}`, { status: 200, body });
+        const assetRoute = (name: string) => kind === "github" ? `${API}/assets/${assets.find((asset) => asset.name === name)!.id}` : `${DOWNLOAD}/${encodeURIComponent(tag)}/${name}`;
+        if (text !== null) answer(`GET ${assetRoute(RELEASE_MANIFEST_FILE)}`, { status: 200, raw: text });
+        if (release.artefact !== undefined) answer(`GET ${assetRoute(ARTEFACT)}`, { status: 200, raw: release.artefact });
+        for (const build of desktop) answer(`GET ${assetRoute(build.name)}`, { status: 200, raw: build.bytes });
       }
     },
     absent(version) {
-      forge.answer(caller, `GET ${API}/tags/v${encodeURIComponent(version)}`, { status: 404, body: { message: "Not Found" } });
+      answer(`GET ${API}/tags/v${encodeURIComponent(version)}`, { status: 404, body: { message: "Not Found" } });
     },
     reads: () => forge.requests.filter((request) => request.path.startsWith(API) || request.path.startsWith(DOWNLOAD)),
     async grantAccess(client) {
       forge.user(TOKEN, DAVID);
-      const answer = await client.request("forge.accounts.add", { commandId: randomUUID(), forgeAccountId: randomUUID(), url: forge.origin, kind: "forgejo", credential: pasted(TOKEN) });
+      const answer = await client.request("forge.accounts.add", { commandId: randomUUID(), forgeAccountId: randomUUID(), url: source.origin, kind, credential: pasted(TOKEN) });
       if (answer.result === undefined) throw new Error(`The forge account for the release origin was not added: ${JSON.stringify(answer.receipt)}`);
     },
   };

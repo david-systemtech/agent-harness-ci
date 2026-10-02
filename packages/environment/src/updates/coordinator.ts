@@ -43,7 +43,8 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  *
  * **Staging** (#347): what a check of the release channel found to stage
  * (the target, or its stepping stone) is downloaded through the
- * ForgeService, checked against its manifest's size and SHA-256, unpacked
+ * ForgeService (public GitHub anonymously, or its configured forge account),
+ * checked against its manifest's size and SHA-256, unpacked
  * into the staging area and sent to the launcher in `install?`, busy or
  * idle; a failure leaves nothing pending, fails the check and is tried again
  * at the next. `updates.apply` stages a version asked for by name the same
