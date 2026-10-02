@@ -34,6 +34,7 @@ import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
+import { FileToolObservation } from "./file-tools.js";
 import { readStoredSession, resolveForkPoint, resolveRewindPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { seedStoreFromDirectory } from "./imported-history.js";
 import { LOGIN_EXPIRED_CODE, LoginLapsed } from "./login-refresh.js";
@@ -413,6 +414,11 @@ export class ClaudeProcess implements TurnControl {
    * at most `HOOK_GATED_KEPT`: a prompt follows its hook at once.
    */
   readonly #hookGated = new Map<string, string>();
+  /** The recognised file tools' calls the gate let through, told to the observer of the run live then (#1182). */
+  readonly #fileTools = new FileToolObservation(
+    () => this.#context.fileChanges,
+    (message) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${message}`),
+  );
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
@@ -660,6 +666,7 @@ export class ClaudeProcess implements TurnControl {
         resumePoint,
         canUseTool: this.#canUseTool,
         preToolUse: this.#preToolUse,
+        fileTools: this.#fileTools.hooks,
         onStop: this.#onStop,
         spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
@@ -727,6 +734,7 @@ export class ClaudeProcess implements TurnControl {
       }
       this.#settleWaiters();
       this.#denyAll(DISPOSED_DENY_MESSAGE);
+      this.#fileTools.abandon();
       if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn);
       const onItsOwn = this.#disposing === undefined;
       this.#close();

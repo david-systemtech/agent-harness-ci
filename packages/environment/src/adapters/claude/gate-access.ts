@@ -20,7 +20,10 @@ import { inProcessToolAccess, inProcessToolName, isInProcess, toolCallSummary, t
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 
-const WRITE_PATH: Readonly<Record<string, string>> = { Write: "file_path", Edit: "file_path", MultiEdit: "file_path", NotebookEdit: "notebook_path" };
+const WRITE_PATH: Readonly<Record<string, string>> = { Edit: "file_path", MultiEdit: "file_path", Write: "file_path", NotebookEdit: "notebook_path" };
+
+/** The file tools whose calls write the path their input names: the ones a file change is observed for (#1182). */
+export const CLAUDE_FILE_TOOLS: readonly string[] = Object.keys(WRITE_PATH);
 const READ_PATH: Readonly<Record<string, string>> = { Read: "file_path", Grep: "path" };
 
 /** The tool name the CLI's sandbox asks the host about a host under (`can_use_tool`, input `{host}`): a network ask, not a tool call. */
