@@ -37,6 +37,10 @@ export const BankRepositoryScope = z
   .meta({ description: "The repositories whose runs use the bank: all, or the repository identities named." });
 export type BankRepositoryScope = z.infer<typeof BankRepositoryScope>;
 
+/** A canonical folder or topic pointer, with no traversal segments or memory name. */
+export const BankFolderPointer = z.string().regex(/^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\.{1,2})\/)[^/\s:]+\/){1,3}|(?:(?!(?:memories|\.{1,2})\/)[^/\s:]+\/){2,3}memories\/[a-z0-9]+(?:-[a-z0-9]+)*\/)$/).meta({ description: "A folder pointer bank:org/[project/[area/]], or a topic pointer bank:org/project/[area/]memories/topic/: a pin expands it whole." });
+export type BankFolderPointer = z.infer<typeof BankFolderPointer>;
+
 /** Where a bank's repository lives: a remote by its forge's origin and path, or local-only (ADR 0035). */
 export const BankLocation = z
   .discriminatedUnion("kind", [
@@ -159,12 +163,13 @@ export const BankEntry = z
     kind: BankKindNamed.nullable().meta({ description: "personal or team, from BANK.md; null while BANK.md names none." }),
     location: BankLocation,
     checkout: z.string().min(1).meta({ description: "The bank's checkout on this machine, an absolute path: the BankService's, never written by a run." }),
+    checkoutOwnership: z.enum(["managed", "registered"]).optional().meta({ description: "managed when the BankService created or cloned this checkout; registered for an adopted path. Absent on older records means registered. Only managed checkouts may be removed." }),
     role: BankRole,
     enabled: z.boolean().meta({ description: "Whether runs use the bank." }),
     accounts: BankAccountScope,
     repositories: BankRepositoryScope,
     defaultFor: z.array(AccountId).meta({ description: "The accounts for which this bank is the default write target; one bank per account." }),
-    pins: z.array(z.string().min(1)).meta({ description: "Registry pins: folder pointers expanded in every session in scope." }),
+    pins: z.array(BankFolderPointer).meta({ description: "Registry pins: folder pointers expanded in every session in scope." }),
     mergeOverride: BankMergeOverride,
     privateCopy: z.boolean().meta({ description: "Whether a team fact may also be kept in the personal bank beside it (ADR 0034); off unless set." }),
     credential: BankCredentialSource,
@@ -210,7 +215,7 @@ export const BankUpdatedPayload = z
     accounts: BankAccountScope.optional(),
     repositories: BankRepositoryScope.optional(),
     defaultFor: z.array(AccountId).optional(),
-    pins: z.array(z.string().min(1)).optional(),
+    pins: z.array(BankFolderPointer).optional(),
     mergeOverride: BankMergeOverride.optional(),
     privateCopy: z.boolean().optional(),
     credential: BankCredentialSource.optional(),
@@ -225,7 +230,7 @@ export const BankPinnedPayload = z
   .object({
     bankId: BankId,
     sessionId: SessionId,
-    pointer: z.string().min(1).meta({ description: "The folder pointer pinned or unpinned." }),
+    pointer: BankFolderPointer,
     pinned: z.boolean(),
   })
   .meta({ description: "bank.pinned: a session pinned or unpinned a folder of a bank." });

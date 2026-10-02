@@ -6,12 +6,12 @@ import type { BankService } from "./bank-service.js";
 
 /**
  * The BankService's methods on the method table (banks spec, "The
- * BankService's methods"; #1025): `banks.list` and `banks.get` at `read`;
- * `banks.register`, an `admin` command prepared by reading and verifying
- * the checkout first; `banks.join.preview`, a read-only temporary clone;
- * `banks.join`, an admin command prepared by cloning and validating;
- * `banks.verify`, a `read` query that records what it
- * finds as `system:banks`; `banks.sync` pulls through the Syncer at `read`. The rules are the BankService's.
+ * BankService's methods"; #1025, #1026): reads and verification at `read`,
+ * registry writes and forgetting at `admin`, a session's own pins at
+ * `runs:drive`. Checkout reads and validation are prepared outside the
+ * command transaction. The rules are the BankService's.
+ * Sync pulls through the Syncer at `read`.
+ * Preview uses a temporary clone; joining prepares a validated full clone.
  */
 export const bankMethods = (banks: BankService, credentials: BankCredentials, syncer: BankSyncer): MethodHandlers => ({
   "banks.join": banks.join,
@@ -23,6 +23,9 @@ export const bankMethods = (banks: BankService, credentials: BankCredentials, sy
     return { bank };
   },
   "banks.register": banks.register,
+  "banks.registry.update": banks.update,
+  "banks.pin": banks.pin,
+  "banks.forget": banks.forget,
   "banks.credential.set": credentials.set,
   "banks.credential.swap": credentials.swap,
   "banks.sync": async (params) => ({ banks: await syncer.sync(params.bankId) }),

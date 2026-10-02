@@ -73,7 +73,7 @@ const teamEntry = {
   accounts: ["work"],
   repositories: [repository],
   defaultFor: ["work"],
-  pins: ["projects/team/acme"],
+  pins: ["acme-memory:acme/web/"],
   mergeOverride: "review-memories",
   privateCopy: true,
   credential: "stored",
@@ -93,7 +93,7 @@ const finding = { rule: "secret_shaped", severity: "refusal", path: "projects/pe
 const eventPayloads: Record<keyof typeof BANK_EVENT_PAYLOADS, Record<string, unknown>> = {
   "bank.added": { bank: entry },
   "bank.updated": { bankId, name: "maya-notes", kind: "team", enabled: false, status: troubledStatus },
-  "bank.pinned": { bankId, sessionId, pointer: "projects/personal/homelab", pinned: true },
+  "bank.pinned": { bankId, sessionId, pointer: "maya-memory:personal/homelab/", pinned: true },
   "bank.forgotten": { bankId, checkoutRemoved: false },
   "bank.synced": { bankId, head, previousHead: null },
   "bank.verified": { bankId, status: troubledStatus },
@@ -127,6 +127,7 @@ const joinParams = { commandId, bankId, url: repository, accounts: ["work"], rep
 const registerParams = { commandId, bankId, path: "/data/banks/maya-memory", role: "read-write", accounts: "all", repositories: "all", defaultFor: [] };
 
 export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
+  "banks/folder-pointer.json": { valid: ["maya-memory:personal/", "maya-memory:personal/homelab/memories/deploys/"], invalid: ["maya-memory:backup-schedule", "maya-memory:personal/memories/deploys/", "maya-memory:../"] },
   "banks/join-preview.json": { valid: [preview], invalid: [without(preview, "canRead"), { ...preview, canPush: "yes" }] },
   "banks/id.json": { valid: [bankId], invalid: ["maya-memory", ""] },
   "banks/role.json": { valid: ["read-write", "read-only"], invalid: ["write", ""] },
@@ -155,7 +156,7 @@ export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
     valid: [status, troubledStatus],
     invalid: [without(status, "landing"), { ...status, reachable: { state: "unreachable", since } }, { ...status, lastSync: "yesterday" }],
   },
-  "banks/entry.json": { valid: [entry, teamEntry], invalid: [without(entry, "checkout"), { ...entry, name: "Maya" }, { ...entry, kind: "shared" }] },
+  "banks/entry.json": { valid: [entry, teamEntry, { ...entry, checkoutOwnership: "managed" }], invalid: [{ ...entry, checkoutOwnership: "unknown" }, without(entry, "checkout"), { ...entry, name: "Maya" }, { ...entry, kind: "shared" }] },
   "banks/record.json": {
     valid: [record, teamRecord],
     invalid: [entry, { ...record, memories: -1 }, { ...record, sharedAliases: [{ alias: "homelab", banks: [] }] }],
@@ -216,6 +217,18 @@ export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; resu
       invalid: [without(registerParams, "commandId"), without(registerParams, "path"), { ...registerParams, path: "" }, { ...registerParams, importedFrom: "" }],
     },
     result: { valid: [{ bank: record }], invalid: [{}, { bank: entry }] },
+  },
+  "banks.registry.update": {
+    params: { valid: [{ commandId, bankId }, { commandId, bankId, role: "read-only", enabled: false, accounts: ["work"], repositories: [repository], defaultFor: ["work"], pins: ["maya-memory:personal/homelab/"], mergeOverride: "review-memories", privateCopy: true }], invalid: [{ bankId }, { commandId, bankId, repositories: ["homelab"] }, { commandId, bankId, pins: ["maya-memory:fact"] }] },
+    result: { valid: [{ bank: record }], invalid: [{}, { bank: entry }] },
+  },
+  "banks.pin": {
+    params: { valid: [{ commandId, sessionId, pointer: "maya-memory:personal/homelab/", pinned: true }], invalid: [{ sessionId, pointer: "maya-memory:personal/homelab/", pinned: true }, { commandId, sessionId, pointer: "maya-memory:fact", pinned: false }] },
+    result: { valid: [{ sessionId, pins: [] }, { sessionId, pins: ["maya-memory:personal/homelab/"] }], invalid: [{}, { sessionId, pins: ["maya-memory:fact"] }] },
+  },
+  "banks.forget": {
+    params: { valid: [{ commandId, bankId }, { commandId, bankId, removeCheckout: true }], invalid: [{ bankId }, { commandId, bankId, removeCheckout: "yes" }] },
+    result: { valid: [{ bankId, checkoutRemoved: false }], invalid: [{ bankId }, { bankId, checkoutRemoved: "yes" }] },
   },
   "banks.sync": {
     params: { valid: [{}, { bankId }], invalid: [{ bankId: "maya-memory" }, []] },

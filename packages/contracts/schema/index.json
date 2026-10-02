@@ -1523,6 +1523,10 @@
       "title": "BankRole"
     },
     {
+      "path": "banks/folder-pointer.json",
+      "title": "BankFolderPointer"
+    },
+    {
       "path": "banks/account-scope.json",
       "title": "BankAccountScope"
     },
@@ -5451,6 +5455,54 @@
       "title": "banks.verify error"
     },
     {
+      "path": "methods/banks.registry.update/params.json",
+      "title": "banks.registry.update params"
+    },
+    {
+      "path": "methods/banks.registry.update/result.json",
+      "title": "banks.registry.update result"
+    },
+    {
+      "path": "methods/banks.registry.update/response.json",
+      "title": "banks.registry.update response"
+    },
+    {
+      "path": "methods/banks.registry.update/error.json",
+      "title": "banks.registry.update error"
+    },
+    {
+      "path": "methods/banks.pin/params.json",
+      "title": "banks.pin params"
+    },
+    {
+      "path": "methods/banks.pin/result.json",
+      "title": "banks.pin result"
+    },
+    {
+      "path": "methods/banks.pin/response.json",
+      "title": "banks.pin response"
+    },
+    {
+      "path": "methods/banks.pin/error.json",
+      "title": "banks.pin error"
+    },
+    {
+      "path": "methods/banks.forget/params.json",
+      "title": "banks.forget params"
+    },
+    {
+      "path": "methods/banks.forget/result.json",
+      "title": "banks.forget result"
+    },
+    {
+      "path": "methods/banks.forget/response.json",
+      "title": "banks.forget response"
+    },
+    {
+      "path": "methods/banks.forget/error.json",
+      "title": "banks.forget error"
+    },
+    {
       "path": "methods/banks.sync/params.json",
       "title": "banks.sync params"
     },
@@ -8035,6 +8087,36 @@
       "params": "methods/banks.verify/params.json",
       "result": "methods/banks.verify/result.json",
       "error": "methods/banks.verify/error.json"
+    },
+    {
+      "name": "banks.registry.update",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.registry.update/params.json",
+      "result": "methods/banks.registry.update/result.json",
+      "response": "methods/banks.registry.update/response.json",
+      "error": "methods/banks.registry.update/error.json"
+    },
+    {
+      "name": "banks.pin",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.pin/params.json",
+      "result": "methods/banks.pin/result.json",
+      "response": "methods/banks.pin/response.json",
+      "error": "methods/banks.pin/error.json"
+    },
+    {
+      "name": "banks.forget",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.forget/params.json",
+      "result": "methods/banks.forget/result.json",
+      "response": "methods/banks.forget/response.json",
+      "error": "methods/banks.forget/error.json"
     },
     {
       "name": "banks.sync",

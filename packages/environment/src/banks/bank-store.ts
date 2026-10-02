@@ -1,10 +1,12 @@
 import {
   ENVIRONMENT_STREAM_KIND,
+  SESSION_STREAM_KIND,
   type BankAddedPayload,
   type BankAwaitingReviewPayload,
   type BankEntry,
   type BankForgottenPayload,
   type BankLandingFailedPayload,
+  type BankPinnedPayload,
   type BankLandedPayload,
   type BankSyncedPayload,
   type BankUpdatedPayload,
@@ -36,6 +38,12 @@ export const BANKS_TABLES = {
     forgotten_at TEXT
   ) STRICT;
   CREATE UNIQUE INDEX banks_live_name ON banks (name) WHERE forgotten_at IS NULL`,
+  bank_session_pins: `CREATE TABLE bank_session_pins (
+    bank_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    pointer TEXT NOT NULL,
+    PRIMARY KEY (bank_id, session_id, pointer)
+  ) STRICT`,
 } as const;
 
 const entryOf = (db: ProjectionDb, bankId: string): BankEntry | null => {
@@ -72,12 +80,23 @@ export const banksProjector: Projector = {
   name: BANKS_PROJECTOR,
   tables: BANKS_TABLES,
   apply(event, db) {
+    // Deletion keeps pins for restore; only the final tombstone releases them.
+    if (event.streamKind === SESSION_STREAM_KIND && event.type === "session.purged") {
+      db.run("DELETE FROM bank_session_pins WHERE session_id = ?", event.streamId);
+      return;
+    }
     if (event.streamKind !== ENVIRONMENT_STREAM_KIND) return;
     switch (event.type) {
       case "bank.added":
         return added(db, event, event.payload as BankAddedPayload);
       case "bank.updated":
         return updated(db, event.payload as BankUpdatedPayload);
+      case "bank.pinned": {
+        const { bankId, sessionId, pointer, pinned } = event.payload as BankPinnedPayload;
+        if (pinned) db.run("INSERT OR IGNORE INTO bank_session_pins (bank_id, session_id, pointer) VALUES (?, ?, ?)", bankId, sessionId, pointer);
+        else db.run("DELETE FROM bank_session_pins WHERE bank_id = ? AND session_id = ? AND pointer = ?", bankId, sessionId, pointer);
+        return;
+      }
       case "bank.verified": {
         const { bankId, status } = event.payload as BankVerifiedPayload;
         return rewrite(db, bankId, (entry) => ({ ...entry, status }));
@@ -94,8 +113,11 @@ export const banksProjector: Projector = {
         return landed(db, event, event.payload as BankLandedPayload);
       case "bank.landing-failed":
         return landingFailed(db, event, event.payload as BankLandingFailedPayload);
-      case "bank.forgotten":
-        return void db.run("UPDATE banks SET forgotten_at = ? WHERE id = ?", event.occurredAt, (event.payload as BankForgottenPayload).bankId);
+      case "bank.forgotten": {
+        const { bankId } = event.payload as BankForgottenPayload;
+        db.run("DELETE FROM bank_session_pins WHERE bank_id = ?", bankId);
+        return void db.run("UPDATE banks SET forgotten_at = ? WHERE id = ?", event.occurredAt, bankId);
+      }
     }
   },
 };
@@ -120,3 +142,7 @@ export const nameHolder = (reader: Reader, name: string): string | null =>
 /** The live bank registered from `importedFrom`; null for none. */
 export const importHolder = (reader: Reader, importedFrom: string): string | null =>
   reader.all<{ id: string }>("SELECT id FROM banks WHERE imported_from = ? AND forgotten_at IS NULL ORDER BY position", importedFrom)[0]?.id ?? null;
+
+/** One session's pins, kept separately from the registry pins and rebuilt from bank.pinned. */
+export const sessionBankPins = (reader: Reader, sessionId: string): string[] =>
+  reader.all<{ pointer: string }>("SELECT pointer FROM bank_session_pins WHERE session_id = ? ORDER BY pointer", sessionId).map((row) => row.pointer);

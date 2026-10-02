@@ -85,7 +85,7 @@ describe("banks.join", () => {
     expect(answer.result?.bank).toMatchObject({
       id: bankId, name: "acme", kind: "team", checkout: join(t.dataDir, "banks", "acme"),
       accounts: ["work"], repositories: ["https://github.com/acme/web"], role: "read-write", defaultFor: [],
-      mergeOverride: "none", privateCopy: false, enabled: true,
+      mergeOverride: "none", privateCopy: false, enabled: true, checkoutOwnership: "managed",
     });
     expect(existsSync(join(t.dataDir, "banks", "acme", ".git"))).toBe(true);
     const event = await client.next((frame) => frame.type === "event" && frame.subscription === subscription && frame.event.type === "bank.added");
@@ -94,6 +94,8 @@ describe("banks.join", () => {
     const replay = await client.request("banks.join", params);
     expect(replay.receipt).toEqual(answer.receipt);
     expect((await client.request("banks.list", {})).banks).toEqual([answer.result?.bank]);
+    expect((await client.request("banks.forget", { commandId: randomUUID(), bankId, removeCheckout: true })).result).toEqual({ bankId, checkoutRemoved: true });
+    expect(existsSync(join(t.dataDir, "banks", "acme"))).toBe(false);
   });
 });
 

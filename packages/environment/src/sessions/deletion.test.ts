@@ -248,6 +248,8 @@ describe("a deleted session", () => {
     "instructions.import": { sessionId, id: randomUUID(), path: "instruction.md" },
     // A deleted session has no trust key to decide (#500).
     "trust.decide": { sessionId, decision: "trusted" },
+    // Session bank pins reject the deleted session before resolving its folder.
+    "banks.pin": { sessionId, pointer: "sample:personal/homelab/", pinned: true },
   });
 
   /**
