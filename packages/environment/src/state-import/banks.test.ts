@@ -66,7 +66,7 @@ it("refuses unresolved and malformed scopes without widening them, retains earli
   const good = bank("good");
   const unresolved = { ...bank("unresolved", changed(PERSONAL_BANK, { "BANK.md": null })), profiles: { kind: "profiles", profileIds: ["missing"] } };
   const malformed = { ...bank("malformed", changed(PERSONAL_BANK, { "BANK.md": null })), profiles: { kind: "profiles", profileIds: "all" } };
-  const entries = [good, unresolved, malformed];
+  const entries: (typeof good | typeof unresolved | typeof malformed)[] = [good, unresolved, malformed];
   store(source, "memory-banks.json", { version: 2, banks: entries, default: "good" });
   const { client } = await start(source);
   const preview = (await run(client, true)).result!;
