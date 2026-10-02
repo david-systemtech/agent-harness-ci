@@ -137,7 +137,7 @@ confirmation decisions in this record.
 | program scopes read, sessions:write, runs:drive; bypassPermissions Ceiling; configured OpenBao reference | owed | scopes/clamps/reference, other programs acceptEdits | owed |
 | Streaming, tools, two-turn same Session/credential, model/effort and auxiliary overrides, /keep, /save | owed | [#1193][1193] scripted results plus separate live proof; title generation gated | owed |
 | Signed delivery-only route, Matrix destination, signature/body/timestamp rejection, lost-ack stable-id retry | owed | [#1009][1009] checklist, room/message ids, attempts; any other failure blocks | owed |
-| Existing alert routes retain their configured state; Matrix rooms preserved; fault injection removed | owed | before/after state and restore checks | owed |
+| Existing alert routes retain their configured state, including disabled routes remaining disabled; Matrix rooms and homeserver deployment preserved; fault injection removed | owed | before/after state and restore checks | owed |
 
 For the two receiver failure modes below, record the maintainer's explicit
 acceptance for the observed pinned deployment in the private acceptance record.

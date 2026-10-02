@@ -11,7 +11,8 @@
 #            in node:24-bookworm
 #   macos    darwin-arm64, the macOS zip, on the `macos` runner, signed ad hoc
 #   windows  win32-x64, the Windows NSIS setup, on `ci-x64` in
-#            electron-builder's Wine image, which writes the installer on Linux
+#            electron-builder's Wine image; on Linux the setup runs under Wine
+#            to write its uninstaller
 #
 # By hand only (workflow_dispatch), never on a pull request or main.
 

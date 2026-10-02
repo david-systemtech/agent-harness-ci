@@ -141,7 +141,8 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    altered bodies and old/future timestamps (300-second window), the correct
    Matrix room, and a lost-ack retry with one message. Any other signature or
    retry failure blocks acceptance. Preserve existing alert routes in their
-   configured state and preserve Matrix rooms and the homeserver deployment. Remove controlled fault injection
+   configured state, keeping previously disabled routes disabled, and preserve Matrix
+   rooms and the homeserver deployment. Remove controlled fault injection
    and restore any chat settings reset by deployment rendering.
 
 ## 7. Prove Client acceptance
