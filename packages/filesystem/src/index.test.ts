@@ -52,8 +52,10 @@ it.skipIf(process.getuid?.() !== 0 || process.platform !== "linux").each(["remov
   chmodSync(join(shared, "readonly.txt"), 0o444);
   chownSync(tree, 65534, 65534);
   chmodSync(tree, 0);
-  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
-    import { ${method} } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
+  // Published checkouts can have a private parent: pass the real source instead of importing through it.
+  const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+  const child = spawnSync(process.execPath, ["--input-type=module-typescript", "-e", `
+    ${source}
     await ${method}(${JSON.stringify(tree)});
     console.log(process.getuid());
   `], { uid: 65534, gid: 65534, encoding: "utf8" });
