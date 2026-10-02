@@ -151,11 +151,15 @@ export interface AccountService extends HostAccounts {
   list(): AccountRecord[];
   /** Reads the machine's own provider directory now (`accounts.probe`). */
   probe(provider?: string): Promise<AmbientProbe>;
+  /** Read a validated import source without probing sign-in or refreshing credentials. Does not authorise ambient adoption. */
+  observeDirectory(params: { readonly provider: string; readonly directory: string }): Promise<AccountDirectoryObservation>;
   /** Reads one account's status and models now, or every account's (`accounts.refresh`); answers the accounts after it. */
   refresh(accountId?: string): Promise<AccountRecord[]>;
   /** The models of one account or of every one (`models.list`), read first for an account never read. */
   catalogues(accountId?: string): Promise<AccountCatalogue[]>;
   adopt(params: { readonly provider?: string | undefined; readonly label?: string | undefined }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
+  /** Internal only: the importer supplies a validated listed source. Cached identity does not claim current sign-in. */
+  adoptDirectory(params: { readonly source: AccountDirectoryObservation; readonly label?: string | undefined }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
   add(params: { readonly provider?: string | undefined; readonly label: string }, context: CommandContext): CommandAnswer<{ account: AccountRecord; signIn: SignInStart }, Refused>;
   relabel(params: { readonly accountId: string; readonly label: string }, context: CommandContext): CommandAnswer<{ account: AccountRecord }, Refused>;
   remove(
@@ -164,6 +168,16 @@ export interface AccountService extends HostAccounts {
   ): CommandAnswer<{ accountId: string; directoryDeleted: boolean }, Refused>;
   /** Stops the fifteen-minute reads, and a running sign-in's process. */
   close(): void;
+}
+
+/** Read-only metadata for a listed import directory. It does not prove current authentication. */
+export interface AccountDirectoryObservation {
+  readonly provider: string;
+  readonly directory: string;
+  readonly present: boolean;
+  readonly identity: AccountIdentity | null;
+  readonly detail: string | null;
+  readonly checkedAt: string;
 }
 
 /** What a status read found. */
@@ -555,6 +569,43 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
   };
   const director: SignInDirector = (options.signIn ?? signInUnavailable)({ finished, account: (accountId) => liveAccount(reader, accountId) });
 
+  /** Owning-service validation and events, shared by ambient and listed adoption inside the caller's transaction. */
+  const adoptObserved = (
+    source: AccountDirectoryObservation,
+    labelGiven: string | undefined,
+    context: CommandContext,
+    accountId: string,
+    ambientReading?: AmbientProbe,
+  ): CommandAnswer<{ account: AccountRecord }, Refused> => {
+    const aggregate = accountStream(accountId);
+    const { provider, directory } = source;
+    const holder = accountByDirectory(reader, directory) ?? (source.identity === null ? null : accountByIdentity(reader, source.identity));
+    if (holder !== null) {
+      const what = holder.directory.path === directory ? directory : describeIdentity(source.identity as AccountIdentity);
+      return conflict(aggregate, "already_added", `${what} is already added as ${holder.label}.`, { accountId: holder.id });
+    }
+    const label = AccountLabel.safeParse(labelGiven ?? source.identity?.email);
+    if (!label.success) {
+      const message = "The directory's login has no email to label the account with; give a label.";
+      throw new ContractError(invalidParams([{ code: "custom", path: ["label"], message }], message));
+    }
+    const taken = labelTaken(aggregate, label.data);
+    if (taken !== null) return taken;
+    const events: EventInput[] = [{ type: "account.adopted", payload: { accountId, provider, label: label.data, directory } }];
+    if (source.identity !== null) events.push({ type: "account.identity-set", payload: { accountId, identity: source.identity } });
+    if (ambientReading !== undefined) events.push({ type: "account.status-changed", payload: { accountId, status: "signed-in", previous: "signed-out", detail: null } });
+    log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
+    if (ambientReading !== undefined) checkedAt.set(accountId, source.checkedAt);
+    context.tx.afterCommit(() => {
+      if (ambientReading !== undefined) ambient.set(provider, { ...ambientReading, accountId });
+      notice(accountId, "adopted");
+      arm(accountId);
+      void readModels(accountId);
+      if (ambientReading === undefined) void readStatus(accountId);
+    });
+    return { aggregate, result: { account: recordOf(accountId) } };
+  };
+
   return {
     signIn: director,
 
@@ -568,6 +619,22 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
     list: () => listAccounts(reader).map(withChecked),
 
     probe: (provider) => probe(provider),
+    async observeDirectory({ provider, directory: given }) {
+      const adapter = adapterFor(provider);
+      const directory = resolve(given);
+      const present = isDirectory(directory);
+      let identity: AccountIdentity | null = null;
+      let detail: string | null = null;
+      if (!present) detail = "The import directory is not present.";
+      else if (adapter.observeIdentity === undefined) detail = "The provider cannot observe a directory identity without probing credentials.";
+      else {
+        try {
+          identity = await withTimeout(() => adapter.observeIdentity!(directory), probeTimeoutMs, "The directory identity read");
+          if (identity !== null && identity.provider !== provider) throw new Error("The directory's cached identity names another provider.");
+        } catch (error) { detail = messageOf(error); }
+      }
+      return { provider, directory, present, identity, detail, checkedAt: clock.now().toISOString() };
+    },
 
     async refresh(accountId) {
       const ids = idsFor(accountId);
@@ -605,31 +672,16 @@ export const createAccountService = (options: AccountServiceOptions): AccountSer
                 : `is not signed in (${reading.directory}); sign in with ${displayName}'s own CLI, then call accounts.probe`;
         return conflict(aggregate, "ambient_unavailable", `The machine's own ${displayName} directory ${why}.`);
       }
-      const directory = reading.directory;
-      const holder = accountByDirectory(reader, directory) ?? (reading.identity === null ? null : accountByIdentity(reader, reading.identity));
-      if (holder !== null) {
-        const what = holder.directory.path === directory ? directory : describeIdentity(reading.identity as AccountIdentity);
-        return conflict(aggregate, "already_added", `${what} is already added as ${holder.label}.`, { accountId: holder.id });
+      return adoptObserved({ ...reading, directory: reading.directory }, params.label, context, accountId, reading);
+    },
+
+    adoptDirectory({ source, label }, context) {
+      adapterFor(source.provider);
+      const accountId = randomUUID();
+      if (!source.present || !isDirectory(source.directory) || source.detail !== null || source.identity === null || source.identity.provider !== source.provider) {
+        return conflict(accountStream(accountId), "source_unavailable", "The listed directory has no readable identity; plan it again before adopting it.");
       }
-      const label = AccountLabel.safeParse(params.label ?? reading.identity?.email);
-      if (!label.success) {
-        const message = "The directory's login has no email to label the account with; give a label.";
-        throw new ContractError(invalidParams([{ code: "custom", path: ["label"], message }], message));
-      }
-      const taken = labelTaken(aggregate, label.data);
-      if (taken !== null) return taken;
-      const events: EventInput[] = [{ type: "account.adopted", payload: { accountId, provider, label: label.data, directory } }];
-      if (reading.identity !== null) events.push({ type: "account.identity-set", payload: { accountId, identity: reading.identity } });
-      events.push({ type: "account.status-changed", payload: { accountId, status: "signed-in", previous: "signed-out", detail: null } });
-      log.append(aggregate, events, { tx: context.tx, actor: context.actor, commandId: context.commandId });
-      checkedAt.set(accountId, reading.checkedAt);
-      context.tx.afterCommit(() => {
-        ambient.set(provider, { ...reading, accountId });
-        notice(accountId, "adopted");
-        arm(accountId);
-        void readModels(accountId);
-      });
-      return { aggregate, result: { account: recordOf(accountId) } };
+      return adoptObserved(source, label, context, accountId);
     },
 
     add(params, context) {
