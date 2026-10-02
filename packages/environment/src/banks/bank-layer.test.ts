@@ -353,4 +353,44 @@ it.each(["not JSON", "[]"])("keeps runs and previews available after restarting 
   expect(readFileSync(h.memoryFile, "utf8")).toBe(memory);
   expect(readFileSync(metadata, "utf8")).toBe(damaged);
   expect(errors).toHaveBeenCalledWith("Writing memory bank block failed; using instructions:", expect.any(Error));
+
+  rmSync(h.workspace.path, { recursive: true });
+  const workspace = { kind: "directory", path: tempDir("bank-carried-repository-") } as const;
+  const moved = await client.request("sessions.setWorkspace", { commandId: randomUUID(), sessionId: id, workspace });
+  expect(moved.receipt.status).toBe("accepted");
+  // Composition joins Carry over's queue, so it also waits for the copy to finish.
+  await client.request("instructions.preview", { sessionId: id });
+  const carried = join(t.dataDir, "auto-memory", autoMemoryName({ workspace, repositoryIdentity: null }), "MEMORY.md");
+  expect(readFileSync(carried, "utf8")).toBe(memory);
+  expect(readFileSync(h.memoryFile, "utf8")).toBe(memory);
+  expect(errors).toHaveBeenCalledWith("Rewriting memory bank block after Carry over failed:", expect.any(Error));
+  expect(errors.mock.calls.some(([message]) => String(message).startsWith("Copying a session's auto memory"))).toBe(false);
+});
+
+it("carries memory into a malformed destination without reporting that the copy failed", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  onCleanup(() => errors.mockRestore());
+  const h = await start();
+  await h.register(TEAM_BANK);
+  const first = await create(h.client, { workspace: h.workspace, account: "first" });
+  await h.run(first.id);
+  const memory = readFileSync(h.memoryFile, "utf8");
+  writeFileSync(join(dirname(h.memoryFile), "topic.md"), "A carried fact.\n");
+  const workspace = { kind: "directory", path: tempDir("bank-existing-destination-") } as const;
+  const other = await create(h.client, { workspace, account: "first" });
+  await h.run(other.id);
+  const destination = join(h.t.dataDir, "auto-memory", autoMemoryName({ workspace, repositoryIdentity: null }));
+  const damaged = "Own line.\n<!-- agent-harness:banks -->\nIncomplete block.\n";
+  writeFileSync(join(destination, "MEMORY.md"), damaged);
+
+  rmSync(h.workspace.path, { recursive: true });
+  const moved = await h.client.request("sessions.setWorkspace", { commandId: randomUUID(), sessionId: first.id, workspace });
+  expect(moved.receipt.status).toBe("accepted");
+  await h.client.request("instructions.preview", { sessionId: first.id });
+  const sourceName = autoMemoryName({ workspace: h.workspace, repositoryIdentity: null });
+  expect(readFileSync(join(destination, "carried", sourceName, "MEMORY.md"), "utf8")).toBe(memory);
+  expect(readFileSync(join(destination, "carried", sourceName, "topic.md"), "utf8")).toBe("A carried fact.\n");
+  expect(readFileSync(join(destination, "MEMORY.md"), "utf8")).toBe(`${damaged}- [Memory carried from ${h.workspace.path}](carried/${sourceName}/MEMORY.md)\n`);
+  expect(errors).toHaveBeenCalledWith("Rewriting memory bank block after Carry over failed:", expect.any(Error));
+  expect(errors.mock.calls.some(([message]) => String(message).startsWith("Copying a session's auto memory"))).toBe(false);
 });

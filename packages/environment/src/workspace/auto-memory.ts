@@ -123,13 +123,19 @@ export const createAutoMemory = (root: string): AutoMemory => {
   };
   const carryNow = async (before: MemoryPlace, after: MemoryPlace): Promise<void> => {
     const to = autoMemoryName(after);
-    const held = await targets();
     const sources = sourcesOf(before);
     for (const source of sources) {
       if (source.name !== to) await carryMemory({ directory: join(root, source.name), name: source.name, label: source.key }, join(root, to));
     }
     // The carried block belongs to its former repository; rewrite it for the new identity immediately.
-    if (renderer !== undefined && (held.has(to) || sources.some((source) => held.has(source.name)))) await writeBanksNow(after, renderer);
+    if (renderer !== undefined) {
+      try {
+        const held = await targets();
+        if (held.has(to) || sources.some((source) => held.has(source.name))) await writeBanksNow(after, renderer);
+      } catch (error) {
+        console.error("Rewriting memory bank block after Carry over failed:", error);
+      }
+    }
   };
   return {
     banks: (place, render) => inTurn(() => writeBanksNow(place, render)),
