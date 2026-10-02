@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { releaseWorkflowInput } from "./release-workflow-input.js";
 
 const root = join(import.meta.dirname, "..");
-const workflow = readFileSync(join(root, "public/.github-workflows/release.yml"), "utf8");
+const { hosted: workflow, recovery } = releaseWorkflowInput(root);
 const lines = workflow.split("\n");
 const run = promisify(execFile);
 const jobs = new Map<string, string[]>();
@@ -28,14 +29,17 @@ let scratch: string | undefined;
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
 describe("the public GitHub release workflow", () => {
-  it("runs only for public v tags or manual dry runs, and Forgejo no longer runs for a tag", () => {
+  it("runs only for public v tags or manual dry runs", () => {
     expect(lines.slice(lines.indexOf("on:") + 1, lines.indexOf("permissions:"))).toEqual([
       "  push:", '    tags: ["v*"]', "  workflow_dispatch:", "",
     ]);
-    const forgejo = readFileSync(join(root, ".forgejo/workflows/release.yml"), "utf8");
-    expect(forgejo.slice(forgejo.indexOf("on:"), forgejo.indexOf("concurrency:")).replace(/^#.*\n/gm, "")).toBe("on:\n  workflow_dispatch:\n\n");
     expect(workflow).not.toMatch(/secrets\.|PACKAGES_TOKEN|desktop-builds\.sh/);
     expect(lines).toContain("    shell: bash");
+  });
+
+  it.skipIf(recovery === undefined)("keeps Forgejo recovery manual-only in the private tree", () => {
+    const forgejo = recovery ?? "";
+    expect(forgejo.slice(forgejo.indexOf("on:"), forgejo.indexOf("concurrency:")).replace(/^#.*\n/gm, "")).toBe("on:\n  workflow_dispatch:\n\n");
   });
 
   it("gates every publishing operation on the prepared run's publish flag, and latest on stability too", () => {
