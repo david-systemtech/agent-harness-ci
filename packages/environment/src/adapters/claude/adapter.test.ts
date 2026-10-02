@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { EMPTY_RUN_SKILL_SET, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
@@ -360,6 +360,23 @@ describe("a run in a worktree", () => {
       expect((await started()).options).toMatchObject({ cwd: worktree, projectConfigRoot: checkout });
       adapterWith().createRun(runInput({ trusted: false, workspace }), contextWith());
       expect((await started(2)).options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("takes the main checkout's project settings for a workspace below the worktree's root too", async () => {
+    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    try {
+      const checkout = join(root, "app");
+      git(root, "init", "-q", checkout);
+      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+      const worktree = join(root, "worktree");
+      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+      const below = join(worktree, "packages", "web");
+      mkdirSync(below, { recursive: true });
+      adapterWith().createRun(runInput({ trusted: true, workspace: { kind: "directory", path: below } }), contextWith());
+      expect((await started()).options).toMatchObject({ cwd: below, projectConfigRoot: checkout });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
