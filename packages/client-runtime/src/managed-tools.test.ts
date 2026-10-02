@@ -30,7 +30,7 @@ const finished = {
   exitCode: 0,
   signal: null,
   cause: "exited",
-  verification: { tool: "gh", outcome: "passed", reason: "gh is signed in to github.com as seth." },
+  verification: { tool: "gh", outcome: "passed", reason: "gh is signed in to github.com as milo." },
 } as const;
 
 const rejected = (code: string, message: string, data: Record<string, unknown>) => ({ result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: code, error: { code, message, data } } } });
@@ -81,11 +81,11 @@ describe("Verify", () => {
   it("says passed or failed with the environment's one-line reason", async () => {
     const { runtime, wire, env } = await paired({ capabilities: ["managedTools"] });
     const answers: Record<string, unknown>[] = [
-      { tool: "gh", outcome: "passed", reason: "gh is signed in to github.com as seth." },
+      { tool: "gh", outcome: "passed", reason: "gh is signed in to github.com as milo." },
       { tool: "bao", outcome: "failed", reason: "OpenBao at https://bao.home.test:8200 is sealed." },
     ];
     wire.answer("tools.verify", () => ({ result: answers.shift() ?? {} }));
-    expect(await verifyTool(runtime, env, "gh")).toEqual({ ok: true, line: "Verified: gh is signed in to github.com as seth." });
+    expect(await verifyTool(runtime, env, "gh")).toEqual({ ok: true, line: "Verified: gh is signed in to github.com as milo." });
     expect(await verifyTool(runtime, env, "bao")).toEqual({ ok: false, line: "Verify failed: OpenBao at https://bao.home.test:8200 is sealed." });
   });
 });
@@ -103,7 +103,7 @@ describe("the tool runs the environment's stream tells of", () => {
     environment.event(noticeEvent(2, env, "tool.run-finished", finished));
     await flush();
     expect(runs.read()).toEqual({ running: null, finished: { gh: finished } });
-    expect(toolRunWords(finished)).toBe("The install of gh finished. Verified: gh is signed in to github.com as seth.");
+    expect(toolRunWords(finished)).toBe("The install of gh finished. Verified: gh is signed in to github.com as milo.");
   });
 
   it("say how a run that did not finish on its own ended", () => {

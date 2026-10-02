@@ -106,7 +106,7 @@ describe("reading a pointer", () => {
 
   it.each([
     ["maya-memory:Backup Schedule", "maya-memory:Backup Schedule is not a pointer: name a bank, bank:path/ for a folder or a topic, or bank:name for a memory."],
-    ["cortex:homelab/", "No bank in scope is named cortex: the banks are maya-memory."],
+    ["notebook:homelab/", "No bank in scope is named notebook: the banks are maya-memory."],
     ["maya-memory:personal/garden/", "maya-memory:personal/garden/ names nothing in maya-memory: read maya-memory for its folders."],
     ["maya-memory:restore-drill", "maya-memory:restore-drill names nothing in maya-memory: read maya-memory for its folders."],
   ])("answers why %s reads nothing", async (pointer, message) => {

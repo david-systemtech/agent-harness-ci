@@ -201,9 +201,9 @@ describe("the outbox against an environment", () => {
     wire.cut();
     await until(() => phase(runtime) === "backoff", "the connection to be lost");
 
-    const moved = runtime.commands.moveToGroup(t.env.id, sessionId, "Brandsolidate");
+    const moved = runtime.commands.moveToGroup(t.env.id, sessionId, "Meadowstudios");
     await until(() => runtime.projections.sessionList.read().groups.length === 1, "the new heading to show");
-    expect(runtime.projections.sessionList.read().groups[0]).toMatchObject({ name: "Brandsolidate", pending: true });
+    expect(runtime.projections.sessionList.read().groups[0]).toMatchObject({ name: "Meadowstudios", pending: true });
 
     wire.setDown(false);
     platform.network.setOnline(true);

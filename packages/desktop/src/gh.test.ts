@@ -30,7 +30,7 @@ const fakeGh = (answer: (args: readonly string[]) => GhRan | "not-installed" | E
 describe("gh", () => {
   it("answers the token gh prints for the host, run without the token variables so it reports the account gh stores", async () => {
     const gh = fakeGh(() => ({ code: 0, stdout: "token-for-tests\n" }));
-    const { shell } = await start({ gh: gh.process, environment: { PATH: "/usr/bin", GH_TOKEN: "env-token-for-tests", GITHUB_TOKEN: "env-token-for-tests", HOME: "/home/seth" } });
+    const { shell } = await start({ gh: gh.process, environment: { PATH: "/usr/bin", GH_TOKEN: "env-token-for-tests", GITHUB_TOKEN: "env-token-for-tests", HOME: "/home/milo" } });
 
     expect(await shell().gh.token("github.com")).toBe("token-for-tests");
     expect(await shell().gh.token("git.example.test:8443")).toBe("token-for-tests");
@@ -39,7 +39,7 @@ describe("gh", () => {
       ["auth", "token", "--hostname", "git.example.test:8443"],
     ]);
     const [{ env } = { env: {} }] = gh.runs;
-    expect(env).toMatchObject({ HOME: "/home/seth" });
+    expect(env).toMatchObject({ HOME: "/home/milo" });
     for (const name of ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]) expect(env).not.toHaveProperty(name);
   });
 
@@ -75,9 +75,9 @@ describe("gh", () => {
 
   it("runs without the token variables in any casing on Windows, whose variable names are case-insensitive, and leaves its Path as it is", async () => {
     const gh = fakeGh(() => ({ code: 0, stdout: "token-for-tests\n" }));
-    const environment = { Path: "C:\\Program Files\\GitHub CLI", gh_token: "env-token-for-tests", Github_Token: "env-token-for-tests", USERPROFILE: "C:\\Users\\seth" };
+    const environment = { Path: "C:\\Program Files\\GitHub CLI", gh_token: "env-token-for-tests", Github_Token: "env-token-for-tests", USERPROFILE: "C:\\Users\\milo" };
     const { shell } = await start({ electron: fakeElectron({ os: "win32" }), platform: platformOn("win32"), gh: gh.process, environment });
     expect(await shell().gh.token("github.com")).toBe("token-for-tests");
-    expect(gh.runs[0]?.env).toEqual({ Path: "C:\\Program Files\\GitHub CLI", USERPROFILE: "C:\\Users\\seth" });
+    expect(gh.runs[0]?.env).toEqual({ Path: "C:\\Program Files\\GitHub CLI", USERPROFILE: "C:\\Users\\milo" });
   });
 });

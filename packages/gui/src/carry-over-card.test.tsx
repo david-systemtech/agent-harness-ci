@@ -100,19 +100,19 @@ describe("Carry over in Set up", () => {
     listed.memory.unmappable = [
       {
         folder: "lost-project",
-        path: "/home/seth/.claude/projects/lost-project/memory",
+        path: "/home/milo/.claude/projects/lost-project/memory",
       },
     ];
     const app = await opened(
       {
-        sessions: [{ repositoryIdentity: "https://git.home.test/seth/project" }],
+        sessions: [{ repositoryIdentity: "https://git.home.test/milo/project" }],
       },
       listed,
       [
         {
           name: "remote",
           reach: "paired",
-          sessions: [{ repositoryIdentity: "https://git.home.test/seth/remote" }],
+          sessions: [{ repositoryIdentity: "https://git.home.test/milo/remote" }],
         },
       ],
     );
@@ -125,16 +125,16 @@ describe("Carry over in Set up", () => {
     });
     expect(
       within(picker).queryByRole("option", {
-        name: "https://git.home.test/seth/remote",
+        name: "https://git.home.test/milo/remote",
       }),
     ).toBeNull();
-    await app.user.selectOptions(picker, "https://git.home.test/seth/project");
+    await app.user.selectOptions(picker, "https://git.home.test/milo/project");
     await app.user.click(account().getByRole("button", { name: "Assign memory: lost-project" }));
-    expect(await account().findByText("Assigned lost-project to https://git.home.test/seth/project.")).toBeDefined();
+    expect(await account().findByText("Assigned lost-project to https://git.home.test/milo/project.")).toBeDefined();
     expect(desk.requests("carryOver.assignMemory")[0]?.params).toMatchObject({
       accountId: "account-1",
       folder: "lost-project",
-      repositoryIdentity: "https://git.home.test/seth/project",
+      repositoryIdentity: "https://git.home.test/milo/project",
     });
   });
 
@@ -146,8 +146,8 @@ describe("Carry over in Set up", () => {
     listed.skills.offered = [
       {
         name: "review",
-        from: "/home/seth/.agents/skills/review",
-        url: "https://git.home.test/seth/skills.git",
+        from: "/home/milo/.agents/skills/review",
+        url: "https://git.home.test/milo/skills.git",
         folder: "skills/review",
         follow,
       },
@@ -161,7 +161,7 @@ describe("Carry over in Set up", () => {
     await app.user.click(await account().findByRole("button", { name: "Track as a source" }));
     expect(await account().findByText("Tracking review as a source.")).toBeDefined();
     expect(app.environment("desk").requests("skills.sources.add")[0]?.params).toMatchObject({
-      url: "https://git.home.test/seth/skills.git",
+      url: "https://git.home.test/milo/skills.git",
       folder: "skills/review",
       follow,
     });
@@ -174,7 +174,7 @@ describe("Carry over in Set up", () => {
         { label: "Work" },
         {
           label: "Owned",
-          directory: { kind: "owned", path: "/home/seth/owned" },
+          directory: { kind: "owned", path: "/home/milo/owned" },
         },
       ],
       setup: {
@@ -219,12 +219,12 @@ describe("Carry over in Set up", () => {
 
   it("keeps the inventory read-only without admin and says the capability's line once", async () => {
     const listed = inventory();
-    listed.memory.unmappable = [{ folder: "lost", path: "/home/seth/.claude/projects/lost/memory" }];
+    listed.memory.unmappable = [{ folder: "lost", path: "/home/milo/.claude/projects/lost/memory" }];
     listed.skills.offered = [
       {
         name: "review",
-        from: "/home/seth/.agents/skills/review",
-        url: "https://git.home.test/seth/skills.git",
+        from: "/home/milo/.agents/skills/review",
+        url: "https://git.home.test/milo/skills.git",
         folder: "skills/review",
         follow: { kind: "branch", branch: "main" },
       },
@@ -326,7 +326,7 @@ describe("Carry over in Set up", () => {
         {
           kind: "skill",
           name: "review",
-          from: "/home/seth/.claude/skills/review",
+          from: "/home/milo/.claude/skills/review",
           path: "skills/review",
         },
       ],
@@ -336,7 +336,7 @@ describe("Carry over in Set up", () => {
         {
           kind: "skill",
           name: "broken",
-          from: "/home/seth/.claude/skills/broken",
+          from: "/home/milo/.claude/skills/broken",
           problems: [{ kind: "description", message: "A description is required." }],
         },
       ],
@@ -346,14 +346,14 @@ describe("Carry over in Set up", () => {
       folders: [
         {
           folder: "project",
-          path: "/home/seth/.claude/projects/project/memory",
-          key: "https://git.home.test/seth/project",
+          path: "/home/milo/.claude/projects/project/memory",
+          key: "https://git.home.test/milo/project",
           outcome: "copied",
           under: null,
           digest: `sha256:${"0".repeat(64)}`,
         },
       ],
-      unmappable: [{ folder: "lost", path: "/home/seth/.claude/projects/lost/memory" }],
+      unmappable: [{ folder: "lost", path: "/home/milo/.claude/projects/lost/memory" }],
     };
     app.environment("desk").wire.answer("carryOver.run", () => ({
       result: {
@@ -364,7 +364,7 @@ describe("Carry over in Set up", () => {
     await app.user.click(await account().findByRole("button", { name: "Import" }));
     expect(await account().findByText("Memory: 1 copied; 0 carried; 0 kept; 1 unmappable.")).toBeDefined();
     expect(account().getByText("Skills and commands: 1 copied; 0 kept; 0 checkouts offered; 1 invalid.")).toBeDefined();
-    expect(account().getByText("/home/seth/.claude/skills/broken: A description is required.")).toBeDefined();
+    expect(account().getByText("/home/milo/.claude/skills/broken: A description is required.")).toBeDefined();
   });
 
   it.each([

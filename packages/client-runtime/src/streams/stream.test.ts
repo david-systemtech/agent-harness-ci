@@ -26,7 +26,7 @@ const run = (state: StreamState<ListData>, ...inputs: StreamInput[]) => {
 };
 
 const ids = (state: StreamState<ListData>) => [...(state.data?.sessions.keys() ?? [])].sort();
-const snapshot = (sequence: number, sessions = [summaryOf(a)], groups = [groupOf(randomUUID(), "Brandsolidate")]): StreamInput => ({
+const snapshot = (sequence: number, sessions = [summaryOf(a)], groups = [groupOf(randomUUID(), "Meadowstudios")]): StreamInput => ({
   type: "snapshot",
   sequence,
   payload: { sequence, sessions, groups },
@@ -94,15 +94,15 @@ describe("the stream reducer", () => {
       { type: "attaching" },
       { type: "event", sequence: 1, event: sessionEvent(1, added(summaryOf(a))) },
       { type: "event", sequence: 2, event: sessionEvent(2, added(summaryOf(b))) },
-      { type: "event", sequence: 3, event: groupEvent(3, { op: "add", group: groupOf(groupId, "Cool Jams") }, "group.created") },
+      { type: "event", sequence: 3, event: groupEvent(3, { op: "add", group: groupOf(groupId, "Moon Gems") }, "group.created") },
       { type: "event", sequence: 4, event: sessionEvent(4, { op: "set", sessionId: a, fields: { groupId, title: "Invoices" } }) },
-      { type: "event", sequence: 5, event: groupEvent(5, { op: "set", groupId, fields: { name: "Cool jams" } }) },
+      { type: "event", sequence: 5, event: groupEvent(5, { op: "set", groupId, fields: { name: "Moon gems" } }) },
       { type: "event", sequence: 6, event: sessionEvent(6, { op: "remove", sessionId: b }, "session.deleted") },
       { type: "event", sequence: 7, event: unpatchedEvent(7, b) },
     );
     expect(ids(state)).toEqual([a]);
     expect(state.data?.sessions.get(a)).toMatchObject({ groupId, title: "Invoices" });
-    expect(state.data?.groups.get(groupId)?.name).toBe("Cool jams");
+    expect(state.data?.groups.get(groupId)?.name).toBe("Moon gems");
     expect(state.cursor).toBe(7);
   });
 
@@ -213,9 +213,9 @@ describe("the environment stream kind", () => {
     const kind = environmentKind();
     const held = kind.fromSnapshot({ sequence: 1, status, environment: { name: "desk", icon: "server", colour: "teal" } });
     expect(held.look).toEqual({ name: "desk", icon: "server", colour: "teal" });
-    const renamed = kind.apply(held, noticeEvent(2, "env", "environment.renamed", { name: "MNL" }));
+    const renamed = kind.apply(held, noticeEvent(2, "env", "environment.renamed", { name: "LAB" }));
     const coloured = kind.apply(renamed, noticeEvent(3, "env", "environment.colour-set", { colour: "amber" }));
-    expect(coloured).toEqual({ status, look: { name: "MNL", icon: "server", colour: "amber" }, setup: [] });
+    expect(coloured).toEqual({ status, look: { name: "LAB", icon: "server", colour: "amber" }, setup: [] });
     expect(kind.decode(JSON.parse(JSON.stringify(kind.encode(coloured))))).toEqual(coloured);
 
     // From an environment from before the look: none in the snapshot, and a stored document with none reads as none.

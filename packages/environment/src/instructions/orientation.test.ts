@@ -93,7 +93,7 @@ describe("the OrientationRenderer", () => {
       harnessCommand: HELPER,
       orientationSections: [
         section("other-environments", "Other environments", "laptop at https://laptop.example"),
-        section("banks", "Banks", "cortex: a memory bank"),
+        section("banks", "Banks", "notebook: a memory bank"),
         section("key-managers", "Key managers", "No key manager is connected here."),
       ],
     });
@@ -110,7 +110,7 @@ describe("the OrientationRenderer", () => {
 
   it("is byte-identical across runs whose state has not changed, twenty minutes and a verification that changed nothing between them, so the session's process is reused", async () => {
     const forge = await fakeForge();
-    const t = await start({ forgeFetch: forge.fetch, harnessCommand: HELPER, orientationSections: [section("banks", "Banks", "cortex: a memory bank")] });
+    const t = await start({ forgeFetch: forge.fetch, harnessCommand: HELPER, orientationSections: [section("banks", "Banks", "notebook: a memory bank")] });
     const client = await t.client();
     forge.user(TOKEN, DAVID);
     await added(client, { url: forge.origin, kind: "forgejo", slug: "home" });
@@ -129,7 +129,7 @@ describe("the OrientationRenderer", () => {
   });
 
   it("leaves out a section no provider is registered for", async () => {
-    const t = await start({ orientationSections: [section("banks", "Banks", "cortex: a memory bank")] });
+    const t = await start({ orientationSections: [section("banks", "Banks", "notebook: a memory bank")] });
     const client = await t.client();
     const session = await create(client);
 
@@ -137,7 +137,7 @@ describe("the OrientationRenderer", () => {
 
     // No forge is reachable without a harness command, and no provider is registered for the other environments.
     expect(headings(text)).toEqual(["## This environment", "## Accounts", "## Key managers", "## Banks"]);
-    expect(text.endsWith("## Banks\n\ncortex: a memory bank")).toBe(true);
+    expect(text.endsWith("## Banks\n\nnotebook: a memory bank")).toBe(true);
   });
 
   it("renders a section whose provider throws as could not be read, names it in the seam's answer, and renders the others", async () => {
@@ -151,14 +151,14 @@ describe("the OrientationRenderer", () => {
       },
     };
     const rejecting: OrientationSection = { name: "other-environments", title: "Other environments", render: () => Promise.reject(new Error("No report could be read.")) };
-    const t = await start({ orientationSections: [failing, section("banks", "Banks", "cortex: a memory bank"), rejecting] });
+    const t = await start({ orientationSections: [failing, section("banks", "Banks", "notebook: a memory bank"), rejecting] });
     const client = await t.client();
     const session = await create(client);
 
     const text = await runTo(t, client, session.id);
 
     expect(headings(text)).toEqual(["## This environment", "## Accounts", "## Key managers", "## Banks", "## Other environments"]);
-    expect(text).toContain("## Key managers\n\nCould not be read.\n\n## Banks\n\ncortex: a memory bank\n\n## Other environments\n\nCould not be read.");
+    expect(text).toContain("## Key managers\n\nCould not be read.\n\n## Banks\n\nnotebook: a memory bank\n\n## Other environments\n\nCould not be read.");
     expect(manifestOf(t, session.id)).toMatchObject({ unreadRegistries: ["key-managers", "other-environments"] });
     expect(ended(t, session.id).at(-1)?.payload).not.toMatchObject({ reason: "error" });
     expect(errors.mock.calls.map((call) => String(call[0]))).toEqual(
@@ -198,7 +198,7 @@ describe("the OrientationRenderer", () => {
 
   it("holds at most 6,000 characters: past them, a section's list ends with how many more there are, and where to see them", async () => {
     const banks = Array.from({ length: 200 }, (_, index) => `bank-${String(index).padStart(3, "0")}: a memory bank, landing works.`);
-    const environments = ["laptop at https://laptop.example", "mnl at https://mnl.example"];
+    const environments = ["laptop at https://laptop.example", "lab at https://lab.example"];
     const t = await start({
       orientationSections: [
         { name: "banks", title: "Banks", render: () => ["The banks attached here:", { heading: "By name:", items: banks }] },
@@ -220,7 +220,7 @@ describe("the OrientationRenderer", () => {
     // As many as fit: one more bank's line would pass the cap.
     expect(text.length + `\n- ${banks[kept.length]}`.length).toBeGreaterThan(6000);
     expect(text).toContain("The banks attached here:");
-    expect(text.endsWith("## Other environments\n\n- laptop at https://laptop.example\n- mnl at https://mnl.example")).toBe(true);
+    expect(text.endsWith("## Other environments\n\n- laptop at https://laptop.example\n- lab at https://lab.example")).toBe(true);
   });
 
   it("cuts every list past the cap to the same length, leaving a shorter one whole", async () => {
@@ -260,10 +260,10 @@ describe("the OrientationRenderer", () => {
     await vi.waitFor(() => expect(answer).toBeDefined(), { timeout: WAIT_MS });
 
     t.clock.advance(999);
-    answer?.(["cortex: a memory bank"]);
+    answer?.(["notebook: a memory bank"]);
     const text = await untilEnded();
 
-    expect(text.endsWith("## Banks\n\ncortex: a memory bank")).toBe(true);
+    expect(text.endsWith("## Banks\n\nnotebook: a memory bank")).toBe(true);
     expect(manifestOf(t, session.id)).toMatchObject({ unreadRegistries: [] });
   });
 });
@@ -288,7 +288,7 @@ describe("the environment section", () => {
   };
 
   it("names the environment, its operating system and architecture, the OS user, and the run's containment level with one line on what it means", async () => {
-    const t = await start({ name: "mnl", platform: "linux" });
+    const t = await start({ name: "lab", platform: "linux" });
     const client = await t.client();
     const session = await create(client);
 
@@ -297,7 +297,7 @@ describe("the environment section", () => {
     const user = osUser();
     expect(environmentOf(text)).toBe(
       [
-        `This environment is mnl, on Linux (${process.arch}), ${user === undefined ? "as an OS user with no name here" : `as the OS user ${user}`}.`,
+        `This environment is lab, on Linux (${process.arch}), ${user === undefined ? "as an OS user with no name here" : `as the OS user ${user}`}.`,
         "This run's containment is off: nothing but the denylist limits what its commands and tools read, write or reach.",
       ].join("\n\n"),
     );
@@ -357,16 +357,16 @@ describe("the environment section", () => {
   });
 
   it("names the environment as it is now: a rename changes the next run's text", async () => {
-    const t = await start({ name: "mnl" });
+    const t = await start({ name: "lab" });
     const client = await t.client();
     const session = await create(client);
     const before = await runTo(t, client, session.id);
 
-    await client.request("environment.rename", { commandId: randomUUID(), name: "mnl-2" });
+    await client.request("environment.rename", { commandId: randomUUID(), name: "lab-2" });
     const after = await runTo(t, client, session.id, "After the rename");
 
-    expect(environmentOf(before)).toMatch(/^This environment is mnl, on /);
-    expect(environmentOf(after)).toMatch(/^This environment is mnl-2, on /);
+    expect(environmentOf(before)).toMatch(/^This environment is lab, on /);
+    expect(environmentOf(after)).toMatch(/^This environment is lab-2, on /);
     expect(t.adapter.processesOf(session.id)).toHaveLength(2);
   });
 });

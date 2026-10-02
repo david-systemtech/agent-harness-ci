@@ -47,7 +47,7 @@ describe("the rail through the real spine", { concurrent: false }, () => {
     onCleanup(() => t.close());
     const stateDir = join(tempDir("agent-harness-tui-rail-"), "tui");
     const workspace = tempDir("agent-harness-rail-workspace-");
-    const platform = nodePlatform({ stateDir, dataDir: t.dataDir, version: "0.0.0-smoke", identity: { user: "seth", host: "desk", tty: "pts/4" } });
+    const platform = nodePlatform({ stateDir, dataDir: t.dataDir, version: "0.0.0-smoke", identity: { user: "milo", host: "desk", tty: "pts/4" } });
     const host = createRuntimeHost(() => createRuntime(platform));
     let ids = 0;
     const app = render(

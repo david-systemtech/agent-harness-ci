@@ -325,9 +325,9 @@ describe("the workspace", () => {
   });
 
   it("reads a kind this version does not know as a directory at its path, so a summary carrying one still reads", () => {
-    expect(Workspace.parse({ kind: "bank", path: "/data/banks/brandsolidate", bank: "brandsolidate" })).toEqual({ kind: "directory", path: "/data/banks/brandsolidate" });
-    const summary = SessionSummary.parse({ ...fresh, workspace: { kind: "bank", path: "/data/banks/brandsolidate" } });
-    expect(summary.workspace).toEqual({ kind: "directory", path: "/data/banks/brandsolidate" });
+    expect(Workspace.parse({ kind: "bank", path: "/data/banks/meadowstudios", bank: "meadowstudios" })).toEqual({ kind: "directory", path: "/data/banks/meadowstudios" });
+    const summary = SessionSummary.parse({ ...fresh, workspace: { kind: "bank", path: "/data/banks/meadowstudios" } });
+    expect(summary.workspace).toEqual({ kind: "directory", path: "/data/banks/meadowstudios" });
     expect(SummaryPatch.parse({ op: "set", sessionId: fresh.id, fields: { workspace: { kind: "bank", path: "/b" } } })).toEqual({
       op: "set",
       sessionId: fresh.id,
@@ -350,7 +350,7 @@ describe("the workspace", () => {
     // A directory from the environment's home is asked for, never recorded: the environment expands it.
     expect(WorkspaceRequest.parse({ kind: "directory", path: "~/code" })).toEqual({ kind: "directory", path: "~/code" });
     expect(Workspace.safeParse({ kind: "directory", path: "~/code" }).success).toBe(false);
-    expect(WorkspaceRequest.safeParse({ kind: "directory", path: "~seth/code" }).success).toBe(false);
+    expect(WorkspaceRequest.safeParse({ kind: "directory", path: "~milo/code" }).success).toBe(false);
     // No path of its own: a worktree's and a scratch directory's are the environment's to choose.
     expect(WorkspaceRequest.parse({ kind: "scratch", path: "/tmp/mine" })).toEqual({ kind: "scratch" });
   });
@@ -426,9 +426,9 @@ describe("the session summary", () => {
   });
 
   it("keys a group name trimmed, its white space collapsed and lowercased, as an environment and a client merging headings both fold it", () => {
-    expect(normaliseGroupName("  Cool \t Jams\n\n and  friends ")).toBe("Cool Jams and friends");
-    expect(groupNameKey("  COOL   jams ")).toBe("cool jams");
-    expect(groupNameKey("Brandsolidate")).toBe(groupNameKey(" brandSOLIDATE "));
+    expect(normaliseGroupName("  Moon \t Gems\n\n and  friends ")).toBe("Moon Gems and friends");
+    expect(groupNameKey("  MOON   gems ")).toBe("moon gems");
+    expect(groupNameKey("Meadowstudios")).toBe(groupNameKey(" meadowSTUDIOS "));
   });
 
   it("measures titles, tags and group names after trimming: surrounding white space is not counted", () => {

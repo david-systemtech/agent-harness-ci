@@ -45,7 +45,7 @@ describe("two runtimes on one environment", () => {
 
     await send(one.seams, env, "sessions.archive", { sessionId: archived });
     await send(one.seams, env, "sessions.pin", { sessionId: pinned });
-    await send(one.seams, env, "groups.create", { id: group, name: "Brandsolidate" });
+    await send(one.seams, env, "groups.create", { id: group, name: "Meadowstudios" });
     await send(one.seams, env, "sessions.setGroup", { sessionId: grouped, groupId: group });
 
     await until(() => two.runtime.projections.sessionList.read().groups[0]?.shelves.active.length === 1, "the group to reach the second runtime");
@@ -53,7 +53,7 @@ describe("two runtimes on one environment", () => {
     expect(view.archived.map((r) => r.summary.id)).toEqual([archived]);
     expect(view.pinned.map((r) => r.summary.id)).toEqual([pinned]);
     expect(view.groups).toEqual([
-      expect.objectContaining({ name: "Brandsolidate", groups: [{ environmentId: env, groupId: group, name: "Brandsolidate" }] }),
+      expect.objectContaining({ name: "Meadowstudios", groups: [{ environmentId: env, groupId: group, name: "Meadowstudios" }] }),
     ]);
     expect(view.groups[0]?.shelves.active.map((r) => r.summary.id)).toEqual([grouped]);
     expect(view.environments).toEqual([{ environmentId: env, freshness: "live", fault: null }]);
@@ -176,16 +176,16 @@ describe("merged groups across two environments", () => {
     await runtime.connections.add({ link: (await desk.createPairing()).link });
     await runtime.connections.add({ link: (await laptop.createPairing()).link });
     const [deskGroup, laptopGroup] = [randomUUID(), randomUUID()];
-    await send(seams, desk.env.id, "groups.create", { id: deskGroup, name: "Brandsolidate" });
-    await send(seams, laptop.env.id, "groups.create", { id: laptopGroup, name: "  brandSOLIDATE " });
+    await send(seams, desk.env.id, "groups.create", { id: deskGroup, name: "Meadowstudios" });
+    await send(seams, laptop.env.id, "groups.create", { id: laptopGroup, name: "  meadowSTUDIOS " });
 
     await until(() => runtime.projections.sessionList.read().groups[0]?.groups.length === 2, "one heading over both groups");
-    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Brandsolidate"]);
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Meadowstudios"]);
 
     await send(seams, laptop.env.id, "groups.rename", { groupId: laptopGroup, name: "Brand" });
     await until(() => runtime.projections.sessionList.read().groups.length === 2, "the heading to split");
     expect(runtime.projections.sessionList.read().groups.map((h) => [h.name, h.groups.map((g) => g.environmentId)])).toEqual([
-      ["Brandsolidate", [desk.env.id]],
+      ["Meadowstudios", [desk.env.id]],
       ["Brand", [laptop.env.id]],
     ]);
   });

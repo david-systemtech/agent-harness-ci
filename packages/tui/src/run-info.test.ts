@@ -12,7 +12,7 @@ const launch = async () => {
   const app = await renderApp({
     script: { environments: [{
       name: "desk", reach: "local",
-      accounts: [{ id: "account-1", label: "work", identity: { provider: "claude", email: "seth@work.test", organisation: null } }],
+      accounts: [{ id: "account-1", label: "work", identity: { provider: "claude", email: "milo@work.test", organisation: null } }],
       sessions: [{ id: SESSION, title: "Receipts", accountId: "account-1", mode: "auto" }],
     }] },
     flags: { session: SESSION },
@@ -42,7 +42,7 @@ describe("run info", () => {
     await app.press("\u001Bi");
     await app.waitFor("The latest run");
     for (const fact of [
-      "Started by: client, attended", "Account: work (seth@work.test)",
+      "Started by: client, attended", "Account: work (milo@work.test)",
       "Model: claude-opus-4", "Effort: high",
       "Mode: auto, clamped from bypassPermissions to the ceiling auto",
       "Containment: workspace (asked for workspace-no-network), enforced by bubblewrap: Network containment unavailable",

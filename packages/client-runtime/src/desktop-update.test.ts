@@ -23,7 +23,7 @@ const HOUR = 60 * MINUTE;
 const RUNNING = "0.5.0";
 
 /** A build of 0.6.0 as the local environment stages it. */
-const STAGED: ShellStagedBuild = { path: "/home/seth/.local/state/agent-harness/desktop/0.6.0/agent-harness-0.6.0.pacman", version: "0.6.0", sha256: "a".repeat(64) };
+const STAGED: ShellStagedBuild = { path: "/home/milo/.local/state/agent-harness/desktop/0.6.0/agent-harness-0.6.0.pacman", version: "0.6.0", sha256: "a".repeat(64) };
 
 /** Where the bundled server lies in an installed desktop. */
 const BUNDLED_PATH = "/opt/agent-harness/resources/server/agent-harness-linux-x64.tar.gz";

@@ -22,7 +22,7 @@ import type { Reader } from "../sessions/session-tables.js";
 
 /**
  * The name a new environment takes from its machine: the hostname's first
- * label (`mnl` of `mnl.tail1234.ts.net`), else the hostname whole.
+ * label (`lab` of `lab.tail1234.ts.net`), else the hostname whole.
  */
 export const nameOfHostname = (hostname: string): string => {
   const whole = hostname.trim();

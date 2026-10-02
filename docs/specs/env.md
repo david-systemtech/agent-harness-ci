@@ -13,7 +13,7 @@ One **environment** per OS user on every machine: a server installed as a user-l
 ## User Stories
 
 1. As David, I want a harness server to start at logon on each of my machines and keep running with no window open, so that routines fire and runs finish whether or not I am looking.
-2. As David, I want the desktop window on my Mac to talk to the environment on that Mac exactly as it talks to the one on SYSTEM-SERVER, so that a feature works the same wherever the code runs.
+2. As David, I want the desktop window on my Mac to talk to the environment on that Mac exactly as it talks to the one on SAMPLE-SERVER, so that a feature works the same wherever the code runs.
 3. As David, I want to pair a new client by opening a link or scanning a code once, so that I never paste a token by hand.
 4. As David, I want to see every client paired to an environment, with when it was last seen, and revoke one, so that a lost laptop cannot keep driving my runs.
 5. As David, I want an environment to be reachable on its tailnet address and on loopback and nowhere else by default, so that nothing on a LAN or the internet can reach it without my deliberate choice.
@@ -29,9 +29,9 @@ One **environment** per OS user on every machine: a server installed as a user-l
 15. As David, I want a parked permission prompt to be there again after the environment restarts, so that leaving for lunch never loses a question.
 16. As David, I want an access log of every pairing, connection, scope grant and ceiling change, so that I can answer "what connected to this machine and when".
 17. As David, I want a client's ceiling fixed when it pairs, so that a client paired with a low ceiling can never raise its own permissions.
-18. As Seth, I want the terminal UI to be a client of the environment on my machine with nothing of its own, so that what I pin or archive in the terminal shows in the desktop.
-19. As Seth, I want the terminal UI to tell me when the environment service is down and offer to start it, so that a stopped service is a one-key fix rather than a mystery.
-20. As Seth, I want the terminal UI on my machine to authenticate without pairing, so that opening a terminal never asks me for a code on my own computer.
+18. As Milo, I want the terminal UI to be a client of the environment on my machine with nothing of its own, so that what I pin or archive in the terminal shows in the desktop.
+19. As Milo, I want the terminal UI to tell me when the environment service is down and offer to start it, so that a stopped service is a one-key fix rather than a mystery.
+20. As Milo, I want the terminal UI on my machine to authenticate without pairing, so that opening a terminal never asks me for a code on my own computer.
 21. As a client developer in another language, I want the wire to be a documented JSON frame with published schemas, so that I can write a client without the TypeScript packages.
 22. As a client developer, I want every method to declare its scope and every error to be typed, so that I know what a client session may do before I call anything.
 23. As the setup checklist, I want a discovery URL that needs no credential and says who the environment is, what it supports and whether it is ready, so that the Your machines step can show health and version for every paired environment.

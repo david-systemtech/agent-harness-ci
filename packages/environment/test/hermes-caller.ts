@@ -2,8 +2,8 @@ import { CHAT_COMPLETIONS_PATH, COMPLETIONS_NAMESPACE, ChatCompletionChunk, type
 
 /**
  * A scripted Hermes caller (switch-over spec, "Hermes cut-over and Bank
- * migration"; #1193): the requests the pinned Hermes (v2026.9.24, commit
- * f97608f) sends a chat-completions provider, with the butler's deployment
+ * migration"; #1193): the requests the audited Hermes source (commit
+ * f97608f) sends a chat-completions provider, with example program
  * settings in the built `agent-harness` namespace, posted over real HTTP
  * with a program's bearer token and read back as SSE; and the agent loop
  * Hermes runs on an answer: a call to one of its tools is run here and its

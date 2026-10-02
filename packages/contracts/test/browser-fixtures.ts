@@ -125,7 +125,7 @@ const bridgeFromExtension = {
 } as const;
 
 const bridgeFromEnvironment = {
-  announced: { type: "announced", environmentId, environmentName: "SYSTEM-SERVER" },
+  announced: { type: "announced", environmentId, environmentName: "SAMPLE-SERVER" },
   paired: { type: "paired", chromeId, secret, policy },
   challenge: { type: "challenge", environmentId, nonce },
   ready: { type: "ready", policy },
@@ -228,11 +228,11 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
   },
   "browser/chrome-id.json": { valid: [chromeId], invalid: ["work-chrome", "", 7] },
   "browser/port-file.json": {
-    valid: [{ port: 47615, environmentId, environmentName: "SYSTEM-SERVER", harnessVersion: "0.4.2" }],
+    valid: [{ port: 47615, environmentId, environmentName: "SAMPLE-SERVER", harnessVersion: "0.4.2" }],
     invalid: [
-      { port: 0, environmentId, environmentName: "SYSTEM-SERVER", harnessVersion: "0.4.2" },
-      { port: 65_536, environmentId, environmentName: "SYSTEM-SERVER", harnessVersion: "0.4.2" },
-      { port: 47615, environmentId: "server", environmentName: "SYSTEM-SERVER", harnessVersion: "0.4.2" },
+      { port: 0, environmentId, environmentName: "SAMPLE-SERVER", harnessVersion: "0.4.2" },
+      { port: 65_536, environmentId, environmentName: "SAMPLE-SERVER", harnessVersion: "0.4.2" },
+      { port: 47615, environmentId: "server", environmentName: "SAMPLE-SERVER", harnessVersion: "0.4.2" },
       { port: 47615, environmentId, environmentName: "", harnessVersion: "0.4.2" },
       { port: 47615 },
     ],
@@ -251,7 +251,7 @@ export const browserSchemaFixtures: Record<string, Fixtures> = {
     valid: [bridgeFromExtension.result, { type: "result", id: "call-2", result: denylisted }],
     invalid: [{ type: "result", id: "", result: { ok: true, value: null } }, { type: "result", id: "call-1", result: { ok: false } }, { type: "result", id: "call-1" }],
   },
-  "browser/bridge/announced.json": { valid: [bridgeFromEnvironment.announced], invalid: [{ type: "announced", environmentId, environmentName: "" }, { type: "announced", environmentName: "SYSTEM-SERVER" }] },
+  "browser/bridge/announced.json": { valid: [bridgeFromEnvironment.announced], invalid: [{ type: "announced", environmentId, environmentName: "" }, { type: "announced", environmentName: "SAMPLE-SERVER" }] },
   "browser/bridge/paired.json": {
     valid: [bridgeFromEnvironment.paired],
     invalid: [{ ...bridgeFromEnvironment.paired, secret: "secret-for-tests" }, { ...bridgeFromEnvironment.paired, chromeId: "work" }, { type: "paired", chromeId, secret }],

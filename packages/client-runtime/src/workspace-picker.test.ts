@@ -164,12 +164,12 @@ describe("the by-repository headings", () => {
     const { desk, laptop, runtime } = await twoEnvironments();
     await create(runtime, desk, { kind: "directory", path: repository({ origin: "https://github.com/David/Agent-Harness.git" }) }, { title: "the mirror" });
     await create(runtime, laptop, { kind: "directory", path: repository({ origin: "git@git.systemtech.dev:david/agent-harness.git" }) }, { title: "the forge" });
-    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/cool-jams" }) }, { title: "the shop" });
+    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/moon-gems" }) }, { title: "the shop" });
 
     expect(headings(runtime).slice(0, 3)).toEqual([
       ["git.systemtech.dev/david/agent-harness", ["the forge"]],
       ["github.com/david/agent-harness", ["the mirror"]],
-      ["x/cool-jams", ["the shop"]],
+      ["x/moon-gems", ["the shop"]],
     ]);
   });
 
@@ -178,10 +178,10 @@ describe("the by-repository headings", () => {
     await create(runtime, laptop, { kind: "directory", path: repository() }, { title: "a repository with no remote" });
     await create(runtime, desk, { kind: "directory", path: directory() }, { title: "a plain directory" });
     await create(runtime, desk, { kind: "scratch" }, { title: "a question" });
-    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/cool-jams" }) }, { title: "the shop" });
+    await create(runtime, laptop, { kind: "directory", path: repository({ origin: "https://github.com/x/moon-gems" }) }, { title: "the shop" });
 
     expect(headings(runtime)).toEqual([
-      ["x/cool-jams", ["the shop"]],
+      ["x/moon-gems", ["the shop"]],
       [desk.env.id, ["a plain directory", "a question"]],
       [laptop.env.id, ["a repository with no remote"]],
     ]);

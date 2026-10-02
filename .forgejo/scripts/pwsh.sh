@@ -2,7 +2,7 @@
 # Puts PowerShell 7 (`pwsh`) on a ci job's PATH, for test/install-ps1-script.test.ts,
 # which runs scripts/install.ps1 under it (#352). The `ci` runners' image,
 # node:24-bookworm, has no PowerShell, and Microsoft's Debian packages are for
-# amd64 alone, while the `ci` label takes in an arm64 runner (mba-ci-1). So this
+# amd64 alone, while the `ci` label takes in an arm64 runner. So this
 # takes PowerShell's own tarball for the runner's architecture from its GitHub
 # release, pinned by version and by the SHA-256 the release's hashes.sha256
 # lists, checks it before unpacking it, and adds the folder to $GITHUB_PATH.

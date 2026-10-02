@@ -110,11 +110,11 @@ describe("sessions.create's repository identity", () => {
 
   it("is read from origin, else the only remote, else the first by name, as git expands it with insteadOf", async () => {
     const t = await start();
-    expect(await identityIn(t, repository({ fork: "https://github.com/seth/agent-harness.git", origin: "https://github.com/david/agent-harness.git" }))).toBe(
+    expect(await identityIn(t, repository({ fork: "https://github.com/milo/agent-harness.git", origin: "https://github.com/david/agent-harness.git" }))).toBe(
       "https://github.com/david/agent-harness",
     );
     expect(await identityIn(t, repository({ upstream: "https://github.com/david/agent-harness.git" }))).toBe("https://github.com/david/agent-harness");
-    expect(await identityIn(t, repository({ zeta: "https://github.com/seth/agent-harness.git", alpha: "https://github.com/david/agent-harness.git" }))).toBe(
+    expect(await identityIn(t, repository({ zeta: "https://github.com/milo/agent-harness.git", alpha: "https://github.com/david/agent-harness.git" }))).toBe(
       "https://github.com/david/agent-harness",
     );
     // `forge:` is no remote until the repository's insteadOf expands it: a host with no dot is a local path.

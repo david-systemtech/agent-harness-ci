@@ -1,7 +1,7 @@
 # Preparing the team bank's switch-over
 
 The #1043 build uses invented fixtures only. It has made no live bank branch,
-pull request, issue, label or contact with Albert. David owns those actions,
+pull request, issue, label or contact with the team owner. David owns those actions,
 including posting the heads-up and the day-of merge coordinated by #94.
 The ready-for-human live-work handoff is [#1240](https://git.systemtech.dev:5526/david/agent-harness/issues/1240).
 See [the shared migration command](bank-migration.md) for authentication,
@@ -9,9 +9,9 @@ command receipts and the dry-run rules.
 
 ## Conversion choices
 
-Supply `team: { org: "brandsolidate", owners: ["david-systemtech"] }` to the
+Supply `team: { org: "meadowstudios", owners: ["david-systemtech"] }` to the
 same `banks.migrate` command. Every `brands/<brand>/[<system>/]` scope moves
-under `projects/brandsolidate/<brand>/[<area>/]`. `SYSTEM.md` becomes `AREA.md`;
+under `projects/meadowstudios/<brand>/[<area>/]`. `SYSTEM.md` becomes `AREA.md`;
 the shared key and repository-identity conversions run after the scope move.
 Missing parent projects gain a project artefact for owner review.
 
@@ -23,12 +23,12 @@ For example, these are **synthetic** choices, not a live bank inventory:
 
 ```json
 {
-  "team": { "org": "brandsolidate", "owners": ["david-systemtech"] },
+  "team": { "org": "meadowstudios", "owners": ["david-systemtech"] },
   "scopeMoves": {
-    "shared/ops/": "fixture-team:brandsolidate/holding/ops/"
+    "shared/ops/": "fixture-team:meadowstudios/holding/ops/"
   },
   "topicDeclarations": {
-    "fixture-team:brandsolidate/sample-brand/product/": {
+    "fixture-team:meadowstudios/sample-brand/product/": {
       "sample-line": "Synthetic product facts"
     }
   }
@@ -86,9 +86,9 @@ combined workflow, explicitly retain its independent scan command.
 
 ## Draft heads-up for David to review and post
 
-Albert, we are preparing the bank's contract migration. Brand/system folders
-will move to `projects/brandsolidate/<brand>/[<area>/]`, and the holding
-company's shared facts to `projects/brandsolidate/holding/[<area>/]`.
+team owner, we are preparing the bank's contract migration. Brand/system folders
+will move to `projects/meadowstudios/<brand>/[<area>/]`, and the holding
+company's shared facts to `projects/meadowstudios/holding/[<area>/]`.
 `SYSTEM.md` becomes `AREA.md`; product lines become declared topics.
 Memory names and links stay intact, with fresh short orientation pointers.
 The manifest gains kind, purpose, entities and `owners: [david-systemtech]`.

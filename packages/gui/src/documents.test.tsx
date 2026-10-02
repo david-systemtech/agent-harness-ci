@@ -119,7 +119,7 @@ describe("the Documents pane", () => {
     await openPane(app, "Documents");
     await app.user.click(within(await waitFor(() => row("site/index.html"))).getByRole("button", { name: "Transcript" }));
     expect(fold.getAttribute("aria-expanded")).toBe("true");
-    const written = within(transcript).getByRole("group", { name: "Write: /home/seth/code/site/index.html" });
+    const written = within(transcript).getByRole("group", { name: "Write: /home/milo/code/site/index.html" });
     expect(document.activeElement).toBe(written);
   });
 });
@@ -197,7 +197,7 @@ describe("the Preview pane", () => {
     await openPane(app, "Preview");
     expect(within(pane("Preview")).getByText("Nothing to preview: choose a page, an SVG or a markdown file in Documents.")).toBeDefined();
 
-    env.emit(session, "tool.started", { runId, toolCallId: "w-gone", name: "Write", input: { file_path: "/home/seth/code/gone.md", content: "gone" }, title: null, agentId: null, parentToolCallId: null });
+    env.emit(session, "tool.started", { runId, toolCallId: "w-gone", name: "Write", input: { file_path: "/home/milo/code/gone.md", content: "gone" }, title: null, agentId: null, parentToolCallId: null });
     env.emit(session, "tool.ended", { runId, toolCallId: "w-gone", status: "ok", output: null, durationMs: 20 });
     for (const [path, said] of [
       ["gone.md", "Not read: No file gone.md in the workspace."],
@@ -205,7 +205,7 @@ describe("the Preview pane", () => {
       ["odd.svg", "A binary file of 300 bytes: not shown as text."],
     ] as const) {
       if (path !== "gone.md") {
-        env.emit(session, "tool.started", { runId, toolCallId: `w-${path}`, name: "Write", input: { file_path: `/home/seth/code/${path}`, content: "x" }, title: null, agentId: null, parentToolCallId: null });
+        env.emit(session, "tool.started", { runId, toolCallId: `w-${path}`, name: "Write", input: { file_path: `/home/milo/code/${path}`, content: "x" }, title: null, agentId: null, parentToolCallId: null });
         env.emit(session, "tool.ended", { runId, toolCallId: `w-${path}`, status: "ok", output: null, durationMs: 20 });
       }
       await app.user.click(await within(screen.getByRole("region", { name: "Transcript" })).findByRole("button", { name: `Preview ${path}` }));
