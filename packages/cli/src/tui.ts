@@ -29,8 +29,8 @@ export interface TuiContext extends Pick<ServiceContext, "fetch" | "user" | "sea
   readonly runTui?: RunTui | undefined;
 }
 
-/** The formats `--output-format` takes: the screenless entry's, which the CLI loads only to print. */
-const PRINT_FORMATS: readonly PrintFormat[] = ["text", "json", "stream-json"];
+/** The formats `--output-format` takes, every one of the screenless entry's: the CLI loads that entry only to print. */
+const PRINT_FORMATS = Object.keys({ text: true, json: true, "stream-json": true } satisfies Record<PrintFormat, true>);
 
 type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings"> & {
   /** `-p` and what goes with it: what to print, and how. */
@@ -42,7 +42,7 @@ const nonEmpty = (flag: string, value: string | undefined): string | undefined =
   return value;
 };
 
-const isFormat = (value: string | undefined): value is PrintFormat => PRINT_FORMATS.some((format) => format === value);
+const isFormat = (value: string | undefined): value is PrintFormat => PRINT_FORMATS.includes(value ?? "");
 const isMode = (value: string): value is Mode => MODES.some((mode) => mode === value);
 
 const TUI_OPTIONS = {

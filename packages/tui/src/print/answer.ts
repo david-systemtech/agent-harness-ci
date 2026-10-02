@@ -78,6 +78,7 @@ export const readAnswer = async (body: ReadableStream<Uint8Array>, reader: Answe
   const { learned, writer, narrate } = reader;
   /** The final chunk's error: said once the usage after it is read too. */
   let failed: string | undefined;
+  let headed = false;
   const events = eventData(body);
   for (;;) {
     let next: IteratorResult<string>;
@@ -99,7 +100,8 @@ export const readAnswer = async (body: ReadableStream<Uint8Array>, reader: Answe
     const fields = chunk[COMPLETIONS_NAMESPACE];
     if (fields.sessionId !== undefined) learned.sessionId = fields.sessionId;
     if (fields.runId !== undefined) learned.runId = fields.runId;
-    if (fields.sessionId !== undefined && fields.runId !== undefined && fields.messageId !== undefined && fields.delivery !== undefined) {
+    if (!headed && fields.sessionId !== undefined && fields.runId !== undefined && fields.messageId !== undefined && fields.delivery !== undefined) {
+      headed = true;
       reader.head({ sessionId: fields.sessionId, runId: fields.runId, messageId: fields.messageId, delivery: fields.delivery });
     }
     const choice = chunk.choices[0];

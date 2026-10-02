@@ -114,8 +114,9 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
     if (stopped !== "output-closed") io.stdout(text);
   });
   const end = (exit: number): number => {
-    const { environmentId, sessionId, runId, text, usage, reason, error } = learned;
-    writer.end({ type: "result", environmentId, sessionId, runId, text, usage, durationMs: Math.round(performance.now() - startedAt), reason, error }, learned.completed);
+    const { sessionId, runId, text, usage, reason, error } = learned;
+    const durationMs = Math.round(performance.now() - startedAt);
+    writer.end({ type: "result", environmentId: learned.environmentId, sessionId, runId, text, usage, durationMs, reason, error }, learned.completed);
     return exit;
   };
   const say = (line: string) => io.stderr(`${line}\n`);
