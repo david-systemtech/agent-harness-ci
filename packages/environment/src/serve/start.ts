@@ -1,4 +1,4 @@
-import { bankInstructionsLayer } from "../banks/bank-layer.js";
+import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
 import { createBankLander } from "../banks/lander.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
 import { createMemoryToolServers } from "../banks/memory-server.js";
@@ -1093,6 +1093,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
   const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
   const autoMemory = createAutoMemory(autoMemoryRoot);
+  closers.push(connectBankMemory(log, autoMemory));
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -1214,7 +1215,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The session's own instructions (#506) fill the session layer.
   const sessionLayer = sessionInstructionsLayer({ all: (sql, ...params) => log.read(sql, ...params) });
   const instructions =
-    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), teamBank: bankInstructionsLayer(log), session: sessionLayer });
+    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), teamBank: bankInstructionsLayer(log, autoMemory), session: sessionLayer });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).

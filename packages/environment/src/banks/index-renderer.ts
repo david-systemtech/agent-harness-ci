@@ -36,6 +36,10 @@ export interface Relevance {
   readonly firstMessage?: string | null;
   /** The pointers this session read, searched into or drafted into through the memory tools. */
   readonly recentUse?: readonly string[];
+  /** Placement excludes entity matches from the shared fixed tiers. */
+  readonly entities?: boolean;
+  /** Shared-bank instruction expansions still match entities in the identity, but not folder repos. */
+  readonly repositoryFolders?: boolean;
 }
 
 /** A budget the trail stays within. */
@@ -193,11 +197,11 @@ const signalsOf = (bank: BankIndex, relevance: Relevance): BankSignals => {
   point(relevance.registryPins, REGISTRY_PIN);
   point(relevance.sessionPins, SESSION_PIN);
   const identity = relevance.repositoryIdentity ?? null;
-  if (identity !== null) {
+  if (identity !== null && relevance.repositoryFolders !== false) {
     for (const org of bank.orgs) for (const folder of org.folders) if (folder.repos.includes(identity)) signal(under(folder.path), REPOSITORY);
   }
   const said = [relevance.firstMessage ?? null, identity].filter((text): text is string => text !== null);
-  for (const entity of bank.entities) {
+  for (const entity of relevance.entities === false ? [] : bank.entities) {
     if (![entity.name, ...entity.aliases].some((phrase) => said.some((text) => hasWords(text, phrase)))) continue;
     signal(entity.folder === null ? [] : under(entity.folder), entitySignal(entity.name));
   }
@@ -212,12 +216,25 @@ interface Plan {
   readonly open: ReadonlySet<string>;
   readonly groups: ReadonlySet<string>;
   readonly expanded: ReadonlySet<string>;
+  readonly pointed: ReadonlySet<string>;
 }
 
 const key = (bank: BankIndex, path: string): string => `${bank.name}\0${path}`;
 
-const trailLines = (banks: readonly BankIndex[], signals: ReadonlyMap<string, BankSignals>, plan: Plan): string[] =>
+interface SharedPlan {
+  readonly banks: ReadonlySet<string>;
+  readonly expanded: ReadonlySet<string>;
+}
+
+const trailLines = (banks: readonly BankIndex[], signals: ReadonlyMap<string, BankSignals>, plan: Plan, shared?: SharedPlan): string[] =>
   banks.flatMap((bank) => {
+    if (shared?.banks.has(bank.name)) {
+      const relevant = signals.get(bank.name)?.folders;
+      return shownOrgs(bank).flatMap((org) => shownFolders(org).flatMap((folder) => {
+        if (!relevant?.has(folder.path) || shared.expanded.has(key(bank, folder.path))) return [];
+        return plan.expanded.has(key(bank, folder.path)) ? folderIndex(bank, folder) : plan.pointed.has(key(bank, folder.path)) ? [marked(breadcrumb(bank, folder), relevant.get(folder.path))] : [];
+      }));
+    }
     const fixed = [bankLine(bank), ...orientationLines(bank)];
     if (!plan.open.has(bank.name)) return fixed;
     const relevant = signals.get(bank.name)?.folders ?? new Map<string, Signal>();
@@ -245,17 +262,17 @@ const trailLines = (banks: readonly BankIndex[], signals: ReadonlyMap<string, Ba
  * The session's trail: every bank in scope, signalled banks first, within
  * `budget` (150 lines and 20 KB unless a placement asks for less).
  */
-export const renderTrail = (banks: readonly BankIndex[], relevance: Relevance = {}, budget: IndexBudget = BANK_INDEX_BUDGET): RenderedIndex => {
-  const signals = new Map(banks.map((bank) => [bank.name, signalsOf(bank, relevance)]));
+const planTrail = (banks: readonly BankIndex[], relevance: Relevance, budget: IndexBudget, shared?: SharedPlan): { readonly index: RenderedIndex; readonly plan: Plan } => {
+  const signals = new Map(banks.map((bank) => [bank.name, signalsOf(bank, shared?.banks.has(bank.name) ? { ...relevance, registryPins: [], repositoryFolders: false } : relevance)]));
   const rankOf = (bank: BankIndex): number => signals.get(bank.name)?.bank?.rank ?? Number.POSITIVE_INFINITY;
   const ordered = [...banks].sort((a, b) => rankOf(a) - rankOf(b) || compare(a.name, b.name));
   const signalled = ordered.filter((bank) => rankOf(bank) !== Number.POSITIVE_INFINITY);
   const fits = (plan: Plan): boolean => {
-    const { lines, bytes } = rendered(trailLines(ordered, signals, plan));
+    const { lines, bytes } = rendered(trailLines(ordered, signals, plan, shared));
     return lines <= budget.lines && bytes <= budget.bytes;
   };
   // T0 and T1 of every bank, and a signalled bank's org headers, always.
-  let plan: Plan = { open: new Set(signalled.map((bank) => bank.name)), groups: new Set(), expanded: new Set() };
+  let plan: Plan = { open: new Set(signalled.map((bank) => bank.name)), groups: new Set(), expanded: new Set(), pointed: new Set() };
   const attempt = (next: Plan): void => {
     if (fits(next)) plan = next;
   };
@@ -278,13 +295,26 @@ export const renderTrail = (banks: readonly BankIndex[], relevance: Relevance = 
     shownOrgs(bank).flatMap((org) =>
       shownFolders(org).flatMap((folder) => {
         const signal = signals.get(bank.name)?.folders.get(folder.path);
-        return signal === undefined || !plan.groups.has(key(bank, org.path)) ? [] : [{ bank, folder, rank: signal.rank, lines: folderIndex(bank, folder).length }];
+        return signal === undefined || (!shared?.banks.has(bank.name) && !plan.groups.has(key(bank, org.path))) ? [] : [{ bank, folder, rank: signal.rank, lines: folderIndex(bank, folder).length }];
       }),
     ),
   );
   candidates.sort((a, b) => a.rank - b.rank || a.lines - b.lines);
-  for (const { bank, folder } of candidates) attempt({ ...plan, expanded: new Set([...plan.expanded, key(bank, folder.path)]) });
-  return rendered(trailLines(ordered, signals, plan));
+  for (const { bank, folder } of candidates) {
+    attempt({ ...plan, expanded: new Set([...plan.expanded, key(bank, folder.path)]) });
+    if (shared?.banks.has(bank.name) && !shared.expanded.has(key(bank, folder.path)) && !plan.expanded.has(key(bank, folder.path))) attempt({ ...plan, pointed: new Set([...plan.pointed, key(bank, folder.path)]) });
+  }
+  return { index: rendered(trailLines(ordered, signals, plan, shared)), plan };
+};
+
+/** The complete trail for providers with no shared memory block. */
+export const renderTrail = (banks: readonly BankIndex[], relevance: Relevance = {}, budget: IndexBudget = BANK_INDEX_BUDGET): RenderedIndex => planTrail(banks, relevance, budget).index;
+
+/** Fixed shared tiers and the remaining private/session trail, using the same whole-group ladder. */
+export const renderBankLayers = (banks: readonly BankIndex[], sharedBanks: ReadonlySet<string>, relevance: Relevance, budget: IndexBudget = BANK_INDEX_BUDGET, sharedBudget: IndexBudget = budget): { readonly shared: RenderedIndex; readonly instructions: RenderedIndex } => {
+  const fixed = planTrail(banks.filter((bank) => sharedBanks.has(bank.name)), { ...(relevance.registryPins !== undefined && { registryPins: relevance.registryPins }), ...(relevance.repositoryIdentity !== undefined && { repositoryIdentity: relevance.repositoryIdentity }), entities: false }, sharedBudget);
+  const instructions = planTrail(banks, relevance, { lines: budget.lines - fixed.index.lines, bytes: budget.bytes - fixed.index.bytes }, { banks: sharedBanks, expanded: fixed.plan.expanded }).index;
+  return { shared: fixed.index, instructions };
 };
 
 // Reads.

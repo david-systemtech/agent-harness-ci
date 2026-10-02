@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { writeBankBlock } from "../banks/memory-block.js";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { carryMemory, type CarryOptions, type CarryOutcome, type MemorySource } from "./carry-memory.js";
 import { hashedName } from "./directory-names.js";
 import { repositoryKey, type RepositoryPlace } from "./repository-key.js";
@@ -55,6 +57,10 @@ const sourcesOf = (place: MemoryPlace): { readonly name: string; readonly key: s
 };
 
 export interface AutoMemory {
+  /** Writes the harness bank block in the same queue as Carry over. */
+  banks(place: MemoryPlace, render: (repositoryIdentity: string | null) => Promise<string>): Promise<string>;
+  /** Refreshes every repository previously written, including after restart or session purge. */
+  refreshBanks(render: (repositoryIdentity: string | null) => Promise<string>): Promise<void>;
   /**
    * A session's key changed from `before` to `after`: the old key's
    * directory, and the one #121 keyed by the workspace path when that is
@@ -87,13 +93,57 @@ export const createAutoMemory = (root: string): AutoMemory => {
     );
     return done;
   };
+  let renderer: ((repositoryIdentity: string | null) => Promise<string>) | undefined;
+  let remembered: Map<string, string | null> | undefined;
+  const targetsPath = join(root, ".bank-repositories.json");
+  const targets = async (): Promise<Map<string, string | null>> => {
+    if (remembered !== undefined) return remembered;
+    let held: unknown;
+    try { held = JSON.parse(await readFile(targetsPath, "utf8")); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; held = {}; }
+    if (typeof held !== "object" || held === null || Array.isArray(held)) throw new Error("Unreadable bank repository identities.");
+    const entries = Object.entries(held);
+    if (entries.some(([name, identity]) => name === "" || name.startsWith(".") || basename(name) !== name || name.includes("\\") || (identity !== null && typeof identity !== "string"))) throw new Error("Unreadable bank repository identity.");
+    remembered = new Map(entries as [string, string | null][]);
+    return remembered;
+  };
+  const writeBanksNow = async (place: MemoryPlace, render: (repositoryIdentity: string | null) => Promise<string>): Promise<string> => {
+    const name = autoMemoryName(place);
+    const text = await render(place.repositoryIdentity);
+    const held = await targets();
+    await mkdir(root, { recursive: true });
+    if (!held.has(name) || held.get(name) !== place.repositoryIdentity) {
+      const next = new Map(held).set(name, place.repositoryIdentity);
+      await writeFile(`${targetsPath}.tmp`, JSON.stringify(Object.fromEntries(next)), "utf8");
+      await rename(`${targetsPath}.tmp`, targetsPath);
+      remembered = next;
+    }
+    await writeBankBlock(join(root, name, "MEMORY.md"), text);
+    return text;
+  };
   const carryNow = async (before: MemoryPlace, after: MemoryPlace): Promise<void> => {
     const to = autoMemoryName(after);
-    for (const source of sourcesOf(before)) {
+    const held = await targets();
+    const sources = sourcesOf(before);
+    for (const source of sources) {
       if (source.name !== to) await carryMemory({ directory: join(root, source.name), name: source.name, label: source.key }, join(root, to));
     }
+    // The carried block belongs to its former repository; rewrite it for the new identity immediately.
+    if (renderer !== undefined && (held.has(to) || sources.some((source) => held.has(source.name)))) await writeBanksNow(after, renderer);
   };
   return {
+    banks: (place, render) => inTurn(() => writeBanksNow(place, render)),
+    refreshBanks: (render) => {
+      renderer = render;
+      return inTurn(async () => {
+        const failed: unknown[] = [];
+        for (const [name, identity] of await targets()) {
+          try { await writeBankBlock(join(root, name, "MEMORY.md"), await render(identity)); }
+          catch (error) { failed.push(error); }
+        }
+        if (failed.length > 0) throw new AggregateError(failed, "Some memory bank blocks could not be rewritten.");
+      });
+    },
     carry: (before, after) =>
       inTurn(() =>
         carryNow(before, after).catch((error: unknown) => console.error("Copying a session's auto memory to its new key failed; the old directory stays:", error)),
