@@ -1,5 +1,5 @@
 import { CHECK_OUTPUT_MAX_BYTES, checkPassed, utf8Bytes } from "@agent-harness/contracts";
-import type { WorkspaceCheck, ChecksChangedPayload } from "@agent-harness/contracts";
+import type { WorkspaceCheck, ChecksChangedPayload, ChecksFailuresResetPayload } from "@agent-harness/contracts";
 import type { CapabilityAnswer } from "./capabilities.js";
 import type { ConnectionRecord } from "./connections/records.js";
 import { uuidv7 } from "./ids.js";
@@ -60,8 +60,8 @@ export const createChecks = (host: {
       if (entry.sequence <= saved.floor) continue;
       if (entry.sourceRunId === null || (entry.state === "finished" && checkPassed(entry.result))) { epoch = entry.terminalId; seen.clear(); offer = null; }
       if (entry.state === "running") { offer = null; continue; }
-      if ((entry.state === "finished" && checkPassed(entry.result)) || entry.command !== command) continue;
-      const id = `${epoch} ${identity(entry)}`;
+      if (checkPassed(entry.result) || entry.command !== command || entry.result.offerFailure === false) continue;
+      const id = entry.result.offerFailure === true ? entry.terminalId : `${epoch} ${identity(entry)}`;
       if (seen.has(id)) continue;
       seen.add(id);
       offer = saved.sent.has(id) ? null : { entry, id };
@@ -169,5 +169,10 @@ export const createChecks = (host: {
       if (key.startsWith(`${environmentId} `) && value?.workspace === payload.workspace && value.command !== payload.command) reset(environmentId, key.slice(environmentId.length + 1));
     }
   };
-  return { view, actions, changed };
+  const failuresReset = (environmentId: string, payload: ChecksFailuresResetPayload) => {
+    for (const [key, other] of views) {
+      if (key.startsWith(`${environmentId} `) && other.read().value?.workspace === payload.workspace) reset(environmentId, key.slice(environmentId.length + 1));
+    }
+  };
+  return { view, actions, changed, failuresReset };
 };

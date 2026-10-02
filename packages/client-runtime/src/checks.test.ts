@@ -179,3 +179,53 @@ it("offers a finished failure received in a durable Session snapshot", async () 
   expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, result: { output: "failed assertion" } });
   expect(wire.server.received().filter((frame) => frame.type === "request" && frame.method === "runs.start")).toHaveLength(0);
 });
+
+
+it("honours the Environment's durable failure-offer decision in live events and snapshots", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  const { terminalId, command, sourceRunId, ...result } = check(TERMINAL, { offerFailure: false });
+  stream.snapshot(1, { ...recordedSnapshot(), sequence: 1, runs: [], items: [{ kind: "check", sequence: 1, terminalId, command, sourceRunId, state: "finished", result }], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(1);
+  await flush();
+  expect(view.read().offer).toBeNull();
+  stream.event(numbered(2, [["checks.finished", check("0199aa00-0000-4000-8000-000000000014", { output: "other failure", offerFailure: false })]])[0]!);
+  await flush();
+  expect(view.read().offer).toBeNull();
+  stream.event(numbered(3, [["checks.finished", check("0199aa00-0000-4000-8000-000000000015", { offerFailure: true })]])[0]!);
+  await flush();
+  expect(view.read().offer).toMatchObject({ terminalId: "0199aa00-0000-4000-8000-000000000015", result: { offerFailure: true } });
+});
+
+
+it("clears completed failure offers across a directory when another Client passes or starts manual now", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  const notices = await subscription(wire, "environment.subscribe");
+  notices.synchronized(0);
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  stream.snapshot(0, { ...recordedSnapshot(), sequence: 0, runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(0);
+  stream.event(numbered(1, [["checks.finished", check(TERMINAL, { offerFailure: true })]])[0]!);
+  await flush();
+  expect(view.read().offer).not.toBeNull();
+  notices.event(noticeEvent(1, id, "checks.failures-reset", { workspace: "/other" }));
+  await flush();
+  expect(view.read().offer).not.toBeNull();
+  notices.event(noticeEvent(2, id, "checks.failures-reset", { workspace: "/repo" }));
+  await flush();
+  expect(view.read().offer).toBeNull();
+  stream.event(numbered(2, [["checks.started", { terminalId: TERMINAL, command: "pnpm test", sourceRunId: null }]])[0]!);
+  notices.event(noticeEvent(3, id, "checks.failures-reset", { workspace: "/repo" }));
+  await flush();
+  stream.event(numbered(3, [["checks.finished", check(TERMINAL, { sourceRunId: null, offerFailure: true })]])[0]!);
+  await flush();
+  expect(view.read().offer).not.toBeNull();
+});

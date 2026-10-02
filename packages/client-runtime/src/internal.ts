@@ -1,5 +1,5 @@
 import { sendMessage, isLive } from "./composer/send.js";
-import { ChecksChangedPayload } from "@agent-harness/contracts";
+import { ChecksChangedPayload, ChecksFailuresResetPayload } from "@agent-harness/contracts";
 import { createChecks } from "./checks.js";
 import { PROTOCOL_VERSION, type PromptKind, type RunEndedPayload } from "@agent-harness/contracts";
 import { answerCapability } from "./capabilities.js";
@@ -115,6 +115,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       if (event.type === "checks.changed") {
         const payload = ChecksChangedPayload.safeParse(event.payload);
         if (payload.success) checks.changed(environmentId, payload.data);
+      }
+      if (event.type === "checks.failures-reset") {
+        const payload = ChecksFailuresResetPayload.safeParse(event.payload);
+        if (payload.success) checks.failuresReset(environmentId, payload.data);
       }
       requestCache.noticed(environmentId, event.type);
       clientCalls.heard(environmentId, event);

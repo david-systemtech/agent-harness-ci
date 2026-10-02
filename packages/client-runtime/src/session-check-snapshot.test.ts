@@ -18,7 +18,7 @@ describe("Workspace check snapshot catch-up", () => {
     expect(await runtime.commands.dispatch(t.env.id, "sessions.create", { id: sessionId, workspace })).toMatchObject({ ok: true });
     const check = { terminalId: randomUUID(), command: "pnpm lint", sourceRunId: null };
     const running = { terminalId: randomUUID(), command: "pnpm typecheck", sourceRunId: randomUUID() };
-    const result = { output: "Lint passed\n", truncated: false, exitCode: 0, signal: null, timedOut: false, failure: null };
+    const result = { offerFailure: false, output: "Lint passed\n", truncated: false, exitCode: 0, signal: null, timedOut: false, failure: null };
     // Seed the producer's recorded events; no shell runs. Only the public runtime subscription observes them.
     const appended = t.env.log.atomically((tx) => t.env.log.append({ kind: "session", id: sessionId }, [
       { type: "checks.started", payload: check },
