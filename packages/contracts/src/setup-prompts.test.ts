@@ -124,6 +124,14 @@ const homeWrittenTo = (text: string, name: string): Record<string, string> => {
 };
 
 describe("the Memory bank step's describe prompt (#586)", () => {
+  it("asks a local-only describe session to commit for environment-owned landing", () => {
+    for (const variant of ["first", "revise"] as const) {
+      const { text } = describeBank.render(variant, { ...personal, localOnly: true });
+      expect(text).toContain("Commit on this branch. The environment lands the committed describe artefacts on main through the BankService");
+      expect(text).not.toContain("push the branch");
+    }
+  });
+
   it("is the bank validator's, at version 1, whose orientation caps are ADR 0013's five names, 600 bytes each and 1,500 in all", () => {
     expect(describeBank.validator).toEqual({ name: "bank-validator", version: 1 });
     expect(BANK_VALIDATOR).toEqual({ name: "bank-validator", version: 1 });

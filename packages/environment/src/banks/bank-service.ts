@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { createBankLander, type BankChanges } from "./lander.js";
+import { createDescribeLanding } from "./describe-landing.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 import {
   BANK_INDEX_BUDGET,
@@ -342,9 +343,13 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       for (const branch of branches) {
         const holds = await runGit(repository, ["cat-file", "-e", `${branch}:BANK.md`], { maxBytes: 1024 });
         if (!holds.ok) continue;
+        try { if (!validateBank({ files: await readBankFiles(repository, branch) }).valid) continue; } catch { continue; }
+        const head = await runGit(repository, ["rev-parse", branch], { maxBytes: 1024 });
+        if (!head.ok || head.truncated) continue;
+        const sha = head.stdout.toString("utf8").trim();
         const answer = await forge.pullRequests.listByHead({ origin: location.origin, repository: location.repository, branch, limit: 5, purpose: VERIFY_PURPOSE });
         if (answer.outcome !== "done") answered = false;
-        const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open") : undefined;
+        const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open" && pullRequest.head.sha === sha && pullRequest.base.ref === "main") : undefined;
         if (open !== undefined) return { pullRequest: open.url, answered };
       }
     }
@@ -407,6 +412,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
 
   /** Verifies one bank and records what changed; answers its entry after. */
   const verifyOne = async (entry: BankEntry): Promise<void> => {
+    entry = liveBank(reader, entry.id) ?? entry;
     const generation = (verificationGenerations.get(entry.id) ?? 0) + 1;
     verificationGenerations.set(entry.id, generation);
     const { status: found, reading } = await inspect(entry);
@@ -431,10 +437,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     readings.set(entry.id, reading === null || now === null ? reading : readingFrom(reading.files, now));
   };
 
+  const reconcileDescribe = createDescribeLanding({ log, dataDir: options.dataDir, environmentId: options.environmentId, forge, git: options.credentials.git, landChanges: (bankId, changes) => service.landChanges(bankId, changes) });
+
   const verifyAll = (): Promise<BankRecord[]> => {
     verifyingAll ??= (async () => {
       try {
-        for (const entry of listBanks(reader).filter((bank) => bank.enabled)) { await reconcileLanding(entry.id); await verifyOne(entry); }
+        for (const entry of listBanks(reader).filter((bank) => bank.enabled)) { await reconcileDescribe(entry); await reconcileLanding(entry.id); await verifyOne(entry); }
         return await records();
       } finally {
         verifyingAll = null;
@@ -618,7 +626,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async verify(bankId) {
       if (bankId === undefined) return verifyAll();
       const entry = liveBank(reader, bankId);
-      if (entry !== null) { await reconcileLanding(entry.id); await verifyOne(entry); }
+      if (entry !== null) { await reconcileDescribe(entry); await reconcileLanding(entry.id); await verifyOne(entry); }
       return records();
     },
     async recordSync(bankId, outcome) {
