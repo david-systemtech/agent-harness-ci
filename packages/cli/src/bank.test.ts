@@ -72,7 +72,7 @@ const toolAnswers = async (h: Harness, calls: readonly HostToolCallScript[]): Pr
 };
 
 /** The CLI in-process, `bank` and `args` against the environment's data directory: its exit code, its output, and every URL its network was given. */
-const bankCli = async (h: Harness, args: readonly string[], options: { readonly env?: Record<string, string>; readonly stdin?: string } = {}) => {
+const bankCli = async (h: Harness, args: readonly string[], options: { readonly env?: Record<string, string>; readonly stdin?: string; readonly cwd?: string } = {}) => {
   let out = "";
   let err = "";
   const urls: string[] = [];
@@ -95,6 +95,8 @@ const bankCli = async (h: Harness, args: readonly string[], options: { readonly 
     },
     env: options.env ?? {},
     stdin: async () => options.stdin ?? "",
+    // Outside any repository unless the test names one.
+    cwd: options.cwd ?? tempDir("bank-cli-cwd-"),
   });
   return { code, out, err, urls };
 };
@@ -191,4 +193,32 @@ it("refuses a draft as the memory tool does: with the validator's rule ids, for 
   });
   expect(await bankCli(h, args(DESCRIPTION, "--bank", "maya-archive"))).toMatchObject({ code: 1, out: "", err: `The environment refused banks.memory.draft: ${wire(readOnly).message}\n` });
   expect(await bankCli(h, ["promote", "--session", randomUUID()])).toMatchObject({ code: 1, err: expect.stringContaining("The writable banks in scope: maya-memory, acme; name one with --bank.") });
+});
+
+it("reaches the banks in scope for the environment's default account and the repository it works in, and records no session's use", async () => {
+  const h = await start();
+  await register(h, PERSONAL_BANK, { repositories: ["https://github.com/maya-reyes/homelab"] });
+  await register(h, TEAM_BANK, { accounts: ["claude-max"] });
+  await register(h, { ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ name: "sam-memory" })) }, { accounts: ["sam-account"] });
+  const repository = tempDir("bank-cli-homelab-");
+  git(repository, "init", "--quiet", "--initial-branch=main");
+  git(repository, "remote", "add", "origin", "git@github.com:Maya-Reyes/homelab.git");
+  mkdirSync(join(repository, "scripts"));
+
+  const elsewhere = await bankCli(h, ["read"]);
+  expect(elsewhere).toMatchObject({ code: 0, err: "" });
+  expect(elsewhere.out).toMatch(/^## acme \(team, read-write\)/m);
+  expect(elsewhere.out).not.toMatch(/^## (maya|sam)-memory /m);
+  const inRepository = await bankCli(h, ["read"], { cwd: join(repository, "scripts") });
+  expect(inRepository.out).toMatch(/^## acme \(team, read-write\)/m);
+  expect(inRepository.out).toMatch(/^## maya-memory \(personal, read-write\)/m);
+  expect(inRepository.out).not.toMatch(/^## sam-memory /m);
+  // With one writable bank in scope outside the repository, a draft goes to it unnamed.
+  const session = randomUUID();
+  expect(await bankCli(h, ["search", "storefront", "--limit", "1"])).toMatchObject({ code: 0, err: "" });
+  const queued = await bankCli(h, ["draft", "release-train", "--scope", "acme/bank", "--type", "project", "--description", "When shipping the storefront - which day the release train leaves and who signs off on it", "--body", "Thursdays.", "--session", session]);
+  expect(queued, queued.err).toMatchObject({
+    code: 0, out: `Queued release-train for acme at projects/acme/bank/memories/release-train.md (session ${session}).\n`,
+  });
+  expect(h.t.env.log.readStream({ kind: "session", id: session })).toEqual([]);
 });
