@@ -195,7 +195,7 @@ export const routinesUpdate = defineMethod({
   errors: [DenylistedError],
 });
 
-/** Lets the scheduler fire the routine again and clears its movedTo; saved under the calling client session's ceiling. */
+/** Revalidates Account, mode, skills, script and delivery under the actual caller Ceiling; refuses conflict enable_conditions until repaired. On success lets the scheduler fire again and clears movedTo. */
 export const routinesEnable = defineMethod({
   name: "routines.enable",
   scope: "sessions:write",

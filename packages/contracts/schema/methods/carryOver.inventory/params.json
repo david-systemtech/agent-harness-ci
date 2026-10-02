@@ -1,16 +1,34 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "carryOver.inventory params",
-  "type": "object",
-  "properties": {
-    "accountId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 200,
-      "description": "The adopted account whose directory to carry over."
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "The adopted account whose directory to carry over."
+        }
+      },
+      "required": [
+        "accountId"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "const": "state-import"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "accountId"
   ]
 }
