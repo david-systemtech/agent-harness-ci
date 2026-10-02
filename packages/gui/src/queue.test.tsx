@@ -132,7 +132,7 @@ const actionOn = (transcript: HTMLElement, text: string, name: "Read now" | "Edi
 
 describe("Read now", () => {
   it("reads the whole queue in order, as its tooltip says: the run is interrupted and the next opens with every queued message", async () => {
-    const { app, env, transcript, session, runId } = await withQueue({}, "and the tests", "and the docs");
+    const { app, env, transcript, session, runId } = await withQueue({ queue: "provider", provider: { providerQueue: true, steering: true } }, "and the tests", "and the docs");
     expect(await tooltipOf(actionOn(transcript, "and the docs", "Read now"))).toMatch(/the whole queue now, in the order it was sent/);
 
     await app.user.click(actionOn(transcript, "and the docs", "Read now"));
@@ -145,9 +145,43 @@ describe("Read now", () => {
   });
 });
 
+describe("provider queue parity after an interrupt and replay", () => {
+  it("reads the re-owned whole queue once in order and refuses withdrawing a message the next run has read", async () => {
+    const { app, env, transcript, session } = await withQueue({ queue: "provider", provider: { providerQueue: true, steering: true } }, "and the tests", "and the docs");
+    const queuedIds = env.queued(session).map((message) => message.messageId);
+    const view = app.runtime.projections.session(env.environmentId, session);
+    await app.user.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(env.liveRun(session)).toBeUndefined());
+    expect(env.queued(session).map((message) => [message.text, message.heldBy])).toEqual([["and the tests", "environment"], ["and the docs", "environment"]]);
+    await act(async () => { env.discovery("nothing"); env.server.drop(); });
+    await screen.findByText("Locked: desk cannot be reached.");
+    await act(async () => { env.discovery("ready"); app.clock.advance(5_000); });
+    await waitFor(() => expect(view.read().freshness).toBe("live"));
+    await app.user.click(actionOn(transcript, "and the docs", "Read now"));
+    await waitFor(() => expect(kindOf(transcript, "and the docs")).toBe("Your message"));
+    expect(sent(env, "runs.readNow")).toHaveLength(1);
+    const nextRun = env.liveRun(session) ?? "";
+    expect(view.read().runs.map((run) => run.queuedMessageIds)).toEqual([[], queuedIds]);
+    expect(view.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts", "and the tests", "and the docs"]);
+    expect(app.runtime.projections.runs.session(env.environmentId, session).read().queue).toEqual([]);
+    expect(await app.runtime.commands.dispatch(env.environmentId, "runs.withdraw", { messageId: env.messageId(session, "and the tests") })).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(box().value).toBe("");
+    env.endRun(session, nextRun);
+    await waitFor(() => expect(view.read().runs.at(-1)?.state).toBe("ended"));
+    await act(async () => { env.server.drop(); });
+    await waitFor(() => expect(view.read().freshness).toBe("cached"));
+    await act(async () => { app.clock.advance(5_000); });
+    await waitFor(() => expect(view.read().freshness).toBe("live"));
+    expect(view.read().runs).toHaveLength(2);
+    expect(within(transcript).getAllByRole("article", { name: "Your message" })).toHaveLength(3);
+    expect(inOrder(transcript, "and the docs", "and the tests", "Fix the receipts")).toEqual(["Fix the receipts", "and the tests", "and the docs"]);
+    expect(env.liveRun(session)).toBeUndefined();
+  });
+});
+
 describe("Edit", () => {
   it("takes the message back with runs.withdraw, and its text comes into the composer through the session's draft", async () => {
-    const { app, env, transcript, session } = await withQueue({}, "and the tests", "and the docs");
+    const { app, env, transcript, session } = await withQueue({ queue: "provider", provider: { providerQueue: true, steering: true } }, "and the tests", "and the docs");
     const [first] = env.queued(session);
 
     await app.user.click(actionOn(transcript, "and the tests", "Edit"));
@@ -156,7 +190,7 @@ describe("Edit", () => {
     expect(env.summary(session).draft).toBe("and the tests");
     // Taken back, it is in the composer and nowhere in the transcript; the other waits on.
     expect(articleOf(transcript, "and the tests")).toBeNull();
-    expect(kindOf(transcript, "and the docs")).toBe("Queued message");
+    expect(kindOf(transcript, "and the docs")).toBe("Steering message");
   });
 
   it("sends what this window typed first, so the text comes back after it and nothing typed is lost", async () => {

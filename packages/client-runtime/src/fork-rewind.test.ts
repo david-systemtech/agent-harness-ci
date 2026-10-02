@@ -160,6 +160,45 @@ describe("commands.fork", () => {
     expect(fork.read().items.filter((item) => item.kind === "forked")).toEqual([entry]);
   });
 
+  it("shows the same independent anchored fork to two paired clients while its source runs, then after source deletion", async () => {
+    const { t, adapter, runtime, env, sessionId, session, messageId, send } = await start({ provider: "claude" });
+    await send("Fix the receipts");
+    adapter.nextScripts.push(working);
+    await send("Then the tests", "running");
+    await holds(session, (view) => view.items.some((item) => item.kind === "assistant-text" && item.text === "Working."));
+    expect(await runtime.commands.dispatch(env, "sessions.rewind", { sessionId, messageId: messageId("Then the tests") })).toMatchObject({ ok: false, error: { code: "conflict", data: { reason: "run_active" } } });
+    const forked = await runtime.commands.fork(env, sessionId, { anchor: messageId("Then the tests") });
+    expect(forked.answer).toMatchObject({ ok: true });
+    expect(session.read().runs.at(-1)?.state).toBe("running");
+    expect(adapter.runs[1]?.interrupted).toBe(false);
+    const fork = runtime.projections.session(env, forked.sessionId);
+    onTestFinished(fork.subscribe(() => undefined));
+    await holds(fork, (view) => view.freshness === "live");
+    expect(fork.read().summary).toMatchObject({ title: "Receipts", titleSource: "generated", draft: "Then the tests", archivedAt: null, pinnedAt: null, settledAt: null });
+    const copied = fork.read().items[0];
+    expect(copied).toMatchObject({ kind: "forked", history: { title: "Receipts", anchor: "Then the tests", items: [
+      expect.objectContaining({ kind: "user-message", text: "Fix the receipts" }),
+      expect.objectContaining({ kind: "assistant-text", text: "Done: Fix the receipts" }),
+    ] } });
+
+    const observer = harness.runtime(inMemoryPlatform());
+    await observer.start();
+    expect(await observer.connections.add({ link: (await t.createPairing()).link })).toMatchObject({ status: "paired" });
+    const other = observer.projections.session(env, forked.sessionId);
+    onTestFinished(other.subscribe(() => undefined));
+    await holds(other, (view) => view.freshness === "live");
+    expect(other.read().items[0]).toEqual(copied);
+    expect(other.read().draft).toBe("Then the tests");
+    const sourceRun = session.read().runs.at(-1);
+    if (sourceRun === undefined) throw new Error("The live source Run is missing.");
+    expect(await runtime.commands.dispatch(env, "runs.interrupt", { runId: sourceRun.runId })).toMatchObject({ ok: true });
+    await holds(session, (view) => view.runs.at(-1)?.state === "ended");
+    expect(await runtime.commands.dispatch(env, "sessions.delete", { sessionId })).toMatchObject({ ok: true });
+    await holds(observer.projections.sessionList, (list) => !list.rows.some((row) => row.summary.id === sessionId));
+    expect(other.read().items[0]).toEqual(copied);
+    expect(fork.read().items[0]).toEqual(copied);
+  });
+
   it("forks at a message through the outbox, answering the fork's id; the fork opens on its forked entry, the message's text its draft", async () => {
     const { runtime, env, sessionId, session, messageId, send, events } = await start();
     await send("Fix the receipts");
