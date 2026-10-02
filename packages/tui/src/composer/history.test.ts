@@ -183,7 +183,7 @@ describe("PromptHistory", () => {
     expect(texts).not.toContain("prompt 0");
 
     // Rewritten by rename, so no temp file is left lying beside it.
-    expect(await readdir(dir)).toEqual(["history.jsonl"]);
+    expect(await readdir(dir)).toEqual(["history.jsonl", "terminal-state.sqlite"]);
   });
 
   it("starts on a line of its own when another process left a half-written line after this one loaded", async () => {

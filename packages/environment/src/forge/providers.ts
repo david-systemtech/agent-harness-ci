@@ -85,6 +85,8 @@ export interface ForgeIssue {
 
 /** A pull request as the harness reads one: merged is GitHub's `merged_at`, or the Gitea API's `merged`. */
 export interface ForgePullRequest {
+  /** Forge login of the PR author, null when the forge omits it. */
+  readonly author: string | null;
   readonly number: number;
   readonly title: string;
   /** Its body; empty for none. */
@@ -98,6 +100,14 @@ export interface ForgePullRequest {
   readonly base: { readonly ref: string };
   /** Its web address. */
   readonly url: string;
+}
+
+/** A forge review, ordered by its monotonically increasing id. */
+export interface ForgePullRequestReview {
+  readonly id: number;
+  readonly login: string;
+  readonly state: "approved" | "changes-requested" | "dismissed" | "commented" | "pending";
+  readonly commit: string | null;
 }
 
 /** What an issue or a pull request is opened with. */
@@ -170,6 +180,7 @@ export interface RepositoryCreation {
 export type ForgeValidateCheck = "pending" | "success" | "failure";
 
 export interface ForgeProvider {
+  pullRequestReviews(origin: ForgeOrigin, token: string | null, fullName: string, number: number, call?: CallOptions): Promise<ForgeReply<ForgePullRequestReview[]>>;
   validateCheck(origin: ForgeOrigin, token: string | null, fullName: string, sha: string, call?: CallOptions): Promise<ForgeReply<ForgeValidateCheck>>;
   /** Asks the forge at `origin` who `token` is. The token goes in a header and nowhere else: never in a URL or an answer. */
   identity(origin: ForgeOrigin, token: string, call?: CallOptions): Promise<IdentityAnswer>;
@@ -393,6 +404,7 @@ const pullRequestOf =
     const [ref, sha, base] = [text(field(head, "ref")), text(field(head, "sha")), text(field(field(body, "base"), "ref"))];
     if (issue === null || ref === null || sha === null || base === null) return null;
     return {
+      author: nonEmpty(field(field(body, "user"), "login")),
       number: issue.number,
       title: issue.title,
       body: issue.body,
@@ -404,6 +416,16 @@ const pullRequestOf =
       url: issue.url,
     };
   };
+
+const reviewOf = (body: unknown): ForgePullRequestReview | null => {
+  const id = positiveInteger(field(body, "id"));
+  const login = nonEmpty(field(field(body, "user"), "login"));
+  const raw = text(field(body, "state"))?.toUpperCase();
+  const state = raw === "APPROVED" ? "approved" : raw === "REQUEST_CHANGES" || raw === "CHANGES_REQUESTED" ? "changes-requested"
+    : raw === "DISMISSED" ? "dismissed" : raw === "COMMENT" || raw === "COMMENTED" ? "commented" : raw === "PENDING" ? "pending" : null;
+  if (id === null || login === null || state === null) return null;
+  return { id, login, state, commit: nonEmpty(field(body, "commit_id")) };
+};
 
 /** A release asset as both APIs list one; null for one that is none. */
 const assetOf = (item: unknown): ForgeReleaseAsset | null => {
@@ -554,6 +576,11 @@ export const forgeProvider = (kind: ForgeKind, options: ProviderOptions): ForgeP
 
     createPullRequest: async (origin, token, fullName, { title, body, head, base }, call) =>
       replied(origin, await send(origin, "POST", `/repos/${repositoryPath(fullName)}/pulls`, token, { title, body, head, base }, call), "pull request", pullRequestOfKind),
+
+    async pullRequestReviews(origin, token, fullName, number, call) {
+      const paged = await pages(origin, `/repos/${repositoryPath(fullName)}/pulls/${number}/reviews`, token, { limit: Number.POSITIVE_INFINITY }, call);
+      return listed(origin, paged, "pull request reviews", reviewOf);
+    },
 
     async validateCheck(origin, token, fullName, sha, call) {
       const path = `/repos/${repositoryPath(fullName)}/commits/${encodeURIComponent(sha)}`;

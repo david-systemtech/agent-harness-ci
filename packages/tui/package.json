@@ -13,6 +13,11 @@
       "@agent-harness/source": "./src/screenless.ts",
       "types": "./dist/screenless.d.ts",
       "default": "./dist/screenless.js"
+    },
+    "./terminal-state": {
+      "@agent-harness/source": "./src/platform/terminal-batch.ts",
+      "types": "./dist/platform/terminal-batch.d.ts",
+      "default": "./dist/platform/terminal-batch.js"
     }
   },
   "scripts": {

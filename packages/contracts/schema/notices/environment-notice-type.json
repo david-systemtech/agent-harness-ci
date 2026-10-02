@@ -144,6 +144,11 @@
     },
     {
       "type": "string",
+      "const": "bank.review-held",
+      "description": "A validated bank change was held for review as an immutable snapshot."
+    },
+    {
+      "type": "string",
       "const": "bank.draft-queued",
       "description": "A session queued a validated draft or retirement; clients refresh banks.drafts.list."
     },

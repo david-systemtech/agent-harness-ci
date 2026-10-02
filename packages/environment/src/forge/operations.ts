@@ -30,6 +30,7 @@ import type {
   ForgeIssue,
   ForgeProvider,
   ForgePullRequest,
+  ForgePullRequestReview,
   ForgeRelease,
   ForgeReleaseAsset,
   ForgeReply,
@@ -159,6 +160,7 @@ export interface ForgeOperations {
     /** The bank's validate check on one immutable pushed commit. */
     validateCheck(request: RepositoryTarget & { readonly sha: string; readonly signal?: AbortSignal }): Promise<ForgeAnswer<ForgeValidateCheck>>;
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgePullRequest>>;
+    reviews(request: NumberedTarget): Promise<ForgeAnswer<ForgePullRequestReview[]>>;
     /** Up to `limit` pull requests from the branch `branch` of `owner`'s repository (preset the target's owner), in every state, most recently updated first. */
     listByHead(request: RepositoryTarget & { readonly branch: string; readonly owner?: string; readonly limit: number }): Promise<ForgeAnswer<ForgePullRequest[]>>;
     /** Opens a pull request (`pullRequests`); its title and body pass the scrub registry's check first. */
@@ -448,6 +450,13 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     },
 
     pullRequests: {
+      async reviews(request) {
+        const [fullName, number] = [fullNameOf(request.repository), numberOf(request.number)];
+        return read(request, async (reached) => {
+          const { provider: forge, origin, token, call } = reached;
+          return readPullRequests(reached, "read pull request reviews", await forge.pullRequestReviews(origin, token, fullName, number, call));
+        });
+      },
       async validateCheck(request) {
         const fullName = fullNameOf(request.repository);
         if (!/^[0-9a-f]{40,64}$/.test(request.sha)) throw invalid("sha", "The check names a full commit id.");
