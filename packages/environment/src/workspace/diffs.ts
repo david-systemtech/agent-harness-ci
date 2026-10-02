@@ -2,6 +2,7 @@ import { copyFile, mkdir, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { ContractError, DIFF_CAP, type SessionDiffChange, type SessionDiffFile, type TranscriptItem } from "@agent-harness/contracts";
+import { resolvePath } from "../permissions/gate.js";
 import { UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit } from "./git.js";
 
 /**
@@ -245,15 +246,6 @@ const fromInput = (name: string, input: Record<string, unknown>): { file: string
       if (file === undefined || oldText === undefined || newText === undefined) return undefined;
       return { file, hunks: [editHunk(oldText, newText)] };
     }
-    case "MultiEdit": {
-      const file = text("file_path");
-      const edits = Array.isArray(input["edits"]) ? input["edits"].filter(isRecord) : [];
-      if (file === undefined) return undefined;
-      const hunks = edits.flatMap((edit) =>
-        typeof edit["old_string"] === "string" && typeof edit["new_string"] === "string" ? [editHunk(edit["old_string"], edit["new_string"])] : [],
-      );
-      return { file, hunks };
-    }
     case "Write": {
       const file = text("file_path");
       const content = text("content");
@@ -267,6 +259,26 @@ const fromInput = (name: string, input: Record<string, unknown>): { file: string
     default:
       return undefined;
   }
+};
+
+/** All files a call names, grouping a MultiEdit's edits by path. */
+const changesFromInput = (name: string, input: Record<string, unknown>): { file: string; hunks: string[] }[] => {
+  if (name !== "MultiEdit") {
+    const change = fromInput(name, input);
+    return change === undefined ? [] : [change];
+  }
+  const byFile = new Map<string, string[]>();
+  const defaultFile = typeof input["file_path"] === "string" ? input["file_path"] : undefined;
+  if (defaultFile !== undefined) byFile.set(defaultFile, []);
+  const edits = Array.isArray(input["edits"]) ? input["edits"].filter(isRecord) : [];
+  for (const edit of edits) {
+    const file = typeof edit["file_path"] === "string" ? edit["file_path"] : defaultFile;
+    if (file === undefined) continue;
+    const hunks = byFile.get(file) ?? [];
+    if (typeof edit["old_string"] === "string" && typeof edit["new_string"] === "string") hunks.push(editHunk(edit["old_string"], edit["new_string"]));
+    byFile.set(file, hunks);
+  }
+  return [...byFile].map(([file, hunks]) => ({ file, hunks }));
 };
 
 /** The tools whose calls change files: Claude's. Another provider's join here as their adapters land. */
@@ -290,7 +302,7 @@ const workspaceRelative = (roots: readonly string[], file: string): { path: stri
     // A relative name is the workspace's unless it climbs out of it: `..` is a way out, `..x` a name inside, as for an absolute path.
     const normalised = normalize(file);
     const escapes = normalised === ".." || normalised.startsWith(`..${sep}`);
-    return { path: file.split(sep).join("/"), inside: !escapes };
+    return { path: normalised.split(sep).join("/"), inside: !escapes };
   }
   for (const root of roots) {
     const inner = inside(root, file);
@@ -305,28 +317,38 @@ type ToolCall = Extract<TranscriptItem, { kind: "tool-call" }>;
  * What the session's runs changed, per file: see the module comment. `roots`
  * are the workspace's paths a tool may have named its files by: the path the
  * session recorded and, while the directory is there, its real path.
- * `undone` names the calls whose change was undone, which are left out.
+ * `undone` names wholly consumed calls; `undonePaths` leaves out individual
+ * consumed files of a multi-file call.
  */
 export const sessionDiff = (
   roots: readonly string[],
   items: readonly TranscriptItem[],
   undone: ReadonlySet<string> = new Set(),
+  undonePaths: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
 ): { files: SessionDiffFile[]; truncated: boolean } => {
   const byFile = new Map<string, { inside: boolean; hunks: string[]; changes: SessionDiffChange[] }>();
   for (const item of items) {
     if (item.kind !== "tool-call") continue;
     const call = item as ToolCall;
     if (call.status !== "ok" || !FILE_EDITING_TOOLS.has(call.name) || undone.has(call.toolCallId)) continue;
-    const change = fromInput(call.name, call.input);
-    if (change === undefined) continue;
+    const changes = changesFromInput(call.name, call.input);
     const patch = outputPatch(call.output);
-    const hunks = patch === undefined ? change.hunks : patch.map(hunkText);
-    const named = workspaceRelative(roots, change.file);
-    const path = named.path;
-    const entry = byFile.get(path) ?? { inside: named.inside, hunks: [], changes: [] };
-    entry.hunks.push(...hunks);
-    entry.changes.push({ runId: call.runId, toolCallId: call.toolCallId, tool: call.name, status: call.status });
-    byFile.set(path, entry);
+    for (const change of changes) {
+      // A single-file SDK patch belongs to that file; a multi-file input supplies its own per-file hunks.
+      const hunks = patch === undefined || changes.length > 1 ? change.hunks : patch.map(hunkText);
+      const named = workspaceRelative(roots, change.file);
+      const path = named.path;
+      const consumed = undonePaths.get(call.toolCallId);
+      if (consumed !== undefined) {
+        if (consumed.has(path)) continue;
+        const resolved = roots[0] === undefined ? null : resolvePath(change.file, roots[0]);
+        if (resolved !== null && consumed.has(workspaceRelative(roots, resolved).path)) continue;
+      }
+      const entry = byFile.get(path) ?? { inside: named.inside, hunks: [], changes: [] };
+      entry.hunks.push(...hunks);
+      entry.changes.push({ runId: call.runId, toolCallId: call.toolCallId, tool: call.name, status: call.status });
+      byFile.set(path, entry);
+    }
   }
 
   const files: SessionDiffFile[] = [];

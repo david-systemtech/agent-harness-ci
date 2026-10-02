@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, open, realpath, rename, rm } from "node:fs/promises";
+import { lstat, open, realpath, rename, rm, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { SESSION_STREAM_KIND, type FileUndoConflictReason, type FileUndoOutcome, type TranscriptItem } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
@@ -18,19 +18,21 @@ import type { WorkspaceWrites } from "./workspace-writes.js";
  * `files.undo` (switch-over spec, "Phase-D commands and parity", File undo;
  * #1183), a prepared command. Its `prepare` holds the workspace's turn
  * (`workspace-writes.ts`), refuses what it must, and restores the session's
- * newest change record: the record's bytes go to a scratch file beside the
- * file, with the record's mode, and the scratch file is renamed over the
+ * newest change record. A created file is deleted; otherwise the record's
+ * bytes go to a scratch file beside the file, with the record's mode,
+ * and the scratch file is renamed over the
  * file once the file is read again and found to hold exactly what the call
  * left, so a restore is whole or not at all. Its handler then appends
  * `files.undo-finished`, consumes the record and ends the restore in the
  * command's transaction, with its receipt.
  *
  * The restore is journalled before the scratch file is written, so a stop
- * between the rename and the commit is recognised on the next start
+ * between the restore or deletion and the commit is recognised on the next start
  * (`recover`), or by a retry of the same command first: a file holding the
  * record's bytes was restored, and the command is recorded done, once,
- * without writing again; a file still holding what the call left was not,
- * and the journal row goes, so the command can run; a file holding anything
+ * without writing again; absence recognises an applied deletion. A file
+ * still holding what the call left was not, and the journal row goes,
+ * so the command can run; a file holding anything
  * else was edited since, and the command is recorded refused `file_changed`.
  * A refusal writes no file and leaves the record as it was.
  */
@@ -40,7 +42,7 @@ export interface FileUndoOptions {
   /** The runs live now, which a restore refuses when one shares the workspace. */
   readonly host: Pick<AdapterHost, "activeRuns" | "runActive">;
   readonly writes: WorkspaceWrites;
-  /** A test's hold on a restore: around the rename of the scratch file over the file. Preset: none. */
+  /** A test's hold on a restore: around the restore or deletion of the file. Preset: none. */
   readonly hooks?: FileUndoHooks;
 }
 
@@ -132,7 +134,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
     }
     const named = { sessionId, changeId: change.changeId, path: change.path };
     if (!change.inside) return { refused: conflict("unsafe_path", `${change.path} is outside the session's workspace, so its change is not undone.`, named) };
-    if (change.unrestorable !== null || change.pre === null || change.postDigest === null) {
+    if (change.unrestorable !== null || (change.existed && change.pre === null) || change.postDigest === null) {
       return {
         refused: conflict("snapshot_unavailable", `The newest file change, to ${change.path}, cannot be undone; an older one is not undone past it.`, {
           ...named,
@@ -153,7 +155,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
   /** Whether the file holds exactly what the change's call left. */
   const holdsPostImage = async (change: ChangeRecord, target: string): Promise<boolean> => {
     const now = await readFileState(target);
-    return now.kind === "kept" && digestOf(now.bytes) === change.postDigest;
+    return (await isPlainFile(target)) && now.kind === "kept" && digestOf(now.bytes) === change.postDigest;
   };
 
   /** Writes the record's bytes and mode to a scratch file beside `target`, durably. */
@@ -170,7 +172,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
 
   /** The change undone, in the transaction of the command that undid it: its event, the record consumed, its journal row gone. */
   const finished = (aggregate: StreamRef, change: ChangeRecord, entry: JournalEntry, tx: Tx): { aggregate: StreamRef; result: FileUndoOutcome; events: EventInput[] } => {
-    const outcome: FileUndoOutcome = { changeId: change.changeId, path: change.path, action: "restored" };
+    const outcome: FileUndoOutcome = { changeId: change.changeId, path: change.path, action: change.existed ? "restored" : "deleted" };
     table.consume(tx, change.changeId);
     table.unjournal(tx, entry.actor, entry.commandId);
     return { aggregate, result: outcome, events: [{ type: "files.undo-finished", payload: outcome }] };
@@ -184,22 +186,24 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
 
   /**
    * What a journalled restore did: `restored` when the file holds the
-   * record's bytes, `unapplied` (its row removed) when it still holds what
+   * record's bytes (or is absent for a created file), `unapplied` (its row removed) when it still holds what
    * the call left, `changed` when anything else; `unknown` when the workspace
    * cannot be read now, so it is left for later.
    */
   const settle = async (entry: JournalEntry): Promise<Settled> => {
     await rm(entry.scratch, { force: true });
     const change = table.record(entry.changeId);
-    if (change === null || change.state !== "completed" || change.pre === null) {
+    if (change === null || change.state !== "completed" || change.unrestorable !== null || (change.existed && change.pre === null)) {
       log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
       return { kind: "unapplied" };
     }
     const recorded = sessionWorkspaceStatus(log, change.sessionId)?.path;
     const realRoot = recorded === undefined ? null : await realpath(recorded).catch(() => null);
     if (realRoot === null) return { kind: "unknown" };
-    const now = await readFileState(join(realRoot, change.path));
-    if (now.kind === "kept" && now.bytes.equals(change.pre)) return { kind: "restored", change };
+    const target = join(realRoot, change.path);
+    const now = await readFileState(target);
+    if (!change.existed && now.kind === "absent" && (await realpath(dirname(target)).catch(() => null)) === dirname(target)) return { kind: "restored", change };
+    if (change.existed && now.kind === "kept" && now.bytes.equals(change.pre as Buffer) && (await isPlainFile(target))) return { kind: "restored", change };
     if (now.kind === "kept" && digestOf(now.bytes) === change.postDigest) {
       log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
       return { kind: "unapplied" };
@@ -256,20 +260,21 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
           const entry: JournalEntry = { actor, commandId: params.commandId, changeId: change.changeId, scratch: join(dirname(target), `.${basename(target)}.undo-${randomUUID()}`) };
           log.atomically((tx) => table.journal(tx, entry));
           try {
-            await writeScratch(change, entry.scratch);
-            // Read once more immediately before the rename: a write since the check above is not overwritten.
+            if (change.existed) await writeScratch(change, entry.scratch);
+            await hooks?.beforeRename?.();
+            // Read once more immediately before restoring or deleting: a later write is not overwritten.
             if (!(await holdsPostImage(change, target))) {
               await rm(entry.scratch, { force: true });
               log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
               return holding(refuse(fileChanged(change)));
             }
-            await hooks?.beforeRename?.();
           } catch (error) {
             await rm(entry.scratch, { force: true });
             log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
             throw error;
           }
-          await rename(entry.scratch, target);
+          if (change.existed) await rename(entry.scratch, target);
+          else await unlink(target);
           await hooks?.afterRename?.();
           return holding((_params, command) => finished(aggregate, change, entry, command.tx));
         } catch (error) {

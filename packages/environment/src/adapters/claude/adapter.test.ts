@@ -739,11 +739,12 @@ describe("the file tools' observation around the gate (#1182)", () => {
   };
 
   it.each([
-    ["Edit", { file_path: "/work/repo/a.ts", old_string: "a", new_string: "b" }, "/work/repo/a.ts"],
-    ["MultiEdit", { file_path: "/work/repo/a.ts", edits: [{ old_string: "a", new_string: "b" }] }, "/work/repo/a.ts"],
-    ["Write", { file_path: "src/new.ts", content: "export {};" }, "src/new.ts"],
-    ["NotebookEdit", { notebook_path: "/work/repo/book.ipynb", new_source: "print(1)" }, "/work/repo/book.ipynb"],
-  ] as const)("captures before a %s the gate let through writes, and reports its completion with the call and path it announced", async (tool, toolInput, path) => {
+    ["Edit", { file_path: "/work/repo/a.ts", old_string: "a", new_string: "b" }, ["/work/repo/a.ts"]],
+    ["MultiEdit", { file_path: "/work/repo/a.ts", edits: [{ old_string: "a", new_string: "b" }] }, ["/work/repo/a.ts"]],
+    ["MultiEdit", { edits: [{ file_path: "z.ts", old_string: "z", new_string: "Z" }, { file_path: "a.ts", old_string: "a", new_string: "A" }, { file_path: "z.ts", old_string: "Z", new_string: "ZZ" }] }, ["z.ts", "a.ts"]],
+    ["Write", { file_path: "src/new.ts", content: "export {};" }, ["src/new.ts"]],
+    ["NotebookEdit", { notebook_path: "/work/repo/book.ipynb", new_source: "print(1)" }, ["/work/repo/book.ipynb"]],
+  ] as const)("captures before a %s the gate let through writes, and reports its completion with the call and path it announced", async (tool, toolInput, paths) => {
     let finishCapture: () => void = () => undefined;
     const { context, order, told } = observing(undefined, () => new Promise((resolve) => (finishCapture = resolve)));
     const { query } = await opened(context);
@@ -757,7 +758,7 @@ describe("the file tools' observation around the gate (#1182)", () => {
     expect(answered).toBe(false);
     finishCapture();
     expect(await hooked).toEqual({});
-    expect(told[0]).toEqual({ what: "before", call: { toolCallId: "toolu_file", tool, paths: [path], cwd: "/work/repo" }, signal: abort.signal });
+    expect(told[0]).toEqual({ what: "before", call: { toolCallId: "toolu_file", tool, paths, cwd: "/work/repo" }, signal: abort.signal });
     await query.postToolUse(tool, toolInput, { type: "update" }, { toolUseID: "toolu_file" });
     expect(order).toEqual(["gate toolu_file", "before toolu_file", "captured toolu_file", "completed toolu_file"]);
     expect(told[1]?.call).toBe(told[0]?.call);
