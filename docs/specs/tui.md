@@ -125,7 +125,7 @@ The env spec reserves scope `terminal` for these and leaves them to the renderer
 
 ### The parity contract in practice
 
-The contract is the wire (ADR 0004). In milestone 1 the terminal UI implements: sessions and every organisation command; runs (start, send, steer, queue, read-now, withdraw, interrupt, fork, rewind, undo rewind, status, usage; ADR 0022); permissions and questions (cards, parked asks, mode, containment, the review list); accounts, models and usage per environment, including a sign-in; settings (the generic editor); Set up as summary and pointer (ADR 0016's shape, not a gap); environment management (pair both ways, list, enable, disable, remove, revoke); the terminal pane, and files and diffs as pager views; documents (`projections.documents`: markdown read in the pager, a page or an SVG named with its path for the desktop window's preview, #427); an environment's update (its version, pending update and bundled Claude Code, Update now, Drain and update now (#878) and a newer client's offer, on its card in `/environment`, #827); delegated work and tasks. Whatever the runtime projects, the terminal renders.
+The contract is the wire (ADR 0004). In milestone 1 the terminal UI implements: sessions and every organisation command; runs (start, send, steer, queue, read-now, withdraw, interrupt, fork, rewind, undo rewind, status, usage; ADR 0022); permissions and questions (cards, parked asks, mode, containment, the review list); accounts, models and usage per environment, including a sign-in; settings (the generic editor); Set up as summary and pointer (ADR 0016's shape, not a gap); environment management (pair both ways, list, enable, disable, remove, revoke); the terminal pane, and files and diffs as pager views; documents (`projections.documents`: markdown read in the pager, a page or an SVG named with its path for the desktop window's preview, #427); an environment's update (its version, pending update and bundled Claude Code, Update now, Drain and update now (#878) and a newer client's offer, on its card in `/environment`, #827); delegated work and tasks. Workspace checks use `projections.checks` and `runtime.checks`: `/check` reads the directory command, `/check <command>` saves the text verbatim, `/check off` clears it and `/check now` runs it on the Environment. The shared Session projection supplies dollar-command rows and failure offers; `s` (Send failure) on an offered check row or Enter on an empty composer sends the failure explicitly; Enter on the row unfolds its output. Imported after-edit text remains inert until explicitly saved. Whatever the runtime projects, the terminal renders.
 
 **Named gaps**, each filed as a `parity` issue when the build starts, David deciding (ADR 0004): the browser dock pane; the GUI's preview pane (a rendered web preview of the workspace, not the rail's session preview, which the terminal has); the drag gesture for reordering (semantics on `Shift+↑`/`Shift+↓`); images beyond the kitty, iTerm2, WezTerm and Ghostty protocols (drawn as `[image WxH · size]` elsewhere, as it is today); the pane grid (one session at a time, `Ctrl+]` switches). The documents pane is no gap: `/documents` lists the same projection, text in the pager (#427). A capability the environment reports absent is not a parity gap; it is the runtime's absent-with-reason line.
 
@@ -209,6 +209,7 @@ The defaults (keys separated by commas are alternatives; the description is the 
 | row.rewind | w |
 | row.fork | f |
 | row.rewindUndo | u (on the rewound fold) |
+| row.checkFailure.send | s (on an offered check failure) |
 | picker.branch | b |
 | picker.hide | Ctrl+D |
 | delegated.enter | Tab |
@@ -280,7 +281,7 @@ The runtime's rules (ticket 80, session-state spec) rendered: the heading shows 
 
 - Everything under "What this workstream does not decide".
 - `-p` one-shot printing and `ls`: not phase A; programs use the completions surface (ADR 0015); verify in phase D whether Seth relies on them.
-- `/undo` and `/check`: deferred to phase D, carried if Seth relies on them; neither is a wire-contract feature, so neither is a `parity` issue.
+- `/undo` and `/check` are milestone-1 phase-D wire features (switch-over spec, Phase-D commands and parity). The TUI check controls ship in #1189; the GUI uses the same runtime actions and projections in #1190. Printing and listing are terminal-only because their surface is stdout and process exits.
 - Server-side and full-text search, paging the archive (later); hand-off between environments (milestone 2); the named `parity` gaps; the web tab (milestone 2); mouse support, a main-screen mode with native scrollback, `pi-tui`.
 
 ## Further Notes

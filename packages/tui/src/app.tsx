@@ -121,6 +121,8 @@ import {
   type Press,
 } from "./keys.js";
 import type { LocalService } from "./platform/services.js";
+import { jsonDocuments } from "./platform/json-documents.js";
+import { AFTER_EDIT_DOCUMENT } from "./platform/terminal-batch.js";
 import { inMemoryPresentation, type Presentation } from "./presentation.js";
 import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto, type Picker } from "./rail/picker.js";
 import { badgesOf } from "./rail/badge.js";
@@ -698,6 +700,9 @@ export const App = (props: AppProps) => {
   const now = clock.now().getTime();
   // A parked prompt is the card under the transcript until it is answered, then a row where it was asked (permissions spec,
   // "Placement"); the pager, the whole transcript unfolded, draws it in place.
+  const checks = useMemo(() => opened ? runtime.projections.checks(opened.environmentId, opened.sessionId) : undefined, [runtime, opened]);
+  useFollow(checks, request);
+  const checkView = checks?.read();
   const allRows = useMemo(() => (projection ? transcriptRows(projection) : []), [projection]);
   const rows = useMemo(() => allRows.filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [allRows]);
   // The user messages the prompt picker lists (#232).
@@ -709,6 +714,7 @@ export const App = (props: AppProps) => {
   const lineContext = {
     width: mainWidth - (transcriptFocused ? 1 : 0),
     quietMs: (id: string) => quietFor(session.quiet, id, now),
+    checkOutput: (id: string) => checkView?.runningOutput.get(id),
     stopKey: keys("row.stop"),
     unfoldKey: keys("row.unfold"),
     openKey: keys("row.open"),
@@ -795,6 +801,15 @@ export const App = (props: AppProps) => {
     open(next);
   };
 
+  const sendingFailure = useRef(false);
+  const sendCheckFailure = (): boolean => {
+    if (!opened || !checkView?.offer || sendingFailure.current) return false;
+    sendingFailure.current = true;
+    void runtime.checks.sendFailure(opened.environmentId, opened.sessionId, pickers.choice(opened)).then((answer) => {
+      if (!answer.ok) say(answer.line);
+    }).finally(() => { sendingFailure.current = false; });
+    return true;
+  };
   // The composer.
   const readiness = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "skills.readiness", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
   useFollow(readiness, request);
@@ -836,6 +851,7 @@ export const App = (props: AppProps) => {
     },
     say,
     submit: (raw, message) => submit(raw, message),
+    sendFailure: sendCheckFailure,
     picked: (path) => {
       stores.mentions?.record(path);
       void stores.mentions?.save().catch(() => undefined);
@@ -1284,6 +1300,37 @@ export const App = (props: AppProps) => {
   const submit = (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
     const command = parseCommand(raw);
     switch (command.kind) {
+      case "check": {
+        if (!opened) { say("Open a Session to configure its Workspace check."); return true; }
+        const { environmentId, sessionId } = opened;
+        const available = runtime.capability(environmentId, "checks.get");
+        if (available.status === "absent") { say(available.message); return true; }
+        if (command.action === "get") {
+          void runtime.checks.get(environmentId, sessionId).then(async (answer) => {
+            runtime.requests.refresh(environmentId, "checks.get", { sessionId });
+            if (!answer.ok) { say(answer.error.message); return; }
+            let imported: string | undefined;
+            if (answer.result.command === null && props.stateDir !== undefined && viewOf(environmentId)?.kind === "local") {
+              try {
+                const stored = await jsonDocuments(join(props.stateDir, "documents")).get(AFTER_EDIT_DOCUMENT);
+                if (typeof stored === "object" && stored !== null && Object.hasOwn(stored, answer.result.workspace)) {
+                  const text: unknown = (stored as Record<string, unknown>)[answer.result.workspace];
+                  if (typeof text === "string") imported = text;
+                }
+              } catch { /* An unreadable local import enables nothing. */ }
+            }
+            say(answer.result.command === null ? `Check is off for ${answer.result.workspace}.${imported === undefined ? "" : ` Imported (inert): ${imported}; save explicitly with /check <command>.`}` : `$ ${answer.result.command}`);
+          });
+        } else if (command.action === "now") {
+          void runtime.checks.run(environmentId, sessionId).then((answer) => {
+            const error = !answer.ok ? answer.error : answer.result.receipt.status === "rejected" ? answer.result.receipt.error : undefined;
+            say(error === undefined ? "Check running on the Environment." : `${error.data?.["reason"] ?? error.code}: ${error.message}`);
+          });
+        } else {
+          void runtime.checks.set(environmentId, sessionId, command.action === "set" ? command.command : null).then((answer) => say(!answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : command.action === "off" ? "Check is off." : "Check saved for this Workspace."));
+        }
+        return true;
+      }
       case "trust": {
         if (!opened) {
           say("Cannot decide repository trust: no session is open.");
@@ -2098,6 +2145,11 @@ export const App = (props: AppProps) => {
           .trim();
         void clipboard.copy(text).then((outcome) => say(outcome === "none" ? "Nothing here can reach a clipboard." : "Copied the row."));
       },
+      "row.checkFailure.send": () => {
+        const row = onRow();
+        if (row?.kind !== "check" || row.entry.terminalId !== checkView?.offer?.terminalId) return false;
+        return sendCheckFailure() ? undefined : false;
+      },
       "row.unfold": () => {
         const row = onRow();
         if (!row) return false;
@@ -2430,7 +2482,7 @@ export const App = (props: AppProps) => {
   const fileVerbs =
     cursorRow === undefined
       ? ""
-      : `${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
+      : `${cursorRow.kind === "check" && cursorRow.entry.terminalId === checkView?.offer?.terminalId ? ` · ${keys("row.checkFailure.send")} Send failure` : ""}${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
     card.kind === "panel" || card.kind === "routines"
       ? `The card has the keys · ${card.kind === "panel" ? pickers.hint(card.panel) : `${keys("picker.leave")} ${routines.back(card.routines) ? "goes back" : "closes it"}`}`
@@ -2687,6 +2739,8 @@ export const App = (props: AppProps) => {
       <Line text={screen.line} />
       <Line text={promptLine} color={TERMINAL_ROLES.warning} />
       {trustLine !== undefined && <Line text={trustLine} color={TERMINAL_ROLES.warning} />}
+      {checkView?.availability.status === "absent" && <Text dimColor> Check: {checkView.availability.message}</Text>}
+      {checkView?.offer && <Text color={TERMINAL_ROLES.warning}> Send failure: Enter on an empty composer · {checkView.offer.status}</Text>}
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}

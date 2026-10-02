@@ -673,3 +673,6 @@ export { NO_RUN_YET, runInfoFacts } from "./status/run-info.js";
 
 export { terminalAnswers } from "./terminals/answers.js";
 export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-moves.js";
+
+export type { Checks, ChecksView } from "./checks.js";
+export type { CheckEntry } from "./projections/session.js";

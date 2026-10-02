@@ -1,6 +1,7 @@
 import type { DelegatedWorkRow, RunSummary } from "@agent-harness/contracts";
 import type {
   AssistantEntry,
+  CheckEntry,
   CommandEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
@@ -61,6 +62,7 @@ import { isLiveTask } from "./tasks.js";
  */
 
 export type TranscriptRow =
+  | { readonly kind: "check"; readonly id: string; readonly runId: null; readonly entry: CheckEntry }
   | { readonly kind: "user"; readonly id: string; readonly runId: string; readonly entry: UserMessageEntry }
   | { readonly kind: "update-interrupted"; readonly id: string; readonly runId: null; readonly entry: UpdateInterruptedEntry }
   | { readonly kind: "assistant"; readonly id: string; readonly runId: string; readonly entry: AssistantEntry }
@@ -150,6 +152,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         }
         break;
       }
+      case "check":
+        push({ kind: "check", id: `check:${entry.terminalId}`, runId: null, entry });
+        break;
       case "command":
         push({ kind: "command", id: `command:${entry.sequence}`, runId: entry.runId, entry });
         break;
