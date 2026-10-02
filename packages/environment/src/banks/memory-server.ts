@@ -1,23 +1,22 @@
 import { stringify } from "yaml";
 import { z } from "zod";
 import {
-  ContractError, ENVIRONMENT_STREAM_KIND, MemoryDraftInput, MemoryRetireInput, MemoryPromoteInput,
+  ContractError, ENVIRONMENT_STREAM_KIND, MemoryDraftInput, MemoryRetireInput, MemoryPromoteInput, MemoryReadInput, MemorySearchInput, parseBankPointer,
   type BankDraft, type BankEntry, type BankFinding, type MemoryPromoteResult,
 } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, validateBank, type BankFiles } from "@agent-harness/contracts/bank-validator";
 import type { InProcessToolServer } from "../adapter/contract.js";
-import type { ToolServerFactory, ToolServerScope } from "../adapter/seams.js";
+import type { ToolServerFactory } from "../adapter/seams.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
+import { indexBank } from "./bank-index.js";
+import { readPointer, searchBanks, pointerFolder } from "./index-renderer.js";
 import { readBankFiles } from "./bank-files.js";
 import { BANKS_ACTOR } from "./bank-service.js";
 import { listBanks } from "./bank-store.js";
+import { bankInScope } from "./scope.js";
+import { recordBankUse } from "./session-relevance.js";
 import { listBankDrafts } from "./draft-store.js";
-
-/** The enabled banks this run's account and repository can reach, without entity routing. */
-const inScope = (bank: BankEntry, scope: ToolServerScope): boolean => bank.enabled
-  && (bank.accounts === "all" || bank.accounts.includes(scope.accountId))
-  && (bank.repositories === "all" || (scope.repositoryIdentity !== null && bank.repositories.includes(scope.repositoryIdentity)));
 
 const refuse = (code: "not_found" | "invalid_params", message: string): never => { throw new ContractError({ code, message, data: {} }); };
 const apply = (files: BankFiles, drafts: readonly BankDraft[]): BankFiles => {
@@ -40,8 +39,17 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
   // Reading git is asynchronous: serialize changes to the same queue so each validator sees the preceding write.
   const pending = new Map<string, Promise<unknown>>();
   return (scope) => {
-    const available = () => listBanks(reader).filter((bank) => inScope(bank, scope));
+    const available = () => listBanks(reader).filter((bank) => bankInScope(bank, scope));
     if (available().length === 0) return [];
+    const used = (pointers: readonly string[]) => {
+      for (const bank of available()) recordBankUse(log, scope.sessionId, bank.id, pointers.filter((pointer) => parseBankPointer(pointer)?.bank === bank.name));
+    };
+    const indices = async () => {
+      const entries = available();
+      const banks = await Promise.all(entries.map(async (bank) => indexBank({ ...bank, files: await readBankFiles(bank.checkout) })));
+      const live = new Set(available().map((bank) => bank.id));
+      return banks.filter((_, i) => live.has(entries[i]!.id));
+    };
     const target = (name?: string): BankEntry => {
       const banks = available();
       const writable = banks.filter((bank) => bank.role === "read-write");
@@ -84,6 +92,37 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
       name: "memory", external: false,
       tools: [
         {
+          name: "search", description: "Search memories, folder and topic lines, orientation and entity aliases in banks in scope. Every answer reports n of N, including limited results.",
+          inputSchema: z.toJSONSchema(MemorySearchInput),
+          call: async (input) => {
+            try {
+              const parsed = MemorySearchInput.safeParse(input);
+              if (!parsed.success || parsed.data.query.trim() === "") return refuse("invalid_params", "The search input does not match its published schema.");
+              const banks = await indices();
+              if (parsed.data.bank !== undefined && !banks.some((bank) => bank.name === parsed.data.bank)) return refuse("not_found", "No matching bank is in scope.");
+              const answer = searchBanks(banks, parsed.data);
+              used(answer.hits.flatMap((hit) => hit.folder === null ? [] : [hit.folder]));
+              return { text: answer.text, isError: false };
+            } catch (error) { return answerError(error); }
+          },
+        },
+        {
+          name: "read", description: "Follow a bank, folder, topic or memory pointer. Without a pointer, list every bank in scope; reads carry the neighboring folder and count.",
+          inputSchema: z.toJSONSchema(MemoryReadInput),
+          call: async (input) => {
+            try {
+              const parsed = MemoryReadInput.safeParse(input);
+              if (!parsed.success) return refuse("invalid_params", "The read input does not match its published schema.");
+              const banks = await indices();
+              const answer = readPointer(banks, parsed.data.pointer);
+              if (!answer.found) return refuse("not_found", answer.message);
+              const folder = parsed.data.pointer === undefined ? null : pointerFolder(banks, parsed.data.pointer);
+              if (folder !== null) used([folder]);
+              return { text: answer.text, isError: false };
+            } catch (error) { return answerError(error); }
+          },
+        },
+        {
           name: "promote", description: "Land this session's queued drafts and removals in a bank, returning each file's state on main or the review pull request.",
           inputSchema: z.toJSONSchema(MemoryPromoteInput),
           call: async (input) => {
@@ -124,6 +163,7 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
                 const content = `---\n${stringify({ name: draft.name, description: draft.description, metadata: { type: draft.type, ...(draft.appliesTo && { applies_to: draft.appliesTo }) } }, { lineWidth: 0 })}---\n${draft.body}`;
                 return { kind: "draft", name: draft.name, path, content, ...(old !== undefined && old !== path && { removePaths: [old] }) };
               });
+              used([`${bank.name}:${[draft.scope.org, draft.scope.project, ...(draft.scope.area ? [draft.scope.area] : [])].join("/")}/`]);
               return { text: JSON.stringify({ bank: bank.name, ...change }), isError: false };
             } catch (error) { return answerError(error); }
           },
@@ -154,5 +194,5 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
 };
 
 const answerError = (error: unknown) => ({
-  text: JSON.stringify(error instanceof ContractError ? error.toWire() : { code: "internal", message: "The bank queue could not be read or written.", data: {} }), isError: true,
+  text: JSON.stringify(error instanceof ContractError ? error.toWire() : { code: "internal", message: "The bank could not be read or changed.", data: {} }), isError: true,
 });

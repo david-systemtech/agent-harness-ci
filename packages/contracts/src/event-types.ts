@@ -1,3 +1,4 @@
+import { BANK_SESSION_EVENT_TYPES } from "./bank-use.js";
 import { z } from "zod";
 import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from "./access-log.js";
 import { ACCOUNT_EVENT_TYPES, ACCOUNT_STREAM_KIND } from "./accounts.js";
@@ -74,6 +75,7 @@ const sessionEventTypes = {
   ...INSTRUCTION_SESSION_EVENT_TYPES,
   ...BROWSER_SESSION_EVENT_TYPES,
   ...SETUP_SESSION_EVENT_TYPES,
+  ...BANK_SESSION_EVENT_TYPES,
 } as const;
 
 /** Every event type, by the kind of stream it goes on. */
