@@ -746,6 +746,6 @@ const entryOf = (params: ParamsOf<"banks.register">, name: string, manifest: Man
     landing: { state: "ok", since: now },
   },
   importedFrom: params.importedFrom ?? null,
-  copiedFrom: null,
+  copiedFrom: params.copiedFrom ?? null,
   createdAt: now,
 });

@@ -5,9 +5,12 @@ import { uuidv7 } from "./ids.js";
 import type { Clock } from "./platform.js";
 import { identityKey } from "./projections/accounts.js";
 import type { RequestFailure, Requests } from "./requests.js";
+import { bankSelectionCopy } from "./banks-copy.js";
 
-/** The state explicitly chosen for a bulk copy; own-directory files are never part of it. */
+/** The state explicitly chosen for a bulk copy; own-directory files and bank checkouts are never part of it. */
 export interface SkillsCopySelection {
+  /** Remote banks whose registry choices the targets explicitly join and apply. Local-only banks must be published first. */
+  readonly bankIds?: readonly string[];
   readonly sources?: boolean;
   readonly choices?: boolean;
   readonly instructionIds?: readonly string[];
@@ -16,8 +19,9 @@ export interface SkillsCopySelection {
 }
 
 export type SkillsCopyItem = {
-  readonly kind: "source" | "choice" | "instruction" | "dismissed";
+  readonly kind: "source" | "choice" | "instruction" | "dismissed" | "bank";
   readonly id: string;
+  readonly targetBankId?: string;
   readonly accountId?: string;
   readonly choiceKind?: SkillChoice["kind"];
 };
@@ -35,7 +39,12 @@ export interface SkillsCopies {
    * A target reported copied has processed the request: inspect its item
    * statuses for skips and refusals, including a partly applied instruction.
    * Account ids map by identity, never by label or id. No request carries
-   * another environment's identity, and nothing waits in the outbox.
+   * another environment's account id, and nothing waits in the outbox.
+   * A bank joins through the target's BankService, carries copiedFrom,
+   * then applies its registry choices. A stored token never travels; a
+   * reference maps through the existing key-manager copy seam and is
+   * swapped directly. A refused item with targetBankId has already joined
+   * there; its later update or credential swap was refused.
    */
   copyToEnvironments(fromEnvironmentId: string, selection: SkillsCopySelection, toEnvironmentIds: readonly string[]): Promise<readonly CopyReport<readonly SkillsCopyItemReport[]>[]>;
 }
@@ -43,7 +52,7 @@ export interface SkillsCopies {
 interface SkillsCopyHost {
   readonly clock: Clock;
   readonly call: Requests["call"];
-  capability(environmentId: string, method: "skills.setEnabled"): CapabilityAnswer;
+  capability(environmentId: string, method: "skills.setEnabled" | "banks.registry.update"): CapabilityAnswer;
   name(environmentId: string): string | null;
   targetIds(fromEnvironmentId: string): readonly string[];
 }
@@ -54,6 +63,7 @@ export const createSkillsCopies = (host: SkillsCopyHost): SkillsCopies => ({
   async copyToEnvironments(fromEnvironmentId, selection, toEnvironmentIds) {
     const environmentName = host.name(fromEnvironmentId);
     const from = environmentName === null ? null : { environmentId: fromEnvironmentId, environmentName };
+    const copyBanks = bankSelectionCopy(host, from, selection.bankIds ?? []);
     const targets = new Set(host.targetIds(fromEnvironmentId));
     // Read the source only once, lazily: an unreachable target needs no source read.
     const load = async () => {
@@ -86,7 +96,8 @@ export const createSkillsCopies = (host: SkillsCopyHost): SkillsCopies => ({
     let loaded: ReturnType<typeof load> | undefined;
     return copyToEach(from, toEnvironmentIds, async (environmentId) => {
       if (!targets.has(environmentId)) return { status: "refused", error: { code: "scope", message: "Choose another enabled environment with an admin connection." } };
-      const capability = host.capability(environmentId, "skills.setEnabled");
+      const hasSkills = selection.sources || selection.choices || selection.instructionIds?.length || selection.dismissed;
+      const capability = host.capability(environmentId, !hasSkills && selection.bankIds?.length ? "banks.registry.update" : "skills.setEnabled");
       if (capability.status === "absent") return { status: "refused", error: { code: capability.reason === "not-ready" ? "unreachable" : capability.reason, message: capability.message } };
       const source = await (loaded ??= load());
       if (!source.ok) return { status: "refused", error: source.error };
@@ -159,6 +170,7 @@ export const createSkillsCopies = (host: SkillsCopyHost): SkillsCopies => ({
         }
       }
       for (const id of source.dismissed) report({ kind: "dismissed", id }, await send("instructions.dismissSuggestion", { catalogueId: id }));
+      reports.push(...await copyBanks(environmentId));
       return { status: "copied", result: reports };
     });
   },
