@@ -272,6 +272,95 @@ describe("the model a print asks for", () => {
   });
 });
 
+const LAPTOP = "0199aa00-0000-7000-8000-0000000014a7";
+const sessionIdOf = (n: number) => `0199aa00-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const at = (time: string) => `2026-09-30T${time}:00.000Z`;
+
+describe("the session a print continues", () => {
+  /** The desk's sessions, with what the latest run of each used; the laptop paired, with one session in the same directory. */
+  const sessions: Script = {
+    environments: [
+      {
+        ...(twoAccounts.environments[0] as ScriptedEnvironment),
+        sessions: [
+          // The newest in the directory, but archived.
+          { id: sessionIdOf(1), workspace: { kind: "directory", path: HERE }, updatedAt: at("11:00"), archivedAt: at("11:00") },
+          // Two updated at the same time, the trailing slash no different: the lower id wins.
+          { id: sessionIdOf(3), workspace: { kind: "directory", path: `${HERE}/` }, updatedAt: at("09:00") },
+          { id: sessionIdOf(2), workspace: { kind: "worktree", path: HERE, repository: "/home/seth/code/main", branch: "agent-harness/0199aa00" }, updatedAt: at("09:00"), accountId: WORK.id, model: "claude-opus-5" },
+          { id: sessionIdOf(4), workspace: { kind: "directory", path: HERE }, updatedAt: at("08:00") },
+          // Newer still, in another directory.
+          { id: sessionIdOf(5), workspace: { kind: "directory", path: "/srv/notes" }, updatedAt: at("12:00"), activity: { state: "running", since: at("12:00") } },
+        ],
+      },
+      {
+        name: "laptop",
+        reach: "paired",
+        environmentId: LAPTOP,
+        accounts: (desk.environments[0] as ScriptedEnvironment).accounts ?? [],
+        models: (desk.environments[0] as ScriptedEnvironment).models ?? [],
+        sessions: [{ id: sessionIdOf(9), workspace: { kind: "directory", path: HERE } }],
+      },
+    ],
+  };
+
+  /** The turn sent for `selection`, refused once read. */
+  const turnFor = async (on: Machine, selection: Partial<SelectionRequest>, request: Partial<PrintRequest> = {}) => {
+    const http = fakeCompletions(on.world.environment("desk").wire.origin, [OPUS, SONNET_OLD, HAIKU, SONNET]);
+    const printing = print(on, http, request, selection);
+    const turn = await http.turn();
+    turn.refuse(503, { error: { message: "The environment is stopping.", type: "server_error", code: "unavailable", param: null } });
+    expect(await printing.exit).toBe(1);
+    return [turn.body["model"], turn.body["agent-harness"]];
+  };
+
+  /** A print that fails before any turn is sent: its exit and what it said. */
+  const refused = async (on: Machine, selection: Partial<SelectionRequest>, environment = "desk") => {
+    const http = fakeCompletions(on.world.environment(environment).wire.origin, [OPUS, SONNET]);
+    const printing = print(on, http, { format: "json" }, selection);
+    const exit = await printing.exit;
+    expect(http.sent().filter((sent) => sent.method === "POST")).toEqual([]);
+    expect(resultOf(printing.stdout())).toMatchObject({ text: "", usage: null, reason: "error", error: printing.stderr().trimEnd() });
+    return [exit, printing.stderr().trimEnd()];
+  };
+
+  it("is the newest unarchived one in the directory with -c, on the account and model its latest run used", async () => {
+    const on = await machine(sessions);
+    expect(await turnFor(on, { continueLatest: true })).toEqual(["work/claude-opus-5", { sessionId: sessionIdOf(2), attended: false }]);
+    expect(await turnFor(on, { continueLatest: true }, { model: "claude-opus-5", mode: "plan", effort: "low" })).toEqual([
+      "work/claude-opus-5",
+      { sessionId: sessionIdOf(2), permissionMode: "plan", thinking: "low", attended: false },
+    ]);
+  });
+
+  it("is the one --session names, on the preset account while it has no run, a model or family asked for being one of that account's", async () => {
+    const on = await machine(sessions);
+    expect(await turnFor(on, { session: sessionIdOf(4) })).toEqual(["home/claude-sonnet-5", { sessionId: sessionIdOf(4), attended: false }]);
+    expect(await turnFor(on, { session: sessionIdOf(2) }, { model: "opus" })).toEqual(["work/claude-opus-5", { sessionId: sessionIdOf(2), attended: false }]);
+  });
+
+  it("refuses a session with a run under way, one the environment does not have, and a directory with none to continue", async () => {
+    const on = await machine(sessions);
+    // --cwd names the directory -c looks in: its newest session is running.
+    expect(await refused(on, { continueLatest: true, cwd: "/srv/notes" })).toEqual([1, `Session ${sessionIdOf(5)} on desk has a run running: a print starts only on an idle session.`]);
+    expect(await refused(on, { session: sessionIdOf(5) })).toEqual([1, `Session ${sessionIdOf(5)} on desk has a run running: a print starts only on an idle session.`]);
+    expect(await refused(on, { session: sessionIdOf(7) })).toEqual([1, `desk has no session ${sessionIdOf(7)}.`]);
+    expect(await refused(on, { continueLatest: true, cwd: "/srv/empty" })).toEqual([1, "desk has no session in /srv/empty to continue."]);
+  });
+
+  it("asks for the directory on another machine's environment, where this one's means nothing, and starts a fresh session there in scratch", async () => {
+    const on = await machine(sessions);
+    expect(await refused(on, { environment: "laptop", continueLatest: true }, "laptop")).toEqual([2, "-c on laptop, another machine's environment, needs --cwd naming the directory there."]);
+
+    const http = fakeCompletions(on.world.environment("laptop").wire.origin, [OPUS]);
+    const printing = print(on, http, {}, { environment: "laptop" });
+    const turn = await http.turn();
+    expect(turn.body["agent-harness"]).toEqual({ attended: false });
+    turn.refuse(503, { error: { message: "The environment is stopping.", type: "server_error", code: "unavailable", param: null } });
+    expect(await printing.exit).toBe(1);
+  });
+});
+
 describe("what the turn did besides answering", () => {
   it("is said on standard error, clamps and unattended denials among it, and a completed turn still exits 0", async () => {
     const on = await machine(desk);

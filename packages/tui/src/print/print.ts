@@ -11,10 +11,12 @@ import {
   type RunEndReason,
 } from "@agent-harness/contracts";
 import type { ConnectionCredential } from "@agent-harness/client-runtime";
-import type { SelectionOutcome } from "../startup/selection.js";
+import type { SelectionOutcome, TerminalSelection } from "../startup/selection.js";
 import { nameOf } from "../view.js";
 import { formatWriter, narrator, type FormatWriter, type Narrator, type PrintFormat } from "./output.js";
+import { PrintFailure } from "./failure.js";
 import { listedModel } from "./model.js";
+import { targetOf, type Target } from "./session.js";
 import { eventData } from "./sse.js";
 
 /**
@@ -49,9 +51,6 @@ export interface PrintIo {
   /** The completions routes' HTTP. */
   readonly fetch: typeof globalThis.fetch;
 }
-
-/** A step that cannot go on: its one line, said on standard error and in the result. */
-class PrintFailure extends Error {}
 
 /** What the print has learned, for its result. */
 interface Learned {
@@ -108,6 +107,23 @@ const chunkOf = (data: string): { readonly raw: unknown; readonly chunk: ChatCom
   const parsed = ChatCompletionChunk.safeParse(raw);
   if (!parsed.success) throw new PrintFailure("The answer sent something that is not a completion chunk.");
   return { raw, chunk: parsed.data };
+};
+
+/**
+ * The account a turn runs on and the model chosen for it: what a session's
+ * latest run used; else, for a new session or one with no run yet, the
+ * new-session card's presets (`projections.newSession`).
+ */
+const accountFor = async (
+  selection: TerminalSelection,
+  target: Target,
+  environment: string,
+): Promise<{ readonly id: string; readonly label: string | undefined; readonly model: string | undefined }> => {
+  const ran = target.sessionId === null ? null : target.summary;
+  if (ran?.accountId != null && ran.model !== null) return { id: ran.accountId, label: undefined, model: ran.model };
+  const { account, model } = await selection.newSessionPresets();
+  if (account.value === null) throw new PrintFailure(`${environment} has no signed-in account to run the turn on.`);
+  return { id: account.value.id, label: account.value.label, model: model.value?.id };
 };
 
 /** Reads the streamed answer into `learned`, handing each chunk to `writer` as it comes. */
@@ -167,10 +183,10 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
     writer.end({ type: "result", ...result, durationMs: Math.round(performance.now() - startedAt) }, completed);
     return code;
   };
-  const fail = (message: string): number => {
+  const fail = (message: string, exit: 1 | 2 = 1): number => {
     learned.error = message;
     io.stderr(`${message}\n`);
-    return end(1);
+    return end(exit);
   };
 
   const outcome = await select();
@@ -178,18 +194,18 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
   const { selection } = outcome;
   learned.environmentId = selection.environment.environmentId;
   try {
-    const { credential, session } = selection;
+    const { credential } = selection;
     const environment = nameOf(selection.environment);
-    const presets = await selection.newSessionPresets();
+    const target = await targetOf(selection);
+    const account = await accountFor(selection, target, environment);
     const listing = await listModels(io, environment, credential, learned);
-    const account = presets.account.value;
-    if (account === null) throw new PrintFailure(`${environment} has no signed-in account to run the turn on.`);
-    const model = listedModel(listing, account.id, request.model, presets.model.value?.id);
+    const model = listedModel(listing, account.id, request.model, account.model);
     if (model === undefined) {
+      const label = account.label ?? listing.find((entry) => entry[COMPLETIONS_NAMESPACE].accountId === account.id)?.[COMPLETIONS_NAMESPACE].account ?? account.id;
       throw new PrintFailure(
         request.model === undefined
-          ? `${environment} offers ${account.label} no model to run the turn on.`
-          : `${environment} offers ${account.label} no model ${request.model}: GET ${MODELS_PATH} lists what each account offers.`,
+          ? `${environment} offers ${label} no model to run the turn on.`
+          : `${environment} offers ${label} no model ${request.model}: GET ${MODELS_PATH} lists what each account offers.`,
       );
     }
     const body = {
@@ -198,7 +214,7 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
       stream: true,
       stream_options: { include_usage: true },
       [COMPLETIONS_NAMESPACE]: {
-        workspace: session.workspace,
+        ...(target.sessionId === null ? target.workspace !== undefined && { workspace: target.workspace } : { sessionId: target.sessionId }),
         ...(request.mode !== undefined && { permissionMode: request.mode }),
         ...(request.effort !== undefined && { thinking: request.effort }),
         attended: false,
@@ -213,7 +229,7 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
     await readAnswer(response.body, environment, learned, writer, narrator(io.stderr));
     return end(learned.completed ? 0 : 1);
   } catch (error) {
-    if (error instanceof PrintFailure) return fail(error.message);
+    if (error instanceof PrintFailure) return fail(error.message, error.exit);
     throw error;
   } finally {
     await selection.close();
