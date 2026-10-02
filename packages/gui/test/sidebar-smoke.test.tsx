@@ -71,7 +71,7 @@ const drawn = (sidebar: HTMLElement): string[] =>
 
 const WAIT = { timeout: 5000 };
 
-describe.sequential("the sidebar through the real spine", () => {
+describe("the sidebar through the real spine", { concurrent: false }, () => {
   it("exchanges the grant and draws the environment's sessions under their headings", async () => {
     const t = await startTestEnvironment({ name: "smoke-sidebar" });
     onCleanup(() => t.close());

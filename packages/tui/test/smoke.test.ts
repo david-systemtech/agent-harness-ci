@@ -95,7 +95,7 @@ const UP = "\u001B[A";
 const replyShown = (t: TestEnvironment, terminal: { frame(): string }, text: string): Promise<void> =>
   deltaShown(t, text, (prefix) => until(() => terminal.frame().includes(`● ${prefix}`), terminal.frame));
 
-describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_TEST_MS }, () => {
+describe("the terminal UI through the real spine", { concurrent: false, timeout: SMOKE_TEST_MS }, () => {
   it("exchanges the grant and renders the header and the rail", async () => {
     const t = await startTestEnvironment({ name: "smoke-desk" });
     onCleanup(() => t.close());
