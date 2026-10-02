@@ -163,4 +163,75 @@ describe("agent-harness ls", () => {
       stderr: "",
     });
   });
+
+  it("prints each session as one JSON line with --json, its environment's id beside the summary as the environment built it", async () => {
+    const here = directory();
+    const on = await machine({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          environmentId: DESK,
+          sessions: [
+            { id: id(1), title: "Older", updatedAt: "2026-09-20T00:00:00.000Z", workspace: { kind: "directory", path: here }, tags: ["parser"] },
+            { id: id(2), title: "Not here", workspace: { kind: "directory", path: "/srv/elsewhere" } },
+            {
+              id: id(3),
+              title: "Newer\non two lines",
+              updatedAt: "2026-09-21T00:00:00.000Z",
+              workspace: { kind: "worktree", path: here, repository: "/srv/repository", branch: "fix/lexer" },
+              archivedAt: "2026-09-22T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+    const held = (n: number) => on.world.environment("desk").list.summaries().find((summary) => summary.id === id(n));
+
+    const { code, stdout, stderr } = await list(on, { currentDirectory: here, json: true });
+
+    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+    const lines = stdout.split("\n");
+    expect(lines.pop()).toBe("");
+    expect(lines.map((line) => JSON.parse(line) as unknown)).toEqual([
+      { environmentId: DESK, summary: held(3) },
+      { environmentId: DESK, summary: held(1) },
+    ]);
+  });
+
+  it("prints nothing and exits 0 when no session is in the directory, in either format", async () => {
+    const on = await machine({
+      environments: [{ name: "desk", reach: "local", environmentId: DESK, sessions: [{ workspace: { kind: "directory", path: "/srv/elsewhere" } }] }],
+    });
+
+    for (const json of [false, true]) expect(await list(on, { currentDirectory: directory(), json }), `json ${json}`).toEqual({ code: 0, stdout: "", stderr: "" });
+  });
+
+  it("puts a title's lines on one in text, a space for each run of breaks and the white space around it, and keeps the rest as it is", async () => {
+    const here = directory();
+    const at = (minute: number) => `2026-09-20T00:0${minute}:00.000Z`;
+    const on = await machine({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          environmentId: DESK,
+          sessions: [
+            { id: id(1), title: "First line\nsecond line", updatedAt: at(3), workspace: { kind: "directory", path: here } },
+            { id: id(2), title: "Windows\r\nbreaks\rand old Mac ones", updatedAt: at(2), workspace: { kind: "directory", path: here } },
+            { id: id(3), title: "A gap\n\n  indented\tafter", updatedAt: at(1), workspace: { kind: "directory", path: here } },
+          ],
+        },
+      ],
+    });
+
+    expect((await list(on, { currentDirectory: here })).stdout).toBe(
+      [
+        `${id(1)}  ${at(3)}  -  First line second line`,
+        `${id(2)}  ${at(2)}  -  Windows breaks and old Mac ones`,
+        `${id(3)}  ${at(1)}  -  A gap indented\tafter`,
+        "",
+      ].join("\n"),
+    );
+  });
 });

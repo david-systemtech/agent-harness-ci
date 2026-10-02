@@ -33,12 +33,19 @@ export interface ListIo {
 /** Newest update first; the lower id first on a tie. */
 const byUpdated = (a: SessionSummary, b: SessionSummary): number => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** A title on one line: each run of line breaks, with the white space around it, a space. */
+const oneLine = (title: string): string => title.replace(/\s*(?:\r\n|[\n\r\u2028\u2029])\s*/g, " ");
+
 /** The text rows: id, update time in UTC, the worktree's branch or `-`, and the title on one line. */
 const textRows = (summaries: readonly SessionSummary[]): string => {
   const branches = summaries.map((summary) => (summary.workspace.kind === "worktree" ? summary.workspace.branch : "-"));
   const width = Math.max(...branches.map((branch) => branch.length));
-  return summaries.map((summary, at) => `${summary.id}  ${new Date(summary.updatedAt).toISOString()}  ${branches[at]?.padEnd(width)}  ${summary.title}\n`).join("");
+  return summaries.map((summary, at) => `${summary.id}  ${new Date(summary.updatedAt).toISOString()}  ${branches[at]?.padEnd(width)}  ${oneLine(summary.title)}\n`).join("");
 };
+
+/** The JSON rows: each summary as the environment built it, beside the environment's id. */
+const jsonRows = (environmentId: string, summaries: readonly SessionSummary[]): string =>
+  summaries.map((summary) => `${JSON.stringify({ environmentId, summary })}\n`).join("");
 
 /** Lists the sessions `request` asks for on the environment `select` chooses, and answers the exit code. */
 export const listSessions = async (select: () => Promise<SelectionOutcome>, request: ListRequest, io: ListIo): Promise<number> => {
@@ -57,7 +64,7 @@ export const listSessions = async (select: () => Promise<SelectionOutcome>, requ
       return 1;
     }
     const summaries = answer.result.sessions.filter((summary) => request.all || summary.workspace.path === directory).sort(byUpdated);
-    if (summaries.length > 0) io.stdout(textRows(summaries));
+    if (summaries.length > 0) io.stdout(request.json ? jsonRows(environment.environmentId, summaries) : textRows(summaries));
     return 0;
   } finally {
     await selection.close();
