@@ -39,32 +39,32 @@ describe("forge.orgs.list", () => {
     const t = await start();
     const forge = await fakeForge();
     forge.user(TOKEN, DAVID);
-    forge.organisations(TOKEN, ["systemtech", "acme"]);
+    forge.organisations(TOKEN, ["exampleorg", "acme"]);
     const client = await t.client();
     const account = await added(client, { url: forge.origin, kind: "forgejo" });
     const from = t.env.log.head();
     const asked = forge.requests.length;
 
-    expect(await owners(client, account.id)).toEqual([user("david"), organisation("systemtech"), organisation("acme")]);
+    expect(await owners(client, account.id)).toEqual([user("david"), organisation("exampleorg"), organisation("acme")]);
     expect(forge.requests.slice(asked).map((request) => [request.path, request.scheme])).toEqual([
       ["/api/v1/user", "token"],
       ["/api/v1/user/orgs", "token"],
     ]);
 
-    forge.organisations(TOKEN, ["systemtech"]);
-    expect(await owners(client, account.id)).toEqual([user("david"), organisation("systemtech")]);
+    forge.organisations(TOKEN, ["exampleorg"]);
+    expect(await owners(client, account.id)).toEqual([user("david"), organisation("exampleorg")]);
     expect(await forgeEvents(client, from)).toEqual([]);
   });
 
   it("reads GitHub's from the memberships endpoint, which lists a fine-grained token's organisations where the organisation list answers none", async () => {
     const forge = await fakeForge();
     forge.user(TOKEN, DAVID);
-    forge.organisations(TOKEN, ["systemtech"]);
+    forge.organisations(TOKEN, ["exampleorg"]);
     const t = await start({ forgeFetch: forge.fetch });
     const client = await t.client();
     const account = await added(client, { url: "https://github.com" });
 
-    expect(await owners(client, account.id)).toEqual([user("david"), organisation("systemtech")]);
+    expect(await owners(client, account.id)).toEqual([user("david"), organisation("exampleorg")]);
     expect(forge.requests.map((request) => request.path)).not.toContain("/api/v3/user/orgs");
     expect(forge.requests.map((request) => request.path)).toContain("/api/v3/user/memberships/orgs");
   });

@@ -74,7 +74,7 @@ const unreachableCopy = {
   problem: { ...problem, kind: "needs-credential", message: "Give this forge account a credential." },
   tokenInformation: null,
   variables: { url: [], token: [], kind: [] },
-  copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" },
+  copiedFrom: { environmentId, environmentName: "SAMPLE-SERVER" },
 };
 
 const fineGrainedPage = {
@@ -116,7 +116,7 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
   "forge/kind.json": { valid: ["github", "forgejo", "gitea", "gitlab"], invalid: ["GitHub", "bitbucket", ""] },
   "forge/slug.json": {
     valid: ["github", "git_systemtech_dev", "100_101_102_103", "x".repeat(40)],
-    invalid: ["", "x".repeat(41), "GitHub", "git-systemtech", "forge/work", ".."],
+    invalid: ["", "x".repeat(41), "GitHub", "git-example", "forge/work", ".."],
   },
   "forge/origin.json": {
     valid: ["https://github.com", "https://git.systemtech.dev:5526", "http://100.101.102.103:3000", "http://nas.lan:443", "http://[fd7a:115c:a1e0::1]:3000"],
@@ -204,7 +204,7 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     valid: [tokenInformation, { kind: "classic", scopes: ["repo", "read:org"], expiresAt: null }, { kind: "unknown", scopes: null, expiresAt: null }],
     invalid: [{ ...tokenInformation, scopes: "repo" }, { ...tokenInformation, scopes: [""] }, { kind: "fine-grained", scopes: null }],
   },
-  "forge/copied-from.json": { valid: [{ environmentId, environmentName: "SYSTEM-SERVER" }], invalid: [{ environmentId: "laptop", environmentName: "laptop" }, { environmentId, environmentName: "" }] },
+  "forge/copied-from.json": { valid: [{ environmentId, environmentName: "SAMPLE-SERVER" }], invalid: [{ environmentId: "laptop", environmentName: "laptop" }, { environmentId, environmentName: "" }] },
   "forge/variables.json": { valid: [variables, { url: [], token: [], kind: [] }], invalid: [{ url: [], token: [] }, { ...variables, token: [""] }] },
   "forge/account-record.json": {
     valid: [record, unreachableCopy],
@@ -259,8 +259,8 @@ export const forgeSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "forge/owner.json": {
-    valid: [{ login: "david", kind: "user" }, { login: "systemtech", kind: "organisation" }],
-    invalid: [{ login: "", kind: "user" }, { login: "systemtech", kind: "organization" }, { login: "david" }],
+    valid: [{ login: "david", kind: "user" }, { login: "exampleorg", kind: "organisation" }],
+    invalid: [{ login: "", kind: "user" }, { login: "exampleorg", kind: "organization" }, { login: "david" }],
   },
   "errors/kind_unsupported.json": {
     valid: [{ code: "kind_unsupported", message: "https://gitlab.com is GitLab, which a forge account cannot be added for before milestone 2.", data: { origin: "https://gitlab.com", kind: "gitlab" } }],
@@ -367,8 +367,8 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
         { commandId, forgeAccountId, url: "git@git.systemtech.dev:david/agent-harness.git", kind: "forgejo", slug: "work", primary: true, credential: pasted },
         { commandId, forgeAccountId, url: "https://github.com", credential: gh },
         { commandId, forgeAccountId, url: "https://github.com", credential: handed },
-        { commandId, forgeAccountId, url: origin, kind: "forgejo", credential: reference, copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" } },
-        { commandId, forgeAccountId, url: origin, kind: "forgejo", primary: true, credential: { kind: "none" }, copiedFrom: { environmentId, environmentName: "SYSTEM-SERVER" } },
+        { commandId, forgeAccountId, url: origin, kind: "forgejo", credential: reference, copiedFrom: { environmentId, environmentName: "SAMPLE-SERVER" } },
+        { commandId, forgeAccountId, url: origin, kind: "forgejo", primary: true, credential: { kind: "none" }, copiedFrom: { environmentId, environmentName: "SAMPLE-SERVER" } },
         { commandId, forgeAccountId, url: origin, kind: "forgejo", aliases: ["http://100.101.102.103:3000"], credential: pasted },
       ],
       invalid: [
@@ -433,7 +433,7 @@ export const forgeMethodFixtures: Record<string, { params: Fixtures; result: Fix
   "forge.orgs.list": {
     params: { valid: [{ forgeAccountId }], invalid: [{}, { forgeAccountId: "github" }] },
     result: {
-      valid: [{ owners: [{ login: "david", kind: "user" }] }, { owners: [{ login: "david", kind: "user" }, { login: "systemtech", kind: "organisation" }] }],
+      valid: [{ owners: [{ login: "david", kind: "user" }] }, { owners: [{ login: "david", kind: "user" }, { login: "exampleorg", kind: "organisation" }] }],
       invalid: [{}, { owners: [{ login: "david" }] }, { owners: "david" }],
     },
   },

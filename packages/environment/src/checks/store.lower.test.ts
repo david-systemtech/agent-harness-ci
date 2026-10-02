@@ -29,14 +29,14 @@ const reader = (log: EventLog) => ({ all: <Row>(sql: string, ...params: readonly
 describe("the checks store", () => {
   it("keeps each directory's command with the client session that last set or cleared it, across a rebuild", () => {
     const log = open();
-    const set = (command: string | null, actor: string) => log.append(environment, [{ type: "checks.changed", payload: { workspace: "/home/seth/project", command } }], { actor });
+    const set = (command: string | null, actor: string) => log.append(environment, [{ type: "checks.changed", payload: { workspace: "/home/milo/project", command } }], { actor });
     set("make check", "client_session:cs-tui");
     set("make test", "client_session:cs-desktop");
-    expect(readWorkspaceCheck(reader(log), "/home/seth/project")).toEqual({ command: "make test", configuredBy: "client_session:cs-desktop" });
+    expect(readWorkspaceCheck(reader(log), "/home/milo/project")).toEqual({ command: "make test", configuredBy: "client_session:cs-desktop" });
     set(null, "client_session:cs-tui");
     log.rebuildProjections();
-    expect(readWorkspaceCheck(reader(log), "/home/seth/project")).toEqual({ command: null, configuredBy: "client_session:cs-tui" });
-    expect(readWorkspaceCheck(reader(log), "/home/seth/other")).toBeUndefined();
+    expect(readWorkspaceCheck(reader(log), "/home/milo/project")).toEqual({ command: null, configuredBy: "client_session:cs-tui" });
+    expect(readWorkspaceCheck(reader(log), "/home/milo/other")).toBeUndefined();
   });
 
   it("holds a check from its start to its end, and forgets a purged session's", () => {

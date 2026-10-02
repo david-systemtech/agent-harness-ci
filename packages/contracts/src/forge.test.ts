@@ -232,7 +232,7 @@ describe("the slug", () => {
 
   it("accepts an edited slug only in that alphabet and length", () => {
     for (const slug of ["github", "work", "a", "git_systemtech_dev", "0", "x".repeat(40)]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(true);
-    for (const slug of ["", "x".repeat(41), "GitHub", "git-systemtech", "git.systemtech", "forge/work", "..", "work ", "ü"]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(false);
+    for (const slug of ["", "x".repeat(41), "GitHub", "git-example", "git.systemtech", "forge/work", "..", "work ", "ü"]) expect(ForgeSlug.safeParse(slug).success, slug).toBe(false);
   });
 });
 

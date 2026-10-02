@@ -51,7 +51,7 @@ describe("the check methods", () => {
   });
 
   it("answer get and set with the canonical workspace and its nullable command, and run with the terminal it opened", () => {
-    const answer = { workspace: "/home/seth/project", command: null };
+    const answer = { workspace: "/home/milo/project", command: null };
     expect(registry["checks.get"].result.parse(answer)).toEqual(answer);
     expect(registry["checks.set"].result.parse({ ...answer, command: "make check" })).toEqual({ ...answer, command: "make check" });
     expect(registry["checks.get"].result.safeParse({ ...answer, workspace: "project" }).success).toBe(false);
@@ -67,7 +67,7 @@ describe("checks.changed", () => {
   it("is an unlisted environment notice naming the workspace and its command, null once cleared", () => {
     expect(ENVIRONMENT_NOTICE_TYPES).toContain("checks.changed");
     expect(eventTypeEntry("environment", "checks.changed")).toMatchObject({ list: false });
-    const notice = { type: "checks.changed", payload: { workspace: "/home/seth/project", command: null } };
+    const notice = { type: "checks.changed", payload: { workspace: "/home/milo/project", command: null } };
     expect(EnvironmentNotice.parse(notice)).toEqual(notice);
     expect(EnvironmentNotice.safeParse({ ...notice, payload: { command: null } }).success).toBe(false);
   });

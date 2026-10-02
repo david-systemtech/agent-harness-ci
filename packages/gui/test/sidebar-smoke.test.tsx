@@ -107,11 +107,11 @@ describe("the sidebar through the real spine", { concurrent: false }, () => {
 
     await accepted(other.commands.dispatch(environmentId, "sessions.archive", { sessionId: archived }));
     await accepted(other.commands.dispatch(environmentId, "sessions.pin", { sessionId: pinned }));
-    await accepted(other.commands.moveToGroup(environmentId, grouped, "Brandsolidate"));
+    await accepted(other.commands.moveToGroup(environmentId, grouped, "Meadowstudios"));
     await accepted(other.commands.dispatch(environmentId, "sessions.rename", { sessionId: renamed, title: "Receipts" }));
 
     await waitFor(
-      () => expect(drawn(window.sidebar)).toEqual(["▾ Pinned", "  Keep near", "▾ Brandsolidate", "  Brand copy", "smoke-sidebar-moves", "  Receipts", "▸ Archive 1"]),
+      () => expect(drawn(window.sidebar)).toEqual(["▾ Pinned", "  Keep near", "▾ Meadowstudios", "  Brand copy", "smoke-sidebar-moves", "  Receipts", "▸ Archive 1"]),
       WAIT,
     );
   });

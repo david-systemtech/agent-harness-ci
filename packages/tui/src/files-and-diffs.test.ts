@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
-const WORKSPACE = "/home/seth/receipts";
+const WORKSPACE = "/home/milo/receipts";
 const FILES = ["README.md", "logo.png", "src/app.ts", "src/parse.ts"];
 
 const launch = async (environment: Partial<ScriptedEnvironment> = {}, extra: Partial<Parameters<typeof renderApp>[0]> = {}) => {
@@ -85,10 +85,10 @@ describe("/files", () => {
     const { app } = await launch();
     await command(app, "/files");
     await app.waitFor(/src\/ 2 files/);
-    expect(app.frame()).toContain("Files · /home/seth/receipts");
+    expect(app.frame()).toContain("Files · /home/milo/receipts");
     expect(app.frame()).toContain("README.md");
     await app.press(KEY.enter);
-    await app.waitFor("Files · /home/seth/receipts/src");
+    await app.waitFor("Files · /home/milo/receipts/src");
     expect(app.frame()).toContain("../");
     await app.press(KEY.down);
     await app.press(KEY.enter);
@@ -97,13 +97,13 @@ describe("/files", () => {
     expect(paramsOf(app, "desk", "files.read")).toEqual([{ sessionId: SESSION, path: "src/app.ts" }]);
     // The page goes back to the directory it was read from.
     await app.press("q");
-    await app.waitFor("Files · /home/seth/receipts/src");
+    await app.waitFor("Files · /home/milo/receipts/src");
   });
 
   it("finds a typed filter anywhere under the directory, and reads a path named after /files at once", async () => {
     const { app } = await launch();
     await command(app, "/files");
-    await app.waitFor("Files · /home/seth/receipts");
+    await app.waitFor("Files · /home/milo/receipts");
     await app.type("parse");
     await app.waitFor("src/parse.ts");
     expect(app.frame()).not.toContain("README.md");

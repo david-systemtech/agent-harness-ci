@@ -26,7 +26,7 @@ const SESSION = "0199aa00-0000-4000-8000-000000000001";
 /** The local environment with one session, opened, a run going on it. */
 const opened = async (extra: Partial<Parameters<typeof renderApp>[0]> = {}) => {
   const app = await renderApp({
-    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }] }] },
+    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }] }] },
     flags: { session: SESSION },
     ...extra,
   });
@@ -140,9 +140,9 @@ describe("the permission card", () => {
       {
         kind: "denylist",
         toolName: "Read",
-        input: { file_path: "/home/seth/.ssh/id_ed25519" },
-        summary: "Read: /home/seth/.ssh/id_ed25519",
-        denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/seth/.ssh/id_ed25519" }],
+        input: { file_path: "/home/milo/.ssh/id_ed25519" },
+        summary: "Read: /home/milo/.ssh/id_ed25519",
+        denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/milo/.ssh/id_ed25519" }],
       },
       "⛔ Denylist",
     );

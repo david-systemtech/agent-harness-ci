@@ -269,17 +269,17 @@ describe("sessions.tag and sessions.untag", () => {
   it("tags: the tag trimmed in session.tagged, a patch of the sorted tags and updatedAt", async () => {
     const t = await start();
     const client = await t.client();
-    const { id } = await create(client, { tags: ["wip", "Seth"] });
+    const { id } = await create(client, { tags: ["wip", "Milo"] });
     const list = await listStream(client, t.env.log.head());
     t.clock.advance(60_000);
 
     const answer = await command(client, "sessions.tag", { sessionId: id, tag: "  review " });
 
-    const expected = freshSummary(id, { tags: ["review", "Seth", "wip"], updatedAt: at(60_000) });
+    const expected = freshSummary(id, { tags: ["Milo", "review", "wip"], updatedAt: at(60_000) });
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { summary: expected } });
     const event = await list.next();
     expect(event).toMatchObject({ type: "session.tagged", payload: { tag: "review" } });
-    expect(patchOf(event)).toEqual({ op: "set", sessionId: id, fields: { tags: ["review", "Seth", "wip"], updatedAt: at(60_000) } });
+    expect(patchOf(event)).toEqual({ op: "set", sessionId: id, fields: { tags: ["Milo", "review", "wip"], updatedAt: at(60_000) } });
     expect(await get(client, id)).toEqual(expected);
   });
 
@@ -301,16 +301,16 @@ describe("sessions.tag and sessions.untag", () => {
   it("untags ignoring case: session.untagged naming the tag as the session had it, and a patch of the tags left", async () => {
     const t = await start();
     const client = await t.client();
-    const { id } = await create(client, { tags: ["review", "Seth", "wip"] });
+    const { id } = await create(client, { tags: ["Milo", "review", "wip"] });
     const list = await listStream(client, t.env.log.head());
 
-    await command(client, "sessions.untag", { sessionId: id, tag: " seth" });
+    await command(client, "sessions.untag", { sessionId: id, tag: " milo" });
 
     const event = await list.next();
-    expect(event).toMatchObject({ type: "session.untagged", payload: { tag: "Seth" } });
+    expect(event).toMatchObject({ type: "session.untagged", payload: { tag: "Milo" } });
     expect(patchOf(event)).toMatchObject({ op: "set", fields: { tags: ["review", "wip"] } });
     expect((await get(client, id)).tags).toEqual(["review", "wip"]);
-    await expectNoOp(t, () => command(client, "sessions.untag", { sessionId: id, tag: "Seth" }));
+    await expectNoOp(t, () => command(client, "sessions.untag", { sessionId: id, tag: "Milo" }));
   });
 
   it("refuses a tag that is empty, all white space, over 40 characters or holds a control character invalid_params; 40 is taken", async () => {
@@ -528,12 +528,12 @@ describe("two clients", () => {
     const { id } = await create(first);
     await command(first, "sessions.archive", { sessionId: id });
     await command(second, "sessions.setDraft", { sessionId: id, draft: "from the desktop" });
-    await command(first, "sessions.tag", { sessionId: id, tag: "seth" });
+    await command(first, "sessions.tag", { sessionId: id, tag: "milo" });
     await command(second, "sessions.pin", { sessionId: id, orderKey: "m" });
     expect(await get(first, id)).toMatchObject({
       archivedAt: MANUAL_CLOCK_START,
       draft: "from the desktop",
-      tags: ["seth"],
+      tags: ["milo"],
       pinnedAt: MANUAL_CLOCK_START,
       pinOrderKey: "m",
     });

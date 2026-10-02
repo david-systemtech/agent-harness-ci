@@ -23,7 +23,7 @@ describe("the headings", () => {
       "▾ Pinned",
       "  Pinned one",
       "  Laptop pin",
-      "▾ Brandsolidate",
+      "▾ Meadowstudios",
       "  Brand copy",
       "  Brand on laptop",
       "desk",
@@ -42,7 +42,7 @@ describe("the headings", () => {
 describe("a merged group", () => {
   it("is one heading across both environments, in the primary environment's casing, each row wearing its own environment's badge in its colour", async () => {
     await settled(await two());
-    const brand = region("Brandsolidate");
+    const brand = region("Meadowstudios");
     const badges = within(brand)
       .getAllByRole("listitem")
       .map((line) => within(line).getAllByRole("img")[0] as HTMLElement)
@@ -64,7 +64,7 @@ describe("a merged group", () => {
     const groups = within(sidebar())
       .getAllByRole("button", { expanded: true })
       .map((fold) => fold.textContent);
-    expect(groups).toEqual(["▾ Brandsolidate", "▾ Ops", "▾ Archery"]);
+    expect(groups).toEqual(["▾ Meadowstudios", "▾ Ops", "▾ Archery"]);
   });
 });
 
@@ -122,17 +122,17 @@ describe("the shelves", () => {
 describe("a fold", () => {
   it("is kept in collapsedHeadings, keyed as the terminal UI keys it, and stays folded when the window opens again", async () => {
     // Left by a window before, keyed as the terminal UI's rail keys them.
-    const app = await settled(await two({ presentation: { collapsedHeadings: { "group:brandsolidate": true, "shelf:archive": false, "group:gone": true } } }));
-    expect(drawn()).toEqual(expect.arrayContaining(["▸ Brandsolidate 2", "▾ Archive", "  Old thing"]));
-    expect(within(region("Brandsolidate")).queryAllByRole("listitem")).toEqual([]);
+    const app = await settled(await two({ presentation: { collapsedHeadings: { "group:meadowstudios": true, "shelf:archive": false, "group:gone": true } } }));
+    expect(drawn()).toEqual(expect.arrayContaining(["▸ Meadowstudios 2", "▾ Archive", "  Old thing"]));
+    expect(within(region("Meadowstudios")).queryAllByRole("listitem")).toEqual([]);
 
     await app.user.click(within(sidebar()).getByRole("button", { name: "Pinned", expanded: true }));
     expect(drawn().slice(0, 1)).toEqual(["▸ Pinned 2"]);
     // A group the list no longer holds loses its fold as another is kept.
-    expect(app.presentation.values.read().collapsedHeadings).toEqual({ "group:brandsolidate": true, "shelf:archive": false, "block:pinned": true });
+    expect(app.presentation.values.read().collapsedHeadings).toEqual({ "group:meadowstudios": true, "shelf:archive": false, "block:pinned": true });
 
     await settled(await app.remount());
-    expect(drawn()).toEqual(expect.arrayContaining(["▸ Pinned 2", "▸ Brandsolidate 2", "▾ Archive"]));
+    expect(drawn()).toEqual(expect.arrayContaining(["▸ Pinned 2", "▸ Meadowstudios 2", "▾ Archive"]));
   });
 });
 
@@ -209,7 +209,7 @@ describe("the pending marker", () => {
     app.environment("desk").wire.answer("groups.rename", () => new Promise(() => undefined));
     void app.runtime.commands.dispatch(DESK_ID, "groups.rename", { groupId: G_BRAND_DESK, name: "Brand work" });
     await waitFor(() => expect(drawn()).toContain("▾ Brand work pending"));
-    expect(drawn()).toContain("▾ brandsolidate");
+    expect(drawn()).toContain("▾ meadowstudios");
   });
 });
 

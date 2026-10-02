@@ -42,34 +42,34 @@ describe("browsing the listing", () => {
 
 describe("a path typed after /files", () => {
   it("is the path as the listing writes it, relative to the workspace: no leading ./, no trailing /, . the root", () => {
-    expect(typedPath("src/app.tsx", "/home/seth/code")).toBe("src/app.tsx");
-    expect(typedPath(" ./src/files/ ", "/home/seth/code")).toBe("src/files");
-    expect(typedPath(".", "/home/seth/code")).toBe("");
+    expect(typedPath("src/app.tsx", "/home/milo/code")).toBe("src/app.tsx");
+    expect(typedPath(" ./src/files/ ", "/home/milo/code")).toBe("src/files");
+    expect(typedPath(".", "/home/milo/code")).toBe("");
   });
 
   it("takes an absolute path inside the workspace as the path under it, and refuses one outside it", () => {
-    expect(typedPath("/home/seth/code/src/app.tsx", "/home/seth/code")).toBe("src/app.tsx");
-    expect(typedPath("/home/seth/code/src/", "/home/seth/code/")).toBe("src");
-    expect(typedPath("/home/seth/code", "/home/seth/code")).toBe("");
-    expect(typedPath("/etc/hosts", "/home/seth/code")).toBeNull();
-    expect(typedPath("/", "/home/seth/code")).toBeNull();
+    expect(typedPath("/home/milo/code/src/app.tsx", "/home/milo/code")).toBe("src/app.tsx");
+    expect(typedPath("/home/milo/code/src/", "/home/milo/code/")).toBe("src");
+    expect(typedPath("/home/milo/code", "/home/milo/code")).toBe("");
+    expect(typedPath("/etc/hosts", "/home/milo/code")).toBeNull();
+    expect(typedPath("/", "/home/milo/code")).toBeNull();
   });
 
   it("refuses a relative path that climbs out of the workspace, as it refuses an absolute one outside it", () => {
-    expect(typedPath("../secrets", "/home/seth/code")).toBeNull();
-    expect(typedPath("..", "/home/seth/code")).toBeNull();
-    expect(typedPath("src/../../x", "/home/seth/code")).toBeNull();
-    expect(typedPath("src/..", "/home/seth/code")).toBe("");
-    expect(typedPath("src/../app.tsx", "/home/seth/code")).toBe("app.tsx");
+    expect(typedPath("../secrets", "/home/milo/code")).toBeNull();
+    expect(typedPath("..", "/home/milo/code")).toBeNull();
+    expect(typedPath("src/../../x", "/home/milo/code")).toBeNull();
+    expect(typedPath("src/..", "/home/milo/code")).toBe("");
+    expect(typedPath("src/../app.tsx", "/home/milo/code")).toBe("app.tsx");
   });
 
   it("resolves an absolute path's dot segments before it is placed in the workspace", () => {
-    expect(typedPath("/home/seth/code/src/../app.tsx", "/home/seth/code")).toBe("app.tsx");
-    expect(typedPath("/home/seth/code/./src/app.tsx", "/home/seth/code")).toBe("src/app.tsx");
-    expect(typedPath("/home/seth/code/src/..", "/home/seth/code")).toBe("");
-    expect(typedPath("/home/seth/other/../code/app.tsx", "/home/seth/code")).toBe("app.tsx");
-    expect(typedPath("/home/seth/code/../secrets", "/home/seth/code")).toBeNull();
-    expect(typedPath("/..", "/home/seth/code")).toBeNull();
+    expect(typedPath("/home/milo/code/src/../app.tsx", "/home/milo/code")).toBe("app.tsx");
+    expect(typedPath("/home/milo/code/./src/app.tsx", "/home/milo/code")).toBe("src/app.tsx");
+    expect(typedPath("/home/milo/code/src/..", "/home/milo/code")).toBe("");
+    expect(typedPath("/home/milo/other/../code/app.tsx", "/home/milo/code")).toBe("app.tsx");
+    expect(typedPath("/home/milo/code/../secrets", "/home/milo/code")).toBeNull();
+    expect(typedPath("/..", "/home/milo/code")).toBeNull();
     expect(typedPath("C:\\code\\src\\..\\app.tsx", "C:\\code")).toBe("app.tsx");
   });
 

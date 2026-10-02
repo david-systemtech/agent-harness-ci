@@ -20,11 +20,11 @@ afterEach(async () => {
 });
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
-const SETH = { provider: "claude", email: "seth@work.test", organisation: null };
+const MILO = { provider: "claude", email: "milo@work.test", organisation: null };
 
 const reading = (accountId: string, windows: AccountUsage["windows"], unavailableReason: string | null = null): AccountUsage => ({
   accountId,
-  identity: SETH,
+  identity: MILO,
   windows,
   readAt: "2026-09-25T09:00:00.000Z",
   unavailableReason,
@@ -42,8 +42,8 @@ const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => 
   name: "desk",
   reach: "local",
   accounts: [
-    { id: "account-1", label: "work", identity: SETH },
-    { id: "account-2", label: "personal", identity: { provider: "claude", email: "seth@home.test", organisation: null } },
+    { id: "account-1", label: "work", identity: MILO },
+    { id: "account-2", label: "personal", identity: { provider: "claude", email: "milo@home.test", organisation: null } },
   ],
   sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", mode: "auto" }],
   settings: { "permissions.containment.default": "workspace" },
@@ -65,7 +65,7 @@ const statusLines = (app: RenderedApp): readonly [string, string] => {
 
 describe("status line one", () => {
   it("names the environment, the session's account, model and effort, mode and containment, and the plan windows of its identity pooled across environments at the right", async () => {
-    const { app, env } = await opened([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: SETH }] }]);
+    const { app, env } = await opened([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: MILO }] }]);
     const { runId } = env.startRun(SESSION, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
     env.endRun(SESSION, runId);
     env.setUsage([reading("account-1", [window("five_hour", 0.42, "2026-09-25T09:00:00.000Z")])]);

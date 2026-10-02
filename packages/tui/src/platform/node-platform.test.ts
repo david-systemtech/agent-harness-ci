@@ -31,7 +31,7 @@ const temp = () => {
   return dir;
 };
 
-const identity = { user: "seth", host: "desk", tty: "pts/3" };
+const identity = { user: "milo", host: "desk", tty: "pts/3" };
 const platformIn = (overrides: Partial<Parameters<typeof nodePlatform>[0]> = {}) => {
   const stateDir = join(temp(), "state");
   const dataDir = temp();
@@ -46,13 +46,13 @@ const KEYS = 300;
 describe("the state directory", () => {
   it.each([
     ["linux", { XDG_STATE_HOME: "/x/state" }, "/x/state/agent-harness/tui"],
-    ["linux", {}, "/home/seth/.local/state/agent-harness/tui"],
-    ["linux", { XDG_STATE_HOME: "relative/state" }, "/home/seth/.local/state/agent-harness/tui"],
-    ["darwin", {}, "/home/seth/Library/Application Support/agent-harness/tui"],
-    ["win32", { LOCALAPPDATA: "C:\\Users\\seth\\AppData\\Local" }, "C:\\Users\\seth\\AppData\\Local\\agent-harness\\tui"],
+    ["linux", {}, "/home/milo/.local/state/agent-harness/tui"],
+    ["linux", { XDG_STATE_HOME: "relative/state" }, "/home/milo/.local/state/agent-harness/tui"],
+    ["darwin", {}, "/home/milo/Library/Application Support/agent-harness/tui"],
+    ["win32", { LOCALAPPDATA: "C:\\Users\\milo\\AppData\\Local" }, "C:\\Users\\milo\\AppData\\Local\\agent-harness\\tui"],
     ["linux", { [STATE_DIR_VARIABLE]: "/elsewhere/tui", XDG_STATE_HOME: "/x/state" }, "/elsewhere/tui"],
   ] as const)("on %s with %j is %s", (platform, env, expected) => {
-    expect(stateDirectory({ platform, env, homedir: "/home/seth" })).toBe(expected);
+    expect(stateDirectory({ platform, env, homedir: "/home/milo" })).toBe(expected);
   });
 
   it("is overridden by AGENT_HARNESS_TUI_STATE_DIR", () => {
@@ -63,7 +63,7 @@ describe("the state directory", () => {
 describe("the terminal UI's platform", () => {
   it("is a tui client labelled <user>@<hostname>:<tty>, with the harness version", () => {
     const { platform } = platformIn();
-    expect(platform.client).toEqual({ kind: "tui", label: "seth@desk:pts/3", version: "1.2.3" });
+    expect(platform.client).toEqual({ kind: "tui", label: "milo@desk:pts/3", version: "1.2.3" });
     expect(clientLabel({ user: "a", host: "b", tty: "ttys004" })).toBe("a@b:ttys004");
   });
 

@@ -17,8 +17,8 @@ afterEach(async () => {
 });
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
-const SETH = { provider: "claude", email: "seth@work.test", organisation: null };
-const HOME = { provider: "claude", email: "seth@home.test", organisation: null };
+const MILO = { provider: "claude", email: "milo@work.test", organisation: null };
+const HOME = { provider: "claude", email: "milo@home.test", organisation: null };
 const BYPASS = "The agent will act without asking and can do anything this account can, within the containment you chose.";
 
 const reading = (accountId: string, identity: AccountUsage["identity"], windows: AccountUsage["windows"], unavailableReason: string | null = null): AccountUsage => ({
@@ -40,7 +40,7 @@ const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => 
   name: "desk",
   reach: "local",
   accounts: [
-    { id: "account-1", label: "work", identity: SETH },
+    { id: "account-1", label: "work", identity: MILO },
     { id: "account-2", label: "personal", identity: HOME },
   ],
   sessions: [{ title: "Receipts", accountId: "account-1", model: "claude-opus-4", mode: "acceptEdits" }],
@@ -69,22 +69,22 @@ describe("/account", () => {
     const { app, env } = await launch([
       desk({
         accounts: [
-          { id: "account-1", label: "work", identity: SETH },
+          { id: "account-1", label: "work", identity: MILO },
           { id: "account-2", label: "personal", identity: HOME, status: { state: "expired", checkedAt: null, detail: null } },
         ],
       }),
     ]);
-    env.setUsage([reading("account-1", SETH, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
+    env.setUsage([reading("account-1", MILO, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
     await command(app, "/account");
     await app.waitFor("Accounts on desk");
     await app.waitFor("5hr 42% · Week 10%");
     // Each account's row, and its plan reading on the line under it.
     const rows = app.rows();
     const work = rows.findIndex((row) => row.includes("› work"));
-    expect(rows[work]).toMatch(/› work\s+seth@work\.test\s+signed in\s+this session/);
+    expect(rows[work]).toMatch(/› work\s+milo@work\.test\s+signed in\s+this session/);
     expect(rows[work + 1]).toContain("5hr 42% · Week 10%");
     const personal = rows.findIndex((row) => row.includes("personal"));
-    expect(rows[personal]).toMatch(/personal\s+seth@home\.test\s+sign-in expired/);
+    expect(rows[personal]).toMatch(/personal\s+milo@home\.test\s+sign-in expired/);
     expect(rows[personal + 1]).toContain("Not signed in.");
     expect(app.frame()).toContain("+ Add an account");
   });
@@ -103,7 +103,7 @@ describe("/account", () => {
     env.signIn("awaiting-code", { url: "https://claude.ai/oauth/authorize?code=true&state=abc" });
     await app.waitFor("https://claude.ai/oauth/authorize?code=true&state=abc");
     await app.waitFor("Or run this in a terminal on desk's machine:");
-    expect(app.frame()).toContain("CLAUDE_CONFIG_DIR='/home/seth/.agent-harness/accounts/3' claude auth");
+    expect(app.frame()).toContain("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/3' claude auth");
     // A code pasted with space around it is trimmed, as the environment asks.
     await app.paste("  abc-123  ");
     await app.press(KEY.enter);
@@ -123,7 +123,7 @@ describe("/account", () => {
       ["expired", "The sign-in of personal expired: no code came within ten minutes."],
       ["cancelled", "The sign-in of personal was cancelled."],
     ] as const) {
-      const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: SETH }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+      const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
       await command(app, "/account");
       await app.waitFor("+ Add an account");
       // Enter on an account that is not signed in signs it in.
@@ -161,7 +161,7 @@ describe("/account", () => {
   });
 
   it("leaves a card opened meanwhile alone when a sign-in's start answers late with a refusal (PR review)", async () => {
-    const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: SETH }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
+    const { app, env } = await launch([desk({ accounts: [{ id: "account-1", label: "work", identity: MILO }, { id: "account-2", label: "personal", status: { state: "signed-out", checkedAt: null, detail: null } }] })]);
     let refuse = () => undefined as void;
     env.wire.answer(
       "accounts.signin.start",
@@ -377,16 +377,16 @@ describe("/containment", () => {
 
 describe("/usage", () => {
   it("shows the plan windows per account identity, pooled across environments, and why an account has none", async () => {
-    const { app, env } = await launch([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: SETH }] }]);
-    env.setUsage([reading("account-1", SETH, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
+    const { app, env } = await launch([desk(), { name: "laptop", reach: "paired", accounts: [{ id: "account-9", label: "work", identity: MILO }] }]);
+    env.setUsage([reading("account-1", MILO, [window("five_hour", 0.42), window("seven_day", 0.1)]), reading("account-2", HOME, [], "Not signed in.")]);
     // The laptop observed the 5-hour window later: the pooled gauge takes its reading, a refusal.
-    app.environment("laptop").setUsage([reading("account-9", SETH, [window("five_hour", 0.61, "rejected", "2026-09-25T09:05:00.000Z")])]);
+    app.environment("laptop").setUsage([reading("account-9", MILO, [window("five_hour", 0.61, "rejected", "2026-09-25T09:05:00.000Z")])]);
     await command(app, "/usage");
     await app.waitFor("Plan usage");
-    await app.waitFor("seth@work.test · work on desk, work on laptop");
+    await app.waitFor("milo@work.test · work on desk, work on laptop");
     await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d\d:\d\d/);
     expect(app.frame()).toMatch(/Week\s+█*░* ?10%/);
-    expect(app.frame()).toContain("seth@home.test · personal on desk");
+    expect(app.frame()).toContain("milo@home.test · personal on desk");
     expect(app.frame()).toContain("scroll");
     expect(app.frame()).not.toContain("runs the action");
     expect(app.frame()).not.toContain("next action");
@@ -397,7 +397,7 @@ describe("/usage", () => {
 describe("/handoff", () => {
   it("opens the account picker for this session's next run on its environment, each with its plan reading, and hands off by forking onto the account chosen", async () => {
     const { app, env } = await launch([desk({ recommendation: { accountId: "account-2", reason: "most-room", message: "personal has the most room.", candidates: 1 } })]);
-    env.setUsage([reading("account-1", SETH, [window("five_hour", 0.95)]), reading("account-2", HOME, [window("five_hour", 0.12)])]);
+    env.setUsage([reading("account-1", MILO, [window("five_hour", 0.95)]), reading("account-2", HOME, [window("five_hour", 0.12)])]);
     await command(app, "/handoff");
     await app.waitFor("Hand off Receipts on desk");
     await app.waitFor("personal has the most room.");
@@ -771,7 +771,7 @@ describe("/setup", () => {
     await command(app, "/setup laptop");
     await app.waitFor("Update gh in a tool terminal");
     await app.press(KEY.enter);
-    await app.waitFor("[sudo] password for seth:");
+    await app.waitFor("[sudo] password for milo:");
     expect(laptop.requests("tools.run").map((r) => r.params)).toEqual([{ commandId: expect.any(String), id: expect.any(String), tool: "gh", action: "update" }]);
     await app.type("password-for-tests");
     await app.press(KEY.enter);

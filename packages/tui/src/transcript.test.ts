@@ -22,7 +22,7 @@ const SESSION = "0199aa00-0000-4000-8000-000000000001";
 /** The local environment with one session, opened at launch with `--session`. */
 const opened = async (extra: Partial<Parameters<typeof renderApp>[0]> = {}) => {
   const app = await renderApp({
-    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }] }] },
+    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }] }] },
     flags: { session: SESSION },
     ...extra,
   });
@@ -60,15 +60,15 @@ describe("streaming", () => {
             name: "desk",
             reach: "local",
             sessions: [
-              { title: "Older here", workspace: { kind: "directory", path: "/home/seth/receipts" }, lastActivityAt: "2026-09-20T10:00:00.000Z" },
-              { title: "Newer here", workspace: { kind: "directory", path: "/home/seth/receipts" }, lastActivityAt: "2026-09-24T10:00:00.000Z" },
-              { title: "Elsewhere", workspace: { kind: "directory", path: "/home/seth/other" }, lastActivityAt: "2026-09-25T09:00:00.000Z" },
+              { title: "Older here", workspace: { kind: "directory", path: "/home/milo/receipts" }, lastActivityAt: "2026-09-20T10:00:00.000Z" },
+              { title: "Newer here", workspace: { kind: "directory", path: "/home/milo/receipts" }, lastActivityAt: "2026-09-24T10:00:00.000Z" },
+              { title: "Elsewhere", workspace: { kind: "directory", path: "/home/milo/other" }, lastActivityAt: "2026-09-25T09:00:00.000Z" },
             ],
           },
         ],
       },
       flags: { continueLatest: true },
-      cwd: "/home/seth/receipts",
+      cwd: "/home/milo/receipts",
     });
     apps.push(app);
     await app.waitFor("Nothing said yet.");
@@ -197,7 +197,7 @@ describe("the fold", () => {
     const { app, env } = await opened();
     const reading = (utilisation: number) => ({
       accountId: "account-1",
-      identity: { provider: "claude", email: "seth@example.com", organisation: null },
+      identity: { provider: "claude", email: "milo@example.com", organisation: null },
       windows: [{ window: "five_hour", utilisation, resetsAt: null, verdict: null, observedAt: app.clock.now().toISOString() }],
       readAt: app.clock.now().toISOString(),
       unavailableReason: null,

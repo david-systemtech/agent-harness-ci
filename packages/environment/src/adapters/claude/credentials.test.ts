@@ -169,12 +169,12 @@ describe("a Claude process's environment", () => {
 
   it("resolves an account with no directory of its own to the ambient default, set explicitly", () => {
     expect(ambientConfigDirectory({ CLAUDE_CONFIG_DIR: "/home/david/.claude-other" })).toBe("/home/david/.claude-other");
-    expect(ambientConfigDirectory({ HOME: "/home/seth" })).toBe("/home/seth/.claude");
+    expect(ambientConfigDirectory({ HOME: "/home/milo" })).toBe("/home/milo/.claude");
     expect(ambientConfigDirectory({})).toBe(join(homedir(), ".claude"));
   });
 
   it("reads an empty HOME or USERPROFILE as unset, never a relative .claude", () => {
-    expect(ambientConfigDirectory({ HOME: "", USERPROFILE: "C:\\Users\\seth" })).toBe(join("C:\\Users\\seth", ".claude"));
+    expect(ambientConfigDirectory({ HOME: "", USERPROFILE: "C:\\Users\\milo" })).toBe(join("C:\\Users\\milo", ".claude"));
     expect(ambientConfigDirectory({ HOME: "", USERPROFILE: "" })).toBe(join(homedir(), ".claude"));
     expect(ambientConfigDirectory({ CLAUDE_CONFIG_DIR: "", HOME: "" })).toBe(join(homedir(), ".claude"));
   });

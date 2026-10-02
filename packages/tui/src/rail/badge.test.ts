@@ -16,8 +16,8 @@ const view = (name: string | null, fields: Partial<EnvironmentView> = {}): Envir
 describe("the abbreviation", () => {
   it("takes the first letters of the first two words, else the first two letters, in capitals", () => {
     expect(abbreviationOf("desk")).toBe("DE");
-    expect(abbreviationOf("SYSTEM-SERVER")).toBe("SS");
-    expect(abbreviationOf("seth's laptop")).toBe("SL");
+    expect(abbreviationOf("SAMPLE-SERVER")).toBe("SS");
+    expect(abbreviationOf("milo's laptop")).toBe("ML");
     expect(abbreviationOf("x")).toBe("X");
     expect(abbreviationOf(null)).toBe("TM");
   });

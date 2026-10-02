@@ -26,7 +26,7 @@
 # first and add the label after. `no-ai-review` suppresses it. Create both
 # labels on the repository.
 #
-# Where it runs: the shared `review` runners in the Dokploy VM, never `ci`. A
+# Where it runs: the self-hosted runner's `review` label, separate from `ci`. A
 # large review generates for twenty minutes or more while only waiting on
 # HTTP, and `ci` must not queue behind it.
 
@@ -109,8 +109,7 @@ jobs:
         # Longer than the script's own deadline, shorter than the job's.
         timeout-minutes: 50
         env:
-          # A user-level secret on `david`, from OpenBao
-          # systemtechdev/infrastructure/openrouter.
+          # Configure the OPENROUTER_API_KEY repository secret for reviews.
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # The job's own token: it may comment on this repository's pull
           # requests, and its comments are by `forgejo-actions`.

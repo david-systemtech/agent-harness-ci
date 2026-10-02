@@ -5,10 +5,10 @@ import { inWorkspace } from "./paths.js";
 
 describe("a path in the workspace", () => {
   it("is relative to it: an absolute path under it made relative, one outside it none", () => {
-    expect(inWorkspace("/home/seth/code/src/a.ts", "/home/seth/code")).toBe("src/a.ts");
-    expect(inWorkspace("src/a.ts", "/home/seth/code")).toBe("src/a.ts");
-    expect(inWorkspace("/etc/hosts", "/home/seth/code")).toBeNull();
-    expect(inWorkspace("../x", "/home/seth/code")).toBeNull();
+    expect(inWorkspace("/home/milo/code/src/a.ts", "/home/milo/code")).toBe("src/a.ts");
+    expect(inWorkspace("src/a.ts", "/home/milo/code")).toBe("src/a.ts");
+    expect(inWorkspace("/etc/hosts", "/home/milo/code")).toBeNull();
+    expect(inWorkspace("../x", "/home/milo/code")).toBeNull();
   });
 
   it("places no absolute path in a workspace not known yet, where /etc/x would read as etc/x", () => {
@@ -29,6 +29,6 @@ describe("a path in the workspace", () => {
   });
 
   it("leaves a backslash in a POSIX name as the name's own", () => {
-    expect(inWorkspace("/home/seth/code/a\\b.ts", "/home/seth/code")).toBe("a\\b.ts");
+    expect(inWorkspace("/home/milo/code/a\\b.ts", "/home/milo/code")).toBe("a\\b.ts");
   });
 });

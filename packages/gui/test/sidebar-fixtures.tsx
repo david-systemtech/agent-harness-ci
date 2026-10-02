@@ -35,7 +35,7 @@ export const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironm
   environmentId: DESK_ID,
   hello: { environmentIcon: "desktop", environmentColour: "teal" },
   groups: [
-    { id: G_BRAND_DESK, name: "Brandsolidate" },
+    { id: G_BRAND_DESK, name: "Meadowstudios" },
     { id: G_OPS, name: "Ops" },
   ],
   sessions: [
@@ -54,7 +54,7 @@ export const laptop = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnviro
   reach: "paired",
   environmentId: LAPTOP_ID,
   hello: { environmentIcon: "laptop", environmentColour: "amber" },
-  groups: [{ id: G_BRAND_LAPTOP, name: "brandsolidate" }],
+  groups: [{ id: G_BRAND_LAPTOP, name: "meadowstudios" }],
   sessions: [
     { id: TRAIN, title: "Train tidy", parkedPromptCount: 2, activity: { state: "parked", since: at(0) } },
     { id: LBRAND, title: "Brand on laptop", groupId: G_BRAND_LAPTOP },

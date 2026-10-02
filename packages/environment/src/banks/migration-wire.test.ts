@@ -103,7 +103,7 @@ it("prepares the team conversion and draft on a copy, then lets a fake human pos
   expect(git(h.remote!, "show", `${sha}:.github/workflows/validate.yml`)).toContain("node .agent-harness/validate.mjs");
   expect(git(h.remote!, "show", `${sha}:.github/workflows/secrets.yml`)).toContain("gitleaks");
   expect(git(h.remote!, "show", `${sha}:.agent-harness/validate.mjs`)).toContain("bank-validator");
-  expect(git(h.remote!, "show", `${sha}:projects/brandsolidate/sample-brand/product/memories/sample-line/product-fact.md`)).toBe(TEAM_MIGRATION_FIXTURE["brands/sample-brand/product/sample-line/memories/product-fact.md"]);
+  expect(git(h.remote!, "show", `${sha}:projects/meadowstudios/sample-brand/product/memories/sample-line/product-fact.md`)).toBe(TEAM_MIGRATION_FIXTURE["brands/sample-brand/product/sample-line/memories/product-fact.md"]);
 });
 
 it("opens one reviewed migration PR on the fake forge without merging or changing source main", async () => {
