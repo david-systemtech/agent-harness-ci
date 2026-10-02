@@ -9,12 +9,13 @@ import { added, DAVID, TOKEN } from "../../test/forge.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import { git } from "../../test/workspaces.js";
+import { TEAM_MIGRATION_CHOICES, TEAM_MIGRATION_FIXTURE } from "../../test/team-migration-fixture.js";
 
 const { tempDir, onCleanup } = useCleanups();
 const fixture: Record<string, string> = { ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ description: "Private machines and projects", purpose: undefined, kind: undefined, entities: undefined, orientation: undefined, index: { file: "INDEX.md" } })), "INDEX.md": "Generated index\n", ".forgejo/workflows/old.yml": "name: old\njobs:\n  check:\n    steps:\n      - run: python -m bank check\n" };
-const start = async (remote = false, role: "read-write" | "read-only" = "read-write") => {
+const start = async (remote = false, role: "read-write" | "read-only" = "read-write", files = fixture, github = false) => {
   const checkout = tempDir("migration-bank-");
-  for (const [path, text] of Object.entries(fixture)) {
+  for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(checkout, path)), { recursive: true });
     writeFileSync(join(checkout, path), text);
   }
@@ -36,7 +37,7 @@ const start = async (remote = false, role: "read-write" | "read-only" = "read-wr
   const t = await startTestEnvironment(forge && originRepo ? { harnessCommand: [process.execPath, helper], forgeFetch: forge.fetch, harnessGitConfig: [[`url.${pathToFileURL(originRepo).href}.insteadOf`, `${forge.origin}/maya/memory.git`]] } : {});
   onCleanup(() => t.close());
   const client = await t.client();
-  if (forge) await added(client, { url: forge.origin, kind: "forgejo" });
+  if (forge) await added(client, { url: forge.origin, kind: github ? "github" : "forgejo" });
   const bankId = randomUUID();
   await client.request("banks.register", { commandId: randomUUID(), bankId, path: checkout, role, accounts: "all", repositories: "all", defaultFor: [] });
   return { checkout, bankId, client, t, forge, remote: originRepo };
@@ -60,6 +61,44 @@ it("prepares an idempotent admin dry run of committed files without branches, wo
   expect(git(h.checkout, "status", "--porcelain")).toBe(status);
   expect(h.forge!.requests.some((r) => r.method === "POST" && r.path.endsWith("/pulls"))).toBe(false);
   expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).some((e) => e.type === "bank.review-held" || e.type === "bank.landed")).toBe(false);
+});
+
+it("prepares the team conversion and draft on a copy, then lets a fake human post the heads-up before the unmerged PR", async () => {
+  const h = await start(true, "read-write", TEAM_MIGRATION_FIXTURE, true);
+  const forge = h.forge!;
+  const head = git(h.checkout, "rev-parse", "HEAD");
+  const refs = git(h.checkout, "show-ref");
+  const worktrees = git(h.checkout, "worktree", "list", "--porcelain");
+  const command = { commandId: randomUUID(), bankId: h.bankId, dryRun: true, choices: TEAM_MIGRATION_CHOICES };
+  const dry = await h.client.request<"banks.migrate">("banks.migrate", command);
+  expect(dry.result).toMatchObject({ landing: null, report: { valid: true, memories: { before: 4, after: 5, added: 1 }, preservation: { names: true, links: true, counts: true } } });
+  expect(git(h.checkout, "show-ref")).toBe(refs);
+  expect(git(h.checkout, "worktree", "list", "--porcelain")).toBe(worktrees);
+  expect(forge.requests.filter((request) => request.method === "POST" && /\/(issues|pulls)$/.test(request.path))).toEqual([]);
+  const draft = dry.result!.report.headsUp!;
+  forge.answer(TOKEN, "POST /api/v3/repos/maya/memory/issues", { status: 201, body: { number: 2, ...draft, state: "open", html_url: `${forge.origin}/maya/memory/issues/2` } });
+  // This explicit call stands for David; banks.migrate never posts the draft.
+  expect(await h.t.env.forge.issues.create({ origin: forge.origin, repository: "maya/memory", purpose: "Post the approved fixture heads-up", ...draft })).toMatchObject({ outcome: "done", value: { number: 2, body: expect.stringContaining("No landing date is set") } });
+  let sha = "";
+  forge.answer(TOKEN, "POST /api/v3/repos/maya/memory/pulls", (request) => {
+    const branch = (request.body as { head: string }).head;
+    sha = git(h.remote!, "rev-parse", branch).trim();
+    forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch, sha, author: "david" });
+    return { status: 201, body: { number: 1, title: "Team migration", state: "open", user: { login: "david" }, head: { ref: branch, sha, repo: { full_name: "maya/memory" } }, base: { ref: "main" }, html_url: `${forge.origin}/maya/memory/pulls/1` } };
+  });
+  const submitted = { ...command, commandId: randomUUID(), dryRun: false };
+  const answer = await h.client.request<"banks.migrate">("banks.migrate", submitted);
+  expect(answer.result?.landing).toMatchObject({ state: "awaiting-review", pullRequest: `${forge.origin}/maya/memory/pulls/1` });
+  expect((await h.client.request<"banks.migrate">("banks.migrate", submitted)).receipt).toEqual(answer.receipt);
+  expect(forge.requests.filter((request) => request.method === "POST" && /\/(issues|pulls)$/.test(request.path)).map((request) => request.path)).toEqual(["/api/v3/repos/maya/memory/issues", "/api/v3/repos/maya/memory/pulls"]);
+  expect(forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
+  expect(git(h.remote!, "rev-parse", "main")).toBe(head);
+  expect(git(h.checkout, "rev-parse", "HEAD")).toBe(head);
+  expect(git(h.remote!, "show", `${sha}:BANK.md`)).toContain("david-systemtech");
+  expect(git(h.remote!, "show", `${sha}:.github/workflows/validate.yml`)).toContain("node .agent-harness/validate.mjs");
+  expect(git(h.remote!, "show", `${sha}:.github/workflows/secrets.yml`)).toContain("gitleaks");
+  expect(git(h.remote!, "show", `${sha}:.agent-harness/validate.mjs`)).toContain("bank-validator");
+  expect(git(h.remote!, "show", `${sha}:projects/brandsolidate/sample-brand/product/memories/sample-line/product-fact.md`)).toBe(TEAM_MIGRATION_FIXTURE["brands/sample-brand/product/sample-line/memories/product-fact.md"]);
 });
 
 it("opens one reviewed migration PR on the fake forge without merging or changing source main", async () => {
