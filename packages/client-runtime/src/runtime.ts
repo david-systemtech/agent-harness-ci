@@ -1,3 +1,4 @@
+import type { Checks, ChecksView } from "./checks.js";
 import type { RegisteredStepId } from "@agent-harness/contracts";
 import type { LocalStatus } from "./bootstrap.js";
 import type { CapabilityAnswer, CapabilityName } from "./capabilities.js";
@@ -59,7 +60,10 @@ export interface Runtime {
   readonly connections: Connections;
   /** The client-local preferences: the environment sequence, enabled flags, the last environment used. */
   readonly preferences: Observable<ClientPreferences>;
+  /** Workspace check requests and explicit failure sends, shared by both renderers. */
+  readonly checks: Checks;
   readonly projections: {
+    checks(environmentId: string, sessionId: string): Observable<ChecksView>;
     readonly environments: Observable<readonly EnvironmentView[]>;
     /** What the runtime has to tell David, newest last, at most 100: the connections' notices, the environment's (updated, draining, an account, a prompt parked or settled unanswered) and the outbox's rejections and drops. */
     readonly notices: Observable<readonly Notice[]>;
@@ -210,7 +214,7 @@ export interface Runtime {
   readonly commands: Commands & SkillsCopies & RoutineMoves;
   /** The composer's draft, a session field: debounced a second, then `sessions.setDraft` through the outbox. */
   readonly drafts: Drafts;
-  /** Direct requests, never queued: the queries and the `admin` calls. */
+  /** Direct requests, never queued: the queries and the `admin` and `terminal` commands. */
   readonly requests: Requests;
   /** Set up beyond its projection (#570). */
   readonly setup: {

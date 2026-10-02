@@ -1,3 +1,4 @@
+import { readSourceBanks, type SourceBanks } from "./banks.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -30,21 +31,13 @@ export const bankRemote = async (path: string): Promise<{ readonly origin: strin
   } catch { return null; }
 };
 export interface CredentialStores {
-  readonly banks: StoreRead<{ readonly entries: readonly { readonly sourceId: string; readonly path: string }[] }>;
+  readonly banks: StoreRead<SourceBanks>;
   readonly connections: StoreRead<{ readonly entries: readonly SourceConnection[] }>;
   readonly tokens: StoreRead<{ readonly entries: readonly SourceCredential[] }>;
 }
 export const readCredentialStores = async (sourceKey: string): Promise<CredentialStores> => {
   const [banks, tokens, connections] = await Promise.all([
-    readStore<{ readonly entries: readonly { readonly sourceId: string; readonly path: string }[] }>(join(sourceKey, "memory-banks.json"), { name: "The Bank registry", is: "is" }, (value) => {
-      if (!record(value) || value["version"] !== 2 || !Array.isArray(value["banks"])) return { refused: "The Bank registry is not a supported version 2 list." };
-      const entries: { sourceId: string; path: string }[] = [];
-      for (const bank of value["banks"]) {
-        if (!record(bank) || typeof bank["slug"] !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(bank["slug"]) || typeof bank["path"] !== "string" || !bank["path"]) continue;
-        if (!entries.some((entry) => entry.sourceId === bank["slug"])) entries.push({ sourceId: bank["slug"], path: bank["path"] });
-      }
-      return { entries };
-    }, { entries: [] }),
+    readSourceBanks(sourceKey),
     readStore<{ readonly entries: readonly SourceCredential[] }>(join(sourceKey, "memory-bank-tokens.json"), { name: "The Bank credentials", is: "are" }, (value) => {
       if (!record(value)) return { refused: "The Bank credentials hold no credential map." };
       const entries: SourceCredential[] = [];

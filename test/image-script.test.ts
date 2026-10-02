@@ -242,9 +242,9 @@ const triggers = (lines: string[]): string[] => {
 };
 
 describe("the workflows that run it", () => {
-  it("publishes from the release workflow on a v tag's push alone, on the build runner, handing on the pushed reference and digest", () => {
+  it("retains manual Forgejo recovery on the build runner, handing on the pushed reference and digest", () => {
     const lines = workflow("release.yml");
-    expect(triggers(lines)).toEqual(["  push:", '    tags: ["v*"]']);
+    expect(triggers(lines)).toEqual(["  workflow_dispatch:"]);
     expect(lines).toContain("  image:");
     expect(lines).toContain("    runs-on: build");
     expect(lines).toContain("      reference: ${{ steps.publish.outputs.reference }}");

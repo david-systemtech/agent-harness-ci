@@ -66,7 +66,7 @@ const switchOf = (choice: SkillChoice): boolean => (choice.kind === "enabled" ? 
 /** Whether `a` and `b` are one choice: the same kind, name, account and switch. */
 const sameChoice = (a: SkillChoice, b: SkillChoice): boolean => a.kind === b.kind && a.name === b.name && a.accountId === b.accountId && switchOf(a) === switchOf(b);
 
-export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => {
+export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers & { readonly "skills.setAlwaysOn": MethodHandler<"skills.setAlwaysOn"> } => {
   const { log, own } = options;
   const stream = skillsStream(options.environmentId);
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };

@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { EnvironmentHandle, Script, ScriptedEnvironment } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { chunkOf, fakeCompletions, listed, type AnswerStream, type FakeCompletions } from "../test/fake-completions.js";
-import { printAnswer, type PrintRequest } from "./screenless.js";
+import { listSessions, printAnswer, type PrintRequest } from "./screenless.js";
 import { selectOn, type SelectionRequest } from "./startup/selection.js";
 import { machine, noneOpen, openSockets, type Machine } from "../test/machine.js";
 
@@ -309,6 +309,52 @@ describe("the session a print continues", () => {
     ]);
   });
 
+  it.each([
+    { platform: "darwin", reach: "local", directory: HERE, workspace: `${HERE.toUpperCase()}/` },
+    { platform: "win32", reach: "local", directory: "C:\\Users\\Seth\\Code", workspace: "c:/users/seth/code/" },
+    { platform: "linux", reach: "paired", directory: "C:\\Users\\Seth\\Code", workspace: "c:/users/seth/code/" },
+    { platform: "linux", reach: "paired", directory: "\\\\NAS\\Home\\Seth", workspace: "\\\\nas\\home\\seth\\" },
+  ] as const)("continues the same case-folded directory session ls lists on $platform when $reach", async ({ platform, reach, directory, workspace }) => {
+    const original = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: platform });
+    onTestFinished(() => {
+      if (original !== undefined) Object.defineProperty(process, "platform", original);
+    });
+    const sessionId = sessionIdOf(9);
+    const on = await machine({
+      environments: [{ ...(desk.environments[0] as ScriptedEnvironment), reach, sessions: [{ id: sessionId, workspace: { kind: "directory", path: workspace } }] }],
+    });
+    let rows = "";
+    expect(await listSessions(
+      () => selectOn(on.platform, { environment: "desk", currentDirectory: directory }),
+      { all: false, json: true, ...(reach === "paired" && { cwd: directory }) },
+      {
+        currentDirectory: directory,
+        platform,
+        stdout: (text) => void (rows += text),
+        stderr: (text) => expect(text).toBe(""),
+      },
+    )).toBe(0);
+    expect(JSON.parse(rows).summary.id).toBe(sessionId);
+
+    const environment = on.world.environment("desk");
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, {}, { environment: "desk", continueLatest: true, currentDirectory: directory, ...(reach === "paired" && { cwd: directory }) });
+    const sent = await Promise.race([http.turn().then((turn) => ({ turn })), printing.exit.then((exit) => ({ exit, error: printing.stderr() }))]);
+    expect(sent).toHaveProperty("turn");
+    if (!("turn" in sent)) return;
+    expect(sent.turn.body["agent-harness"]).toEqual({ sessionId, attended: false });
+    const run = environment.startRun(sessionId, "Say hello");
+    const answer = sent.turn.open();
+    answer.chunk(headOf(environment, sessionId, run));
+    answer.chunk(chunkOf(4, { content: "Hello" }));
+    completed(answer, 5);
+    expect(await printing.exit).toBe(0);
+    expect(printing.stdout()).toBe("Hello\n");
+    expect(printing.stderr()).toBe("");
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+
   it("is the one --session names, on the preset account while it has no run, a model or family asked for being one of that account's", async () => {
     const on = await machine(sessions);
     expect(await turnFor(on, { session: sessionIdOf(4) })).toEqual(["home/claude-sonnet-5", { sessionId: sessionIdOf(4), attended: false }]);
@@ -322,6 +368,29 @@ describe("the session a print continues", () => {
     expect(await refused(on, { session: sessionIdOf(5) })).toEqual([1, `Session ${sessionIdOf(5)} on desk has a run running: a print starts only on an idle session.`]);
     expect(await refused(on, { session: sessionIdOf(7) })).toEqual([1, `desk has no session ${sessionIdOf(7)}.`]);
     expect(await refused(on, { continueLatest: true, cwd: "/srv/empty" })).toEqual([1, "desk has no session in /srv/empty to continue."]);
+  });
+
+  it("refuses -c for a paired directory that is not absolute in either form with exit 2 and one line", async () => {
+    const on = await machine(sessions);
+    for (const cwd of ["code", "~/code", "./code", "C:code", "\\code"]) {
+      const http = fakeCompletions(on.world.environment("laptop").wire.origin, [OPUS]);
+      const printing = print(on, http, {}, { environment: "laptop", continueLatest: true, cwd });
+      expect(await printing.exit, cwd).toBe(2);
+      expect(printing.stdout()).toBe("");
+      expect(printing.stderr()).toBe(`--cwd names a directory on laptop by its absolute path there; got ${cwd}.\n`);
+      expect(http.sent()).toEqual([]);
+    }
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+
+  it("keeps case distinct for a paired POSIX directory even on a case-folding local machine", async () => {
+    const original = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    onTestFinished(() => {
+      if (original !== undefined) Object.defineProperty(process, "platform", original);
+    });
+    const on = await machine(sessions);
+    expect(await refused(on, { environment: "laptop", continueLatest: true, cwd: HERE.toUpperCase() }, "laptop")).toEqual([1, `laptop has no session in ${HERE.toUpperCase()} to continue.`]);
   });
 
   it("asks for the directory on another machine's environment, where this one's means nothing, and starts a fresh session there in scratch", async () => {

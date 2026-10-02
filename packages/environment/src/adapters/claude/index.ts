@@ -284,10 +284,11 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     status,
     observeIdentity: (directory) => readClaudeDirectoryIdentity(directory, hostEnv["HOME"] ?? hostEnv["USERPROFILE"] ?? homedir()),
     ...(store !== undefined && {
-      seedSessionStore: async (account: AccountRef, sessionId: string, providerSessionId: string) => {
+      seedSessionStore: async (account: AccountRef, sessionId: string, providerSessionId: string, sourceDirectory?: string) => {
         await seedStoreFromDirectory({
           queue,
-          directory: configDirectory(account),
+          directory: sourceDirectory ?? configDirectory(account),
+          required: sourceDirectory !== undefined,
           harnessSessionId: sessionId,
           providerSessionId,
           store,

@@ -282,6 +282,7 @@ const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
  * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
+  "checks.get": ["checks.changed"],
   "accounts.list": ["account.updated", "signin.updated", "state-import.finished"],
   "models.list": ["account.updated", "signin.updated"],
   "accounts.probe": ["account.updated", "signin.updated"],
@@ -541,11 +542,13 @@ export const createRequestCache = (host: {
     },
     sessionChanged(environmentId, sessionId, type) {
       const methods: readonly QueryMethodName[] =
-        type === "session.workspace-set"
-          ? ["skills.get", "skills.readiness", "trust.get", "commands.list"]
-          : type === "run.started"
-            ? ["skills.get", "skills.readiness", "commands.list"]
-            : [];
+        type === "files.undo-finished"
+          ? ["diffs.session", "diffs.workingTree"]
+          : type === "session.workspace-set"
+            ? ["skills.get", "skills.readiness", "trust.get", "commands.list"]
+            : type === "run.started"
+              ? ["skills.get", "skills.readiness", "commands.list"]
+              : [];
       for (const entry of entries.values()) {
         if (entry.environmentId === environmentId && typeof entry.params["sessionId"] === "string" && entry.params["sessionId"].toLowerCase() === sessionId.toLowerCase() && methods.includes(entry.method)) refresh(entry);
       }

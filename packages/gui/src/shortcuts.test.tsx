@@ -115,10 +115,11 @@ describe("the list", () => {
     ]);
     expect(within(quit).queryByRole("button")).toBeNull();
     expect(actionRow(pane, "Anywhere", "Show or hide the sidebar").hasAttribute("aria-disabled")).toBe(false);
-    // The terminal answers it absent: its reason, dim.
-    expect(cells(actionRow(pane, "Slash commands", "Take back the last file change the agent made"))[1]).toBe(
-      "/undo: Deferred to phase D, carried if a teammate relies on it (docs/specs/tui.md, Out of Scope).",
-    );
+    // File undo is a shared command in both Clients.
+    expect(cells(actionRow(pane, "Slash commands", "Take back the last file change the agent made")).slice(1)).toEqual([
+      "/undo",
+      "/undo",
+    ]);
   });
 
   it("finds an action as its search is typed at, every word in its description, id or keys; a group with none found is not drawn", async () => {

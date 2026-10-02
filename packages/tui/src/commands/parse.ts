@@ -48,9 +48,11 @@ export const ANSWERED_COMMANDS = [
   "terminal",
   "files",
   "diff",
+  "undo",
   "documents",
   "browser",
   "trust",
+  "check",
   ...RAIL_COMMANDS,
   "fork",
   "rewind",
@@ -58,6 +60,8 @@ export const ANSWERED_COMMANDS = [
 ] as const;
 
 export type Command =
+  | { readonly kind: "check"; readonly action: "get" | "off" | "now" }
+  | { readonly kind: "check"; readonly action: "set"; readonly command: string }
   | { readonly kind: "pair"; readonly input: PairingInput }
   | { readonly kind: "pair-create" }
   | { readonly kind: "environment" }
@@ -85,6 +89,7 @@ export type Command =
   | { readonly kind: "terminal" }
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
+  | { readonly kind: "file-undo" }
   | { readonly kind: "documents" }
   | { readonly kind: "browser" }
   | { readonly kind: "trust"; readonly decision: "trusted" | "declined" }
@@ -124,6 +129,13 @@ const notHere = (name: string): Command => {
 const bare = (rest: readonly string[], command: Command, usage: string): Command => (rest.length === 0 ? command : { kind: "usage", line: `Usage: ${usage}` });
 
 export const parseCommand = (typed: string): Command => {
+  const check = /^\/check(?:\s([\s\S]*)|$)/i.exec(typed.trimStart());
+  if (check) {
+    const command = check[1];
+    if (command === undefined || command.trim() === "") return { kind: "check", action: "get" };
+    if (command.trim() === "off" || command.trim() === "now") return { kind: "check", action: command.trim() as "off" | "now" };
+    return { kind: "check", action: "set", command };
+  }
   const text = typed.trim();
   if (!text.startsWith("/")) return { kind: "text", text };
   const [word = "", ...rest] = text.slice(1).split(/\s+/);
@@ -183,6 +195,8 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "notices" }, "/notices");
     case "terminal":
       return bare(rest, { kind: "terminal" }, "/terminal");
+    case "undo":
+      return bare(rest, { kind: "file-undo" }, "/undo");
     case "diff":
       return bare(rest, { kind: "diff" }, "/diff");
     case "browser":

@@ -16,24 +16,36 @@ const EMPTY: SourceReportRecords = { notCarried: [], later: [] };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const DEFERRED = ["codex", "opencode", "lmstudio", "ollama", "llamacpp"] as const;
 
-export const readSourceReportStores = async (folder: string): Promise<readonly SourceReportStore[]> => {
-  const profiles = await readStore<SourceReportRecords>(join(folder, DATA_FILES.profiles), { name: "The profile list", is: "is" }, (value) => {
+/** Only provider kinds and counts leave profile omission classification. */
+export const profileOmissions = (profiles: readonly unknown[]): SourceReportRecords => {
+  let connections = 0;
+  const later: StateImportLater[] = [];
+  for (const profile of profiles) {
+    if (!record(profile)) continue;
+    const provider = profile["providerId"];
+    if (provider === SOURCE_PRODUCT_NAME.toLowerCase()) connections++;
+    else if (provider !== "claude") {
+      const known = DEFERRED.find((id) => id === provider);
+      later.push({ label: known === undefined ? "Profile for an unknown provider" : `Profile for ${known}`, provider: known ?? "unknown" });
+    }
+  }
+  return { notCarried: connections === 0 ? [] : [{ label: "Saved server Connections", count: connections, step: "your-machines" }], later };
+};
+
+export const readSourceReportStores = async (folder: string, existing?: StoreRead<SourceReportRecords>): Promise<readonly SourceReportStore[]> => {
+  const profiles = existing ?? await readStore<SourceReportRecords>(join(folder, DATA_FILES.profiles), { name: "The profile list", is: "is" }, (value) => {
     if (!record(value) || !Array.isArray(value["profiles"])) return { refused: "The profile list holds no list." };
     if (value["version"] !== 1 && value["version"] !== 2) return { refused: "The profile list has an unsupported version." };
-    let connections = 0;
-    const later: StateImportLater[] = [];
-    for (const profile of value["profiles"]) {
-      if (!record(profile)) continue;
-      const provider = profile["providerId"];
-      if (provider === SOURCE_PRODUCT_NAME.toLowerCase()) connections++;
-      else if (provider !== "claude") {
-        const known = DEFERRED.find((id) => id === provider);
-        later.push({ label: known === undefined ? "Profile for an unknown provider" : `Profile for ${known}`, provider: known ?? "unknown" });
-      }
-    }
-    return { notCarried: connections === 0 ? [] : [{ label: "Saved server Connections", count: connections, step: "your-machines" }], later };
+    return profileOmissions(value["profiles"]);
   }, EMPTY);
-  return [{ label: "Provider omissions", read: profiles }];
+  const switches = await readStore<SourceReportRecords>(join(folder, "cerebro.json"), { name: "The memory switches", is: "are" }, (value) => {
+    if (!record(value) || value["version"] !== 1) return { refused: "The memory switches hold no supported version 1 record." };
+    const notCarried: StateImportNotCarried[] = [];
+    if (typeof value["enabled"] === "boolean") notCarried.push({ label: "Master memory switch", count: 1, step: null });
+    if (typeof value["followUpsAsIssues"] === "boolean") notCarried.push({ label: "Follow-ups-as-issues switch", count: 1, step: null });
+    return { notCarried, later: [] };
+  }, EMPTY);
+  return [...(profiles.status === "read" ? [{ label: "Provider omissions", read: profiles }] : []), { label: "Memory switches", read: switches }];
 };
 
 /** The terminal's file picker cache is counted, never adopted or exposed by path. */

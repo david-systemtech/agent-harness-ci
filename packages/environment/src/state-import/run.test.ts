@@ -93,6 +93,7 @@ const OMISSIONS = {
     { label: "Shipped instructions left as shipped", count: 1, step: null },
     { label: "Shipped instructions removed from the list", count: 1, step: null },
     { label: "Instruction entries the source does not read", count: 1, step: null },
+    { label: "Unknown Session references", count: 1, step: "carry-over" },
     { label: "Per-session model choices", count: 1, step: null },
     { label: "Dock layouts", count: 1, step: null },
   ],

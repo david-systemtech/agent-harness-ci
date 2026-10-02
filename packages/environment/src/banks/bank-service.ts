@@ -63,6 +63,9 @@ import { readPointer, renderFixedTiers } from "./index-renderer.js";
 
 export const BANKS_ACTOR = formatActor({ kind: "system", id: "banks" });
 
+/** Retained refresh failures stay visible to Health until a successful sync. */
+export const REGISTERED_SYNC_BLOCKED = "Sync paused for registered checkout";
+
 /** What the purpose of the BankService's forge reads is called, for a missing origin's record. */
 const VERIFY_PURPOSE = "verify a memory bank";
 
@@ -394,12 +397,14 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** What holds of the bank now: its status as found, every part since now, and its reading. */
-  const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
+  const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status" | "checkoutOwnership">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
     const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
     // A checkout git cannot read fails the bank wherever its remote is; a readable one with a remote fails when its forge does not have it.
-    const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null);
+    const syncProblem = entry.checkoutOwnership !== "managed" && entry.status.reachable.state === "unreachable" && entry.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)
+      ? entry.status.reachable.reason : null;
+    const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null) ?? syncProblem;
     const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
     // A checkout that cannot be read says nothing new of what it holds: those parts stay as last found.
     if ("problem" in read) return { status: { ...entry.status, reachable }, reading: null };
@@ -645,7 +650,16 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async recordSync(bankId, outcome) {
       const entry = liveBank(reader, bankId);
       if (entry === null) return;
-      if ("head" in outcome) await verifyOne(entry);
+      if ("head" in outcome) {
+        // Clear the resolved block before inspecting: a newer verification must not retain it.
+        log.atomically((tx) => {
+          const held = liveBank(reader, bankId);
+          if (held?.status.reachable.state !== "unreachable" || !held.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)) return;
+          const status: BankStatus = { ...held.status, reachable: { state: "reachable", since: clock.now().toISOString() } };
+          log.append(stream, [{ type: "bank.updated", payload: { bankId, status } }], { tx, actor: BANKS_ACTOR });
+        });
+        await verifyOne(entry);
+      }
       else verificationGenerations.set(bankId, (verificationGenerations.get(bankId) ?? 0) + 1);
       log.atomically((tx) => {
         const held = liveBank(reader, bankId);
@@ -785,7 +799,7 @@ const entryOf = (params: ParamsOf<"banks.register">, name: string, manifest: Man
   location,
   checkout: params.path,
   role: params.role,
-  enabled: true,
+  enabled: params.enabled ?? true,
   accounts: params.accounts,
   repositories: params.repositories,
   defaultFor: params.defaultFor,
