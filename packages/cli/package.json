@@ -15,6 +15,7 @@
   "dependencies": {
     "@agent-harness/contracts": "workspace:*",
     "@agent-harness/environment": "workspace:*",
+    "@agent-harness/filesystem": "workspace:*",
     "@agent-harness/tui": "workspace:*",
     "uqr": "^0.1.3"
   }

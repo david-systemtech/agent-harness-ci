@@ -1,3 +1,4 @@
+import { removeTreeSync } from "@agent-harness/filesystem";
 import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { compareReleaseVersions, RELEASE_VERSION_PATTERN, UPDATE_ID_PATTERN } from "@agent-harness/contracts/launcher";
@@ -68,6 +69,8 @@ export const pruning = (dataDir: string, { activeVersion, launcherVersion, stage
 /** Removes `version` from the versions directory of `dataDir`: its sentinel first, so a removal cut short leaves no version behind to run. */
 export const removeVersion = (dataDir: string, version: string): void => {
   const folder = versionDirectory(dataDir, version);
-  rmSync(join(folder, VERSION_SENTINEL), { force: true });
-  rmSync(folder, { force: true, recursive: true });
+  removeTreeSync(folder, (path, options) => {
+    rmSync(join(path, VERSION_SENTINEL), { force: true });
+    rmSync(path, options);
+  });
 };

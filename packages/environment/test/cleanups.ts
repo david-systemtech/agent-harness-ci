@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
+import { removeTree } from "@agent-harness/filesystem";
 
 /**
  * Per-test cleanup for a test file: `onCleanup` queues work that runs after
@@ -28,7 +29,7 @@ export const useCleanups = () => {
   const onCleanup = (cleanup: () => void | Promise<void>): void => void cleanups.push(cleanup);
   const tempDir = (prefix = "agent-harness-test-"): string => {
     const dir = mkdtempSync(join(tmpdir(), prefix));
-    onCleanup(() => rmSync(dir, { recursive: true, force: true }));
+    onCleanup(() => removeTree(dir));
     return dir;
   };
   return { onCleanup, tempDir };

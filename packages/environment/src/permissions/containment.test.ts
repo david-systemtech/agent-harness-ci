@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { randomUUID as uuid } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -406,12 +406,20 @@ describe("the session's directories", () => {
     expect(existsSync(other)).toBe(true);
   });
 
-  it("are made at a workspace level and removed when the session is purged", async () => {
+  it.skipIf(process.getuid?.() === 0)("are made at a workspace level and removed when the session is purged", async () => {
     const { t, client, id, adapter } = await sessionAt("workspace");
     await runScript(t, client, id, calling());
     const { scratchDirectory, temporaryDirectory } = adapter.lastRun().input.containment;
     expect(scratchDirectory.startsWith(t.dataDir)).toBe(true);
     expect(existsSync(scratchDirectory) && existsSync(temporaryDirectory)).toBe(true);
+    for (const directory of [scratchDirectory, temporaryDirectory]) {
+      const nested = join(directory, "locked");
+      mkdirSync(nested);
+      writeFileSync(join(nested, "readonly.txt"), "scratch");
+      chmodSync(join(nested, "readonly.txt"), 0o400);
+      chmodSync(nested, 0o500);
+      chmodSync(directory, 0o500);
+    }
     await deleteSession(client, id);
     await purgeSession(client, id);
     await vi.waitFor(() => expect(existsSync(scratchDirectory) || existsSync(temporaryDirectory)).toBe(false));

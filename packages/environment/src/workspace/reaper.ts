@@ -1,5 +1,5 @@
 import { readdirSync, realpathSync, type Dirent } from "node:fs";
-import { chmod, lstat, readdir, realpath, rm, rmdir } from "node:fs/promises";
+import { lstat, readdir, realpath, rmdir } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import type { WorkspaceKeptPayload, WorkspaceKeptReason } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
@@ -8,6 +8,7 @@ import { errorCode } from "./resolver.js";
 import { GIT_TIMEOUT_MS, UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit, type GitAnswer } from "./git.js";
 import { WORKSPACES_ACTOR } from "./identity-passes.js";
 import { isInside } from "./paths.js";
+import { removeTree } from "@agent-harness/filesystem";
 import type { WorkspaceRoots } from "./roots.js";
 import { WORKTREE_LIST, listedWorktrees } from "./worktree-listing.js";
 
@@ -166,14 +167,6 @@ export const createReaper = (options: ReaperOptions): Reaper => {
     });
   };
 
-  /** Makes every directory under `path` writable by its owner, never following a link, so a read-only one can be emptied. */
-  const makeWritable = async (path: string): Promise<void> => {
-    const stats = await lstat(path).catch(() => null);
-    if (stats?.isDirectory() !== true) return;
-    await chmod(path, stats.mode | 0o700);
-    for (const entry of await readdir(path)) await makeWritable(join(path, entry));
-  };
-
   /** Removes a scratch workspace whatever it holds, once its real path is inside the scratch root. */
   const reapScratch = async (stray: Stray, at: RootAt): Promise<void> => {
     const stats = await lstat(stray.path).catch(() => null);
@@ -183,13 +176,7 @@ export const createReaper = (options: ReaperOptions): Reaper => {
       console.error(`The scratch workspace ${stray.path} leads outside the scratch root${real === null ? "" : `, to ${real}`}; it was left in place.`);
       return;
     }
-    try {
-      await rm(stray.path, { recursive: true, force: true });
-    } catch (error) {
-      if (errorCode(error) !== "EACCES" && errorCode(error) !== "EPERM") throw error;
-      await makeWritable(stray.path);
-      await rm(stray.path, { recursive: true, force: true });
-    }
+    await removeTree(stray.path);
   };
 
   /** Removes a clean worktree, unlocked, with git's non-forcing remove; keeps one that is not, unlocked, saying why. */

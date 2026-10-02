@@ -1,5 +1,6 @@
+import { removeTree } from "@agent-harness/filesystem";
 import { constants, createWriteStream } from "node:fs";
-import { lstat, mkdir, open, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Workspace, WorkspaceRequest } from "@agent-harness/contracts";
@@ -285,7 +286,7 @@ export const makeWorktree = async (request: WorktreeRequest, sessionId: string, 
     }
 
     const path = await claimDirectory(options.root, repository, branch);
-    undos.push(() => rm(path, { recursive: true, force: true }));
+    undos.push(() => removeTree(path));
     if (request.branch === undefined) {
       const base = request.newBranch?.base;
       await must(repository, ["branch", "--", branch, ...(base === undefined ? [] : [base])]);

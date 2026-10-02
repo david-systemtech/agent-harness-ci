@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { chmod, copyFile, cp, lstat, mkdir, readdir, readlink, realpath, rename, rm, rmdir } from "node:fs/promises";
+import { removeTree } from "@agent-harness/filesystem";
+import { chmod, copyFile, cp, lstat, mkdir, readdir, readlink, realpath, rename, rmdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { GitCommit } from "@agent-harness/contracts";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY } from "./generations.js";
@@ -82,21 +83,14 @@ export const exportSnapshot = async (checkout: string, folder: string, path: str
     }
     await rename(building, path);
   } catch (error) {
-    await rm(building, { recursive: true, force: true });
+    await removeTree(building);
     throw error;
   }
   await walk(path, (entry, mode) => chmod(entry, mode & ~0o222));
 };
 
-/** Removes the snapshot at `path`, giving its files and folders their write permission back first. */
-export const removeSnapshot = async (path: string): Promise<void> => {
-  try {
-    await walk(path, (entry, mode) => chmod(entry, mode | 0o200));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await rm(path, { recursive: true, force: true });
-};
+/** Removes the snapshot at `path`, restoring the access needed to delete its contents first. */
+export const removeSnapshot = removeTree;
 
 /** A snapshot as the store answers it: where it lies, and whether this call made it rather than finding it there. */
 export interface MadeSnapshot {

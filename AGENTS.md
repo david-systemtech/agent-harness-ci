@@ -39,7 +39,8 @@ See `docs/agents/domain.md`.
 
 ## Building
 
-A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
+A pnpm workspace (`packages/`: `contracts`, `filesystem` (owned-tree cleanup
+shared by the environment and launcher, on Node built-ins alone), `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
 much as the environment's jsdom: on contracts alone, Mozilla Readability

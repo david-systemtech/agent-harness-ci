@@ -1,5 +1,6 @@
+import { removeTree } from "@agent-harness/filesystem";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ContainmentResolution } from "@agent-harness/contracts";
@@ -69,7 +70,7 @@ export const containmentDirectories = (root: string | (() => string), owned = fa
       mkdirSync(join(session, "scratch"), { recursive: true, mode: 0o700 });
       mkdirSync(join(session, "tmp"), { recursive: true, mode: 0o700 });
     },
-    remove: (sessionId) => rm(sessionDir(sessionId), { recursive: true, force: true }),
+    remove: (sessionId) => removeTree(sessionDir(sessionId)),
     async sweep(exists) {
       if (resolved === undefined && typeof root !== "string") return [];
       let names: string[];
@@ -80,11 +81,11 @@ export const containmentDirectories = (root: string | (() => string), owned = fa
         throw error;
       }
       const gone = names.filter((name) => SESSION_ID.test(name) && !exists(name));
-      for (const name of gone) await rm(join(rootOf(), name), { recursive: true, force: true });
+      for (const name of gone) await removeTree(join(rootOf(), name));
       return gone;
     },
     async close() {
-      if (owned && resolved !== undefined) await rm(resolved, { recursive: true, force: true });
+      if (owned && resolved !== undefined) await removeTree(resolved);
     },
   };
 };

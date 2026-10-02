@@ -4,6 +4,7 @@
   "files": [],
   "references": [
     { "path": "packages/contracts" },
+    { "path": "packages/filesystem" },
     { "path": "packages/environment" },
     { "path": "packages/client-runtime" },
     { "path": "packages/theme" },

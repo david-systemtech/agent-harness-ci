@@ -11,12 +11,13 @@ import { writeServiceState } from "./state.js";
 
 /**
  * The `launch` verb (#337): the launcher as the service runs it, on Node's
- * built-ins and the contracts' launcher module alone, until the service
+ * built-ins, the contracts' launcher module and filesystem cleanup alone, until the service
  * manager stops it.
  */
 
 const tsx = createRequire(import.meta.url).resolve("tsx");
 const cliPackage = new URL("../../", import.meta.url).pathname;
+const filesystemPackage = new URL("../../../filesystem/", import.meta.url).pathname;
 const contractsPackage = new URL("../../../contracts/", import.meta.url).pathname;
 // The scripted versions' Node runtime is a shell script (see installVersion), and Windows has no SIGTERM to stop a launcher with.
 const posix = process.platform !== "win32";
@@ -57,7 +58,7 @@ const dataDirectory = (version = LAUNCHER_VERSION): string => {
 
 /**
  * A copy of the CLI package where the environment package cannot be resolved:
- * its source and manifest, with only the contracts package beside it in its
+ * its source and manifest, with the contracts and filesystem packages beside it in its
  * node_modules. Nothing else of the workspace is reachable from it.
  */
 const cliWithoutEnvironment = (): string => {
@@ -68,6 +69,7 @@ const cliWithoutEnvironment = (): string => {
   const contracts = join(cli, "node_modules", "@agent-harness", "contracts");
   mkdirSync(dirname(contracts), { recursive: true });
   symlinkSync(contractsPackage, contracts, "junction");
+  symlinkSync(filesystemPackage, join(dirname(contracts), "filesystem"), "junction");
   return join(cli, "src", "main.ts");
 };
 
