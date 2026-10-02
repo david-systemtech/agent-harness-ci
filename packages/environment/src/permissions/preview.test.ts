@@ -134,6 +134,18 @@ describe("the preview's budget and workspace boundary", () => {
     expect(await readFile(join(workspace, "build", "one.js"), "utf8")).toBe("keep");
   });
 
+  it.skipIf(process.platform === "win32")("qualifies deletion targets with a trailing slash instead of counting a directory link as one file", async () => {
+    const workspace = await tempDir();
+    await mkdir(join(workspace, "build"));
+    await writeFile(join(workspace, "build", "one.js"), "keep");
+    await symlink(join(workspace, "build"), join(workspace, "linked"));
+    const scope = { workspace, clock: manualClock(), containment: contained(workspace) };
+    for (const command of ["rm -rf linked/", "rm -rf li*/"]) {
+      expect(await previewLines("permission", { input: { command } }, scope)).toEqual(["⚠ cannot tell: trailing-slash deletion targets may follow directory links and remove their contents"]);
+    }
+    expect(await readFile(join(workspace, "build", "one.js"), "utf8")).toBe("keep");
+  });
+
   it.skipIf(process.platform === "win32")("stops at an outside directory link matched by an intermediate glob", async () => {
     const workspace = await tempDir();
     const outside = await tempDir();

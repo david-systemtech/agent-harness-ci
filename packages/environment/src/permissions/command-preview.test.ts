@@ -418,6 +418,23 @@ describe('previewing rm against a directory', () => {
     expect((await only('rm -rf $BUILD_DIR keep.txt', root)).summary).toBe('1 file, and 1 path the shell would have to expand');
   });
 
+  it('reports unknown instead of a total when glob matching or depth is capped', async () => {
+    const flat = fakeDisk(new Map([[resolve('/w'), Array.from({ length: 1000 }, (_, index) => ({ name: `f${String(index)}.txt`, directory: false }))]]));
+    for (const command of ['rm *', 'chmod -R 700 *', 'find * -delete', 'shred *']) {
+      const preview = await only(command, '/w', flat);
+      expect(preview.summary).toContain('could not preview:');
+      expect(preview.count).toBeUndefined();
+    }
+    const nested = new Map<string, readonly DirEntry[]>();
+    let path = resolve('/w');
+    for (let depth = 0; depth < 30; depth++) {
+      nested.set(path, [{ name: 'deep', directory: true }]);
+      path = join(path, 'deep');
+    }
+    nested.set(path, [{ name: 'keep.txt', directory: false }]);
+    expect((await only('rm **/*.txt', '/w', fakeDisk(nested))).summary).toContain('could not preview:');
+  });
+
   it('stops counting at the cap and says the count is a floor', async () => {
     const directories = new Map<string, readonly DirEntry[]>([
       [resolve('/w'), [{ name: 'big', directory: true }]],

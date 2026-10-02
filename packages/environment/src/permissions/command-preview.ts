@@ -1007,7 +1007,7 @@ function segmentMatcher(pattern: string): (name: string) => boolean {
 async function entriesOf(directory: string, deps: BlastRadiusDeps, budget: Budget): Promise<readonly DirEntry[]> {
   if (budget.readdirs <= 0) {
     budget.exhausted = true;
-    return [];
+    throw new Error('directory-read budget reached');
   }
   budget.readdirs -= 1;
   try {
@@ -1037,7 +1037,7 @@ async function expandGlob(pattern: string, cwd: string, deps: BlastRadiusDeps, b
     const base = absolute ? sep : cwd;
 
     const visit = async (directory: string, index: number, depth: number): Promise<void> => {
-      if (found.size >= MAX_MATCHES || depth > MAX_DEPTH) return;
+      if (found.size >= MAX_MATCHES || depth > MAX_DEPTH) throw new Error('glob expansion limit reached');
       const part = parts[index];
       if (part === undefined) {
         found.add(directory);
@@ -1051,7 +1051,7 @@ async function expandGlob(pattern: string, cwd: string, deps: BlastRadiusDeps, b
         await visit(directory, index + 1, depth);
         const trailing = index === parts.length - 1;
         for (const entry of await entriesOf(directory, deps, budget)) {
-          if (found.size >= MAX_MATCHES) return;
+          if (found.size >= MAX_MATCHES) throw new Error('glob expansion limit reached');
           if (entry.name.startsWith('.')) continue;
           if (entry.directory) await visit(join(directory, entry.name), index, depth + 1);
           else if (trailing) found.add(join(directory, entry.name));
@@ -1178,6 +1178,11 @@ const soft = async (query: Promise<string>): Promise<string> => {
 // ---------------------------------------------------------------------------
 
 async function previewRemove(part: Destructive, cwd: string, deps: BlastRadiusDeps, budget: Budget): Promise<Preview> {
+  // A trailing slash can make rm follow a directory link. Resolving the path
+  // would erase that distinction, so do not count it as deletion of one link.
+  if (part.targets.some((target) => unescape(target).endsWith('/'))) {
+    return { kind: part.kind, summary: 'cannot tell: trailing-slash deletion targets may follow directory links and remove their contents', lines: [] };
+  }
   // `~/work` and `$BUILD` mean nothing without the shell, and resolving them
   // literally finds no file — which would read as "nothing would be deleted"
   // about a command that deletes a home directory. They are named instead.
