@@ -5,6 +5,7 @@ import { createDescribeLanding } from "./describe-landing.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 import {
   BANK_INDEX_BUDGET,
+  bankValidatorStatus,
   BankName,
   ContractError,
   type BankKeyManager,
@@ -229,7 +230,8 @@ export interface BankService {
   promote(bankId: string, sessionId: string, drafts: readonly BankDraft[]): Promise<MemoryPromoteResult>;
   /** Trusted BankService callers submit non-draft changes here; remote changes always require review. */
   landChanges(bankId: string, changes: BankChanges): Promise<MemoryPromoteResult>;
-  reconcileLanding(bankId: string): Promise<MemoryPromoteResult | null>;
+  /** Reconciles a held review; expectedPaths refuses unrelated changes before any forge work. */
+  reconcileLanding(bankId: string, expectedPaths?: readonly string[]): Promise<MemoryPromoteResult | null>;
   /** Every bank registered now, with its status, counts and line. */
   list(): Promise<BankRecord[]>;
   /** The bank `bankId`; null for one not registered. */
@@ -261,10 +263,10 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
   let lander: ReturnType<typeof createBankLander> | undefined;
-  const reconcileLanding = async (bankId: string): Promise<MemoryPromoteResult | null> => {
+  const reconcileLanding = async (bankId: string, expectedPaths?: readonly string[]): Promise<MemoryPromoteResult | null> => {
     const bank = liveBank(reader, bankId);
     if (!lander || !bank) return null;
-    return lander.reconcile(bank);
+    return lander.reconcile(bank, expectedPaths);
   };
   let verifyingAll: Promise<BankRecord[]> | null = null;
   const verificationGenerations = new Map<string, number>();
@@ -293,7 +295,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const recordOf = (entry: BankEntry, reading: Reading | null, others: readonly Claim[]): BankRecord => {
     const index = reading?.index ?? null;
     const line = index === null ? null : (renderFixedTiers(index).text.split("\n")[0] ?? null);
-    return { ...entry, memories: index?.count ?? 0, folders: index?.folderCount ?? 0, line, sharedAliases: sharedAliases(claimOf(entry, reading), others) };
+    return { ...entry, validator: bankValidatorStatus(reading?.files[".agent-harness/validate.mjs"]), memories: index?.count ?? 0, folders: index?.folderCount ?? 0, line, sharedAliases: sharedAliases(claimOf(entry, reading), others) };
   };
 
   /** The reading held of the bank, read now when none is. */

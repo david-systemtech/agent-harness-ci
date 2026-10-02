@@ -1,3 +1,4 @@
+import { BankValidatorStatus } from "./banks.js";
 import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 import { SessionBankUsedPayload } from "./bank-use.js";
@@ -1109,6 +1110,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "banks/landing-status.json", title: "BankLandingStatus", schema: BankLandingStatus },
   { path: "banks/status.json", title: "BankStatus", schema: BankStatus },
   { path: "banks/entry.json", title: "BankEntry", schema: BankEntry },
+  { path: "banks/validator-status.json", title: "BankValidatorStatus", schema: BankValidatorStatus },
   { path: "banks/record.json", title: "BankRecord", schema: BankRecord },
   { path: "banks/join-preview.json", title: "BankJoinPreview", schema: BankJoinPreview },
   { path: "banks/conflict-reason.json", title: "BankConflictReason", schema: BankConflictReason },

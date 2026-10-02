@@ -1,3 +1,4 @@
+import { banksValidatorUpdate } from "./bank-validator-update.js";
 import { banksMigrate } from "./bank-migration.js";
 import { banksSplitPropose, banksSplitApply } from "./bank-split.js";
 import { banksDraftsList, banksMemoryDraft, banksMemoryPromote, banksMemoryRead, banksMemorySearch } from "./memory-drafts.js";
@@ -310,6 +311,7 @@ export const methods = [
   banksSplitPropose,
   banksSplitApply,
   banksMigrate,
+  banksValidatorUpdate,
   banksJoinPreview,
   banksJoin,
   banksDraftsList,

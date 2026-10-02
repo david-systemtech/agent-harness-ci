@@ -803,6 +803,40 @@
               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
               "description": "An instant as an ISO 8601 UTC timestamp."
             },
+            "validator": {
+              "description": "The vendored stamp and whether it needs an update; absent on environments predating validator updates.",
+              "type": "object",
+              "properties": {
+                "installedVersion": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The committed stamp, or null when missing or malformed."
+                },
+                "currentVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "The environment's BANK_VALIDATOR version, also carried by the describe prompt."
+                },
+                "needsUpdate": {
+                  "type": "boolean",
+                  "description": "The stamp is missing, malformed, or older than the environment; a newer bank is never downgraded."
+                }
+              },
+              "required": [
+                "installedVersion",
+                "currentVersion",
+                "needsUpdate"
+              ]
+            },
             "memories": {
               "type": "integer",
               "minimum": 0,
