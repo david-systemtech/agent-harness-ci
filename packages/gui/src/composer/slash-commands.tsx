@@ -25,7 +25,7 @@ export interface WiredCommand {
   readonly name: string;
   readonly usage: string;
   readonly description: string;
-  /** Runs it with what was typed after its name, trimmed. */
+  /** Runs it with what was typed after its name; check preserves shell text. */
   readonly run: (argument: string) => void;
   /** Keeps the box while an asynchronous command decides whether it succeeded. */
   readonly keepComposer: boolean;
@@ -123,6 +123,8 @@ export interface TypedCommand {
  * Any other text, another word after a `/` included, is for the agent.
  */
 export const typedCommand = (text: string): TypedCommand | undefined => {
+  const check = /^\/check(?:\s([\s\S]*)|$)/i.exec(text.trimStart());
+  if (check !== null) return { name: "check", argument: check[1] ?? "" };
   const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (match === null) return undefined;
   const typed = `command.${(match[1] ?? "").toLowerCase()}`;
