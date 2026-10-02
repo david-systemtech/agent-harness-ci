@@ -1,4 +1,7 @@
-import { BankRequiredError, MEMORY_TYPES, PRODUCT_NAME, SessionId, ValidationFailedError, type BankFinding, type MemoryDraftInput, type MemoryPromoteResult, type MemorySearchInput } from "@agent-harness/contracts";
+import * as fs from "node:fs";
+import { resolve } from "node:path";
+import { BankRequiredError, MEMORY_TYPES, PRODUCT_NAME, SessionId, ValidationFailedError, type MemoryDraftInput, type MemoryPromoteResult, type MemorySearchInput } from "@agent-harness/contracts";
+import { bankFindingLine, bankVerdictText, readBankFolder, validateBank } from "@agent-harness/contracts/bank-validator";
 import { defaultDataDirectory } from "@agent-harness/environment";
 import { parsePort, parseVerb, UsageError } from "./args.js";
 import { LocalFailure, LocalRefusal, withLocalSession, type LocalCall, type Net } from "./local-session.js";
@@ -13,6 +16,7 @@ import { LocalFailure, LocalRefusal, withLocalSession, type LocalCall, type Net 
  */
 
 export const BANK_USAGE = [
+  `${PRODUCT_NAME} bank validate [<bank directory>] [--json]`,
   `${PRODUCT_NAME} bank search <query> [--bank <name>] [--scope <org>[/<project>[/<area>]]] [--limit <n>] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} bank read [<pointer>] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} bank draft <name> --scope <org>/<project>[/<area>] [--topic <topic>] --type <${MEMORY_TYPES.join("|")}> --description <text> --body <text|-> [--applies-to <repository>]... [--bank <name>] [--session <id>] [--data-dir <path>] [--port <n>]`,
@@ -96,6 +100,23 @@ const queueSession = (option: string | undefined, env: BankContext["env"]): stri
   const id = SessionId.safeParse(given);
   if (!id.success) throw new UsageError(`${option === undefined ? CLAUDE_SESSION_VARIABLE : "--session"} takes a session id, a version 4 UUID; got ${given}.`);
   return id.data;
+};
+
+/**
+ * `bank validate [<bank directory>]`: the bank whose working tree is there
+ * (the working directory by default) judged by the contracts' versioned
+ * validator, read and printed as the bank's CI reads and prints it
+ * (`validate.mjs`): each finding with its rule id, then the validator's
+ * stamp and the verdict, or with `--json` the verdict as the functions give
+ * it. Exits 1 when a finding refuses. It asks no environment.
+ */
+const validate = async (args: readonly string[], context: BankContext): Promise<number> => {
+  const { values, positionals } = parseVerb(args, { json: { type: "boolean" } });
+  const [directory, ...rest] = positionals;
+  if (rest.length > 0) throw new UsageError("bank validate takes at most one bank directory.");
+  const verdict = validateBank(readBankFolder(resolve(context.cwd, directory ?? "."), fs));
+  context.stdout(values.json ? `${JSON.stringify(verdict)}\n` : bankVerdictText(verdict));
+  return verdict.valid ? 0 : 1;
 };
 
 /** `bank search <query>`: what the memory tool's search answers, each hit as its pointer and line, then "n of N". */
@@ -190,20 +211,17 @@ const promote = async (args: readonly string[], context: BankContext): Promise<n
   return 0;
 };
 
-/** A finding as the bank's CI prints it: refused or warning, the rule's id, and the sentence for the bank's author. */
-const findingLine = (finding: BankFinding): string => `${finding.severity === "refusal" ? "refused" : "warning"} ${finding.rule}: ${finding.message}\n`;
-
 /** What the environment refused, for the caller: a validator refusal's findings first, and the writable banks to name one of. */
 const refusalText = (refusal: LocalRefusal): string => {
   const invalid = ValidationFailedError.safeParse(refusal.error);
-  if (invalid.success) return `${invalid.data.data.findings.map(findingLine).join("")}${refusal.message}\n`;
+  if (invalid.success) return `${invalid.data.data.findings.map(bankFindingLine).join("")}${refusal.message}\n`;
   const unnamed = BankRequiredError.safeParse(refusal.error);
   if (unnamed.success) return `${refusal.message} The writable banks in scope: ${unnamed.data.data.banks.join(", ")}; name one with --bank.\n`;
   return `${refusal.message}\n`;
 };
 
 /** The `bank` verbs by name. */
-const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { search, read, draft, promote };
+const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { validate, search, read, draft, promote };
 
 /**
  * `bank`: runs the verb `args` name. Exits as the verb does, 1 with a plain

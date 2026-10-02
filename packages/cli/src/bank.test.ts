@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SCOPES, type JsonObject } from "@agent-harness/contracts";
 import { expect, it, vi } from "vitest";
-import { PERSONAL_BANK, TEAM_BANK, markdown, personalManifest, type FixtureBank } from "../../contracts/test/fixture-banks.js";
+import { validateBank } from "@agent-harness/contracts/bank-validator";
+import { PERSONAL_BANK, RULE_FIXTURES, TEAM_BANK, markdown, memory, personalManifest, type FixtureBank } from "../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { callHostTool, end, fakeAdapter, type HostToolCallScript } from "../../environment/test/fake-adapter.js";
 import { startFakeForge } from "../../environment/test/fake-forge.js";
@@ -25,13 +26,23 @@ import { runCli } from "./cli.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-/** `files` committed on `main` in a fresh repository. */
-const bankRepository = (files: FixtureBank): string => {
+/** `files` as a bank's working tree, each of its `unreadable` files a link to nothing, as `validate.mjs`'s tests lay one out. */
+const bankFolder = (files: FixtureBank, unreadable: Readonly<Record<string, string>> = {}): string => {
   const root = tempDir("bank-cli-");
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text);
   }
+  for (const path of Object.keys(unreadable)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    symlinkSync(join(root, "nowhere.md"), join(root, path));
+  }
+  return root;
+};
+
+/** `files` committed on `main` in a fresh repository. */
+const bankRepository = (files: FixtureBank): string => {
+  const root = bankFolder(files);
   git(root, "init", "--quiet", "--initial-branch=main");
   git(root, "add", "--all");
   git(root, "commit", "--quiet", "-m", "The bank.");
@@ -74,8 +85,17 @@ const toolAnswers = async (h: Harness, calls: readonly HostToolCallScript[]): Pr
   return answers;
 };
 
+interface CliOptions {
+  readonly env?: Record<string, string>;
+  readonly stdin?: string;
+  readonly cwd?: string;
+}
+
 /** The CLI in-process, `bank` and `args` against the environment's data directory: its exit code, its output, and every URL its network was given. */
-const bankCli = async (h: Harness, args: readonly string[], options: { readonly env?: Record<string, string>; readonly stdin?: string; readonly cwd?: string } = {}) => {
+const bankCli = (h: Harness, args: readonly string[], options: CliOptions = {}) => cli([...args, "--data-dir", h.t.dataDir], options);
+
+/** The CLI in-process, `bank` and `args`: its exit code, its output, and every URL its network was given. */
+const cli = async (args: readonly string[], options: CliOptions = {}) => {
   let out = "";
   let err = "";
   const urls: string[] = [];
@@ -86,7 +106,7 @@ const bankCli = async (h: Harness, args: readonly string[], options: { readonly 
       super(url, protocols);
     }
   }
-  const code = await runCli(["bank", ...args, "--data-dir", h.t.dataDir], {
+  const code = await runCli(["bank", ...args], {
     stdout: (text) => void (out += text),
     stderr: (text) => void (err += text),
     net: {
@@ -295,4 +315,46 @@ it("answers the memory methods to a local client session only: a paired client i
   expect(h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).filter((event) => event.payload["bankId"] === bankId && event.type.startsWith("bank.dra"))).toEqual([]);
   // The local client session the bank verbs exchange is answered.
   expect(await h.client.request("banks.memory.draft", { ...fact, sessionId, repositoryIdentity: null })).toMatchObject({ bank: "maya-memory", change: { kind: "draft", name: "rollout-steps" } });
+});
+
+it("validates a bank's working tree with the contracts' versioned validator, as the bank's CI does, with no environment", async () => {
+  const cases: readonly (readonly [FixtureBank, Readonly<Record<string, string>>])[] = [
+    [PERSONAL_BANK, {}],
+    [TEAM_BANK, {}],
+    ...Object.values(RULE_FIXTURES).map(({ bank, unreadable = {} }) => [bank, unreadable] as const),
+  ];
+  for (const [bank, unreadable] of cases) {
+    const expected = validateBank({ files: bank, unreadable });
+    const { code, out, urls } = await cli(["validate", bankFolder(bank, unreadable), "--json"]);
+    expect(JSON.parse(out)).toEqual(expected);
+    expect(code).toBe(expected.valid ? 0 : 1);
+    expect(urls).toEqual([]);
+  }
+  expect(await cli(["validate", bankFolder(RULE_FIXTURES.orientation_missing.bank)])).toMatchObject({
+    code: 1,
+    out: "refused orientation_missing: BANK.md's orientation names where-work-is-tracked, which no memory in the bank has: write it in the bank's home folder or take the name out.\nbank-validator 1: 1 refused\n",
+  });
+  expect(await cli(["validate"], { cwd: bankFolder(TEAM_BANK) })).toMatchObject({ code: 0, out: "bank-validator 1: valid\n", err: "" });
+
+  // Read as bank CI reads it: a link back to a folder it is in refused, a linked folder read as the folder.
+  const looped = bankFolder(PERSONAL_BANK);
+  symlinkSync("..", join(looped, "projects/personal/homelab/memories/loop"));
+  expect((await cli(["validate", looped])).out).toBe("refused unreadable: projects/personal/homelab/memories/loop/ could not be read (ELOOP), so the verdict is on the bank without it: make it readable, or remove it.\nbank-validator 1: 1 refused\n");
+  const nas = "projects/personal/homelab/nas";
+  const linked = bankFolder(Object.fromEntries(Object.entries(PERSONAL_BANK).map(([path, text]) => [path.replace(`${nas}/`, "elsewhere/nas/"), text])));
+  symlinkSync("../../../elsewhere/nas", join(linked, nas));
+  expect(await cli(["validate", linked])).toMatchObject({ code: 0, out: "bank-validator 1: valid\n" });
+});
+
+it("refuses in validate what the memory tool's draft refuses, by the same rule ids", async () => {
+  const h = await start();
+  await register(h, PERSONAL_BANK);
+  const [refused] = await toolAnswers(h, [tool("draft", { scope: { org: "personal", project: "homelab" }, name: "short-fact", description: "Too short.", body: "Roll out once.", type: "project" })]);
+  const { data } = JSON.parse(refused?.text ?? "null") as { data: { rules: string[] } };
+  expect(data.rules).toEqual(["description_length"]);
+  const folder = bankFolder({ ...PERSONAL_BANK, "projects/personal/homelab/memories/short-fact.md": memory("short-fact", { description: "Too short." }) });
+  const validated = await cli(["validate", folder, "--json"]);
+  const verdict = JSON.parse(validated.out) as { findings: { rule: string; severity: string }[] };
+  expect(validated.code).toBe(1);
+  expect([...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))]).toEqual(data.rules);
 });
