@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankLocation",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "remote"
+        },
+        "origin": {
+          "type": "string",
+          "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+          "description": "The canonical origin of the forge the bank's repository is on: its pull requests and its credential go there."
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^[^/\\s]+(?:\\/[^/\\s]+)+$",
+          "description": "The repository's path on that forge, owner/name."
+        }
+      },
+      "required": [
+        "kind",
+        "origin",
+        "repository"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "local"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    }
+  ],
+  "description": "Where the bank's repository lives: remote (its forge's origin and the repository's path there) or local, a repository on this machine alone."
+}

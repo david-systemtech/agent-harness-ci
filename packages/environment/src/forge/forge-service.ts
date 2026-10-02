@@ -58,7 +58,7 @@ import { createHarnessGit, type ForgeGitAnswer, type ForgeGitRequest } from "./h
 import { createMissingOrigins } from "./missing-origins.js";
 import { createRunSecrets, type RunSecrets } from "./run-secrets.js";
 import { createForgeOperations, type ForgeOperations } from "./operations.js";
-import { detectForge, type Detection } from "./detection.js";
+import { detectForge, unreadable, type Detection } from "./detection.js";
 import { createPullRequestLinks, type PullRequestLinks } from "./pull-request-links.js";
 import { createForgeMoveSource } from "./move-source.js";
 import { createForgeInjection } from "./injection.js";
@@ -103,7 +103,9 @@ import type { OrientationSection } from "../instructions/orientation.js";
  *   holds is `origin_held`.
  * - **Verification** (#311) is the verifier's (`verifier.ts`): after
  *   startup's gate, every fifteen minutes, on `forge.accounts.verify` and
- *   once a credential is given. The records answered carry the verified-at
+ *   once a credential is given; Set up's Forges checks ask only for a forge
+ *   account whose findings are older than they take, and never past a
+ *   forge's pause (#680). The records answered carry the verified-at
  *   times it keeps beside them. The state import's credential probe is one
  *   verification with no record.
  * - **git** (#314): the run-scoped secrets the credential route
@@ -251,6 +253,13 @@ export interface ForgeService extends ForgeOperations {
   startVerifying(): void;
   /** Verifies one forge account now, or every one (`forge.accounts.verify`), and answers every record after; `not_found` for one the environment does not hold. */
   verify(forgeAccountId?: string): Promise<ForgeAccountRecord[]>;
+  /**
+   * Every record as Set up's Forges checks read it (#680): each forge account
+   * whose last verification ended `maxAgeMs` ago or more is verified first,
+   * unless the forge asked for a pause that has not passed; every other is
+   * answered as its last verification found it.
+   */
+  verifiedWithin(maxAgeMs: number): Promise<ForgeAccountRecord[]>;
   /**
    * The state import's in-process credential probe: one verification of a
    * token it carried over, without a record, answering identity and
@@ -456,6 +465,7 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
     reader,
     scrub,
     provider: (kind) => forgeProvider(kind, providerOptions),
+    detect: (origin) => detectForge(origin, providerOptions),
     readCredential: readHeld,
     verifier,
     originMissing: (origin, operation) => missing.record(origin, operation),
@@ -744,20 +754,8 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
   };
 
   /** Why detection found no forge a forge account is added for at `origin`: GitLab's, none, or none that answered. */
-  const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) => {
-    switch (found.outcome) {
-      case "unsupported":
-        return { code: "kind_unsupported", message: `${origin} is GitLab, which a forge account cannot be added for before milestone 2.`, data: { origin, kind: found.kind } } as const;
-      case "not-a-forge":
-        return {
-          code: "not_a_forge",
-          message: `${origin} answered as none of the forges the harness knows (GitHub, Forgejo, Gitea, GitLab): check the address, or name the forge's kind.`,
-          data: { origin },
-        } as const;
-      case "unreachable":
-        return { code: "unreachable", message: found.message, data: { origin } } as const;
-    }
-  };
+  const undetected = (origin: ForgeOrigin, found: Exclude<Detection, { outcome: "detected" }>) =>
+    found.outcome === "unreachable" ? ({ code: "unreachable", message: found.message, data: { origin } } as const) : unreadable(origin, found);
 
   const add: ForgeAdd = {
     async prepare(params, context) {
@@ -974,6 +972,11 @@ export const createForgeService = (options: ForgeServiceOptions): ForgeService =
       const id = forgeAccountId?.toLowerCase();
       if (id !== undefined && liveForgeAccount(reader, id) === null) throw new ContractError(notFound(id));
       await Promise.all((id === undefined ? listForgeAccounts(reader).map((account) => account.id) : [id]).map(verifier.verify));
+      return listSeen();
+    },
+
+    async verifiedWithin(maxAgeMs) {
+      await Promise.all(listForgeAccounts(reader).map((account) => verifier.verifyStale(account.id, maxAgeMs)));
       return listSeen();
     },
 

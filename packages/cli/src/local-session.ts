@@ -7,12 +7,14 @@ import {
   BootstrapError,
   BootstrapGrant,
   ClientSessionCredential,
+  EnvironmentNotice,
   PROTOCOL_VERSION,
   WIRE_PATH,
   decodeFrame,
   encodeFrame,
   formatHostPort,
   registry,
+  type Frame,
   type MethodName,
   type ParamsOf,
   type ResponseFrame,
@@ -23,10 +25,11 @@ import { HARNESS_VERSION, systemClock, type Clock, type Timer } from "@agent-har
 
 /**
  * The route every CLI verb that asks the environment on this machine
- * something takes (`pair`, the `update` verbs): the bootstrap grant in the
- * environment's data directory is exchanged for a local client session, the
- * verb makes its calls on the wire, and the client session is revoked
- * before the verb exits, so no run leaves one behind.
+ * something takes (`pair`, the `update` verbs, `browser pair`, the `bank` verbs): the
+ * bootstrap grant in the environment's data directory is exchanged for a
+ * local client session, the verb makes its calls on the wire and hears the
+ * environment's notices from then on when it waits on one, and the client
+ * session is revoked before the verb exits, so no run leaves one behind.
  */
 
 /** The network a verb uses: the platform's own, or a test's recording one. */
@@ -60,8 +63,35 @@ export class LocalRefusal extends LocalFailure {
   }
 }
 
+/** How long one call may wait for its answer. */
+export interface LocalCallOptions {
+  /** How long the environment may stay silent while it works on this call; preset the route's timeout. A bank's landing waits minutes on its forge's check. */
+  readonly timeoutMs?: number;
+}
+
 /** One call on the wire: the method's response, or a `LocalRefusal` thrown with the environment's error. */
-export type LocalCall = <N extends MethodName>(method: N, params: ParamsOf<N>) => Promise<ResponseOf<N>>;
+export type LocalCall = <N extends MethodName>(method: N, params: ParamsOf<N>, options?: LocalCallOptions) => Promise<ResponseOf<N>>;
+
+/**
+ * Follows the environment's notices (`environment.subscribe`) from now on:
+ * `hear` gets each notice the environment raises once the subscription is
+ * live, and none it raised before, which the catch-up replays. Resolves once
+ * it is live; a notice this CLI does not know is passed over. Once per verb.
+ */
+export type LocalNotices = (hear: (notice: EnvironmentNotice) => void) => Promise<void>;
+
+/** What a verb's work is handed: its calls, and the environment's notices. */
+export type LocalWork<T> = (call: LocalCall, notices: LocalNotices) => Promise<T>;
+
+/** The notices a verb follows: the subscribe request's id, the subscription once the environment names it, and whether its catch-up is over. */
+interface Following {
+  readonly id: string;
+  subscription?: string;
+  live: boolean;
+  readonly hear: (notice: EnvironmentNotice) => void;
+  /** Settles the follow: live, or refused with the error. */
+  readonly ready: (error?: Error) => void;
+}
 
 /** How long the verb waits for the environment at each step: the exchange, the hello, each answer. */
 const WIRE_TIMEOUT_MS = 10_000;
@@ -143,13 +173,14 @@ const overWire = <T>(
   credential: ClientSessionCredential,
   net: Net,
   { timeoutMs, clock }: Required<LocalSessionOptions>,
-  work: (call: LocalCall) => Promise<T>,
+  work: LocalWork<T>,
 ): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const ws = new net.WebSocket(url);
-    /** The calls awaiting their answer, by request id. */
-    const pending = new Map<string, (frame: ResponseFrame) => void>();
+    /** The calls awaiting their answer, by request id, each with how long it may wait. */
+    const pending = new Map<string, { readonly answer: (frame: ResponseFrame) => void; readonly timeoutMs: number }>();
     let calls = 0;
+    let following: Following | undefined;
     let greeted = false;
     let outcome: Outcome<T> | undefined;
     let settled = false;
@@ -168,30 +199,64 @@ const overWire = <T>(
     /**
      * The timeout's one rule, applied after every step: while the verb waits on
      * the environment (the connection and its hello, a call's answer, the
-     * revoke and its bye) the wait starts again, and silence for the timeout
-     * fails the verb; while only the verb's own work runs, nothing is waited on.
+     * notices' catch-up, the revoke and its bye) the wait starts again, and
+     * silence for the timeout fails the verb; while only the verb's own work
+     * runs, waiting on a notice included, nothing is waited on. A call in
+     * flight with a longer wait of its own lengthens it while it is.
      */
     const rearm = () => {
       timer?.cancel();
-      const waiting = !greeted || pending.size > 0 || outcome !== undefined;
-      if (waiting && !settled) timer = clock.setTimeout(() => fail(`The environment at ${url} did not answer within ${timeoutMs / 1000} seconds.`), timeoutMs);
+      const waiting = !greeted || pending.size > 0 || following?.live === false || outcome !== undefined;
+      const waitMs = Math.max(timeoutMs, ...[...pending.values()].map((entry) => entry.timeoutMs));
+      if (waiting && !settled) timer = clock.setTimeout(() => fail(`The environment at ${url} did not answer within ${waitMs / 1000} seconds.`), waitMs);
     };
     const send = (frame: Parameters<typeof encodeFrame>[0]) => ws.send(encodeFrame(frame));
 
-    const call: LocalCall = (method, params) =>
+    const call: LocalCall = (method, params, options = {}) =>
       new Promise((resolveCall, rejectCall) => {
         if (settled || outcome !== undefined) return rejectCall(new LocalFailure(`${method} was called after the verb's work was done.`));
         const id = `call-${++calls}`;
-        pending.set(id, (frame) => {
+        const answer = (frame: ResponseFrame) => {
           if (frame.error) return rejectCall(new LocalRefusal(method, frame.error));
           const entry = registry[method];
-          const answer = ("response" in entry ? entry.response : entry.result).safeParse(frame.result);
-          if (!answer.success) return rejectCall(new LocalFailure(`The environment answered ${method} with something that is not its answer.`));
-          resolveCall(answer.data as ResponseOf<typeof method>);
-        });
+          const parsed = ("response" in entry ? entry.response : entry.result).safeParse(frame.result);
+          if (!parsed.success) return rejectCall(new LocalFailure(`The environment answered ${method} with something that is not its answer.`));
+          resolveCall(parsed.data as ResponseOf<typeof method>);
+        };
+        pending.set(id, { answer, timeoutMs: options.timeoutMs ?? timeoutMs });
         send({ type: "request", id, method, params: params as Record<string, unknown> });
         rearm();
       });
+
+    const notices: LocalNotices = (hear) =>
+      new Promise((resolveNotices, rejectNotices) => {
+        if (settled || outcome !== undefined) return rejectNotices(new LocalFailure("The notices were asked for after the verb's work was done."));
+        if (following !== undefined) return rejectNotices(new LocalFailure("The notices are followed once per verb."));
+        following = { id: "notices", live: false, hear, ready: (error) => (error === undefined ? resolveNotices() : rejectNotices(error)) };
+        // From the start of the log: what catch-up replays is passed over, and the notices after it are heard.
+        send({ type: "request", id: following.id, method: "environment.subscribe", params: { afterSequence: 0 } });
+        rearm();
+      });
+
+    /** A frame of the notices' subscription: catch-up passed over until it is live, then each notice heard while the work runs. */
+    const followed = (frame: Extract<Frame, { subscription: string }>) => {
+      if (following === undefined || frame.subscription !== following.subscription) return;
+      switch (frame.type) {
+        case "synchronized":
+          following.live = true;
+          rearm();
+          return following.ready();
+        case "event": {
+          if (!following.live || outcome !== undefined) return;
+          const notice = EnvironmentNotice.safeParse(frame.event);
+          return notice.success ? following.hear(notice.data) : undefined;
+        }
+        case "end":
+          return outcome === undefined ? fail(`The environment stopped sending its notices (${frame.reason}).`) : undefined;
+        default:
+          return;
+      }
+    };
 
     /** The work is done: the verb revokes its own client session, and settles with the work's outcome once the environment says so. */
     const finish = (done: Outcome<T>) => {
@@ -217,7 +282,7 @@ const overWire = <T>(
           greeted = true;
           rearm();
           return void Promise.resolve()
-            .then(() => work(call))
+            .then(() => work(call, notices))
             .then(
             (value) => finish({ ok: true, value }),
             (error: unknown) => finish({ ok: false, error }),
@@ -231,7 +296,21 @@ const overWire = <T>(
           if (outcome !== undefined && (frame.reason === "updating" || frame.reason === "draining")) return settle(outcome);
           return fail(`The environment closed the socket (${frame.reason})${frame.message ? `: ${frame.message}` : "."}`);
         }
+        case "subscribed":
+          if (following?.id === frame.id) following.subscription = frame.subscription;
+          return;
+        case "snapshot":
+        case "event":
+        case "synchronized":
+        case "end":
+          return followed(frame);
         case "response": {
+          if (following?.id === frame.id && frame.error) {
+            const refused = following;
+            following = undefined;
+            rearm();
+            return refused.ready(new LocalRefusal("environment.subscribe", frame.error));
+          }
           if (frame.id === "revoke") {
             // Refused as an error, or rejected in its receipt; accepted, the bye that follows settles it.
             const receipt = registry["access.sessions.revoke"].response.safeParse(frame.result).data?.receipt;
@@ -242,7 +321,7 @@ const overWire = <T>(
           if (waiting === undefined) return;
           pending.delete(frame.id);
           rearm();
-          return waiting(frame);
+          return waiting.answer(frame);
         }
         default:
           return;
@@ -257,15 +336,15 @@ const overWire = <T>(
 /**
  * Runs `work` on the environment whose data directory is `target.dataDir`,
  * as its own OS user: exchanges the bootstrap grant for a local client
- * session labelled `label`, opens the wire, hands `work` its calls, and
- * revokes that client session, so each run leaves none behind. Rejects with a
+ * session labelled `label`, opens the wire, hands `work` its calls and the
+ * environment's notices, and revokes that client session, so each run leaves none behind. Rejects with a
  * `LocalFailure` saying plainly why when no environment answers.
  */
 export const withLocalSession = async <T>(
   target: LocalTarget,
   net: Net,
   label: string,
-  work: (call: LocalCall) => Promise<T>,
+  work: LocalWork<T>,
   { timeoutMs = WIRE_TIMEOUT_MS, clock = systemClock }: LocalSessionOptions = {},
 ): Promise<T> => {
   const grant = readGrant(target.dataDir);

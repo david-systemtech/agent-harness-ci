@@ -11,16 +11,18 @@
           "kind": {
             "type": "string",
             "enum": [
-              "forge-account"
+              "forge-account",
+              "endpoint",
+              "bank"
             ],
-            "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token)."
+            "description": "What holds a stored value Move can take: forge-account (a forge account's pasted token), endpoint (a webhook endpoint's pasted secret) or bank (a bank's fallback token)."
           },
           "id": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
             "pattern": "^[^\\p{Cc}]+$",
-            "description": "The item's id with its owner: a forge account's id."
+            "description": "The item's id with its owner: a forge account's or bank's id, or a webhook endpoint's name."
           },
           "name": {
             "type": "string",
@@ -39,135 +41,175 @@
                   "description": "The connection the target is on."
                 },
                 "reference": {
-                  "oneOf": [
+                  "anyOf": [
                     {
-                      "type": "object",
-                      "properties": {
-                        "provider": {
-                          "type": "string",
-                          "const": "openbao"
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "provider": {
+                              "type": "string",
+                              "const": "openbao"
+                            },
+                            "connectionId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                              "description": "The key-manager connection the reference is read through."
+                            },
+                            "mount": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024,
+                              "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                              "description": "The KV mount, as personal or secret/team: no slash at either end."
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 1024,
+                              "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                              "description": "The secret's path under the mount, as harness/forge-github."
+                            },
+                            "key": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The key inside the secret whose value is read."
+                            }
+                          },
+                          "required": [
+                            "provider",
+                            "connectionId",
+                            "mount",
+                            "path",
+                            "key"
+                          ],
+                          "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
                         },
-                        "connectionId": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-                          "description": "The key-manager connection the reference is read through."
+                        {
+                          "type": "object",
+                          "properties": {
+                            "provider": {
+                              "type": "string",
+                              "const": "doppler"
+                            },
+                            "connectionId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                              "description": "The key-manager connection the reference is read through."
+                            },
+                            "name": {
+                              "type": "string",
+                              "maxLength": 256,
+                              "pattern": "^[A-Z_][A-Z0-9_]*$",
+                              "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
+                            },
+                            "project": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The project, when the connection's token does not fix one."
+                            },
+                            "config": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The config, when the connection's token does not fix one."
+                            }
+                          },
+                          "required": [
+                            "provider",
+                            "connectionId",
+                            "name"
+                          ],
+                          "description": "A Doppler secret by name, with its project and config when the token does not fix them."
                         },
-                        "mount": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 1024,
-                          "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
-                          "description": "The KV mount, as personal or secret/team: no slash at either end."
+                        {
+                          "type": "object",
+                          "properties": {
+                            "provider": {
+                              "type": "string",
+                              "const": "onepassword"
+                            },
+                            "connectionId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                              "description": "The key-manager connection the reference is read through."
+                            },
+                            "vault": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The vault, by name or id."
+                            },
+                            "item": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The item, by name or id."
+                            },
+                            "field": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The field whose value is read."
+                            }
+                          },
+                          "required": [
+                            "provider",
+                            "connectionId",
+                            "vault",
+                            "item",
+                            "field"
+                          ],
+                          "description": "A 1Password field, as an op:// reference names it: vault, item and field."
                         },
-                        "path": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 1024,
-                          "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
-                          "description": "The secret's path under the mount, as harness/forge-github."
-                        },
-                        "key": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The key inside the secret whose value is read."
+                        {
+                          "type": "object",
+                          "properties": {
+                            "provider": {
+                              "type": "string",
+                              "const": "bitwarden"
+                            },
+                            "connectionId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                              "description": "The key-manager connection the reference is read through."
+                            },
+                            "secretId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                              "description": "The secret's id, which is what is read."
+                            },
+                            "key": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256,
+                              "pattern": "^[^\\p{Cc}]+$",
+                              "description": "The secret's key, for display only."
+                            }
+                          },
+                          "required": [
+                            "provider",
+                            "connectionId",
+                            "secretId",
+                            "key"
+                          ],
+                          "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
                         }
-                      },
-                      "required": [
-                        "provider",
-                        "connectionId",
-                        "mount",
-                        "path",
-                        "key"
                       ],
-                      "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "provider": {
-                          "type": "string",
-                          "const": "doppler"
-                        },
-                        "connectionId": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-                          "description": "The key-manager connection the reference is read through."
-                        },
-                        "name": {
-                          "type": "string",
-                          "maxLength": 256,
-                          "pattern": "^[A-Z_][A-Z0-9_]*$",
-                          "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
-                        },
-                        "project": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The project, when the connection's token does not fix one."
-                        },
-                        "config": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The config, when the connection's token does not fix one."
-                        }
-                      },
-                      "required": [
-                        "provider",
-                        "connectionId",
-                        "name"
-                      ],
-                      "description": "A Doppler secret by name, with its project and config when the token does not fix them."
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "provider": {
-                          "type": "string",
-                          "const": "onepassword"
-                        },
-                        "connectionId": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-                          "description": "The key-manager connection the reference is read through."
-                        },
-                        "vault": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The vault, by name or id."
-                        },
-                        "item": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The item, by name or id."
-                        },
-                        "field": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The field whose value is read."
-                        }
-                      },
-                      "required": [
-                        "provider",
-                        "connectionId",
-                        "vault",
-                        "item",
-                        "field"
-                      ],
-                      "description": "A 1Password field, as an op:// reference names it: vault, item and field."
+                      "description": "Where a credential sits in a key manager, never its value: the provider, the connection it is read through, and the provider's locator (OpenBao mount, path and key; a Doppler name with its project and config; a 1Password vault, item and field; a Bitwarden secret id with its key)."
                     },
                     {
                       "type": "object",
@@ -182,30 +224,30 @@
                           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
                           "description": "The key-manager connection the reference is read through."
                         },
-                        "secretId": {
+                        "project": {
                           "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                          "description": "The secret's id, which is what is read."
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\p{Cc}]+$",
+                          "description": "The base project name or id."
                         },
                         "key": {
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 256,
                           "pattern": "^[^\\p{Cc}]+$",
-                          "description": "The secret's key, for display only."
+                          "description": "The secret key Move writes."
                         }
                       },
                       "required": [
                         "provider",
                         "connectionId",
-                        "secretId",
+                        "project",
                         "key"
-                      ],
-                      "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
+                      ]
                     }
                   ],
-                  "description": "The reference the item holds once moved there: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key."
+                  "description": "Where the item will be written: for OpenBao, the base path's mount, <project>/<entry> under it (harness/forge-github) and the key; for Bitwarden, the base project and key until creation returns the secret id for the reference."
                 }
               },
               "required": [

@@ -212,6 +212,20 @@ describe("a Claude process's environment", () => {
     expect(Object.keys(env).filter((name) => name.startsWith("FORGE_") || name === "GH_TOKEN")).toEqual(["FORGE_GITHUB_URL", "FORGE_GITHUB_TOKEN"]);
   });
 
+  it("removes every inherited BWS_ variable, so an inherited server URL never bypasses the Bitwarden block's profile and state folder (#1141)", () => {
+    const env = composeRunEnvironment(
+      { PATH: "/usr/bin", BWS_SERVER_URL: "https://stray.example", BWS_PROFILE: "stray-profile-for-tests", BWS_CONFIG_FILE: "/home/someone/.bws/config" },
+      "/data/accounts/work",
+      {},
+      { BWS_ACCESS_TOKEN: "token-for-tests", BWS_CONFIG_FILE: "/data/key-manager-cli/bitwarden-a/config", BWS_PROFILE: "agent-harness" },
+    );
+    expect(Object.entries(env).filter(([name]) => name.startsWith("BWS_"))).toEqual([
+      ["BWS_ACCESS_TOKEN", "token-for-tests"],
+      ["BWS_CONFIG_FILE", "/data/key-manager-cli/bitwarden-a/config"],
+      ["BWS_PROFILE", "agent-harness"],
+    ]);
+  });
+
   it("does not touch the host's environment", () => {
     const before = { ...host };
     composeRunEnvironment(host, "/data/accounts/work", { EXTRA: "1" });

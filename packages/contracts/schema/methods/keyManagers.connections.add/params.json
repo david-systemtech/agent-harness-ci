@@ -33,10 +33,10 @@
       "description": "A key-manager connection's label, which people know it by: 1 to 100 characters on one line."
     },
     "address": {
+      "description": "The key manager's URL: only its origin is kept. Required, except for a 1Password connection given a token, whose address is the account URL the token names, learned at sign-in.",
       "type": "string",
       "minLength": 1,
-      "maxLength": 2048,
-      "description": "The key manager's URL: only its origin is kept."
+      "maxLength": 2048
     },
     "ca": {
       "description": "The CA to pin, as PEM, which a person accepted; absent for none. OpenBao only.",
@@ -201,7 +201,6 @@
     "commandId",
     "connectionId",
     "provider",
-    "label",
-    "address"
+    "label"
   ]
 }

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryDraftInput",
+  "type": "object",
+  "properties": {
+    "bank": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "org": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+        },
+        "project": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+        },
+        "area": {
+          "type": "string",
+          "maxLength": 80,
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+        }
+      },
+      "required": [
+        "org",
+        "project"
+      ],
+      "additionalProperties": false
+    },
+    "topic": {
+      "type": "string",
+      "maxLength": 80,
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "A lower-case folder segment of letters, digits and hyphens, never a filesystem path."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "user",
+        "feedback",
+        "project",
+        "reference"
+      ],
+      "description": "A memory is a user, feedback, project or reference fact."
+    },
+    "appliesTo": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+        "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+      }
+    }
+  },
+  "required": [
+    "scope",
+    "name",
+    "description",
+    "body",
+    "type"
+  ]
+}

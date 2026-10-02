@@ -28,7 +28,9 @@ import type { ManualClock } from "./in-memory-platform.js";
  * carriage return answers (a wrong one is asked again), then prints and
  * exits; once it has exited the tool's row changes as the script says,
  * appending `tools.updated` as the probe after a run does, and
- * `tool.run-finished` records the verification. One run at a time, as the
+ * `tool.run-finished` records the verification; the environment keeps its
+ * terminal `TOOL_TERMINAL_KEPT_MS` on its clock, then closes it, telling no
+ * one (`scripted-environment.ts`, #864). One run at a time, as the
  * environment's runner holds it: another is `conflict` reason
  * `tool_run_in_progress` until the one under way has finished. A Copy row's
  * Update, `vault`'s, and a run the script refuses are `tool_not_runnable`

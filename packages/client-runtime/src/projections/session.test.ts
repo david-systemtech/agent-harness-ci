@@ -31,6 +31,20 @@ const NO_SNAPSHOT = { runs: [], items: [], parkedPrompts: [], rewinds: [], instr
 const reduce = (events: readonly EventEnvelope[], snapshot = NO_SNAPSHOT) => reduceSession(snapshot, events);
 const kinds = (items: readonly TranscriptEntry[]) => items.map((item) => item.kind);
 
+describe("a prompt suggestion (#251)", () => {
+  it("projects the latest completed run's offer from events or a cached snapshot, and clears it at the next run", () => {
+    const suggestion = { runId: FIXTURE_RUN, suggestion: "Add a regression test" };
+    const events = numbered(1, [["run.started", recorded("run.started")], ["run.ended", recorded("run.ended")], ["run.suggested", suggestion]]);
+    expect(reduce(events).suggestion).toEqual(suggestion);
+    const kind = sessionKind();
+    const data = kind.fromSnapshot({ ...recordedSnapshot(), suggestion });
+    const cached = kind.decode(kind.encode(data));
+    expect(reduceSession(cached.snapshot, []).suggestion).toEqual(suggestion);
+    const next = numbered(4, [["run.started", { ...recorded("run.started"), runId: FIXTURE_OTHER_MESSAGE }], ["run.suggested", suggestion]]);
+    expect(reduceSession({ ...NO_SNAPSHOT, suggestion }, next).suggestion).toBeNull();
+  });
+});
+
 describe("a streamed run", () => {
   const start = numbered(1, [
     ["run.started", recorded("run.started")],
@@ -445,6 +459,19 @@ describe("session.forked", () => {
 
   it("names no message for a fork of the whole session", () => {
     expect(reduce(fork(null)).items).toEqual([{ kind: "forked", sequence: 4, fromSessionId: SOURCE, atMessageId: null }]);
+  });
+
+  it("reads the same forked entry from a cached snapshot, before later events, without changing an older snapshot", () => {
+    const entry = { kind: "forked", sequence: 4, fromSessionId: SOURCE, atMessageId: FIXTURE_MESSAGE };
+    const kind = sessionKind();
+    const original = recordedSnapshot();
+    const data = kind.fromSnapshot({ ...original, runs: [], items: [entry], parkedPrompts: [], rewinds: [], instructions: "" });
+    const cached = kind.decode(kind.encode(data));
+    const later = numbered(5, [["run.started", recorded("run.started")], ["message.sent", recorded("message.sent")]]);
+    expect(reduceSession(cached.snapshot, later).items).toEqual(reduce([...fork(FIXTURE_MESSAGE), ...later]).items);
+    const older = kind.fromSnapshot(original);
+    expect(reduceSession(older.snapshot, []).items.some((item) => item.kind === "forked")).toBe(false);
+    expect(data.snapshot.items).toEqual([entry]);
   });
 
   it("stays where it is when the fork is rewound to its first message, before the fold", () => {

@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypt
 import {
   ContractError,
   chromeNameOf,
+  pageKeyOf,
   type BrowserStatus,
   type ChromeChange,
   type ExtensionListenerStatus,
@@ -15,12 +16,17 @@ import { formatActor, type EventInput, type EventLog, type StreamRef } from "../
 import { readDenylist } from "../permissions/denylist-store.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandContext, CommandRejection, MethodHandlers } from "../serve/methods.js";
+import type { StateCheckers } from "../setup/check.js";
 import type { Vault } from "../serve/vault.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { readSettings } from "../settings/settings-store.js";
 import { chromeStream, readChrome, readChromes, type ChromeRecord } from "./chromes.js";
+import type { Resolver } from "./address-rules.js";
 import { createExtensionDriver } from "./extension-driver.js";
 import { extensionFolder, type FolderState } from "./extension-folder.js";
+import { createHeadlessBrowser, type HeadlessBrowser } from "./headless.js";
+import type { FoundExecutable } from "./headless-executable.js";
+import type { BrowserLauncher } from "./headless-launch.js";
 import { createExtensionListener, type ChromeDesk, type ExtensionListenerPorts } from "./listener.js";
 import { createPairingCodes } from "./pairing-code.js";
 
@@ -46,6 +52,11 @@ import { createPairingCodes } from "./pairing-code.js";
  * verbs on a paired Chrome over its proved socket (#552): for this
  * environment's own runs, and through `browser.chromes.perform` for a local
  * client session.
+ *
+ * Beside it, the headless browser (#555, `headless.ts`): its source or why
+ * it has none, which each run's resolution reads, and its part of
+ * `browser.status`. Its frame judge reads the page policy held here, and
+ * a settings change lets go of a browser the settings no longer name.
  */
 
 /** Who the log says appended what no client asked for: `extension.seen`, a pairing, a connection. */
@@ -73,6 +84,16 @@ export interface BrowserServiceOptions {
   readonly ports: ExtensionListenerPorts;
   /** Where each paired Chrome's secret is kept. */
   readonly vault: Vault;
+  /** Where the headless browser runs, and how it is found, launched and has its navigation's names resolved. */
+  readonly headless: HeadlessSeams;
+}
+
+/** The headless browser's seams: whether the install declared a container, the executable search, the launcher and the resolver. */
+export interface HeadlessSeams {
+  readonly declaredContainer: boolean;
+  readonly find: (named: string | null) => FoundExecutable;
+  readonly launch: BrowserLauncher;
+  readonly resolve: Resolver;
 }
 
 export interface BrowserService {
@@ -86,6 +107,10 @@ export interface BrowserService {
   status(): Promise<BrowserStatus>;
   /** The page driver of the paired Chrome `chromeId`, or of the plain My Chrome for null: the extension driver. */
   driverOf(chromeId: string | null): PageDriver;
+  /** The headless browser: its availability, which each run's resolution reads, and its driver. */
+  readonly headless: Pick<HeadlessBrowser, "availability" | "driver">;
+  /** Browser health reads the live listener and chrome projection, without changing either. */
+  readonly stateChecks: Pick<StateCheckers, "browser.present" | "browser.chrome-connected" | "browser.extension-current">;
   readonly handlers: MethodHandlers;
   close(): Promise<void>;
 }
@@ -113,6 +138,25 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
    * read on a socket's way and a failing read cannot fail it.
    */
   let heldPolicy = policy();
+
+  const headless = createHeadlessBrowser({
+    dataDir: options.dataDir,
+    clock: options.clock,
+    settings: () => {
+      const settings = readSettings(reader);
+      return {
+        allowRuns: settings["browser.headless.allowRuns"],
+        endpoint: settings["browser.headless.endpoint"],
+        executable: settings["browser.headless.executable"],
+        limits: settings["browser.headless.limits"],
+      };
+    },
+    policy: () => heldPolicy,
+    rules: () => ({ internalHosts: readSettings(reader)["browser.internalHosts"], resolve: options.headless.resolve }),
+    declaredContainer: options.headless.declaredContainer,
+    find: options.headless.find,
+    launch: options.headless.launch,
+  });
 
   const notice = (chromeId: string, name: string, change: ChromeChange): EventInput => ({ type: "chrome.updated", payload: { chromeId, name, change } });
 
@@ -245,6 +289,7 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
       folder: { path: folder.path, problem: state.problem },
       shippedVersion: state.shippedVersion,
       unpairedConnected: listener.unpairedConnected(),
+      headless: headless.status(),
     };
   };
 
@@ -264,8 +309,12 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
   // The port file names the environment as it is now: a rename writes it again. The page policy follows the settings and
   // the denylist: a change that alters it is held, and sent to every proved socket.
   const stopFollowing = log.subscribe((event) => {
+    if (event.streamKind === "session" && (event.type === "session.deleted" || event.type === "session.purged")) {
+      void headless.release(pageKeyOf(options.environmentId, event.streamId));
+    }
     if (event.streamKind === stream.kind && event.streamId === stream.id && event.type === "environment.renamed") void ensure();
     if (event.type !== "settings.updated" && event.type !== "denylist.changed") return;
+    if (event.type === "settings.updated") headless.refresh();
     const next = policy();
     if (JSON.stringify(next) === JSON.stringify(heldPolicy)) return;
     heldPolicy = next;
@@ -283,9 +332,25 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
       }
       listening = await listener.listen(options.ports);
       await ensure();
+      await headless.start();
     },
     status,
     driverOf: (chromeId) => driver.driverOf(chromeId),
+    headless,
+    stateChecks: {
+      "browser.present": () => readChromes(reader).length > 0 || { reason: "No Chrome is paired with this environment." },
+      "browser.chrome-connected": () => readChromes(reader).some((chrome) => listener.isConnected(chrome.id)) || {
+        reason: "The extension only runs while Chrome is open. Open Chrome and, if it asks, dismiss the developer-mode notice; this turns green by itself.",
+        targets: readChromes(reader).map((chrome) => ({ action: "unpair", kind: "chrome", id: chrome.id, label: chrome.name })),
+      },
+      "browser.extension-current": () => {
+        const outdated = readChromes(reader).filter((chrome) => listed(chrome).outdated);
+        return outdated.length === 0 || {
+          reason: outdated.map((chrome) => `${chrome.name}: Chrome is running version ${chrome.lastReportedVersion} of the extension; this environment has ${state.shippedVersion}. Open chrome://extensions and click Reload.`).join(" "),
+          targets: outdated.map((chrome) => ({ action: "reload", kind: "chrome", id: chrome.id, label: chrome.name })),
+        };
+      },
+    },
     handlers: {
       "browser.status": () => status(),
       "browser.pairing.code": () => codes.live(),
@@ -326,7 +391,7 @@ export const createBrowserService = (options: BrowserServiceOptions): BrowserSer
     },
     async close() {
       stopFollowing();
-      await listener.close();
+      await Promise.all([listener.close(), headless.close()]);
     },
   };
 };

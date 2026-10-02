@@ -246,24 +246,29 @@ describe("the routine YAML codec", () => {
     expect(yaml).toContain("{ kind: webhook, target: hermes-home, on: success }");
   });
 
-  it("reads the upstream watch's routine document, the fixture #537 puts in the routine document, as a disabled weekly routine in the importing environment's zone", () => {
+  it("reads the upstream watch's committed routine document and matching fixture as a disabled weekly routine with inline instructions", () => {
     const yaml = readFileSync(new URL("../test/upstream-watch.routine.yaml", import.meta.url), "utf8");
+    const document = readFileSync(new URL("../../../docs/routines/upstream-watch.md", import.meta.url), "utf8");
+    expect(document.match(/```yaml\n([\s\S]*?)\n```/)?.[1]).toBe(yaml.trimEnd());
     const documents = readRoutineYaml(yaml, ZONE);
     expect(documents).toHaveLength(1);
     expect(documents[0]?.issues).toEqual([]);
     expect(documents[0]?.definition).toMatchObject({
       name: "Upstream watch",
       schedule: { kind: "weekly", day: "monday", at: "03:00" },
-      timezone: ZONE,
+      timezone: "Etc/UTC",
       workspace: { kind: "directory", path: "/work/SYSTEM-SERVER/agent-harness", repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" },
       account: { provider: "claude", organisation: null },
-      model: "opus[1m]",
+      model: "opus",
       effort: "high",
       mode: "acceptEdits",
       preCheck: { kind: "script", path: "upstream-watch-probe.sh", timeoutSeconds: 60 },
-      delivery: [{ kind: "client-notice", on: "both" }],
+      delivery: [{ kind: "client-notice", on: "both" }, { kind: "webhook", target: "hermes", on: "success" }],
       enabled: false,
     });
     expect(documents[0]?.definition?.instructions).toMatch(/^You are the weekly upstream watch[\s\S]*8\. Reply with a two-line summary\./);
+    expect(documents[0]?.definition?.instructions).toContain("FORGE_<SLUG>_TOKEN");
+    expect(documents[0]?.definition?.instructions).toContain("The pre-check's diff is a hint");
+    expect(documents[0]?.definition?.instructions).not.toMatch(/OpenBao|quiet week/);
   });
 });

@@ -68,11 +68,12 @@ interface KeptProbe {
   expired: boolean;
 }
 
-/** What a source's checkout is asked for: the URL as entered, what the source follows, and the probe whose checkout to reuse. */
+/** What a source's checkout is asked for: the URL as entered, what the source follows, the probe whose checkout to reuse, and what stops its git. */
 export interface SourceCheckoutRequest {
   readonly url: string;
   readonly follow: SkillSourceFollow;
   readonly probeId?: string;
+  readonly signal?: AbortSignal;
 }
 
 /** A checkout whose working tree is at the commit a source follows, released once read. */
@@ -150,7 +151,9 @@ const reached = (answer: ForgeGitAnswer, origin: string): void => {
   if (answer.git.ok) return;
   const noSsh = NO_SSH.exec(answer.git.stderr);
   if (noSsh !== null) throw unreachable("git_failed", noSsh[0].trim(), origin);
-  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), gitComplaint(answer.git.stderr), origin);
+  // Stopped at its time, git has said nothing of why: the line says what stopped it.
+  const line = answer.git.timedOut ? `git was stopped after ${PROBE_CLONE_TIMEOUT_MS / 1000} seconds.` : gitComplaint(answer.git.stderr);
+  throw unreachable(problemOf(answer.git.stderr, answer.git.timedOut), line, origin);
 };
 
 /** The commit the checkout at `path` stands at, its branch when on one; unreachable `not_found` when it has none. */
@@ -186,8 +189,8 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     rmSync(join(root, probeId), { recursive: true, force: true });
   };
 
-  /** Clones `url` at `branch`, else the remote's default, into `directory` under the probes' folder, depth one, as the probe does. */
-  const clone = async (url: string, branch: string | undefined, directory: string, purpose: string, origin: string): Promise<void> => {
+  /** Clones `url` at `branch`, else the remote's default, into `directory` under the probes' folder, depth one, as the probe does; git stops when `signal` aborts. */
+  const clone = async (url: string, branch: string | undefined, directory: string, purpose: string, origin: string, signal?: AbortSignal): Promise<void> => {
     mkdirSync(root, { recursive: true });
     const cloned = await options.git({
       operation: "clone",
@@ -198,13 +201,14 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
       ...(branch !== undefined && { branch }),
       purpose,
       timeoutMs: PROBE_CLONE_TIMEOUT_MS,
+      ...(signal !== undefined && { signal }),
       sshAsWritten: true,
     });
     reached(cloned, origin);
   };
 
-  /** Fetches `commit` of `url`, depth one, into a new repository at `path`, and checks it out there. */
-  const fetchCommit = async (url: string, commit: GitCommit, path: string, origin: string): Promise<void> => {
+  /** Fetches `commit` of `url`, depth one, into a new repository at `path`, and checks it out there; git stops when `signal` aborts. */
+  const fetchCommit = async (url: string, commit: GitCommit, path: string, origin: string, signal?: AbortSignal): Promise<void> => {
     mkdirSync(path, { recursive: true });
     if (!(await runGit(path, ["init", "--quiet"], { maxBytes: 64 * 1024 })).ok) throw unreachable("git_failed", "git could not make a repository to fetch the pinned commit into.", origin);
     const fetched = await options.git({
@@ -215,6 +219,7 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
       depth: 1,
       purpose: "fetch a skill source's pinned commit",
       timeoutMs: PROBE_CLONE_TIMEOUT_MS,
+      ...(signal !== undefined && { signal }),
       sshAsWritten: true,
     });
     // A commit the remote does not have, which a clone, asking for refs alone, never meets.
@@ -283,7 +288,7 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     }
   };
 
-  const checkout = async ({ url, follow, probeId }: SourceCheckoutRequest): Promise<SourceCheckout> => {
+  const checkout = async ({ url, follow, probeId, signal }: SourceCheckoutRequest): Promise<SourceCheckout> => {
     const remote = normaliseRemote(url);
     const identity = repositoryIdentityOf(url, options.forgeAccounts());
     if (remote === null || identity === null) throw new Error("A URL the source URL rule takes has an identity.");
@@ -294,8 +299,8 @@ export const createSkillProbes = (options: SkillProbesOptions): SkillProbes => {
     const path = join(root, directory);
     const release = (): void => rmSync(path, { recursive: true, force: true });
     try {
-      if (follow.kind === "pinned") await fetchCommit(url, follow.commit, path, remote.origin);
-      else await clone(url, follow.branch ?? undefined, directory, "read a skill source", remote.origin);
+      if (follow.kind === "pinned") await fetchCommit(url, follow.commit, path, remote.origin, signal);
+      else await clone(url, follow.branch ?? undefined, directory, "read a skill source", remote.origin, signal);
       return { path, commit: (await headOf(path, remote.origin)).commit, release };
     } catch (error) {
       release();

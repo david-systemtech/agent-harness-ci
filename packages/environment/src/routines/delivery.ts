@@ -4,7 +4,6 @@ import {
   MAX_DELIVERY_SUMMARY,
   ROUTINE_STREAM_KIND,
   type DeliveredOutcome,
-  type DeliveryOn,
   type FiringFailureReason,
   type RoutineDeliveredPayload,
   type RoutineDeliveryAttemptedPayload,
@@ -16,7 +15,10 @@ import {
 import type { EventEnvelope, EventLog, Tx } from "../event-log/event-log.js";
 import type { Reader } from "../sessions/session-reads.js";
 import { appendRoutineRecord, routineActor } from "./records.js";
+import { deliveredOutcome, takes } from "./delivery-outcome.js";
 import { deliverableEntry, sameTarget } from "./routine-store.js";
+
+export { deliveredOutcome, takes } from "./delivery-outcome.js";
 
 /**
  * Delivery targets (routines spec, "Delivery targets"; #525): once an
@@ -58,31 +60,6 @@ const SKIP_FAILED: Readonly<Partial<Record<SkipReason, string>>> = {
   "cannot-start": "The firing could not start",
 };
 
-/** How an ended entry is delivered: a succeeded firing as `succeeded`, a failed one or a failing skip as `failed`; null for what goes to no target. */
-export const deliveredOutcome = (entry: RoutineEntry): DeliveredOutcome | null => {
-  if (entry.kind === "skip") return SKIP_FAILED[entry.reason] === undefined ? null : "failed";
-  switch (entry.outcome) {
-    case "succeeded":
-      return "succeeded";
-    case "failed":
-      return "failed";
-    default:
-      return null;
-  }
-};
-
-/** Whether a target on `on` takes a result delivered as `outcome`. */
-const takes = (on: DeliveryOn, outcome: DeliveredOutcome): boolean => {
-  switch (on) {
-    case "both":
-      return true;
-    case "success":
-      return outcome === "succeeded";
-    case "failure":
-      return outcome === "failed";
-  }
-};
-
 /** The first line of `text` with anything on it, trimmed; null when it has none. */
 const firstLine = (text: string): string | null =>
   text
@@ -96,7 +73,7 @@ const firstLine = (text: string): string | null =>
  * each cut to its bound. A succeeded firing that said nothing says
  * `NO_FINAL_MESSAGE`; a failed firing that said nothing, its reason.
  */
-const deliveredResult = (entry: RoutineEntry, outcome: DeliveredOutcome): { readonly summary: string; readonly body: string } => {
+export const deliveredResult = (entry: RoutineEntry, outcome: DeliveredOutcome): { readonly summary: string; readonly body: string } => {
   const cut = (summary: string, body: string) => ({ summary: summary.slice(0, MAX_DELIVERY_SUMMARY), body: body.slice(0, MAX_DELIVERY_BODY) });
   if (entry.kind === "skip") {
     const lead = SKIP_FAILED[entry.reason] ?? entry.reason;
@@ -112,7 +89,7 @@ const deliveredResult = (entry: RoutineEntry, outcome: DeliveredOutcome): { read
 };
 
 /** The ended entry an event records: a firing's end, or a skip; null for any other event. */
-const endedEntryOf = (event: EventEnvelope): string | null => {
+export const endedEntryOf = (event: EventEnvelope): string | null => {
   if (event.streamKind !== ROUTINE_STREAM_KIND) return null;
   if (event.type === "routine.firing-ended") return (event.payload as RoutineFiringEndedPayload).firingId;
   if (event.type === "routine.skipped") return (event.payload as RoutineSkippedPayload).skipId;
@@ -135,7 +112,7 @@ export interface DeliveriesOptions {
  * sweep or the host's close makes is delivered too. Answers the
  * unsubscribe.
  */
-export const followDeliveries = ({ log, clock, environmentId }: DeliveriesOptions): (() => void) => {
+const noticeDelivery = ({ log, clock, environmentId }: DeliveriesOptions) => {
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
 
   /** Delivers the entry's result to the client-notice targets it owes, in the open transaction. */
@@ -172,13 +149,45 @@ export const followDeliveries = ({ log, clock, environmentId }: DeliveriesOption
     log.append({ kind: ENVIRONMENT_STREAM_KIND, id: environmentId }, [{ type: "routine.delivered", payload, occurredAt: at }], attribution);
   };
 
-  return log.subscribe((event) => {
+  return deliver;
+};
+
+export const followDeliveries = (options: DeliveriesOptions): (() => void) => {
+  const deliver = noticeDelivery(options);
+  return options.log.subscribe((event) => {
     const entryId = endedEntryOf(event);
     if (entryId === null) return;
     try {
-      log.atomically((tx) => deliver(tx, event.streamId, entryId, event));
+      options.log.atomically((tx) => deliver(tx, event.streamId, entryId, event));
     } catch (error) {
       console.error(`Delivering the entry ${entryId} of the routine ${event.streamId} failed:`, error);
     }
   });
+};
+
+/** The start pass resumes notices lost between an entry's end and its delivery commit. */
+export const resumeDeliveries = (options: DeliveriesOptions): void => {
+  const { log } = options;
+  const deliver = noticeDelivery(options);
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+  let ended: { routine_id: string; id: string; cause_sequence: number }[];
+  try {
+    ended = log.read("SELECT routine_id, id, cause_sequence FROM routine_pending_notices ORDER BY cause_sequence");
+  } catch (error) {
+    console.error("Reading pending routine notices failed; the next start retries them:", error);
+    return;
+  }
+  for (const { routine_id: routineId, id, cause_sequence: sequence } of ended) {
+    try {
+      const entry = deliverableEntry(reader, routineId, id);
+      if (entry === null) continue;
+      const outcome = deliveredOutcome(entry.entry);
+      if (outcome === null || !entry.targets.some((target) => target.kind === "client-notice" && takes(target.on, outcome) && !entry.entry.deliveries.some((delivery) => sameTarget(delivery.target, target)))) continue;
+      const cause = log.readStream({ kind: ROUTINE_STREAM_KIND, id: routineId }, sequence - 1, 1).find((event) => endedEntryOf(event) === id);
+      if (cause === undefined) continue;
+      log.atomically((tx) => deliver(tx, routineId, id, cause));
+    } catch (error) {
+      console.error(`Resuming the delivery of entry ${id} of routine ${routineId} failed; the next start retries it:`, error);
+    }
+  }
 };

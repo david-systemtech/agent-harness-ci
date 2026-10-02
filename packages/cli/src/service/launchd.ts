@@ -63,6 +63,8 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
   const target = `${domain}/${SERVICE_LABEL}`;
   const path = posix.join(installContext.homedir, "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
   const launchctl = (...args: string[]) => commands.run("launchctl", args);
+  /** Stops and unloads the job, waiting while the launcher drains. */
+  const bootout = () => commands.stop("launchctl", ["bootout", target]);
 
   /** What `launchctl print` says of the job: nothing when it is not loaded. */
   const printed = async (): Promise<string | undefined> => {
@@ -73,6 +75,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
 
   return {
     kind: "launchd",
+    drainsOnStop: true,
     definitionPath: () => path,
     install: async (spec, { restartRunning }) => {
       const written = writeDefinition(path, renderLaunchdPlist(spec));
@@ -82,7 +85,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
         // launchd keeps a loaded job's old definition until it is loaded again: a running job left running loads the new
         // one at the next login. Otherwise the job is unloaded, and the new one loaded only if the old one was running.
         if (print !== undefined && (restartRunning || !running(print))) {
-          await launchctl("bootout", target);
+          await bootout();
           bootedOut = true;
           if (running(print)) await launchctl("bootstrap", domain, path);
         }
@@ -95,7 +98,7 @@ export const launchdPlatform = (installContext: InstallContext, commands: Servic
       return { createdDirectories: written.createdDirectories };
     },
     uninstall: async () => {
-      if ((await printed()) !== undefined) await launchctl("bootout", target);
+      if ((await printed()) !== undefined) await bootout();
       rmSync(path, { force: true });
     },
     start: async () => {

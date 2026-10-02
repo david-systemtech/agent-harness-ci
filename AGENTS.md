@@ -42,8 +42,8 @@ See `docs/agents/domain.md`.
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
-much as the environment's jsdom: on contracts and Mozilla Readability alone,
-with no Node built-in and no environment code), `extension` (the MV3
+much as the environment's jsdom: on contracts alone, Mozilla Readability
+vendored, with no Node built-in and no environment code), `extension` (the MV3
 extension Chrome loads unpacked, its service worker and options page: on
 contracts and the browser package alone, bundled by Vite into its `dist`,
 where the environment finds the extension it unpacks), `tui`, `gui` (the
@@ -85,16 +85,25 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Chromium skips unless `AGENT_HARNESS_CHROMIUM` names one; running it is the
   manual checklist in `docs/agents/browser-checklist.md`. Never launch a
   browser on the shared agent box.
+- Code copied from another project, rather than taken as a dependency, lives
+  in a `vendor/` folder beside what uses it, with that project's licence and
+  notice files; each copied file keeps its own notice and names the
+  repository, the commit and what was changed (Playwright's aria snapshot,
+  `packages/browser/src/snapshot/vendor/`, #544; Mozilla Readability,
+  `packages/browser/src/vendor/`, #545, kept as Mozilla wrote it and so
+  neither type-checked nor linted here).
 - The extension's tests run under Node: the service worker against the fake
-  `chrome` API (`packages/extension/test/fake-chrome.ts`) and a scripted
-  environment speaking the bridge protocol on a loopback WebSocket
-  (`test/scripted-environment.ts`), on a manual clock, and the options page in
-  a jsdom window over its markup, type-checked by
-  `packages/extension/tsconfig.test.json`. `pnpm --filter
+  `chrome` API (`packages/extension/test/fake-chrome.ts`, whose tabs and
+  debugger are the scripted CDP peer's) and a scripted environment speaking
+  the bridge protocol on a loopback WebSocket (`test/scripted-environment.ts`),
+  on a manual clock, and the options page in a jsdom window over its markup,
+  type-checked by `packages/extension/tsconfig.test.json`. `pnpm --filter
   @agent-harness/extension build`, a step of `pnpm build`, bundles it into
   `packages/extension/dist`; the build's test bundles it into a scratch folder
-  and runs the built worker on a thread with the fake `chrome`, and the
-  environment's extension tests build `dist` and unpack it. Never load it in a
+  and runs the built worker on a thread with the fake `chrome`
+  (`test/built-worker-thread.ts`), the environment's extension tests build
+  `dist` and unpack it, and its end to end (`extension-pages.test.ts`) builds
+  one of its own and runs the unpacked worker on such a thread. Never load it in a
   browser on the shared agent box: what only a real Chrome proves is the
   extension section of `docs/agents/browser-checklist.md`.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency
@@ -165,10 +174,31 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Forgejo decides mergeability with `git merge-tree`, which runs no custom merge
   driver and does apply the built-in `union`, which joins both sides' lines into
   invalid JSON and reports no conflict.
-- `agent-harness serve` refuses root (ADR 0006), and the agent box and possibly
-  CI run as root: the environment's tests inject a non-privileged user check,
-  and the CLI's end-to-end `serve` tests split on the runner's uid (the
-  refusal as root, the launcher handshake otherwise), so one is always skipped.
+- The bank validator is the contracts' `./bank-validator` entry (pure functions,
+  kept out of the index so no client bundles the YAML library). `pnpm --filter
+  @agent-harness/contracts build-validator` bundles it with Vite into the one
+  Node file each bank vendors, `packages/contracts/dist/bank-validator/validate.mjs`,
+  whose first line is the stamp `// bank-validator <version>` (`BANK_VALIDATOR`).
+  Its test (`scripts/bank-validator/build.test.ts`) builds it into a scratch
+  folder and runs it with Node inside every fixture bank of
+  `test/fixture-banks.ts`, which has one bank per rule; a new rule needs its
+  fixture there.
+- The IndexRenderer (`packages/environment/src/banks/index-renderer.ts`) is the
+  one source of the bank trail, of a bank's fixed-tier bytes (the registry's
+  8 KB admission) and of what a pointer reads (`memory_read`): admission,
+  placement and the memory tools call it rather than render a bank themselves.
+  It reads a bank through `bank-files.ts` (`BANK.md` and `projects/**/*.md` as
+  committed at the checkout's head) and `indexBank`, which uses the validator's
+  own tree, so the index and the verdict agree on what a memory and a topic are.
+- `agent-harness serve` refuses root (ADR 0006), and the agent box and CI's
+  test shards run as root: the environment's tests inject a non-privileged
+  user check, and the CLI's end-to-end `serve` tests split on the runner's uid
+  (the refusal as root, the launcher handshake otherwise), so one is skipped
+  there. CI's `ordinary-user` job (agent-harness-ci's `ci.yml`) runs every
+  test file that reads `process.getuid` or `process.geteuid` as an ordinary
+  user, so a test that splits on the uid reads it that way. To run that side
+  on the agent box, copy the worktree, `chown -R` the copy to an unprivileged
+  user and run vitest there as that user (`runuser -u nobody`).
 - `agent-harness service install|uninstall|status|start` (`packages/cli/src/service/`)
   is tested with the service manager stubbed; `scripts/install.sh` is the
   headless installer, tested by `test/install-script.test.ts` against a fake

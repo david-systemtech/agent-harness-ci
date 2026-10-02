@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { EMPTY_RUN_SKILL_SET, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
@@ -12,6 +12,8 @@ import {
   WithdrawUnsupported,
   type AdapterEvent,
   type AdapterRun,
+  type FileChangeObserver,
+  type FileToolCall,
   type GateDecision,
   type GatedToolCall,
   type InProcessToolServer,
@@ -109,6 +111,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -343,20 +346,38 @@ describe("a run", () => {
   });
 });
 
+/** A checkout with one commit and a linked worktree of it holding a directory below its root, under a temporary `root`. */
+const linkedWorktree = () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+  const checkout = join(root, "app");
+  git(root, "init", "-q", checkout);
+  git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+  const worktree = join(root, "worktree");
+  git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+  const below = join(worktree, "packages", "web");
+  mkdirSync(below, { recursive: true });
+  return { root, checkout, worktree, below };
+};
+
 describe("a run in a worktree", () => {
   it("takes the project settings of the worktree's main checkout when the repository is trusted, and none when it is not", async () => {
-    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    const { root, checkout, worktree } = linkedWorktree();
     try {
-      const checkout = join(root, "app");
-      git(root, "init", "-q", checkout);
-      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
-      const worktree = join(root, "worktree");
-      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
       const workspace = { kind: "worktree", path: worktree, repository: checkout, branch: "fix" } as const;
       adapterWith().createRun(runInput({ trusted: true, workspace }), contextWith());
       expect((await started()).options).toMatchObject({ cwd: worktree, projectConfigRoot: checkout });
       adapterWith().createRun(runInput({ trusted: false, workspace }), contextWith());
       expect((await started(2)).options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("takes the main checkout's project settings for a workspace below the worktree's root too", async () => {
+    const { root, checkout, below } = linkedWorktree();
+    try {
+      adapterWith().createRun(runInput({ trusted: true, workspace: { kind: "directory", path: below } }), contextWith());
+      expect((await started()).options).toMatchObject({ cwd: below, projectConfigRoot: checkout });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -679,6 +700,215 @@ describe("the tool gate's PreToolUse hook (#140)", () => {
   });
 });
 
+describe("the file tools' observation around the gate (#1182)", () => {
+  /** An observer recording, in one list with the gate's calls, what it was told and when its capture finished; `capture` is how long it takes. */
+  const observing = (rule: (call: GatedToolCall, signal: AbortSignal | undefined) => GateDecision | Promise<GateDecision> = () => ({ decision: "allow" }), capture: (call: FileToolCall) => Promise<void> = async () => undefined) => {
+    const order: string[] = [];
+    const told: { readonly what: string; readonly call: FileToolCall; readonly signal?: AbortSignal }[] = [];
+    const observer: FileChangeObserver = {
+      before: async (call, signal) => {
+        order.push(`before ${call.toolCallId}`);
+        told.push({ what: "before", call, signal });
+        await capture(call);
+        order.push(`captured ${call.toolCallId}`);
+      },
+      completed: async (call, signal) => {
+        order.push(`completed ${call.toolCallId}`);
+        told.push({ what: "completed", call, signal });
+      },
+      failed: (call) => {
+        order.push(`failed ${call.toolCallId}`);
+        told.push({ what: "failed", call });
+      },
+    };
+    const gated = gatedWith(async (call, signal) => {
+      order.push(`gate ${call.toolCallId}`);
+      return rule(call, signal);
+    });
+    return { context: { ...gated.context, fileChanges: observer }, order, told };
+  };
+
+  /** A run whose first turn has opened on `context`. */
+  const opened = async (context: Context, adapter = adapterWith()) => {
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    return { adapter, run, query };
+  };
+
+  it.each([
+    ["Edit", { file_path: "/work/repo/a.ts", old_string: "a", new_string: "b" }, "/work/repo/a.ts"],
+    ["MultiEdit", { file_path: "/work/repo/a.ts", edits: [{ old_string: "a", new_string: "b" }] }, "/work/repo/a.ts"],
+    ["Write", { file_path: "src/new.ts", content: "export {};" }, "src/new.ts"],
+    ["NotebookEdit", { notebook_path: "/work/repo/book.ipynb", new_source: "print(1)" }, "/work/repo/book.ipynb"],
+  ] as const)("captures before a %s the gate let through writes, and reports its completion with the call and path it announced", async (tool, toolInput, path) => {
+    let finishCapture: () => void = () => undefined;
+    const { context, order, told } = observing(undefined, () => new Promise((resolve) => (finishCapture = resolve)));
+    const { query } = await opened(context);
+    const abort = new AbortController();
+    const hooked = query.preToolUse(tool, toolInput, { toolUseID: "toolu_file", signal: abort.signal });
+    let answered = false;
+    void hooked.then(() => (answered = true));
+    await flush();
+    // The CLI runs the call once the hook answers: not before the capture has finished.
+    expect(order).toEqual(["gate toolu_file", "before toolu_file"]);
+    expect(answered).toBe(false);
+    finishCapture();
+    expect(await hooked).toEqual({});
+    expect(told[0]).toEqual({ what: "before", call: { toolCallId: "toolu_file", tool, paths: [path], cwd: "/work/repo" }, signal: abort.signal });
+    await query.postToolUse(tool, toolInput, { type: "update" }, { toolUseID: "toolu_file" });
+    expect(order).toEqual(["gate toolu_file", "before toolu_file", "captured toolu_file", "completed toolu_file"]);
+    expect(told[1]?.call).toBe(told[0]?.call);
+  });
+
+  it("observes nothing of a call the gate denies, nor of a gate prompt until it is answered, nor of a call the CLI gave up on", async () => {
+    let allow: () => void = () => undefined;
+    const { context, order, told } = observing((call, signal) => {
+      if (call.toolCallId === "toolu_denied") return { decision: "deny", message: "Denied by containment." };
+      if (call.toolCallId === "toolu_given_up")
+        return new Promise((resolve) => signal?.addEventListener("abort", () => resolve({ decision: "deny", message: "The provider gave up on this call." }), { once: true }));
+      return new Promise((resolve) => (allow = () => resolve({ decision: "allow" })));
+    });
+    const { query } = await opened(context);
+    expect(await query.preToolUse("Write", { file_path: "/etc/passwd", content: "" }, { toolUseID: "toolu_denied" })).toEqual(hookDenies("Denied by containment."));
+    const abort = new AbortController();
+    const givenUp = query.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_given_up", signal: abort.signal });
+    const parked = query.preToolUse("Edit", { file_path: "/work/repo/b.ts" }, { toolUseID: "toolu_parked" });
+    await flush();
+    expect(told).toEqual([]);
+    abort.abort();
+    expect(await givenUp).toEqual(hookDenies("The provider gave up on this call."));
+    allow();
+    expect(await parked).toEqual({});
+    expect(order).toEqual(["gate toolu_denied", "gate toolu_given_up", "gate toolu_parked", "before toolu_parked", "captured toolu_parked"]);
+  });
+
+  it("reports a file tool that failed as failed, never as a completed change", async () => {
+    const { context, order } = observing();
+    const { query } = await opened(context);
+    await query.preToolUse("Edit", { file_path: "/work/repo/a.ts", old_string: "missing", new_string: "b" }, { toolUseID: "toolu_edit" });
+    await query.postToolUseFailure("Edit", { file_path: "/work/repo/a.ts", old_string: "missing", new_string: "b" }, "String to replace not found in file.", { toolUseID: "toolu_edit" });
+    await query.postToolUse("Edit", { file_path: "/work/repo/a.ts", old_string: "missing", new_string: "b" }, {}, { toolUseID: "toolu_edit" });
+    expect(order).toEqual(["gate toolu_edit", "before toolu_edit", "captured toolu_edit", "failed toolu_edit"]);
+  });
+
+  it("observes no other tool, no shell command's writes, no file call naming no path or no id, and no completion it was never told of", async () => {
+    const { context, order, told } = observing();
+    const { query } = await opened(context);
+    const calls = [
+      ["Bash", { command: "sed -i s/a/b/ a.ts > b.ts" }, "toolu_shell"],
+      ["Read", { file_path: "/work/repo/a.ts" }, "toolu_read"],
+      ["mcp__files__write", { file_path: "/work/repo/a.ts" }, "toolu_mcp"],
+      ["Write", { content: "no path" }, "toolu_nopath"],
+      ["Edit", { file_path: "/work/repo/a.ts" }, ""],
+    ] as const;
+    for (const [tool, toolInput, toolUseID] of calls) {
+      expect(await query.preToolUse(tool, toolInput, { toolUseID })).toEqual({});
+      await query.postToolUse(tool, toolInput, {}, { toolUseID });
+    }
+    // A completion of a recognised tool's call that was never announced: the gate never saw it, so nothing was captured.
+    await query.postToolUse("Write", { file_path: "/work/repo/c.ts", content: "" }, {}, { toolUseID: "toolu_unannounced" });
+    await query.postToolUseFailure("Write", { file_path: "/work/repo/c.ts", content: "" }, "Failed.", { toolUseID: "toolu_unannounced" });
+    expect(told).toEqual([]);
+    expect(order).toEqual(["gate toolu_shell", "gate toolu_read", "gate toolu_mcp", "gate toolu_nopath", expect.stringMatching(/^gate /)]);
+  });
+
+  it("reports a call that ran on another path than it announced as failed: its capture is not of what changed", async () => {
+    const { context, order } = observing();
+    const { query } = await opened(context);
+    await query.preToolUse("Write", { file_path: "/work/repo/a.ts", content: "x" }, { toolUseID: "toolu_write" });
+    // Another hook rewrote the call's input after this one read it.
+    await query.postToolUse("Write", { file_path: "/work/repo/elsewhere.ts", content: "x" }, {}, { toolUseID: "toolu_write" });
+    expect(order).toEqual(["gate toolu_write", "before toolu_write", "captured toolu_write", "failed toolu_write"]);
+  });
+
+  it("lets the call go on when the capture fails, logs it, and still reports how the call ended", async () => {
+    const { context, order } = observing(undefined, async () => {
+      throw new Error("The disk is full.");
+    });
+    const { query } = await opened(context);
+    expect(await query.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" })).toEqual({});
+    expect(diagnostics.some((line) => line.includes("toolu_edit") && line.includes("The disk is full."))).toBe(true);
+    await query.postToolUse("Edit", { file_path: "/work/repo/a.ts" }, {}, { toolUseID: "toolu_edit" });
+    expect(order).toEqual(["gate toolu_edit", "before toolu_edit", "completed toolu_edit"]);
+  });
+
+  it("answers the file hooks as before when the run has no observer", async () => {
+    const { context, checked } = gatedWith(() => ({ decision: "allow" }));
+    const { query } = await opened(context);
+    expect(await query.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" })).toEqual({});
+    expect(await query.postToolUse("Edit", { file_path: "/work/repo/a.ts" }, {}, { toolUseID: "toolu_edit" })).toEqual({});
+    expect(await query.postToolUseFailure("Edit", { file_path: "/work/repo/a.ts" }, "Failed.", { toolUseID: "toolu_edit" })).toEqual({});
+    expect(checked.map(({ call }) => call.toolCallId)).toEqual(["toolu_edit"]);
+  });
+
+  it("tells the observer a call announced on a process that then ends has failed", async () => {
+    const { context, order } = observing();
+    const { query, run } = await opened(context);
+    await query.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_edit" });
+    await run.dispose();
+    expect(order).toEqual(["gate toolu_edit", "before toolu_edit", "captured toolu_edit", "failed toolu_edit"]);
+  });
+
+  it("observes a kept process's next run through that run's observer, and ends a call announced before it on the observer that was told of it", async () => {
+    const first = observing();
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, first.context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]));
+    await flush();
+    // A background subagent's edit, announced during the first run, ends after the next one has joined the process.
+    await query.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_sub", agentId: "agent_1" });
+    query.emit(sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const second = observing();
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    adapter.createRun(next, second.context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    await query.postToolUse("Edit", { file_path: "/work/repo/a.ts" }, {}, { toolUseID: "toolu_sub", agentId: "agent_1" });
+    await query.preToolUse("Write", { file_path: "/work/repo/b.ts", content: "" }, { toolUseID: "toolu_next" });
+    await query.postToolUse("Write", { file_path: "/work/repo/b.ts", content: "" }, {}, { toolUseID: "toolu_next" });
+    expect(first.order).toEqual(["gate toolu_sub", "before toolu_sub", "captured toolu_sub", "completed toolu_sub"]);
+    expect(second.order).toEqual(["gate toolu_next", "before toolu_next", "captured toolu_next", "completed toolu_next"]);
+  });
+
+  it("keeps the Stop hook on a kept process, and every tool hook and the Stop hook on the cold start after it", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, observing().context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate"), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // Kept by the schedule: the next run joins the process, whose Stop hook still follows the CLI's list of schedules.
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const joined = adapter.createRun(next, observing().context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    const stop = query.options.hooks?.Stop?.[0]?.hooks[0];
+    await stop?.({ hook_event_name: "Stop", session_id: "s", transcript_path: "", cwd: "/work/repo", stop_hook_active: false, session_crons: [] } as never, undefined, { signal: new AbortController().signal });
+    expect(port).toEqual(["hold schedule:claude-schedules", "unhold schedule:claude-schedules"]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(joined);
+    joined.release();
+    await adapter.stopProcess(SESSION);
+    // A cold start registers the same hooks, gating and observing through its own run's context.
+    const cold = observing();
+    adapter.createRun(runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), cold.context);
+    const fresh = await started(2);
+    expect(Object.keys(fresh.options.hooks ?? {})).toEqual(Object.keys(query.options.hooks ?? {}));
+    expect(Object.keys(fresh.options.hooks ?? {})).toEqual(["PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"]);
+    expect(await fresh.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_cold" })).toEqual({});
+    await fresh.postToolUse("Edit", { file_path: "/work/repo/a.ts" }, {}, { toolUseID: "toolu_cold" });
+    expect(cold.order).toEqual(["gate toolu_cold", "before toolu_cold", "captured toolu_cold", "completed toolu_cold"]);
+  });
+});
+
 describe("an in-process tool's declared access and its images (#540)", () => {
   /** A red pixel's bytes, as a tool's screenshot would carry them (not a real image: the adapter passes bytes on unread). */
   const SHOT = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
@@ -805,6 +1035,7 @@ describe("the sandbox's ask for a host (SandboxNetworkAccess)", () => {
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   };
 
@@ -1371,6 +1602,48 @@ describe("the process across turns", () => {
     expect(fake.queries).toHaveLength(3);
   });
 
+  it("spawns fresh when the attached bank directories change, including with containment off, and reuses an unchanged attachment", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const first = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/personal"] }));
+    await first.finish(sdk.tasks({ task_id: "task_1" }));
+    expect(() => adapter.createRun(runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), contextWith())).toThrow(/still has work running/);
+    first.query.emit(sdk.tasks());
+    await vi.waitFor(() => expect(port).toContain("unhold task:task_1"));
+    const second = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.additionalDirectories).toEqual(["/data/banks/team"]);
+    await second.finish();
+    const third = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), second.query);
+    await third.finish();
+    expect(fake.queries).toHaveLength(2);
+    const fourth = await oneTurn(adapter, runInput({ additionalDirectories: [], target: resume }));
+    expect(second.query.closed).toBe(true);
+    expect(fourth.query.options.additionalDirectories).toBeUndefined();
+    await fourth.finish();
+  });
+
+  it("spawns fresh for a run whose containment closes other paths, a worktree made since the last, since the sandbox's denyWrite is fixed at spawn (#791)", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const closing = (...worktrees: string[]): RunInput["containment"] => ({
+      ...runInput().containment,
+      level: "workspace",
+      mechanism: "bubblewrap",
+      readOnly: ["hooks", "config", "config.worktree", ...worktrees.map((name) => `worktrees/${name}/config.worktree`)].map((path) => `/work/repo/.git/${path}`),
+    });
+    const first = await oneTurn(adapter, runInput({ containment: closing() }));
+    await first.finish();
+    const second = await oneTurn(adapter, runInput({ containment: closing("feature"), target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.sandbox?.filesystem?.denyWrite).toContain("/work/repo/.git/worktrees/feature/config.worktree");
+    await second.finish();
+    // The same paths closed: the kept process serves it.
+    const third = await oneTurn(adapter, runInput({ containment: closing("feature"), target: resume }), second.query);
+    await third.finish();
+    expect(fake.queries).toHaveLength(2);
+  });
+
   it("spawns fresh, with the opt-in, for a run under a bypass ceiling in a lower mode, so its mode can later be changed to bypass", async () => {
     const adapter = adapterWith();
     const first = await oneTurn(adapter, runInput());
@@ -1501,6 +1774,33 @@ describe("the process environment (#307)", () => {
     await query.promptsPushed(2);
     expect(fake.queries).toHaveLength(1);
     expect(supplied.count).toBe(1);
+  });
+
+  it.each(["workspace", "workspace-no-network"] as const)(
+    "lets a contained command at %s write the directories its spawn was supplied as the holder's own, a key-manager CLI's per-holder directory, beside the run's writable set (#1119)",
+    async (level) => {
+      const adapter = adapterWith();
+      const holderDirectory = "/data/agent-harness/key-manager-cli/doppler-3f9a2c";
+      const environment: ProcessEnvironment = {
+        key: "key-managers generation 1",
+        supply: async () => ({ variables: { DOPPLER_CONFIG_DIR: holderDirectory }, writable: [holderDirectory], release: () => undefined }),
+      };
+      const contained: RunInput["containment"] = { ...runInput().containment, level, mechanism: "bubblewrap", network: level === "workspace" };
+      adapter.createRun(runInput({ containment: contained, processEnvironment: environment }), contextWith());
+      const query = await started();
+      expect(query.options.sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp", holderDirectory]);
+    },
+  );
+
+  it("sets no sandbox at off for a spawn supplied directories to write, since nothing is contained", async () => {
+    const adapter = adapterWith();
+    const environment: ProcessEnvironment = {
+      key: "key-managers generation 1",
+      supply: async () => ({ variables: {}, writable: ["/data/agent-harness/key-manager-cli/doppler-3f9a2c"], release: () => undefined }),
+    };
+    adapter.createRun(runInput({ processEnvironment: environment }), contextWith());
+    const query = await started();
+    expect(query.options).not.toHaveProperty("sandbox");
   });
 
   it("serves a run whose key differs on a fresh process, the kept one let go with its queued message handed on, and attaches a run with the same key", async () => {
@@ -1700,6 +2000,26 @@ describe("a turn the provider opens on its own", () => {
     expect(await asked).toMatchObject({ behavior: "allow" });
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
+
+  it("ends a subagent's prompt turn with the transport error when the process dies under its parked prompt, not completed", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const asked = query.canUseTool("Bash", { command: "npm test" }, { toolUseID: "toolu_sub", agentID: "agent-1" });
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const promptTurn = context.adopted[0] as ProviderTurn;
+    promptTurn.onAdopted?.("run-prompt");
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    const read = reading(promptTurn);
+    query.fail(new Error("the CLI exited with code 1"));
+    expect(await asked).toMatchObject({ behavior: "deny" });
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "transport", message: expect.stringContaining("exited with code 1") }) })]);
+  });
 });
 
 describe("plan usage", () => {
@@ -1814,6 +2134,7 @@ describe("status, models and commands", () => {
       nativeProjectInstructions: true,
       nativeSkillRoots: [".claude/skills", ".claude/commands"],
       providerQueue: true,
+      withdraw: true,
       steering: true,
       planUsage: true,
     });
@@ -1999,6 +2320,49 @@ describe("a run that joins a kept process", () => {
     expect(read.events).toEqual([]);
     clock.advance(1);
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
+  });
+
+  it("withdraws the prompt of a run the open timeout ends, and what was sent onto it, so a CLI that opens late does not run them", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const followUp = message("And this");
+    await run.send(followUp);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId, followUp.messageId]);
+  });
+
+  it("does not ask for the prompt again when the open timeout ends a run whose prompt the CLI will not give back", async () => {
+    fake.controls = { cancelled: () => false };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    const [end] = ends(await read.done);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
+    expect(end).toEqual(expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("may still run it") }) }));
+    expect(JSON.stringify(end)).not.toContain("send again");
+  });
+
+  it("withdraws the prompt of a run it ends when the CLI sends init and then nothing", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
   });
 
   it("withdraws what was sent onto a run that has not opened with its prompt, and hands those messages back", async () => {
@@ -2364,6 +2728,24 @@ describe("the unsampled queries", () => {
     expect(fake.last().options.settingSources).toEqual([]);
     expect(fake.last().options).not.toHaveProperty("plugins");
     expect(fake.last().options).not.toHaveProperty("settings");
+  });
+
+  it("lists commands in a worktree, or below its root, from its main checkout's project configuration as a run there loads it, and from none untrusted", async () => {
+    fake.controls = { supportedCommands: async () => [] };
+    const { root, checkout, worktree, below } = linkedWorktree();
+    try {
+      const adapter = adapterWith();
+      for (const path of [worktree, below]) {
+        await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+        expect(fake.last().options).toMatchObject({ cwd: path, settingSources: ["project"], projectConfigRoot: checkout });
+      }
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: worktree }, { trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: checkout }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("answers a member's invocation: /agent-harness:<name> for one the generation links, /<name> for a native one", () => {

@@ -53,8 +53,10 @@ export const buildExtension = async ({ outDir, version }: { readonly outDir: str
         output: { format: "es", entryFileNames: "[name].js", chunkFileNames: "[name].js" },
         // A contracts module's top level only defines: its schemas' descriptions register for the JSON Schema export,
         // which nothing here reads. Read as having no side effect, the modules the scripts take nothing from are left
-        // out, and the shared module is about a fifth of the whole package's size.
-        treeshake: { moduleSideEffects: (id: string) => !id.includes("/packages/contracts/") },
+        // out, and the shared module is about a fifth of the whole package's size. The browser package's modules only
+        // define too, so the worker takes its page driver and the in-page functions it sends (the reader, Readability
+        // among them, as source text) without what only a fetched page needs.
+        treeshake: { moduleSideEffects: (id: string) => !id.includes("/packages/contracts/") && !id.includes("/packages/browser/") },
       },
     },
   });

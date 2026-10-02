@@ -4,7 +4,7 @@ import { ForgeAccountId, ForgeAccountRecord, ForgeAddCredential, ForgeCopiedFrom
 import { GhProbe } from "../forge-gh.js";
 import { FORGE_KINDS, ForgeKind, ForgeOrigin, ForgeSlug, ForgeTokenPage } from "../forge.js";
 import { CredentialUnavailableError } from "../git-credential.js";
-import { CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError } from "../key-managers.js";
+import { ReferenceProviderUnavailableError, CredentialSourceUnavailableError, ReferenceDeniedError, ReferenceNotFoundError } from "../key-managers.js";
 import { commandParams, defineMethod } from "../method.js";
 import { PullRequest, SessionId, SessionSummary } from "../sessions.js";
 
@@ -199,7 +199,7 @@ export const forgeAccountsAdd = defineMethod({
     copiedFrom: ForgeCopiedFrom.optional().meta({ description: "The environment a copy was made from, which the record keeps; absent for a forge account added here." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, KindUnsupportedError, NotAForgeError, ForgeUnreachableError],
+  errors: [VerificationFailedError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, ReferenceProviderUnavailableError, KindUnsupportedError, NotAForgeError, ForgeUnreachableError],
 });
 
 /**
@@ -232,7 +232,7 @@ export const forgeAccountsUpdate = defineMethod({
     credential: ForgeCredentialInput.optional().meta({ description: "The new credential, which must answer as the forge account's identity." }),
   }),
   result: forgeAccountResult,
-  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError],
+  errors: [VerificationFailedError, IdentityMismatchError, AliasIdentityMismatchError, CredentialSourceUnavailableError, ReferenceNotFoundError, ReferenceDeniedError, ReferenceProviderUnavailableError],
 });
 
 /** Removes a forge account (`forge.account.removed`); its stored token's vault entry is deleted once the removal has committed. A primary one leaves none primary until a person chooses. */

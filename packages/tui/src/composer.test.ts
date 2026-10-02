@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { resolveKeymap } from "./keys.js";
 import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
 import { KEY, renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -55,6 +56,72 @@ const send = async (app: RenderedApp, text: string) => {
   await app.type(text);
   await app.press(KEY.enter);
 };
+
+describe("prompt suggestions (#251)", () => {
+  it.each(["2", "3", "4"])("takes the offer with the explicitly remapped digit %s", async (digit) => {
+    const { app, env } = await launch({}, { keymap: resolveKeymap({ "composer.suggestion.take": [digit] }).keymap });
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Run the tests" });
+    await app.waitFor(`[${digit}] Run the tests`);
+    await app.press(digit);
+    await app.waitFor("▌ Run the tests");
+    expect(paramsOf(app, "runs.start")).toEqual([expect.objectContaining({ text: "Run the tests" })]);
+  });
+
+  it("can retry the offer after a refused send restores its text to the draft", async () => {
+    const { app, env } = await launch();
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Run the tests" });
+    env.wire.answer("runs.start", () => ({ error: { code: "conflict", message: "Refused for test", data: {} } }));
+    await app.waitFor("[1] Run the tests");
+    await app.press("1");
+    await app.waitFor("› Run the tests");
+    await app.press(KEY.ctrlU);
+    await app.press("1");
+    await app.waitUntil(() => paramsOf(app, "runs.start").length === 2, "the offer to be retried");
+  });
+
+  it("uses the remapped suggestion action and sends slash text literally", async () => {
+    const { app, env } = await launch({}, { keymap: resolveKeymap({ "composer.suggestion.take": ["Ctrl+X"] }).keymap });
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "/help me check the fix" });
+    await app.waitFor("[Ctrl+X] /help me check the fix");
+    await app.press("\u0018");
+    await app.waitFor("▌ /help me check the fix");
+    expect(paramsOf(app, "runs.start")[0]).toMatchObject({ text: "/help me check the fix" });
+  });
+
+  it("leaves 1 without an offer and 2–4 as text, and never replaces a typed draft", async () => {
+    const { app, env } = await launch();
+    await app.press("1");
+    await app.waitFor("› 1");
+    await app.press(KEY.ctrlU);
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Add a regression test" });
+    await app.waitFor("[1] Add a regression test");
+    await app.type("234");
+    await app.press("1");
+    await app.waitFor("› 2341");
+    expect(paramsOf(app, "runs.start")).toEqual([]);
+    expect(paramsOf(app, "runs.send")).toEqual([]);
+  });
+
+  it("shows the completed run's offer and sends it with 1 from an empty composer, then clears it", async () => {
+    const { app, env } = await launch();
+    const { runId } = env.startRun(SESSION, "Fix the receipts");
+    env.endRun(SESSION, runId);
+    env.emit(SESSION, "run.suggested", { runId, suggestion: "Add a regression test" });
+    await app.waitFor("[1] Add a regression test");
+    await app.press("1");
+    await app.waitFor("▌ Add a regression test");
+    expect(paramsOf(app, "runs.start")).toEqual([expect.objectContaining({ text: "Add a regression test" })]);
+    expect(app.frame()).not.toContain("[1] Add a regression test");
+  });
+});
 
 describe("sending", () => {
   it("starts a run with runs.start when none is live, and draws the message", async () => {
@@ -161,6 +228,37 @@ describe("sending", () => {
 });
 
 describe("the draft", () => {
+  it("never saves a terminal command or its prefixes when typed one character at a time", async () => {
+    const { app } = await launch();
+    for (const key of "/pin") {
+      await app.type(key);
+      await app.jump(DRAFT_DEBOUNCE_MS + 100);
+      expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+    }
+    await app.press(KEY.enter);
+    await app.waitUntil(() => paramsOf(app, "sessions.pin").length === 1, "the pin command to run");
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+  });
+
+  it("saves a slash-prefixed message once words follow the first slash word", async () => {
+    const { app } = await launch();
+    for (const key of "/usr/bin") await app.type(key);
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+    for (const key of " is broken") await app.type(key);
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    await app.waitUntil(() => paramsOf(app, "sessions.setDraft").length === 1, "the slash-prefixed message to be saved");
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([expect.objectContaining({ sessionId: SESSION, draft: "/usr/bin is broken" })]);
+  });
+
+  it("keeps a terminal command with arguments out of the draft, including the trust command from #516", async () => {
+    const { app } = await launch();
+    await app.type("/trust decline");
+    await app.jump(DRAFT_DEBOUNCE_MS + 100);
+    expect(paramsOf(app, "sessions.setDraft")).toEqual([]);
+  });
+
   it("is saved as the session's field a second after the last key", async () => {
     const { app } = await launch();
     await app.type("half a thought");
@@ -461,7 +559,7 @@ describe("the transcript's keys", () => {
       tasks: [{ taskId: "task-1", kind: "local_agent", description: "Find it", status: "running", startedAt: app.clock.now().toISOString(), endedAt: null, subagentType: "Explore", toolCallId: "t1", error: null }],
     });
     await app.waitFor("Task(Find it)");
-    await app.press(KEY.tab, KEY.tab, KEY.up);
+    await app.press(KEY.tab, KEY.tab, KEY.tab, KEY.up);
     await app.press("x");
     await app.waitUntil(() => paramsOf(app, "runs.stopTask").length === 1, "the task to be stopped");
     expect(paramsOf(app, "runs.stopTask")[0]).toMatchObject({ runId, taskId: "task-1" });

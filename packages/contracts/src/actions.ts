@@ -25,9 +25,9 @@ import { z } from "zod";
  */
 
 /**
- * The eleven places a key means what it means: the reference keymap's eight
+ * The twelve places a key means what it means: the reference keymap's eight
  * (`anywhere` is the handful no component may take) plus the terminal pane,
- * the parked-asks card and the one-line yes or no offers.
+ * the parked-asks card, the one-line yes or no offers and the routines card.
  */
 export const ACTION_CONTEXTS = [
   "anywhere",
@@ -41,11 +41,12 @@ export const ACTION_CONTEXTS = [
   "terminal",
   "asks",
   "confirm",
+  "routines",
 ] as const;
 
 export const ActionContext = z.enum(ACTION_CONTEXTS).meta({
   description:
-    "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer). A key is claimed at most once per context.",
+    "Where a key means what it means: anywhere (keys no component may take), composer, transcript, sidebar (the rail), delegated (the delegated-work strip), picker (a list to choose from), permission (a permission or question card), pager, terminal (the terminal pane), asks (the parked-asks card), confirm (a one-line yes or no offer), routines (the routines card: the list, a routine's history, the webhook endpoints). A key is claimed at most once per context.",
 });
 export type ActionContext = z.infer<typeof ActionContext>;
 
@@ -69,6 +70,7 @@ export const ACTION_ID_PREFIXES = {
   terminal: "terminal",
   asks: "asks",
   confirm: "confirm",
+  routines: "routines",
 } as const satisfies Record<string, ActionContext>;
 
 const ACTION_ID_PATTERN = new RegExp(`^(${Object.keys(ACTION_ID_PREFIXES).join("|")})(\\.[a-z][A-Za-z]*)+$`);
@@ -363,6 +365,7 @@ const PHASE_D = "Deferred to phase D, carried if Seth relies on it (docs/specs/t
 const TEXT_FIELD = notInGui("A text field's own key in the GUI.");
 const TYPED_AT = notInGui("Typed into the query in the GUI, whose lists are typed at.");
 const CONTEXT_MENU = notInGui("The GUI does it from the session's context menu in the sidebar.");
+const GROUP_MENU = notInGui("The GUI does it from the group heading's context menu in the sidebar.");
 const FORK_REWIND = notInGui("The GUI does it with the Fork and Rewind buttons under each message you sent.");
 const SCROLL_BAR = notInGui("The GUI moves through the transcript with its scroll bar.");
 const ROW_POINTER = notInGui("The GUI has no row cursor: a row's controls answer the pointer.");
@@ -374,6 +377,7 @@ const FIND_BAR = notInGui("The GUI has no pager: the transcript's find bar (Mod+
 const SELECTED_TEXT = notInGui("The GUI has no pager: a file's or a document's text is selected and copied in its pane.");
 const PARKED_ASKS = notInGui("The GUI answers parked asks in the Parked asks view, with the pointer.");
 const CONFIRM_DIALOG = notInGui("The GUI asks yes or no in a dialog, with a button for each.");
+const ROUTINES_PANE = notInGui("The GUI's Routines pane has a button for each, with the pointer.");
 const NO_SNIPPETS = notInGui("Typed as text in the GUI: snippets and their slots are the terminal UI's own.");
 
 /** The title of the slash-command group, which the help overlay draws last. */
@@ -420,11 +424,16 @@ export const ACTION_GROUPS = [
     guiOnly("app.session.newInPane", "Start a new session in a new pane", inGui(["Mod+Shift+N"])),
     guiOnly("app.sidebar.toggle", "Show or hide the sidebar", inGui(["Mod+B"])),
     guiOnly("app.terminal.toggle", "Show or hide the terminal", inGui(["Mod+J"])),
+    guiOnly("app.browser.unpair", "Choose a paired Chrome to unpair", inGui([])),
+    guiOnly("app.browser.allowRuns", "Change whether runs may use the headless browser", inGui([])),
+    guiOnly("app.browser.default", "Change an account's default browser", inGui([])),
+    guiOnly("app.browser.pair", "Pair another Chrome on this machine", inGui([])),
+    guiOnly("app.browser.choose", "Choose the session browser for the next run", inGui([])),
     guiOnly("app.browser.toggle", "Show or hide the browser", inGui(["Mod+Shift+B"])),
     guiOnly("app.pane.splitRight", "Split the focused pane to the right", inGui(["Mod+\\"])),
     guiOnly("app.pane.splitDown", "Split the focused pane downwards", inGui(["Mod+Shift+\\"])),
     guiOnly("app.settings.toggle", "Open or close Settings", inGui(["Mod+,"])),
-    guiOnly("app.runInfo.toggle", "Show or hide the run's details", inGui(["Mod+I"])),
+    key("app.runInfo.toggle", ["Alt+I"], "Show or hide the run's details", inGui(["Mod+I"])),
   ]),
   group("Writing a message", "composer", [
     key("composer.send", ["Enter"], "Send it, steer a turn, run a row, send a failed check", inGui(["Enter"])),
@@ -518,6 +527,8 @@ export const ACTION_GROUPS = [
     key("rail.group", ["g"], "Put it in a group, or a new one", CONTEXT_MENU),
     key("rail.moveUp", ["Shift+↑"], "Move it up, among the pinned or the active", notInGui("The GUI moves a session by dragging it in the sidebar.")),
     key("rail.moveDown", ["Shift+↓"], "Move it down, among the pinned or the active", notInGui("The GUI moves a session by dragging it in the sidebar.")),
+    key("rail.renameGroup", ["R"], "Rename the group under the cursor, on every environment", GROUP_MENU),
+    key("rail.deleteGroup", ["D"], "Delete the group under the cursor, on every environment; its sessions stay", GROUP_MENU),
   ]),
   group("Delegated work", "delegated", [
     key("delegated.enter", ["Tab"], "Reached after the list, while work is running", TASKS_PANE),
@@ -587,6 +598,17 @@ export const ACTION_GROUPS = [
     key("asks.close", ["Esc"], "Close, deciding nothing", PARKED_ASKS),
   ]),
   group("A yes or no offer", "confirm", [key("confirm.yes", ["y"], "Yes", CONFIRM_DIALOG), key("confirm.no", ["n", "Esc"], "No", CONFIRM_DIALOG)]),
+  group("The routines", "routines", [
+    key("routines.runNow", ["r"], "Run the routine now", ROUTINES_PANE),
+    key("routines.enable", ["Space"], "Enable the routine, or disable it", ROUTINES_PANE),
+    key("routines.move", ["m"], "Move the routine to another environment", ROUTINES_PANE),
+    key("routines.history", ["h"], "Its firings and skips, newest first", ROUTINES_PANE),
+    key("routines.export", ["x"], "Export it to a file, as YAML", ROUTINES_PANE),
+    key("routines.edit", ["e"], "Edit it as YAML in your editor", ROUTINES_PANE),
+    key("routines.endpoint.add", ["a"], "Add a webhook endpoint, or replace one", ROUTINES_PANE),
+    key("routines.endpoint.test", ["t"], "Post a test to the endpoint", ROUTINES_PANE),
+    key("routines.endpoint.remove", ["d"], "Remove the endpoint, once confirmed", ROUTINES_PANE),
+  ]),
   group(SLASH_COMMANDS_TITLE, "composer", [
     command("profile", "/profile", "Switch the account the next conversation runs as", { aliasOf: "command.account" }),
     command("model", "/model", "Choose the model, and its effort where it has one"),
@@ -630,13 +652,20 @@ export const ACTION_GROUPS = [
     command("search", "/search <text>", "Search the sessions on every environment"),
     command("terminal", "/terminal", "Open a terminal on the session's environment, in a pane"),
     command("files", "/files [path]", "Browse the workspace's files, and read one in the pager"),
+    command("browser", "/browser", "Choose this session's browser for its next run, or pair Chrome"),
     command("documents", "/documents", "The pages, SVGs and markdown this session wrote, newest first"),
+    command("trust", "/trust [decline]", "Trust this session's repository, or decline its offer", { guiAbsent: "Trust is decided in the session's trust question." }),
     command("notices", "/notices", "Every notice this terminal has shown"),
     command("reload", "/reload", "Read the keybindings file again", {
       guiAbsent: "The GUI reads no keybindings file: its keys are remapped in the Keyboard shortcuts pane.",
     }),
     command("fork", "/fork [n]", "Fork this session n prompts back; bare, at the end"),
     command("rewind", "/rewind [n | undo]", "Rewind n prompts, one by default; undo takes the rewind back"),
+    command(
+      "routines",
+      "/routines [new | import <path> | endpoints | test-precheck <name>]",
+      "Every environment's routines: run, enable, history, export and edit; a new one, an import, the webhook endpoints, a pre-check's test",
+    ),
   ]),
 ] as const satisfies readonly ActionGroup[];
 

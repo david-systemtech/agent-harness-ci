@@ -289,6 +289,17 @@ describe("a routine's state", () => {
     for (const field of Object.keys(state)) expect(RoutineState.safeParse(without(state, field)).success, field).toBe(false);
   });
 
+  it("carries a saved definition sequence and a move's source snapshot, while accepting older states without them", () => {
+    const linked = { ...state, definitionSequence: 12, movedFrom: { environmentId: otherEnvironment, routineId, at, definitionSequence: 7 } };
+    expect(RoutineState.parse(linked)).toEqual(linked);
+    expect(RoutineState.parse(state)).toEqual(state);
+    for (const invalid of [0, -1, 1.5]) {
+      expect(RoutineState.safeParse({ ...state, definitionSequence: invalid }).success).toBe(false);
+      expect(RoutineState.safeParse({ ...linked, movedFrom: { ...linked.movedFrom, definitionSequence: invalid } }).success).toBe(false);
+    }
+    expect(registry["routines.import"].params.parse({ commandId: firingId, yaml: "routine", movedFrom: { environmentId: otherEnvironment, routineId, definitionSequence: 7 } })).toMatchObject({ movedFrom: { definitionSequence: 7 } });
+  });
+
   it("holds the pre-check baseline's hash and time, handledThrough, the live firing, the last outcome and the failure streak", () => {
     const fresh = { ...state, baseline: null, handledThrough: null, liveFiring: null, lastOutcome: null, failureStreak: 0 };
     expect(RoutineState.safeParse(fresh).success).toBe(true);
@@ -526,11 +537,8 @@ describe("the routines methods", () => {
     });
   });
 
-  it("owe each handler not yet served to the ticket that builds it, so an environment answers each as not served yet (the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history, the endpoints, #522, theirs)", () => {
-    expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({
-      "routines.testPreCheck": "#526",
-      "routines.scripts.list": "#526",
-    });
+  it("owe no handler: the routine store, #521, serves the list and the definition's commands, run now, #523, itself and the history, the endpoints, #522, theirs, and the pre-checks, #526, the scripts' list and the test", () => {
+    expect(Object.fromEntries(Object.entries(OWED_HANDLERS).filter(([name]) => name.startsWith("routines.")))).toEqual({});
   });
 
   it("queue each sessions:write command in a client's outbox as ordered, never as a setter", () => {

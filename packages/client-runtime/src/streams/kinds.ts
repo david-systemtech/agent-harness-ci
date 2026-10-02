@@ -46,7 +46,7 @@ export interface ListData {
  * after them. A cache document from before #260 holds no rewinds, one from
  * before #506 no instructions: neither reads, and is no cache.
  */
-export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds" | "instructions">;
+export type SessionSnapshotParts = Pick<SessionSnapshot, "runs" | "items" | "parkedPrompts" | "rewinds" | "instructions" | "suggestion">;
 
 const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" };
 /**
@@ -57,7 +57,7 @@ const NO_SNAPSHOT_PARTS: SessionSnapshotParts = { runs: [], items: [], parkedPro
  * hide a fold or the instructions the environment holds until the next fresh
  * snapshot, so it does not read.
  */
-const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true }).extend({ rewinds: StandingRewind.array(), instructions: SessionInstructions });
+const StoredSnapshotParts = SessionSnapshot.pick({ runs: true, items: true, parkedPrompts: true, suggestion: true }).extend({ rewinds: StandingRewind.array(), instructions: SessionInstructions });
 
 /** One session: its summary (null once it is gone), the rest of its snapshot as sent, and every event after that snapshot. */
 export interface SessionData {
@@ -220,8 +220,8 @@ export const sessionKind = (): StreamKind<SessionData> => ({
   // Past the bound, or holding an undo of a rewind nothing held says what it hid (#218): a fresh snapshot folds either.
   outgrown: (data) => data.events.length > SESSION_EVENTS_BOUND || data.eventBytes > SESSION_EVENT_BYTES_BOUND || undoesUnheardRewind(data.snapshot, data.events),
   fromSnapshot(payload) {
-    const { summary, runs, items, parkedPrompts, rewinds, instructions } = SessionSnapshot.parse(payload);
-    return { summary, snapshot: { runs, items, parkedPrompts, rewinds, instructions }, events: [], eventBytes: 0 };
+    const { summary, runs, items, parkedPrompts, rewinds, instructions, suggestion } = SessionSnapshot.parse(payload);
+    return { summary, snapshot: { runs, items, parkedPrompts, rewinds, instructions, suggestion }, events: [], eventBytes: 0 };
   },
   apply(data, event) {
     const patch = summaryPatchOf(event);
@@ -318,6 +318,11 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "prompt.parked":
       case "prompt.resolved":
         return data;
+      // The denylist or the Unattended review changing (#811) changes no status: the request cache reads
+      // permissions.denylist.get and permissions.settings.get, or permissions.review.list, again.
+      case "denylist.updated":
+      case "review.updated":
+        return data;
       // The forge's events (#310) change no status: the request cache refreshes `forge.accounts.list` on them, and the
       // notices queue raises the forge's rows (#320).
       case "forge.account.added":
@@ -328,6 +333,22 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
       case "forge.account.git-rejected":
       case "forge.account.removed":
       case "forge.origin-missing":
+        return data;
+      // A queued memory change (#1030) changes no status; the request cache refreshes `banks.drafts.list`.
+      case "bank.draft-queued":
+      case "bank.drafts-consumed":
+        return data;
+      // The BankService's events (#1025) change no status: the request cache refreshes `banks.list` and `banks.get` on them.
+      case "bank.added":
+      case "bank.updated":
+      case "bank.pinned":
+      case "bank.forgotten":
+      case "bank.synced":
+      case "bank.verified":
+      case "bank.landed":
+      case "bank.landing-failed":
+      case "bank.awaiting-review":
+      case "bank.review-held":
         return data;
       // The key-manager connections' events (#365, #366) and Move's (#371, #372) change no status: the request cache refreshes
       // keyManagers.list and keyManagers.move.list on them, and the notices queue raises a connection's status rows (#384).
@@ -388,6 +409,9 @@ export const environmentKind = (): StreamKind<EnvironmentData> => ({
         return data;
       // A paired Chrome's change (#548) changes no status: the request cache reads browser.chromes.list and browser.status again.
       case "chrome.updated":
+        return data;
+      // A call addressed to a client session (#554) changes no status: the client-call registry hands it to its handler.
+      case "client.call":
         return data;
     }
   },

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankManifest",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "personal",
+        "team"
+      ],
+      "description": "A bank's kind: personal (one person's own) or team (shared, reviewed by its owners)."
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "The bank line every run sees: what the bank is for, one line of at most 160 characters."
+    },
+    "entities": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aliases": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "folder": {
+            "type": "string",
+            "pattern": "^[^/\\s:]+\\/(?:[^/\\s:]+\\/){0,2}$",
+            "description": "A scope folder as a pointer names it, relative to projects/: org/, org/project/ or org/project/area/, ending in a slash."
+          }
+        },
+        "required": [
+          "name",
+          "aliases"
+        ],
+        "description": "An entity a bank holds facts about: its name, its aliases (matched whole-word and case-insensitive against the first message and the repository identity) and, optionally, the scope folder a match expands."
+      }
+    },
+    "orientation": {
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 60,
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+      },
+      "description": "The memories every session always sees, at most five, each body at most 600 bytes and 1,500 bytes in all."
+    },
+    "owners": {
+      "description": "A team bank's owners: the forge logins that approve its reviewed changes, at least one.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^\\s/:]+$"
+      }
+    },
+    "root": {
+      "description": "orgs when the bank has re-tiered its root breadcrumbs to org headers, each org then indexing at most 40; absent otherwise.",
+      "type": "string",
+      "enum": [
+        "orgs"
+      ]
+    },
+    "memories": {
+      "type": "object",
+      "properties": {
+        "glob": {
+          "type": "string",
+          "const": "projects/**/memories/**/*.md"
+        },
+        "scope": {
+          "type": "string",
+          "const": "projects/{org}/{project}[/{area}]/"
+        },
+        "schema": {
+          "type": "string",
+          "const": "memory"
+        }
+      },
+      "required": [
+        "glob",
+        "scope",
+        "schema"
+      ],
+      "description": "Where a bank's memories are: the glob, the scope template and the memory schema, the same in every bank."
+    },
+    "docs": {
+      "type": "object",
+      "properties": {
+        "globs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "globs"
+      ],
+      "description": "The bank's documents beside its memories, by glob."
+    },
+    "write": {
+      "type": "object",
+      "properties": {
+        "place": {
+          "type": "string",
+          "const": "projects/{org}/{project}[/{area}]/memories/[{topic}/]{name}.md"
+        },
+        "land": {
+          "type": "string",
+          "enum": [
+            "pull-request",
+            "commit"
+          ],
+          "description": "How a change lands: pull-request on a forge, commit on a local-only bank's main."
+        },
+        "merge": {
+          "type": "object",
+          "properties": {
+            "memories": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "review"
+              ],
+              "description": "How a change of only memories lands: auto merges once the bank's check passes; review waits for an owner."
+            },
+            "reviewed": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "orientation",
+                  "decisions",
+                  "status",
+                  "manifest"
+                ],
+                "description": "A class of change held for review: orientation, decisions, a status, or the manifest."
+              }
+            }
+          },
+          "required": [
+            "memories",
+            "reviewed"
+          ],
+          "description": "A bank's own merge rule: memories auto or review, and the reviewed classes, every one of orientation, decisions, status and manifest, which always wait for review."
+        }
+      },
+      "required": [
+        "place",
+        "land",
+        "merge"
+      ],
+      "description": "Where a memory is written, how a change lands and the bank's merge rule."
+    }
+  },
+  "required": [
+    "name",
+    "kind",
+    "purpose",
+    "entities",
+    "orientation",
+    "memories",
+    "docs",
+    "write"
+  ],
+  "description": "A bank's BANK.md frontmatter: name, kind, purpose, entities, orientation, a team's owners, the memory layout, the documents and the write rule."
+}

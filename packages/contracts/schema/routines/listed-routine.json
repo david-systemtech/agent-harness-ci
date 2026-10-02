@@ -664,6 +664,12 @@
           ],
           "description": "When its definition was last edited or replaced by an import; null until then."
         },
+        "definitionSequence": {
+          "description": "The event sequence of its latest create, edit, enable or disable; unchanged by firings. Absent when an environment does not supply it.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
         "movedFrom": {
           "anyOf": [
             {
@@ -686,6 +692,12 @@
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                   "description": "When the move was recorded here."
+                },
+                "definitionSequence": {
+                  "description": "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
@@ -723,6 +735,12 @@
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                   "description": "When the move was recorded here."
+                },
+                "definitionSequence": {
+                  "description": "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot.",
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
@@ -1074,10 +1092,21 @@
           "failing",
           "delivery_failing"
         ],
-        "description": "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a skill is not in the skill set), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally)."
+        "description": "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a name in its skills is not in the skill set of the account it resolves to; unknownSkills names each), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally)."
       },
       "uniqueItems": true,
       "description": "What needs attention on it, each code once; empty when nothing does."
+    },
+    "unknownSkills": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "A skill's name, by the Agent Skills rule: 1 to 64 of a-z, 0-9 and -, with no leading, trailing or doubled hyphen. Refused as invalid_params, the issue's params naming the rule skill-name and its reason.",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        "maxLength": 64
+      },
+      "uniqueItems": true,
+      "description": "The names in its skills that the skill set of the account it resolves to does not hold, in their order: what skill_unknown names; empty when the set holds each."
     }
   },
   "required": [
@@ -1085,7 +1114,8 @@
     "state",
     "nextDueAt",
     "mode",
-    "attention"
+    "attention",
+    "unknownSkills"
   ],
-  "description": "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, and what needs attention."
+  "description": "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, what needs attention, and the skills its account's skill set lacks."
 }

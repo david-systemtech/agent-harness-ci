@@ -6,7 +6,8 @@ import { createRuntime, writable } from "@agent-harness/client-runtime";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
-import { startTestEnvironment } from "../../environment/test/helper.js";
+import { deltaShown, holdBackLastOf } from "../../environment/test/delta-hold-back.js";
+import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { WAIT_MS } from "../../environment/test/wire-client.js";
 import { FORBIDDEN_WORDS } from "../../../eslint-rules/no-client-organisation-state.js";
 import { App } from "../src/app.js";
@@ -90,7 +91,11 @@ const terminal = (dataDir: string, stateDir: string, tty: string, session?: stri
 const ENTER = "\r";
 const UP = "\u001B[A";
 
-describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_TEST_MS }, () => {
+/** Waits for `text`, a reply's streamed delta, whole on `terminal`'s screen, through the environment's hold-back. */
+const replyShown = (t: TestEnvironment, terminal: { frame(): string }, text: string): Promise<void> =>
+  deltaShown(t, text, (prefix) => until(() => terminal.frame().includes(`● ${prefix}`), terminal.frame));
+
+describe("the terminal UI through the real spine", { concurrent: false, timeout: SMOKE_TEST_MS }, () => {
   it("exchanges the grant and renders the header and the rail", async () => {
     const t = await startTestEnvironment({ name: "smoke-desk" });
     onCleanup(() => t.close());
@@ -100,8 +105,10 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     await until(() => one.frame().includes("● smoke-desk ready"), one.frame);
     const rows = one.frame().split("\n");
     expect(rows[0]).toContain(`agent-harness · ● smoke-desk ready · ${dirname(stateDir)}`);
-    expect(rows[1]).toMatch(/^smoke-desk\s+│/);
-    expect(rows[2]).toMatch(/^\s+no sessions\s+│/);
+    expect(rows[1]).toMatch(/^Set up on smoke-desk:.*need attention/);
+    const rail = rows.findIndex((row) => /^smoke-desk\s+│/.test(row));
+    expect(rail).toBeGreaterThan(1);
+    expect(rows[rail + 1]).toMatch(/^\s+no sessions\s+│/);
     expect(one.host.current.read().connections.list.read()).toMatchObject([{ kind: "local", phase: "ready", scopes: expect.arrayContaining(["admin"]) }]);
 
     // The state directory holds the runtime's documents and nothing named after session state.
@@ -130,6 +137,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
   it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
     const t = await startTestEnvironment({ name: "smoke-send" });
     onCleanup(() => t.close());
+    holdBackLastOf(t, "Look");
     const streamed = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
@@ -151,7 +159,8 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     await until(() => one.frame().includes("Nothing said yet."), one.frame);
     one.type("Fix the receipts");
     one.type(ENTER);
-    await until(() => one.frame().includes("▌ Fix the receipts") && one.frame().includes("● Look"), one.frame);
+    await replyShown(t, one, "Look");
+    expect(one.frame()).toContain("▌ Fix the receipts");
     streamed.open();
     await until(() => one.frame().includes("● Looking at the receipts."), one.frame);
     await until(() => /\d+ms|\d+(\.\d)?s/.test(one.frame().split("● Looking at the receipts.")[1] ?? ""), () => `the cost line under the turn:\n${one.frame()}`);
@@ -173,6 +182,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     // A provider queue that does not steer holds the message while the turn is held open, so the withdraw takes it back from the provider.
     const t = await startTestEnvironment({ name: "smoke-withdraw", adapter: fakeAdapter({ capabilities: { steering: false } }) });
     onCleanup(() => t.close());
+    holdBackLastOf(t, "Look");
     const held = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Look" }] } };
@@ -192,7 +202,7 @@ describe.sequential("the terminal UI through the real spine", { timeout: SMOKE_T
     await until(() => one.frame().includes("Nothing said yet."), one.frame);
     one.type("Fix the receipts");
     one.type(ENTER);
-    await until(() => one.frame().includes("● Look"), one.frame);
+    await replyShown(t, one, "Look");
     one.type("and the tests");
     one.type(ENTER);
     await until(() => one.frame().includes("⧗ queued and the tests"), one.frame);

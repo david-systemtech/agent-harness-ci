@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ENVIRONMENT_ADDRESS_VARIABLE, RUN_SECRET_VARIABLE, formatHostPort, registry, type KeyManagerReference } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
+import { bubblewrapProbe } from "../../test/containment.js";
 import { startFakeForge, type FakeForge } from "../../test/fake-forge.js";
 import { fakePty } from "../../test/fake-pty.js";
 import { DAVID, OTHER_TOKEN, TOKEN, added, askCredentialRoute, gitHost, pasted, remove, setPrimary, update, verify } from "../../test/forge.js";
@@ -390,6 +391,7 @@ describe("containment", () => {
     join(dataDir, "skills", "own"),
     join(dataDir, "skills", "snapshots"),
     join(dataDir, "skills", "generations"),
+    join(dataDir, "banks"),
   ];
 
   it("adds the helper's directory to an unattended run's exempt directories where the denylist's paths cover the helper, the data directory's preset among them", async () => {
@@ -406,9 +408,44 @@ describe("containment", () => {
     expect(projected?.exempt).toEqual([...exemptIn(dataDir), join(dataDir, "bin")]);
   });
 
-  it("leaves the exempt directories as they are for a helper no denied path covers", async () => {
+  it("adds what the helper reads as it runs to an unattended run's exempt directories where a denied path covers it: the shim's service state and versions directory, and nothing else of the data directory", async () => {
     const forge = await fakeForge();
-    const t = await start(forge);
+    const dataDir = join(tempDir(), "data");
+    const shim = join(dataDir, "bin", "agent-harness");
+    const reads = [join(dataDir, "service-state.json"), join(dataDir, "versions")];
+    const t = await start(forge, { dataDir, harnessCommand: [shim], harnessReads: reads });
+    const session = await create(await t.client());
+
+    await routineRun(t, session.id);
+
+    expect(t.adapter.lastRun().input.denylist?.exempt).toEqual([...exemptIn(dataDir), join(dataDir, "bin"), ...reads]);
+  });
+
+  it("adds the versions directory a helper under a launcher with no shim reads to an unattended run's exemptions", async () => {
+    const forge = await fakeForge();
+    const dataDir = join(tempDir(), "data");
+    const versionDir = join(dataDir, "versions", "0.1.0");
+    const command = [join(versionDir, "node", "bin", "node"), join(versionDir, "packages", "cli", "dist", "main.js")];
+    const t = await start(forge, { dataDir, containment: bubblewrapProbe(), harnessCommand: command, harnessReads: [join(dataDir, "versions")] });
+    const session = await create(await t.client());
+
+    await routineRun(t, session.id);
+
+    const input = t.adapter.lastRun().input;
+    expect(input.containment.level).toBe("workspace");
+    const projected = input.denylist;
+    expect(projected?.paths).toContain(dataDir);
+    expect(projected?.exempt).toEqual([
+      ...exemptIn(dataDir),
+      join(versionDir, "node", "bin"),
+      join(versionDir, "packages", "cli", "dist"),
+      join(dataDir, "versions"),
+    ]);
+  });
+
+  it("leaves the exempt directories as they are for a helper, and what it reads, no denied path covers", async () => {
+    const forge = await fakeForge();
+    const t = await start(forge, { harnessReads: ["/opt/agent-harness/service-state.json", "/opt/agent-harness/versions"] });
     const session = await create(await t.client());
 
     await routineRun(t, session.id);

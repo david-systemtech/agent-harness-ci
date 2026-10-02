@@ -12,6 +12,7 @@ import type {
   SubagentEntry,
   ToolCallEntry,
   TranscriptEntry,
+  UpdateInterruptedEntry,
   UserMessageEntry,
 } from "../projections/session.js";
 import { isLiveTask } from "./tasks.js";
@@ -62,6 +63,7 @@ import { isLiveTask } from "./tasks.js";
 
 export type TranscriptRow =
   | { readonly kind: "user"; readonly id: string; readonly runId: string; readonly entry: UserMessageEntry }
+  | { readonly kind: "update-interrupted"; readonly id: string; readonly runId: null; readonly entry: UpdateInterruptedEntry }
   | { readonly kind: "assistant"; readonly id: string; readonly runId: string; readonly entry: AssistantEntry }
   | { readonly kind: "calls"; readonly id: string; readonly runId: string; readonly calls: readonly ToolCallEntry[] }
   | { readonly kind: "command"; readonly id: string; readonly runId: string; readonly entry: CommandEntry }
@@ -171,6 +173,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
           items: entry.history.items, runs: entry.history.runs, parkedPrompts: [], rewinds: [], instructions: "",
         }, [])) });
         break;
+      case "update-interrupted":
+        push({ kind: "update-interrupted", id: `update-interrupted:${entry.sequence}`, runId: null, entry });
+        break;
       case "history-unreadable":
         push({ kind: "history-unreadable", id: `history-unreadable:${entry.sequence}`, runId: null, entry });
         break;
@@ -259,4 +264,27 @@ export const liveTasks = (view: Pick<SessionProjection, "items">, runId: string 
   if (runId === undefined) return [];
   const ledger = view.items.findLast((entry) => entry.kind === "tasks" && entry.runId === runId);
   return ledger?.kind === "tasks" ? ledger.tasks.filter(isLiveTask) : [];
+};
+
+/** The import actor appended historical human messages; other system actors authored their messages. */
+export const environmentMessage = (entry: UserMessageEntry): boolean => entry.sender?.kind === "system" && entry.sender.id !== "carry-over";
+
+/** The update cut's line, shared by both renderers and transcript exports. */
+export const updateInterruptedText = (entry: UpdateInterruptedEntry): string => {
+  const prefix = `Updated to ${entry.toVersion} while this ran; `;
+  switch (entry.outcome) {
+    case "continued": return `${prefix}continued`;
+    case "waiting-on-prompt": return `${prefix}waits for your answer to the parked prompt`;
+    case "next-message": {
+      const reasons = {
+        "no-resume": "the provider cannot resume this run",
+        account: "the account changed or is signed out",
+        mode: "the mode changed",
+        workspace: "the workspace is gone",
+        deleted: "the session was deleted",
+        completions: "the caller must retry the completions request",
+      } as const;
+      return `${prefix}waits for your next message: ${reasons[entry.reason]}`;
+    }
+  }
 };

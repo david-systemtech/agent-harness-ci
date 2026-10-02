@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { SCOPES, registry, type BridgeCall, type JsonObject, type ParamsOf, type ResultOf, type SessionBrowser } from "@agent-harness/contracts";
+import { SCOPES, registry, type BridgeCall, type JsonObject, type ParamsOf, type PromptOpenedPayload, type ResultOf, type SessionBrowser } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { callHostTool, end, fakeAdapter, type FakeAdapter, type Script } from "../../test/fake-adapter.js";
@@ -473,5 +473,29 @@ describe("browser_open's browser argument", () => {
     expect(answer).toEqual({ text: `No Chrome paired with ${t.env.name} is named Home: the paired Chromes are Work, Personal. Ask the person which one to use.`, isError: true });
     expect(work.extension.calls).toEqual([]);
     expect(payloadsOf(t, id, "session.browser.set")).toHaveLength(1);
+  });
+});
+
+
+describe("the Chrome's own denylist match", () => {
+  it.each(["browser_open", "browser_read"])("puts %s's refusal to the person, then navigates with the allowance", async (tool) => {
+    const t = await start();
+    const work = await pair(t, "Work");
+    const client = await clientOf(t);
+    const id = await sessionWith(client, chromeOf(t, work.id));
+    const address = "https://payments.example/pay";
+    const match = { section: "browserDomains" as const, entry: { id: "payments-for-tests", pattern: "payments.example", note: "Payments", preset: false, enabled: true }, matched: address };
+    work.driver.next(tool === "browser_open" ? "open" : "read", { ok: false, reason: `The page went to ${address}, which the denylist lists (payments.example), so it was stopped at about:blank.`, denylist: { frame: "top-level", match } });
+    const answers: HostToolResult[] = [];
+    const runId = await startRun(t, client, id, calling([[tool, tool === "browser_open" ? { address, snapshot: false } : {}]], answers));
+    await vi.waitFor(() => expect(eventsOf(t, id).filter((event) => event.type === "prompt.opened")).toHaveLength(1), { timeout: WAIT_MS });
+    const p = eventsOf(t, id).find((event) => event.type === "prompt.opened")!.payload as PromptOpenedPayload;
+    expect(p).toMatchObject({ kind: "denylist", denylist: [match], reason: expect.stringContaining(t.env.id) });
+    expect(answers).toEqual([]);
+    expect(work.extension.calls).toHaveLength(1);
+    await client.request("permissions.prompts.answer", { commandId: randomUUID(), sessionId: id, promptId: p.promptId, decision: "allow" });
+    await untilEnded(t, id, runId);
+    expect(work.extension.calls.map(asked).at(-1)).toMatchObject({ command: { verb: "navigate", args: { url: address } }, allowance: { host: "payments.example" } });
+    expect(answers[0]).toMatchObject({ isError: false, text: expect.stringContaining(address) });
   });
 });

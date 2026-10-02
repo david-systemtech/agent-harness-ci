@@ -15,7 +15,7 @@ const stepOf = (id: RegisteredStep["id"]): RegisteredStep => STEP_REGISTRY.find(
 
 /** The step's check at `AT`, its state checks answering as `stateChecks` says, with no last good result. */
 const check = (step: RegisteredStep, values: SettingsValues, stateChecks: StateCheckers) =>
-  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, lastGood: undefined });
+  checkStep(step, { values, stateChecks, clock: manualClock(AT), checkedAt: AT, askedBy: "client", lastGood: undefined });
 
 const holding: StateCheckers = {
   "account.present": () => true,
@@ -29,6 +29,7 @@ const holding: StateCheckers = {
   "your-machines.host-updater": () => true,
   "your-machines.named": () => true,
   "your-machines.ready": () => true,
+  "your-machines.lan": () => true,
   "forges.present": () => true,
   "forges.identity": () => true,
   "forges.reads": () => true,
@@ -41,6 +42,21 @@ const holding: StateCheckers = {
   "key-manager.reachable": () => true,
   "key-manager.run-tokens": () => true,
   "key-manager.cli": () => true,
+  "memory-bank.present": () => true,
+  "memory-bank.reachable": () => true,
+  "memory-bank.manifest": () => true,
+  "memory-bank.orientation": () => true,
+  "memory-bank.owners": () => true,
+  "memory-bank.landing": () => true,
+  "instructions.orientation-renders": () => true,
+  "skills.present": () => true,
+  "skills.sources-synced": () => true,
+  "skills.sources-yield": () => true,
+  "skills.source-limit": () => true,
+  "skills.own-directory": () => true,
+  "browser.present": () => true,
+  "browser.chrome-connected": () => true,
+  "browser.extension-current": () => true,
   "permissions.containment": () => true,
   "permissions.denylist": () => true,
   "permissions.not-root": () => true,
@@ -57,7 +73,7 @@ describe("a step's result", () => {
       actions: [],
       checkedAt: AT,
     });
-    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "Every setting it writes holds a valid value." });
+    expect(await check(stepOf("browser"), presetSettings(), holding)).toMatchObject({ state: "done", reason: "A Chrome is paired with this environment. A paired Chrome is connected. Every paired Chrome last reported the shipped extension version." });
   });
 
   it("needs attention naming every failure in the entry's order, the value checks first, with each failing check's actions once", async () => {

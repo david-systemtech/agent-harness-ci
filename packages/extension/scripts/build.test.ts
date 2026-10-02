@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
-import { EXTENSION_ID, EXTENSION_MANIFEST_KEY, PORT_FILE_NAME } from "@agent-harness/contracts";
+import { EXTENSION_MANIFEST_KEY, PORT_FILE_NAME } from "@agent-harness/contracts";
 import { parseAst } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { scriptedEnvironment } from "../test/scripted-environment.js";
@@ -74,6 +74,10 @@ describe("the extension's build", () => {
       }
     }
     expect(read("worker.js")).not.toMatch(/@agent-harness\//);
+    // The worker takes the browser package's page driver and the reader it sends into a page, Mozilla's Readability
+    // with it, and leaves out what only a fetched page is read by.
+    expect(read("worker.js")).toMatch(/function Readability\(doc, options\)/);
+    expect(read("worker.js")).not.toMatch(/readFetchedPage|isShell/);
   });
 
   it("gives the options page its script from the folder, which the content policy admits", () => {
@@ -106,33 +110,19 @@ describe("the extension's build", () => {
 
 /**
  * The built `worker.js` on a thread of its own, whose timers and socket end
- * with it: its global `chrome` the fake (loaded from source through tsx),
- * holding the built manifest, and its `fetch` of the extension's own
- * addresses reading the built folder, as Chrome serves them.
+ * with it, as `test/built-worker-thread.ts` runs it: its global `chrome` the
+ * fake (loaded from source through tsx), holding the built manifest, and its
+ * `fetch` of the extension's own addresses reading the built folder.
  */
 const runBuiltWorker = (): Worker => {
-  const require = createRequire(import.meta.url);
   const workerData = {
-    tsxApi: pathToFileURL(require.resolve("tsx/esm/api")).href,
-    fakeChrome: pathToFileURL(join(import.meta.dirname, "..", "test", "fake-chrome.ts")).href,
-    worker: pathToFileURL(join(built, "worker.js")).href,
+    tsxApi: pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm/api")).href,
+    entry: pathToFileURL(join(import.meta.dirname, "..", "test", "built-worker-thread.ts")).href,
     folder: built,
-    origin: `chrome-extension://${EXTENSION_ID}/`,
   };
   const thread = new Worker(
     `const { workerData } = require("node:worker_threads");
-    const { readFile } = require("node:fs/promises");
-    const { join } = require("node:path");
-    import(workerData.tsxApi)
-      .then(({ tsImport }) => tsImport(workerData.fakeChrome, workerData.fakeChrome))
-      .then(async ({ fakeChrome }) => {
-        globalThis.chrome = fakeChrome(JSON.parse(await readFile(join(workerData.folder, "manifest.json"), "utf8")));
-        globalThis.fetch = async (url) => {
-          if (!url.startsWith(workerData.origin)) throw new TypeError("Failed to fetch");
-          return new Response(await readFile(join(workerData.folder, url.slice(workerData.origin.length)), "utf8"));
-        };
-        await import(workerData.worker);
-      });`,
+    import(workerData.tsxApi).then(({ tsImport }) => tsImport(workerData.entry, workerData.entry));`,
     { eval: true, workerData, execArgv: [...process.execArgv, "--conditions=@agent-harness/source"] },
   );
   thread.on("error", () => undefined);

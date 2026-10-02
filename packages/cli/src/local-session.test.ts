@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type AddressInfo, type Socket } from "node:net";
 import { ContractError, registry } from "@agent-harness/contracts";
 import { systemClock, type Clock, type Timer } from "@agent-harness/environment";
@@ -91,6 +92,31 @@ describe("the local session route", () => {
     expect(await liveLabels(t)).not.toContain("two calls");
   });
 
+  it("hears the notices raised once it follows them and none the catch-up replays, and revokes its client session after", async () => {
+    const t = await start();
+    const admin = await t.client();
+    cleanups.push(() => admin.close());
+    await admin.apply("environment.rename", { commandId: randomUUID(), name: "Before" });
+
+    const heard = await withLocalSession({ dataDir: t.dataDir }, net, "notices", async (call, notices) => {
+      const names: string[] = [];
+      let both!: () => void;
+      const heardBoth = new Promise<void>((resolve) => (both = resolve));
+      await notices((notice) => {
+        if (notice.type !== "environment.renamed") return;
+        names.push(notice.payload.name);
+        if (names.length === 2) both();
+      });
+      await call("environment.rename", { commandId: randomUUID(), name: "After" });
+      await call("environment.rename", { commandId: randomUUID(), name: "Again" });
+      await heardBoth;
+      return names;
+    });
+
+    expect(heard).toEqual(["After", "Again"]);
+    expect(await liveLabels(t)).not.toContain("notices");
+  });
+
   it("fails the verb when a call goes unanswered for the timeout, even after another call in flight with it was answered", async () => {
     const t = await start();
     const { clock, start: silence } = heldClock();
@@ -105,6 +131,25 @@ describe("the local session route", () => {
     });
     await expect(verb).rejects.toThrow(LocalFailure);
     await expect(verb).rejects.toThrow(/did not answer within/);
+  });
+
+  it("waits on a call given a longer wait than the route's for as long as that call's wait, and fails it past that", async () => {
+    const t = await start();
+    // Answered a second after it is asked: past the route's timeout, within the call's own wait.
+    t.env.methods.register(registry["banks.list"], async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return { banks: [] };
+    });
+    const answered = await withLocalSession({ dataDir: t.dataDir }, net, "one slow call", (call) => call("banks.list", {}, { timeoutMs: 60_000 }), { timeoutMs: 300 });
+    expect(answered).toEqual({ banks: [] });
+
+    const { clock, start: silence } = heldClock();
+    t.env.methods.register(registry["banks.list"], () => {
+      silence();
+      return new Promise<never>(() => undefined);
+    });
+    const verb = withLocalSession({ dataDir: t.dataDir }, net, "one silent slow call", (call) => call("banks.list", {}, { timeoutMs: 600 }), { timeoutMs: 300, clock });
+    await expect(verb).rejects.toThrow(/did not answer within 0\.6 seconds/);
   });
 
   it("fails the verb when the environment goes silent on the revoke, even after a call its work left behind is answered", async () => {

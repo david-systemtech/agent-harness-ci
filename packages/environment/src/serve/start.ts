@@ -1,3 +1,9 @@
+import { splitMethods } from "../banks/split.js";
+import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
+import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
+import { createMemoryOperations } from "../banks/memory-operations.js";
+import { memoryMethods } from "../banks/memory-methods.js";
+import { createMemoryToolServers } from "../banks/memory-server.js";
 import { readFileSync } from "node:fs";
 import { homedir, hostname, userInfo } from "node:os";
 import { dirname, isAbsolute, join, resolve as absolutePath } from "node:path";
@@ -41,10 +47,24 @@ import {
 import { SYSTEM, createAccessLog } from "../auth/access-log.js";
 import { accessMethods } from "../auth/access-methods.js";
 import { createBootstrapGrant } from "../auth/bootstrap.js";
+import { describeBankStep } from "../banks/describe.js";
+import { createBankCredentials } from "../banks/credentials.js";
+import { createBankService, type BankService } from "../banks/bank-service.js";
+import { PROVIDER_NAMES as KEY_MANAGER_NAMES } from "../key-managers/provider.js";
+import { BANKS_DIRECTORY, bankCheckouts } from "../banks/attachments.js";
+import { banksProjector, listBanks } from "../banks/bank-store.js";
+import { createBankMoveSource } from "../banks/move-source.js";
+import { bankMethods } from "../banks/methods.js";
+import { banksSection } from "../banks/orientation.js";
+import { createBankSyncer } from "../banks/syncer.js";
+import { bankRecords } from "../banks/records.js";
 import { systemResolver, type Resolver } from "../browser/address-rules.js";
 import type { ExtractionHooks } from "../browser/extraction.js";
-import { noHeadlessBrowser, resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
+import { findHeadlessExecutable, isExecutableFile } from "../browser/headless-executable.js";
+import { spawnBrowser, type BrowserLauncher } from "../browser/headless-launch.js";
+import { resolveRunBrowser, type HeadlessAvailabilitySeam } from "../browser/run-browser.js";
 import { chooseChrome } from "../browser/chrome-choice.js";
+import { browserAllowance } from "../browser/denylist.js";
 import { createBrowserToolServers, type PageDrivers } from "../browser/tool-server.js";
 import { systemDialer, type Dialer } from "../browser/web-fetch.js";
 import { createWebReader } from "../browser/web-read.js";
@@ -93,12 +113,13 @@ import { autoAnswer } from "../permissions/auto-answer.js";
 import { UNPROBED_REPORT, containmentFlags, containmentReport, failedProbeReport, presetContainmentDefault, withAdapters } from "../permissions/containment.js";
 import { CONTAINMENT_DIRECTORY, containmentDirectories } from "../permissions/containment-directories.js";
 import { probeContainment, type ContainmentProbe } from "../permissions/containment-probe.js";
-import { coveredDirectories, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
+import { coveredDirectories, coveredPaths, denylistRule, providerDenylist, readDenylistCall, type DenylistContext } from "../permissions/denylist-gate.js";
 import { denylistMethods } from "../permissions/denylist-methods.js";
 import { readDenylist, seedDenylist } from "../permissions/denylist-store.js";
 import { permissionMethods, sessionModeClamp } from "../permissions/methods.js";
 import { promptMethods } from "../permissions/prompt-methods.js";
 import { startPromptNotices } from "../permissions/prompt-notices.js";
+import { startReviewNotices } from "../permissions/review-notices.js";
 import { permissionsProjector, readPermissionSettings, readStoredContainmentDefault } from "../permissions/permissions-store.js";
 import { policySettings, resolvePolicy } from "../permissions/resolver.js";
 import { reviewMethods } from "../permissions/review-methods.js";
@@ -123,10 +144,12 @@ import { forgeAccountsProjector } from "../forge/forge-store.js";
 import { createCredentialRoute } from "../forge/credential-route.js";
 import { forgeMethods } from "../forge/methods.js";
 import { verifiedOrigins, type GitConfigEntry } from "../forge/git-helper.js";
+import type { ForgeGitAnswer, ForgeGitRequest } from "../forge/harness-git.js";
 import { managedGh } from "../forge/gh.js";
 import type { ForgeFetch } from "../forge/providers.js";
 import type { KeyManagerRegistry } from "../key-managers/registry.js";
 import { createKeyManagerConnections, type KeyManagerConnections } from "../key-managers/connections.js";
+import { officialOnePasswordSdk, type OnePasswordSdk } from "../key-managers/onepassword-sdk.js";
 import { KEY_MANAGER_CLI_DIRECTORY } from "../key-managers/run-tokens.js";
 import { keyManagerConnectionsProjector } from "../key-managers/connection-store.js";
 import { settingsInjection } from "../key-managers/injection-setting.js";
@@ -145,23 +168,32 @@ import { createToolDoctor } from "../managed-tools/doctor.js";
 import { createToolVerifier } from "../managed-tools/verify.js";
 import { createToolRunner } from "../managed-tools/runner.js";
 import type { PackageOwnerLookup } from "../managed-tools/package-owner.js";
-import { followDeliveries } from "../routines/delivery.js";
+import { createWebhookDeliveries } from "../routines/webhook-delivery.js";
+import { followDeliveries, resumeDeliveries } from "../routines/delivery.js";
 import { routineEndpointsProjector } from "../routines/endpoint-store.js";
 import { createRoutineEndpoints } from "../routines/endpoints.js";
-import { followFiringEnds } from "../routines/firing-end.js";
+import { limitFiringDurations } from "../routines/firing-duration.js";
+import { followFiringEnds, settleFirings } from "../routines/firing-end.js";
 import { createFiringStarter } from "../routines/firing-start.js";
 import { routineMethods } from "../routines/methods.js";
-import { routinesProjector } from "../routines/routine-store.js";
+import { firingSkillsOfSession, routinesProjector } from "../routines/routine-store.js";
+import { createRoutineScheduler } from "../routines/scheduler.js";
+import { routineAccount } from "../routines/listing.js";
+import { preCheckMethods } from "../routines/pre-check-methods.js";
+import { createPreCheckRunner } from "../routines/pre-check.js";
+import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
 import { groupMethods } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
-import { knownRepositoryIdentities } from "../sessions/session-tables.js";
+import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
+import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
+import { createBrowserRelay } from "../browser/relay.js";
 import { EXTENSION_LISTENER_PORTS, type ExtensionListenerPorts } from "../browser/listener.js";
 import { createAutoMemory } from "../workspace/auto-memory.js";
 import { createAvailabilityWatcher, type AvailabilitySettings } from "../workspace/availability.js";
@@ -178,7 +210,8 @@ import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
 import { skillsCarryOver } from "../skills/carry-over.js";
 import { createSkillProbes } from "../skills/probe.js";
-import { createSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
+import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { stateImportMethods } from "../state-import/methods.js";
@@ -187,7 +220,7 @@ import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
 import { createOwnDirectory, prepareOwnDirectory } from "../skills/own-directory.js";
 import { skillReadinessMethods } from "../skills/readiness.js";
-import { placeSkillSet, runSkillSets } from "../skills/run-skill-set.js";
+import { placeSkillSet, runSkillSets, skillSetReader } from "../skills/run-skill-set.js";
 import { setupMethods } from "../setup/methods.js";
 import { mintMethods } from "../setup/mint.js";
 import { startSetupScheduler } from "../setup/scheduler.js";
@@ -201,8 +234,9 @@ import { createCloserStack } from "./closers.js";
 import { defaultDataDirectory, prepareDataDirectory } from "./data-directory.js";
 import { createHttpSurface, sendJson, type Address, type HttpRoutes } from "./http.js";
 import { ensureSigningKey, loadOrCreateRecord } from "./identity.js";
-import { LOOPBACK, bindChoiceOf, bindList, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
+import { LOOPBACK, bindChoiceOf, bindPlan, tailscaleDetector, type BoundInterface, type InterfaceDetector } from "./interfaces.js";
 import { processLauncherChannel, type LauncherChannel } from "./launcher.js";
+import { refuseMarkedRestore } from "./launcher-files.js";
 import { processContainerDetector, type ContainerDetector } from "./container.js";
 import { createLifecycle, type DrainOutcome } from "./lifecycle.js";
 import { createMethodTable, type MethodTable } from "./methods.js";
@@ -300,7 +334,11 @@ export interface EnvironmentOptions {
   readonly channel?: ReleaseChannel;
   /** The machine's hostname, whose first label names a new environment given no `name` (#323). Preset: `os.hostname()`; tests script it. */
   readonly hostname?: string;
-  /** The operating system the preset icon follows, outside a container (#323). Preset: `process.platform`; tests script it. */
+  /**
+   * The operating system the preset icon follows, outside a container (#323), the rule the scripts directory judges a
+   * pre-check's script executable by, Windows's by its extension (#526), and where the headless browser's executable is
+   * looked for (#555). Preset: `process.platform`; tests script it.
+   */
   readonly platform?: NodeJS.Platform;
   /** The environment's own tailnet name, which the Host check accepts while the tailnet address is bound. Preset: the detector's. */
   readonly tailnetName?: string;
@@ -312,7 +350,7 @@ export interface EnvironmentOptions {
   readonly bindTailnet?: boolean;
   /** Bind `lanAddress`, which must then be given, or no LAN address, over `network.bindLan` (#574), for tests and the service verbs. Preset: the key. */
   readonly bindLan?: boolean;
-  /** The LAN address bound when `bindLan` is on: one the machine holds, never the wildcard address. */
+  /** The LAN address bound when `bindLan` is on: one the machine holds, else the start skips it (#773); never the wildcard address. */
   readonly lanAddress?: string;
   /** Preset: the running process's user (`processUserCheck`). */
   readonly user?: UserCheck;
@@ -461,12 +499,30 @@ export interface EnvironmentOptions {
    */
   readonly harnessCommand?: readonly string[];
   /**
+   * The absolute paths `harnessCommand` reads as it runs, beyond its own
+   * words (#705): the launcher's shim reads the service state and the
+   * versions directory. Only whoever knows the command's layout can name
+   * them, so `serve` passes them beside it. Where an enabled denied path
+   * covers one, an unattended run's sandbox reads it again, as it does the
+   * command's own directories. Preset none.
+   */
+  readonly harnessReads?: readonly string[];
+  /**
    * Configuration the harness's git is given after its own on every
    * operation. Only tests give it: an `insteadOf` that sends a forge's
    * `https` URL to a local bare repository, so the source URL rule runs as
    * written (skills spec, "Testing Decisions"). Preset none.
    */
   readonly harnessGitConfig?: readonly GitConfigEntry[];
+  /**
+   * What the skills' probes, adds and syncs ask of the ForgeService's git
+   * goes through this, handed the request and that git. Only tests give it:
+   * to see each request, hold a sync's fetch in flight, or answer one as
+   * stopped at its time (skills spec, "Testing Decisions"). Preset none.
+   */
+  readonly skillsGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
+  /** Test boundary for observing or holding the BankService's harness git fetches. */
+  readonly banksGit?: (request: ForgeGitRequest, git: (request: ForgeGitRequest) => Promise<ForgeGitAnswer>) => Promise<ForgeGitAnswer>;
   /**
    * The machine the state import's source reader looks at for a source data
    * folder and terminal-client state folder (#581): its environment
@@ -511,10 +567,13 @@ export interface EnvironmentOptions {
    * path's list (#370) may take. Preset: `KEY_MANAGER_BUDGET_MS`, ADR 0031's ten seconds.
    */
   readonly keyManagerTimeoutMs?: number;
+  /** The 1Password SDK the 1Password provider signs in through (#378). Preset: the official `@1password/sdk`; tests give a scripted double, so none reaches 1Password. */
+  readonly onePasswordSdk?: OnePasswordSdk;
+  /** Loads the official Bitwarden SDK; tests inject a scripted loader or a load failure. */
+  readonly bitwardenSdk?: import("../key-managers/bitwarden-sdk.js").BitwardenSdkLoader;
   /**
    * The Move sources registered at start (#371): each owning service's
-   * items holding a stored value. Preset: the forge's; banks (#90) and
-   * routine webhook endpoints (#92) join it. Tests script one.
+   * items holding a stored value. Preset: the forge's and routine webhook endpoints'; banks (#90) join it. Tests script one.
    */
   readonly moveSources?: readonly MoveSource[];
   /**
@@ -559,17 +618,25 @@ export interface EnvironmentOptions {
    * the listener tries. Preset: `EXTENSION_BUILD`, and 47615 then each next
    * free port up to 47634; a preferred port of 0 binds any free one, as tests do.
    * And whether the environment has a headless browser a run can drive, asked
-   * at each run's start (#550); preset: none here, until #555's manager.
-   * And the page drivers the browser tools reach, by kind (#551), each over
-   * its preset: a Chrome paired with this environment is driven by its
-   * extension driver (#552), and every other kind answers that it cannot be
-   * driven here yet.
+   * at each run's start (#550); preset: the headless browser's own answer
+   * (#555). And the page drivers the browser tools reach, by kind (#551),
+   * each over its preset: a Chrome paired with this environment is driven by
+   * its extension driver (#552), the headless browser by its driver (#555),
+   * and the dock answers that it cannot be driven here yet.
+   * And how the headless browser is found and started (#555): whether a path
+   * is a file it can run (preset: one this process may execute), how a found
+   * Chromium is launched (preset: a child process over a pipe), and how its
+   * navigation policy resolves a name before navigating (preset: the system's
+   * resolver). Tests launch the scripted CDP peer and resolve from a table.
    */
   readonly browser?: {
     readonly extensionSource?: string;
     readonly ports?: ExtensionListenerPorts;
     readonly headless?: HeadlessAvailabilitySeam;
     readonly drivers?: PageDrivers;
+    readonly isExecutable?: (path: string) => boolean;
+    readonly launch?: BrowserLauncher;
+    readonly resolve?: Resolver;
   };
 }
 
@@ -635,6 +702,7 @@ export interface EnvironmentHandle {
    * process, reading a forge account's credential per operation (#312).
    */
   readonly forge: ForgeService;
+  readonly banks: BankService;
   /**
    * The key-manager connections (#365): the add the state import (ADR
    * 0036) and the bulk copy call in process, without a credential, and what
@@ -770,10 +838,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   let tailnetName: string | undefined;
   // What the listeners bind beside loopback, for environment.status (#574): nothing until they are bound.
   let boundBeside: Pick<EnvironmentBinding, "tailnet" | "lan"> = { tailnet: null, lan: null };
+  // A Tailscale address the machine holds that the start did not bind (#861): found at the listen step with the tailnet setting
+  // off, or looked for again at each environment.status while no tailnet address is bound, so a Tailscale installed since shows.
+  let tailnetFound: string | null = null;
   // What is found to bind beside loopback: the Tailscale address and name, and the LAN addresses, read as each is asked.
   const interfaces = options.interfaces ?? tailscaleDetector();
 
   let readiness: EnvironmentReadiness = "starting";
+  // When this start was noted (`environment.started`): activity for the idle window, as a run's start is (#445).
+  let startedAt: Date | undefined;
   let address: Address | undefined;
   const closers = createCloserStack();
   // Pushed first, so it is let go last: every line the environment writes to its standard error passes the scrub
@@ -796,13 +869,15 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }
   };
 
-  // The data directory, and the own skills directory in it (#494), made before anything reads them.
-  const ownSkillsPath = await step("data-directory", () => {
+  // The data directory, and the own skills directory (#494) and the routines' scripts directory (#526) in it, made before
+  // anything reads them.
+  const { ownSkillsPath, scriptsPath } = await step("data-directory", () => {
     prepareDataDirectory(dataDir);
-    return prepareOwnDirectory(dataDir);
+    return { ownSkillsPath: prepareOwnDirectory(dataDir), scriptsPath: prepareScriptsDirectory(dataDir) };
   });
 
   const log: EventLog = await step("database", () => {
+    refuseMarkedRestore(dataDir);
     const opened = openEventLog({ path: join(dataDir, DATABASE_FILE), clock: now, scrub: (text) => scrub.scrub(text) });
     closers.push(() => opened.close());
     return opened;
@@ -816,6 +891,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       permissionsProjector,
       accountsProjector,
       forgeAccountsProjector,
+      banksProjector,
+      bankDraftsProjector,
       keyManagerConnectionsProjector,
       keyManagerMovesProjector,
       routinesProjector,
@@ -895,6 +972,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     });
     closers.push(() => tools.close());
     const connections = createKeyManagerConnections({
+      ...(options.bitwardenSdk !== undefined && { bitwardenSdk: options.bitwardenSdk }),
       log,
       clock,
       environmentId: loaded.id,
@@ -902,8 +980,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       scrub,
       ...(options.keyManagerTimeoutMs !== undefined && { budgetMs: options.keyManagerTimeoutMs }),
       // Asked only by a removal, once the wire is open and the forge made below.
-      referenceHolders: (connectionId) => forgeService.referenceHolders(connectionId),
+      referenceHolders: (connectionId) => [...forgeService.referenceHolders(connectionId), ...endpoints.referenceHolders(connectionId), ...bankCredentials.referenceHolders(connectionId)],
       cliDirectory: join(dataDir, KEY_MANAGER_CLI_DIRECTORY),
+      onePasswordSdk: options.onePasswordSdk ?? officialOnePasswordSdk(HARNESS_VERSION),
     });
     closers.push(() => connections.close());
     await connections.start();
@@ -960,15 +1039,40 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     };
   });
 
+  const user = passwdName();
+  const bankCredentials = createBankCredentials({ log, environmentId: record.id, forge, vault, references: keyManagers, scrub, command: options.harnessCommand, address: () => address, ...(options.harnessGitConfig !== undefined && { config: options.harnessGitConfig }) });
+  await bankCredentials.start();
+  if (options.moveSources === undefined) moves.register(createBankMoveSource(log, vault, bankCredentials));
+  closers.push(() => bankCredentials.close());
+  const bankService = createBankService({
+    log, clock, environmentId: record.id, forge, dataDir, scrub, credentials: bankCredentials,
+    creation: {
+      dataDir, forge, scrub, localPersonName: user ?? "Personal", accounts: () => accounts.list(),
+      keyManager: () => {
+        const connection = keyManagerConnections.list().find((held) => held.basePath !== null);
+        return connection == null ? null : { product: KEY_MANAGER_NAMES[connection.provider], path: connection.basePath! };
+      },
+    },
+  });
+  const bankSyncer = createBankSyncer({
+    banks: bankService, clock,
+    git: (request, bankId) => {
+      const git = (request: ForgeGitRequest) => bankService.git(bankId, request);
+      return options.banksGit?.(request, git) ?? git(request);
+    },
+  });
+  // The host closes first, ending runs waiting on this syncer before its close releases their deadlines.
+  closers.push(() => bankSyncer.close());
+
   // Where the denylist reads paths from (#132): the user's home for `~` (and for `~<the user's name>`), the file system's
   // links, and the directories inside the data directory where runs work, which the data directory's preset leaves out: the
   // containment directories (#133's) and every workspace root, the scratch workspaces a completions request runs in (#140,
   // now its every call is gated), the worktrees and any root a later workstream declares (#325), and the key-manager CLIs'
   // configuration, which an injected CLI reads (#368, David's decision on it).
-  const user = passwdName();
   const roots = workspaceRoots(dataDir, options.workspaces?.roots);
   const denylistContext: Omit<DenylistContext, "denylist"> = {
     home: homedir(),
+    environmentId: record.id,
     // And the skills a run reads (#496): the own directory, the sources' snapshots and the generations linking to them.
     exempt: [
       join(dataDir, CONTAINMENT_DIRECTORY),
@@ -977,18 +1081,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ownSkillsPath,
       join(dataDir, SNAPSHOTS_DIRECTORY),
       join(dataDir, GENERATIONS_DIRECTORY),
+      join(dataDir, BANKS_DIRECTORY),
     ],
     ...(user !== undefined && { user }),
   };
   const readDenylistNow = () => readDenylist({ all: (sql, ...params) => log.read(sql, ...params) });
   // What git's credential helper is run from (#315): the absolute paths of the command git names (the launcher's shim, or
-  // node and the entry it runs).
+  // node and the entry it runs); and what it reads as it runs (#705), the shim's service state and versions directory.
   const helperPaths = (options.harnessCommand ?? []).filter((word) => isAbsolute(word));
+  const helperReads = (options.harnessReads ?? []).filter((path) => isAbsolute(path));
 
   // Each repository's auto-memory directory (ADR 0018), which the Claude adapter points runs at, and which the identity passes
   // (#329) and sessions.setWorkspace (#328) carry to a session's new key, one carry at a time.
   const autoMemoryRoot = join(dataDir, AUTO_MEMORY_DIRECTORY);
   const autoMemory = createAutoMemory(autoMemoryRoot);
+  closers.push(connectBankMemory(log, autoMemory));
 
   // The SDK session store (#137): the provider's transcripts beside the log, which every Claude run passes and resumes from.
   const providerStore: ProviderTranscriptStore = createProviderTranscriptStore({ log, clock });
@@ -1031,21 +1138,36 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     environmentId: record.id,
     live: (sessionId) => host.live(sessionId),
+    gate: (sessionId) => host.gate(sessionId),
+    allowance: (sessionId, call) => {
+      const live = host.live(sessionId);
+      return live === null ? undefined : browserAllowance({ all: (sql, ...params) => log.read(sql, ...params) }, live.runId, call);
+    },
     drivers: {
       // A Chrome paired with this environment is driven by it directly, whoever started the run, so the run keeps its
       // browser when its client closes (#552); another environment's goes through the browser relay (#554).
-      chrome: ({ browser: chrome }) =>
+      chrome: ({ browser: chrome, sessionId, runId }) =>
         chrome.environmentId.toLowerCase() === record.id.toLowerCase()
           ? browser.driverOf(chrome.chromeId)
-          : { kind: "chrome", perform: async () => ({ ok: false, reason: "This environment cannot drive a Chrome paired with another environment yet." }) },
+          : relay.driverOf({ environmentId: chrome.environmentId, chromeId: chrome.chromeId, sessionId, runId }),
+      // The headless browser (#555): one driver for every session, a browser context each.
+      headless: () => browser.headless.driver,
+      dock: ({ sessionId, runId }) => relay.driverOf({ kind: "dock", sessionId, runId }),
       ...options.browser?.drivers,
     },
     // The agent's answer to the several-Chromes question, recorded on the session by the run's adapter (#552).
-    chooseChrome: (ask) =>
-      chooseChrome(
-        { log, environmentId: record.id, environmentName: () => look.read().name },
-        { ...ask, actor: formatActor({ kind: "adapter", id: host.live(ask.sessionId)?.descriptor.provider ?? "unknown" }) },
-      ),
+    chooseChrome: async (ask) => {
+      const remote = ask.environmentId.toLowerCase() !== record.id.toLowerCase()
+        ? await relay.chromesOf({ ...ask, chromeId: null })
+        : undefined;
+      if (remote !== undefined && !remote.ok) return remote;
+      const live = host.live(ask.sessionId);
+      if (live?.runId !== ask.runId) return { ok: false, reason: "This session's run changed before its Chrome could be chosen." };
+      return chooseChrome(
+        { log, environmentId: record.id, environmentName: () => remote?.environmentName ?? look.read().name, ...(remote !== undefined && { paired: remote.chromes }) },
+        { ...ask, actor: formatActor({ kind: "adapter", id: live.descriptor.provider }) },
+      );
+    },
   });
   const detector = options.containerDetector ?? processContainerDetector();
   const inContainer = detector.inContainer();
@@ -1065,7 +1187,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const seamServers = hostSeams.toolServers ?? noToolServers;
   // A run's servers but the completions caller's own: the browser server (#546), then the seam's. Readiness's `mcp`
   // check asks this (#511), since the caller's tools are its request's alone.
-  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...seamServers(scope)];
+  bankService.configureLanding({ forge, scrub,
+    temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
+  closers.push(() => bankService.closeLanding());
+  // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
+  const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
+  const memoryTools = createMemoryToolServers(memoryOperations);
+  const runServers: ToolServerFactory = (scope) => [browserTools(scope), ...memoryTools(scope), ...seamServers(scope)];
   // What the client sessions report of their other connections (#382), dropped as each is revoked or expires.
   const knownEnvironments = createKnownEnvironments({ log, stream: environmentStream, environmentId: record.id, clock, clientSessions });
   closers.push(() => knownEnvironments.close());
@@ -1080,6 +1208,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     accountsSection({ accounts: () => listAccountStandings({ all: (sql, ...params) => log.read(sql, ...params) }) }),
     keyManagersSection({ connections: () => keyManagerConnections.list(), tool: (name) => managedTools.known(name) }),
     ...(forge.orientation === undefined ? [] : [forge.orientation]),
+    banksSection(() => listBanks({ all: (sql, ...params) => log.read(sql, ...params) })),
     otherEnvironmentsSection({ union: () => knownEnvironments.union() }),
   ];
   for (const section of [...ownSections.filter((own) => !givenSections.some((given) => given.name === own.name)), ...givenSections]) orientation.register(section);
@@ -1090,7 +1219,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The session's own instructions (#506) fill the session layer.
   const sessionLayer = sessionInstructionsLayer({ all: (sql, ...params) => log.read(sql, ...params) });
   const instructions =
-    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), session: sessionLayer });
+    hostSeams.instructions ?? composeInstructions({ orientation: orientationSeam, orientationOn, owned: ownedInstructionsLayer(instructionStore), teamBank: bankInstructionsLayer(log, autoMemory), session: sessionLayer });
   // What the harness's services put into every provider process and terminal (#307): the forge's variables, git's helper and
   // the run-scoped secret (#315), when the environment has an agent-harness command for git to name as its helper. Whether a
   // holder gets them is the injection setting's answer, read as each holder is built (#367).
@@ -1120,21 +1249,42 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   const carrySkills = skillsCarryOver({ own: ownSkills, environmentId: record.id, account: (id) => host.account(id), home: carryOverHome });
   // The probe (#497): a repository URL's skill folders, cloned through the ForgeService's git under the data directory and
   // kept thirty minutes for an add to reuse.
-  const skillProbes = createSkillProbes({ dataDir, clock, git: (request) => forge.git(request), forgeAccounts: () => verifiedOrigins(forge.list()) });
+  const forgeGit = (request: ForgeGitRequest): Promise<ForgeGitAnswer> => forge.git(request);
+  const { skillsGit } = options;
+  const skillProbes = createSkillProbes({
+    dataDir,
+    clock,
+    git: skillsGit === undefined ? forgeGit : (request) => skillsGit(request, forgeGit),
+    forgeAccounts: () => verifiedOrigins(forge.list()),
+  });
   closers.push(() => skillProbes.close());
   // The skill sources (#498): a folder added from a probe's checkout, or a fetch, exported at its commit into a snapshot.
-  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
+  const skillSources = createSkillSources({ log, environmentId: record.id, dataDir, clock, probes: skillProbes, forgeAccounts: () => verifiedOrigins(forge.list()) });
+  // The syncer (#499): each unpinned source at start past the gate, every six hours staggered, on Pull now and at once
+  // when unpinned; never before a run.
+  const skillSync = createSkillSync({ log, environmentId: record.id, clock, sources: skillSources });
   // The materialiser (#496): each run's skill set as its fingerprint and generation, a generation kept while a live process
   // holds it or a resolution holds it current.
   const generations = createGenerations({ dataDir, clock });
+  // The skill set as it is now, which a routine's skills are checked against: its attention, and its firing's start (#531).
+  const readSkillSet = skillSetReader({ own: ownSkills, sources: skillSources, log });
 
   // A routine's result is delivered once its entry's end commits (#525): followed before the firings' ends, and closed after
   // them, so an end the recovery sweep or the host's close appends is delivered too.
   closers.push(followDeliveries({ log, clock: now, environmentId: record.id }));
+  const webhookDeliveries = createWebhookDeliveries({
+    log, clock, environmentId: record.id, name: () => look.read().name, scrub,
+    endpoint: (name) => endpoints.resolve(name),
+  });
+  closers.push(() => webhookDeliveries.close());
   // A routine's firing ends as its run does (#523): followed from before the adapter host starts, so the recovery sweep's end
   // of a run a crash cut is heard, and closed after the host, so the ends the host's close appends are heard too.
   closers.push(followFiringEnds({ log, clock: now, environmentId: record.id }));
 
+  // The environment's resolver of a new session's workspace (#321). Its identity rule reads this environment's forge accounts
+  // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
+  const forgeAccounts = () => verifiedOrigins(forge.list());
+  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1200,6 +1350,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const created = createAdapterHost({
       log,
       clock,
+      scrub,
       attachmentStage,
       stagedAttachments,
       ...(options.runs !== undefined && { runs: options.runs }),
@@ -1217,34 +1368,43 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
           enforceable: containment,
         }),
       // Each run's browser (#550): the session's field by whether a person is present, the operator's switch as it is at the
-      // run's start, and whether a headless browser is here.
+      // run's start, and whether a headless browser is here, as the headless browser answers it (#555).
       resolveBrowser: (request) =>
-        resolveRunBrowser(request, { allowRuns: settings()["browser.headless.allowRuns"], headless: (options.browser?.headless ?? noHeadlessBrowser)() }),
+        resolveRunBrowser(request, {
+          allowRuns: settings()["browser.headless.allowRuns"],
+          headless: options.browser?.headless?.() ?? browser.headless.availability(),
+        }),
       containmentDirectories: sessionDirectories,
       processEnvironments,
       ceilingOf: (id) => clientSessions.ceiling(id),
+      // A routine's skills for a run the environment starts for it after a restart, as its firing recorded them (#531).
+      routineSkills: (sessionId) => firingSkillsOfSession({ all: (sql, ...params) => log.read(sql, ...params) }, sessionId),
       // The unattended and bypass rules, and the TTL a prompt that parks is fixed with (#131).
       autoAnswer,
       // The tool gate's rules (#132): the denylist, read as it is when each call is made.
       gateRules: [denylistRule({ ...denylistContext, denylist: readDenylistNow })],
+      bankCheckouts: (scope) => bankCheckouts(bankService.entries().map(({ entry }) => entry), scope),
       // What an unattended run projects onto its provider's own rules (#140), read as it starts.
-      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from, where the denylist
-      // covers them (#315), are exempt too, so the sandbox lets the helper run.
+      // Projected onto an unattended run's sandbox: the directories git's credential helper is read from (#315), and the paths
+      // it reads as it runs (#705), where the denylist covers them, are exempt too, so the sandbox lets the helper run.
       providerDenylist: () => {
         const denylist = readDenylistNow();
-        const helper = coveredDirectories({ ...denylistContext, denylist: () => denylist }, helperPaths);
+        const context = { ...denylistContext, denylist: () => denylist };
+        const helper = [...coveredDirectories(context, helperPaths), ...coveredPaths(context, helperReads)];
         return providerDenylist(denylist, { ...denylistContext, exempt: [...denylistContext.exempt, ...helper] });
       },
       promptTtlMs: () => parkedPromptTtlMs(permissionSettings()["permissions.parkedPrompt.ttl"]),
       processIdleMinutes: options.processIdleMinutes ?? (() => settings()["providers.processIdleMinutes"]),
       // A run's trust, read once as it launches: its key and the decision recorded for it (#500).
       trust: (place) => trustStore.of(place),
+      identityAt: (path) => environmentResolver.identityAt(path),
       // A run's skill set, resolved as it launches and at each commands listing, and its generation held by the processes
       // spawned under it (#496).
       skillSet: runSkillSets({ own: ownSkills, sources: skillSources, log, generations }),
       holdGeneration: generations.hold,
       ...hostSeams,
       instructions,
+      beforeRun: bankSyncer.beforeRun,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
     });
@@ -1298,8 +1458,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sendJson(response, 200, health, noStore);
   });
 
-  // A prompt that parks, and its answer, are told to every client there (#130); stopped before the event log closes.
+  // A prompt that parks, and its answer, are told to every client there (#130), as is a change to the Unattended review (#811);
+  // stopped before the event log closes.
   closers.push(startPromptNotices({ log, stream: environmentStream }));
+  closers.push(startReviewNotices({ log, stream: environmentStream }));
   // The reaper (#330): a purged session's workspace inside a workspace root goes once the purge commits, off the log's path,
   // when no other session names it; a worktree with work in it stays, noticed. Closed before the log, letting its work end.
   const reaper = createReaper({
@@ -1328,6 +1490,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     clock,
     scrub,
     availability,
+    runPath: async () => (await managedTools.commandEnvironment())["PATH"] ?? "",
     ...options.terminals,
     processEnvironment: (sessionId) => {
       const session = readSessionFacts(log, { all: (sql, ...params) => log.read(sql, ...params) }, sessionId);
@@ -1357,8 +1520,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     idleWindowMs: () => readSettings({ all: (sql, ...params) => log.read(sql, ...params) })["updates.idleWindowMinutes"] * 60_000,
     // A terminal whose shell runs a command holds the environment busy as a run does (#343).
     terminalRunning: () => terminalService.terminals.commandRunning(),
+    // The start holds it busy for the window too (#445): the runs the stop before it cut are in the log, not the run registry.
+    startedAt: () => startedAt,
     readiness: () => readiness,
-    binding: () => ({ ...boundBeside, lanAddresses: [...interfaces.lanAddresses()] }),
+    binding: () => ({ ...boundBeside, tailnetFound, lanAddresses: [...interfaces.lanAddresses()] }),
+    lookAgain: async () => {
+      if (boundBeside.tailnet === null) tailnetFound = (await interfaces.tailscaleAddress()) ?? null;
+    },
     onDraining: () => {
       readiness = "draining";
       // New runs are refused before any process stops, so none starts on a process the drain is stopping.
@@ -1425,23 +1593,88 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The shelf's sweep (#117): started once the environment is ready; a settings change runs it from the change's commit.
   const settleSweep = createSettleSweep({ log, clock });
   // A new session's workspace, from the request `sessions.create` or the completions surface makes (#321).
-  // The identity rule reads this environment's forge accounts with their verified aliases, at creation and in inspect (#329).
-  const forgeAccounts = () => verifiedOrigins(forge.list());
-  const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
   const workspaceResolver = options.workspaceResolver ?? environmentResolver;
   // A routine's firing starts through the resolver and the actor start (#523); closed before the host, letting its starts end.
   // For a repository identity, where a session on it works here (#329): a routine's import re-resolves through it (#528).
   const checkoutIndex = createCheckoutIndex({ log, availability });
-  const firings = createFiringStarter({ log, clock: now, environmentId: record.id, environmentName: () => look.read().name, host, accounts, resolver: workspaceResolver });
+  // The scripts routines' pre-checks run (#526), which the OS user places, and what runs a pre-check: a script there, run
+  // uncontained as the environment's own process, or a URL whose every host meets the denylist's hosts.
+  const scripts = scriptsDirectory(scriptsPath, { platform: options.platform ?? process.platform, env: process.env });
+  const denylistedHost = (url: string): boolean => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0;
+  const preChecks = createPreCheckRunner({
+    scripts, clock, directoryRules: environmentResolver, denylisted: denylistedHost, scrub,
+    baseEnvironment: () => baseEnvironment(),
+    processEnvironment: (subject) => processEnvironments.of({
+      sessionId: null,
+      accountId: routineAccount(subject.account, { reader: { all: (sql, ...params) => log.read(sql, ...params) }, accounts })?.id ?? null,
+      origin: "routine",
+      holder: "pre-check",
+      override: subject.routine === null || subject.injection === "inherit"
+        ? null
+        : { answer: subject.injection, level: { kind: "routine", id: subject.routine.id } },
+    }),
+  });
+  const firings = createFiringStarter({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    host,
+    accounts,
+    resolver: workspaceResolver,
+    preChecks,
+    readSkillSet,
+  });
   closers.push(() => firings.close());
+  // A firing's live run is interrupted at its maximum duration (#524): followed once the host has started, and closed before it.
+  closers.push(limitFiringDurations({ log, clock, host }));
+  // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
+  // committed, below.
+  const browser = createBrowserService({
+    log,
+    clock,
+    stream: environmentStream,
+    environmentId: record.id,
+    name: () => look.read().name,
+    harnessVersion,
+    dataDir,
+    extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
+    ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
+    vault,
+    // The headless browser (#555): an endpoint, else a Chromium it launches, never in a container the install declared.
+    headless: {
+      declaredContainer: detector.declared?.() ?? false,
+      find: (named) =>
+        findHeadlessExecutable(named, {
+          platform: options.platform ?? process.platform,
+          env: process.env,
+          home: homedir(),
+          isExecutable: options.browser?.isExecutable ?? isExecutableFile,
+        }),
+      launch: options.browser?.launch ?? spawnBrowser,
+      resolve: options.browser?.resolve ?? systemResolver,
+    },
+  });
   // Set up's health checks (ADR 0031; #141, #308): each registered step's, on this environment, each result kept in the
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
+  capabilities.push("banks");
+  const banks = bankRecords(bankService);
+  // One local preview for the Instructions row and its health check, even when the orientation switch is off.
+  // Read the injection setting directly; health never decides a provider process or materialises its skills.
+  const orientationInjection = settingsInjection(() => readSettings({ all: (sql, ...params) => log.read(sql, ...params) }));
+  const readOrientation = async () => {
+    const accountId = accounts.defaultId();
+    return accountId === null ? null : orientationSeam(host.orientationScope(accountId, { kind: "scratch", path: roots.scratch }, orientationInjection({ sessionId: null, accountId, origin: "client", holder: "provider-process", override: null })));
+  };
   const setupSteps: SetupSteps = options.setupSteps ?? {
     steps: STEP_REGISTRY,
     stateChecks: environmentStateChecks({
       log,
+      orientation: readOrientation,
+      skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
       containment,
@@ -1457,24 +1690,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       look: () => look.read(),
       accounts: () => accounts.list(),
       status: () => lifecycle.status(),
+      lanAddresses: () => interfaces.lanAddresses(),
+      banks,
+      browser,
     }),
+    // The LLM steps' own sides (#584): the Memory bank step's describe session works in a worktree of a bank (#586).
+    llmSteps: { "memory-bank": describeBankStep({ banks, clock, dataDir }) },
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
-  // The extension's folder and its listener (#547), and the paired Chromes (#548): bound and made once the start is
-  // committed, below.
-  const browser = createBrowserService({
-    log,
-    clock,
-    stream: environmentStream,
-    environmentId: record.id,
-    name: () => look.read().name,
-    harnessVersion,
-    dataDir,
-    extensionSource: options.browser?.extensionSource ?? EXTENSION_BUILD,
-    ports: options.browser?.ports ?? EXTENSION_LISTENER_PORTS,
-    vault,
-  });
+  /** A client session's label, which sentences and records name it by; undefined for one never issued. */
+  const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
+  // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
+  // the session's latest client-started run, as a client.call it answers with client.answer, while it holds an open socket.
+  const relay = createBrowserRelay({ log, clock, stream: environmentStream, connected: (clientSessionId) => wire.holds(clientSessionId), clientLabel: clientSessionLabel, scrub: (text) => scrub.scrub(text) });
+  closers.push(() => relay.close());
   // The routines' webhook endpoints (#522): each pasted secret in the vault, each URL's host checked against the denylist's
   // hosts as it is at the set, and a test's payload naming the environment as it is named now.
   const endpoints = createRoutineEndpoints({
@@ -1484,9 +1714,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     environmentId: record.id,
     name: () => look.read().name,
     vault,
-    denylisted: (url) => readDenylistCall({ ...denylistContext, denylist: readDenylistNow }, { hosts: [url] }, dataDir).matches.length > 0,
+    denylisted: denylistedHost,
+    connectionLabel: (id) => keyManagerConnections.readable(id)?.record.label ?? null,
+    keyManagers,
     scrub,
   });
+  if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
   const table = createMethodTable({
@@ -1530,7 +1763,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
-    ...denylistMethods({ log, accessLog, dataDir, context: denylistContext }),
+    ...denylistMethods({ log, accessLog, environmentId: record.id, dataDir, context: denylistContext }),
     ...setupMethods(setup),
     // An LLM step's minted session (#584): created and started as sessions.create and runs.start would, in process.
     ...mintMethods({ log, host, resolver: workspaceResolver, steps: setupSteps, ceilingOf: (id) => clientSessions.ceiling(id) }),
@@ -1545,13 +1778,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       orientationOn,
       catalogue: options.catalogue ?? (() => CATALOGUE),
       // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
-      orientation: async () => {
-        const accountId = accounts.defaultId();
-        return accountId === null ? null : orientationSeam(await host.previewScope({ accountId, workspace: { kind: "scratch", path: roots.scratch } }));
-      },
+      orientation: readOrientation,
     }),
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
+    ...bankMethods(bankService, bankCredentials, bankSyncer),
+    ...splitMethods(bankService, record.id),
+    ...memoryMethods(memoryOperations, () => accounts.defaultId()),
+    "banks.drafts.list": async ({ sessionId, bankId }) => {
+      const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
+      const session = readSessionFacts(log, reader, sessionId);
+      if (session === null || session.deleted) {
+        throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
+      }
+      return { queues: listBankDrafts(reader, sessionId, bankId) };
+    },
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
@@ -1565,7 +1806,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       ceilingOf: (id) => clientSessions.ceiling(id),
       firings,
       workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+      scripts,
+      denylisted: denylistedHost,
+      readSkillSet,
     }),
+    ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
@@ -1582,6 +1827,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // into the own directory, a checkout among them offered as a source. The choices (#501), on the skills stream.
     ...skillsMethods({
       log,
+      trust: (place) => trustStore.of(place),
+      nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
       environmentId: record.id,
       own: ownSkills,
       defaultAccountId: () => accounts.defaultId(),
@@ -1589,6 +1836,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       carryOver: carrySkills,
       probe: skillProbes.probe,
       sources: skillSources,
+      sync: skillSync,
     }),
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
@@ -1604,12 +1852,14 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     }),
     // The extension's folder and its listener (#547), browser.status; pairing and the paired Chromes (#548).
     ...browser.handlers,
+    // The browser relay's answers (#554): client.answer.
+    ...relay.handlers,
     // The trust gate (#500): trust.get and trust.list, trust.decide and trust.revoke.
     ...trustMethods({
       log,
       environmentId: record.id,
       store: trustStore,
-      clientSessionLabel: (id) => clientSessions.list({ live: false }).find((session) => session.id === id)?.label,
+      clientSessionLabel,
     }),
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
@@ -1658,7 +1908,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     pairRoute({ pairings, atomically: accessLog.atomically, rateLimiter: createRateLimiter({ clock }), readiness: () => readiness }),
   );
   // The credential route (#314): what git's credential helper asks, over loopback, with a run-scoped secret; no client session.
-  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock }));
+  surface.route("POST", GIT_CREDENTIAL_PATH, createCredentialRoute({ forge, clock, banks: bankCredentials }));
   // The update route (#353): updates.apply over HTTP for a client whose protocol the wire refuses; a client session's token, no exchange.
   surface.route("POST", UPDATE_PATH, createUpdateRoute({ log, clientSessions, methods: table, readiness: () => readiness }));
   // The completions surface (#138): OpenAI's routes under /v1/ on the wire's port, for programs' client sessions.
@@ -1698,7 +1948,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The binding keys as this start finds them (#574), which the start options override.
     const values = readSettings({ all: (sql, ...params) => log.read(sql, ...params) });
     const choice = bindChoiceOf({ bindTailnet: values["network.bindTailnet"], bindLan: values["network.bindLan"] }, options);
-    const binds = bindList({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
+    const { binds, skipped } = bindPlan({ tailscaleAddress, ...choice, lanAddresses: interfaces.lanAddresses() });
+    if (skipped !== undefined) console.error(skipped);
     closers.push(() => surface.close());
     // Loopback first: its port, chosen when 0 is asked for, is every other listener's.
     const listening: { address: Address; interface: BoundInterface }[] = [];
@@ -1714,6 +1965,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     const boundOn = (which: BoundInterface) => listening.find((entry) => entry.interface === which)?.address.host ?? null;
     const tailnet = boundOn("tailnet");
     boundBeside = { tailnet: tailnet === null ? null : { address: tailnet, name: tailnetName ?? null }, lan: boundOn("lan") };
+    tailnetFound = tailnet === null ? (tailscaleAddress ?? null) : null;
     linkOrigin = `http://${linkHost(listening, tailnetName)}:${loopback.address.port}`;
     // Closed before the listeners, so no socket holds their close open.
     closers.push(() => wire.close());
@@ -1734,11 +1986,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   readiness = "ready";
   // Only a start the launcher committed is noted, and before the wire opens, so a first subscriber finds it.
   try {
-    log.append(
+    const [started] = log.append(
       environmentStream,
       [{ type: "environment.started", payload: { harnessVersion, protocolVersion: PROTOCOL_VERSION } }],
       { actor: formatActor({ kind: "system", id: "lifecycle" }) },
-    );
+    ).events;
+    startedAt = started && new Date(started.occurredAt);
   } catch (error) {
     await closers.closeAll().catch((closeError: unknown) => console.error("Closing after a failed start failed:", closeError));
     throw new StartupError("prepared", error);
@@ -1748,6 +2001,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // looked at first through the availability watcher, one at a time within its bound (#691): a dead mount holds the wire's
   // opening two bounds at most, never the event loop.
   await updates.settle();
+  settleFirings({ log, clock: now, environmentId: record.id });
+  resumeDeliveries({ log, clock: now, environmentId: record.id });
+  webhookDeliveries.start();
   // Deleted sessions whose grace period ran out while the environment was down go before any client can read them.
   try {
     deletion.purgeDue(clock.now());
@@ -1775,13 +2031,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(createCompactionSweep({ log, clock }).start());
   // The trash (#494): what turned thirty days old while the environment was down now, in the background, then hourly.
   closers.push(trash.start());
-  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly.
-  closers.push(generations.start());
+  // The skill-set generations (#496): what a start before this one left now, in the background, then hourly; each sweep
+  // followed by the snapshots' (#499), which keeps those the generations left link into. Its stop waits for a sweep in
+  // flight, so the snapshots' sweep never reads the log after it closes.
+  closers.push(generations.start(() => skillSources.sweepSnapshots()));
   // Set up's own checks (#571): every registered step now, past the settle and before the wire opens, so a first client
   // finds what the checks that answer at once found; then each step on its cadence and a second after its triggers, with
   // no client needed. The routines scheduler's start pass (#535) runs after this one's.
   const setupScheduler = startSetupScheduler({ log, clock, steps: setupSteps.steps, setup });
   closers.push(() => setupScheduler.stop());
+  // The routines' scheduler (#527): its start pass applies the missed rule to what came due while the environment was down,
+  // then arms its timer and its check, firing with no client needed; stopped before the firing starter closes.
+  const routineScheduler = createRoutineScheduler({ log, clock, environmentId: record.id, firings });
+  closers.push(() => routineScheduler.stop());
+  routineScheduler.start();
   // A check of the release channel appends nothing, yet changes what Your machines' release channel and updates checks
   // answer: each that ends triggers the step, so on a new machine it reads done a second after the channel's first read (#679).
   closers.push(channelChecks.onChecked(() => setupScheduler.trigger("your-machines")));
@@ -1791,6 +2054,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   await browser.start();
   // The vault entries of webhook endpoints that are gone deleted (#522), before a client can set one again.
   await endpoints.start();
+  // The helper can answer startup fetches only after the internal listener is ready.
+  bankSyncer.start();
   wire.open();
   launcher.onQuery((query) => lifecycle.answer(query));
   // A declared container pairs from its own log (ADR 0025, #349): until a client first pairs, each start mints a code
@@ -1823,6 +2088,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   managedTools.start();
   // The forge accounts' verifications (#311): each now, past the gate, then every fifteen minutes.
   forge.startVerifying();
+  // The skill sources' syncs (#499): every unpinned source now, past the gate with the wire open, then staggered every six
+  // hours. Stopped before the log closes: a sync the close cuts records nothing, and the next start syncs it again. The
+  // stop stops each sync's git and waits for the sync to end, so nothing it would write under the data directory outlives
+  // the close (#1014), and before the probes' close, so no clone runs into their folder as they go.
+  closers.push(skillSync.start());
   // A session's pull requests (#317): found at each run's end, and kept current on their cadence from now.
   closers.push(forge.links.start());
   // The key-manager connections' sign-ins (#365): every connection with a credential, now, past the gate; then their
@@ -1898,6 +2168,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     subscriptions: () => wire.subscriptions(),
     log,
     forge,
+    banks: bankService,
     keyManagerConnections,
     keyManagers,
     keyManagerMoves: { leftBehindDeleted },

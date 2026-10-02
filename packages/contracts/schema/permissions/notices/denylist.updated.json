@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DenylistUpdatedPayload",
+  "type": "object",
+  "properties": {
+    "sections": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "browserDomains",
+          "paths",
+          "commandPatterns",
+          "hosts"
+        ],
+        "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+      },
+      "uniqueItems": true,
+      "description": "The sections that changed, each once, in section order."
+    }
+  },
+  "required": [
+    "sections"
+  ],
+  "description": "denylist.updated: the denylist changed and has committed; the sections that did, which a client reads again."
+}

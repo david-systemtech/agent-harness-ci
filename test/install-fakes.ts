@@ -24,9 +24,10 @@ export const write = (path: string, text: string, mode = 0o644) => {
  * A fake curl: logs its URL; for the forge, checks the token arrives on stdin
  * and serves the fake release, to `-o`'s file when given, else to stdout; for
  * the environment's own URLs, refuses the token and answers health and
- * discovery while the fake service runs, health saying `starting` for its
- * first FAKE_STARTING_PROBES probes. Its environment: FAKE_LOG, the calls'
- * log; FAKE_STATE, the fake service's folder (`running`, `probes`);
+ * discovery while the fake service runs, health failing to connect for its
+ * first FAKE_UNANSWERED_PROBES probes, as before the service binds its port,
+ * and saying `starting` for its first FAKE_STARTING_PROBES. Its environment:
+ * FAKE_LOG, the calls' log; FAKE_STATE, the fake service's folder (`running`, `probes`);
  * FAKE_RELEASES, the API's answers (`list.json`, `<tag>.json`); FAKE_ASSETS,
  * the downloads (`<tag>/<name>`); EXPECTED_TOKEN; FAKE_AUTH_POLICY.
  */
@@ -52,6 +53,7 @@ case $url in
       */health)
         probes=$(( $(cat "$FAKE_STATE/probes" 2>/dev/null || echo 0) + 1 ))
         echo "$probes" > "$FAKE_STATE/probes"
+        [ "$probes" -gt "\${FAKE_UNANSWERED_PROBES:-0}" ] || { echo "curl: (7) Failed to connect" >&2; exit 7; }
         if [ "$probes" -gt "\${FAKE_STARTING_PROBES:-0}" ]; then status=ready; else status=starting; fi
         printf '{"status":"%s","version":"0.1.0"}' "$status" ;;
       */.well-known/agent-harness/environment)

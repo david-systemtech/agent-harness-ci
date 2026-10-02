@@ -1,7 +1,8 @@
-import { BRIDGE_PROTOCOL_VERSION, bridgeUrl, decodeFromEnvironment, encodeBridgeMessage, type BridgeFromExtension } from "@agent-harness/contracts";
+import { BRIDGE_PROTOCOL_VERSION, bridgeUrl, decodeFromEnvironment, encodeBridgeMessage, type BridgeFromExtension, type PagePolicy } from "@agent-harness/contracts";
 import type { ExtensionChrome, MessageListener, StorageChange } from "./chrome.js";
 import type { Clock } from "./clock.js";
 import { pageRequestOf, type PairOutcome } from "./messages.js";
+import { chromePages } from "./pages.js";
 import { readPortFile, type ReadOwnFile } from "./port.js";
 import { proofOf } from "./proof.js";
 import { describeStatus, STATUS_KEY, type WorkerStatus } from "./status.js";
@@ -30,6 +31,12 @@ import { NAME_KEY, PAIRING_KEY, PORT_OVERRIDE_KEY, readName, readPairing, readPo
  * that stops or fails closes it; either is tried again later. A pairing
  * the options page forgets, for an environment gone for good, closes the
  * socket the same way, and the worker announces again at once.
+ *
+ * On a live socket, the one it proved itself on or paired on, it answers
+ * each `call` with its page driver (`pages.ts`) under the page policy the
+ * environment sent with `paired` or `ready` and again with each `policy`.
+ * A call or a policy on a socket that is not live is out of turn: only an
+ * environment the Chrome paired with drives its pages.
  */
 
 /** The alarm that starts a stopped worker, which dials again. */
@@ -44,8 +51,11 @@ const PING_MS = 20_000;
 /** How long each failed attempt waits before the next, the last repeated. */
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 
-/** The answer to a verb until the extension drives pages. */
-const NO_DRIVER = "This extension cannot drive pages yet.";
+/**
+ * The page policy the driver judges by until the first live socket sends
+ * one: no page is attached before then, so it never judges one.
+ */
+const NO_POLICY_YET: PagePolicy = { devSites: [], evaluateEverywhere: false, deepReadEverywhere: false, browserDomains: [] };
 
 export interface WorkerSeams {
   readonly chrome: ExtensionChrome;
@@ -104,6 +114,9 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
   let forgotten: string | undefined;
   let status: WorkerStatus = { state: "starting" };
   let stopped = false;
+  /** The page policy the environment sent last, kept after its socket closes for the pages still attached. */
+  let policy = NO_POLICY_YET;
+  const pages = chromePages({ chrome, policy: () => policy });
   /** Woken when an attempt settles: its socket held, or closed, or no socket opened. */
   const settledWaiters = new Set<() => void>();
 
@@ -248,6 +261,7 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
       case "ready":
         if (phase.kind !== "proving") return outOfTurn();
         on.phase = { kind: "live", pairing: phase.pairing };
+        policy = message.policy;
         return hold(on, { state: "connected", port: on.port, environmentName: phase.pairing.environmentName, name: phase.pairing.name });
       case "paired": {
         if (phase.kind !== "announced" || phase.pair === undefined) return outOfTurn();
@@ -259,6 +273,7 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
           name: phase.pair.name,
         };
         on.phase = { kind: "live", pairing };
+        policy = message.policy;
         await chrome.storage.local.set({ [PAIRING_KEY]: pairing });
         forgotten = undefined;
         hold(on, { state: "connected", port: on.port, environmentName: pairing.environmentName, name: pairing.name });
@@ -267,10 +282,14 @@ export const startWorker = ({ chrome, readOwnFile, clock }: WorkerSeams): Runnin
       case "refused":
         return onRefused(on, message.reason);
       case "policy":
-        // The page policy is enforced once the extension drives pages.
+        if (phase.kind !== "live") return outOfTurn();
+        policy = message.policy;
         return;
-      case "call":
-        return send(on, { type: "result", id: message.id, result: { ok: false, reason: NO_DRIVER } });
+      case "call": {
+        if (phase.kind !== "live") return outOfTurn();
+        const { id, pageKey, command, allowance } = message;
+        return send(on, { type: "result", id, result: await pages.perform({ pageKey, command, ...(allowance !== undefined && { allowance }) }) });
+      }
     }
   };
 

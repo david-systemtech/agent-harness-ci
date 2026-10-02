@@ -5,6 +5,7 @@ import { DRAFT_DEBOUNCE_MS, createRuntime, uuidv4, type Runtime } from "@agent-h
 import { fakeShell, inMemoryPlatform, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../environment/test/cleanups.js";
+import { deltaShown, holdBackLastOf } from "../../environment/test/delta-hold-back.js";
 import { end, fakeAdapter, gate, say, type Script } from "../../environment/test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment } from "../../environment/test/helper.js";
 import { workspace } from "../../environment/test/sessions.js";
@@ -88,10 +89,11 @@ const secondClient = async (t: TestEnvironment, environmentId: string, sessionId
   return { runtime, draft: () => session.read().draft };
 };
 
-describe.sequential("the composer through the real spine", () => {
+describe("the composer through the real spine", { concurrent: false }, () => {
   it("streams a send through the fake provider into the rendered transcript, and its draft reaches a second runtime", async () => {
     const t = await startTestEnvironment({ name: "smoke-composer" });
     onCleanup(() => t.close());
+    holdBackLastOf(t, "Looking at ");
     const streamed = gate();
     const script: Script = async function* () {
       yield { type: "assistant.delta", payload: { itemId: "i-1", fragments: [{ kind: "text", text: "Looking at " }] } };
@@ -106,9 +108,11 @@ describe.sequential("the composer through the real spine", () => {
     const message = await within(window.transcript).findByRole("article", { name: "Your message" }, { timeout: 5000 });
     expect(message.textContent).toBe("Fix the receipts");
     // Streamed: the words the delta brought, before the reply settles.
-    await waitFor(() => expect(within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("Looking at "), { timeout: 5000 });
+    const reply = () => within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent;
+    await deltaShown(t, "Looking at ", (prefix) => waitFor(() => expect(reply()?.slice(0, prefix.length)).toBe(prefix), { timeout: 5000 }));
+    expect(reply()).toBe("Looking at ");
     streamed.open();
-    await waitFor(() => expect(within(window.transcript).getAllByRole("article", { name: "Reply" }).at(-1)?.textContent).toBe("Looking at the receipts."), { timeout: 5000 });
+    await waitFor(() => expect(reply()).toBe("Looking at the receipts."), { timeout: 5000 });
     await window.inWindow.findByRole("button", { name: "Send" });
 
     // The text is the session's draft: typed in the window, it is in another runtime of the same environment.

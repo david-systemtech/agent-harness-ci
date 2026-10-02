@@ -1,3 +1,4 @@
+import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -11,6 +12,7 @@ import {
   type CompletionsModelList,
   type EnvironmentReadiness,
   type Scope,
+  type SessionBrowserSetPayload,
   type WireError,
   type Workspace,
   type WorkspaceRequest,
@@ -26,7 +28,7 @@ import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, bearerToken, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
 import { appendDecided } from "../sessions/companions.js";
-import { decideSetBrowser, decideTag, type FirstBrowser } from "../sessions/decider.js";
+import { decideTag, type FirstBrowser } from "../sessions/decider.js";
 import { createSessionIn } from "../sessions/methods.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -41,13 +43,13 @@ import { readTurnRequest, sameTools, withPreamble, type TurnRequest } from "./re
 /**
  * The completions surface (claude-adapter spec, "The completions surface";
  * ADR 0015, ADR 0006; #138): OpenAI's routes under `/v1/` on the wire's
- * port, for programs such as the Hermes bots.
+ * port, for programs such as the Hermes bots and TUI printing (#1179).
  *
  * - **Routes**: `POST /v1/chat/completions`, `GET /v1/models` and
  *   `GET /v1/models/<id>`, the id the rest of the path; every other path
  *   under `/v1/` is 501 with a sentence.
  * - **Authentication**: the bearer token of a client session of kind
- *   `program`: 401 for none, one not issued here, a revoked or an expired
+ *   `program` or `tui`: 401 for none, one not issued here, a revoked or an expired
  *   one; 403 for another kind of client session, or a scope the route needs
  *   (`read` for the models, `sessions:write` and `runs:drive` for a turn)
  *   that it lacks. 503 before the startup gate, and for a turn while the
@@ -57,14 +59,14 @@ import { readTurnRequest, sameTools, withPreamble, type TurnRequest } from "./re
  *   the request names, or a scratch workspace of its own under the data
  *   directory) or the one `sessionId` names, tagged `completions`; its run
  *   has origin `completions` and actor kind `completions`, attended only when
- *   the request says so, under the program's ceiling as it is now (#129,
+ *   the request says so, under the caller's ceiling as it is now (#129,
  *   #131). On a session whose run is live, the turn is a steer
  *   (`runs.send`'s queue path) and the answer follows the run that reads it,
  *   naming the live run's model.
  * - **Continuity**: no `sessionId` is a fresh session, and the earlier
  *   messages ride as a preamble; a session named is continued, and they are
  *   dropped. `forkSession` and `rewindToMessageId` go through
- *   `sessions.fork` and `sessions.rewind` (#137) as the program's client
+ *   `sessions.fork` and `sessions.rewind` (#137) as the caller's client
  *   session; the turn then runs on the fork, or on the rewound session, as
  *   a continued session.
  * - **The answer** (`answer.ts`) follows the session's events: live ones
@@ -109,7 +111,7 @@ export interface CompletionsSurfaceOptions {
   readonly clientSessions: Pick<ClientSessions, "verify" | "ceiling">;
   readonly readiness: () => EnvironmentReadiness;
   readonly catalogue: CompletionsCatalogue;
-  /** The method table, for `sessions.fork` and `sessions.rewind`, run as the program's client session. */
+  /** The method table, for `sessions.fork` and `sessions.rewind`, run as the caller's client session. */
   readonly methods: MethodTable;
   /** Client-tool passthrough (#139): the parked calls, and the tools each session's runs were served. */
   readonly passthrough: Passthrough;
@@ -148,22 +150,22 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
   const open = new Set<{ abandon(): void }>();
   const seconds = (): number => Math.floor(clock.now().getTime() / 1000);
 
-  /** The program's client session from the bearer token, with every scope `scopes` names. */
+  /** The caller's admitted client session from the bearer token, with every scope `scopes` names. */
   const authenticate = (request: IncomingMessage, scopes: readonly Scope[]): VerifiedClientSession => {
     const token = bearerToken(request);
     if (token === undefined) {
-      throw new CompletionsRefusal(401, "unauthorized", "Send the token of a program's client session as Authorization: Bearer <token>.", {
+      throw new CompletionsRefusal(401, "unauthorized", "Send the token of a program or TUI client session as Authorization: Bearer <token>.", {
         headers: { "www-authenticate": "Bearer" },
       });
     }
     const verified = options.clientSessions.verify(token);
     if (!verified.ok) throw new CompletionsRefusal(401, verified.reason, verified.message, { headers: { "www-authenticate": "Bearer" } });
     const { clientSession } = verified;
-    if (clientSession.kind !== "program") {
+    if (clientSession.kind !== "program" && clientSession.kind !== "tui") {
       throw new CompletionsRefusal(
         403,
         "client_kind",
-        `The completions surface serves the client sessions of programs; this one is a ${clientSession.kind}'s. Pair the program as kind program.`,
+        `The completions surface serves program and TUI client sessions; this one is a ${clientSession.kind}'s. Use a program or TUI credential.`,
       );
     }
     const missing = scopes.filter((scope) => !clientSession.scopes.includes(scope));
@@ -294,7 +296,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     };
   };
 
-  /** The run's actor: the completions surface, attended only when the request says so, under the program's ceiling as it is now (#129, #131). */
+  /** The run's actor: the completions surface, attended only when the request says so, under the caller's ceiling as it is now (#129, #131). */
   const actorFor = (turn: TurnRequest, clientSession: VerifiedClientSession): RunActor => ({
     kind: "completions",
     attended: turn.extension.attended,
@@ -389,10 +391,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     clientSession: VerifiedClientSession,
     target: Target,
     place: Place | null,
+    skills: { readonly names: readonly string[]; readonly ignored: readonly string[] },
+    slash?: SlashScope,
   ): Begun => {
     const { sessionId, fresh, forked } = target;
     const clientActor = formatActor({ kind: "client_session", id: clientSession.id });
-    const ignored = [...turn.ignored];
+    const ignored = [...turn.ignored, ...skills.ignored];
     if (!fresh && turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
     // A session the turn makes has no browser unless the request asks for the headless one, since a program brings its own
     // tools (#550); a session it continues keeps its own.
@@ -421,8 +425,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
         if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
         if (forked) {
-          const chosen = decideSetBrowser(readSessionState(reader, sessionId), { sessionId, browser: browser.value, chosenBy: browser.chosenBy });
-          if (chosen.rejected === undefined) appendDecided(log, sessionStream(sessionId), chosen, { tx, actor: clientActor });
+          // A fork inherits its source's browser. Record the program's own choice even when the value is the same,
+          // so the latest browser event names the completions chooser rather than the source's.
+          const payload: SessionBrowserSetPayload = { browser: browser.value, chosenBy: browser.chosenBy };
+          log.append(sessionStream(sessionId), [{ type: "session.browser.set", payload }], { tx, actor: clientActor });
         }
       }
       const actor = actorFor(turn, clientSession);
@@ -434,7 +440,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
       if (facts.live !== null) {
         // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
-        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
+        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments, slash });
         if (sent.rejected !== undefined) throw refused(sent.rejected);
         // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
         // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
@@ -445,6 +451,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         if (answeredIn !== model.id) ignored.push("model");
         if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
         ignored.push(...turn.instructionSources);
+        for (const index of (turn.extension.alwaysOnSkills ?? []).keys()) {
+          const path = `${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`;
+          if (!ignored.includes(path)) ignored.push(path);
+        }
         if (turn.effortParam !== null) ignored.push(turn.effortParam);
         if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
         ignored.push(...liveToolsIgnored(turn, sessionId));
@@ -467,10 +477,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         origin: "completions",
         text,
         attachments,
+        slash,
         model: model.model.id,
         effort: turn.effort ?? undefined,
         mode: turn.extension.permissionMode ?? undefined,
         appendedInstructions: turn.appendedInstructions,
+        alwaysOn: skills.names,
         clientTools: turn.tools.served,
       });
       if (started.rejected !== undefined) throw refused(started.rejected);
@@ -626,7 +638,30 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const follower = follow(where.sessionId);
     let begun: Begun;
     try {
-      begun = begin(turn, model, clientSession, where, place);
+      const text = where.fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
+      const names: string[] = [];
+      const ignored: string[] = [];
+      const asked = turn.extension.alwaysOnSkills ?? [];
+      let slash: PreparedSlash | undefined;
+      do {
+        slash = text.startsWith("/") ? await host.prepareSlash(place === null ? where.sessionId : {
+          accountId: model.account.id, workspace: place.workspace, repositoryIdentity: place.repositoryIdentity,
+        }) : undefined;
+        names.length = 0;
+        ignored.length = 0;
+        if (asked.length > 0) {
+          const live = host.startFacts(where.sessionId, actorFor(turn, clientSession)).live !== null;
+          // A slash turn already resolved the set its run will use; its extra names must use that same set.
+          const scope = live ? null : slash ?? await host.previewScope(place === null ? { sessionId: where.sessionId } : { accountId: model.account.id, workspace: place.workspace });
+          for (const [index, name] of asked.entries()) {
+            if (scope?.skillSet.members.some((member) => member.name === name)) names.push(name);
+            else ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`);
+          }
+        }
+        ready(true);
+        if (exchange.gone) { follower.stop(); await place?.discard(); return; }
+      } while (slash?.isCurrent() === false);
+      begun = begin(turn, model, clientSession, where, place, { names, ignored }, slash);
     } catch (error) {
       follower.stop();
       await place?.discard();
@@ -695,6 +730,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (requested?.id !== answeredIn) ignored.push("model");
     if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
     ignored.push(...turn.instructionSources);
+    ignored.push(...(turn.extension.alwaysOnSkills ?? []).map((_, index) => `${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`));
     if (turn.effortParam !== null) ignored.push(turn.effortParam);
     if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
     if (turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
@@ -793,6 +829,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         sessionId: begun.sessionId,
         runId: begun.runId,
         ...(ended.ended !== null && { ended: { reason: ended.ended.reason, cause: ended.ended.cause } }),
+        ...(ended.waiting !== null && { waiting: ended.waiting }),
       };
       if (ended.error !== null) {
         const reason = ended.ended?.reason;

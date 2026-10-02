@@ -415,23 +415,26 @@ describe("an action that cannot be used now", () => {
 });
 
 describe("a refusal from the environment", () => {
-  it("is one line under the message: a fork's and a rewind's, in the environment's words", async () => {
+  it.each([
+    { message: "The session is being deleted.", data: {} },
+    { message: "Imported history cannot be used as a fork or rewind point: start a new session with this message's text instead.", data: { reason: "imported_history" } },
+  ])("is one line under the message: a fork's and a rewind's, in the environment's words ($message)", async ({ message: reason, data }) => {
     const { app, env, transcript, session } = await opened({
       receipts: {
-        "sessions.fork": { rejected: "conflict", message: "The session is being deleted." },
-        "sessions.rewind": { rejected: "conflict", message: "The session is being deleted." },
+        "sessions.fork": { rejected: "conflict", message: reason, data },
+        "sessions.rewind": { rejected: "conflict", message: reason, data },
       },
     });
     await converse(env, session, transcript, "Fix the receipts", "Add the tests");
     await app.user.click(within(await actionsOn(app, transcript, "Add the tests")).getByRole("button", { name: "Fork" }));
-    await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe("Not forked: The session is being deleted."));
+    await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe(`Not forked: ${reason}`));
     expect(inPane(app)?.sessionId).toBe(session);
 
     await app.user.click(within(await actionsOn(app, transcript, "Add the tests")).getByRole("button", { name: "Rewind" }));
-    await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe("Not rewound: The session is being deleted."));
+    await waitFor(() => expect(lineUnder(transcript, "Add the tests")).toBe(`Not rewound: ${reason}`));
     // One line in the pane, the latest: the fork's is gone, and none is under the composer.
     expect(within(screen.getByRole("region", { name: "Session pane" })).getAllByRole("status").map((status) => status.textContent)).toEqual([
-      "Not rewound: The session is being deleted.",
+      `Not rewound: ${reason}`,
     ]);
     expect(within(transcript).queryByRole("button", { name: /^Rewound: / })).toBeNull();
   });

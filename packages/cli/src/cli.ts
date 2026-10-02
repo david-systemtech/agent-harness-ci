@@ -23,11 +23,15 @@ import {
   RootRefusedError,
   StartupError,
   startEnvironment,
+  systemClock,
+  type Clock,
   type EnvironmentHandle,
   type EnvironmentOptions,
   type PreflightSeams,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { BANK_USAGE, bank } from "./bank.js";
+import { BROWSER_USAGE, browser } from "./browser.js";
 import { harnessCommand } from "./harness-command.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
@@ -52,6 +56,8 @@ const USAGE = [
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
   `       ${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
+  ...BROWSER_USAGE.map((line) => `       ${line}`),
+  ...BANK_USAGE.map((line) => `       ${line}`),
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
   "",
@@ -70,16 +76,20 @@ export interface CliContext extends ProcessContext {
   /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
   readonly preflight?: PreflightSeams;
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector" | "browser">;
-  /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
+  /** The network `pair`, the `update` verbs and `browser pair` use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
+  /** What `browser pair`'s countdown runs on; preset: the system clock. A seam for tests. */
+  readonly clock?: Pick<Clock, "now" | "setTimeout">;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
-  /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
+  /** What `git-credential` reads git's attributes from, `update credential` the token, and `bank draft --body -` the body; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
-  /** The variables `git-credential` reads, and `serve` its new environment's name and channel from; preset: the process's own. */
+  /** The variables `git-credential` reads, `serve` its new environment's name and channel from, and the `bank` verbs a Claude Code session's id from; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
+  /** The directory the `bank` verbs work in, whose repository scopes the banks; preset: the process's working directory. */
+  readonly cwd?: string;
 }
 
 /** A variable's value trimmed, or undefined when it is unset or blank, as the compose file passes one left unset. */
@@ -193,10 +203,11 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   try {
     refusePrivilegedUser(user);
     const options = parseServe(args, context.env ?? process.env);
-    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459).
+    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459), with
+    // what it reads as it runs, which a contained run's sandbox must let it read (#705).
     const underLauncher = context.environment?.launcher?.present() ?? typeof process.send === "function";
-    const command = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
-    environment = await startEnvironment({ ...options, harnessCommand: command, ...context.environment, user });
+    const { command, reads } = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
+    environment = await startEnvironment({ ...options, harnessCommand: command, harnessReads: reads, ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);
@@ -256,6 +267,25 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         stderr: context.stderr,
         env: context.env ?? process.env,
         ...(context.gitCredentialTimeoutMs !== undefined && { timeoutMs: context.gitCredentialTimeoutMs }),
+      });
+    }
+    if (args[0] === "browser") {
+      return await browser(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        clock: context.clock ?? systemClock,
+        stopRequested: context.stopRequested,
+      });
+    }
+    if (args[0] === "bank") {
+      return await bank(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        cwd: context.cwd ?? process.cwd(),
+        env: context.env ?? process.env,
+        stdin: context.stdin ?? readStandardInput,
       });
     }
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });

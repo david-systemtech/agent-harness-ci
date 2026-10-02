@@ -86,6 +86,11 @@ const artefactEntry = (bytes: Uint8Array, fields: Partial<ReleaseAsset> = {}): R
   ...fields,
 });
 
+/** A launcher speaking launcher protocol `protocol`, as its `versions?` reports it. */
+const launcherSpeaking = (protocol: number, version = RUNNING): TestLauncherOptions => ({
+  versions: () => ({ type: "versions", installed: [version], launcherVersion: RUNNING, launcherProtocol: protocol }),
+});
+
 /** Starts a run that runs until the test ends it: the environment is busy. */
 const busy = (t: TestEnvironment, run = "r1"): void => {
   t.runs.start(run);
@@ -233,6 +238,23 @@ const setUpdates = (client: WireClient, values: UpdateSettingsPatch) => client.r
 /** The update id a pending update notice names. */
 const idOf = (notice: { readonly payload: unknown } | undefined): string => (notice?.payload as { updateId: string }).updateId;
 
+/**
+ * Changes the settings to `values` and expects that change to have withdrawn
+ * the waiting `update`: update-cancelled, cause settings, appended by the
+ * command that changed them, and nothing of it pending after.
+ */
+const expectWithdrawnBy = async (t: TestEnvironment, client: WireClient, values: UpdateSettingsPatch, update: { readonly updateId: string; readonly toVersion: string }) => {
+  const label = JSON.stringify(values);
+  const { receipt } = await setUpdates(client, values);
+  expect(receipt, label).toMatchObject({ status: "accepted" });
+  const cancelled = t.env.log.readStream({ kinds: ["environment"] }).find((event) => event.type === "environment.update-cancelled");
+  expect(cancelled?.payload, label).toEqual({ ...update, cause: "settings" });
+  const updated = t.env.log.readStream({ kinds: ["settings"] }).at(-1);
+  expect(updated?.type, label).toBe("settings.updated");
+  expect(cancelled?.commandId, label).toBe(updated?.commandId ?? "none");
+  expect((await client.request("updates.status", {})).pending, label).not.toMatchObject({ updateId: update.updateId });
+};
+
 describe("the pending update a check stages", () => {
   it("comes from the pin when a version is pinned, on either channel", async () => {
     const { fake, t, client } = await withReleases();
@@ -312,15 +334,7 @@ describe("a channel's pending update", () => {
   it("is withdrawn with update-cancelled, cause settings, in the settings' own command, when auto-update is turned off, the channel changes, or a pin names another version", async () => {
     for (const values of [{ "updates.autoUpdate": false }, { "updates.channel": "beta" }, { "updates.pinnedVersion": "0.4.5" }] as const) {
       const { t, client, updateId } = await channelPending();
-      const { receipt } = await setUpdates(client, values);
-      expect(receipt, JSON.stringify(values)).toMatchObject({ status: "accepted" });
-      const cancelled = t.env.log.readStream({ kinds: ["environment"] }).find((event) => event.type === "environment.update-cancelled");
-      expect(cancelled?.payload, JSON.stringify(values)).toEqual({ updateId, toVersion: "0.5.0", cause: "settings" });
-      // Appended by the command that changed the settings.
-      const updated = t.env.log.readStream({ kinds: ["settings"] }).at(-1);
-      expect(updated?.type).toBe("settings.updated");
-      expect(cancelled?.commandId, JSON.stringify(values)).toBe(updated?.commandId ?? "none");
-      expect((await client.request("updates.status", {})).pending, JSON.stringify(values)).not.toMatchObject({ updateId });
+      await expectWithdrawnBy(t, client, values, { updateId, toVersion: "0.5.0" });
     }
   });
 
@@ -338,6 +352,63 @@ describe("a channel's pending update", () => {
     const asked = await client.request("updates.apply", { commandId: randomUUID(), version: "0.5.0", artefactPath: serverArtefact(tempDir(), "0.5.0"), when: "idle" });
     await setUpdates(client, { "updates.autoUpdate": false });
     expect((await client.request("updates.status", {})).pending).toMatchObject({ state: "waiting", updateId: asked.result?.updateId, source: "request" });
+  });
+});
+
+describe("a pin's pending update", () => {
+  /** An environment with the pin's 0.4.5 pending, busy; 0.5.0 published too, the channel's newest, which a pin may name. */
+  const pinPending = async () => {
+    const { fake, t, client } = await withReleases();
+    busy(t);
+    fake.publish(release("0.4.5"), release("0.5.0"));
+    await setUpdates(client, { "updates.pinnedVersion": "0.4.5" });
+    const status = await check(client);
+    expect(status.pending).toMatchObject({ state: "waiting", toVersion: "0.4.5", source: "pin" });
+    return { fake, t, client, updateId: idOf(updateNotices(t)[0]) };
+  };
+
+  it("is withdrawn with update-cancelled, cause settings, in the settings' own command, when unpinned or pinned to another version", async () => {
+    for (const values of [{ "updates.pinnedVersion": null }, { "updates.pinnedVersion": "0.5.0" }] as const) {
+      const { t, client, updateId } = await pinPending();
+      await expectWithdrawnBy(t, client, values, { updateId, toVersion: "0.4.5" });
+    }
+  });
+
+  it("stays while the pin still names it: auto-update, the channel or another setting changed", async () => {
+    const { t, client, updateId } = await pinPending();
+    await setUpdates(client, { "updates.autoUpdate": false });
+    await setUpdates(client, { "updates.channel": "beta" });
+    await setUpdates(client, { "updates.idleWindowMinutes": 30 });
+    await check(client);
+    expect(updateNotices(t).map((notice) => notice.type)).toEqual(["environment.update-pending"]);
+    expect((await client.request("updates.status", {})).pending).toMatchObject({ state: "waiting", updateId, source: "pin" });
+  });
+
+  it("unpinned with auto-update off, goes neither at idle nor at the cap: nothing calls for an update", async () => {
+    const { t, client, updateId } = await pinPending();
+    await setUpdates(client, { "updates.autoUpdate": false });
+    await expectWithdrawnBy(t, client, { "updates.pinnedVersion": null }, { updateId, toVersion: "0.4.5" });
+    t.runs.end("r1");
+    t.clock.advance(25 * HOUR);
+    const status = await check(client);
+    expect(status.pending).toMatchObject({ state: "current" });
+    expect(updateNotices(t).map((notice) => notice.type)).toEqual(["environment.update-pending", "environment.update-cancelled"]);
+    expect(switches(t)).toEqual([]);
+  });
+
+  it("as the stepping stone to the pinned version, stays while the pin does and is withdrawn when unpinned", async () => {
+    const { fake, t, client } = await withReleases({ launch: launcherSpeaking(1) });
+    busy(t);
+    fake.publish(release("0.5.0"), release("0.6.0", { manifest: { launcherProtocol: 2 } }));
+    await setUpdates(client, { "updates.pinnedVersion": "0.6.0" });
+    const status = await check(client);
+    expect(status.target).toEqual({ version: "0.6.0", source: "pin" });
+    expect(status.pending).toMatchObject({ state: "waiting", toVersion: "0.5.0", source: "pin" });
+    const updateId = idOf(updateNotices(t)[0]);
+
+    await setUpdates(client, { "updates.autoUpdate": false });
+    expect(updateNotices(t).map((notice) => notice.type)).toEqual(["environment.update-pending"]);
+    await expectWithdrawnBy(t, client, { "updates.pinnedVersion": null }, { updateId, toVersion: "0.5.0" });
   });
 });
 
@@ -389,11 +460,6 @@ describe("a version whose update failed", () => {
 });
 
 describe("a target that needs a newer launcher", () => {
-  /** A launcher speaking launcher protocol `protocol`, as its `versions?` reports it. */
-  const launcherSpeaking = (protocol: number, version = RUNNING): TestLauncherOptions => ({
-    versions: () => ({ type: "versions", installed: [version], launcherVersion: RUNNING, launcherProtocol: protocol }),
-  });
-
   it("is reached through the newest release the running launcher hosts first, on the channel; after the handover, the next check goes onward", async () => {
     const dataDir = join(tempDir(), "data");
     const { fake, t, client } = await withReleases({ dataDir, launch: launcherSpeaking(1) });
@@ -421,6 +487,65 @@ describe("a target that needs a newer launcher", () => {
     const onward = await check(await handedOver.client());
     expect(onward.pending).toMatchObject({ state: "waiting", toVersion: "0.7.0", source: "channel" });
     expect(installs(handedOver)).toEqual([{ version: "0.7.0", staged: join(dataDir, STAGING_DIRECTORY, "0.7.0") }]);
+  });
+
+  it("after the running release's launcher handover failed, is blocked and needs attention, naming service install from the running release", async () => {
+    const { fake, t, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: {
+        versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1, failedHandoverVersion: "0.6.0" }),
+      },
+    });
+    fake.publish(release("0.6.0"), release("0.7.0", { manifest: { launcherProtocol: 2 } }));
+    const status = await check(client);
+    expect(status.lastCheck).toMatchObject({ result: "ok" });
+    expect(status.target).toEqual({ version: "0.7.0", source: "channel" });
+    expect(status.pending).toEqual({
+      state: "blocked",
+      reason: "launcher",
+      toVersion: "0.7.0",
+      message: "0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.6.0 release to install its launcher.",
+    });
+    expect(artefactReads(fake)).toEqual([]);
+    expect(installs(t)).toEqual([]);
+    const { results } = await client.request("setup.check", { step: "your-machines" });
+    expect(results[0]).toMatchObject({
+      state: "needs-attention",
+      failing: ["your-machines.updates"],
+      actions: ["update"],
+      reason: "0.7.0 needs launcher protocol 2, and the launcher running this environment speaks 1: run `agent-harness service install` from the 0.6.0 release to install its launcher.",
+    });
+  });
+
+  it("waits for the running release's handover when only another release's handover failed", async () => {
+    const { fake, t, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: {
+        versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1, failedHandoverVersion: "0.5.0" }),
+      },
+    });
+    fake.publish(release("0.7.0", { manifest: { launcherProtocol: 2 } }));
+    expect(await check(client)).toMatchObject({ target: { version: "0.7.0", source: "channel" }, pending: { state: "current" } });
+    expect(artefactReads(fake)).toEqual([]);
+    expect(installs(t)).toEqual([]);
+    const { results } = await client.request("setup.check", { step: "your-machines" });
+    expect(results[0]).toMatchObject({ state: "done", failing: [] });
+  });
+
+  it("still takes an available stepping stone after the running release's launcher handover failed", async () => {
+    const { fake, t, client } = await withReleases({
+      harnessVersion: "0.6.0",
+      launcherProtocol: 2,
+      launch: {
+        versions: () => ({ type: "versions", installed: ["0.6.0"], launcherVersion: RUNNING, launcherProtocol: 1, failedHandoverVersion: "0.6.0" }),
+      },
+    });
+    busy(t);
+    fake.publish(release("0.6.1"), release("0.7.0", { manifest: { launcherProtocol: 2 } }));
+    expect(await check(client)).toMatchObject({ target: { version: "0.7.0", source: "channel" }, pending: { state: "waiting", toVersion: "0.6.1" } });
+    expect(installs(t).map((request) => request.version)).toEqual(["0.6.1"]);
   });
 
   it("with no stepping stone, is blocked with the reason launcher, naming service install from the target's release, and downloads nothing", async () => {
@@ -631,4 +756,3 @@ describe("the Your machines step's updates check", () => {
     });
   });
 });
-

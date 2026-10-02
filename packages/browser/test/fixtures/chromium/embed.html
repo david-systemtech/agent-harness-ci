@@ -1,5 +1,9 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Payment</title></head>
-<body><p>Card accepted.</p></body>
+<body>
+  <p id="status">Card accepted.</p>
+  <!-- A control inside a cross-site frame, which a click by ref reaches through the frame's child target. -->
+  <button type="button" onclick="document.getElementById('status').textContent = 'Paid in full.'">Pay</button>
+</body>
 </html>

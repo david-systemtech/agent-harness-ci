@@ -236,10 +236,10 @@ describe("each call", () => {
     expect(drivers.headless.calls.map((call) => call.pageKey)).toEqual([`${t.env.id}/${id}`, `${t.env.id}/${id}`, `${t.env.id}/${id}`]);
   });
 
-  it("answers a sentence for a kind this environment has no driver for", async () => {
-    const { t } = await start(({ headless }) => ({ headless: () => headless }));
+  it("answers the dock driver's refusal when the desktop is unavailable", async () => {
+    const { t } = await start(() => ({ dock: () => ({ kind: "dock", perform: async () => ({ ok: false, reason: "The browser dock is unavailable." }) }) }));
     const answer = await answerOf(t, DOCK, ["browser_open", { address: "example.com" }]);
-    expect(answer).toEqual({ text: "This environment cannot drive the browser dock yet.", isError: true });
+    expect(answer).toEqual({ text: "The browser dock is unavailable.", isError: true });
   });
 });
 
@@ -344,6 +344,32 @@ describe("an action's snapshot", () => {
       );
     }
   });
+
+  it("cuts mid-line short of a ref the cap would split, whatever the driver answers", async () => {
+    const { t, drivers } = await start();
+    const before = `- link "${"A very long name. ".repeat(700)}`.slice(0, 11_994);
+    const long = `${before}" [ref=e123]: ${"and more after it ".repeat(20)}`;
+    drivers.headless.next("navigate", { ok: true, value: { url: "https://example.com/wall", title: "Wall", snapshot: { text: long, totalChars: long.length, truncated: false } } });
+    const answer = await answerOf(t, HEADLESS, ["browser_navigate", { address: "https://example.com/wall" }]);
+    expect(framed(answer.text).body).toBe(`Title: Wall\n\n${before}" `);
+    expect(answer.text.split("\n").at(-1)).toContain("this is the first 11,996, cut mid-line, as no line ends within them.");
+  });
+
+  it("names the driver's own cut as its value does: mid-line where midLine says so, else at a line boundary", async () => {
+    const { t, drivers } = await start();
+    const wall = `- paragraph: ${"A sentence with no line break in it. ".repeat(20)}`.slice(0, 500);
+    const heading = `- heading "Wall" [level=1] [ref=e1]`;
+    drivers.headless.next("navigate", { ok: true, value: { url: "https://example.com/wall", title: "Wall", snapshot: { text: wall, totalChars: 9_000, truncated: true, midLine: true } } });
+    drivers.headless.next("snapshot", { ok: true, value: { url: "https://example.com/wall", title: "Wall", text: wall, totalChars: 9_000, truncated: true, midLine: true } });
+    drivers.headless.next("snapshot", { ok: true, value: { url: "https://example.com/wall", title: "Wall", text: heading, totalChars: 9_000, truncated: true } });
+    const { answers } = await runIn(t, HEADLESS, ["browser_navigate", { address: "https://example.com/wall" }], ["browser_snapshot", { maxChars: 500 }], ["browser_snapshot", { maxChars: 40 }]);
+    const more = "Ask browser_snapshot for more with maxChars (at most 200,000), or focus on one element with ref.";
+    expect(answers.map((answer) => answer.text.split("\n").at(-1))).toEqual([
+      `The snapshot is 9,000 characters; this is the first 500, cut mid-line, as no line ends within them. ${more}`,
+      `The snapshot is 9,000 characters; this is the first 500, cut mid-line, as no line ends within them. ${more}`,
+      `The snapshot is 9,000 characters; this is the first 35, cut at a line boundary. ${more}`,
+    ]);
+  });
 });
 
 describe("the verbs' arguments", () => {
@@ -401,6 +427,36 @@ describe("browser_screenshot", () => {
 });
 
 describe("a page-derived result", () => {
+  it("frames the console with its own address when the page moved after the previous verb", async () => {
+    const { t, drivers } = await start();
+    drivers.headless.next("console", {
+      ok: true,
+      value: { url: "https://example.com/redirected", entries: [{ level: "log", text: "The new page loaded.", at: "2026-10-01T08:00:00.000Z" }] },
+    });
+    const { answers } = await runIn(t, HEADLESS, ["browser_open", { address: "https://example.com/before", snapshot: false }], ["browser_console"]);
+    const console = answers[1] as HostToolResult;
+    expect(console.isError).toBe(false);
+    expect(framed(console.text).opening).toContain("Untrusted content from https://example.com/redirected,");
+    expect(console.text).not.toContain("https://example.com/before");
+  });
+
+  it("frames network, cookies and evaluate, and names a screenshot, at each value's address", async () => {
+    const { t, drivers } = await start();
+    const { headless } = drivers;
+    headless.next("network", { ok: true, value: { url: "https://example.com/requests", entries: [{ method: "GET", url: "https://api.example.com/", at: "2026-10-01T08:00:00.000Z" }] } });
+    headless.next("cookies", { ok: true, value: { url: "https://example.com/cookies", entries: [{ name: "session", domain: "example.com", path: "/", httpOnly: true, secure: true }] } });
+    headless.next("evaluate", { ok: true, value: { url: "https://example.com/evaluated", result: 2 } });
+    headless.next("screenshot", { ok: true, value: { url: "https://example.com/visible", mimeType: "image/jpeg", data: FIXTURE_JPEG } });
+    const { answers } = await runIn(t, HEADLESS, ["browser_open", { address: "https://example.com/before", snapshot: false }], ["browser_network"], ["browser_cookies"], ["browser_evaluate", { expression: "1 + 1" }], ["browser_screenshot"]);
+    expect(answers.map((answer) => answer.isError)).toEqual(Array(5).fill(false));
+    expect(answers.slice(1, 4).map((answer) => framed(answer.text).opening)).toEqual([
+      expect.stringContaining("Untrusted content from https://example.com/requests,"),
+      expect.stringContaining("Untrusted content from https://example.com/cookies,"),
+      expect.stringContaining("Untrusted content from https://example.com/evaluated,"),
+    ]);
+    expect(answers[4]?.text).toContain("A screenshot of https://example.com/visible:");
+  });
+
   it("is framed with its address and token-redacted: snapshot, read, console, network, cookies, storage and evaluate", async () => {
     const { t, drivers } = await start();
     const url = "https://example.com/account";
@@ -408,11 +464,11 @@ describe("a page-derived result", () => {
     const { headless } = drivers;
     headless.next("snapshot", { ok: true, value: { ...page, text: `- textbox "Key" value="${FAKE_GITHUB_TOKEN}" [ref=e1]`, totalChars: 60, truncated: false } });
     headless.next("read", { ok: true, value: { ...page, source: "article", text: `Your key is ${FAKE_GITHUB_TOKEN}.`, offset: 0, totalChars: 53, nextOffset: null } });
-    headless.next("console", { ok: true, value: [{ level: "log", text: `token ${FAKE_GITHUB_TOKEN}`, at: "2026-10-01T08:00:00.000Z" }] });
-    headless.next("network", { ok: true, value: [{ method: "GET", url: `https://api.example.com/?key=${FAKE_GITHUB_TOKEN}`, status: 200, at: "2026-10-01T08:00:00.000Z" }] });
-    headless.next("cookies", { ok: true, value: [{ name: "session", value: FAKE_GITHUB_TOKEN, domain: "example.com", path: "/", httpOnly: true, secure: true }] });
+    headless.next("console", { ok: true, value: { url, entries: [{ level: "log", text: `token ${FAKE_GITHUB_TOKEN}`, at: "2026-10-01T08:00:00.000Z" }] } });
+    headless.next("network", { ok: true, value: { url, entries: [{ method: "GET", url: `https://api.example.com/?key=${FAKE_GITHUB_TOKEN}`, status: 200, at: "2026-10-01T08:00:00.000Z" }] } });
+    headless.next("cookies", { ok: true, value: { url, entries: [{ name: "session", value: FAKE_GITHUB_TOKEN, domain: "example.com", path: "/", httpOnly: true, secure: true }] } });
     headless.next("storage", { ok: true, value: { origin: "https://example.com", local: { key: FAKE_GITHUB_TOKEN }, session: {} } });
-    headless.next("evaluate", { ok: true, value: { result: { key: FAKE_GITHUB_TOKEN } } });
+    headless.next("evaluate", { ok: true, value: { url, result: { key: FAKE_GITHUB_TOKEN } } });
     const { answers } = await runIn(
       t,
       HEADLESS,

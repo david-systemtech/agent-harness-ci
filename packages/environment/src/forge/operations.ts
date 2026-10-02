@@ -1,6 +1,5 @@
 import {
   ContractError,
-  GITHUB_ORIGIN,
   invalidParams,
   normaliseRemote,
   type CredentialUnavailableError,
@@ -10,6 +9,7 @@ import {
   type ForgeKind,
   type ForgeOrigin,
   type ForgeOwner,
+  type KindUnsupportedError,
   type SecretShapedError,
 } from "@agent-harness/contracts";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
@@ -18,6 +18,7 @@ import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
 import type { Reader } from "../sessions/session-tables.js";
 import type { ForgeCredential } from "./forge-service.js";
+import { kindUnsupported, type Detection } from "./detection.js";
 import type { CallOptions } from "./forge-http.js";
 import { listForgeAccounts, liveForgeAccount } from "./forge-store.js";
 import { servingAccount } from "./git-helper.js";
@@ -25,13 +26,16 @@ import { forgeAccountMissing } from "./missing-origins.js";
 import type {
   DownloadedAsset,
   ForgeFile,
+  ForgeValidateCheck,
   ForgeIssue,
   ForgeProvider,
   ForgePullRequest,
+  ForgePullRequestReview,
   ForgeRelease,
   ForgeReleaseAsset,
   ForgeReply,
   ForgeRepository,
+  ForgeRepositoryCapabilities,
   IssueContent,
   MergeMethod,
   PullRequestOpening,
@@ -50,11 +54,15 @@ import { FORGE_ACTOR, type Verifier } from "./verifier.js";
  *   The forge account serving that origin (its canonical origin, a verified
  *   alias, or by host for an ssh form) is used, on its canonical origin.
  * - **No forge account.** A read on an origin none serves goes anonymously
- *   first, on github.com's API for github.com and the Gitea API elsewhere
- *   unless the caller names the kind; the forge refusing it (401, 403, or a
- *   404, behind which both APIs hide a private repository) is
- *   `forge_account_missing` and records the origin as missing (#314). A
- *   write there is refused so at once.
+ *   first, on the API of the kind the caller names, else of the kind
+ *   detection finds (#470), kept for the process once found; the forge
+ *   refusing it (401, 403, or a 404, behind which both APIs hide a private
+ *   repository) is `forge_account_missing` and records the origin as
+ *   missing (#314). Detection finding no forge, as for a forge walled to
+ *   anonymous callers, reads on the Gitea API; a GitLab is refused
+ *   `kind_unsupported`, not for want of a forge account; one detection
+ *   cannot finish answers the read unreachable. A write there is refused
+ *   `forge_account_missing` at once.
  * - **A credential per operation.** The forge account's credential is read
  *   for each operation and let go when it ends; one that cannot be read, or
  *   that answers as another user, is `credential_unavailable`.
@@ -85,9 +93,8 @@ export interface ForgeTarget {
   readonly origin?: string;
   /**
    * The kind of forge an origin no forge account serves is, for an
-   * anonymous read: GitHub for github.com, else the Gitea API unless this
-   * says `github` (an Enterprise origin). A forge account's own kind is used
-   * wherever one serves the origin.
+   * anonymous read; absent, detection finds it. A forge account's own kind
+   * is used wherever one serves the origin.
    */
   readonly kind?: Exclude<ForgeKind, "gitlab">;
   /** What the operation is for, in a few words (`read the release channel`): a missing origin's record and the key-manager registry name it. */
@@ -122,7 +129,7 @@ export interface NoPrimaryForgeRefusal {
 }
 
 /** Why an operation did not reach the forge. */
-export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal;
+export type ForgeRefusal = ForgeAccountMissingError | CredentialUnavailableError | SecretShapedError | NoPrimaryForgeRefusal | KindUnsupportedError;
 
 /** What an operation came to: the forge's reply, or a refusal before it reached the forge. */
 export type ForgeAnswer<T> = ForgeReply<T> | { readonly outcome: "refused"; readonly error: ForgeRefusal };
@@ -131,6 +138,8 @@ export interface ForgeOperations {
   readonly repositories: {
     /** Reads a repository: its visibility, default branch and web address. */
     get(request: RepositoryTarget): Promise<ForgeAnswer<ForgeRepository>>;
+    /** This repository's read/push access with the account matched by origin. */
+    capabilities(request: RepositoryTarget & { readonly signal?: AbortSignal }): Promise<ForgeAnswer<ForgeRepositoryCapabilities>>;
     /** Creates a repository, private or public, under the user or an organisation the forge account may create under (`createRepository`). */
     create(request: RepositoryCreationRequest): Promise<ForgeAnswer<ForgeRepository>>;
     /** Reads the content of the file at `path` on the branch `ref`. */
@@ -138,19 +147,26 @@ export interface ForgeOperations {
     /** The owners the forge account may create a repository under: its user, as the forge answers it now, then the organisations it is a member of. */
     owners(request: ForgeTarget): Promise<ForgeAnswer<ForgeOwner[]>>;
   };
+  readonly users: {
+    /** Reads the user `login` on the target's forge: done when the forge has one, a 404 when it has none (a team bank's owners, #1025). */
+    get(request: ForgeTarget & { readonly login: string }): Promise<ForgeAnswer<null>>;
+  };
   readonly issues: {
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgeIssue>>;
     /** Opens an issue (`writeIssues`); its title and body pass the scrub registry's check first. */
     create(request: RepositoryTarget & IssueContent): Promise<ForgeAnswer<ForgeIssue>>;
   };
   readonly pullRequests: {
+    /** The bank's validate check on one immutable pushed commit. */
+    validateCheck(request: RepositoryTarget & { readonly sha: string; readonly signal?: AbortSignal }): Promise<ForgeAnswer<ForgeValidateCheck>>;
     get(request: NumberedTarget): Promise<ForgeAnswer<ForgePullRequest>>;
+    reviews(request: NumberedTarget): Promise<ForgeAnswer<ForgePullRequestReview[]>>;
     /** Up to `limit` pull requests from the branch `branch` of `owner`'s repository (preset the target's owner), in every state, most recently updated first. */
     listByHead(request: RepositoryTarget & { readonly branch: string; readonly owner?: string; readonly limit: number }): Promise<ForgeAnswer<ForgePullRequest[]>>;
     /** Opens a pull request (`pullRequests`); its title and body pass the scrub registry's check first. */
     create(request: RepositoryTarget & PullRequestOpening): Promise<ForgeAnswer<ForgePullRequest>>;
     /** Merges a pull request (`pullRequests`) by `method`, preset a merge commit. */
-    merge(request: NumberedTarget & { readonly method?: MergeMethod }): Promise<ForgeAnswer<null>>;
+    merge(request: NumberedTarget & { readonly method?: MergeMethod; readonly expectedHead?: string }): Promise<ForgeAnswer<null>>;
   };
   readonly releases: {
     /** Up to `limit` of the newest releases that are not drafts. */
@@ -169,6 +185,8 @@ export interface ForgeOperationsOptions {
   readonly reader: Reader;
   readonly scrub: ScrubRegistry;
   readonly provider: (kind: ForgeKind) => ForgeProvider;
+  /** Detects which forge an origin is, asking it with no credential, for an anonymous read that names no kind. */
+  readonly detect: (origin: ForgeOrigin) => Promise<Detection>;
   /** Reads a forge account's credential for one operation. */
   readonly readCredential: (account: ForgeAccountRecord, purpose: string) => Promise<ForgeCredential>;
   readonly verifier: Pick<Verifier, "pause" | "used">;
@@ -276,13 +294,38 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     }
   };
 
+  /**
+   * Each origin's detection, asked or found: a kind found is kept for the
+   * process, and an answer naming none is let go, so the next read asks
+   * again rather than a passing fault refusing reads until a restart.
+   */
+  const detections = new Map<ForgeOrigin, Promise<Detection>>();
+
+  /** Which forge `origin` is, detected once while reads ask at the same time and kept once found. */
+  const detect = (origin: ForgeOrigin): Promise<Detection> => {
+    const kept = detections.get(origin);
+    if (kept !== undefined) return kept;
+    const asked = options.detect(origin);
+    detections.set(origin, asked);
+    void asked.then(
+      (found) => {
+        if (found.outcome !== "detected") detections.delete(origin);
+      },
+      () => detections.delete(origin),
+    );
+    return asked;
+  };
+
   /** Reaches the target's forge for a read: with the forge account serving it, else anonymously, where the forge refusing it is `forge_account_missing`. */
   const read = async <T>(target: ForgeTarget, work: (reached: Reached) => Promise<ForgeAnswer<T>>): Promise<ForgeAnswer<T>> => {
     const located = locate(target);
     if ("code" in located) return refused(located);
     const { origin, account } = located;
     if (account !== null) return withCredential(account, target, work);
-    const kind = target.kind ?? (origin === GITHUB_ORIGIN ? "github" : "forgejo");
+    const found: Detection = target.kind === undefined ? await detect(origin) : { outcome: "detected", kind: target.kind, version: null };
+    if (found.outcome === "unreachable") return { outcome: "unreachable", message: found.message };
+    if (found.outcome === "unsupported") return refused(kindUnsupported(origin, found.kind));
+    const kind = found.outcome === "detected" ? found.kind : "forgejo";
     const answer = await work({ account: null, origin, provider: provider(kind), token: null, call: {} });
     if (answer.outcome !== "failed" || !ASKS_FOR_A_CREDENTIAL.has(answer.status)) return answer;
     options.originMissing(origin, target.purpose);
@@ -336,6 +379,10 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
 
   return {
     repositories: {
+      async capabilities(request) {
+        const fullName = fullNameOf(request.repository);
+        return read(request, ({ provider: forge, origin, token, call }) => forge.repositoryCapabilities(origin, token, fullName, { ...call, ...(request.signal !== undefined && { signal: request.signal }) }));
+      },
       async get(request) {
         const fullName = fullNameOf(request.repository);
         return read(request, ({ provider: forge, origin, token, call }) => forge.repository(origin, token, fullName, call));
@@ -379,6 +426,10 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
         }),
     },
 
+    users: {
+      get: async (request) => read(request, ({ provider: forge, origin, token, call }) => forge.user(origin, token, request.login, call)),
+    },
+
     issues: {
       async get(request) {
         const [fullName, number] = [fullNameOf(request.repository), numberOf(request.number)];
@@ -399,6 +450,18 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
     },
 
     pullRequests: {
+      async reviews(request) {
+        const [fullName, number] = [fullNameOf(request.repository), numberOf(request.number)];
+        return read(request, async (reached) => {
+          const { provider: forge, origin, token, call } = reached;
+          return readPullRequests(reached, "read pull request reviews", await forge.pullRequestReviews(origin, token, fullName, number, call));
+        });
+      },
+      async validateCheck(request) {
+        const fullName = fullNameOf(request.repository);
+        if (!/^[0-9a-f]{40,64}$/.test(request.sha)) throw invalid("sha", "The check names a full commit id.");
+        return read(request, ({ provider: forge, origin, token, call }) => forge.validateCheck(origin, token, fullName, request.sha, { ...call, ...(request.signal && { signal: request.signal }) }));
+      },
       async get(request) {
         const [fullName, number] = [fullNameOf(request.repository), numberOf(request.number)];
         return read(request, async (reached) => {
@@ -436,7 +499,7 @@ export const createForgeOperations = (options: ForgeOperationsOptions): ForgeOpe
           const { provider: forge, origin, token, call } = reached;
           const target = readPullRequests(reached, "read a pull request", await forge.pullRequest(origin, token, fullName, number, call));
           if (target.outcome !== "done") return target;
-          return learnFrom(reached, "pullRequests", "merge a pull request", await forge.mergePullRequest(origin, token, fullName, number, request.method ?? "merge", call));
+          return learnFrom(reached, "pullRequests", "merge a pull request", await forge.mergePullRequest(origin, token, fullName, number, request.method ?? "merge", call, request.expectedHead));
         });
       },
     },

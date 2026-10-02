@@ -1,5 +1,5 @@
 import type { JsonObject } from "@agent-harness/contracts";
-import { inProcessToolAccess, toolCallSummary, type GatedToolCall, type ToolAccess, type ToolServer } from "../../adapter/contract.js";
+import { inProcessToolAccess, inProcessToolName, isInProcess, toolCallSummary, type GatedToolCall, type ToolAccess, type ToolServer } from "../../adapter/contract.js";
 
 /**
  * Claude's tools as the tool gate reads them (permissions spec, "Modules":
@@ -20,7 +20,10 @@ import { inProcessToolAccess, toolCallSummary, type GatedToolCall, type ToolAcce
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 
-const WRITE_PATH: Readonly<Record<string, string>> = { Write: "file_path", Edit: "file_path", MultiEdit: "file_path", NotebookEdit: "notebook_path" };
+const WRITE_PATH: Readonly<Record<string, string>> = { Edit: "file_path", MultiEdit: "file_path", Write: "file_path", NotebookEdit: "notebook_path" };
+
+/** The file tools whose calls write the path their input names: the ones a file change is observed for (#1182). */
+export const CLAUDE_FILE_TOOLS: readonly string[] = Object.keys(WRITE_PATH);
 const READ_PATH: Readonly<Record<string, string>> = { Read: "file_path", Grep: "path" };
 
 /** The tool name the CLI's sandbox asks the host about a host under (`can_use_tool`, input `{host}`): a network ask, not a tool call. */
@@ -83,11 +86,13 @@ export interface GatedCallContext {
 /**
  * The gate's call for a Claude tool call: its id, name, a summary, and what
  * it does, as a call to one of the run's in-process tools declares it
- * (#540), else as Claude's tool map reads it.
+ * (#540), else as Claude's tool map reads it. Only a declared tool of an
+ * external in-process server is marked as running outside the environment.
  */
 export const claudeGatedCall = (toolName: string, input: Readonly<Record<string, unknown>>, toolCallId: string, context: GatedCallContext = {}): GatedToolCall => {
   // The input as the model gave it, as JSON: a denylist prompt records it, and the denylist reads an `other` call's (#132).
   const json = JSON.parse(JSON.stringify(input)) as JsonObject;
   const access = inProcessToolAccess(context.servers ?? [], toolName, json) ?? claudeToolAccess(toolName, input);
-  return { toolCallId, tool: toolName, summary: toolCallSummary(toolName, access, context.title), access, input: json };
+  const external = context.servers?.some((server) => isInProcess(server) && server.external && server.tools.some((tool) => inProcessToolName(server.name, tool.name) === toolName)) === true;
+  return { toolCallId, tool: toolName, summary: toolCallSummary(toolName, access, context.title), access, input: json, ...(external && { external }) };
 };

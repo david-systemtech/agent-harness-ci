@@ -117,6 +117,7 @@ export const listed = {
   nextDueAt: "2026-10-04T19:00:00.000Z",
   mode: { requested: "acceptEdits", effective: "acceptEdits", ceiling: "acceptEdits", clamped: false, clampReason: null },
   attention: [],
+  unknownSkills: [],
 };
 
 /** A script pre-check that found its output changed. */
@@ -199,7 +200,7 @@ export const routineEventPayloads: Record<string, Record<string, unknown>> = {
   "routine.disabled": { movedTo: { environmentId: otherEnvironment, routineId, at } },
   "routine.deleted": {},
   "routine.skipped": { skipId, trigger: "schedule", dueAt: at, reason: "pre-check-failed", cannotStart: null, count: 1, detail: "The script exited 2.", preCheck: failedPreCheck },
-  "routine.firing-started": { firingId, trigger: "run-now", dueAt: at, count: 1, sessionId, runId, requestedBy: "cs-1", preCheck: null, targets: [clientNotice, webhook] },
+  "routine.firing-started": { firingId, trigger: "run-now", dueAt: at, count: 1, sessionId, runId, requestedBy: "cs-1", preCheck: null, targets: [clientNotice, webhook], silenceMarker: "[SILENT]", maxDurationMinutes: 60, skills: ["tdd"] },
   "routine.firing-continued": { firingId, runId: "8d0f7780-8536-41ef-a55c-f18c20a01b8e" },
   "routine.firing-ended": { firingId, outcome: "silent", reason: null, text: "[SILENT]", usage: null, durationMs: 4100, baselineAdvanced: true },
   "routine.delivery-attempted": { entryId: firingId, target: webhook, attempt: 1, result: "retrying", status: 429, error: "Too Many Requests", retryAt: later },
@@ -379,8 +380,14 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["broken", ""],
   },
   "routines/listed-routine.json": {
-    valid: [listed, { ...listed, definition: saved, nextDueAt: null, attention: ["clamped", "failing"] }],
-    invalid: [without(listed, "mode"), { ...listed, attention: ["failing", "failing"] }, { ...listed, attention: ["broken"] }],
+    valid: [listed, { ...listed, definition: saved, nextDueAt: null, attention: ["clamped", "failing"] }, { ...listed, attention: ["skill_unknown"], unknownSkills: ["grilling"] }],
+    invalid: [
+      without(listed, "mode"),
+      without(listed, "unknownSkills"),
+      { ...listed, attention: ["failing", "failing"] },
+      { ...listed, attention: ["broken"] },
+      { ...listed, unknownSkills: ["grilling", "grilling"] },
+    ],
   },
   "routines/pre-check-failure.json": {
     valid: ["script_missing", "script_unusable", "exit_status", "timed_out", "output_too_large", "unreachable", "http_status", "denylisted"],
@@ -420,15 +427,18 @@ export const routineSchemaFixtures: Record<string, Fixtures> = {
   },
   "routines/conflict-reason.json": { valid: ["name_taken", "exists", "firing_running"], invalid: ["taken", ""] },
   "routines/import-warnings.json": {
-    valid: [{ attention: [], workspace: null }, { attention: ["account_missing", "script_missing"], workspace: scratch }],
-    invalid: [{ attention: ["broken"], workspace: null }, { attention: [] }],
+    valid: [
+      { attention: [], unknownSkills: [], workspace: null },
+      { attention: ["account_missing", "skill_unknown", "script_missing"], unknownSkills: ["grilling"], workspace: scratch },
+    ],
+    invalid: [{ attention: ["broken"], unknownSkills: [], workspace: null }, { attention: [], unknownSkills: [] }, { attention: [], workspace: null }],
   },
   "routines/import-check.json": {
     valid: [
-      { index: 0, definition: saved, issues: [], warnings: { attention: [], workspace: null } },
-      { index: 1, definition: null, issues: [{ code: "invalid_value", path: ["schedule", "day"], message: "Invalid option" }], warnings: { attention: [], workspace: null } },
+      { index: 0, definition: saved, issues: [], warnings: { attention: [], unknownSkills: [], workspace: null } },
+      { index: 1, definition: null, issues: [{ code: "invalid_value", path: ["schedule", "day"], message: "Invalid option" }], warnings: { attention: [], unknownSkills: [], workspace: null } },
     ],
-    invalid: [{ index: -1, definition: saved, issues: [], warnings: { attention: [], workspace: null } }, { index: 0, definition: saved, issues: [] }],
+    invalid: [{ index: -1, definition: saved, issues: [], warnings: { attention: [], unknownSkills: [], workspace: null } }, { index: 0, definition: saved, issues: [] }],
   },
   "routines/document.json": {
     valid: [document, minimalDocument, { ...minimalDocument, workspace: { kind: "worktree", repository: "/srv/code/harness", "new-branch": { name: "digest" } } }],
@@ -469,7 +479,7 @@ export const routineMethodFixtures: Record<string, { params: Fixtures; result: F
   "routines.checkImport": {
     params: { valid: [{ yaml }, { yaml, routineId }], invalid: [{}, { yaml: "" }, { yaml, routineId: "upstream-watch" }] },
     result: {
-      valid: [{ documents: [] }, { documents: [{ index: 0, definition: saved, issues: [], warnings: { attention: ["endpoint_missing"], workspace: scratch } }] }],
+      valid: [{ documents: [] }, { documents: [{ index: 0, definition: saved, issues: [], warnings: { attention: ["endpoint_missing"], unknownSkills: [], workspace: scratch } }] }],
       invalid: [{}, { documents: [{ index: 0, definition: saved, issues: [] }] }],
     },
   },
@@ -510,7 +520,7 @@ export const routineMethodFixtures: Record<string, { params: Fixtures; result: F
       invalid: [{ commandId, yaml: "" }, { commandId, yaml, routineIds: [routineId], routineId }, { commandId, yaml, routineIds: [] }, { commandId, yaml, routineIds: [routineId, routineId] }, { yaml }],
     },
     result: {
-      valid: [{ routines: [listed], warnings: [{ attention: [], workspace: null }] }],
+      valid: [{ routines: [listed], warnings: [{ attention: [], unknownSkills: [], workspace: null }] }],
       invalid: [{ routines: [listed] }, { routines: [saved], warnings: [] }],
     },
   },

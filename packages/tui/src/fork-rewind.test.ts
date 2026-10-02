@@ -606,12 +606,18 @@ describe("the environment's refusals", () => {
     expect(env.requests("runs.interrupt")).toEqual([]);
   });
 
-  it("says a refusal it cannot act on with the environment's message", async () => {
-    const queued = { rejected: "conflict", message: "The session has queued messages the next run would read.", data: { reason: "queued_messages" } };
-    const { app, env } = await launch({ receipts: { "sessions.rewind": queued } });
+  it.each([
+    { message: "The session has queued messages the next run would read.", data: { reason: "queued_messages" } },
+    { message: "Imported history cannot be used as a fork or rewind point: start a new session with this message's text instead.", data: { reason: "imported_history" } },
+  ])("says a refusal it cannot act on with the environment's message ($message)", async ({ message, data }) => {
+    const refused = { rejected: "conflict", message, data };
+    const { app, env } = await launch({ receipts: { "sessions.rewind": refused, "sessions.fork": refused } });
     await converse(app, env, "Fix the receipts", "Add the tests");
     await command(app, "/rewind");
-    await app.waitFor("Not rewound: The session has queued messages the next run would read.");
+    await app.waitFor(`Not rewound: ${message}`);
+    await command(app, "/fork 1");
+    await app.waitFor(`Not forked: ${message}`);
+    expect(env.requests("sessions.create")).toEqual([]);
   });
 });
 

@@ -1,7 +1,7 @@
-import { rmSync } from "node:fs";
-import { join } from "node:path";
+
+import { dirname, join } from "node:path";
 import type { DocumentStore } from "@agent-harness/client-runtime";
-import { readTextIfPresent, writePrivateFile } from "./files.js";
+import { withTerminalFiles } from "./terminal-files.js";
 
 /**
  * The runtime's document storage in the terminal UI: one JSON file per key
@@ -14,10 +14,10 @@ export const jsonDocuments = (dir: string): DocumentStore => {
   const pathOf = (key: string) => join(dir, `${encodeURIComponent(key)}.json`);
   return {
     get: async (key) => {
-      const text = readTextIfPresent(pathOf(key));
+      const text = withTerminalFiles(dirname(dir), (files) => files.read(pathOf(key)));
       return text === undefined ? undefined : (JSON.parse(text) as unknown);
     },
-    set: async (key, value) => writePrivateFile(pathOf(key), `${JSON.stringify(value)}\n`),
-    delete: async (key) => rmSync(pathOf(key), { force: true }),
+    set: async (key, value) => withTerminalFiles(dirname(dir), (files) => files.write(pathOf(key), `${JSON.stringify(value)}\n`)),
+    delete: async (key) => withTerminalFiles(dirname(dir), (files) => files.delete(pathOf(key))),
   };
 };

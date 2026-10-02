@@ -11,7 +11,7 @@ import { lineText, rowLines, transcriptLines, wrap, type LineContext } from "./l
 
 const RUN = "0199a100-0000-4000-8000-000000000001";
 
-const message = (sequence: number, text: string, delivery: "prompt" | "queued" | "steered" = "prompt", runId = RUN): TranscriptEntry => ({
+const message = (sequence: number, text: string, delivery: "prompt" | "queued" | "steered" = "prompt", runId = RUN): Extract<TranscriptEntry, { kind: "user-message" }> => ({
   kind: "user-message",
   sequence,
   runId,
@@ -210,5 +210,19 @@ describe("wrap", () => {
   it("keeps each span's style across the break", () => {
     const lines = wrap([{ text: "bold words", bold: true }, { text: " plain" }], 11);
     expect(lines.map((line) => line.map((s) => `${s.bold ? "*" : ""}${s.text}`).join("|"))).toEqual(["*bold words", "plain"]);
+  });
+});
+
+describe("an update cut and its continuation", () => {
+  it("draws the update outcome at its sequence and labels the continuation as the environment", () => {
+    const environment: TranscriptEntry = { ...message(2, "Check the current state, then continue."), sender: { kind: "system", id: "updates" }, attachments: [{ kind: "image", name: "state.png", mediaType: "image/png", size: 2048 }] };
+    const cut: TranscriptEntry = { kind: "update-interrupted", sequence: 3, runId: RUN, updateId: RUN, toVersion: "0.5.0", outcome: "continued", reason: null, continuationRunId: RUN };
+    const rows = transcriptRows(view([message(1, "Go"), environment, cut]));
+    expect(rows.map((row) => row.kind)).toEqual(["user", "user", "update-interrupted"]);
+    const lines = shown(transcriptLines(rows, { ...CONTEXT, width: 120 }));
+    expect(lines).toContain("  · Updated to 0.5.0 while this ran; continued");
+    expect(lines.join("\n")).toContain("Environment: Check the current state, then continue.");
+    expect(lines.join("\n")).toContain("[image state.png · 2 KB]");
+    expect(lines.join("\n")).toContain("▌ Go");
   });
 });

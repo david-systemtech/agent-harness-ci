@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
+import { capabilities } from "../test/run-fixtures.js";
 import {
   AdapterCapabilities,
   AttachmentInput,
@@ -65,6 +66,7 @@ const VOCABULARY = [
   "session.forked",
   "session.rewound",
   "session.rewind-undone",
+  "run.suggested",
   "run.ended",
 ];
 
@@ -158,6 +160,11 @@ describe("the transcript vocabulary", () => {
     const message = { runId, messageId, text: "Now the tests", attachments: [], delivery: "queued", heldBy: "provider", ceiling: "acceptEdits" };
     expect(sent.safeParse(message).success).toBe(true);
     expect(sent.safeParse({ ...message, delivery: "steered" }).success).toBe(false);
+    expect(sent.parse({ ...message, text: "/tdd feature", skill: { name: "tdd", origin: null } })).toMatchObject({
+      text: "/tdd feature", skill: { name: "tdd", origin: null },
+    });
+    expect(sent.parse(message)).not.toHaveProperty("skill");
+    expect(sent.safeParse({ ...message, skill: { name: "tdd" } }).success).toBe(false);
     const delivered = TRANSCRIPT_EVENT_TYPES["message.delivered"].payload;
     expect(delivered.safeParse({ runId, messageId, delivery: "steered" }).success).toBe(true);
     expect(delivered.safeParse({ runId, messageId, delivery: "queued" }).success).toBe(false);
@@ -199,9 +206,19 @@ describe("the per-session snapshot", () => {
   const item = { kind: "assistant-text", sequence: 4, runId, itemId: "i-1", text: "Done.", aborted: false };
 
   it("is the summary, the runs, the items, the parked prompts, the rewinds standing and the session's own instructions at a sequence", () => {
-    expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "runs", "items", "parkedPrompts", "rewinds", "instructions"]);
+    expect(Object.keys(SessionSnapshot.shape)).toEqual(["sequence", "summary", "suggestion", "runs", "items", "parkedPrompts", "rewinds", "instructions"]);
     expect(registry["sessions.subscribeSession"].result).toBe(SessionSnapshot);
     expect(SessionSnapshot.safeParse({ sequence: 9, summary, runs: [], items: [item], parkedPrompts: [], rewinds: [] }).success).toBe(true);
+  });
+
+  it("carries a fork's source and nullable anchor as a known item, while an older snapshot still has only its original items", () => {
+    const forked = { kind: "forked", sequence: 2, fromSessionId: summary.id, atMessageId: messageId };
+    const snapshot = { sequence: 9, summary, runs: [], items: [forked, item], parkedPrompts: [] };
+    expect(SessionSnapshot.parse(snapshot).items).toEqual([forked, item]);
+    expect(TranscriptItem.parse({ ...forked, atMessageId: null })).toEqual({ ...forked, atMessageId: null });
+    expect(TranscriptItem.safeParse({ ...forked, fromSessionId: "missing-session" }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ kind: "forked", sequence: 2, fromSessionId: summary.id }).success).toBe(false);
+    expect(SessionSnapshot.parse({ ...snapshot, items: [item] }).items).toEqual([item]);
   });
 
   it("reads a snapshot without rewinds, an environment's from before #260, as one with no rewind standing, and one without instructions as none", () => {
@@ -247,6 +264,18 @@ describe("the per-session snapshot", () => {
     expect(TranscriptItem.safeParse({ ...forked, history: { ...history, anchor: 3 } }).success).toBe(false);
   });
 
+  it("keeps an update cut's outcome, reason and continuation as a known item, refusing inconsistent outcomes", () => {
+    const cut = { kind: "update-interrupted", sequence: 7, runId, updateId: messageId, toVersion: "0.5.0" };
+    for (const outcome of [
+      { outcome: "continued", reason: null, continuationRunId: runId },
+      { outcome: "waiting-on-prompt", reason: null, continuationRunId: null },
+      { outcome: "next-message", reason: "account", continuationRunId: null },
+    ]) expect(TranscriptItem.parse({ ...cut, ...outcome })).toEqual({ ...cut, ...outcome });
+    expect(TranscriptItem.safeParse({ ...cut, outcome: "continued", reason: null, continuationRunId: null }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ ...cut, outcome: "next-message", reason: null, continuationRunId: null }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ ...cut, outcome: "waiting-on-prompt", reason: "account", continuationRunId: runId }).success).toBe(false);
+  });
+
   it("keeps an item of a kind it does not know opaque, every field of it kept, rather than failing", () => {
     const unknown = { kind: "plan-card", sequence: 7, plan: "Step one", steps: [1, 2] };
     expect(TranscriptItem.parse(unknown)).toEqual(unknown);
@@ -257,13 +286,18 @@ describe("the per-session snapshot", () => {
     expect(TranscriptItem.safeParse({ kind: "plan-card" }).success).toBe(false);
     // A known kind is never opaque: a malformed one fails, in zod and in the exported JSON Schema's pattern.
     expect(TranscriptItem.safeParse({ kind: "assistant-text", sequence: 7 }).success).toBe(false);
-    expect(KNOWN_ITEM_KINDS).toEqual(TranscriptItem.options.slice(0, -1).map((option) => (option.shape.kind as z.ZodLiteral<string>).value));
+    expect(KNOWN_ITEM_KINDS).toEqual([...new Set(TranscriptItem.options.slice(0, -1).map((option) => (option.shape.kind as z.ZodLiteral<string>).value))]);
     const exported = exportedSchemas().find((entry) => entry.path === "transcript/transcript-item.json");
     expect(JSON.stringify(exported && z.toJSONSchema(exported.schema))).toContain("(?!(?:user-message|");
   });
 });
 
 describe("the adapter's transport-neutral schemas", () => {
+  it("publishes whether an adapter can withdraw a provider-held message independently of its queue", () => {
+    const descriptor = AdapterCapabilities.parse({ ...capabilities, withdraw: false });
+    expect(descriptor).toMatchObject({ providerQueue: true, withdraw: false });
+  });
+
   it("describe the capabilities descriptor with a flag per optional power, the instruction channel, whether the provider loads a trusted repository's instructions (#500) and which of its skill roots (#495) itself, and the modes", () => {
     for (const name of CAPABILITY_FLAGS) expect(AdapterCapabilities.shape[name], name).toBeDefined();
     expect(Object.keys(AdapterCapabilities.shape)).toEqual(["provider", "displayName", ...CAPABILITY_FLAGS, "instructionChannel", "nativeProjectInstructions", "nativeSkillRoots", "modes"]);

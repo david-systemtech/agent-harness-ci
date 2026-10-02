@@ -1,4 +1,5 @@
 import type { Mode, RoutineInjection, RunOrigin } from "@agent-harness/contracts";
+import type { RunAdmission } from "../serve/run-registry.js";
 import type { AdapterHost } from "../adapter/host.js";
 import { formatActor, type EventLog, type Tx } from "../event-log/event-log.js";
 import type { RunActor } from "../permissions/resolver.js";
@@ -30,6 +31,8 @@ export type ActorRunRequest = {
   readonly mode?: Mode;
   /** The reasoning effort the run takes, one its model takes; the default's (`accounts.defaultEffort`) when absent. */
   readonly effort?: string;
+  /** Extra always-on names from the enabled skill set, after the account’s choices. */
+  readonly alwaysOn?: readonly string[];
 } & (
   | { readonly actor: Omit<ActorOfRun<"routine" | "bot">, "injection">; readonly actorId: string; readonly injection?: RoutineInjection }
   | { readonly actor: ActorOfRun<"completions">; readonly actorId?: undefined; readonly injection?: undefined }
@@ -56,14 +59,16 @@ const startedBy = (request: ActorRunRequest): { readonly origin: RunOrigin; read
  * events attributed to the actor that started it and, when given, the
  * command it is part of.
  */
-export const startActorRunIn = (log: EventLog, host: AdapterHost, tx: Tx, request: ActorRunRequest, commandId?: string): RunStartOutcome => {
+export const startActorRunIn = (log: EventLog, host: AdapterHost, tx: Tx, request: ActorRunRequest, commandId?: string, admission?: RunAdmission): RunStartOutcome => {
   const { origin, actor } = startedBy(request);
   return startRunIn(log, host, tx, { actor, ...(commandId !== undefined && { commandId }) }, {
+    admission,
     sessionId: request.sessionId,
     actor: actorOfRequest(request),
     origin,
     text: request.text,
     mode: request.mode,
     effort: request.effort,
+    alwaysOn: request.alwaysOn,
   });
 };

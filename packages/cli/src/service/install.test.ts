@@ -294,6 +294,7 @@ describe("agent-harness service install over a running launcher", () => {
     expect(cli.out()).toContain("The service is running its launcher");
     expect(cli.out()).toContain("rewrote only its own files: the definition, the launcher entry, the shim and the record");
     expect(cli.out()).not.toContain("Copied");
+    expect(cli.out()).not.toContain("Stopping the service");
   });
 
   it("leaves the running launcher running, and puts its entry and shim back, when a step after the service manager's fails", async () => {
@@ -344,9 +345,17 @@ describe("agent-harness service install over a service from before the launcher"
     const environmentFiles = () => ["environment.json", "harness.db", join("logs", "service.log")].map((file) => readFileSync(join(dataDir, file), "utf8"));
     const kept = environmentFiles();
 
-    const cli = harness("linux", { home, answer: active });
+    let saidBeforeTheRestart: string | undefined;
+    const cli = harness("linux", {
+      home,
+      answer: (command, args) => {
+        if (args.includes("try-restart")) saidBeforeTheRestart = cli.out();
+        return active(command, args);
+      },
+    });
     expect(await cli.run("service", "install")).toBe(0);
 
+    expect(saidBeforeTheRestart).toBe("Stopping the service, waiting up to 30 minutes for any running runs to finish.\n");
     expect(stateOf(dataDir)).toEqual(fresh("0.5.0"));
     expect(readFileSync(join(dataDir, LAUNCHER_VERSION_FILE), "utf8")).toBe("0.5.0\n");
     expect(existsSync(join(versionDirectory(dataDir, "0.5.0"), VERSION_SENTINEL))).toBe(true);

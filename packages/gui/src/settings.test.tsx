@@ -1,7 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { settingsDeepLink } from "@agent-harness/client-runtime";
 import { BYPASS_SENTENCE, SETTINGS_ADDRESSES } from "@agent-harness/contracts";
+import { TOKEN_NAMES } from "@agent-harness/theme";
 import { describe, expect, it } from "vitest";
+import { scriptInstructions } from "../test/instructions.js";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
 /**
@@ -42,6 +44,36 @@ const openSettings = async (app: RenderedApp) => {
 };
 
 describe("Settings", () => {
+  it("gives dim rail rows a transparent hover background while active rows keep their wash", async () => {
+    const app = await opened();
+    await openSettings(app);
+    const backgrounds = (label: string) => [...within(rail()).getByRole("button", { name: label }).classList].filter((name) => name.startsWith("hover:bg-"));
+    expect(backgrounds("Set up")).toEqual(["hover:bg-wash"]);
+    expect(backgrounds("Accounts")).toEqual(["hover:bg-wash"]);
+    expect(backgrounds("Bots")).toEqual(["hover:bg-transparent"]);
+
+    act(() => app.shell.openDeepLink(settingsDeepLink("routines.bots")));
+    expect(backgrounds("Bots")).toEqual(["hover:bg-transparent"]);
+  });
+
+  it("gives current, inactive and dim rail rows one text colour each, including a dim row opened by a deep link", async () => {
+    const app = await opened();
+    await openSettings(app);
+    const colours = (label: string) => [...within(rail()).getByRole("button", { name: label }).classList].filter((name) => TOKEN_NAMES.some((token) => name === `text-${token}`));
+    expect(colours("Set up")).toEqual(["text-ink"]);
+    expect(colours("Accounts")).toEqual(["text-ink-muted"]);
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+
+    await app.user.click(within(rail()).getByRole("button", { name: "Accounts" }));
+    expect(colours("Set up")).toEqual(["text-ink-muted"]);
+    expect(colours("Accounts")).toEqual(["text-ink"]);
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+
+    act(() => app.shell.openDeepLink(settingsDeepLink("routines.bots")));
+    expect(within(rail()).getByRole("button", { name: "Bots" }).getAttribute("aria-current")).toBe("page");
+    expect(colours("Bots")).toEqual(["text-ink-faint"]);
+  });
+
   it("opens on Mod+, as a rail with search at its top, the eight bands and their rows, and the pane of Set up; Mod+, and its close control close it", async () => {
     const app = await opened();
     expect(settings()).toBeNull();
@@ -237,18 +269,14 @@ describe("an unreachable environment", () => {
   });
 });
 
-describe("a row whose feature is not built", () => {
-  it("shows its hint, its step's link and the generic editor for its keys, each drawn by its form", async () => {
+describe("built and unbuilt row controls", () => {
+  it("keeps its hint and step link beside built controls or generic keys", async () => {
     const app = await opened();
     await openSettings(app);
+    scriptInstructions(app.environment("desk"));
     const instructions = await openRow(app, "Instructions");
     expect(within(instructions).getByText("The standing instructions runs receive, beside the orientation block.")).toBeDefined();
-    expect(
-      within(instructions)
-        .getAllByRole("group")
-        .map((group) => within(group).getAllByText(/\./)[0]?.textContent),
-    ).toEqual(["instructions.orientation"]);
-    expect((await within(field(instructions, "instructions.orientation")).findByRole("switch")).getAttribute("aria-checked")).toBe("true");
+    expect((await within(instructions).findByRole("switch", { name: "Orientation enabled" })).getAttribute("aria-checked")).toBe("true");
 
     // A step's link opens the full checklist on its card; closing it comes back to Settings.
     await app.user.click(within(instructions).getByRole("button", { name: "Open the Instructions step in Set up" }));
@@ -256,7 +284,7 @@ describe("a row whose feature is not built", () => {
     expect(within(checklist).getByRole("region", { name: "Instructions" })).toBeDefined();
     await app.user.click(within(checklist).getByRole("button", { name: "Close Set up" }));
     const again = pane("Instructions");
-    expect(within(field(again, "instructions.orientation")).getByRole("switch").getAttribute("aria-checked")).toBe("true");
+    expect(within(again).getByRole("switch", { name: "Orientation enabled" }).getAttribute("aria-checked")).toBe("true");
     const permissions = await openRow(app, "Permissions");
     const ceiling = within(field(permissions, "permissions.defaultCeiling")).getByRole("combobox");
     expect(within(ceiling).getAllByRole("option").map((option) => option.textContent)).toEqual(["plan", "acceptEdits", "auto", "bypassPermissions"]);

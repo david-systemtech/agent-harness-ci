@@ -3,7 +3,7 @@ import { createRuntime, type Platform, type Runtime } from "@agent-harness/clien
 import { createRoot } from "react-dom/client";
 import { App } from "./app.js";
 import { browserPlatform, onMacOS } from "./platform/browser-platform.js";
-import { desktopShellOf, windowDesktopPlatform } from "./platform/desktop-platform.js";
+import { readyDesktopShellOf, windowDesktopPlatform } from "./platform/desktop-platform.js";
 import { openPresentation } from "./presentation.js";
 
 /** The bundle's version, stamped from the package at build time (vite.config.ts). */
@@ -25,7 +25,7 @@ const mount = async (platform: Platform, runtime: Runtime) => {
   runtime.start().catch(report);
 };
 
-const shell = desktopShellOf(window);
+const shell = await readyDesktopShellOf(window);
 if (shell) {
   const platform = await windowDesktopPlatform(window, shell, __HARNESS_VERSION__);
   const runtime = createRuntime(platform);

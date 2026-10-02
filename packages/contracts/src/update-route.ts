@@ -28,7 +28,7 @@ export const UpdateRequest = z
   .object({
     version: ReleaseVersion.meta({ description: "The version to update to: the asking client's own, for a newer client's offer." }),
     artefactPath: z.string().min(1).optional().meta({
-      description: "The path of an artefact of that version on the environment's machine; from a local client session only.",
+      description: "The path of an artefact of that version on the environment's machine, an archive or the folder one is unpacked in; from a local client session only.",
     }),
   })
   .meta({ description: "A client's request that the environment update itself to a version, when idle." });

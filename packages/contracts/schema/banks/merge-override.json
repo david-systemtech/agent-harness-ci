@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankMergeOverride",
+  "type": "string",
+  "enum": [
+    "none",
+    "review-memories"
+  ],
+  "description": "The teammate's own merge rule on a team bank, the stricter of it and the bank's write.merge applying: none, or review-memories, every memory waiting for review."
+}

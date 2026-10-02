@@ -2,6 +2,7 @@ import type { ActionId, KeyActionId } from "@agent-harness/contracts";
 import { ANSWERED_COMMANDS } from "./commands/parse.js";
 import { COMPOSER_KEYS } from "./composer/use-composer.js";
 import { RAIL_KEYS } from "./rail/commands.js";
+import { ROUTINE_KEYS } from "./routines/commands.js";
 
 /**
  * The actions of the shared list this build answers: the keys the screen
@@ -12,7 +13,13 @@ import { RAIL_KEYS } from "./rail/commands.js";
  * add them here as they arrive.
  */
 export const SCREEN_KEYS = [
+  "app.runInfo.toggle",
   "app.focus.next",
+  "delegated.enter",
+  "delegated.move",
+  "delegated.leave",
+  "delegated.stop",
+  "delegated.open",
   "app.mode.step",
   "app.handoff",
   "app.interrupt",
@@ -36,6 +43,7 @@ export const SCREEN_KEYS = [
   "picker.move",
   "picker.moveVi",
   "picker.choose",
+  "picker.preview",
   "picker.leave",
   "pager.line",
   "pager.screenDown",
@@ -75,6 +83,7 @@ export const SCREEN_KEYS = [
   "row.rewind",
   "row.fork",
   "row.rewindUndo",
+  ...ROUTINE_KEYS,
 ] as const satisfies readonly KeyActionId[];
 
 /**
@@ -106,14 +115,16 @@ export const ANSWERED: ReadonlySet<ActionId> = new Set<ActionId>([...ANSWERED_KE
  * the list's words.
  */
 export const BUILD_WORDS: Readonly<Partial<Record<ActionId, string>>> = {
-  "app.focus.next": "Round the composer, the rail, the pane and the transcript",
+  "app.focus.next": "Round the composer, rail, delegated strip, pane and transcript",
   "terminal.leave": "Leave the pane for the transcript, where Tab would go; twice sends the key to the shell",
   "app.interruptOrQuit": "Clear the text or close the card; else interrupt, then quit",
   "app.attention.next": "The parked asks when more than one session waits; else the next session that needs you",
+  "composer.suggestion.take": "1 sends the predicted next message from an empty composer; 2–4 type text",
   "composer.navigate": "The text, then history",
   // The shared list's words say "its folder"; the pin is the one pinned block across environments.
   // eslint-disable-next-line agent-harness/no-client-organisation-state -- an action's id, not state held here
   "rail.pin": "Pin it to the pinned block at the top, across environments; or unpin it",
   "row.leave": "Back to the composer",
+  "picker.preview": "Preview the next action on the selected Set up step",
   "app.prompt.back": "The prompt picker: rewind to one of this session's prompts, or branch there",
 };

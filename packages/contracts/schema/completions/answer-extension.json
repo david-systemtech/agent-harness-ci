@@ -104,7 +104,7 @@
       ]
     },
     "ignored": {
-      "description": "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.",
+      "description": "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.0.",
       "type": "array",
       "items": {
         "type": "string",
@@ -291,7 +291,7 @@
       "description": "How the run ended: its run.ended reason and, for an interrupted one, the cause."
     },
     "waiting": {
-      "description": "The turn's queued message still waits in the session's queue: the run it was sent to ended before reading it.",
+      "description": "The turn's message still waits in the session's queue: the run it was sent to, or a run launched with it, ended before reading it.",
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$"

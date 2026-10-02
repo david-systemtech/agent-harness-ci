@@ -244,7 +244,7 @@ describe("the desktop build", () => {
       appId: "dev.systemtech.agent-harness",
       productName: "agent-harness",
       protocols: [{ name: "agent-harness", schemes: ["agent-harness"] }],
-      mac: { target: [{ target: "zip", arch: ["arm64"] }], identity: "-", hardenedRuntime: false, notarize: false },
+      mac: { target: [{ target: "zip", arch: ["arm64"] }], identity: "-", hardenedRuntime: false, notarize: false, extendInfo: { NSCameraUsageDescription: "Scan a pairing QR from another machine to add it." } },
     });
     expect(Object.keys(config ?? {}).filter((key) => ["mac", "win", "nsis", "linux", "pacman"].includes(key))).toEqual(["mac"]);
   });

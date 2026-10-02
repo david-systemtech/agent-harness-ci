@@ -46,7 +46,7 @@
                     "parked-prompt",
                     "recent-activity"
                   ],
-                  "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), terminal-running (a terminal's shell runs a command in its foreground, a build or a watcher, rather than waiting at its prompt), parked-prompt (a run parked on a prompt within the idle window, preset ten minutes), recent-activity (a run started or ended within the idle window)."
+                  "description": "Why the environment is busy: run-starting and run-running (a run is starting or running), terminal-running (a terminal's shell runs a command in its foreground, a build or a watcher, rather than waiting at its prompt), parked-prompt (a run parked on a prompt within the idle window, preset ten minutes), recent-activity (a run started or ended, or the environment started, within the idle window)."
                 },
                 "busyUntil": {
                   "description": "When the environment stops counting as busy if nothing else happens: the idle window (preset ten minutes) after the parked prompt or the latest start or end. Absent while a run is starting or running or a terminal runs a command.",
@@ -139,6 +139,33 @@
                 }
               ],
               "description": "The tailnet address the environment binds and its tailnet name; null when it binds none: no Tailscale address was found at its start, or network.bindTailnet is off."
+            },
+            "tailnetFound": {
+              "description": "A Tailscale address the machine holds that the environment does not bind, which it binds at its next start while network.bindTailnet is on: one found since its start (Tailscale installed or started since), or one found at its start with network.bindTailnet off. Looked for at the start and again at each environment.status while no tailnet address is bound; null when one is bound or none is found; absent from an environment that predates it.",
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "ipv4",
+                      "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$"
+                    },
+                    {
+                      "type": "string",
+                      "format": "ipv6",
+                      "pattern": "^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$"
+                    }
+                  ],
+                  "description": "An IPv4 or IPv6 address an environment binds or could bind: never the wildcard address (0.0.0.0, ::, or the IPv4-mapped ::ffff:0.0.0.0).",
+                  "not": {
+                    "type": "string",
+                    "pattern": "^(?:[0.:]+|[0:]*:[fF]{4}:(?:0+\\.0+\\.0+\\.0+|0+:0+))$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "lan": {
               "anyOf": [

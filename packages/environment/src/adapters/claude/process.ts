@@ -34,6 +34,7 @@ import type { Clock, Timer } from "../../serve/clock.js";
 import { AsyncQueue } from "./async-queue.js";
 import type { ConfigDirQueue } from "./config-dir-queue.js";
 import { CLAUDE_PROVIDER, type HostEnvironment } from "./credentials.js";
+import { FileToolObservation } from "./file-tools.js";
 import { readStoredSession, resolveForkPoint, resolveRewindPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
 import { seedStoreFromDirectory } from "./imported-history.js";
 import { LOGIN_EXPIRED_CODE, LoginLapsed } from "./login-refresh.js";
@@ -41,6 +42,7 @@ import { readRateLimit, toJson } from "./mapper.js";
 import { buildRunOptions, claudeEffort, claudeMode, type ClaudeMode, type ResumePoint } from "./options.js";
 import type { PlanLimitVerdict } from "./plan-usage.js";
 import { TaskLedger } from "./tasks.js";
+import { mapSdkMessage } from "./mapper.js";
 import { ClaudeTurn, type TurnControl } from "./turn.js";
 import { worktreeCheckout } from "./workspace.js";
 
@@ -292,7 +294,8 @@ interface SpawnKey {
   readonly instructions: string;
   /**
    * What the spawn's sandbox and deny rules were made from (#140): the run's
-   * containment (level, mechanism, network, writable set) and the denylist it
+   * containment (level, mechanism, network, writable set and what it closes
+   * inside it, #791) and the denylist it
    * projects, both fixed when the CLI starts. A run with another needs a
    * spawn of its own.
    */
@@ -311,6 +314,8 @@ const confinementOf = (input: RunInput): string => {
     containment.mechanism,
     containment.network,
     containment.writable,
+    containment.readOnly,
+    input.additionalDirectories ?? [],
     denylist === null ? null : [denylist.paths, denylist.exempt, denylist.commandPatterns],
   ]);
 };
@@ -375,8 +380,12 @@ export class ClaudeProcess implements TurnControl {
 
   /** The turn the CLI is serving now. */
   #current: ClaudeTurn | undefined;
+  /** The completed turn whose result the next prompt_suggestion follows. Cleared by the next init. */
+  #suggestionTurn: ClaudeTurn | undefined;
   /** Runs whose prompt is queued at the CLI, not yet opened, in order. */
   readonly #waiting: ClaudeTurn[] = [];
+  /** Waiting runs a watchdog gave up on, whose prompts are being withdrawn before they end (`#endUnopened`). */
+  readonly #endingUnopened = new Set<ClaudeTurn>();
   /** The messages of a turn whose owner is not known yet, from its `init`. */
   #undecided: unknown[] | undefined;
   readonly #decisionWaiters: (() => void)[] = [];
@@ -407,6 +416,11 @@ export class ClaudeProcess implements TurnControl {
    * at most `HOOK_GATED_KEPT`: a prompt follows its hook at once.
    */
   readonly #hookGated = new Map<string, string>();
+  /** The recognised file tools' calls the gate let through, told to the observer of the run live then (#1182). */
+  readonly #fileTools = new FileToolObservation(
+    () => this.#context.fileChanges,
+    (message) => this.#deps.diagnostic(`Claude (session ${this.sessionId}): ${message}`),
+  );
   /** The permission table: prompts parked on the broker, by prompt id, answerable here too, with the turn that asked. */
   readonly #permissions = new Map<string, { readonly answer: (decision: PromptDecision) => void; readonly turn: ClaudeTurn }>();
 
@@ -645,6 +659,7 @@ export class ClaudeProcess implements TurnControl {
         run: { ...input, mode: this.#applied.mode },
         hostEnv: this.#deps.hostEnv,
         supplied: supplied?.variables ?? {},
+        suppliedWritable: supplied?.writable ?? [],
         configDirectory: this.#deps.configDirectory(input.account),
         executablePath: this.#deps.executablePath(),
         autoMemoryDirectory: this.#deps.autoMemoryDirectory(input),
@@ -653,6 +668,7 @@ export class ClaudeProcess implements TurnControl {
         resumePoint,
         canUseTool: this.#canUseTool,
         preToolUse: this.#preToolUse,
+        fileTools: this.#fileTools.hooks,
         onStop: this.#onStop,
         spawnProcess: this.#spawnProcess,
         abortController: this.#abort,
@@ -720,7 +736,9 @@ export class ClaudeProcess implements TurnControl {
       }
       this.#settleWaiters();
       this.#denyAll(DISPOSED_DENY_MESSAGE);
-      if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn);
+      this.#fileTools.abandon();
+      // A subagent's prompt turn ends as its siblings do: its prompts were just denied because the process died, not answered.
+      if (this.#promptTurn !== undefined) this.#endPromptTurn(this.#promptTurn, end);
       const onItsOwn = this.#disposing === undefined;
       this.#close();
       // Died on its own (a transport failure, the CLI quitting): the pool records it stopped and the next run starts cold.
@@ -795,6 +813,19 @@ export class ClaudeProcess implements TurnControl {
   }
 
   #route(message: unknown): void {
+    if (isRecord(message) && message["type"] === "prompt_suggestion") {
+      const turn = this.#suggestionTurn;
+      if (turn !== undefined) {
+        for (const event of mapSdkMessage(message, turn.state)) {
+          if (event.type !== "run.suggested") continue;
+          void turn.adoptedRunId().then((runId) => {
+            if (runId !== null) this.#context.reportSuggestion?.({ runId, ...event.payload });
+          }).catch((error: unknown) => this.#deps.diagnostic(`Recording a prompt suggestion failed: ${describe(error)}`));
+        }
+      }
+      return;
+    }
+    if (isInit(message)) this.#suggestionTurn = undefined;
     if (this.#undecided !== undefined) {
       this.#undecided.push(message);
       const owners = ownersOf(message);
@@ -890,6 +921,7 @@ export class ClaudeProcess implements TurnControl {
     // Work that changed between turns is reported by the next turn to hear anything.
     if (!turn.ended && this.#ledger.dirty) turn.emit({ type: "tasks.changed", payload: { tasks: this.#ledger.snapshot() } });
     if (turn.ended && this.#current === turn) {
+      this.#suggestionTurn = turn.state.completed ? turn : undefined;
       this.#current = undefined;
       // A tool call still parked on the ended turn is denied, never allowed later: the adapter denies its run's prompts as
       // the run ends, since the host, which then refuses an answer run_ended, has no run left to ask.
@@ -977,9 +1009,7 @@ export class ClaudeProcess implements TurnControl {
       if (this.#current !== undefined || this.#undecided === undefined) return;
       this.#undecided = undefined;
       this.#settleWaiters();
-      for (const turn of this.#waiting.splice(0)) {
-        turn.end({ reason: "error", error: { message: `The Claude process began a turn and said nothing more within ${this.#deps.timings.openTimeoutMs} ms; send again.`, code: "not_opened" } });
-      }
+      this.#endUnopened(`The Claude process began a turn and said nothing more within ${this.#deps.timings.openTimeoutMs} ms`);
     }, this.#deps.timings.openTimeoutMs);
   }
 
@@ -996,10 +1026,35 @@ export class ClaudeProcess implements TurnControl {
     if (this.closed || this.#waiting.length === 0 || this.#current !== undefined) return;
     this.#openTimer = this.#deps.clock.setTimeout(() => {
       if (this.#current !== undefined || this.#undecided !== undefined) return;
-      for (const turn of this.#waiting.splice(0)) {
-        turn.end({ reason: "error", error: { message: `The Claude process did not open this run's turn within ${this.#deps.timings.openTimeoutMs} ms; send again.`, code: "not_opened" } });
-      }
+      this.#endUnopened(`The Claude process did not open this run's turn within ${this.#deps.timings.openTimeoutMs} ms`);
     }, this.#deps.timings.openTimeoutMs);
+  }
+
+  /**
+   * Ends every waiting run a watchdog gave up on, `error` (code
+   * `not_opened`), once its prompt and what was queued with it are withdrawn
+   * from the CLI's queue, as an interrupt withdraws an unopened run's: a CLI
+   * that opens late (a slow cold start) would otherwise run them as a turn of
+   * its own after the person sent them again. The runs wait meanwhile, so one
+   * the CLI opens in between is its turn and goes on. One whose prompt the
+   * CLI does not give back (no cancel-by-id control, a cancel unanswered, a
+   * prompt it read) ends saying the CLI may still run it, not "send again".
+   */
+  #endUnopened(why: string): void {
+    for (const turn of this.#waiting) {
+      if (this.#endingUnopened.has(turn)) continue;
+      this.#endingUnopened.add(turn);
+      void (async () => {
+        const withIt = [...turn.queued].filter((id) => this.#queuedSends.has(id));
+        const query = this.#query;
+        const withdrawn = query === undefined || (this.#featuresOf(query).cancelById && (await this.#withdraw(query, [...turn.promptIds, ...withIt])));
+        this.#endingUnopened.delete(turn);
+        if (withdrawn) for (const id of withIt) this.#queuedSends.delete(id);
+        if (turn.opened || turn.ended) return;
+        const message = withdrawn ? `${why}; send again.` : `${why}, and its prompt could not be taken back from the CLI's queue: the CLI may still run it.`;
+        this.#waitingEnds(turn, { reason: "error", error: { message, code: "not_opened" } });
+      })();
+    }
   }
 
   #awaitSettleTurn(): void {

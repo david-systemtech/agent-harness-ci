@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { closeTerminal as closeById, nextWrite, reusableTerminal, shownEnv, type Runtime, type TerminalHandle, type TerminalOutput, type TerminalStatus } from "@agent-harness/client-runtime";
-import { ONE_OFF_LINE } from "@agent-harness/contracts";
+import { closeTerminal as closeById, nextWrite, reusableTerminal, terminalAnswers, type Runtime, type TerminalHandle, type TerminalOutput, type TerminalStatus } from "@agent-harness/client-runtime";
 import type { Opened } from "../session/use-session.js";
 import type { Span } from "../transcript/lines.js";
 import { forwarded, pasted } from "./keys.js";
@@ -24,8 +23,7 @@ import { createScreen, type Screen } from "./screen.js";
  *   environment replays what was missed, so the screen goes on where it
  *   stopped.
  * - **`!`** (`run`) opens a terminal of its own for the command, shown in
- *   the pane as the shell is; the command rides the terminal's variables
- *   (the client runtime's `runOneOff`). When it exits its terminal is
+ *   the pane as the shell is, using `terminals.run` with stdin closed. When it exits its terminal is
  *   closed and the pane keeps what it showed, marked with how it ended,
  *   until a key in the pane, or another pane, takes it away. A `!` command the pane goes from runs on
  *   unseen, its terminal closed with a line when it exits.
@@ -40,8 +38,8 @@ import { createScreen, type Screen } from "./screen.js";
  *   typed late into whatever runs then is worse than a key lost (spec,
  *   "Further Notes" of #124).
  * - **Answers**: what the emulator answers a query with (a cursor position,
- *   device attributes) is sent back only while the pane has the keys and
- *   for output heard live, so a query in replayed scrollback is never
+ *   device attributes) is sent back for live output while the pane has the keys,
+ *   or during the first second of a shell this client opened (its first snapshot included), so a query in replayed scrollback is never
  *   answered twice, and a client watching a terminal whose pane does not
  *   have the keys does not answer. Both guards are this client's own:
  *   two clients whose panes each have the keys both answer a live query.
@@ -68,7 +66,12 @@ export interface PaneSize {
 }
 
 /** The pane as the screen draws it. */
-export interface PaneView extends Opened {
+interface PaneTarget {
+  readonly environmentId: string;
+  readonly sessionId: string | null;
+}
+
+export interface PaneView extends PaneTarget {
   /** Null while its terminal is being found or opened. */
   readonly terminalId: string | null;
   /** The command a `!` pane runs; null for the session's shell. */
@@ -85,6 +88,8 @@ export interface TerminalPane {
   open(target: Opened, size: PaneSize): boolean;
   /** `!command`: runs it in a terminal of its own, shown in the pane; false, with the line said, when it cannot. */
   run(target: Opened, size: PaneSize, command: string): boolean;
+  /** Watches a Managed tools terminal, which belongs to no session. */
+  watchTool(environmentId: string, id: string, command: string, size: PaneSize, has: PaneSize): void;
   /** A terminal id for a one-off this client runs elsewhere (`!!`), which `open` never reopens. */
   oneOffId(): string;
   /** A key, as the bytes the user's terminal sent; any key closes a pane whose command has ended. */
@@ -115,7 +120,7 @@ export interface PaneHost {
 }
 
 interface Live {
-  readonly target: Opened;
+  readonly target: PaneTarget;
   terminalId: string | null;
   readonly screen: Screen;
   handle: TerminalHandle | null;
@@ -132,6 +137,7 @@ interface Live {
   /** Output is taken into the screen one chunk at a time, so an answer is known to be to a live chunk. */
   feeding: Promise<void>;
   answering: boolean;
+  readonly answers: ReturnType<typeof terminalAnswers>;
   closed: boolean;
   stops: (() => void)[];
   /** The command a `!` pane runs; null for the session's shell. */
@@ -141,7 +147,7 @@ interface Live {
   truncated: boolean;
 }
 
-const same = (a: Opened, b: Opened) => a.environmentId === b.environmentId && a.sessionId === b.sessionId;
+const same = (a: PaneTarget, b: PaneTarget) => a.environmentId === b.environmentId && a.sessionId === b.sessionId;
 const sameSize = (a: PaneSize | null, b: PaneSize) => a !== null && a.cols === b.cols && a.rows === b.rows;
 
 export const useTerminalPane = (host: PaneHost): TerminalPane => {
@@ -157,7 +163,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
 
   const closeTerminal = (entry: Live) => {
     const { runtime, newCommandId } = hostRef.current;
-    if (entry.terminalId !== null) closeById(runtime, entry.target.environmentId, entry.terminalId, newCommandId);
+    if (entry.target.sessionId !== null && entry.terminalId !== null) closeById(runtime, entry.target.environmentId, entry.terminalId, newCommandId);
   };
 
   const drop = (entry: Live) => {
@@ -175,7 +181,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
     for (const stop of entry.stops.splice(0)) stop();
     // After whatever the emulator is still taking in.
     void entry.feeding.then(() => entry.screen.dispose());
-    if (entry.command !== null && entry.ended === null && entry.handle !== null) {
+    if (entry.target.sessionId !== null && entry.command !== null && entry.ended === null && entry.handle !== null) {
       // A `!` command still running goes on unseen; its terminal is closed when it exits (`feed`), or let go when it is gone.
       detached.current.add(entry);
       entry.stops.push(entry.handle.state.subscribe((view) => view.status === "ended" && view.exit === null && drop(entry)));
@@ -214,6 +220,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
   };
 
   const send = (entry: Live, data: string) => {
+    if (entry.command !== null && entry.target.sessionId !== null) return;
     entry.outgoing += data;
     pump(entry);
   };
@@ -270,11 +277,11 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       if (live.current === entry) close();
       return;
     }
-    const heardLive = output.kind === "output" && output.live;
+    const mayAnswer = entry.answers.take(output.kind, output.kind === "output" && output.live, focused.current);
     if (output.kind === "reset") entry.truncated = output.truncated;
     entry.feeding = entry.feeding.then(async () => {
       if (entry.closed) return;
-      entry.answering = heardLive;
+      entry.answering = mayAnswer;
       await (output.kind === "reset" ? entry.screen.reset(output.data) : entry.screen.write(output.data));
       entry.answering = false;
       request();
@@ -301,7 +308,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
         }
       }),
       entry.screen.onAnswer((data) => {
-        if (entry.answering && focused.current) send(entry, data);
+        if (entry.answering) send(entry, data);
       }),
     );
     setPane((view) => (view === null || live.current !== entry ? view : { ...view, terminalId: id }));
@@ -310,7 +317,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
   };
 
   /** A new pane for `target` in place of the one there (a `!` command running on unseen), its terminal not yet known. */
-  const begin = (target: Opened, size: PaneSize, command: string | null): Live => {
+  const begin = (target: PaneTarget, size: PaneSize, command: string | null): Live => {
     close();
     const entry: Live = {
       target,
@@ -325,6 +332,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       sending: false,
       feeding: Promise.resolve(),
       answering: false,
+      answers: terminalAnswers(),
       closed: false,
       stops: [],
       command,
@@ -336,8 +344,8 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
     return entry;
   };
 
-  const refused = (target: Opened, prefix: string): boolean => {
-    const capability = hostRef.current.runtime.capability(target.environmentId, "terminals.open");
+  const refused = (target: Opened, prefix: string, method: "terminals.open" | "terminals.run" = "terminals.open"): boolean => {
+    const capability = hostRef.current.runtime.capability(target.environmentId, method);
     if (capability.status !== "absent") return false;
     hostRef.current.say(`${prefix}: ${capability.message}`);
     return true;
@@ -373,6 +381,7 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
       if (entry.closed) return;
       if (!opened.ok) return failed(entry, opened.error.message);
       if (opened.result.receipt.status === "rejected") return failed(entry, opened.result.receipt.error.message);
+      entry.answers.start();
       attach(entry, id, asked);
     })();
     return true;
@@ -380,24 +389,23 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
 
   const run = (target: Opened, size: PaneSize, command: string): boolean => {
     const { runtime, newCommandId } = hostRef.current;
-    if (refused(target, "Not run")) return false;
+    if (refused(target, "Not run", "terminals.run")) return false;
     const entry = begin(target, size, command);
     const id = oneOffId();
     void (async () => {
-      const opened = await runtime.requests.call(target.environmentId, "terminals.open", {
+      const opened = await runtime.requests.call(target.environmentId, "terminals.run", {
         commandId: newCommandId(),
         id,
         sessionId: target.sessionId,
         ...size,
-        env: shownEnv(command),
+        command,
       });
       const refusal = !opened.ok ? opened.error.message : opened.result.receipt.status === "rejected" ? opened.result.receipt.error.message : undefined;
       if (refusal === undefined) entry.terminalId = id;
-      // Gone before its terminal came: a refusal is nobody's news, and an opened terminal is closed, the command not run.
+      // Gone before its receipt came: a refusal is nobody's news; close an admitted command.
       if (entry.closed) return closeTerminal(entry);
       if (refusal !== undefined) return failed(entry, refusal);
-      // Keys typed in the pane while it opened go after the line, to the command, as a shell's typeahead would.
-      entry.outgoing = ONE_OFF_LINE + entry.outgoing;
+      entry.outgoing = "";
       attach(entry, id, size);
     })();
     return true;
@@ -408,6 +416,10 @@ export const useTerminalPane = (host: PaneHost): TerminalPane => {
     status: () => live.current?.handle?.state.read().status ?? "opening",
     open,
     run,
+    watchTool(environmentId, id, command, size, has) {
+      const entry = begin({ environmentId, sessionId: null }, size, command);
+      attach(entry, id, has);
+    },
     oneOffId,
     key(bytes) {
       const entry = live.current;

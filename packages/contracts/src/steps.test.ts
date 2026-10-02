@@ -70,10 +70,22 @@ const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(ta
 
 /**
  * Methods a registered step writes state through that a later ticket
- * registers, each with that ticket; none now. A method leaves this list in
- * the change that registers it, which the test below holds it to.
+ * registers, each with that ticket: the Memory bank step's four (#586),
+ * which the banks build registers (#937). A method leaves this list in the
+ * change that registers it, which the test below holds it to.
  */
-const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {};
+const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {
+  "banks.publish": "#1033",
+};
+
+/**
+ * Triggers a registered step names before any event or notice type they
+ * name is registered, each with the ticket that registers the types. None
+ * is owed since the banks build registered its `bank.*` notices (#1025). A
+ * trigger leaves this list in the change that registers a type it names,
+ * which the test below holds it to.
+ */
+const TRIGGERS_OWED: Readonly<Record<string, `#${number}`>> = {};
 
 /** What is wrong with the two tables together. */
 const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep[]): string[] => {
@@ -108,9 +120,10 @@ const stepRegistryProblems = (settings: LooseSettings, steps: readonly LooseStep
  * `<step>.<what>` or named twice, an action outside ADR 0031's vocabulary,
  * a budget that is none of ADR 0031's three, a cadence that is no whole
  * number of minutes or leaves the hour without a reason, no triggers or a
- * trigger that names, or as a family prefixes, no event or notice type, a
- * skippable step with no skip check, a skip check on a step that may not be
- * skipped or that names none of its own state checks, a prompt in `llm`
+ * trigger that names, or as a family prefixes, no event or notice type and
+ * is not owed to the ticket that registers its types (#586), a skippable
+ * step with no skip check, a skip check on a step that may not be skipped
+ * or that names none of its own state checks, a prompt in `llm`
  * that none of `prompts` has (ADR 0019; #584), or a part of the state
  * steps write through their own methods that two steps name.
  */
@@ -149,7 +162,7 @@ const stepShapeProblems = (steps: readonly LooseStep[], prompts: readonly { read
     }
     if (step.triggers === undefined) problems.push(`${step.id}: declares no triggers`);
     for (const trigger of step.triggers ?? []) {
-      if (!KNOWN_TYPES.some((type) => triggerMatches(trigger, type))) {
+      if (!KNOWN_TYPES.some((type) => triggerMatches(trigger, type)) && !Object.hasOwn(TRIGGERS_OWED, trigger)) {
         problems.push(`${step.id}: triggers on ${trigger}, which ${trigger.endsWith("*") ? "prefixes" : "names"} no event or notice type`);
       }
     }
@@ -205,6 +218,7 @@ const machines = stepOf("your-machines");
 const carryOver = stepOf("carry-over");
 const forges = stepOf("forges");
 const keyManager = stepOf("key-manager");
+const memoryBank = stepOf("memory-bank");
 const permissions = stepOf("permissions");
 /** The session keys: the auto-settle keys and the transcript compaction window. */
 const SESSION_KEYS: readonly string[] = [...AUTO_SETTLE_KEYS, "sessions.transcriptCompactAfterDays"];
@@ -237,7 +251,7 @@ describe("the step registry", () => {
       "permissions",
       "appearance",
     ]);
-    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
   });
 
   it("registers the Carry over entry second, after Account, at home on accounts.accounts beside it, writing no settings key and its state through carryOver.run, skills.carryOver and stateImport.run (ADR 0021, ADR 0036; #581)", () => {
@@ -276,10 +290,37 @@ describe("the step registry", () => {
     }
   });
 
-  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its state check and triggers left to #514 and #588", () => {
+  it("registers Skills in milestone-1 order with local state checks, its pane and state-derived skip", () => {
+    const skills = stepOf("skills");
+    expect(skills).toMatchObject({ home: "knowledge.skills", writes: [], skippable: true, skip: "skills.present", budget: "local", links: [] });
+    expect(skills.stateChecks.map((check) => [check.id, check.actions])).toEqual([
+      ["skills.present", []],
+      ["skills.sources-synced", ["pull-now"]],
+      ["skills.sources-yield", ["pull-now"]],
+      ["skills.source-limit", []],
+      ["skills.own-directory", []],
+    ]);
+    expect(skills.writesState?.map((write) => write.method)).toEqual([
+      "skills.sources.add", "skills.sources.remove", "skills.sources.setFollow", "skills.sources.pull", "skills.setAlwaysOn", "trust.decide", "trust.revoke",
+    ]);
+  });
+
+  it("owes a trigger only while it names no event or notice type, each to a named ticket", () => {
+    for (const [trigger, ticket] of Object.entries(TRIGGERS_OWED)) {
+      expect(
+        KNOWN_TYPES.filter((type) => triggerMatches(trigger, type)),
+        `${trigger} names a registered type now: take it off TRIGGERS_OWED`,
+      ).toEqual([]);
+      expect(ticket, trigger).toMatch(/^#\d+$/);
+      expect(steps.some((step) => step.triggers?.includes(trigger)), trigger).toBe(true);
+    }
+    expect(stepShapeProblems([{ ...appearance, triggers: ["bank.*", "bank.archived"] }])).toEqual(["appearance: triggers on bank.archived, which names no event or notice type"]);
+  });
+
+  it("registers the Instructions entry eighth in the order, at home on knowledge.instructions, writing the orientation switch, done on any valid value, and the owned instructions and dismissed suggestions through their ten commands, never skipped, with its orientation state check and the instruction and orientation registry triggers (#588)", () => {
     const instructions = stepOf("instructions");
     expect((STEP_ORDER as readonly string[]).indexOf("instructions")).toBe(7);
-    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [], links: [], skippable: false, budget: "local", triggers: [] });
+    expect(instructions).toMatchObject({ home: "knowledge.instructions", writes: ["instructions.orientation"], stateChecks: [{ id: "instructions.orientation-renders", actions: [] }], links: [], skippable: false, budget: "local", triggers: ["bank.*", "instructions.*", "account.updated", "key-manager.*", "forge.account.*", "environment.renamed"] });
     expect(instructions).not.toHaveProperty("skip");
     expect(instructions.writesState?.map((write) => write.method)).toEqual([
       "instructions.create",
@@ -298,15 +339,22 @@ describe("the step registry", () => {
     expect([check?.check(true), check?.check(false), check?.check("on")]).toEqual([true, true, "instructions.orientation does not hold a valid value."]);
   });
 
-  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with the local budget and the hour, no state checks, state writes, links or triggers yet, and not skippable until #559", () => {
+  it("registers the Browser entry ninth in the order, at home on access.browser, writing the nine browser keys each done on any valid value, with pairing state writes, three state checks, the local budget and the hour, and the browser triggers", () => {
     const browser = stepOf("browser");
     expect((STEP_ORDER as readonly string[]).indexOf("browser")).toBe(8);
     expect(STEP_REGISTRY.find((step) => step.id === "browser")?.home).toBe("access.browser");
     expect(browser.writes).toEqual([...BROWSER_SETTINGS_KEYS]);
     expect(browser.checks.map((check) => check.key)).toEqual([...BROWSER_SETTINGS_KEYS]);
-    expect(browser).toMatchObject({ stateChecks: [], links: [], skippable: false, budget: "local", cadence: { minutes: 60 }, triggers: [] });
-    expect(browser).not.toHaveProperty("skip");
-    expect(browser.writesState).toBeUndefined();
+    expect(browser).toMatchObject({ links: [], skippable: true, skip: "browser.present", budget: "local", cadence: { minutes: 60 }, triggers: ["chrome.updated", "extension.seen"] });
+    expect(browser.writesState).toEqual([
+      { method: "browser.pairing.code", parts: ["pairedChromes"] },
+      { method: "browser.chromes.unpair", parts: ["pairedChromes"] },
+    ]);
+    expect(browser.stateChecks).toEqual([
+      { id: "browser.present", holds: "A Chrome is paired with this environment.", actions: [] },
+      { id: "browser.chrome-connected", holds: "A paired Chrome is connected.", actions: ["check-again", "unpair", "pair-another"] },
+      { id: "browser.extension-current", holds: "Every paired Chrome last reported the shipped extension version.", actions: ["reload", "check-again"] },
+    ]);
     const presets = presetSettings();
     for (const check of browser.checks) expect(check.check(presets[check.key as SettingsKey]), check.key).toBe(true);
     expect(browser.checks.find((check) => check.key === "browser.devSites")?.check(["https://myapp.test"])).toBe("browser.devSites does not hold a valid value.");
@@ -440,6 +488,7 @@ describe("the step registry", () => {
       { id: "your-machines.host-updater", holds: "No host-side updater manages this environment's updates, or it polled in the last hour.", actions: ["check-again"] },
       { id: "your-machines.named", holds: "The environment has a name, an icon and a colour.", actions: [] },
       { id: "your-machines.ready", holds: "The environment is ready, and not draining past its cap.", actions: ["check-again"] },
+      { id: "your-machines.lan", holds: "LAN binding is off, or the LAN address it names is one this machine holds.", actions: ["check-again"] },
     ]);
   });
 
@@ -580,6 +629,42 @@ describe("the step registry", () => {
     expect(checkOf("credentials.injectionByAccount")?.({ "claude-max": "inherit" })).toBe("credentials.injectionByAccount does not hold a valid value.");
   });
 
+  it("registers the Memory bank entry sixth, after Key manager, at home on knowledge.banks, writing no settings key and its banks through banks.create, banks.join, banks.publish and banks.registry.update (setup spec, \"6. Memory bank\"; #586)", () => {
+    const order = STEP_ORDER as readonly string[];
+    expect(order.indexOf("memory-bank")).toBe(5);
+    expect(order[order.indexOf("memory-bank") - 1]).toBe("key-manager");
+    expect(memoryBank).toMatchObject({ home: "knowledge.banks", writes: [], checks: [] });
+    expect(Object.values(SETTINGS).filter((setting) => setting.step.id === "memory-bank")).toEqual([]);
+    expect(memoryBank.writesState).toEqual([
+      { method: "banks.create", parts: ["banks"] },
+      { method: "banks.join", parts: ["banks"] },
+      { method: "banks.publish", parts: ["banks"] },
+      { method: "banks.registry.update", parts: ["banks"] },
+    ]);
+  });
+
+  it("links the Memory bank entry to the Key manager and Forges steps, with the git budget and the hour, and names the describe prompt in llm (ADR 0019)", () => {
+    expect(memoryBank.links).toEqual([{ step: "key-manager" }, { step: "forges" }]);
+    expect(memoryBank).toMatchObject({ budget: "git", cadence: { minutes: 60 }, llm: "describe-bank" });
+    expect(STEP_PROMPTS.map((prompt) => prompt.id)).toContain("describe-bank");
+  });
+
+  it("may skip the Memory bank step, skipped when memory-bank.present finds no registered bank, then checks each bank reachable, its manifest, orientation, owners and landing", () => {
+    expect(memoryBank).toMatchObject({ skippable: true, skip: "memory-bank.present" });
+    expect(memoryBank.stateChecks).toEqual([
+      { id: "memory-bank.present", holds: "At least one memory bank is registered on this environment.", actions: [] },
+      { id: "memory-bank.reachable", holds: "Each enabled bank's remote answers, or its local repository exists.", actions: ["check-again"] },
+      {
+        id: "memory-bank.manifest",
+        holds: "Each enabled bank's BANK.md on main passes the validator, or waits for review in an open pull request on a bank whose merges are reviewed.",
+        actions: ["revise"],
+      },
+      { id: "memory-bank.orientation", holds: "Every orientation memory each enabled bank names exists.", actions: [] },
+      { id: "memory-bank.owners", holds: "Each enabled team bank's owners resolve on its forge.", actions: [] },
+      { id: "memory-bank.landing", holds: "No landing on an enabled bank has failed.", actions: ["check-again"] },
+    ]);
+  });
+
   it("holds the Your machines entry's update keys done on any value their schemas take, a pin included", () => {
     const checkOf = (key: string) => machines.checks.find((check) => check.key === key)?.check;
     const presets = presetSettings();
@@ -592,13 +677,15 @@ describe("the step registry", () => {
     expect(CHECK_BUDGET_SECONDS).toEqual({ local: 5, network: 10, git: 30 });
   });
 
-  it("gives Account, Carry over, Instructions, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, each an hourly cadence but Account, Forges and Key manager, checked every fifteen minutes because the orientation block reports each account's sign-in status and each forge account's and each connection's status", () => {
+  it("gives Account, Carry over, Instructions, Browser, Permissions and Appearance the local budget, Your machines, Forges and Key manager the network one, Memory bank the git one, each an hourly cadence but Account, Forges and Key manager, checked every fifteen minutes because the orientation block reports each account's sign-in status and each forge account's and each connection's status", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.budget, step.cadence.minutes])).toEqual([
       ["account", "local", 15],
       ["carry-over", "local", 60],
       ["your-machines", "network", 60],
       ["forges", "network", 15],
       ["key-manager", "network", 15],
+      ["memory-bank", "git", 60],
+      ["skills", "local", 60],
       ["instructions", "local", 60],
       ["browser", "local", 60],
       ["permissions", "local", 60],
@@ -625,18 +712,34 @@ describe("the step registry", () => {
     expect(stepShapeProblems([{ ...appearance, budget: "git", cadence: { minutes: 15, reason: "The orientation block reports sign-in freshness." } }])).toEqual([]);
   });
 
-  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Instructions on nothing until #588, Browser on nothing until #559, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
+  it("re-runs Account on account.updated and signin.updated, Carry over on account.updated, carry-over.imported and state-import.finished, Your machines on the update notices, settings.updated and the environment's name, icon and colour set (#323), Forges on every forge.account.* event and tools.updated, Key manager on every key-manager.* event and tools.updated, Memory bank on every bank.* event (#586), Skills on skills.updated, Instructions on its own events and every registry its orientation block reads, Browser on chrome.updated and extension.seen, Permissions on settings.updated and denylist.changed, and Appearance on settings.updated", () => {
     expect(STEP_REGISTRY.map((step) => [step.id, step.triggers])).toEqual([
       ["account", ["account.updated", "signin.updated"]],
       ["carry-over", ["account.updated", "carry-over.imported", "state-import.finished"]],
       ["your-machines", ["environment.update-*", "settings.updated", "environment.renamed", "environment.icon-set", "environment.colour-set"]],
       ["forges", ["forge.account.*", "tools.updated"]],
       ["key-manager", ["key-manager.*", "tools.updated"]],
-      ["instructions", []],
-      ["browser", []],
+      ["memory-bank", ["bank.*"]],
+      ["skills", ["skills.updated"]],
+      ["instructions", ["bank.*", "instructions.*", "account.updated", "key-manager.*", "forge.account.*", "environment.renamed"]],
+      ["browser", ["chrome.updated", "extension.seen"]],
       ["permissions", ["settings.updated", "denylist.changed"]],
       ["appearance", ["settings.updated"]],
     ]);
+  });
+
+  it("keeps the four feature steps' budgets and cadences, and resolves each trigger from #588 to a registered type", () => {
+    for (const [id, budget, minutes] of [
+      ["forges", "network", 15], ["key-manager", "network", 15], ["skills", "local", 60], ["instructions", "local", 60],
+    ] as const) {
+      const step = STEP_REGISTRY.find((entry) => entry.id === id)!;
+      expect(step).toMatchObject({ budget, cadence: { minutes } });
+      for (const trigger of step.triggers) {
+        // #586 reserves bank.* for the bank event vocabulary arriving in #937.
+        if (trigger === "bank.*") continue;
+        expect(KNOWN_TYPES.some((type) => triggerMatches(trigger, type)), `${id}: ${trigger}`).toBe(true);
+      }
+    }
   });
 
   it("matches a trigger to its own type, and a family ending in * to every type it prefixes", () => {
@@ -651,6 +754,20 @@ describe("the step registry", () => {
       "forge.account.capability-learned",
       "forge.account.git-rejected",
       "forge.account.removed",
+    ]);
+    expect(matched("bank.*")).toEqual([
+      "bank.added",
+      "bank.review-held",
+      "bank.draft-queued",
+      "bank.drafts-consumed",
+      "bank.updated",
+      "bank.pinned",
+      "bank.forgotten",
+      "bank.synced",
+      "bank.verified",
+      "bank.landed",
+      "bank.landing-failed",
+      "bank.awaiting-review",
     ]);
     expect(triggerMatches("settings.*", "settings.updated")).toBe(true);
     expect(triggerMatches("settings.updated*", "settings.updated")).toBe(true);

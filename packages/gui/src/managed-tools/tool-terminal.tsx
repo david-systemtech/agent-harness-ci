@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPaneTerminal, type PaneTerminal, type PaneView } from "../terminal/pane-terminal.js";
 import { useTerminalTheme } from "../terminal/terminal-theme.js";
 import { Button } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime } from "../window-context.js";
 
 /** The run a tool terminal shows: its terminal and the size the environment opened it at, the tool, Install or Update, and the command line it runs. */
 export interface ShownRun extends Pick<ToolRunStartedPayload, "tool" | "action" | "command"> {
@@ -63,13 +63,16 @@ export const useToolTerminal = (environmentId: string, shows: (tool: ManagedTool
  * view (`pane-terminal.ts`) over `terminals.subscribe`, the keys typed in it
  * sent through `terminals.write`, so a `sudo` password is typed there. It is
  * headed by what it runs and, once the command has exited, how; it stays
- * until its Close button closes the terminal (`terminals.close`), or until
- * the environment no longer holds it (closed by another client, thirty
- * minutes after its command exited, or at its stop), when it goes by
- * itself.
+ * until its Close button closes the terminal (`terminals.close`, whose
+ * `not_found` for one the environment has closed already is not said), or
+ * until the environment no longer holds it, when it goes by itself: closed
+ * by another client or at its stop while the command runs, or, once it has
+ * exited, found gone when the pane asks after it thirty minutes after the
+ * exit on the environment's clock (#864).
  */
 export const ToolTerminal = ({ environmentId, run, label, close }: { readonly environmentId: string; readonly run: ShownRun; readonly label: string; readonly close: () => void }) => {
   const runtime = useRuntime();
+  const clock = useClock();
   const theme = useTerminalTheme();
   const environments = useObservable(runtime.projections.environments);
   const name = environments.find((view) => view.environmentId === environmentId)?.name ?? "the environment";
@@ -87,7 +90,7 @@ export const ToolTerminal = ({ environmentId, run, label, close }: { readonly en
     const made = createPaneTerminal({
       runtime,
       environmentId,
-      source: { kind: "tool", terminal: { id, cols, rows }, gone: () => latest.current.close() },
+      source: { kind: "tool", terminal: { id, cols, rows }, gone: () => latest.current.close(), clock },
       host: host.current,
       theme: latest.current.theme,
       onScreen: true,
@@ -100,7 +103,7 @@ export const ToolTerminal = ({ environmentId, run, label, close }: { readonly en
       terminal.current = null;
       made.dispose();
     };
-  }, [runtime, environmentId, id, cols, rows]);
+  }, [runtime, clock, environmentId, id, cols, rows]);
   useEffect(() => terminal.current?.theme(theme), [theme]);
 
   const closeIt = () => {

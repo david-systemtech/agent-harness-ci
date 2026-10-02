@@ -5,9 +5,10 @@
  * no image is built or run here. The image runs the environment as a
  * non-root user that owns the volumes' mount points, the compose file runs
  * that user on named volumes with the drain's stop grace and the release's
- * image, and neither sets `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It
- * passes a new environment's name and channel in from compose's own
- * variables, which Add a machine's container snippet sets (#846). What only
+ * image, the image ships ssh for the skill probe (#874), and neither sets
+ * `IS_SANDBOX` or `CLAUDE_CODE_BUBBLEWRAP`. It passes a new environment's
+ * name and channel in from compose's own variables, which Add a machine's
+ * container snippet sets (#846). What only
  * a real build and run can show is the Container section of
  * `docs/agents/service-install-checklist.md`.
  */
@@ -54,6 +55,15 @@ const composeLines = (): string[] =>
     .split("\n")
     .map((line) => line.replace(/\s+#.*$/, "").replace(/^\s*#.*$/, ""))
     .filter((line) => line.trim() !== "");
+
+/** One service's published properties, read without running a container. */
+const composeService = (name: string): string[] => {
+  const lines = composeLines();
+  const first = lines.indexOf(`  ${name}:`);
+  if (first === -1) return [];
+  const next = lines.findIndex((line, index) => index > first && /^\S|^ {2}\S/.test(line));
+  return lines.slice(first + 1, next === -1 ? undefined : next);
+};
 
 /** The compose file's header: its comment lines before the first line that is not one. */
 const composeHeader = (): string => {
@@ -110,6 +120,13 @@ describe("the container image", () => {
     expect(header).toContain("linux/amd64");
   });
 
+  it("installs openssh-client in its last stage, so an ssh or scp URL no forge account covers is probed over ssh as written (#874)", () => {
+    const installed = finalStage()
+      .filter((line) => /^RUN .*\bapt-get install\b/.test(line))
+      .flatMap((line) => line.split(/\s+/));
+    expect(installed).toContain("openssh-client");
+  });
+
   it("starts the environment with serve on /data, as that user", () => {
     const stage = finalStage();
     expect(stage.at(-2)).toBe('ENTRYPOINT ["agent-harness"]');
@@ -121,7 +138,7 @@ describe("the container image", () => {
 describe("the published compose file", () => {
   it("runs the image's user, by the uid and gid the image gives it", () => {
     const { uid, gid } = imageUser();
-    const user = composeLines().filter((line) => /^\s+user:/.test(line));
+    const user = composeService("environment").filter((line) => /^\s+user:/.test(line));
     expect(user).toEqual([`    user: "${uid}:${gid}"`]);
     expect(uid).not.toBe("0");
   });
@@ -139,7 +156,7 @@ describe("the published compose file", () => {
   });
 
   it("defaults its image to the release's reference, which the release workflow writes in, and takes AGENT_HARNESS_IMAGE, the host-side updater's, over it", () => {
-    expect(composeLines().filter((line) => /^\s+image:/.test(line))).toEqual([`    image: \${AGENT_HARNESS_IMAGE:-${UNRELEASED_IMAGE}}`]);
+    expect(composeService("environment").filter((line) => /^\s+image:/.test(line))).toEqual([`    image: \${AGENT_HARNESS_IMAGE:-${UNRELEASED_IMAGE}}`]);
     // The placeholder is written once, so the workflow's substitution changes the image and nothing else.
     expect(compose.split(UNRELEASED_IMAGE)).toHaveLength(2);
   });
@@ -186,6 +203,28 @@ describe("the published compose file", () => {
     const lines = composeLines();
     expect(lines).toContain('      AGENT_HARNESS_CONTAINER: "1"');
     for (const line of lines) expect(line, line).not.toMatch(/privileged|cap_add|security_opt|userns_mode/);
+  });
+});
+
+describe("the opt-in headless browser service", () => {
+  it("runs upstream Debian Chromium under new headless, pinned for Renovate, with a non-root user, init, restart, a GiB limit and a loopback port", () => {
+    const lines = composeService("browser");
+    const text = lines.join("\n");
+    expect(text).toMatch(/image: docker\.io\/linuxserver\/chromium:latest@sha256:[a-f0-9]{64}/);
+    expect(lines).toContain('    profiles: ["browser"]');
+    expect(lines).toContain('    user: "10001:10001"');
+    expect(lines).toContain("    init: true");
+    expect(lines).toContain("    restart: unless-stopped");
+    expect(lines).toContain("    mem_limit: 1g");
+    expect(lines).toContain('      - "127.0.0.1:9222:9222"');
+    expect(text).toContain("/usr/lib/chromium/chromium");
+    expect(text).toContain("--headless=new");
+    expect(text).not.toMatch(/build:|SYS_ADMIN|privileged:/);
+    expect(composeHeader()).toContain("browser.headless.endpoint");
+    expect(composeHeader()).toContain("http://127.0.0.1:9222");
+    expect(composeHeader()).toContain("--profile browser");
+    const renovate = JSON.parse(readFileSync(join(root, "renovate.json"), "utf8")) as { packageRules: unknown[] };
+    expect(renovate.packageRules).toContainEqual({ matchManagers: ["docker-compose"], matchPackageNames: ["docker.io/linuxserver/chromium"], pinDigests: true });
   });
 });
 

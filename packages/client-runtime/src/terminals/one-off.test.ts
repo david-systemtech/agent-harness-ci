@@ -1,6 +1,6 @@
 import xterm from "@xterm/headless";
 import { describe, expect, it } from "vitest";
-import { ONE_OFF_LINE, ONE_OFF_MAX_CHARS, oneOffEnv, type TerminalInfo } from "@agent-harness/contracts";
+import { ONE_OFF_MAX_CHARS, type TerminalInfo } from "@agent-harness/contracts";
 import { writable } from "../observable.js";
 import type { Runtime } from "../runtime.js";
 import type { TerminalOutput, TerminalStreamView } from "../streams/terminals.js";
@@ -9,21 +9,11 @@ import { manualClock } from "../testing/in-memory-platform.js";
 import { clipOutput, oneOffMessage, reusableTerminal, runOneOff } from "./one-off.js";
 import { xtermScreen, type TextScreens } from "./text-screen.js";
 
-/**
- * `!!`'s one-off command (docs/specs/tui.md, "The composer"): the command
- * rides a terminal's variables behind a marker line, what came after the
- * marker is what it said, read as a terminal showed it and cut, and a
- * minute at most. The real shell's side is proven against real
- * pseudo-terminals in the environment's `terminals/one-off.test.ts`; this
- * is the reading of what came back, over a terminal the test plays, read
- * through the terminal UI's emulator (`@xterm/headless`) as a renderer
- * hands it.
- */
+/** One-off output collection over the runtime's terminal subscription and the renderer's emulator. */
 
 /** The terminal UI's emulator, as it hands it to a one-off. */
 const screens: TextScreens = (size) => xtermScreen(new xterm.Terminal({ ...size, allowProposedApi: true }));
 
-const MARKER = "agent-harness-one-off-t1";
 const TARGET = { environmentId: "env-1", sessionId: "session-1" };
 
 describe("the output cut to lines", () => {
@@ -41,7 +31,7 @@ const played = () => {
   let listener: ((output: TerminalOutput) => void) | undefined;
   const state = writable<TerminalStreamView>({ status: "live", cursor: 0, terminal: null, exit: null, fault: null });
   let sequence = 0;
-  let writeAnswer: "accepted" | "unreachable" = "accepted";
+  let runAnswer: "accepted" | "unreachable" = "accepted";
   /** Whether the environment can be asked: while it cannot, every write and close fails as the runtime fails one. */
   let reachable = true;
   const environments = writable<readonly unknown[]>([]);
@@ -50,7 +40,7 @@ const played = () => {
       call: async (_environmentId: string, method: string, params: Record<string, unknown>) => {
         calls.push({ method, params });
         const unreachable = { ok: false, error: { code: "unreachable", message: "desk cannot be reached." } };
-        if (method === "terminals.write" && (writeAnswer === "unreachable" || !reachable)) return unreachable;
+        if (method === "terminals.run" && (runAnswer === "unreachable" || !reachable)) return unreachable;
         if (method === "terminals.close" && !reachable) return unreachable;
         return { ok: true, result: { receipt: { status: "accepted", sequence: 1, changed: false } } };
       },
@@ -68,7 +58,7 @@ const played = () => {
     clock,
     calls,
     runtime,
-    failWrites: () => void (writeAnswer = "unreachable"),
+    failRuns: () => void (runAnswer = "unreachable"),
     /** The environment drops: nothing can be asked of it until `back`. */
     drop: () => void (reachable = false),
     /** The environment answers again, as its connection coming back changes the environments' projection. */
@@ -79,7 +69,7 @@ const played = () => {
     print: (data: string) => listener?.({ kind: "output", data, sequence: ++sequence, live: true }),
     /** A snapshot of what the terminal's scrollback still holds, as a resubscription answered with one. */
     reset: (data: string, truncated: boolean) => listener?.({ kind: "reset", data, sequence: ++sequence, truncated, terminal: null as never }),
-    exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" } }),
+    exit: (exitCode: number) => listener?.({ kind: "exited", exit: { exitCode, signal: null, cause: "exited" }, occurredAt: clock.now().toISOString() }),
     /** The terminal gone with no exit said (closed by another client, lost to a restart of the environment). */
     vanish: () => state.set({ status: "ended", cursor: sequence, terminal: null, exit: null, fault: null }),
     deps: { runtime, clock, newCommandId: () => "c", newTerminalId: () => "t1", screens },
@@ -96,45 +86,24 @@ const run = async (terminal: ReturnType<typeof played>, command: string, play: (
 };
 
 describe("a one-off command run", () => {
-  it("opens its terminal with the script in its variables, types the line, and reads only what came after the marker", async () => {
+  it("runs the command directly, reads all its output and never types an exec line", async () => {
     const terminal = played();
     const result = await run(terminal, "echo hi", () => {
-      terminal.print(`motd\r\n$ ${ONE_OFF_LINE}\n`);
-      terminal.print(`${MARKER}\r\nhi\r\n`);
+      terminal.print("hi\r\n");
       terminal.exit(0);
     });
-    expect(result).toEqual({ ok: true, output: "hi", exitCode: 0, signal: null, timedOut: false, gone: false, timeoutMs: 60_000, cut: false, dropped: false });
-    expect(terminal.calls.map((c) => c.method)).toEqual(["terminals.open", "terminals.write", "terminals.close"]);
-    expect(terminal.calls[0]?.params).toMatchObject({ id: "t1", sessionId: "session-1", cols: 120, rows: 40, env: oneOffEnv("echo hi", MARKER) });
-    expect(terminal.calls[1]?.params).toMatchObject({ data: ONE_OFF_LINE });
+    expect(result).toMatchObject({ ok: true, output: "hi", exitCode: 0 });
+    expect(terminal.calls.map((c) => c.method)).toEqual(["terminals.run", "terminals.close"]);
+    expect(terminal.calls[0]?.params).toMatchObject({ command: "echo hi", id: "t1", sessionId: "session-1", cols: 120, rows: 40 });
   });
 
-  it("finds the marker when it arrives in pieces", async () => {
-    const terminal = played();
-    const result = await run(terminal, "echo hi", () => {
-      terminal.print("$ agent-harness-one-");
-      terminal.print("off-t1\r");
-      terminal.print("\nhi\r\n");
-      terminal.exit(0);
-    });
-    expect(result).toMatchObject({ ok: true, output: "hi" });
-  });
-
-  it("sends nothing when the marker never came, and says the last line the terminal showed", async () => {
-    const terminal = played();
-    const result = await run(terminal, "ls", () => {
-      terminal.print("Welcome\r\n> nu: unknown command: exec\r\n");
-      terminal.exit(1);
-    });
-    expect(result).toEqual({ ok: false, line: "The shell never started it before its terminal ended; it last showed: > nu: unknown command: exec" });
-  });
 
   it("stops waiting at its limit, closes the terminal, and says how long it was given", async () => {
     const terminal = played();
     const result = runOneOff({ ...terminal.deps, timeoutMs: 5_000 }, TARGET, "sleep 100");
     await flush();
     await flush();
-    terminal.print(`${MARKER}\r\nstarted\r\n`);
+    terminal.print(`started\r\n`);
     terminal.clock.advance(5_000);
     const ended = await result;
     expect(ended).toEqual({ ok: true, output: "started", exitCode: null, signal: null, timedOut: true, gone: false, timeoutMs: 5_000, cut: false, dropped: false });
@@ -142,10 +111,10 @@ describe("a one-off command run", () => {
     expect(oneOffMessage("sleep 100", ended as Extract<typeof ended, { ok: true }>)).toBe("Ran `sleep 100`:\n```\nstarted\ntimed out after 5s\n```");
   });
 
-  it("cuts what comes after the marker at its limit, marks the cut, and counts past it in characters", async () => {
+  it("cuts command output at its limit, marks the cut, and counts past it in characters", async () => {
     const terminal = played();
     const result = await run(terminal, "yes", () => {
-      terminal.print(`${MARKER}\r\n`);
+
       terminal.print("é".repeat(ONE_OFF_MAX_CHARS - 1));
       terminal.print("éé");
       terminal.exit(0);
@@ -158,7 +127,7 @@ describe("a one-off command run", () => {
     const terminal = played();
     const lines = Array.from({ length: 5000 }, (_, i) => String(i + 1));
     const result = await run(terminal, "seq 5000", () => {
-      terminal.print(`${MARKER}\r\n`);
+
       terminal.print(`${lines.join("\r\n")}\r\n`);
       terminal.exit(0);
     });
@@ -175,7 +144,7 @@ describe("a one-off command run", () => {
     // character cap and the line feeds read through the screen.
     const lines = Array.from({ length: 1600 }, (_, i) => `${String(i + 1).padStart(4, "0")}${"漢".repeat(119)}`);
     const result = await run(terminal, "cat wide.txt", () => {
-      terminal.print(`${MARKER}\r\n`);
+
       terminal.print(`${lines.join("\r\n")}\r\n`);
       terminal.exit(0);
     });
@@ -190,7 +159,7 @@ describe("a one-off command run", () => {
     const terminal = played();
     // A vertical tab moves down a row as a line feed does, and none of them is counted as one.
     const result = await run(terminal, "tabs", () => {
-      terminal.print(`${MARKER}\r\n`);
+
       terminal.print(`first\r\nsecond\r\n${"x\v".repeat(8000)}\r\nlast\r\n`);
       terminal.exit(0);
     });
@@ -198,10 +167,10 @@ describe("a one-off command run", () => {
     expect(output.slice(0, 2)).toEqual(["first", "second"]);
   });
 
-  it("reads a scrollback that no longer holds the marker, after a resubscription mid-run, as the command's, and says its start was dropped", async () => {
+  it("reads a truncated snapshot after a resubscription mid-run, as the command's, and says its start was dropped", async () => {
     const terminal = played();
     const result = await run(terminal, "make", () => {
-      terminal.print(`$ ${ONE_OFF_LINE}\n${MARKER}\r\nstep 1\r\n`);
+      terminal.print(`step 1\r\n`);
       terminal.reset("step 4000\r\nstep 4001\r\n", true);
       terminal.print("done\r\n");
       terminal.exit(0);
@@ -210,11 +179,11 @@ describe("a one-off command run", () => {
     expect(oneOffMessage("make", result as Extract<typeof result, { ok: true }>)).toBe("Ran `make`:\n```\n… earlier output dropped\nstep 4000\nstep 4001\ndone\n```");
   });
 
-  it("reads a resubscription's snapshot that still holds the marker from the marker, as before", async () => {
+  it("reads a resubscription's complete snapshot as the command's output", async () => {
     const terminal = played();
     const result = await run(terminal, "make", () => {
-      terminal.print(`$ ${ONE_OFF_LINE}\n${MARKER}\r\nstep 1\r\n`);
-      terminal.reset(`$ ${ONE_OFF_LINE}\n${MARKER}\r\nstep 1\r\nstep 2\r\n`, false);
+      terminal.print(`step 1\r\n`);
+      terminal.reset(`step 1\r\nstep 2\r\n`, false);
       terminal.exit(0);
     });
     expect(result).toMatchObject({ ok: true, output: "step 1\nstep 2", dropped: false });
@@ -223,7 +192,6 @@ describe("a one-off command run", () => {
   it("says a command that printed nothing and ended cleanly printed nothing, rather than send an empty fence", async () => {
     const terminal = played();
     const result = await run(terminal, "touch x", () => {
-      terminal.print(`${MARKER}\r\n`);
       terminal.exit(0);
     });
     expect(result).toMatchObject({ ok: true, output: "", exitCode: 0, cut: false, dropped: false });
@@ -233,19 +201,20 @@ describe("a one-off command run", () => {
   it("says the terminal went away when it ends with no exit after the command started, rather than send its output as a finished run", async () => {
     const terminal = played();
     const result = await run(terminal, "make", () => {
-      terminal.print(`${MARKER}\r\nstep 1\r\n`);
+      terminal.print(`step 1\r\n`);
       terminal.vanish();
     });
     expect(result).toEqual({ ok: true, output: "step 1", exitCode: null, signal: null, timedOut: false, gone: true, timeoutMs: 60_000, cut: false, dropped: false });
     expect(oneOffMessage("make", result as Extract<typeof result, { ok: true }>)).toBe("Ran `make`:\n```\nstep 1\nthe terminal went away before the command ended\n```");
   });
 
-  it("closes its terminal once the environment is back when the close could not be sent, so the terminal is not left open", async () => {
-    // The environment dropped after the open was answered: the line was never typed, and the close was lost with it.
+  it("retries a lost close when the environment is back", async () => {
     const terminal = played();
-    terminal.drop();
-    const result = await runOneOff(terminal.deps, TARGET, "ls");
-    expect(result).toEqual({ ok: false, line: "desk cannot be reached." });
+    const result = await run(terminal, "ls", () => {
+      terminal.drop();
+      terminal.exit(0);
+    });
+    expect(result).toMatchObject({ ok: true });
     await flush();
     const closes = () => terminal.calls.filter((c) => c.method === "terminals.close");
     expect(closes()).toHaveLength(1);
@@ -259,9 +228,9 @@ describe("a one-off command run", () => {
     expect(closes()).toHaveLength(2);
   });
 
-  it("stops its clock when the line could not be typed, and says why", async () => {
+  it("starts no clock when the run is refused, and says why", async () => {
     const terminal = played();
-    terminal.failWrites();
+    terminal.failRuns();
     const result = await runOneOff(terminal.deps, TARGET, "ls");
     expect(result).toEqual({ ok: false, line: "desk cannot be reached." });
     expect(terminal.clock.pending()).toBe(0);

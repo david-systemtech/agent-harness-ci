@@ -180,12 +180,53 @@ export interface ShellTray {
   onClick(listener: () => void): () => void;
 }
 
-/** An embedded web view, for the browser dock and preview panes, named by an id the shell gives. */
+/** The CDP channel of a native page and its flat child targets. Contains only opaque view/target ids and protocol objects. */
+export interface ShellWebViewDebugger {
+  attach(viewId: string): Promise<void>;
+  send(viewId: string, method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, unknown>>;
+  onEvent(listener: (viewId: string, event: ShellDebuggerMessage) => void): () => void;
+  onDetach(listener: (viewId: string, reason: string) => void): () => void;
+  detach(viewId: string): Promise<void>;
+}
+export interface ShellDebuggerMessage {
+  readonly method: string;
+  readonly params: Record<string, unknown>;
+  readonly sessionId?: string;
+}
+
+/** An embedded browser page, named by an opaque id. Partitions are separate from the renderer. An opaque partition key reopens its persistent profile; without one, create uses a fresh in-memory profile. */
 export interface ShellWebView {
-  create(options: { readonly url: string }): Promise<string>;
+  /** Absent where the dock can display pages but cannot drive them. */
+  readonly debugger?: ShellWebViewDebugger;
+  create(options: { readonly url: string; readonly partition?: string }): Promise<string>;
   attach(viewId: string, bounds: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): void;
+  /** Hides without closing the page or forgetting its history. */
+  hide(viewId: string): void;
   navigate(viewId: string, url: string): Promise<void>;
+  back(viewId: string): void;
+  forward(viewId: string): void;
+  reload(viewId: string): void;
+  state(viewId: string): Promise<ShellWebViewState>;
+  /** Hears top-level page navigation and history changes, including links followed inside the page. */
+  onChange(listener: (viewId: string, state: ShellWebViewState) => void): () => void;
+  /** Key presses in the native page, which the renderer may match against its own shortcuts. */
+  onKey(listener: (viewId: string, key: ShellWebViewKey) => void): () => void;
   destroy(viewId: string): void;
+}
+
+export interface ShellWebViewKey {
+  readonly key: string;
+  readonly code: string;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+}
+
+export interface ShellWebViewState {
+  readonly url: string;
+  readonly canGoBack: boolean;
+  readonly canGoForward: boolean;
 }
 
 /** The preview scheme (`agent-harness-preview:`): content served from memory, with no network, to a frame sandboxed with scripts and without same-origin. */
@@ -321,8 +362,8 @@ export interface ShellGh {
 /**
  * A camera the platform gives the window (the Set up spec, "Add a machine";
  * #577): Add a machine offers Scan a QR where there is one, and says it is
- * absent where there is not. No desktop platform of this build gives the
- * window one.
+ * absent where there is not. The desktop discovers video inputs before
+ * mounting the client and supplies a modal scanner (#845).
  */
 export interface ShellCamera {
   /** Reads one QR code with the camera: the text it encodes (a pairing link), or undefined when the person closes the camera first. */

@@ -11,9 +11,11 @@ import {
   type ParkedPrompt,
   type PromptAnsweredPayload,
   type PromptOpenedPayload,
+  RunSuggestion,
   type RunEndedPayload,
   type RunStartedPayload,
   type RunSummary,
+  type RunUpdateInterruptedPayload,
   type SessionHistoryImportedPayload,
   type SessionForkedPayload,
   type SessionRewindUndonePayload,
@@ -26,8 +28,9 @@ import {
   type TranscriptItem,
   type UsageReportedPayload,
 } from "@agent-harness/contracts";
+import { parseActor } from "../event-log/envelope.js";
 import { decodeEvent, type EventRow } from "../event-log/database.js";
-import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
+import type { EventEnvelope, EventLog, Snapshot } from "../event-log/event-log.js";
 import { sessionStream } from "../sessions/streams.js";
 
 /**
@@ -48,6 +51,7 @@ import { sessionStream } from "../sessions/streams.js";
  */
 
 export interface TranscriptParts {
+  readonly suggestion?: RunSuggestion | null;
   readonly runs: RunSummary[];
   readonly items: TranscriptItem[];
   readonly parkedPrompts: ParkedPrompt[];
@@ -178,7 +182,19 @@ export const readTranscriptEvents = (log: Pick<EventLog, "read">, sessionId: str
 export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, sessionId: string, includeOpenItems = false): TranscriptParts => {
   const snapshot = log.readSnapshot(sessionStream(sessionId));
   const events = readTranscriptEvents(log, sessionId, snapshot?.sequence ?? 0, includeOpenItems);
-  return foldTranscript(events, snapshot === null ? undefined : storedTranscriptParts(snapshot.payload), includeOpenItems);
+  return foldTranscript(events, snapshot === null ? undefined : readCompactedTranscript(log, snapshot), includeOpenItems);
+};
+
+/** A stored fold from before #632 omitted the fork's row; its retained session.forked restores it without rebuilding the removed transcript. */
+export const readCompactedTranscript = (log: Pick<EventLog, "read">, snapshot: Snapshot): TranscriptParts => {
+  const parts = storedTranscriptParts(snapshot.payload);
+  if (parts.items.some((item) => item.kind === "forked")) return parts;
+  const [row] = log.read<EventRow>(
+    `SELECT * FROM events WHERE stream_kind = '${SESSION_STREAM_KIND}' AND stream_id = ? AND type = 'session.forked' AND sequence <= ? ORDER BY sequence LIMIT 1`,
+    snapshot.stream.id,
+    snapshot.sequence,
+  );
+  return row === undefined ? parts : { ...parts, items: [...foldTranscript([decodeEvent(row)]).items, ...parts.items].sort(bySequence) };
 };
 
 /**
@@ -199,6 +215,7 @@ export const sessionTranscript = (log: Pick<EventLog, "read" | "readSnapshot">, 
 export const foldTranscript = (events: Iterable<EventEnvelope>, from?: TranscriptParts, includeOpenItems = false): TranscriptParts => {
   const start = from === undefined ? undefined : (structuredClone(from) as { runs: Mutable<RunSummary>[]; items: Item[]; parkedPrompts: ParkedPrompt[]; rewinds: StandingRewind[] });
   const runs = new Map<string, Mutable<RunSummary>>(start?.runs.map((run) => [run.runId, run]));
+  let suggestion = from?.suggestion ?? null;
   let items: Item[] = start === undefined ? [] : listOf(start.items, start.rewinds);
   /** The rewinds standing, oldest first, each its fold. */
   let folds: Fold[] = everyFold(items).sort(bySequence);
@@ -244,6 +261,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
     const { sequence } = event;
     switch (event.type) {
       case "run.started": {
+        suggestion = null;
         const payload = event.payload as RunStartedPayload;
         runs.set(payload.runId, {
           runId: payload.runId,
@@ -267,6 +285,12 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         for (const fold of folds) fold.undoable = false;
         break;
       }
+      case "run.suggested": {
+        const offer = RunSuggestion.parse(event.payload);
+        const latest = [...runs.values()].at(-1);
+        if (latest?.runId === offer.runId && latest.reason === "completed") suggestion = offer;
+        break;
+      }
       case "run.ended": {
         const payload = event.payload as RunEndedPayload;
         const run = runs.get(payload.runId);
@@ -288,6 +312,11 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         if (run !== undefined) run.usage = payload.models;
         break;
       }
+      case "run.update-interrupted": {
+        const payload = event.payload as RunUpdateInterruptedPayload;
+        push<ItemOf<"update-interrupted">>({ ...payload, kind: "update-interrupted", sequence });
+        break;
+      }
       case "message.sent": {
         const payload = event.payload as MessageSentPayload;
         const item = push<ItemOf<"user-message">>({
@@ -300,6 +329,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
           delivery: payload.delivery,
           heldBy: payload.heldBy,
           sentAt: event.occurredAt,
+          sender: parseActor(event.actor),
         });
         messages.set(payload.messageId, item);
         break;
@@ -396,6 +426,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         break;
       }
       case "session.rewound": {
+        suggestion = null;
         // The rewound message and every item after it go into the rewind's fold, a fold among them nested; they stay in the log.
         const { toMessageId } = event.payload as SessionRewoundPayload;
         const target = messages.get(toMessageId);
@@ -432,7 +463,7 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
       }
       case "session.forked": {
         const { fromSessionId, atMessageId, history } = event.payload as SessionForkedPayload;
-        push({ kind: "forked", sequence, fromSessionId, atMessageId, ...(history !== undefined && { history }) });
+        push<ItemOf<"forked">>({ kind: "forked", sequence, fromSessionId, atMessageId, ...(history !== undefined && { history }) });
         break;
       }
       case "session.history-imported": {
@@ -450,5 +481,5 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
   // only; this option reads all deltas, and never changes what the source will later settle.
   if (includeOpenItems) for (const item of opened.values()) place({ ...item, aborted: false });
   const parts = partsOf(items);
-  return { runs: [...runs.values()], items: parts.items, parkedPrompts: [...parked.values()], rewinds: parts.rewinds };
+  return { suggestion, runs: [...runs.values()], items: parts.items, parkedPrompts: [...parked.values()], rewinds: parts.rewinds };
 };

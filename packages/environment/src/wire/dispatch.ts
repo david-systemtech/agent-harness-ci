@@ -92,14 +92,29 @@ const undoAll = async (method: string, undos: readonly Undo[]): Promise<void> =>
  * receipt is written with its events. A prepared command (#228) runs its
  * `prepare` first, outside the transaction and only when no receipt is
  * stored, and then the handler it answers; what `prepare` made is removed
- * when the command is not accepted (#321). The answer is `{receipt, result}`, the
- * result only when this request applied the command; a rejection is a
- * receipt too, not an error, since the receipt is what the client's outbox
- * retires a command on.
+ * when the command is not accepted (#321). A request under a key whose
+ * `prepare` still runs, on any socket (its client's resend after a dropped
+ * one), waits for that request and is answered from the receipt it stored,
+ * its own `prepare` never run (#448); it prepares only when the first
+ * stored none (an error answer, which a retry runs again). The answer is
+ * `{receipt, result}`, the result only when this request applied the
+ * command; a rejection is a receipt too, not an error, since the receipt is
+ * what the client's outbox retires a command on.
  */
-export const createDispatch =
-  (methods: MethodTable, log: Pick<EventLog, "command" | "receipt">) =>
-  async (request: RequestFrame, clientSession: VerifiedClientSession, respond: Respond, open: Open): Promise<void> => {
+export const createDispatch = (methods: MethodTable, log: Pick<EventLog, "command" | "receipt">) => {
+  /** The prepared commands still preparing, by their key: each settles once its command has a receipt, or failed, and what it made is removed. */
+  const preparing = new Map<string, Promise<void>>();
+  /** Marks the command under `key` as preparing; answers how to mark it done. */
+  const startPreparing = (key: string): (() => void) => {
+    let done!: () => void;
+    preparing.set(key, new Promise<void>((resolve) => (done = resolve)));
+    return () => {
+      preparing.delete(key);
+      done();
+    };
+  };
+
+  return async (request: RequestFrame, clientSession: VerifiedClientSession, respond: Respond, open: Open): Promise<void> => {
     const { method, params } = request;
     const served = methods.get(method);
     if (!served) return respond({ error: error("not_found", `No method is named ${method}.`) });
@@ -134,18 +149,32 @@ export const createDispatch =
         // removed unless the command is accepted (#321).
         const registered = served.handler;
         const undos: Undo[] = [];
+        let donePreparing: (() => void) | undefined;
         let run: CommandRun<unknown>;
         try {
           let handler: CommandHandler;
           if (typeof registered === "function") handler = registered;
-          else if (log.receipt(actor, commandId) !== null) {
-            handler = () => {
-              throw new Error(`${method} was answered from its receipt; its handler does not run.`);
-            };
-          } else {
-            const prepared = registered.prepare(commandParams, { ...context, onUndo: (undo) => void undos.push(undo) });
-            // Waited for only when it must be, so a prepare that answers at once keeps the command's place on its socket.
-            handler = prepared instanceof Promise ? await prepared : prepared;
+          else {
+            // A request under a key whose prepare still runs (a resend after a dropped socket) waits for it (#448): were both to
+            // prepare, each would find what the other made. It waits only when one runs, so a request otherwise keeps its place.
+            const key = JSON.stringify([actor, commandId]);
+            for (let first = preparing.get(key); first !== undefined; first = preparing.get(key)) await first;
+            if (log.receipt(actor, commandId) !== null) {
+              handler = () => {
+                throw new Error(`${method} was answered from its receipt; its handler does not run.`);
+              };
+            } else {
+              donePreparing = startPreparing(key);
+              do {
+                const prepared = registered.prepare(commandParams, { ...context, onUndo: (undo) => void undos.push(undo) });
+                // Waited for only when it must be, so a prepare that answers at once keeps the command's place on its socket.
+                handler = prepared instanceof Promise ? await prepared : prepared;
+                // No await between this check and the transaction: a run transition during preparation must be read again.
+                if (log.receipt(actor, commandId) !== null || handler.isCurrent?.() !== false) break;
+                await undoAll(method, undos);
+                undos.length = 0;
+              } while (log.receipt(actor, commandId) === null);
+            }
           }
           run = log.command({ actor, commandId }, (tx) => {
             const answer: unknown = handler(commandParams, { ...context, commandId, actor, tx });
@@ -155,11 +184,14 @@ export const createDispatch =
             }
             return toOutcome(method, entry.result as Parser, answer as CommandAnswer<unknown>);
           });
+          // A request waiting under the key goes on only once what this one made is gone, so it never finds it half removed.
+          if (run.receipt.status !== "accepted") await undoAll(method, undos);
         } catch (thrown) {
           await undoAll(method, undos);
           throw thrown;
+        } finally {
+          donePreparing?.();
         }
-        if (run.receipt.status !== "accepted") await undoAll(method, undos);
         const receipt = toWireReceipt(run.receipt);
         return respond({ result: run.replayed || run.result === undefined ? { receipt } : { receipt, result: run.result } });
       }
@@ -176,3 +208,4 @@ export const createDispatch =
     }
     respond({ result: checked.data as JsonObject });
   };
+};

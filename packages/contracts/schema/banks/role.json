@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankRole",
+  "type": "string",
+  "enum": [
+    "read-write",
+    "read-only"
+  ],
+  "description": "Whether runs may draft into the bank (read-write) or only read and search it (read-only)."
+}

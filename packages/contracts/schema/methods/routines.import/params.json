@@ -47,6 +47,12 @@
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
           "description": "The routine's id on that environment."
+        },
+        "definitionSequence": {
+          "description": "The source definition's event sequence as read before the move, for settlement without comparing clocks.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
         }
       },
       "required": [

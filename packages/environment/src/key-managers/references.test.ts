@@ -220,10 +220,17 @@ describe("keyManagers.references.browse", () => {
     await expect(browse(client, waiting.id, "personal")).rejects.toMatchObject({ code: "credential_source_unavailable", data: { connectionId: waiting.id } });
   });
 
-  it("is not_found for a connection the environment does not hold, and invalid_params for a path without a mount", async () => {
+  it("is not_found for a connection the environment does not hold, and invalid_params for a path without a mount or a 1Password item", async () => {
     const { client, connection } = await withOpenBao();
     await expect(browse(client, randomUUID(), "personal")).rejects.toMatchObject({ code: "not_found", data: { kind: "key_manager_connection" } });
-    await expect(client.request("keyManagers.references.browse", { connectionId: connection.id, path: "harness" })).rejects.toMatchObject({ code: "invalid_params" });
+    await expect(client.request("keyManagers.references.browse", { connectionId: connection.id, path: "harness" })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { issues: [expect.objectContaining({ path: ["path"], message: "A path is listed under a mount: name the mount too." })] },
+    });
+    await expect(client.request("keyManagers.references.browse", { connectionId: connection.id, item: "forge-github" })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { issues: [expect.objectContaining({ path: ["item"], message: "OpenBao lists by mount and path: its connection takes no item." })] },
+    });
   });
 });
 

@@ -58,9 +58,10 @@ export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag)
  * - `containment:workspace`, `containment:no-network`: the containment levels the environment can enforce (the permissions workstream).
  * - `forge`: the environment holds forge accounts and answers the `forge.*` methods (the forge workstream); without it a client shows Forges absent-with-reason.
  * - `keyManagers`: the environment holds key-manager connections and answers the `keyManagers.*` methods (the key-managers workstream); without it a client shows Key managers absent-with-reason.
+ * - `banks`: the environment keeps the BankRegistry and answers the `banks.*` methods (the banks workstream, #90); without it a client shows Memory banks absent-with-reason.
  * - `managedTools`: the environment keeps the Managed tools registry and answers the `tools.*` methods (the key-managers workstream); without it a client shows Managed tools absent-with-reason.
  * - `stateImport`: the environment serves `stateImport.run` (the switch-over workstream, #94, whose build brings it; ADR 0036); without it the Carry over card shows no state-import section.
  * - `setup`: the environment keeps each Set up step's latest result, which survives its restart, sends every step's in `environment.subscribe`'s snapshot as `setup` and each change as the notice `setup.result-changed` (the setup workstream, ADR 0031's `setup` subscription); without it a client calls `setup.check` when Set up or a step's pane opens.
  */
-export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge", "keyManagers", "managedTools", "setup", "stateImport"] as const;
+export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge", "banks", "keyManagers", "managedTools", "setup", "stateImport"] as const;
 export type KnownCapabilityFlag = (typeof CAPABILITY_FLAG_LIST)[number];

@@ -60,6 +60,8 @@ const forbidImports = (regex: string, message: string): Linter.RulesRecord => ({
 export default defineConfig([
   // `.ci/` is david/ci, which CI checks out inside the workspace.
   globalIgnores(["**/dist/", "**/coverage/", ".tsbuild/", ".ci/"]),
+  // Mozilla's Readability, vendored as Mozilla wrote it (#545): it is linted by Mozilla's own rules, not these.
+  globalIgnores(["packages/browser/src/vendor/readability*.ts"]),
   // The JavaScript rules read scripts only: a stylesheet has no comments or tokens of theirs to read.
   { files: [`**/*.${scripts}`], extends: [eslint.configs.recommended, tseslint.configs.recommended] },
   { plugins: { "agent-harness": plugin } },

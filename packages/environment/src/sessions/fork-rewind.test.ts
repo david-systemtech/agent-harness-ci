@@ -148,7 +148,7 @@ describe("sessions.fork", () => {
   it("forks onto another account of the environment: its first run continues the source's conversation as a fork under that account, and its next resumes its own", async () => {
     const t = await start();
     const client = await t.client();
-    const source = await create(client);
+    const source = await create(client, { browser: { value: { kind: "headless" }, chosenBy: "reach" } });
     await runTo(t, client, source.id, "Fix the receipt sweep");
     // What the source's runs mirrored into the store, under its id.
     const store = storeOf(t);
@@ -156,6 +156,8 @@ describe("sessions.fork", () => {
     const id = randomUUID();
 
     await fork(client, { sessionId: source.id, id, account: WORK });
+    expect(await get(client, id)).toMatchObject({ browser: { kind: "headless" } });
+    expect(events(t, id).filter((event) => event.type === "session.browser.set").map((event) => event.payload)).toEqual([{ browser: { kind: "headless" }, chosenBy: "reach" }]);
     // The fork holds its own copy of the conversation it continues, whatever becomes of the source's.
     expect(await store.load({ projectKey: id, sessionId: "provider-1" })).toEqual([{ type: "user", uuid: "u1", message: { role: "user", content: "Fix the receipt sweep" } }]);
 
@@ -173,13 +175,14 @@ describe("sessions.fork", () => {
   it("forks before a message: the fork holds the conversation up to it, and its text becomes the fork's draft", async () => {
     const t = await start();
     const client = await t.client();
-    const source = await create(client);
+    const source = await create(client, { browser: { value: { kind: "dock" }, chosenBy: "person" } });
     await runTo(t, client, source.id, "First");
     const second = await runTo(t, client, source.id, "Second, differently");
     const id = randomUUID();
 
     const answer = await fork(client, { sessionId: source.id, id, atMessageId: second.messageId, title: "The other approach" });
-    expect(answer.result?.summary).toMatchObject({ title: "The other approach", titleSource: "user", draft: "Second, differently" });
+    expect(answer.result?.summary).toMatchObject({ title: "The other approach", titleSource: "user", draft: "Second, differently", browser: { kind: "dock" } });
+    expect(events(t, id).filter((event) => event.type === "session.browser.set").map((event) => event.payload)).toEqual([{ browser: { kind: "dock" }, chosenBy: "person" }]);
     expect(events(t, id).at(-1)?.payload).toMatchObject({ fromSessionId: source.id, atMessageId: second.messageId, fromProviderSessionId: "provider-1" });
     await runTo(t, client, id, "Third");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
@@ -222,6 +225,45 @@ describe("sessions.fork", () => {
     await runTo(t, client, grandchild, "Third");
     expect(t.adapter.lastRun().input.target).toEqual({ kind: "fork", providerSessionId: "provider-1", atMessageId: second.messageId });
     expect(events(t, grandchild).find((event) => event.type === "run.started")?.payload).toMatchObject({ forkedFrom: child, resumedFrom: "provider-1" });
+  });
+
+  it("writes the inherited anchor's text into a fork of a fork's draft, even after the source draft is cleared and the ancestor is purged", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client);
+    await runTo(t, client, source.id, "First");
+    const second = await runTo(t, client, source.id, "Second, differently");
+    const child = randomUUID();
+    await fork(client, { sessionId: source.id, id: child, atMessageId: second.messageId });
+    await command(client, "sessions.setDraft", { sessionId: child, draft: null });
+    await deleteSession(client, source.id);
+    await purgeSession(client, source.id);
+    const grandchild = randomUUID();
+
+    const answer = await fork(client, { sessionId: child, id: grandchild, account: WORK });
+    expect(answer.result?.summary.draft).toBe("Second, differently");
+    expect((await snapshotOf(t, client, grandchild)).summary.draft).toBe("Second, differently");
+    // Later forks inherit the same anchor, rather than the source's edited draft.
+    await command(client, "sessions.setDraft", { sessionId: grandchild, draft: "Typed meanwhile" });
+    const greatGrandchild = randomUUID();
+    const again = await fork(client, { sessionId: grandchild, id: greatGrandchild });
+    expect(again.result?.summary.draft).toBe("Second, differently");
+  });
+
+  it("carries the inherited anchor's draft when the original fork starts fresh before the first message", async () => {
+    const t = await start();
+    const client = await t.client();
+    const source = await create(client);
+    const first = await runTo(t, client, source.id, "The first, differently");
+    const child = randomUUID();
+    await fork(client, { sessionId: source.id, id: child, atMessageId: first.messageId });
+    await command(client, "sessions.setDraft", { sessionId: child, draft: null });
+    const grandchild = randomUUID();
+
+    const answer = await fork(client, { sessionId: child, id: grandchild });
+    expect(answer.result?.summary.draft).toBe("The first, differently");
+    await runTo(t, client, grandchild, "Onwards");
+    expect(t.adapter.lastRun().input.target).toEqual({ kind: "fresh" });
   });
 
   it("forks a fork before its own first message from the provider session it carried in: what its own record names while none of its runs has linked one, else the one linked", async () => {
@@ -620,13 +662,15 @@ describe("sessions.rewind", () => {
       expect(events(t, id).map((event) => event.type)).not.toContain("session.rewound");
     });
 
-    it("is not refused by a message the provider held when its process has stopped: no turn can read it", async () => {
+    it("is refused by the environment-held message taken back when the process stops (#263)", async () => {
       const t = await start({ capabilities: { fork: true, rewind: true, steering: false }, holdTurnOpens: gate() });
       const client = await t.client();
-      const { id, second } = await busyWithHeldMessage(t, client, async () => undefined);
+      const { id, second, messageId } = await busyWithHeldMessage(t, client, async () => undefined);
       await client.request("providers.processes.stop", { commandId: randomUUID(), sessionId: id });
-      await vi.waitFor(() => expect(t.adapter.processes.at(-1)?.stopped).toBe(true));
-      expect((await rewind(client, id, second.messageId)).receipt.status).toBe("accepted");
+      await vi.waitFor(() => expect(events(t, id).some((event) => event.type === "message.requeued" && event.payload["messageId"] === messageId)).toBe(true), { timeout: 15_000 });
+      expect((await rewind(client, id, second.messageId)).receipt).toMatchObject({
+        status: "rejected", error: { data: { reason: "queued_messages", messageIds: [messageId] } },
+      });
     });
 
     it("is refused run_active while a turn the provider opened after the run waits on its mode change", async () => {
