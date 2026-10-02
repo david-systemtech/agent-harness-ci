@@ -39,9 +39,8 @@ jobs:
   # export drift check.
   checks:
     runs-on: ubuntu-24.04
-    # The image and the user the Forgejo `ci` runners use (node:24-bookworm, as
-    # root), so the same tests run and skip as they did there. The tests that
-    # run only as an ordinary user run in the `ordinary-user` job below.
+    # Keep the checks in the Node 24 image; the suite runs as the hosted
+    # runner's ordinary user in the test shards below.
     container: node:24-bookworm
     timeout-minutes: 25
     # A container job's default shell is sh; the steps are bash.
@@ -99,20 +98,18 @@ jobs:
             exit 1
           fi
 
-  # The suite in three shards on three runners: one 4-vCPU runner took 601 s
-  # for it on 2026-10-01, and runners for a public repository cost nothing.
+  # Six shards reduce work queued before the long snapshot-publisher tests.
+  # Keep the full run inside the relay's 40-minute budget.
   test:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     runs-on: ubuntu-24.04
-    # The image and the user the Forgejo `ci` runners use (node:24-bookworm, as
-    # root), so the same tests run and skip as they did there. The tests that
-    # run only as an ordinary user run in the `ordinary-user` job below.
-    container: node:24-bookworm
+    # Root bypasses filesystem permissions and skips the serve handshake.
+    # Use the hosted runner's ordinary user for every test file, including
+    # files that exercise permissions without explicitly checking the uid.
     timeout-minutes: 25
-    # A container job's default shell is sh; the steps are bash.
     defaults:
       run:
         shell: bash
@@ -129,10 +126,11 @@ jobs:
           # The secret scan reads every commit; tests that read history get it too.
           fetch-depth: 0
           persist-credentials: false
-      # The workspace belongs to the runner's user and the job runs as root, so
-      # git refuses the checkout as dubious ownership until it is marked safe;
-      # tests that run git in it need this.
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # Checkout, dependency installation and cache restores share the runner
+      # user's ownership; no chown or safe.directory override is needed.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -150,19 +148,21 @@ jobs:
       - name: PowerShell 7 for the install.ps1 tests
         run: bash .forgejo/scripts/pwsh.sh
       # Four workers for four vCPUs.
-      - run: pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/3
+      - name: The suite shard, as an ordinary user
+        run: |
+          [ "$(id -u)" != 0 ] || { echo "::error::suite shards must run as an ordinary user"; exit 1; }
+          pnpm test --maxWorkers=4 --shard=${{ matrix.shard }}/6
 
-  # The test files that check who runs them (process.getuid or geteuid), run
-  # as the runner's own user instead of root (agent-harness issue 877). Serve
-  # refuses root (ADR 0006) and root reads any file, so as root those tests
-  # skip their other side or stand in for it: the cli tests that drive serve
-  # to a ready environment, and the ones of a file the user cannot read. The
-  # shards run the root side, this job the ordinary user's. The files are
-  # found by that rule at run time, so a new one is picked up. No container:
-  # GitHub's runner user is an ordinary one, and owns the checkout.
-  ordinary-user:
+  # Keep root-only branches, such as serve refusing root, covered separately.
+  # The same uid-based selection finds new files automatically; their ordinary
+  # user branches now run in the full suite shards above.
+  root-user:
     runs-on: ubuntu-24.04
+    container: node:24-bookworm
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     env:
       SHA: ${{ github.event.client_payload.sha }}
     steps:
@@ -174,10 +174,7 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.sha }}
           persist-credentials: false
-      # The Node of the shards' image, node:24-bookworm.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -188,10 +185,10 @@ jobs:
           key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-store-
       - run: pnpm install --frozen-lockfile
-      - name: The tests that check the user, as an ordinary user
+      - name: The tests that check the user, as root
         run: |
           set -euo pipefail
-          [ "$(id -u)" != 0 ] || { echo "::error::this job runs as root, so it would skip what it is for"; exit 1; }
+          [ "$(id -u)" = 0 ] || { echo "::error::this job must cover the root-only branches"; exit 1; }
           mapfile -t files < <(git grep -lE 'process\.gete?uid' -- '*.test.ts' '*.test.tsx')
           [ "${#files[@]}" -gt 0 ] || { echo "::error::no test file checks the user, so the rule finds nothing"; exit 1; }
           echo "As $(id -un), ${#files[@]} files:"; printf '  %s\n' "${files[@]}"
@@ -199,7 +196,7 @@ jobs:
 
   # The relay pushed ci/<id> only so the commit could be checked out.
   cleanup:
-    needs: [checks, test, ordinary-user]
+    needs: [checks, test, root-user]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
