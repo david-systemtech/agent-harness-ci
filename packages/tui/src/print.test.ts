@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createRuntime } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
-import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedEnvironment, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { chunkOf, fakeCompletions, listed, type AnswerStream, type FakeCompletions } from "../test/fake-completions.js";
 import { printAnswer, type PrintRequest } from "./screenless.js";
 import { selectOn, type SelectionRequest } from "./startup/selection.js";
@@ -196,6 +196,79 @@ describe("printing one answer", () => {
       expect(rows.slice(0, -1)).toEqual(chunks);
       expect(rows.at(-1)).toMatchObject({ type: "result", sessionId, runId: run.runId, text: "Grüße, Welt ✓", usage, reason: "completed", error: null });
     }
+  });
+});
+
+const HOME = { id: "account-2", label: "Home" };
+const HAIKU = listed("home", "claude-haiku-5", "haiku", 1, HOME);
+const SONNET = listed("home", "claude-sonnet-5", "sonnet", 2, HOME);
+const SONNET_OLD = listed("home", "claude-sonnet-4", "sonnet", 1, HOME);
+
+/** Two signed-in accounts on the desk, the second the default. */
+const twoAccounts: Script = {
+  environments: [
+    {
+      name: "desk",
+      reach: "local",
+      environmentId: DESK,
+      accounts: [
+        { id: WORK.id, label: WORK.label, identity: { provider: "claude", email: "seth@work.test", organisation: null } },
+        { id: HOME.id, label: HOME.label, identity: { provider: "claude", email: "seth@home.test", organisation: null } },
+      ],
+      models: [
+        { accountId: WORK.id, live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] },
+        {
+          accountId: HOME.id,
+          live: true,
+          models: [
+            { id: "claude-sonnet-4", family: "sonnet", tier: 1, efforts: [], label: "Sonnet 4" },
+            { id: "claude-haiku-5", family: "haiku", tier: 1, efforts: [], label: "Haiku 5" },
+            { id: "claude-sonnet-5", family: "sonnet", tier: 2, efforts: [], label: "Sonnet 5" },
+          ],
+        },
+      ],
+      settings: { "accounts.defaultAccount": HOME.id },
+      sessions: [{ workspace: { kind: "directory", path: "/srv/elsewhere" } }],
+    },
+  ],
+};
+
+describe("the model a print asks for", () => {
+  /** The model and effort the turn was sent with, for `request`; the answer refused, since only the request matters here. */
+  const sentWith = async (on: Machine, request: Partial<PrintRequest>) => {
+    const http = fakeCompletions(on.world.environment("desk").wire.origin, [OPUS, SONNET_OLD, HAIKU, SONNET]);
+    const printing = print(on, http, request);
+    const turn = await http.turn();
+    turn.refuse(503, { error: { message: "The environment is stopping.", type: "server_error", code: "unavailable", param: null } });
+    expect(await printing.exit).toBe(1);
+    return [turn.body["model"], (turn.body["agent-harness"] as Record<string, unknown>)["thinking"]];
+  };
+
+  it("is the new-session card's preset on the default account, by the id the live listing gives it", async () => {
+    const on = await machine(twoAccounts);
+    expect(await sentWith(on, {})).toEqual(["home/claude-sonnet-5", undefined]);
+  });
+
+  it("is a listed id as given, else a model or family of the preset account, by its listed id, with the effort as thinking", async () => {
+    const on = await machine(twoAccounts);
+    expect(await sentWith(on, { model: "work/claude-opus-5" })).toEqual(["work/claude-opus-5", undefined]);
+    expect(await sentWith(on, { model: "claude-haiku-5", effort: "high" })).toEqual(["home/claude-haiku-5", "high"]);
+    expect(await sentWith(on, { model: "sonnet" })).toEqual(["home/claude-sonnet-5", undefined]);
+  });
+
+  it("fails before anything is sent when the account offers no such model, or no account is signed in", async () => {
+    const on = await machine(twoAccounts);
+    const environment = on.world.environment("desk");
+    const http = fakeCompletions(environment.wire.origin, [OPUS, SONNET_OLD, HAIKU, SONNET]);
+    const unknown = print(on, http, { model: "opus" });
+    expect(await unknown.exit).toBe(1);
+    expect(unknown.stderr()).toBe("desk offers Home no model opus: GET /v1/models lists what each account offers.\n");
+
+    const signedOut = await machine({ environments: [{ ...(twoAccounts.environments[0] as ScriptedEnvironment), accounts: [], models: [] }] });
+    const none = print(signedOut, fakeCompletions(signedOut.world.environment("desk").wire.origin, []));
+    expect(await none.exit).toBe(1);
+    expect(none.stderr()).toBe("desk has no signed-in account to run the turn on.\n");
+    expect(http.sent().filter((request) => request.method === "POST")).toEqual([]);
   });
 });
 

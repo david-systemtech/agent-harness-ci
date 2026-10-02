@@ -14,6 +14,7 @@ import type { ConnectionCredential } from "@agent-harness/client-runtime";
 import type { SelectionOutcome } from "../startup/selection.js";
 import { nameOf } from "../view.js";
 import { formatWriter, narrator, type FormatWriter, type Narrator, type PrintFormat } from "./output.js";
+import { listedModel } from "./model.js";
 import { eventData } from "./sse.js";
 
 /**
@@ -48,9 +49,6 @@ export interface PrintIo {
   /** The completions routes' HTTP. */
   readonly fetch: typeof globalThis.fetch;
 }
-
-/** The part of a listed model's id after the account's slug: the model's own id. */
-const modelOf = (listedId: string): string => listedId.slice(listedId.indexOf("/") + 1);
 
 /** A step that cannot go on: its one line, said on standard error and in the result. */
 class PrintFailure extends Error {}
@@ -184,8 +182,16 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
     const environment = nameOf(selection.environment);
     const presets = await selection.newSessionPresets();
     const listing = await listModels(io, environment, credential, learned);
-    const model = listing.find((entry) => entry[COMPLETIONS_NAMESPACE].accountId === presets.account.value?.id && modelOf(entry.id) === presets.model.value?.id);
-    if (model === undefined) return fail("No model.");
+    const account = presets.account.value;
+    if (account === null) throw new PrintFailure(`${environment} has no signed-in account to run the turn on.`);
+    const model = listedModel(listing, account.id, request.model, presets.model.value?.id);
+    if (model === undefined) {
+      throw new PrintFailure(
+        request.model === undefined
+          ? `${environment} offers ${account.label} no model to run the turn on.`
+          : `${environment} offers ${account.label} no model ${request.model}: GET ${MODELS_PATH} lists what each account offers.`,
+      );
+    }
     const body = {
       model: model.id,
       messages: [{ role: "user", content: request.prompt }],
