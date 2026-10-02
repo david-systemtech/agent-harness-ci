@@ -9,6 +9,11 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./screenless": {
+      "@agent-harness/source": "./src/screenless.ts",
+      "types": "./dist/screenless.d.ts",
+      "default": "./dist/screenless.js"
+    },
     "./terminal-state": {
       "@agent-harness/source": "./src/platform/terminal-batch.ts",
       "types": "./dist/platform/terminal-batch.d.ts",
