@@ -30,5 +30,6 @@ export const bankMethods = (banks: BankService, credentials: BankCredentials, sy
   "banks.credential.swap": credentials.swap,
   "banks.sync": async (params) => ({ banks: await syncer.sync(params.bankId) }),
   "banks.create": banks.create,
+  "banks.publish": banks.publish,
   "banks.verify": async (params) => ({ banks: await banks.verify(params.bankId) }),
 });

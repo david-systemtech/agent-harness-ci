@@ -27,14 +27,23 @@ export interface FakePty extends Pty {
   unavailable: boolean;
   /** Makes the next spawn throw this message. */
   failNext: string | undefined;
+  /** Resolves with the process spawned `index`th, from 0, once it has been: a process the environment starts after a commit, or a supplied environment. */
+  spawnedAt(index: number): Promise<FakeProcess>;
 }
 
 export const fakePty = (): FakePty => {
   const spawned: FakeProcess[] = [];
+  const waiting: { readonly index: number; readonly resolve: (process: FakeProcess) => void }[] = [];
   const pty: FakePty = {
     spawned,
     unavailable: false,
     failNext: undefined,
+    spawnedAt: (index) =>
+      new Promise((resolve) => {
+        const process = spawned[index];
+        if (process !== undefined) resolve(process);
+        else waiting.push({ index, resolve });
+      }),
     check() {
       if (pty.unavailable) throw new PtyUnavailableError(new Error("no binding"));
     },
@@ -72,6 +81,10 @@ export const fakePty = (): FakePty => {
         },
       };
       spawned.push(process);
+      for (const waiter of waiting.filter((candidate) => candidate.index === spawned.length - 1)) {
+        waiting.splice(waiting.indexOf(waiter), 1);
+        waiter.resolve(process);
+      }
       return process;
     },
   };

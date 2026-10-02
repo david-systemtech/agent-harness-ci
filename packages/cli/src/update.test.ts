@@ -253,6 +253,25 @@ describe("agent-harness update apply", () => {
     return pending;
   };
 
+  it("downloads and installs the native artefact from the public GitHub release anonymously", async () => {
+    const fake = await startFakeReleaseSource("github");
+    cleanups.push(() => fake.forge.close());
+    fake.publish({ version: "0.5.0", artefact: readFileSync(artefact("0.5.0")) });
+    let installed: string | undefined;
+    const t = await start({ harnessVersion: "0.4.1", releaseSource: fake.source, forgeFetch: fake.forge.fetch,
+      launcher: testLauncher({ present: true, install: (request) => ((installed = request.version), { type: "installed" }) }),
+    });
+    const result = await run(["update", "apply", "--version", "0.5.0", "--data-dir", t.dataDir]);
+    expect(result.code).toBe(0);
+    expect(result.err).toBe("");
+    expect(installed).toBe("0.5.0");
+    expect(fake.reads()).toEqual([
+      { method: "GET", path: "/api/v3/repos/david-systemtech/agent-harness/releases", query: "per_page=50", scheme: null },
+      { method: "GET", path: "/api/v3/repos/david-systemtech/agent-harness/releases/assets/100", scheme: null },
+      { method: "GET", path: "/api/v3/repos/david-systemtech/agent-harness/releases/assets/101", scheme: null },
+    ]);
+  });
+
   it("takes a version and the path of its artefact, which the environment stages and its launcher installs, and says the update waits for idle", async () => {
     let staged: string | undefined;
     const t = await start({ harnessVersion: "0.4.1", launcher: testLauncher({ present: true, install: (request) => ((staged = request.staged), { type: "installed" }) }) });
@@ -346,6 +365,24 @@ describe("agent-harness update apply", () => {
   });
 });
 
+describe("updates from public GitHub releases", () => {
+  it("prints the release source and requests its version without a forge account", async () => {
+    const fake = await startFakeReleaseSource("github");
+    cleanups.push(() => fake.forge.close());
+    fake.publish({ version: "0.5.0" });
+    const t = await start({ harnessVersion: "0.4.1", containerDetector: { inContainer: () => true }, releaseSource: fake.source, forgeFetch: fake.forge.fetch });
+    const status = await run(["update", "status", "--data-dir", t.dataDir]);
+    expect(status.code).toBe(0);
+    expect(status.out).toContain("Releases: https://github.com/david-systemtech/agent-harness\n");
+    const applied = await run(["update", "apply", "--version", "0.5.0", "--data-dir", t.dataDir]);
+    expect(applied.code).toBe(0);
+    expect(applied.err).toBe("");
+    expect(applied.out).toContain("Updating to 0.5.0");
+    expect(fake.reads().every((request) => request.scheme === null)).toBe(true);
+    expect(fake.reads().some((request) => request.path.includes("/api/v3/repos/david-systemtech/agent-harness/releases"))).toBe(true);
+  });
+});
+
 describe("agent-harness update begin", () => {
   /** A container whose check made the update to 0.5.0 pending, ready as it is idle: with the update's id. */
   const readyContainer = async () => {
@@ -404,7 +441,7 @@ describe("the status as update status prints it", () => {
     protocolVersion: 1,
     bundledClaudeCodeVersion: null,
     manager: { kind: "outside", lastPoll: at },
-    releaseSource: { origin: "https://git.example.com", kind: "forgejo", repository: "david/agent-harness" },
+    releaseSource: { origin: "https://github.com", kind: "github", repository: "david-systemtech/agent-harness" },
     newest: "0.5.0",
     lastCheck: { at, result: "failed", reason: "unreachable", message: "The forge did not answer." },
     target: { version: "0.5.0", source: "channel" },
@@ -421,7 +458,7 @@ describe("the status as update status prints it", () => {
       "Version: agent-harness 0.4.2, protocol 1",
       "Claude Code (bundled): unknown",
       `Updates: managed outside, by a host-side updater; last polled at ${at}`,
-      "Releases: https://git.example.com/david/agent-harness",
+      "Releases: https://github.com/david-systemtech/agent-harness",
       "Channel's newest: 0.5.0",
       `Last check: ${at}, failed (unreachable): The forge did not answer.`,
       "Target: 0.5.0 (channel)",

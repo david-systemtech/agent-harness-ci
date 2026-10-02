@@ -9,7 +9,9 @@ import {
   DENYLIST_SECTIONS,
   EVENT_TYPES,
   NETWORK_SETTINGS_KEYS,
+  OWED_HANDLERS,
   PERMISSION_SETTINGS_KEYS,
+  REGISTERED_STEP_IDS,
   SETTINGS,
   SETUP_ACTIONS,
   STEP_LABELS,
@@ -19,6 +21,8 @@ import {
   UPDATE_SETTINGS_KEYS,
   isMethodName,
   presetSettings,
+  registry,
+  settingsRow,
   triggerMatches,
   unregisteredSteps,
   type SettingsKey,
@@ -75,7 +79,6 @@ const KNOWN_TYPES = Object.values(EVENT_TYPES).flatMap((table) => Object.keys(ta
  * change that registers it, which the test below holds it to.
  */
 const STATE_WRITERS_OWED: Readonly<Record<string, `#${number}`>> = {
-  "banks.publish": "#1033",
 };
 
 /**
@@ -925,5 +928,45 @@ describe("the step registry", () => {
     expect(check("sessions.transcriptCompactAfterDays")(0)).toMatch(/sessions\.transcriptCompactAfterDays/);
     expect(check("sessions.autoSettleAfterIdle")({ amount: 0, unit: "days" })).toMatch(/sessions\.autoSettleAfterIdle/);
     expect(check("sessions.autoSettleOnMerge")("yes")).toMatch(/sessions\.autoSettleOnMerge/);
+  });
+});
+
+/** The switch-over gate adds completeness to the incremental registry's contracts. */
+const switchOverRegistryProblems = (steps: readonly LooseStep[]): string[] => [
+  ...unregisteredSteps(steps).map((id) => `${id}: required for switch-over`),
+  ...steps.filter((step) => step.stateChecks.length === 0).map((step) => `${step.id}: declares no Health checks`),
+  ...stepShapeProblems(steps),
+  ...stepRegistryProblems(SETTINGS, steps),
+];
+
+/** Switch-over makes the incrementally built registry a complete contract (#1192). */
+describe("the switch-over's complete Set up registry", () => {
+  it("requires all eleven ids in the specified order and the existing shape and settings contracts", () => {
+    expect(STEP_ORDER).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
+    expect(STEP_REGISTRY.map((step) => step.id)).toEqual(STEP_ORDER);
+    expect(REGISTERED_STEP_IDS).toEqual(STEP_ORDER);
+    for (const step of STEP_REGISTRY) expect(settingsRow(step.home).homeOf, step.id).toContain(step.id);
+    expect(switchOverRegistryProblems(STEP_REGISTRY)).toEqual([]);
+    expect(unregisteredSteps()).toEqual([]);
+  });
+
+  it.each(STEP_ORDER)("blocks switch-over when %s is absent, including steps with no settings writes", (id) => {
+    const incomplete = STEP_REGISTRY.filter((step) => step.id !== id);
+    expect(switchOverRegistryProblems(incomplete)).toContain(`${id}: required for switch-over`);
+  });
+
+  it.each(STEP_ORDER)("blocks switch-over when %s has no declared Health checks", (id) => {
+    const unchecked = STEP_REGISTRY.map((step) => step.id === id ? { ...step, stateChecks: [] } : step);
+    expect(switchOverRegistryProblems(unchecked)).toContain(`${id}: declares no Health checks`);
+  });
+});
+
+describe("switch-over's import contract readiness", () => {
+  it("registers import methods at exactly one scope each, with no owed handler behind stateImport", () => {
+    expect(Object.values(registry).filter((method) => method.name.startsWith("stateImport.")).map((method) => [method.name, method.kind, method.scope])).toEqual([
+      ["stateImport.detect", "query", "read"],
+      ["stateImport.run", "command", "admin"],
+    ]);
+    expect(Object.keys(OWED_HANDLERS).filter((name) => name.startsWith("stateImport."))).toEqual([]);
   });
 });

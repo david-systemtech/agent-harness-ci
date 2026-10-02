@@ -26,22 +26,24 @@ interface MethodSpecBase {
    * What a call returns; for a stream, the payload of its `snapshot`. The
    * stream's events are `EventEnvelope`s.
    */
-  readonly result: z.ZodObject;
+  readonly result: z.ZodObject | z.ZodUnion<readonly [z.ZodObject, ...z.ZodObject[]]>;
   /** The method's own errors, beyond the shared union every method may return. */
   readonly errors: readonly ErrorMember[];
 }
 
 interface QuerySpec extends MethodSpecBase {
   readonly kind: "query";
-  readonly params: z.ZodObject;
+  readonly params: z.ZodObject | z.ZodUnion<readonly [z.ZodObject, ...z.ZodObject[]]>;
 }
 
 interface CommandSpec extends MethodSpecBase {
+  readonly result: z.ZodObject;
   readonly kind: "command";
   readonly params: z.ZodObject<{ commandId: typeof CommandId }>;
 }
 
 interface StreamSpec extends MethodSpecBase {
+  readonly result: z.ZodObject;
   readonly kind: "stream";
   readonly params: z.ZodObject<{ afterSequence: typeof Sequence }>;
 }
@@ -106,9 +108,8 @@ export const defineMethod = <const M extends MethodSpec>(spec: M): Method<M> => 
   if (typeof kind !== "string" || !(METHOD_KINDS as readonly string[]).includes(kind)) {
     throw new Error(`Method ${name} needs a kind of ${METHOD_KINDS.join(", ")}; got ${JSON.stringify(kind)}.`);
   }
-  const shape: Record<string, unknown> = spec.params.shape;
-  if (isCommand(spec) && !("commandId" in shape)) throw new Error(`Command ${name} takes a commandId in its params.`);
-  if (kind === "stream" && !("afterSequence" in shape)) throw new Error(`Stream ${name} takes an afterSequence cursor.`);
+  if (isCommand(spec) && !("commandId" in spec.params.shape)) throw new Error(`Command ${name} takes a commandId in its params.`);
+  if (spec.kind === "stream" && !("afterSequence" in spec.params.shape)) throw new Error(`Stream ${name} takes an afterSequence cursor.`);
   const shared = new Set<string>(SHARED_ERROR_CODES);
   const own = new Set<string>();
   for (const member of spec.errors) {

@@ -1,10 +1,12 @@
 import {
   TOOL_QUIET_MS,
   attachmentChip,
+  checkStatus,
   classifyTool,
   describeActivity,
   endWords,
   environmentMessage,
+  fileUndoWords,
   folded,
   formatDuration,
   oneLine,
@@ -350,16 +352,20 @@ const rewoundLines = (row: Extract<Row, { kind: "rewound" }>, context: LineConte
 };
 
 /**
- * A fork's first row (#390): one line naming the session it was forked from
- * and the prompt it was taken at, as far as its source shows them, with the
- * key that opens the source (not in the pager, which opens nothing).
+ * A fork's first row (#242): the copied source title and anchor, closed
+ * until unfolded, with its saved conversation under it. Older forks name
+ * the source from its projection; the open key still opens that source.
  */
 const forkedLines = (row: Extract<Row, { kind: "forked" }>, context: LineContext): Line[] => {
-  const { title, anchor } = context.forkedFrom ?? { title: null, anchor: null };
+  const { title, anchor } = row.entry.history ?? context.forkedFrom ?? { title: null, anchor: null };
   const head: Span[] = [{ text: "Forked from ", bold: true }, { text: title ?? "another session" }];
   if (anchor !== null) head.push({ text: " at ", bold: true }, { text: oneLine(anchor, 160) });
   if (!context.expanded) head.push({ text: ` · ${context.openKey ?? "o"} opens it`, dim: true });
-  return block(row.id, { text: "⑂", color: TERMINAL_ROLES.machine }, [head], context.width, true);
+  if (!context.expanded && row.entry.history !== undefined) head.push({ text: ` · ${context.unfoldKey ?? "Enter"} unfolds`, dim: true });
+  const lines = block(row.id, { text: "⑂", color: TERMINAL_ROLES.machine }, [head], context.width, true);
+  if (!context.expanded) return lines;
+  const inner = transcriptLines(row.rows, { ...context, width: context.width - 2 });
+  return [...lines, ...inner.map((line): Line => ({ row: row.id, spans: [{ text: "┊ ", color: TERMINAL_ROLES.machine }, ...line.spans] }))];
 };
 
 /**
@@ -394,6 +400,12 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
       const head: Span[] = [{ text: `${entry.name}${entry.args.length > 0 ? ` ${entry.args}` : ""}`, dim: true }];
       return block(row.id, { text: "/", dim: true }, [head, ...returned(cutLines(nonBlank(entry.output ?? ""), context.expanded))], width, true);
     }
+    case "check": {
+      const { entry } = row;
+      const head: Span[] = [{ text: `${entry.command} · ${checkStatus(entry)}`, dim: true }];
+      const truncated: Span[][] = entry.result?.truncated ? [[{ text: "Earlier output omitted", dim: true }]] : [];
+      return block(row.id, { text: "$", dim: true }, [head, ...truncated, ...returned(cutLines(nonBlank(entry.result?.output ?? ""), context.expanded))], width, true);
+    }
     case "prompt":
       return promptLines(row.id, row.entry, context);
     case "subagent": {
@@ -408,6 +420,8 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
     }
     case "turn":
       return turnLines(row.id, row.run, context);
+    case "file-undo":
+      return wrap([{ text: `${INDENT}· ${fileUndoWords(row.entry)} ${row.entry.changeId}`, color: TERMINAL_ROLES.success }], width).map((spans) => ({ row: row.id, spans }));
     case "opaque":
       return [{ row: row.id, spans: [{ text: `${INDENT}· ${row.entry.type}: an event this version does not show`, dim: true }] }];
     case "rewound":

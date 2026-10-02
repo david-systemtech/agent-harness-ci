@@ -1,3 +1,4 @@
+export { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
@@ -10,6 +11,7 @@ export * from "./bank-join.js";
 export * from "./bank-registry.js";
 export * from "./bank-use.js";
 export { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
+export * from "./file-undo.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
 export * from "./browser-choice.js";
@@ -18,6 +20,7 @@ export * from "./browser-driver.js";
 export * from "./browser-policy.js";
 export * from "./browser-settings.js";
 export * from "./browser-status.js";
+export * from "./checks.js";
 export * from "./credential-settings.js";
 export * from "./calendar.js";
 export * from "./carry-over.js";

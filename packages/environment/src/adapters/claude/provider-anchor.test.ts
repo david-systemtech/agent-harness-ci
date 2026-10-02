@@ -150,7 +150,7 @@ describe("provider history before a session's second message (#236)", () => {
     const fork = await anchorCommand(client, "fork", session.id, firstId);
     expect(fork.receipt.status).toBe("accepted");
     if (fork.result === undefined || !("summary" in fork.result)) throw new Error("No fork created.");
-    expect(t.env.log.readStream({ kind: "session", id: fork.result.summary.id }).find((event) => event.type === "session.forked")?.payload).toMatchObject({ fromProviderSessionId: null });
+    expect(t.env.log.readStream({ kind: "session", id: fork.result.summary.id }).find((event) => event.type === "session.forked")?.payload).toMatchObject({ fromProviderSessionId: null, history: { items: [] } });
   });
 
   it("keeps an off-chain stored anchor resumable after a failed continuation", async () => {

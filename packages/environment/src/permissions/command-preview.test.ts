@@ -38,6 +38,7 @@ import {
   cleanArgv,
   destructiveParts,
   networkLines,
+  nodeBlastDeps,
   previewBlastRadius,
   type BlastRadiusDeps,
   type Destructive,
@@ -184,10 +185,10 @@ describe('reading a command line', () => {
     expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
   });
   it('warns about brace groups while leaving quoted groups and brace data quiet', () => {
-    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }']) {
+    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }', 'time { rm -rf build; }', 'time -p { rm -rf build; }', 'time ! { rm -rf build; }', '! { rm -rf build; }', 'if { rm -rf build; }; then echo done; fi', 'while { rm -rf build; }; do echo done; done', 'if true; then { rm -rf build; }; fi', 'function f { rm -rf build; }; f']) {
       expect(kinds(command)).toEqual(['indirect-shell']);
     }
-    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}']) {
+    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}', 'echo time { rm -rf build \\; }', 'time echo { rm -rf build \\; }', '"time" { rm -rf build \\; }', "echo 'function f { rm -rf build; }; f'"]) {
       expect(destructiveParts(command)).toEqual([]);
     }
     expect(destructiveParts('rm build/{a,b}')[0]?.targets).toEqual(['build/{a,b}']);
@@ -211,6 +212,34 @@ describe('reading a command line', () => {
     for (const command of ['eval', "echo 'eval rm -rf build'", "echo \"sh -c 'rm -rf build'\"", "sh script.sh 'rm -rf build'", "sh script.sh '-c' 'rm -rf build'", "sh -- -c 'rm -rf build'", "bash -o noclobber script.sh 'rm -rf build'"]) {
       expect(destructiveParts(command)).toEqual([]);
     }
+  });
+  it('sees shell command options through execution wrappers without treating wrapper values as commands', () => {
+    for (const command of ["exec sh -c 'rm -rf build'", "exec -a label sh -c 'rm -rf build'", "exec '--' sh '-c' 'rm -rf build'", "timeout 10 sh -c 'rm -rf build'", "timeout -k 2 10 sh -c 'rm -rf build'", "timeout '--signal' 'TERM' -- 10 sh -c 'rm -rf build'", "busybox sh -c 'rm -rf build'", "busybox ash -c 'rm -rf build'", "exec env X=1 timeout -s TERM 10 busybox sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"exec sh -c 'rm -rf build'\"", "exec '-a' sh echo '-c' 'rm -rf build'", "timeout 10 sh script.sh '-c' 'rm -rf build'", "busybox echo sh '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('warns about coprocess execution, including named groups, without treating quoted data as a command', () => {
+    for (const command of ['coproc { rm -rf build; }', 'coproc CLEANUP { rm -rf build; }', "coproc sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo 'coproc { rm -rf build; }'")).toEqual([]);
+  });
+  it('warns when user-switching commands ask a shell to evaluate text, even after a username', () => {
+    for (const command of ["su -c 'rm -rf build'", "su root -c 'rm -rf build'", "sudo su root --command='rm -rf build'", "su -s /bin/sh root -lc 'rm -rf build'", "runuser root --session-command 'rm -rf build'", "su -- root '-c' 'rm -rf build'", "su root -- -c 'rm -rf build'", "runuser -u root -- sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"su root -c 'rm -rf build'\"", "su -- root script.sh '-c' 'rm -rf build'", "su -- root -- '-c' 'rm -rf build'", "su -s '-c' root", "runuser -u root -- echo '-c' 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('keeps changed-root execution opaque rather than inspecting targets in the original workspace', () => {
+    for (const command of ["chroot /mnt/root sh -c 'rm -rf build'", 'chroot /mnt/root rm -rf build']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo \"chroot /mnt/root sh -c 'rm -rf build'\"")).toEqual([]);
   });
   it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
     const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
@@ -409,6 +438,59 @@ describe('the verbs it knows', () => {
 });
 
 describe('previewing rm against a directory', () => {
+  it.each(['EACCES', 'EIO'])('reports unavailable inspection (%s) even after finding another target', async (code) => {
+    const root = await tree();
+    for (const command of ['rm log.txt', 'rm keep.txt log.txt', 'rm *.txt']) {
+      expect(await only(command, root, {
+        stat: async (path) => {
+          if (path === join(root, 'log.txt')) throw Object.assign(new Error('Cannot inspect target'), { code });
+          return nodeBlastDeps.stat(path);
+        },
+      })).toMatchObject({ summary: 'could not preview: Cannot inspect target', lines: [] });
+    }
+  });
+
+  it.each(['EACCES', 'EIO'])('reports an unavailable directory read (%s) instead of an empty glob', async (code) => {
+    const root = await tree();
+    expect(await only('rm *', root, {
+      readdir: async () => { throw { code }; },
+    })).toMatchObject({ summary: expect.stringContaining('could not preview:'), lines: [] });
+  });
+
+  it.each(['EACCES', 'EIO'])('discards partial glob and recursive counts when a nested read fails (%s)', async (code) => {
+    const root = await tree();
+    for (const command of ['rm build/**/*.js', 'rm -rf build', 'chmod -R 700 build', 'find build -delete']) {
+      const preview = await only(command, root, {
+        readdir: async (path) => {
+          if (path === join(root, 'build', 'nested')) throw Object.assign(new Error('Cannot read nested directory'), { code });
+          return nodeBlastDeps.readdir(path);
+        },
+      });
+      expect(preview).toMatchObject({ summary: 'could not preview: Cannot read nested directory', lines: [] });
+      expect(preview.count).toBeUndefined();
+    }
+  });
+
+  it('does not treat filesystem errors without an absence code as missing', async () => {
+    const root = await tree();
+    expect(await only('rm *', root, {
+      readdir: async () => { throw new Error('Unknown directory failure'); },
+    })).toMatchObject({ summary: 'could not preview: Unknown directory failure', lines: [] });
+    expect(await only('rm log.txt', root, {
+      stat: async () => { throw new Error('Unknown inspection failure'); },
+    })).toMatchObject({ summary: 'could not preview: Unknown inspection failure', lines: [] });
+  });
+
+  it.each(['ENOENT', 'ENOTDIR'])('retains an empty target for absent path components (%s)', async (code) => {
+    const root = await tree();
+    const missing = async (): Promise<never> => { throw { code }; };
+    for (const command of ['rm missing.txt', 'rm missing/*.txt']) {
+      expect(await only(command, root, { stat: missing, readdir: missing })).toMatchObject({
+        summary: 'nothing matching is there, so nothing would be deleted', lines: [], count: 0,
+      });
+    }
+  });
+
   it('expands a glob one level deep and lists what it matched', async () => {
     const root = await tree();
     expect(await only('rm build/*.js', root)).toMatchObject({ kind: 'rm', summary: '2 files', lines: ['build/a.js', 'build/b.js'], count: 2 });
@@ -455,6 +537,9 @@ describe('previewing rm against a directory', () => {
     const root = await tree();
     expect(await only('rm -rf nope.txt', root)).toMatchObject({ summary: 'nothing matching is there, so nothing would be deleted', count: 0 });
     expect(await only('rm -rf build/*.ts', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf nope/*.txt', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf keep.txt/child', root)).toMatchObject({ count: 0 });
+    expect(await only('rm -rf keep.txt/*.txt', root)).toMatchObject({ count: 0 });
   });
 
   it('names a path it cannot expand rather than calling it empty', async () => {
@@ -583,16 +668,63 @@ describe('previewing git, with git standing in', () => {
     expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
   });
 
-  it('names branch, remote and the commits a force push would discard', async () => {
+  it('names branch, remote and the commits an implicit force push would discard', async () => {
     const { execFile } = recorder({
       'git rev-parse --abbrev-ref HEAD': 'feature\n',
       'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\norigin\tgit@github.com:a/b.git (push)\n',
       'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
       'git rev-list --count HEAD..@{u}': '3\n',
     });
-    const preview = await only('git push --force origin main', '/repo', { execFile });
+    const preview = await only('git push --force', '/repo', { execFile });
     expect(preview.summary).toBe('force-push feature to origin: would discard 3 remote commits');
     expect(preview.lines[0]).toBe('upstream: origin/feature');
+  });
+
+  it.each([
+    ['git push --force origin main', ['main']],
+    ['git push -f origin main:release', ['main:release']],
+    ['git push --force-with-lease origin refs/heads/main:refs/heads/release', ['refs/heads/main:refs/heads/release']],
+    ['git push origin +main:release', ['+main:release']],
+    ['git push --force origin main:release feature:review', ['main:release', 'feature:review']],
+    ['git push origin +main:release feature:review', ['+main:release', 'feature:review']],
+  ])('names explicit refspecs without borrowing the checked-out feature upstream: %s', async (command, refspecs) => {
+    const disk = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    const preview = await only(command, '/repo', disk);
+    expect(preview).toMatchObject({
+      summary: 'force-push to origin: cannot tell how many remote commits the forced refspecs may discard; remote state was not contacted',
+      lines: refspecs,
+      count: refspecs.length,
+    });
+    expect(disk.calls).toEqual([]);
+  });
+
+  it('bounds the listed refspecs while retaining the full count', async () => {
+    const refspecs = Array.from({ length: 21 }, (_, at) => `branch-${at}:destination-${at}`);
+    const disk = recorder();
+    const preview = await only(`git push -f backup ${refspecs.join(' ')}`, '/repo', disk);
+    expect(preview).toMatchObject({ lines: refspecs.slice(0, 20), count: 21 });
+    expect(preview.summary).toContain('force-push to backup: cannot tell');
+    expect(blastRadiusLines([preview]).at(-1)).toBe('  … +1 more');
+    expect(disk.calls).toEqual([]);
+  });
+
+  it.each(['origin', 'backup'])('does not borrow the upstream count for a named remote: %s', async (remote) => {
+    const disk = recorder({
+      'git rev-parse --abbrev-ref HEAD': 'feature\n',
+      'git remote -v': 'origin\tgit@github.com:a/b.git (fetch)\nbackup\tgit@github.com:c/d.git (push)\n',
+      'git rev-parse --abbrev-ref --symbolic-full-name @{u}': 'origin/feature\n',
+      'git rev-list --count HEAD..@{u}': '3\n',
+    });
+    expect(await only(`git push -f ${remote}`, '/repo', disk)).toMatchObject({
+      summary: `force-push to ${remote}: cannot tell which refs or how many remote commits may be overwritten; remote state was not contacted`,
+      lines: [],
+    });
+    expect(disk.calls).toEqual([]);
   });
 
   it('says so when there is no upstream to read', async () => {

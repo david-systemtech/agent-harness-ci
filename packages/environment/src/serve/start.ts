@@ -1,3 +1,5 @@
+import { validatorUpdateMethods } from "../banks/validator-update.js";
+import { migrationMethods } from "../banks/migrate.js";
 import { splitMethods } from "../banks/split.js";
 import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
 import { bankDraftsProjector, listBankDrafts } from "../banks/draft-store.js";
@@ -190,6 +192,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
+import { createWorkspaceChecks } from "../checks/service.js";
+import { checksProjector } from "../checks/store.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
@@ -205,6 +209,9 @@ import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings
 import { createReaper } from "../workspace/reaper.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { fileChangeObserver } from "../file-undo/observer.js";
+import { createFileUndo, type FileUndoHooks } from "../file-undo/undo.js";
+import { createWorkspaceWrites } from "../file-undo/workspace-writes.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
@@ -213,8 +220,12 @@ import { createSkillProbes } from "../skills/probe.js";
 import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
+import { sourceAccountInventories } from "../state-import/inventory.js";
+import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { carryOverMethods } from "../carry-over/methods.js";
-import { stateImportMethods } from "../state-import/methods.js";
+import { createImportCoordinator } from "../state-import/coordinator.js";
+import { stateImportProjector } from "../state-import/items.js";
+import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
 import { detectSource, type SourceMachine } from "../state-import/source/folders.js";
 import { createTrustStore, trustProjector } from "../trust/store.js";
 import { GENERATIONS_DIRECTORY, SNAPSHOTS_DIRECTORY, createGenerations } from "../skills/generations.js";
@@ -427,6 +438,8 @@ export interface EnvironmentOptions {
    * its own.
    */
   readonly processIdleMinutes?: () => number;
+  /** A test's hold on a file restore of `files.undo`, around its rename (#1183); preset: none. */
+  readonly fileUndoHooks?: FileUndoHooks;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
@@ -530,6 +543,8 @@ export interface EnvironmentOptions {
    * fixture folders (`machinePointedAt`).
    */
   readonly stateImportSource?: SourceMachine;
+  /** Seams a test reaches the state import through: after its plan, and after each item it carried (#1165). Preset: none. */
+  readonly stateImportHooks?: StateImportHooks;
   /**
    * The home whose `.agents/skills` Carry over's skills half reads beside
    * the adopted directory (#513), and whose `.claude.json` its inventory
@@ -903,6 +918,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       skillChoicesProjector,
       skillSourcesProjector,
       chromesProjector,
+      checksProjector,
+      stateImportProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -1189,7 +1206,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // check asks this (#511), since the caller's tools are its request's alone.
   bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankService.closeLanding());
+  // Either bank worker can be queued behind the other: abort both before awaiting either.
+  closers.push(async () => { await Promise.all([bankSyncer.close(), bankService.closeLanding()]); });
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
   const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
@@ -1285,6 +1303,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
   const forgeAccounts = () => verifiedOrigins(forge.list());
   const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  // The environment's turns at a workspace's files (#1183): a file tool's capture and files.undo's restore take them.
+  const workspaceWrites = createWorkspaceWrites();
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1407,6 +1427,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       beforeRun: bankSyncer.beforeRun,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
+      // What each run's recognised file tools change, kept for files.undo (#1183).
+      fileChanges: fileChangeObserver({ log, writes: workspaceWrites }),
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1472,7 +1494,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, onPurged: (purged) => reaper.purged(purged) });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, fileChanges: log.fileChanges, onPurged: (purged) => reaper.purged(purged) });
+  // File undo (#1183): the newest change a run's file tool made, restored under the workspace's turn the captures take too.
+  const fileUndo = createFileUndo({ log, host, writes: workspaceWrites, ...(options.fileUndoHooks !== undefined && { hooks: options.fileUndoHooks }) });
+  capabilities.push("fileUndo");
   // An imported session's history, read from the adopted directory the first time a client opens it (#579).
   const importedHistory = createImportedHistory({ log, host });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
@@ -1498,6 +1523,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
   });
   closers.push(() => terminalService.close());
+  // Workspace checks (#1187): each directory's command, run in the session's terminals as terminals.run runs one; closed
+  // before the terminals, so a check the stop cuts short is recorded interrupted. A check a crash cut is recorded as it starts.
+  const workspaceChecks = createWorkspaceChecks({ log, clock, environmentId: record.id, terminals: terminalService.commands, scrub });
+  closers.push(() => workspaceChecks.close());
+  capabilities.push("workspaceChecks");
   // Install and Update in a tool terminal (#376): closed before the terminals, so a run the stop cuts short is recorded finished.
   const toolRunner = createToolRunner({
     tools: managedTools,
@@ -1659,6 +1689,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // result cache beside the log and a change noticed on the environment stream (#569), which the `setup` flag offers.
   // The state import's source reader (#581): what it finds is read on each ask, by stateImport.detect and Carry over's check.
   const stateImportSource = options.stateImportSource ?? { env: process.env, platform: process.platform, home: homedir() };
+  // The environment's one state import at a time (#1165), which serves stateImport.run (its flag is offered after setup's).
+  const stateImports = createImportCoordinator();
   // The BankRegistry and the BankService's verification (#1025): what the Memory bank step reads, and the banks.* methods.
   capabilities.push("banks");
   const banks = bankRecords(bankService);
@@ -1677,6 +1709,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       skills: { sources: () => readSkillSources(log).map((source) => skillSources.view(source)), ownPath: ownSkillsPath, clock },
       adapters: host.adapters,
       detectStateImport: () => detectSource(stateImportSource),
+      stateImport: {
+        environmentId: record.id,
+        underWay: () => stateImports.underWay()?.importId ?? null,
+      },
       containment,
       isRoot,
       dataDir,
@@ -1699,6 +1735,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   };
   const setup = createSetupService({ log, clock, presets: settingsPresets(), stream: environmentStream, steps: setupSteps });
   capabilities.push("setup");
+  capabilities.push("stateImport");
   /** A client session's label, which sentences and records name it by; undefined for one never issued. */
   const clientSessionLabel = (id: string): string | undefined => clientSessions.list({ live: false }).find((session) => session.id === id)?.label;
   // The browser relay (#554): a verb on a Chrome paired with another environment goes to the client session that started
@@ -1722,6 +1759,29 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
+  // Read only listed directories: source use selects Accounts, and the shared inventory previews them before adoption.
+  const listImportSessions = (directory: string) => {
+    const adapter = host.adapters.get("claude");
+    if (adapter?.listSessions === undefined) throw new Error("The Claude adapter cannot list source use.");
+    return adapter.listSessions({ id: "state-import-preview", directory });
+  };
+  const importInventory = sourceAccountInventories({
+    log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
+    inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
+  });
+  // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
+  const instructionHandlers = instructionMethods({
+    host,
+    log,
+    environmentId: record.id,
+    store: instructionStore,
+    accounts: listedAccounts,
+    orientationOn,
+    catalogue: options.catalogue ?? (() => CATALOGUE),
+    // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
+    orientation: readOrientation,
+  });
+  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1735,7 +1795,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
+    ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -1769,21 +1829,13 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...mintMethods({ log, host, resolver: workspaceResolver, steps: setupSteps, ceilingOf: (id) => clientSessions.ceiling(id) }),
     ...processMethods({ log, host }),
     ...accountMethods({ accounts, host }),
-    ...instructionMethods({
-      host,
-      log,
-      environmentId: record.id,
-      store: instructionStore,
-      accounts: listedAccounts,
-      orientationOn,
-      catalogue: options.catalogue ?? (() => CATALOGUE),
-      // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
-      orientation: readOrientation,
-    }),
+    ...instructionHandlers,
     ...sessionInstructionsMethods(log),
     ...forgeMethods(forge),
     ...bankMethods(bankService, bankCredentials, bankSyncer),
     ...splitMethods(bankService, record.id),
+    ...migrationMethods(bankService, record.id, forge),
+    ...validatorUpdateMethods(bankService, record.id),
     ...memoryMethods(memoryOperations, () => accounts.defaultId()),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -1814,6 +1866,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
+    ...fileUndo.handlers,
+    ...workspaceChecks.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
       log,
@@ -1873,9 +1927,23 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       autoMemory,
       skills: carrySkills,
       home: carryOverHome,
+      stateImportInventory: importInventory,
     }),
-    // The state import's detection (#581); its run is the switch-over build's (#94), which offers the stateImport flag.
-    ...stateImportMethods({ machine: stateImportSource }),
+    // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
+    ...stateImportMethods({
+      machine: stateImportSource,
+      log,
+      environmentId: record.id,
+      coordinator: stateImports,
+      accounts,
+      listSessions: listImportSessions,
+      createInstruction: instructionHandlers["instructions.create"],
+      forge,
+      managers: keyManagerConnections,
+      getSettings: settingsHandlers["settings.get"],
+      updateSettings: settingsHandlers["settings.update"],
+      ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
+    }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
     ...updateMethods({
       log,
@@ -2013,6 +2081,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The startup sweep of the workspace roots (#330), after the removals those purges set off: each stray by the reaper's rules,
   // a worktree it keeps logged, not noticed.
   await reaper.sweep(strays);
+  // File restores a stop cut, recognised before any client can retry them (#1183).
+  await fileUndo.recover();
   // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
   try {
     providerStore.sweepOrphans();

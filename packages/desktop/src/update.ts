@@ -13,7 +13,9 @@ import type { DesktopPlatform } from "./platform.js";
 /**
  * The shell's `update` (launcher-update spec, "The desktop moves with its
  * local environment"): the build the desktop runs, and the application of
- * one its local environment staged, each platform its own way. A macOS
+ * one its local environment staged from the same public GitHub release
+ * channel as the server (no desktop forge credential), each platform its
+ * own way. A macOS
  * bundle is swapped by rename, the old one renamed back when the swap
  * fails; a Windows install hands over to its NSIS setup, run silently once
  * the desktop has quit; an Arch install runs `pacman -U` through `pkexec`.

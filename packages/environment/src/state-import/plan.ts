@@ -1,0 +1,162 @@
+import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
+import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
+import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
+import { planPagePolicy, type PagePolicyOwner } from "./page-policy.js";
+import type { SourceReportStore } from "./source/report-stores.js";
+import { storeChanged, type SourceStores, type StoreSnapshot } from "./source/stores.js";
+
+/**
+ * The state import's plan (switch-over spec, "Preview, application and
+ * re-run"; #1165): made from one read of the source's stores, the same for
+ * a dry run and an import. Each store that could not be read fails on its
+ * own; each read one plans its items, through its kind's rules, and what it
+ * never carries. The client-local values come from the desktop's
+ * preferences and are only reported: the client that asked applies them, or
+ * lists them as not applied. Before an import applies anything it looks at
+ * the stores again, and a store whose bytes changed since the read fails
+ * with its items, pending another preview.
+ */
+
+/** One store's part of a plan: its snapshot, what the report names it by, and the items read from it. */
+interface PlannedStore {
+  readonly snapshot: StoreSnapshot;
+  readonly dependencies?: readonly StoreSnapshot[];
+  readonly label: string;
+  readonly items: readonly ImportItem[];
+  readonly notCarried?: readonly StateImportNotCarried[];
+  readonly later?: readonly StateImportLater[];
+}
+
+export interface ImportPlan {
+  /** The source folder's canonical path: what the import's events name it by. */
+  readonly sourceKey: string;
+  readonly stores: readonly PlannedStore[];
+  /** What fails before any item is applied: a store that could not be read, an item its owner's bounds refuse or that waits for a mapping. */
+  readonly failed: readonly StateImportFailure[];
+  /** Repair links read from the owners after application, or anticipated for the preview's new targets. */
+  readonly repairs?: (preview: boolean) => readonly StateImportReEnter[];
+  readonly notCarried: readonly StateImportNotCarried[];
+  /** Read from the preferences; the snapshot they were read from is one of the stores. */
+  readonly clientLocal: StateImportClientLocal;
+}
+
+/** Every item the plan carries, in order. */
+export const itemsOf = (plan: ImportPlan): readonly ImportItem[] => plan.stores.flatMap((store) => store.items);
+
+/** A plan with nothing to carry from `sourceKey`: a source with a terminal-client state folder alone. */
+export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores: [], failed: [], notCarried: [], clientLocal: {} });
+
+const INSTRUCTIONS = "Instructions";
+const PREFERENCES = "Desktop preferences";
+
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & PagePolicyOwner): Promise<ImportPlan> => {
+  const { sourceKey, instructions, preferences, profiles, browser } = stores;
+  const failed: StateImportFailure[] = [];
+  const notCarried: StateImportNotCarried[] = [];
+  const planned: PlannedStore[] = [];
+  const accounts = profiles.status === "read" ? await planAccounts(profiles.records, { ...options, sourceKey }) : undefined;
+  if (accounts !== undefined && profiles.status === "read") {
+    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items });
+    failed.push(...accounts.failed);
+  } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
+  if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });
+  else {
+    const plan = planInstructions(instructions.records, { ...options, sourceKey, accountIds: accounts?.accountIds });
+    planned.push({ snapshot: instructions.snapshot, label: INSTRUCTIONS, items: plan.items });
+    failed.push(...plan.failed);
+    notCarried.push(...plan.notCarried);
+  }
+  let clientLocal: StateImportClientLocal = {};
+  if (preferences.status === "failed") failed.push({ label: PREFERENCES, message: preferences.diagnostic });
+  else {
+    const { records } = preferences;
+    clientLocal = records.clientLocal;
+    const active = records.activeProfileId;
+    const defaultItems: ImportItem[] = [];
+    if (active !== undefined && mappedTarget(options.log, { sourceKey, store: "preferences", sourceId: "active-profile" }) === undefined) {
+      if (!accounts?.accountIds.has(active)) failed.push({ label: "Default Account", message: "The active profile has no live mapped Account; the harness default is preserved." });
+      else defaultItems.push(defaultAccountItem(active, { ...options, sourceKey, updateSettings: options.update }));
+    }
+    const excluded: StateImportNotCarried[] = [];
+    if (records.modelChoices > 0) excluded.push({ label: "Per-session model choices", count: records.modelChoices, step: null });
+    if (records.layouts > 0) excluded.push({ label: "Dock layouts", count: records.layouts, step: null });
+    if (records.composerSeeds > 0) excluded.push({ label: "Composer seeds", count: records.composerSeeds, step: null });
+    planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: defaultItems, notCarried: excluded });
+  }
+  if (browser.status === "failed") failed.push({ label: "Browser policy", message: browser.diagnostic });
+  else {
+    const policy = planPagePolicy(browser.records, { ...options, sourceKey });
+    const pairings: StateImportNotCarried[] = browser.records.pairings === 0 ? [] : [{ label: "Browser Pairings", count: browser.records.pairings, step: "browser" }];
+    planned.push({ snapshot: browser.snapshot, label: "Browser policy", items: policy.items, notCarried: pairings });
+    failed.push(...policy.failed);
+  }
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal }, stores.reportStores);
+};
+
+/** Omission-only stores still participate in byte consistency and scrubbed store failures. */
+export const includeReportStores = (plan: ImportPlan, stores: readonly SourceReportStore[]): ImportPlan => {
+  const planned = [...plan.stores];
+  const failed = [...plan.failed];
+  for (const { label, read } of stores) {
+    if (read.status === "failed") {
+      failed.push({ label, message: read.diagnostic });
+      continue;
+    }
+    const index = planned.findIndex((store) => store.snapshot.path === read.snapshot.path);
+    const omissions = { notCarried: read.records.notCarried, later: read.records.later };
+    if (index === -1) planned.push({ snapshot: read.snapshot, label, items: [], ...omissions });
+    else {
+      const held = planned[index]!;
+      planned[index] = { ...held, notCarried: [...(held.notCarried ?? []), ...omissions.notCarried], later: [...(held.later ?? []), ...omissions.later] };
+    }
+  }
+  return { ...plan, stores: planned, failed };
+};
+
+/**
+ * The plan as an import applies it: a store whose bytes changed since the
+ * plan read them fails with its items, and the preferences' values with it
+ * when they are what changed. A store that did not change keeps its part.
+ */
+export const recheckStores = async (plan: ImportPlan): Promise<ImportPlan> => {
+  const looks = await Promise.all(plan.stores.map(async (store) => ({ store, changed: (await Promise.all([store.snapshot, ...(store.dependencies ?? [])].map(storeChanged))).some(Boolean) })));
+  const changed = looks.filter((look) => look.changed).map((look) => look.store);
+  if (changed.length === 0) return plan;
+  return {
+    ...plan,
+    stores: looks.filter((look) => !look.changed).map((look) => look.store),
+    failed: [...plan.failed, ...changed.map(({ label }) => ({ label, message: "It changed after it was read: preview again, then import." }))],
+    clientLocal: changed.some((store) => store.label === PREFERENCES) ? {} : plan.clientLocal,
+  };
+};
+
+const NOTHING_CARRIED: StateImportCarried = {
+  accounts: 0,
+  archived: 0,
+  pins: 0,
+  groups: 0,
+  forgeAccounts: 0,
+  keyManagerConnections: 0,
+  banks: 0,
+  routines: 0,
+  instructions: 0,
+  skillSources: 0,
+  alwaysOnSkills: 0,
+  drafts: 0,
+  devSites: 0,
+};
+
+/** The report of a plan: for a dry run, what it would carry; for an import, what `applied` says it carried and what failed. */
+export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
+  const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false) : applied.carried;
+  return {
+    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
+    reEnter: [...(plan.repairs?.(applied === null) ?? [])],
+    later: plan.stores.flatMap((store) => store.later ?? []),
+    notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],
+    failed: [...plan.failed, ...(applied?.failed ?? [])],
+    clientLocal: plan.clientLocal,
+    dryRun: applied === null,
+  };
+};

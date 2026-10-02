@@ -1,4 +1,4 @@
-import { adminCall, uuidv7 } from "@agent-harness/client-runtime";
+import { adminCall, clientLocalImportValues, uuidv7 } from "@agent-harness/client-runtime";
 import type { StateImportHoldings, StateImportReport } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import { TEXT_SIZE_LEAST, TEXT_SIZE_MOST } from "../presentation.js";
@@ -44,11 +44,9 @@ const DetectedStateImport = ({ environmentId }: { readonly environmentId: string
     setBusy(false);
     if (!answer.ok) return say(`Not imported: ${answer.line}`);
     setReport(answer.result);
-    const local = runtime.local.read();
-    const apply = !dryRun && answer.result !== undefined && !answer.result.dryRun && local.state === "exchanged" && local.environmentId === environmentId;
-    setClientLocalApplied(apply);
-    if (apply && answer.result !== undefined) {
-      const values = answer.result.clientLocal;
+    const values = clientLocalImportValues(runtime, environmentId, dryRun, answer.result);
+    setClientLocalApplied(values !== null);
+    if (values !== null) {
       if (values.mode !== undefined) setMode(values.mode);
       if (values.fontSize !== undefined) setFontSize(Math.min(TEXT_SIZE_MOST, Math.max(TEXT_SIZE_LEAST, values.fontSize)));
       if (values.conversationWidth !== undefined) setWidth(values.conversationWidth);
