@@ -563,7 +563,7 @@ function evaluatesShell(segment: Segment): boolean {
   const invocation = invocationOf(segment);
   if (invocation === null) return false;
   const { name, args } = invocation;
-  if (name === 'eval') return args.length > 0;
+  if (name === 'eval' || name === 'coproc') return args.length > 0;
   if (!SHELLS.has(name)) return false;
   for (let at = 0; at < args.length; at += 1) {
     const option = args[at]?.text ?? '';

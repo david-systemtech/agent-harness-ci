@@ -207,6 +207,12 @@ describe('reading a command line', () => {
       expect(destructiveParts(command)).toEqual([]);
     }
   });
+  it('warns about coprocess execution, including named groups, without treating quoted data as a command', () => {
+    for (const command of ['coproc { rm -rf build; }', 'coproc CLEANUP { rm -rf build; }', "coproc sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    expect(destructiveParts("echo 'coproc { rm -rf build; }'")).toEqual([]);
+  });
   it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
     const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
     expect(destructiveParts(command).map((part) => ({ kind: part.kind, targets: part.targets }))).toEqual([
