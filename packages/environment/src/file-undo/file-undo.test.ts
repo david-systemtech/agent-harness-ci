@@ -489,7 +489,11 @@ describe("files.undo beside the rest of the session", () => {
       ),
     );
     const answers = await Promise.all([client.apply("files.undo", { commandId: randomUUID(), sessionId }), client.apply("files.undo", { commandId: randomUUID(), sessionId })]);
-    expect(answers.map((answer) => answer.path)).toEqual(["b.txt", "a.txt"]);
+    // Concurrent requests need not acquire the workspace turn in Promise.all order.
+    expect(answers.map((answer) => answer.path).sort()).toEqual(["a.txt", "b.txt"]);
+    expect(answers.map((answer) => answer.action)).toEqual(["restored", "restored"]);
+    expect(new Set(answers.map((answer) => answer.changeId)).size).toBe(2);
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([...answers].sort((a, b) => b.path.localeCompare(a.path)));
     expect([readFileSync(join(root, "a.txt"), "utf8"), readFileSync(join(root, "b.txt"), "utf8")]).toEqual(["a\n", "b\n"]);
   });
 
