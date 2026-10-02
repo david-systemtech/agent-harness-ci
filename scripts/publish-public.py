@@ -198,11 +198,14 @@ def rehearse(repo, commit, checkout):
     # scanned tree or alter the commit that will be pushed.
     git(repo, 'update-ref', 'refs/heads/main', commit)
     git(repo, 'clone', '-q', '--branch', 'main', str(repo), str(checkout))
+    pnpm = shutil.which('pnpm') if os.name == 'nt' else 'pnpm'
+    if not pnpm:
+        raise ValueError('Public checkout rehearsal requires pnpm; publication blocked')
     deadline = time.monotonic() + 30 * 60
     for args in (['install', '--frozen-lockfile'], ['typecheck'], ['lint'], ['test', '--maxWorkers=4']):
         print('Public checkout rehearsal: pnpm ' + ' '.join(args), flush=True)
         # Keep raw output out of diagnostics, as with Git and the scanner.
-        with subprocess.Popen(['pnpm', *args], cwd=checkout, stdout=subprocess.DEVNULL,
+        with subprocess.Popen([pnpm, *args], cwd=checkout, stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL, start_new_session=True) as process:
             try:
                 status = process.wait(timeout=max(0, deadline - time.monotonic()))
@@ -221,7 +224,7 @@ def rehearse(repo, commit, checkout):
                 process.wait()
                 raise ValueError('Public checkout rehearsal exceeded 30 minutes; publication blocked') from None
             if status:
-                raise subprocess.CalledProcessError(status, process.args)
+                raise subprocess.CalledProcessError(status, ['pnpm', *args])
     print('Public checkout rehearsal: pass')
 
 
