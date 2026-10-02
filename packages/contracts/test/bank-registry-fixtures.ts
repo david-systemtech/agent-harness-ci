@@ -192,7 +192,7 @@ export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; resu
     result: { valid: [preview], invalid: [without(preview, "merge")] },
   },
   "banks.join": {
-    params: { valid: [joinParams, { ...joinParams, accounts: [], repositories: [repository] }], invalid: [without(joinParams, "commandId"), without(joinParams, "bankId"), without(joinParams, "accounts"), { ...joinParams, accounts: "all" }] },
+    params: { valid: [joinParams, { ...joinParams, accounts: [], repositories: [repository] }, { ...joinParams, copiedFrom: { environmentId, environmentName: "desk" } }], invalid: [without(joinParams, "commandId"), without(joinParams, "bankId"), without(joinParams, "accounts"), { ...joinParams, accounts: "all" }, { ...joinParams, copiedFrom: { environmentId, environmentName: "" } }] },
     result: { valid: [{ bank: record }], invalid: [{}, { bank: entry }] },
   },
   "banks.credential.set": {
@@ -213,8 +213,8 @@ export const bankRegistryMethodFixtures: Record<string, { params: Fixtures; resu
   },
   "banks.register": {
     params: {
-      valid: [registerParams, { ...registerParams, role: "read-only", accounts: ["work"], repositories: [repository], defaultFor: ["work"], importedFrom: "/home/maya/.config/memory" }],
-      invalid: [without(registerParams, "commandId"), without(registerParams, "path"), { ...registerParams, path: "" }, { ...registerParams, importedFrom: "" }],
+      valid: [registerParams, { ...registerParams, role: "read-only", accounts: ["work"], repositories: [repository], defaultFor: ["work"], importedFrom: "/home/maya/.config/memory" }, { ...registerParams, copiedFrom: { environmentId, environmentName: "desk" } }],
+      invalid: [without(registerParams, "commandId"), without(registerParams, "path"), { ...registerParams, path: "" }, { ...registerParams, importedFrom: "" }, { ...registerParams, copiedFrom: { environmentId: "not-an-environment", environmentName: "desk" } }],
     },
     result: { valid: [{ bank: record }], invalid: [{}, { bank: entry }] },
   },

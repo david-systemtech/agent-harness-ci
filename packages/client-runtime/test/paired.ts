@@ -68,7 +68,7 @@ const pairedManyWith = (onCleanup: (cleanup: () => Promise<void>) => void) => as
     (await subscription(wire, "environment.subscribe")).synchronized(0);
     assertPaired(await adding);
   }
-  return { clock, runtime, wires, ids: wires.map((wire) => wire.environmentId) };
+  return { clock, runtime, platform, wires, ids: wires.map((wire) => wire.environmentId) };
 };
 
 /** The helpers above, each runtime closed after its test. Call once at the top of a test file. */
