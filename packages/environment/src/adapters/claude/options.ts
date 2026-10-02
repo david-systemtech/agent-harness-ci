@@ -48,7 +48,8 @@ export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const
 
 /**
  * How long, in seconds, the CLI waits on the tool gate's `PreToolUse` hook
- * before it gives up on the call: as long as its timer can hold. The CLI
+ * (and the file tools' capture after it, #1182) before it gives up on the
+ * call: as long as its timer can hold. The CLI
  * arms `setTimeout(timeout * 1000)` for a callback hook (its own default is
  * ten minutes), and a JavaScript timer past 2^31 - 1 milliseconds fires at
  * once, so this is the longest wait there is: 24.8 days. A denylist prompt
@@ -192,7 +193,7 @@ const gatedThenObserved =
  * and `PostToolUseFailure`, matching those tools alone; and the process's
  * `Stop` when it has one.
  */
-const hooksOf = (input: RunOptionsInput): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
+const hooksOf = (input: Pick<RunOptionsInput, "preToolUse" | "fileTools" | "onStop">): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
   PreToolUse: [{ hooks: [gatedThenObserved(input.preToolUse, input.fileTools.before)], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
   PostToolUse: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.completed] }],
   PostToolUseFailure: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.failed] }],

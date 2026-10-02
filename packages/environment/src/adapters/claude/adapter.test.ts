@@ -858,6 +858,37 @@ describe("the file tools' observation around the gate (#1182)", () => {
     expect(first.order).toEqual(["gate toolu_sub", "before toolu_sub", "captured toolu_sub", "completed toolu_sub"]);
     expect(second.order).toEqual(["gate toolu_next", "before toolu_next", "captured toolu_next", "completed toolu_next"]);
   });
+
+  it("keeps the Stop hook on a kept process, and every tool hook and the Stop hook on the cold start after it", async () => {
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, observing().context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.toolUse("toolu_cron", "CronCreate"), sdk.toolResult("toolu_cron"), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    // Kept by the schedule: the next run joins the process, whose Stop hook still follows the CLI's list of schedules.
+    const next = runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } });
+    const joined = adapter.createRun(next, observing().context);
+    await query.promptsPushed(2);
+    expect(fake.queries).toHaveLength(1);
+    const stop = query.options.hooks?.Stop?.[0]?.hooks[0];
+    await stop?.({ hook_event_name: "Stop", session_id: "s", transcript_path: "", cwd: "/work/repo", stop_hook_active: false, session_crons: [] } as never, undefined, { signal: new AbortController().signal });
+    expect(port).toEqual(["hold schedule:claude-schedules", "unhold schedule:claude-schedules"]);
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_2", [next.prompt[0]?.messageId as string]), sdk.result(PROVIDER_SESSION));
+    await drain(joined);
+    joined.release();
+    await adapter.stopProcess(SESSION);
+    // A cold start registers the same hooks, gating and observing through its own run's context.
+    const cold = observing();
+    adapter.createRun(runInput({ target: { kind: "resume", providerSessionId: PROVIDER_SESSION } }), cold.context);
+    const fresh = await started(2);
+    expect(Object.keys(fresh.options.hooks ?? {})).toEqual(Object.keys(query.options.hooks ?? {}));
+    expect(Object.keys(fresh.options.hooks ?? {})).toEqual(["PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"]);
+    expect(await fresh.preToolUse("Edit", { file_path: "/work/repo/a.ts" }, { toolUseID: "toolu_cold" })).toEqual({});
+    await fresh.postToolUse("Edit", { file_path: "/work/repo/a.ts" }, {}, { toolUseID: "toolu_cold" });
+    expect(cold.order).toEqual(["gate toolu_cold", "before toolu_cold", "captured toolu_cold", "completed toolu_cold"]);
+  });
 });
 
 describe("an in-process tool's declared access and its images (#540)", () => {

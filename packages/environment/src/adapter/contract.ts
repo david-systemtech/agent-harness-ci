@@ -736,13 +736,15 @@ export interface FileToolCall {
  * `before` once the tool gate has let a call through, and the provider does
  * not run the call until it settles; then tells `completed` once the call
  * succeeded, or `failed` once it failed, was interrupted, ran on other paths
- * than it was announced with, or can no longer end (its process ended).
- * Every call announced to `before` ends at most once, always with the same
- * `FileToolCall`, on the observer that was told of it. A call the provider
- * refuses after the gate (its rules, its mode, a person's answer) ends with
- * neither. `before` rejecting never stops the call: it goes on, and ends as
- * any other. Nothing else is observed: a denied call, another tool's, a
- * shell command's writes. The observer decides nothing about a call.
+ * than it was announced with, or was given up on. Every call announced to
+ * `before` ends at most once, always with the same `FileToolCall`, on the
+ * observer that was told of it. A call the provider refuses after the gate
+ * (its rules, its mode, a person's answer) has no end of its own: it is told
+ * `failed` once the adapter gives up on it, as its process ends or too many
+ * later calls wait (Claude keeps 1024). `before` rejecting never stops the
+ * call: it goes on, and ends as any other. Nothing else is observed: a
+ * denied call, another tool's, a shell command's writes. The observer decides
+ * nothing about a call.
  */
 export interface FileChangeObserver {
   /** Before the call writes; `signal` aborts when the provider gives up on the call. */

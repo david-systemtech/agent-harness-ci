@@ -1,4 +1,4 @@
-import type { HookInput } from "@anthropic-ai/claude-agent-sdk";
+import type { PostToolUseFailureHookInput, PostToolUseHookInput, PreToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
 import type { FileChangeObserver, FileToolCall } from "../../adapter/contract.js";
 import { CLAUDE_FILE_TOOLS, claudeToolAccess } from "./gate-access.js";
 import type { FileToolHooks } from "./options.js";
@@ -28,8 +28,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /** A recognised file tool's call as a tool hook names it, or null for any other call and for one naming no path or no id. */
-const fileToolCall = (input: HookInput): FileToolCall | null => {
-  if (input.hook_event_name !== "PreToolUse" && input.hook_event_name !== "PostToolUse" && input.hook_event_name !== "PostToolUseFailure") return null;
+const fileToolCall = (input: PreToolUseHookInput | PostToolUseHookInput | PostToolUseFailureHookInput): FileToolCall | null => {
   if (!CLAUDE_FILE_TOOLS.includes(input.tool_name) || input.tool_use_id === "") return null;
   const access = claudeToolAccess(input.tool_name, isRecord(input.tool_input) ? input.tool_input : {});
   if (access.kind !== "write" || access.paths.length === 0) return null;
@@ -59,8 +58,9 @@ export class FileToolObservation {
   /** The hooks the run's options compose with the gate (`options.ts`). */
   readonly hooks: FileToolHooks = {
     before: async (input, _toolUseID, { signal }) => {
+      if (input.hook_event_name !== "PreToolUse") return {};
       const observer = this.#observer();
-      const call = input.hook_event_name === "PreToolUse" ? fileToolCall(input) : null;
+      const call = fileToolCall(input);
       if (observer === undefined || call === null) return {};
       // Announced again (the CLI asked its hooks twice): the earlier announcement ends, and the capture is taken again.
       const earlier = this.#take(call.toolCallId);
@@ -124,7 +124,7 @@ export class FileToolObservation {
     try {
       announced.observer.failed(announced.call);
     } catch (error) {
-      this.#diagnostic(`telling the observer ${announced.call.tool} call ${announced.call.toolCallId} failed failed: ${describe(error)}`);
+      this.#diagnostic(`the observer threw on hearing that ${announced.call.tool} call ${announced.call.toolCallId} failed: ${describe(error)}`);
     }
   }
 }
