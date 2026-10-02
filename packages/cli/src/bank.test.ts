@@ -358,3 +358,10 @@ it("refuses in validate what the memory tool's draft refuses, by the same rule i
   expect(validated.code).toBe(1);
   expect([...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))]).toEqual(data.rules);
 });
+
+it("offers exactly the five bank verbs of this build, naming them when none or another is asked for", async () => {
+  expect(await cli([])).toMatchObject({ code: 2, out: "", err: expect.stringMatching(/^bank takes a verb: validate, search, read, draft, promote\.\n/) });
+  expect(await cli(["retire", "rollout-steps"])).toMatchObject({ code: 2, out: "", err: expect.stringMatching(/^Unknown bank verb retire\.\n/) });
+  const usage = (await cli(["retire"])).err;
+  expect(usage.match(/^ +agent-harness bank \w+/gm)?.map((line) => line.trim().split(" ")[2])).toEqual(["validate", "search", "read", "draft", "promote"]);
+});
