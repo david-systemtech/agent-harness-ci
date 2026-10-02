@@ -1013,10 +1013,16 @@ async function entriesOf(directory: string, deps: BlastRadiusDeps, budget: Budge
   try {
     const entries = await deps.readdir(directory);
     return [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  } catch {
-    // Unreadable, gone, or not a directory: it contributes nothing.
-    return [];
+  } catch (error) {
+    if (missingPath(error)) return [];
+    throw error;
   }
+}
+
+/** Only absence, including a non-directory path component, proves no match. */
+function missingPath(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
 /**
@@ -1298,15 +1304,30 @@ async function previewResetHard(part: Destructive, cwd: string, deps: BlastRadiu
 }
 
 async function previewPushForce(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
-  if (part.targets.slice(1).some((refspec) => refspec.startsWith('+'))) {
-    return { kind: part.kind, summary: 'forced refspec may discard remote commits; remote state was not contacted', lines: part.targets.slice(1).slice(0, MAX_LISTED), count: part.targets.length - 1 };
+  const refspecs = part.targets.slice(1);
+  if (refspecs.length > 0) {
+    // HEAD and its upstream do not identify an explicit source/destination pair.
+    // Keep the typed refspecs rather than query a different pair or contact a remote.
+    return {
+      kind: part.kind,
+      summary: `force-push to ${unescape(part.targets[0] ?? 'the remote')}: cannot tell how many remote commits the forced refspecs may discard; remote state was not contacted`,
+      lines: refspecs.map(unescape).slice(0, MAX_LISTED),
+      count: refspecs.length,
+    };
+  }
+  const named = part.targets[0];
+  if (named !== undefined) {
+    // A named remote can select configured push refspecs unrelated to @{u}.
+    return {
+      kind: part.kind,
+      summary: `force-push to ${unescape(named)}: cannot tell which refs or how many remote commits may be overwritten; remote state was not contacted`,
+      lines: [],
+    };
   }
   const git = gitIn(cwd, deps);
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
   const remoteLine = ((await soft(git(['remote', '-v']))).split('\n')[0]?.trim() ?? '').replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/]+@/gi, '$1');
-  // The remote the command names beats the first one configured, which is only a guess.
-  const named = part.targets.find((target) => !target.startsWith('-'));
-  const remote = named ?? remoteLine.split(/\s+/)[0] ?? 'the remote';
+  const remote = remoteLine.split(/\s+/)[0] ?? 'the remote';
   const upstream = (await soft(git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']))).trim();
   const where = `force-push ${branch.length > 0 ? branch : 'HEAD'} to ${remote}`;
   const lines = remoteLine.length > 0 ? [remoteLine] : [];
@@ -1448,8 +1469,9 @@ async function expandedPaths(part: Destructive, cwd: string, deps: BlastRadiusDe
 const statOf = async (path: string, deps: BlastRadiusDeps): Promise<FileInfo | null> => {
   try {
     return await deps.stat(path);
-  } catch {
-    return null;
+  } catch (error) {
+    if (missingPath(error)) return null;
+    throw error;
   }
 };
 

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "checks.set result",
+  "type": "object",
+  "properties": {
+    "workspace": {
+      "type": "string",
+      "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+      "description": "The session's Workspace directory as checks are keyed: its real path, symlinks resolved."
+    },
+    "command": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "\\S",
+          "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The directory's check command, verbatim; null when none is set."
+    }
+  },
+  "required": [
+    "workspace",
+    "command"
+  ],
+  "description": "A Workspace directory's check: the canonical directory and its command, null when none is set."
+}

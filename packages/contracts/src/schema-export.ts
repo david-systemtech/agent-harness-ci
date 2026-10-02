@@ -1,3 +1,4 @@
+import { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 import { BankSplitPointer, BankSplitTopics, BankSplitProposal } from "./bank-split.js";
 import { SessionBankUsedPayload } from "./bank-use.js";
 import { MemoryScopeSegment, MemoryDraftScope, MemoryDraftInput, MemoryRetireInput, BankDraft, BankDraftQueuedPayload, BankDraftsConsumedPayload, BankReviewHeldPayload, MemoryPromoteInput, MemoryPromoteResult, MemorySearchInput, MemoryReadInput } from "./memory-drafts.js";
@@ -563,6 +564,7 @@ import {
 import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
+import { CHECK_SESSION_EVENT_TYPES, CheckCommand, CheckFailure, ChecksChangedPayload, WorkspaceCheck } from "./checks.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
@@ -777,6 +779,7 @@ export const publishedEventPayloads = (): [string, z.ZodType][] =>
     ...PERMISSION_SESSION_EVENT_TYPES,
     ...INSTRUCTION_SESSION_EVENT_TYPES,
     ...BROWSER_SESSION_EVENT_TYPES,
+    ...CHECK_SESSION_EVENT_TYPES,
     ...GROUP_EVENT_TYPES,
   } as Record<string, EventTypeEntry>).flatMap(([type, entry]) =>
     entry.reservedFor === undefined ? [[type, entry.payload] as [string, z.ZodType]] : [],
@@ -1068,6 +1071,8 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "scrub/secret-rule.json", title: "SecretRule", schema: SecretRule },
   { path: "errors/secret_shaped.json", title: "SecretShapedError", schema: SecretShapedError },
   { path: "repository-identity.json", title: "RepositoryIdentity", schema: RepositoryIdentity },
+  { path: "banks/migration-choices.json", title: "BankMigrationChoices", schema: BankMigrationChoices },
+  { path: "banks/migration-report.json", title: "BankMigrationReport", schema: BankMigrationReport },
   { path: "banks/split-pointer.json", title: "BankSplitPointer", schema: BankSplitPointer },
   { path: "banks/split-topics.json", title: "BankSplitTopics", schema: BankSplitTopics },
   { path: "banks/split-proposal.json", title: "BankSplitProposal", schema: BankSplitProposal },
@@ -1390,6 +1395,10 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "state-import/item-kind.json", title: "StateImportItemKind", schema: StateImportItemKind },
   { path: "state-import/events/state-import.started.json", title: "StateImportStartedPayload", schema: StateImportStartedPayload },
   { path: "state-import/events/state-import.item-carried.json", title: "StateImportItemCarriedPayload", schema: StateImportItemCarriedPayload },
+  { path: "checks/check-command.json", title: "CheckCommand", schema: CheckCommand },
+  { path: "checks/workspace-check.json", title: "WorkspaceCheck", schema: WorkspaceCheck },
+  { path: "checks/check-failure.json", title: "CheckFailure", schema: CheckFailure },
+  { path: "checks/notices/checks.changed.json", title: "ChecksChangedPayload", schema: ChecksChangedPayload },
   { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
   { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },
