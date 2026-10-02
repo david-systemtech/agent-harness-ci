@@ -2,8 +2,8 @@ import { checkPassed, type DelegatedWorkRow, type RunSummary } from "@agent-harn
 import { reduceSession } from "../projections/session.js";
 import type {
   AssistantEntry,
-  CommandEntry,
   CheckEntry,
+  CommandEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
   OpaqueEntry,

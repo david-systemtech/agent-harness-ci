@@ -1,4 +1,6 @@
 import {
+  ChecksFinishedPayload,
+  ChecksStartedPayload,
   SESSION_STREAM_KIND,
   RunBrowserResolvedPayload,
   RunSuggestion,
@@ -7,8 +9,6 @@ import {
   type AssistantDeltaPayload,
   type AssistantTextPayload,
   type CommandRanPayload,
-  ChecksFinishedPayload,
-  ChecksStartedPayload,
   type ContainmentLevel,
   type DelegatedWorkRow,
   type EventEnvelope,
