@@ -6,6 +6,7 @@ import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { ImportCoordinator } from "./coordinator.js";
 import { applyItems, stateImportStream, type ImportItem } from "./items.js";
+import type { PlanRoutinesOptions } from "./routines.js";
 import { emptyPlan, itemsOf, planImport, recheckStores, reportOf } from "./plan.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { readSourceStores } from "./source/stores.js";
@@ -35,7 +36,7 @@ export interface StateImportHooks {
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
 
-export interface StateImportOptions {
+export interface StateImportOptions extends Pick<PlanRoutinesOptions, "directoryRules" | "timeZone" | "checkRoutineImport" | "importRoutine"> {
   /** The machine the source reader looks at: this process's environment, platform and home. */
   readonly machine: SourceMachine;
   readonly log: EventLog;
@@ -75,7 +76,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const planned =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, updateSettings: options.updateSettings, listSessions: options.listSessions });
+            : await planImport(await readSourceStores(dataFolder.path), { ...options, caller, create: options.createInstruction });
         if (dryRun) {
           const report = reportOf(planned, null);
           return () => ({ aggregate: environmentStream, result: report });

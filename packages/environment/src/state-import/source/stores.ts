@@ -3,6 +3,7 @@ import { open, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { isSettingsAddress, rowOfAddress, type StateImportClientLocal } from "@agent-harness/contracts";
 import { readSourceProfiles, type SourceProfiles } from "./profiles.js";
+import { readSourceRoutines, type SourceRoutines } from "./routines.js";
 import { DATA_FILES } from "./folders.js";
 
 /**
@@ -80,6 +81,8 @@ export interface SourceStores {
   readonly instructions: StoreRead<SourceInstructions>;
   readonly preferences: StoreRead<SourcePreferences>;
   readonly profiles: StoreRead<SourceProfiles>;
+  readonly desktopRoutines: StoreRead<SourceRoutines>;
+  readonly serviceRoutines: StoreRead<SourceRoutines>;
 }
 
 /** A store's bytes: absent, too large, unreadable (with the error's code), or read. */
@@ -257,10 +260,12 @@ const NO_PREFERENCES: SourcePreferences = { clientLocal: {}, modelChoices: 0, la
 /** Reads the stores of the source data folder `folder`, each on its own. */
 export const readSourceStores = async (folder: string): Promise<SourceStores> => {
   const sourceKey = await realpath(folder).catch(() => folder);
-  const [instructions, preferences, profiles] = await Promise.all([
+  const [instructions, preferences, profiles, desktopRoutines, serviceRoutines] = await Promise.all([
     readStore(join(sourceKey, DATA_FILES.instructions), INSTRUCTION_LIST, parseInstructions, NO_INSTRUCTIONS),
     readStore(join(sourceKey, DATA_FILES.preferences), PREFERENCES, parsePreferences, NO_PREFERENCES),
     readSourceProfiles(sourceKey),
+    readSourceRoutines(sourceKey, false),
+    readSourceRoutines(sourceKey, true),
   ]);
-  return { sourceKey, instructions, preferences, profiles };
+  return { sourceKey, instructions, preferences, profiles, desktopRoutines, serviceRoutines };
 };

@@ -90,6 +90,8 @@ export interface ImportItem extends ItemKey {
   /** Whether this item adds a report count; alias/reused Account mappings do not. */
   readonly contributes?: () => boolean;
   readonly sourceDirectory?: string;
+  /** Read-only owner checks immediately before this child's transaction; null permits it, a message fails it independently. */
+  readonly validate?: () => Promise<string | null>;
   /** Applies the item through its owning service inside the item's own command: the target's id, or the service's refusal. */
   readonly apply: (context: CommandContext) => CommandAnswer<{ readonly targetId: string }>;
 }
@@ -131,6 +133,10 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
     const commandId = itemCommandId(importId, item);
     let outcome: "carried" | "held" | StateImportFailure;
     try {
+      // A mapped item stays held even if its source or target conditions changed.
+      if (mappedTarget(log, item) !== undefined) continue;
+      const refusal = item.validate === undefined ? null : await item.validate();
+      if (refusal != null) { failed.push({ label: item.label, message: refusal }); continue; }
       const run = log.command<{ readonly carried: boolean }>({ actor, commandId }, (tx) => {
         if (mappedTarget(log, item) !== undefined) return { aggregate: stream, result: { carried: false } };
         const answer = item.apply({ ...caller, commandId, actor, tx });

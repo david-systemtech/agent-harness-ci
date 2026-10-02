@@ -5,7 +5,8 @@
   "enum": [
     "instruction",
     "account",
-    "account-default"
+    "account-default",
+    "routine"
   ],
-  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile)."
+  "description": "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile), routine (a disabled local Routine)."
 }

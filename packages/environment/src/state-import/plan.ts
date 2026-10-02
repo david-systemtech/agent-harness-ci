@@ -2,6 +2,7 @@ import type { StateImportCarried, StateImportClientLocal, StateImportFailure, St
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
 import type { MethodHandler } from "../serve/methods.js";
 import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { planRoutines, type PlanRoutinesOptions } from "./routines.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
 import { storeChanged, type SourceStores, type StoreSnapshot } from "./source/stores.js";
 
@@ -45,7 +46,7 @@ export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & { readonly updateSettings: MethodHandler<"settings.update"> }): Promise<ImportPlan> => {
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanRoutinesOptions, "sourceKey" | "accountPlan" | "routineNames"> & { readonly updateSettings: MethodHandler<"settings.update"> }): Promise<ImportPlan> => {
   const { sourceKey, instructions, preferences, profiles } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
@@ -76,6 +77,21 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: defaultItems });
     if (records.modelChoices > 0) notCarried.push({ label: "Per-session model choices", count: records.modelChoices, step: null });
     if (records.layouts > 0) notCarried.push({ label: "Dock layouts", count: records.layouts, step: null });
+  }
+  const routineNames = new Set<string>();
+  for (const [read, store, label] of [
+    [stores.desktopRoutines, "desktop-routines", "Desktop Routines"],
+    [stores.serviceRoutines, "service-routines", "Service Routines"],
+  ] as const) {
+    if (read.status === "failed") { failed.push({ label, message: read.diagnostic }); continue; }
+    const part = await planRoutines(read.records, store, { ...options, sourceKey, accountPlan: accounts, routineNames });
+    planned.push({ snapshot: read.snapshot, label, items: part.items });
+    failed.push(...part.failed);
+    for (const omission of part.notCarried) {
+      const index = notCarried.findIndex((item) => item.label === omission.label);
+      if (index < 0) notCarried.push(omission);
+      else notCarried[index] = { ...omission, count: notCarried[index]!.count + omission.count };
+    }
   }
   return { sourceKey, stores: planned, failed, notCarried, clientLocal, later: profiles.status === "read" ? [...profiles.records.later] : [] };
 };
@@ -117,7 +133,7 @@ const NOTHING_CARRIED: StateImportCarried = {
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
   const carriedItems = applied === null ? itemsOf(plan) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length },
+    carried: { ...NOTHING_CARRIED, routines: carriedItems.filter((item) => item.kind === "routine").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length },
     reEnter: [],
     later: [...plan.later],
     notCarried: [...plan.notCarried],

@@ -195,7 +195,7 @@ export const StateImportStartedPayload = z
 export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
 
 /** The kinds of item a state import carries, each written through the service that owns it. */
-export const StateImportItemKind = z.enum(["instruction", "account", "account-default"]).meta({ description: "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile)." });
+export const StateImportItemKind = z.enum(["instruction", "account", "account-default", "routine"]).meta({ description: "The kind of item a state import carried: instruction (an owned instruction), account (a profile mapping), account-default (the mapped active profile), routine (a disabled local Routine)." });
 export type StateImportItemKind = z.infer<typeof StateImportItemKind>;
 
 /**
