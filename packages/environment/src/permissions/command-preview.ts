@@ -478,7 +478,7 @@ const GIT_VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--na
 const OTHERS = new Set([
   'shred', 'dd', 'mkfs', 'wipefs',
   'mkfs.ext2', 'mkfs.ext3', 'mkfs.ext4', 'mkfs.xfs', 'mkfs.btrfs',
-  'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mke2fs',
+  'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mkntfs', 'mke2fs',
 ]);
 
 const baseName = (text: string): string => {

@@ -51,7 +51,7 @@ const contained = (workspace: string): RunContainment => ({
 });
 
 describe("the preview's budget and workspace boundary", () => {
-  it.each(["mkfs.ext2", "mkfs.ext3", "mkfs.ext4", "mkfs.xfs", "mkfs.btrfs", "mkfs.vfat", "mkfs.fat", "mkfs.msdos", "mkfs.exfat", "mkfs.ntfs", "mke2fs"])("previews %s with scoped target details without running a formatter", async (name) => {
+  it.each(["mkfs.ext2", "mkfs.ext3", "mkfs.ext4", "mkfs.xfs", "mkfs.btrfs", "mkfs.vfat", "mkfs.fat", "mkfs.msdos", "mkfs.exfat", "mkfs.ntfs", "mkntfs", "mke2fs"])("previews %s with scoped target details without running a formatter", async (name) => {
     const workspace = await tempDir();
     const target = join(workspace, "disk.img");
     await writeFile(target, "keep this");

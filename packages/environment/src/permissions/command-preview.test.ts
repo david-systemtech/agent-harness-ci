@@ -154,7 +154,7 @@ it('reports locale-sensitive character classes as unavailable rather than an emp
 // ===========================================================================
 
 describe('reading a command line', () => {
-  it.each(['mkfs.ext2', 'mkfs.ext3', 'mkfs.ext4', 'mkfs.xfs', 'mkfs.btrfs', 'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mke2fs'])('recognises %s and its absolute executable path as destructive', (name) => {
+  it.each(['mkfs.ext2', 'mkfs.ext3', 'mkfs.ext4', 'mkfs.xfs', 'mkfs.btrfs', 'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mkntfs', 'mke2fs'])('recognises %s and its absolute executable path as destructive', (name) => {
     for (const executable of [name, `/usr/sbin/${name}`]) {
       const command = `${executable} disk.img`;
       expect(destructiveParts(command)).toEqual([{ kind: 'other', text: command, targets: ['disk.img'], flags: [] }]);
