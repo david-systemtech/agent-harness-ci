@@ -22,7 +22,11 @@ files retain the selected ref's bytes and modes and pass the same privacy checks
 
 Run from a development checkout with Python 3.11+ and Git installed. Git uses
 the maintainer's normal credential helper for the public remote. Keep tokens
-out of URLs and command arguments. Preview a publication:
+out of URLs and command arguments. Installing the workflow needs repository
+write access and permission to add/update workflow files. Classic personal
+access/OAuth tokens need the `workflow` scope; see
+[GitHub's scope reference](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps#available-scopes).
+Preview a publication:
 
 ```sh
 python3 scripts/publish-public.py \
