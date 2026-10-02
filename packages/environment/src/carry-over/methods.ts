@@ -6,14 +6,11 @@ import {
   type CarryOverImportedPayload,
   type CarryOverMemoryAssignedPayload,
   type CarryOverMemoryImported,
-  type CarryOverMemoryInventory,
-  type CarryOverSessionsInventory,
-  type CarryOverSkillsInventory,
   type SessionArchivedPayload,
   type SkillsCarryOverReport,
 } from "@agent-harness/contracts";
-import { readDoesNotCarry, readMemoryFolders } from "../adapters/claude/adopted-directory.js";
-import type { AccountRef, ProviderSessionInfo } from "../adapter/contract.js";
+import { readMemoryFolders } from "../adapters/claude/adopted-directory.js";
+import type { ProviderSessionInfo } from "../adapter/contract.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { AppendOptions, EventLog, Tx } from "../event-log/event-log.js";
 import type { MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
@@ -26,11 +23,13 @@ import type { AutoMemory } from "../workspace/auto-memory.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { adoptedAccount, isCarryOverRefusal, type CarryOverRefusal as Refusal } from "./adopted.js";
 import { memoryDigest } from "../workspace/carry-memory.js";
+import { directoryInventory } from "./directory-inventory.js";
 import { carryOverMemory } from "./memory.js";
 import {
   accountSource,
   failureOf,
   findDirectories,
+  listingFailed,
   heldProviderSessions,
   importedTitle,
   importsArchived,
@@ -80,7 +79,7 @@ export interface CarryOverOptions {
   /** The environment's auto memory, into which memory folders are copied (#329's queue). */
   readonly autoMemory: Pick<AutoMemory, "carryIn">;
   /** Carry over's skills half (#513): run with the skills tick, and its dry run counted by the inventory. */
-  readonly skills: Pick<SkillsCarryOver, "prepare" | "dryRun">;
+  readonly skills: Pick<SkillsCarryOver, "prepare" | "dryRunDirectory">;
   /** The home whose `.claude.json` holds the personal MCP servers of an adopted `~/.claude`. */
   readonly home: string;
 }
@@ -94,18 +93,6 @@ const IMPORT_CHECKS: SessionCreationChecks = { validateRunParameters: acceptAnyR
 
 /** The adopted account an import reads, as its adapter is handed it, with that adapter and the directory it adopted. */
 type Source = AccountSource & { readonly directory: string };
-
-/** The skills part of the inventory, from `skills.carryOver`'s dry run. */
-const skillsInventory = (report: SkillsCarryOverReport): CarryOverSkillsInventory => {
-  const valid = [...report.copied, ...report.kept];
-  return {
-    skills: valid.filter((item) => item.kind === "skill").length + report.offered.length,
-    commands: valid.filter((item) => item.kind === "command").length,
-    new: report.copied.length,
-    offered: report.offered,
-    invalid: report.invalid.length,
-  };
-};
 
 /** A listed session the import will record, with what it found of its working directory. */
 interface Planned {
@@ -126,6 +113,7 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   const importing = new Set<string>();
   const looks = { look: (path: string) => availability.look(path), identityAt: options.identityAt };
   const memory = carryOverMemory({ autoMemory: options.autoMemory, looks, reader });
+  const planInventory = directoryInventory({ ...options, adapters: host.adapters, looks });
 
   /** The adopted account `accountId` names with its adapter, or the refusal: not held, or not adopted. */
   const sourceOf = (accountId: string): Source | Refusal => {
@@ -135,9 +123,6 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
 
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */
   const listed = ({ account, adapter }: AccountSource): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
-
-  const listingFailed = (account: AccountRef, error: unknown): string =>
-    `Listing the sessions in ${account.directory ?? "the account's directory"} failed: ${error instanceof Error ? error.message : String(error)}`;
 
   /**
    * Records one planned session in the command's transaction, as its
@@ -179,42 +164,7 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   const inventory: MethodHandler<"carryOver.inventory"> = async ({ accountId }) => {
     const source = sourceOf(accountId);
     if ("code" in source) throw new ContractError(source);
-    let sessions: ProviderSessionInfo[];
-    try {
-      sessions = await listed(source);
-    } catch (error) {
-      if (error instanceof ContractError) throw error;
-      throw new ContractError({ code: "internal", message: listingFailed(source.account, error), data: {} });
-    }
-    const held = heldProviderSessions(reader);
-    const directories = await findDirectories(
-      sessions.map((session) => session.workingDirectory),
-      looks,
-      false,
-    );
-    const counts: CarryOverSessionsInventory = {
-      total: sessions.length,
-      archived: sessions.filter(importsArchived).length,
-      missingDirectory: sessions.filter((session) => directories.get(session.workingDirectory)?.kind === "missing").length,
-      new: sessions.filter((session) => !held.has(session.providerSessionId)).length,
-    };
-    const mapped = await memory.map(accountId, source.directory);
-    const planned = await memory.copy(mapped.mapped, true);
-    const memoryCounts: CarryOverMemoryInventory = {
-      folders: mapped.mapped.length + mapped.unmappable.length + mapped.failed.length,
-      repositories: new Set(mapped.mapped.map((folder) => folder.key)).size,
-      unmappable: [...mapped.unmappable],
-      new: planned.folders.filter((folder) => folder.outcome !== "kept").length,
-    };
-    const skills = await options.skills.dryRun(accountId);
-    return {
-      accountId,
-      sessions: counts,
-      memory: memoryCounts,
-      skills: skillsInventory(skills),
-      notCarried: skills.notCarried,
-      doesNotCarry: await readDoesNotCarry(source.directory, options.home),
-    };
+    return planInventory({ provider: source.adapter.descriptor.provider, account: { ...source.account, directory: source.directory } });
   };
 
   const run: PreparedCommand<"carryOver.run"> = {

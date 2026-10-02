@@ -368,14 +368,11 @@ describe("the provider's denial report (#131)", () => {
 });
 
 describe("task notifications", () => {
-  it("reports the whole ledger after each change, as rows", () => {
+  it("reports the whole ledger after each change, as rows, and not again for a progress that changed nothing", () => {
     const { state } = setup();
+    // The recorded progress message repeats the row the start wrote, so the turn reports the start and the settling alone.
     const events = mapAll(fixture("tasks-turn"), state).filter((event) => event.type === "tasks.changed");
-    expect(events.map((event) => event.type === "tasks.changed" && event.payload.tasks.map((row) => row.status))).toEqual([
-      ["running"],
-      ["running"],
-      ["completed"],
-    ]);
+    expect(events.map((event) => event.type === "tasks.changed" && event.payload.tasks.map((row) => row.status))).toEqual([["running"], ["completed"]]);
     const last = events.at(-1);
     expect(last?.type === "tasks.changed" && last.payload.tasks[0]).toMatchObject({
       taskId: "task_1",
