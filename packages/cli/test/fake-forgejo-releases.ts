@@ -39,6 +39,8 @@ export interface FakeForgejoQuirks {
   readonly failUpload?: string;
   /** An asset whose upload is answered 201 and kept nowhere, as a proxy losing it would. */
   readonly loseUpload?: string;
+  /** GitHub's API and raw upload protocol instead of Forgejo's multipart API. */
+  readonly github?: boolean;
 }
 
 export interface FakeForgejo {
@@ -55,9 +57,8 @@ export interface FakeForgejo {
   close(): Promise<void>;
 }
 
-const PREFIX = "/api/v1/repos/";
-
 export const startFakeForgejo = async (repository: string, token: string, quirks: FakeForgejoQuirks = {}): Promise<FakeForgejo> => {
+  const PREFIX = quirks.github ? "/repos/" : "/api/v1/repos/";
   const releases: FakeForgejoRelease[] = [];
   const calls: string[] = [];
   const bodies: unknown[] = [];
@@ -84,39 +85,54 @@ export const startFakeForgejo = async (repository: string, token: string, quirks
     const url = new URL(request.url ?? "/", base);
     const method = request.method ?? "GET";
     calls.push(`${method} ${url.pathname.slice(PREFIX.length + repository.length)}${url.search}`);
-    if (request.headers.authorization !== `token ${token}`) return send(response, 401, { message: "token is required" });
-    const path = url.pathname.startsWith(`${PREFIX}${repository}/`) ? url.pathname.slice(`${PREFIX}${repository}`.length) : null;
+    if (request.headers.authorization !== `${quirks.github ? "Bearer" : "token"} ${token}`) return send(response, 401, { message: "token is required" });
+    const route = quirks.github ? url.pathname.replace(/^\/uploads/, "") : url.pathname;
+    const path = route.startsWith(`${PREFIX}${repository}/`) ? route.slice(`${PREFIX}${repository}`.length) : null;
     const byTag = path?.match(/^\/releases\/tags\/([^/]+)$/);
     const byId = path?.match(/^\/releases\/(\d+)(\/assets)?$/);
     const release = byId ? releases.find((each) => each.id === Number(byId[1])) : undefined;
+    const answer = (found: FakeForgejoRelease) => quirks.github ? { ...found, upload_url: `${base}/uploads/repos/${repository}/releases/${found.id}/assets{?name,label}` } : found;
     if (byTag && method === "GET") {
       const found = releases.find((each) => each.tag_name === decodeURIComponent(byTag[1] ?? ""));
-      return found ? send(response, 200, found) : send(response, 404, { message: "Not Found" });
+      return found && !(quirks.github && found.draft) ? send(response, 200, answer(found)) : send(response, 404, { message: "Not Found" });
+    }
+    if (quirks.github && path === "/releases" && method === "GET") {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const count = Number(url.searchParams.get("per_page") ?? "30");
+      return send(response, 200, releases.slice((page - 1) * count, page * count).map(answer));
     }
     if (path === "/releases" && method === "POST") {
       const body = await readJson(request);
       if (releases.some((each) => each.tag_name === body["tag_name"])) return send(response, 409, { message: "Release has no Tag" });
-      return send(response, 201, add({ tag_name: String(body["tag_name"]), name: String(body["name"]), draft: body["draft"] === true, prerelease: body["prerelease"] === true, assets: [] }));
+      return send(response, 201, answer(add({ tag_name: String(body["tag_name"]), name: String(body["name"]), draft: body["draft"] === true, prerelease: body["prerelease"] === true, assets: [] })));
     }
     if (!byId || release === undefined) return send(response, 404, { message: "Not Found" });
     if (byId[2] !== undefined && method === "POST") {
       const name = url.searchParams.get("name") ?? "";
-      const headers = { "content-type": request.headers["content-type"] ?? "" };
-      const form = await new Request(url, { method, headers, body: Readable.toWeb(request) as ReadableStream, duplex: "half" } as RequestInit).formData();
-      const file = form.get("attachment");
-      if (!(file instanceof Blob)) return send(response, 400, { message: "attachment is missing" });
-      const bytes = Buffer.from(await file.arrayBuffer());
+      let bytes: Buffer;
+      if (quirks.github) {
+        if (!url.pathname.startsWith("/uploads/") || request.headers["content-type"] !== "application/octet-stream") return send(response, 400);
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(chunk as Buffer);
+        bytes = Buffer.concat(chunks);
+      } else {
+        const headers = { "content-type": request.headers["content-type"] ?? "" };
+        const form = await new Request(url, { method, headers, body: Readable.toWeb(request) as ReadableStream, duplex: "half" } as RequestInit).formData();
+        const file = form.get("attachment");
+        if (!(file instanceof Blob)) return send(response, 400, { message: "attachment is missing" });
+        bytes = Buffer.from(await file.arrayBuffer());
+      }
       if (name === quirks.failUpload) return send(response, 500, { message: "upload failed" });
       const asset = { id: (ids += 1), name, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
       if (name !== quirks.loseUpload) release.assets.push(asset);
       return send(response, 201, asset);
     }
-    if (method === "GET") return send(response, 200, release);
+    if (method === "GET") return send(response, 200, answer(release));
     if (method === "PATCH") {
       const body = await readJson(request);
       if (typeof body["draft"] === "boolean") release.draft = body["draft"];
       if (typeof body["prerelease"] === "boolean") release.prerelease = body["prerelease"];
-      return send(response, 200, release);
+      return send(response, 200, answer(release));
     }
     if (method === "DELETE") {
       releases.splice(releases.indexOf(release), 1);
@@ -126,7 +142,7 @@ export const startFakeForgejo = async (repository: string, token: string, quirks
   };
 
   const server = createServer((request, response) => {
-    handle(request, response, `http://127.0.0.1`).catch((error: unknown) => send(response, 500, { message: String(error) }));
+    handle(request, response, `http://127.0.0.1:${(server.address() as AddressInfo).port}`).catch((error: unknown) => send(response, 500, { message: String(error) }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
