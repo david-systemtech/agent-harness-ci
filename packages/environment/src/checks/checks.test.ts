@@ -2,7 +2,7 @@ import { CHECK_OUTPUT_MAX_BYTES, CHECK_TIMEOUT_MS, type EventEnvelope, type Even
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakePty, type FakePty } from "../../test/fake-pty.js";
 import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -327,4 +327,24 @@ describe("a running check", () => {
     await again.apply("checks.run", { commandId: randomUUID(), sessionId });
     expect(back.run.spawned.map((shell) => shell.args)).toEqual([["-c", command]]);
   });
+});
+
+
+it("keeps a passing result and closes its terminal when the failure-reset notice cannot be recorded", async () => {
+  const t = await start();
+  const { client, sessionId } = await checkedSession(t, "make check");
+  const events = await sessionEvents(t, client, sessionId);
+  const { terminalId } = await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+  const shell = await t.run.spawnedAt(0);
+  const append = t.env.log.append.bind(t.env.log);
+  const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const fault = vi.spyOn(t.env.log, "append").mockImplementation((stream, inputs, options) => {
+    if (inputs.some((input) => input.type === "checks.failures-reset")) throw new Error("The disk is full.");
+    return append(stream, inputs, options);
+  });
+  onCleanup(() => { fault.mockRestore(); quiet.mockRestore(); });
+  shell.exit(0);
+  expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, exitCode: 0, failure: null });
+  expect(await client.request("terminals.list", { sessionId })).toEqual({ terminals: [] });
+  expect(quiet).toHaveBeenCalled();
 });

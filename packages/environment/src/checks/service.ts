@@ -237,7 +237,11 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     const offerFailure = !checkPassed(finished) && checkRevision(reader, check.workspace) === check.revision && !failureWasOffered(reader, check.workspace, key);
     record(check.sessionId, { ...finished, offerFailure }, key);
     if (checkPassed(finished) && checkRevision(reader, check.workspace) === check.revision) {
-      log.append(environmentStream, [{ type: "checks.failures-reset", payload: { workspace: check.workspace } }], { actor: CHECKS_ACTOR });
+      try {
+        log.append(environmentStream, [{ type: "checks.failures-reset", payload: { workspace: check.workspace } }], { actor: CHECKS_ACTOR });
+      } catch (error) {
+        console.error(`Recording the check failure-offer reset for ${check.workspace} failed:`, error);
+      }
     }
   };
 
