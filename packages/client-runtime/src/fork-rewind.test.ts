@@ -117,7 +117,7 @@ describe("commands.fork", () => {
     onTestFinished(fork.subscribe(() => undefined));
     await holds(fork, (value) => value.freshness === "live");
     const entry = fork.read().items[0];
-    expect(entry).toEqual({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor });
+    expect(entry).toMatchObject({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor, history: expect.any(Object) });
     if (entry?.kind !== "forked") throw new Error("The snapshot lost the forked row.");
     expect(forkedFrom(entry, session.read())).toEqual({ title: "Receipts", anchor: "Then the tests" });
   });
@@ -151,7 +151,7 @@ describe("commands.fork", () => {
     onTestFinished(fork.subscribe(() => undefined));
     await holds(fork, (value) => value.freshness === "live");
     const entry = fork.read().items[0];
-    expect(entry).toEqual({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor });
+    expect(entry).toMatchObject({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor, history: expect.any(Object) });
     if (entry?.kind !== "forked") throw new Error("The compaction lost the forked row.");
     expect(forkedFrom(entry, session.read())).toEqual({ title: "Receipts", anchor: anchored ? "Then the tests" : null });
 
@@ -177,9 +177,9 @@ describe("commands.fork", () => {
     onTestFinished(fork.subscribe(() => undefined));
     await vi.waitFor(() => expect(fork.read().items).toHaveLength(1), EVENTUALLY);
     const [entry] = fork.read().items;
-    expect(entry).toEqual({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor });
+    expect(entry).toMatchObject({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor, history: { title: "Receipts", anchor: "Then the tests" } });
     expect(fork.read()).toMatchObject({ draft: "Then the tests", summary: { title: "Receipts, again" } });
-    // What its row names, read from the source.
+    // What its row names is frozen in the copy, with no source needed.
     if (entry?.kind !== "forked") throw new Error("The fork does not open on its forked entry.");
     expect(forkedFrom(entry, session.read())).toEqual({ title: "Receipts", anchor: "Then the tests" });
   });

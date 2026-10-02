@@ -79,4 +79,13 @@ describe("the state-import stream", () => {
     expect(payload?.safeParse({ ...carried, kind: "nothing" }).success).toBe(false);
     expect(payload?.safeParse({ ...carried, sourceId: undefined }).success).toBe(false);
   });
+
+  it("records dev-site and local policy mappings without carrying a Browser Pairing or a server Connection", () => {
+    const payload = eventTypeEntry("state-import", "state-import.item-carried")?.payload;
+    for (const item of [
+      { ...carried, store: "browser.devSites", sourceId: "dev.example", kind: "dev-site", targetId: "dev.example" },
+      { ...carried, store: "browser.evaluateEverywhere", sourceId: "evaluate-everywhere", kind: "page-policy", targetId: "browser.evaluateEverywhere" },
+    ]) expect(payload?.parse(item)).toEqual(item);
+    for (const kind of ["pairing", "connection"]) expect(payload?.safeParse({ ...carried, kind }).success).toBe(false);
+  });
 });

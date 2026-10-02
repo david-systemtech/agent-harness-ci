@@ -676,3 +676,4 @@ export type { RoutineMoves, RoutineMove, RoutineMoveResult } from "./routine-mov
 
 export type { Checks, ChecksView } from "./checks.js";
 export type { CheckEntry } from "./projections/session.js";
+export { clientLocalImportValues } from "./state-import.js";
