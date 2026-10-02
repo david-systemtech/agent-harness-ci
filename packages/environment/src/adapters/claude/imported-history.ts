@@ -1,4 +1,4 @@
-import type { GetSessionMessagesOptions, GetSubagentMessagesOptions, ListSubagentsOptions, SessionMessage, SessionStore } from "@anthropic-ai/claude-agent-sdk";
+import type { GetSessionMessagesOptions, GetSubagentMessagesOptions, ListSubagentsOptions, SessionMessage, SessionStore, SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 import type { AttachmentRecord } from "@agent-harness/contracts";
 import { HISTORY_EVENT_TYPES, type HistoryEvent } from "../../adapter/contract.js";
 import type { Clock } from "../../serve/clock.js";
@@ -135,7 +135,8 @@ export const readDirectoryHistory = async (read: DirectoryHistoryRead): Promise<
     const main = await read.getSessionMessages(id);
     if (main.length === 0) return null;
     const agents = await read.listSubagents(id);
-    const subagents = await Promise.all(agents.map((agent) => read.getSubagentMessages(id, agent)));
+    const subagents: SessionMessage[][] = [];
+    for (const agent of agents) subagents.push(await read.getSubagentMessages(id, agent));
     return { main, subagents };
   });
   if (found === null) return null;
@@ -170,7 +171,9 @@ export const readDirectoryHistory = async (read: DirectoryHistoryRead): Promise<
 
 export interface StoreSeed {
   readonly queue: ConfigDirQueue;
-  /** The account's config directory, resolved. */
+  /** A listed import source must hydrate successfully; it cannot fall back to an Account transcript. */
+  readonly required?: boolean;
+  /** The account or retained source directory, resolved. */
   readonly directory: string;
   /** The harness session the store keeps the provider session under: its project key. */
   readonly harnessSessionId: string;
@@ -188,16 +191,29 @@ export interface StoreSeed {
  * transcript of it, when the resume goes on as it would have.
  */
 export const seedStoreFromDirectory = async (seed: StoreSeed): Promise<boolean> => {
-  const held = await seed.store.load({ projectKey: seed.harnessSessionId, sessionId: seed.providerSessionId });
-  if (held !== null && held.length > 0) return false;
   const scoped = scopedStore(seed.store, seed.harnessSessionId);
   return seed.queue.run(seed.directory, async () => {
+    const key = { projectKey: seed.harnessSessionId, sessionId: seed.providerSessionId };
+    const held = await seed.store.load(key);
+    if (held !== null && held.length > 0) return false;
+    // The main transcript is the completion evidence. Publish it in one owning-store append only after
+    // every subagent batch has succeeded; an interruption then leaves no partial main to resume from.
+    const main: SessionStoreEntry[] = [];
+    const importing: SessionStore = { ...scoped, append: async (key, entries) => {
+      if (key.subpath === undefined) main.push(...entries);
+      else await scoped.append(key, entries);
+    } };
     try {
-      await seed.importSessionToStore(seed.providerSessionId, scoped);
+      await seed.importSessionToStore(seed.providerSessionId, importing);
+      await seed.store.append(key, main);
+      if (seed.required) {
+        const copied = await seed.store.load({ projectKey: seed.harnessSessionId, sessionId: seed.providerSessionId });
+        if (copied === null || copied.length === 0) throw new Error("The retained source has no usable transcript; this Session remains read-only.");
+      }
       return true;
     } catch (error) {
       // The SDK refuses a session it cannot find; any other failure is the store's, and the run's to report.
-      if (error instanceof Error && /not found/i.test(error.message)) return false;
+      if (!seed.required && error instanceof Error && /not found/i.test(error.message)) return false;
       throw error;
     }
   });

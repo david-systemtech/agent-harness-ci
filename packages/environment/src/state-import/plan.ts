@@ -1,5 +1,7 @@
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
-import type { ImportItem, ItemsApplied } from "./items.js";
+import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
+import type { MethodHandler } from "../serve/methods.js";
+import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
 import { planPagePolicy, type PagePolicyOwner } from "./page-policy.js";
 import type { SourceReportStore } from "./source/report-stores.js";
@@ -25,6 +27,7 @@ interface PlannedStore {
   readonly items: readonly ImportItem[];
   readonly notCarried?: readonly StateImportNotCarried[];
   readonly later?: readonly StateImportLater[];
+  readonly directories?: readonly { readonly sourceId: string; readonly directory: string }[];
 }
 
 export interface ImportPlan {
@@ -36,27 +39,35 @@ export interface ImportPlan {
   /** Repair links read from the owners after application, or anticipated for the preview's new targets. */
   readonly repairs?: (preview: boolean) => readonly StateImportReEnter[];
   readonly notCarried: readonly StateImportNotCarried[];
+  readonly later: readonly StateImportLater[];
   /** Read from the preferences; the snapshot they were read from is one of the stores. */
   readonly clientLocal: StateImportClientLocal;
 }
 
 /** Every item the plan carries, in order. */
+export const directoriesOf = (plan: ImportPlan) => plan.stores.flatMap((store) => store.directories ?? []);
+
 export const itemsOf = (plan: ImportPlan): readonly ImportItem[] => plan.stores.flatMap((store) => store.items);
 
 /** A plan with nothing to carry from `sourceKey`: a source with a terminal-client state folder alone. */
-export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores: [], failed: [], notCarried: [], clientLocal: {} });
+export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores: [], failed: [], notCarried: [], later: [], clientLocal: {} });
 
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & PagePolicyOwner): ImportPlan => {
-  const { sourceKey, instructions, preferences, browser } = stores;
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & { readonly updateSettings: MethodHandler<"settings.update"> } & PagePolicyOwner): Promise<ImportPlan> => {
+  const { sourceKey, instructions, preferences, profiles, browser } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
   const planned: PlannedStore[] = [];
+  const accounts = profiles.status === "read" ? await planAccounts(profiles.records, { ...options, sourceKey }) : undefined;
+  if (accounts !== undefined && profiles.status === "read") {
+    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, notCarried: stores.reportStores.flatMap(({ read }) => read.status === "read" ? read.records.notCarried : []), later: stores.reportStores.flatMap(({ read }) => read.status === "read" ? read.records.later : []), directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, directory: entry.observation?.directory ?? entry.directory })) });
+    failed.push(...accounts.failed);
+  } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
   if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });
   else {
-    const plan = planInstructions(instructions.records, { ...options, sourceKey });
+    const plan = planInstructions(instructions.records, { ...options, sourceKey, accountIds: accounts?.accountIds });
     planned.push({ snapshot: instructions.snapshot, label: INSTRUCTIONS, items: plan.items });
     failed.push(...plan.failed);
     notCarried.push(...plan.notCarried);
@@ -66,11 +77,17 @@ export const planImport = (stores: SourceStores, options: Omit<PlanInstructionsO
   else {
     const { records } = preferences;
     clientLocal = records.clientLocal;
+    const active = records.activeProfileId;
+    const defaultItems: ImportItem[] = [];
+    if (active !== undefined && mappedTarget(options.log, { sourceKey, store: "preferences", sourceId: "active-profile" }) === undefined) {
+      if (!accounts?.accountIds.has(active)) failed.push({ label: "Default Account", message: "The active profile has no live mapped Account; the harness default is preserved." });
+      else defaultItems.push(defaultAccountItem(active, { ...options, sourceKey }));
+    }
     const excluded: StateImportNotCarried[] = [];
     if (records.modelChoices > 0) excluded.push({ label: "Per-session model choices", count: records.modelChoices, step: null });
     if (records.layouts > 0) excluded.push({ label: "Dock layouts", count: records.layouts, step: null });
     if (records.composerSeeds > 0) excluded.push({ label: "Composer seeds", count: records.composerSeeds, step: null });
-    planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: [], notCarried: excluded });
+    planned.push({ snapshot: preferences.snapshot, label: PREFERENCES, items: defaultItems, notCarried: excluded });
   }
   if (browser.status === "failed") failed.push({ label: "Browser policy", message: browser.diagnostic });
   else {
@@ -79,7 +96,7 @@ export const planImport = (stores: SourceStores, options: Omit<PlanInstructionsO
     planned.push({ snapshot: browser.snapshot, label: "Browser policy", items: policy.items, notCarried: pairings });
     failed.push(...policy.failed);
   }
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal }, stores.reportStores);
+  return { sourceKey, stores: planned, failed, notCarried, clientLocal, later: [] };
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */
@@ -126,9 +143,9 @@ const NOTHING_CARRIED: StateImportCarried = {
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
   const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
+    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
     reEnter: [...(plan.repairs?.(applied === null) ?? [])],
-    later: plan.stores.flatMap((store) => store.later ?? []),
+    later: [...plan.later, ...plan.stores.flatMap((store) => store.later ?? [])],
     notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],
     failed: [...plan.failed, ...(applied?.failed ?? [])],
     clientLocal: plan.clientLocal,

@@ -205,7 +205,12 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 200,
-              "description": "The adopted account whose directory holds the provider session."
+              "description": "The winning adopted Account used for continuation and credentials."
+            },
+            "sourceDirectory": {
+              "description": "Retained import source for lazy history and first store hydration. When omitted, use the Account directory; never use this directory for authentication.",
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)"
             },
             "providerSessionId": {
               "type": "string",

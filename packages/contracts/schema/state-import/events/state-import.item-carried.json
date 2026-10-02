@@ -31,9 +31,17 @@
         "forge-account",
         "key-manager-connection",
         "dev-site",
-        "page-policy"
+        "page-policy",
+        "account",
+        "account-default",
+        "session"
       ],
       "description": "The kind of item a state import carried: an owned instruction, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
+    },
+    "sourceDirectory": {
+      "description": "The canonical listed Claude directory retained as an import source for an Account or Session mapping, including a secondary directory. No credentials.",
+      "type": "string",
+      "minLength": 1
     },
     "targetId": {
       "type": "string",

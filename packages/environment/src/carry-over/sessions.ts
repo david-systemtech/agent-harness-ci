@@ -83,15 +83,16 @@ export const listAccountSessions = async (adapter: Adapter, account: AccountRef)
  * session a run continued, or began, is never imported again. A session
  * deleted but not yet purged is held; a purged one is not.
  */
-export const heldProviderSessions = (reader: Reader): ReadonlySet<string> =>
-  new Set(
-    reader
+export const heldProviderSessions = (reader: Reader, sourceKey?: string): ReadonlySet<string> =>
+  new Set([
+    ...(sourceKey === undefined ? [] : reader.all<{ source_id: string }>("SELECT source_id FROM state_import_items WHERE source_key = ? AND kind = 'session'", sourceKey).map((row) => row.source_id)),
+    ...reader
       .all<{ id: string | null }>(
         `SELECT json_extract(origin, '$.providerSessionId') AS id FROM sessions WHERE json_extract(origin, '$.kind') = 'import'
          UNION SELECT provider_session_id AS id FROM runs WHERE provider_session_id IS NOT NULL`,
       )
       .flatMap((row) => (row.id === null ? [] : [row.id])),
-  );
+  ]);
 
 /** Runs `work` over `items`, at most `limit` at once, answering in the items' order. */
 const atMost = async <T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> => {

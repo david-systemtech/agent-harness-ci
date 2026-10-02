@@ -7,7 +7,10 @@
     "forge-account",
     "key-manager-connection",
     "dev-site",
-    "page-policy"
+    "page-policy",
+    "account",
+    "account-default",
+    "session"
   ],
   "description": "The kind of item a state import carried: an owned instruction, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
 }
