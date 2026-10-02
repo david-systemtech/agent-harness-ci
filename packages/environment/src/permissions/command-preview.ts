@@ -46,7 +46,7 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
  * The verbs worth warning about.
  *
  * `other` is the escape hatch for a command that unmistakably destroys — `dd`,
- * `shred`, `mkfs`, `wipefs` — and for which there is no dry run to run and no
+ * `shred`, filesystem makers, `wipefs` — and for which there is no dry run to run and no
  * glob to expand. It still earns a line, because "this is destructive and
  * cannot be previewed" is information, and a silent card would be read as
  * "this is fine".
@@ -465,7 +465,11 @@ const XARGS_VALUE_FLAGS = new Set(['-n', '-P', '-L', '-a', '-s', '-d', '-E', '--
 const GIT_VALUE_OPTIONS = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
 
 /** Destructive, with nothing mechanical to say about it beyond naming the paths. */
-const OTHERS = new Set(['shred', 'dd', 'mkfs', 'wipefs']);
+const OTHERS = new Set([
+  'shred', 'dd', 'mkfs', 'wipefs',
+  'mkfs.ext2', 'mkfs.ext3', 'mkfs.ext4', 'mkfs.xfs', 'mkfs.btrfs',
+  'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mke2fs',
+]);
 
 const baseName = (text: string): string => {
   const cut = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));

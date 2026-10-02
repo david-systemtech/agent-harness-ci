@@ -153,6 +153,19 @@ it('reports locale-sensitive character classes as unavailable rather than an emp
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it.each(['mkfs.ext2', 'mkfs.ext3', 'mkfs.ext4', 'mkfs.xfs', 'mkfs.btrfs', 'mkfs.vfat', 'mkfs.fat', 'mkfs.msdos', 'mkfs.exfat', 'mkfs.ntfs', 'mke2fs'])('recognises %s and its absolute executable path as destructive', (name) => {
+    for (const executable of [name, `/usr/sbin/${name}`]) {
+      const command = `${executable} disk.img`;
+      expect(destructiveParts(command)).toEqual([{ kind: 'other', text: command, targets: ['disk.img'], flags: [] }]);
+    }
+  });
+
+  it('keeps filesystem-maker coverage curated rather than matching any mkfs prefix', () => {
+    for (const command of ['mkfs.custom disk.img', 'mkfs.ext4-wrapper disk.img', 'mkfs-info disk.img', 'echo mkfs.ext4 disk.img']) {
+      expect(destructiveParts(command), command).toEqual([]);
+    }
+  });
+
   it('warns about a subshell without querying or evaluating its contents', async () => {
     const command = '(rm -rf build)';
     expect(destructiveParts(command)).toEqual([{ kind: 'indirect-shell', text: command, targets: [], flags: [] }]);
