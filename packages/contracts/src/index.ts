@@ -1,3 +1,4 @@
+export { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
@@ -18,6 +19,7 @@ export * from "./browser-driver.js";
 export * from "./browser-policy.js";
 export * from "./browser-settings.js";
 export * from "./browser-status.js";
+export * from "./checks.js";
 export * from "./credential-settings.js";
 export * from "./calendar.js";
 export * from "./carry-over.js";

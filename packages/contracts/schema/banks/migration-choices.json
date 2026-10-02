@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankMigrationChoices",
+  "type": "object",
+  "properties": {
+    "team": {
+      "type": "object",
+      "properties": {
+        "org": {
+          "type": "string",
+          "maxLength": 40,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+        },
+        "owners": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\s/:]+$"
+          }
+        }
+      },
+      "required": [
+        "org",
+        "owners"
+      ]
+    },
+    "scopeMoves": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(?:brands|shared)\\/(?:(?!\\.{1,2}\\/|memories\\/)[a-z0-9]+(?:-[a-z0-9]+)*\\/){0,2}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "allOf": [
+          {
+            "pattern": "^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){1,3}|(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){2,3}memories\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/)$"
+          },
+          {
+            "pattern": "^[^:]+:[^/]+\\/[^/]+\\/(?:[^/]+\\/)?$"
+          }
+        ],
+        "description": "A project or area folder pointer bank:org/project/[area/], whose flat memories may be split into authored topics."
+      }
+    },
+    "topicDeclarations": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "allOf": [
+          {
+            "pattern": "^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){1,3}|(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){2,3}memories\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/)$"
+          },
+          {
+            "pattern": "^[^:]+:[^/]+\\/[^/]+\\/(?:[^/]+\\/)?$"
+          }
+        ],
+        "description": "A project or area folder pointer bank:org/project/[area/], whose flat memories may be split into authored topics."
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "A topic's name: a lower-case slug, the folder under memories/ its memories nest in."
+        },
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[^\\r\\n]*$"
+        },
+        "description": "The folder's declared topics, each a lower-case slug mapped to its one-liner of at most 100 characters; {} for none."
+      }
+    },
+    "repositoryMappings": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+        "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+      }
+    },
+    "artefactRepairs": {
+      "type": "object",
+      "propertyNames": {
+        "anyOf": [
+          {
+            "type": "string",
+            "pattern": "^projects\\/(?!\\.{1,2}\\/|\\.git\\/)[^/\\\\]+\\/(?!\\.{1,2}\\/|\\.git\\/)[^/\\\\]+\\/(?:(?!\\.{1,2}\\/|\\.git\\/)[^/\\\\]+\\/)?(?:PROJECT|AREA|SYSTEM)\\.md$"
+          },
+          {
+            "type": "string",
+            "pattern": "^(?:brands\\/|shared\\/)(?:(?!\\.{1,2}\\/|\\.git\\/)[^/\\\\]+\\/){0,2}(?:PROJECT|AREA|SYSTEM)\\.md$"
+          }
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "topics": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "allOf": [
+          {
+            "pattern": "^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){1,3}|(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){2,3}memories\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/)$"
+          },
+          {
+            "pattern": "^[^:]+:[^/]+\\/[^/]+\\/(?:[^/]+\\/)?$"
+          }
+        ],
+        "description": "A project or area folder pointer bank:org/project/[area/], whose flat memories may be split into authored topics."
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "A topic's name: a lower-case slug, the folder under memories/ its memories nest in."
+        },
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "line": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[^\\r\\n]*$"
+            },
+            "memories": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 60,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+              }
+            }
+          },
+          "required": [
+            "line",
+            "memories"
+          ]
+        },
+        "description": "Authored topics mapped to their one-liner and memory names. Existing declarations remain; each selected memory moves one topic level deeper without changing its file."
+      }
+    },
+    "orientationDrafts": {
+      "minItems": 1,
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 60,
+            "maxLength": 160,
+            "description": "What a run matches the memory by: 60 to 160 characters, opening with a trigger word, unique in its folder."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "body"
+        ]
+      }
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[^\\r\\n]*$",
+      "description": "The bank line every run sees: what the bank is for, one line of at most 160 characters."
+    },
+    "entities": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aliases": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "folder": {
+            "type": "string",
+            "pattern": "^[^/\\s:]+\\/(?:[^/\\s:]+\\/){0,2}$",
+            "description": "A scope folder as a pointer names it, relative to projects/: org/, org/project/ or org/project/area/, ending in a slash."
+          }
+        },
+        "required": [
+          "name",
+          "aliases"
+        ],
+        "description": "An entity a bank holds facts about: its name, its aliases (matched whole-word and case-insensitive against the first message and the repository identity) and, optionally, the scope folder a match expands."
+      }
+    },
+    "retiredWorkflows": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\.(?:forgejo|github|gitea)\\/workflows\\/[^/]+\\.ya?ml$"
+      }
+    },
+    "secretScan": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^[^\\r\\n]+$"
+    }
+  },
+  "description": "Accepted identities, repaired scope artefacts, authored topics and replaced workflow paths. Suggestions alone move no memory."
+}
