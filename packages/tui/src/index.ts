@@ -5,12 +5,12 @@ import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { App, mountApp, type InkRender } from "./app.js";
 import { terminalChrome } from "./attention/chrome.js";
 import { keybindingsFor } from "./keys.js";
-import { ensurePrivateDirectory } from "./platform/files.js";
-import { nodePlatform, stateDirectory, systemClock } from "./platform/node-platform.js";
+import { systemClock } from "./platform/node-platform.js";
 import type { LocalService } from "./platform/services.js";
 import { importTerminalState, type TerminalImportSource } from "./platform/terminal-import.js";
 import { presentationFile } from "./presentation.js";
 import { createRuntimeHost } from "./runtime-host.js";
+import { terminalPlatform } from "./startup/terminal-platform.js";
 import { colourDepth } from "./theme/colours.js";
 import { askGround } from "./theme/ground.js";
 import { messageOf, type Fault } from "./view.js";
@@ -68,19 +68,18 @@ export const runTui = async (options: TuiOptions): Promise<number> => {
   }
   // Truecolour from COLORTERM, and under it the ground: the setting's, else the terminal's answer, asked before Ink reads the keys.
   const depth = await colourDepth(options.env ?? process.env, () => askGround({ stdin, stdout }));
-  const stateDir = options.stateDir ?? stateDirectory();
-  ensurePrivateDirectory(stateDir);
-  const keybindings = keybindingsFor(options, stateDir);
   const faults = writable<readonly Fault[]>([]);
   // On the system clock the platform is built with, the one notices carry, so the activity line can tell which is newer;
   // read from the clock itself, so a report never depends on the platform binding being initialised.
   const report = (message: string) => faults.update((list) => [...list, { message, at: systemClock.now().toISOString() }].slice(-20));
-  const platform = options.platform ?? nodePlatform({
-    stateDir,
+  const { stateDir, platform: defaultPlatform } = terminalPlatform({
+    stateDir: options.stateDir,
     dataDir: options.dataDir,
     version: options.version,
     reportError: (error) => report(`Fault: ${messageOf(error)}`),
   });
+  const platform = options.platform ?? defaultPlatform;
+  const keybindings = keybindingsFor(options, stateDir);
   const host = createRuntimeHost(() => createRuntime(platform));
   if (options.terminalSource) {
     try {

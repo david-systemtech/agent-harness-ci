@@ -1,11 +1,18 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join, resolve } from "node:path";
-import { DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
+import { BOOTSTRAP_GRANT_FILE, DISCOVERY_PATH, PROTOCOL_VERSION } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION, ROOT_REFUSAL } from "@agent-harness/environment";
 import type { TuiOptions } from "@agent-harness/tui";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { bundledVersion, installContextAt, makeTempDir, stubRunner, type Answer } from "../test/service-helpers.js";
 import { runCli, type CliContext } from "./cli.js";
+import { selectEnvironment } from "./tui.js";
+
+// The terminal UI is a recorder here, and its screenless entry draws nothing: Ink loaded by anything this file runs fails.
+vi.mock("ink", () => {
+  throw new Error("The CLI loaded Ink.");
+});
 
 /**
  * `agent-harness tui` (docs/specs/tui.md, "The entry point and the
@@ -215,5 +222,40 @@ describe("the service verbs agent-harness tui hands the terminal UI", () => {
   it("reads nothing when nothing answers", async () => {
     const { services } = await harness().launch();
     expect(await services.readiness()).toBe("nothing");
+  });
+});
+
+/** A loopback port nothing listens on: one the system handed out, closed again. */
+const closedPort = async (): Promise<number> => {
+  const server = createServer();
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  const { port } = server.address() as { readonly port: number };
+  await new Promise<void>((done) => server.close(() => done()));
+  return port;
+};
+
+describe("the environment agent-harness tui would show, chosen without a screen", () => {
+  it("is chosen on the data directory tui hands over, with no terminal, and refused in one line when there is none to use", async () => {
+    const cli = harness();
+    // The terminal UI's own state directory, under the test's home rather than the user's.
+    vi.stubEnv("AGENT_HARNESS_TUI_STATE_DIR", join(cli.home, "tui-state"));
+    onTestFinished(() => void vi.unstubAllEnvs());
+    const faults: string[] = [];
+    const context = { seams: { installContext: cli.installContext }, report: (line: string) => void faults.push(line) };
+
+    expect(await selectEnvironment({}, context)).toMatchObject({ ok: false, reason: "none" });
+
+    // The local environment's grant file, where `tui` reads it, names a port nothing listens on: it is not running.
+    const dataDir = defaultDataDirectory(cli.installContext);
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, BOOTSTRAP_GRANT_FILE), JSON.stringify({ secret: "secret-for-tests", address: { host: "127.0.0.1", port: await closedPort() } }));
+    expect(await selectEnvironment({ cwd: "/srv/notes" }, context)).toEqual({
+      ok: false,
+      reason: "unreachable",
+      message: "The environment on this machine is not running. `agent-harness service start` starts it.",
+    });
+    expect(existsSync(join(cli.home, "tui-state"))).toBe(true);
+    expect(faults).toEqual([]);
+    expect(cli.out()).toBe("");
   });
 });
