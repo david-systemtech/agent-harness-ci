@@ -8,14 +8,14 @@ import {
   type TerminalInfo,
 } from "@agent-harness/contracts";
 import { resolve } from "node:path";
-import { RECEIPT_RETENTION_MS, type EventLog, type StreamRef } from "../event-log/event-log.js";
+import { RECEIPT_RETENTION_MS, type EventEnvelope, type EventLog, type StreamRef, type Tx } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
 import type { AvailabilityWatcher } from "../workspace/availability.js";
 import { requireSessionWorkspace, sessionWorkspace, sessionWorkspaceStatus } from "../workspace/session.js";
 import { PtyUnavailableError } from "./pty.js";
-import { createTerminals, type OpenToolTerminal, type Terminals, type TerminalsOptions, type ToolTerminal } from "./terminals.js";
+import { createTerminals, type OpenTerminal, type OpenToolTerminal, type Terminals, type TerminalsOptions, type ToolTerminal } from "./terminals.js";
 
 /**
  * The terminal methods on the method table (tui spec, "Terminals, files and
@@ -74,9 +74,38 @@ export interface ToolTerminals {
   openRecorded(request: OpenToolTerminal): ToolTerminal;
 }
 
+/** A one-off command the environment runs in a session's terminal in process (#1187), as `terminals.run` runs a client's. */
+export interface InProcessRun {
+  readonly id: string;
+  readonly sessionId: string;
+  /** The shell text, run as `terminals.run` runs it: `/bin/sh -c` on POSIX, PowerShell without a profile on Windows. */
+  readonly command: string;
+  /** Where it runs; relative to the session's workspace when relative. */
+  readonly cwd: string;
+  /** Hears the terminal's events from its first output to its exit. */
+  readonly follow: (event: EventEnvelope) => void;
+}
+
+/** Session terminals the environment opens in process for one-off commands of its own (a Workspace check, #1187). */
+export interface CommandTerminals {
+  /** The look `terminals.run` takes before it decides: the availability watcher at the session's workspace, which marks it gone or back (#328, #669). */
+  look(sessionId: string): Promise<unknown>;
+  /**
+   * `terminals.run` of `request`, decided in the command transaction `tx`
+   * as a client's is: refused as it would be (`not_found` for a session
+   * not here; `conflict` reason `exists`, `too_many_terminals` or
+   * `workspace_missing`), or the terminal it opens, its command started
+   * once the transaction has committed.
+   */
+  run(request: InProcessRun, tx: Tx): { readonly terminal: TerminalInfo } | { readonly rejected: CommandRejection<"not_found" | "conflict"> };
+  /** Closes the terminal as `terminals.close` does: its command hung up, and killed if it lingers. */
+  close(id: string): void;
+}
+
 export interface TerminalService {
   readonly terminals: Terminals;
   readonly tools: ToolTerminals;
+  readonly commands: CommandTerminals;
   readonly handlers: MethodHandlers;
   /** Stops hearing deletions and closes every terminal. */
   close(): void;
@@ -126,6 +155,17 @@ const target = (terminals: Terminals, id: string, caller: CommandContext, exited
 
 const afterCommit = (context: CommandContext, work: () => void): void => context.tx.afterCommit(work);
 
+/** What a terminal's open is asked: `terminals.open`'s params, or `terminals.run`'s with its command. */
+interface OpenAsked {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly command?: string | undefined;
+  readonly cwd?: string | undefined;
+  readonly cols?: number | undefined;
+  readonly rows?: number | undefined;
+  readonly env?: Readonly<Record<string, string>> | undefined;
+}
+
 export const createTerminalService = (options: TerminalServiceOptions): TerminalService => {
   const { log, clock } = options;
   const terminals = createTerminals(options);
@@ -134,8 +174,9 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
    * Whether `id` was ever a terminal here: open since the environment started,
    * named by an accepted command's receipt within the receipts' 30 days, or
    * a tool run's terminal, which `tool.run-started` names for good (#376),
-   * so an id is not reused across a restart. A rejected open never opened
-   * anything, so its receipt does not count.
+   * or a Workspace check's, which `checks.started` does (#1187), so an id
+   * is not reused across a restart. A rejected open never opened anything,
+   * so its receipt does not count.
    */
   const used = (id: string): boolean =>
     terminals.used(id) ||
@@ -146,6 +187,8 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
       new Date(clock.now().getTime() - RECEIPT_RETENTION_MS).toISOString(),
     ).length > 0 ||
     log.read("SELECT 1 FROM events WHERE stream_kind = ? AND type = 'tool.run-started' AND json_extract(payload, '$.terminalId') = ? LIMIT 1", ENVIRONMENT_STREAM_KIND, id)
+      .length > 0 ||
+    log.read("SELECT 1 FROM events WHERE stream_kind = ? AND type = 'checks.started' AND json_extract(payload, '$.terminalId') = ? LIMIT 1", SESSION_STREAM_KIND, id)
       .length > 0;
 
   const stopHearing = log.subscribe((event) => {
@@ -197,45 +240,52 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
   });
 
   /**
-   * The open itself, decided once the availability watcher has looked at the
-   * session's workspace and marked it by what it found (#669): a workspace
-   * marked missing is refused.
+   * An open decided once the availability watcher has looked at the
+   * session's workspace and marked it by what it found (#669): refused, a
+   * workspace marked missing among the reasons, or what to open once the
+   * command has committed and the terminal as its answer names it.
    */
-  const open: MethodHandler<"terminals.open" | "terminals.run"> = (params, context) => {
-    const id = params.id.toLowerCase();
-    const sessionId = params.sessionId.toLowerCase();
-    const aggregate = terminalAggregate(id);
+  const decide = (asked: OpenAsked): { readonly rejected: CommandRejection<"not_found" | "conflict"> } | { readonly request: OpenTerminal; readonly terminal: TerminalInfo } => {
+    const id = asked.id.toLowerCase();
+    const sessionId = asked.sessionId.toLowerCase();
     const workspace = sessionWorkspaceStatus(log, sessionId);
-    if (workspace === null) return { aggregate, rejected: sessionNotFound(sessionId) };
-    if (used(id)) return { aggregate, rejected: exists(id) };
+    if (workspace === null) return { rejected: sessionNotFound(sessionId) };
+    if (used(id)) return { rejected: exists(id) };
     if (terminals.list(sessionId).length >= MAX_TERMINALS_PER_SESSION) {
       return {
-        aggregate,
         rejected: conflict("too_many_terminals", `Session ${sessionId} has ${MAX_TERMINALS_PER_SESSION} terminals open; close one first.`, {
           sessionId,
           limit: MAX_TERMINALS_PER_SESSION,
         }),
       };
     }
-    const cwd = "command" in params && params.cwd !== undefined ? resolve(workspace.path, params.cwd) : workspace.path;
+    const cwd = asked.command !== undefined && asked.cwd !== undefined ? resolve(workspace.path, asked.cwd) : workspace.path;
     if (workspace.status === "missing") {
-      return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${workspace.path} is gone, or did not answer in time.`, { path: workspace.path }) };
+      return { rejected: conflict("workspace_missing", `The session's workspace ${workspace.path} is gone, or did not answer in time.`, { path: workspace.path }) };
     }
-    const unavailable = "command" in params ? undefined : noPty();
-    if (unavailable !== undefined) return { aggregate, rejected: unavailable };
+    const unavailable = asked.command !== undefined ? undefined : noPty();
+    if (unavailable !== undefined) return { rejected: unavailable };
     const request = {
       id,
       sessionId,
       cwd,
-      cols: params.cols ?? DEFAULT_TERMINAL_SIZE.cols,
-      rows: params.rows ?? DEFAULT_TERMINAL_SIZE.rows,
-      env: params.env ?? {},
+      cols: asked.cols ?? DEFAULT_TERMINAL_SIZE.cols,
+      rows: asked.rows ?? DEFAULT_TERMINAL_SIZE.rows,
+      env: asked.env ?? {},
       openedAt: clock.now().toISOString(),
-      ...("command" in params ? { command: params.command } : {}),
+      ...(asked.command !== undefined && { command: asked.command }),
     };
-    afterCommit(context, () => void terminals.open(request));
     const terminal: TerminalInfo = { id, owner: "session", sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
-    return { aggregate, result: { terminal } };
+    return { request, terminal };
+  };
+
+  /** `terminals.open` and `terminals.run`, decided once the look at the workspace has settled. */
+  const open: MethodHandler<"terminals.open" | "terminals.run"> = (params, context) => {
+    const aggregate = terminalAggregate(params.id.toLowerCase());
+    const decided = decide(params);
+    if ("rejected" in decided) return { aggregate, rejected: decided.rejected };
+    afterCommit(context, () => void terminals.open(decided.request));
+    return { aggregate, result: { terminal: decided.terminal } };
   };
 
   const handlers: MethodHandlers = {
@@ -314,9 +364,21 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
     openRecorded: (request) => terminals.openTool({ ...request, id: request.id.toLowerCase() }),
   };
 
+  const commands: CommandTerminals = {
+    look: (sessionId) => options.availability.check(sessionId.toLowerCase()),
+    run(request, tx) {
+      const decided = decide(request);
+      if ("rejected" in decided) return { rejected: decided.rejected };
+      tx.afterCommit(() => void terminals.open({ ...decided.request, follow: request.follow }));
+      return { terminal: decided.terminal };
+    },
+    close: (id) => terminals.close(id.toLowerCase(), "closed"),
+  };
+
   return {
     terminals,
     tools,
+    commands,
     handlers,
     close() {
       stopHearing();

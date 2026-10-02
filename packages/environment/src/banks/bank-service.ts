@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { createBankLander, type BankChanges } from "./lander.js";
+import { createDescribeLanding } from "./describe-landing.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 import {
   BANK_INDEX_BUDGET,
@@ -27,6 +28,7 @@ import { formatActor } from "../event-log/envelope.js";
 import type { EventLog, StreamRef } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { joinBank, previewBank } from "./join.js";
+import { prepareBankPublication } from "./publish.js";
 import { createBankCommand } from "./create.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
@@ -214,13 +216,15 @@ export interface BankServiceOptions {
     readonly dataDir: string;
     readonly localPersonName: string;
     readonly scrub: Pick<ScrubRegistry, "check">;
-    readonly forge: Pick<ForgeService, "list" | "owners" | "repositories" | "git">;
+    readonly forge: Pick<ForgeService, "list" | "owners" | "repositories" | "pullRequests" | "issues" | "git">;
     readonly accounts: () => readonly { readonly id: string }[];
     readonly keyManager: () => BankKeyManager | null;
   };
 }
 
 export interface BankService {
+  /** Serializes sync and landing work that share a bank's checkout and git refs. */
+  withCheckout<T>(bankId: string, work: () => Promise<T>): Promise<T>;
   /** Installs the environment-owned landing path once its session directories exist. */
   configureLanding(options: Pick<Parameters<typeof createBankLander>[0], "forge" | "scrub" | "temporaryDirectory">): void;
   closeLanding(): Promise<void>;
@@ -248,10 +252,12 @@ export interface BankService {
   readonly join: PreparedCommand<"banks.join">;
   readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
+  readonly publish: PreparedCommand<"banks.publish">;
 }
 
 export const createBankService = (options: BankServiceOptions): BankService => {
   const { log, clock, forge } = options;
+  const checkoutWork = new Map<string, Promise<unknown>>();
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   recoverCheckoutRemovals(reader, log, stream, options.dataDir);
@@ -342,9 +348,13 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       for (const branch of branches) {
         const holds = await runGit(repository, ["cat-file", "-e", `${branch}:BANK.md`], { maxBytes: 1024 });
         if (!holds.ok) continue;
+        try { if (!validateBank({ files: await readBankFiles(repository, branch) }).valid) continue; } catch { continue; }
+        const head = await runGit(repository, ["rev-parse", branch], { maxBytes: 1024 });
+        if (!head.ok || head.truncated) continue;
+        const sha = head.stdout.toString("utf8").trim();
         const answer = await forge.pullRequests.listByHead({ origin: location.origin, repository: location.repository, branch, limit: 5, purpose: VERIFY_PURPOSE });
         if (answer.outcome !== "done") answered = false;
-        const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open") : undefined;
+        const open = answer.outcome === "done" ? answer.value.find((pullRequest) => pullRequest.state === "open" && pullRequest.head.sha === sha && pullRequest.base.ref === "main") : undefined;
         if (open !== undefined) return { pullRequest: open.url, answered };
       }
     }
@@ -407,6 +417,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
 
   /** Verifies one bank and records what changed; answers its entry after. */
   const verifyOne = async (entry: BankEntry): Promise<void> => {
+    entry = liveBank(reader, entry.id) ?? entry;
     const generation = (verificationGenerations.get(entry.id) ?? 0) + 1;
     verificationGenerations.set(entry.id, generation);
     const { status: found, reading } = await inspect(entry);
@@ -431,10 +442,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     readings.set(entry.id, reading === null || now === null ? reading : readingFrom(reading.files, now));
   };
 
+  const reconcileDescribe = createDescribeLanding({ log, dataDir: options.dataDir, environmentId: options.environmentId, forge, git: options.credentials.git, landChanges: (bankId, changes) => service.landChanges(bankId, changes) });
+
   const verifyAll = (): Promise<BankRecord[]> => {
     verifyingAll ??= (async () => {
       try {
-        for (const entry of listBanks(reader).filter((bank) => bank.enabled)) { await reconcileLanding(entry.id); await verifyOne(entry); }
+        for (const entry of listBanks(reader).filter((bank) => bank.enabled)) { await reconcileDescribe(entry); await reconcileLanding(entry.id); await verifyOne(entry); }
         return await records();
       } finally {
         verifyingAll = null;
@@ -598,6 +611,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return bank;
   };
   const service: BankService = {
+    async withCheckout(bankId, work) {
+      const next = (checkoutWork.get(bankId) ?? Promise.resolve()).catch(() => undefined).then(work);
+      checkoutWork.set(bankId, next);
+      try { return await next; }
+      finally { if (checkoutWork.get(bankId) === next) checkoutWork.delete(bankId); }
+    },
     configureLanding(landing) { if (lander) throw new Error("Bank landing is already configured."); lander = createBankLander({ ...landing, log, clock, environmentId: options.environmentId, banks: service }); },
     async closeLanding() { await lander?.close(); },
     promote(bankId, sessionId, drafts) {
@@ -618,7 +637,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async verify(bankId) {
       if (bankId === undefined) return verifyAll();
       const entry = liveBank(reader, bankId);
-      if (entry !== null) { await reconcileLanding(entry.id); await verifyOne(entry); }
+      if (entry !== null) { await reconcileDescribe(entry); await reconcileLanding(entry.id); await verifyOne(entry); }
       return records();
     },
     async recordSync(bankId, outcome) {
@@ -649,6 +668,41 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     preview: (url) => previewBank(options, url),
     join: joinBank({ ...options, register: { prepare: (params) => prepareRegister(params, false, "managed") } }),
     create,
+    publish: {
+      async prepare(params, context) {
+        const bank = liveBank(reader, params.bankId);
+        if (!bank) throw new ContractError({ code: "not_found", message: "No such bank is registered.", data: {} });
+        if (bank.location.kind !== "local") throw new ContractError({ code: "conflict", message: "Only a local-only bank can be published.", data: { reason: "not_local_only", bankId: bank.id } });
+        if (!bank.enabled || bank.role !== "read-write") throw new ContractError({ code: "bank_read_only", message: "Enable a writable bank before publishing it.", data: { bank: bank.name } });
+        if (!lander || !options.creation) throw new ContractError({ code: "not_found", message: "Bank publication is unavailable.", data: {} });
+        const release = lander.reserve(bank.id);
+        if (!release) throw new ContractError({ code: "conflict", message: "A landing is already in progress for this bank.", data: { reason: "landing_in_progress", bankId: bank.id } });
+        context.onUndo(release);
+        try {
+          const publication = await prepareBankPublication({ bank, commandId: params.commandId, transferIssues: params.transferIssues === true, dataDir: options.dataDir, forge: options.creation.forge, scrub: options.scrub });
+          const remote = await runGit(bank.checkout, ["remote", "get-url", "origin"], { maxBytes: 64 * 1024 });
+          const oldUrl = remote.ok ? remote.stdout.toString("utf8").trim() : null;
+          const installed = await runGit(bank.checkout, ["remote", oldUrl === null ? "add" : "set-url", "origin", publication.url], { maxBytes: 64 * 1024 });
+          if (!installed.ok) throw new Error("The published bank's remote could not be recorded.");
+          context.onUndo(async () => { await runGit(bank.checkout, oldUrl === null ? ["remote", "remove", "origin"] : ["remote", "set-url", "origin", oldUrl], { maxBytes: 64 * 1024 }); });
+          const reading = await readingOf(bank);
+          const claims = (await readAll()).map(({ entry, reading: its }) => claimOf(entry, its));
+          return (_params, command) => {
+            try {
+              const current = liveBank(reader, bank.id);
+              if (!current || current.location.kind !== "local") return { aggregate: stream, rejected: { code: "conflict", message: "The bank changed while publication was prepared.", data: { reason: "not_local_only", bankId: bank.id } } };
+              log.append(stream, [
+                { type: "bank.updated", payload: { bankId: bank.id, location: publication.location, credential: "forge", credentialEntry: null, credentialReference: null } },
+                { type: "bank.review-held", payload: publication.review },
+                { type: "bank.awaiting-review", payload: { bankId: bank.id, sessionId: null, pullRequest: publication.review.pullRequest } },
+              ], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+              const entry = liveBank(reader, bank.id)!;
+              return { aggregate: stream, result: { bank: recordOf(entry, reading, claims), review: { state: "awaiting-review", bank: entry.name, pullRequest: publication.review.pullRequest, files: Object.keys(publication.review.writes).map((path) => ({ path, state: "pending" })) }, followUps: publication.followUps } };
+            } finally { release(); }
+          };
+        } catch (error) { release(); throw error; }
+      },
+    },
   };
   return service;
 };

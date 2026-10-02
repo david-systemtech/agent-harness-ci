@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { CarryOverInventory, StateImportDetection, StateImportReport } from "@agent-harness/contracts";
+import { StateImportFinishedPayload, StateImportReport, type CarryOverInventory, type StateImportDetection } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -15,7 +15,7 @@ const opened = async (environment: Partial<ScriptedEnvironment> = {}, found = de
   await app.user.click(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Carry over" }));
   return app;
 };
-const report = (dryRun = false): StateImportReport => ({
+const report = (dryRun = false): StateImportReport => StateImportReport.parse({
   dryRun,
   carried: { accounts: 2, archived: 3, pins: 4, groups: 5, forgeAccounts: 1, keyManagerConnections: 1, banks: 3, routines: 4, instructions: 5, skillSources: 6, alwaysOnSkills: 2, drafts: 1, devSites: 2 },
   reEnter: [{ label: "Forge token", step: "forges" }, { label: "Vault sign-in", step: "key-manager" }],
@@ -30,6 +30,84 @@ const answerRun = (app: Awaited<ReturnType<typeof opened>>) => app.environment("
 const section = () => within(screen.getByRole("region", { name: "State import" }));
 
 describe("State import on Carry over", () => {
+  it("keeps existing preferences when a real report omits them", async () => {
+    const app = await opened();
+    act(() => {
+      app.presentation.set("textSize", 20);
+      app.presentation.set("readingWidth", "full");
+      app.presentation.set("reasoningShown", false);
+      app.presentation.set("settingsRow", "accounts.usage");
+    });
+    const imported = report();
+    imported.clientLocal = { mode: "light" };
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: {
+      receipt: { status: "accepted", sequence: 1, changed: true }, result: imported,
+    } }));
+    await screen.findByRole("region", { name: "State import" });
+    await app.user.click(section().getByRole("button", { name: "Import" }));
+    await section().findByRole("heading", { name: "Client-local values applied" });
+    expect(section().queryByText(/Font size:/)).toBeNull();
+    const relaunched = await app.remount();
+    expect(relaunched.presentation.values.read()).toMatchObject({ lightOrDark: "light", textSize: 20, readingWidth: "full", reasoningShown: false, settingsRow: "accounts.usage" });
+  });
+
+  it.each([true, false])("requires both the request and reply to be a real application (requested dry run: %s)", async (dryRun) => {
+    const app = await opened();
+    app.environment("desk").wire.answer("stateImport.run", () => ({ result: {
+      receipt: { status: "accepted", sequence: 1, changed: !dryRun }, result: report(!dryRun),
+    } }));
+    await screen.findByRole("region", { name: "State import" });
+    await app.user.click(section().getByRole("button", { name: dryRun ? "Dry run" : "Import" }));
+    await section().findByRole("heading", { name: "Client-local values not applied" });
+    const relaunched = await app.remount();
+    expect(relaunched.presentation.values.read()).toMatchObject({ lightOrDark: "system", textSize: 14, readingWidth: "comfortable", reasoningShown: true, settingsRow: null });
+  });
+
+  it("keeps a second Client's preferences after it hears another Client's completion", async () => {
+    const app = await opened();
+    const finished = StateImportFinishedPayload.parse(report());
+    await screen.findByRole("region", { name: "State import" });
+    await act(async () => app.environment("desk").notice("state-import.finished", finished));
+    expect(section().queryByRole("region", { name: "State import result" })).toBeNull();
+    const relaunched = await app.remount();
+    expect(relaunched.presentation.values.read()).toMatchObject({ lightOrDark: "system", textSize: 14, readingWidth: "comfortable", reasoningShown: true, settingsRow: null });
+  });
+
+  it("keeps preferences across restart when the platform's local grant is stale", async () => {
+    const paired = await opened({ reach: "paired" });
+    paired.shell.answer("localGrant.read", () => paired.environment("desk").wire.grant.read());
+    paired.shell.answer("http", async (url, request) => url.endsWith("/api/bootstrap")
+      ? { status: 401, json: async () => ({ code: "unauthorized", message: "The fixture grant is stale.", data: {} }) }
+      : paired.world.fetch(url, request));
+    const app = await paired.remount();
+    expect(app.runtime.local.read()).toMatchObject({ state: "failed", reason: "refused" });
+    answerRun(app);
+    await screen.findByRole("region", { name: "Set up" });
+    await app.user.click(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Carry over" }));
+    await screen.findByRole("region", { name: "State import" });
+    await app.user.click(section().getByRole("button", { name: "Import" }));
+    await section().findByRole("heading", { name: "Client-local values not applied" });
+    const relaunched = await app.remount();
+    expect(relaunched.presentation.values.read()).toMatchObject({ lightOrDark: "system", textSize: 14, readingWidth: "comfortable", reasoningShown: true, settingsRow: null });
+  });
+
+  it("lists values as unapplied when the exchanged grant names a different Environment", async () => {
+    const app = await renderApp({ environments: [
+      { name: "home", reach: "local" },
+      { name: "desk", reach: "paired", capabilities: ["stateImport"] },
+    ] }, { firstLaunch: true });
+    app.environment("desk").wire.answer("stateImport.detect", () => ({ result: detection() }));
+    answerRun(app);
+    await screen.findByRole("region", { name: "Set up" });
+    await app.user.selectOptions(screen.getByRole("combobox", { name: "Environment" }), app.environment("desk").environmentId);
+    await app.user.click(within(screen.getByRole("navigation", { name: "Set up steps" })).getByRole("button", { name: "Carry over" }));
+    await screen.findByRole("region", { name: "State import" });
+    await app.user.click(section().getByRole("button", { name: "Import" }));
+    await section().findByRole("heading", { name: "Client-local values not applied" });
+    const relaunched = await app.remount();
+    expect(relaunched.presentation.values.read()).toMatchObject({ lightOrDark: "system", textSize: 14, readingWidth: "comfortable", reasoningShown: true, settingsRow: null });
+  });
+
   it("keeps the client's font-size limits and reports the size actually applied", async () => {
     const app = await opened();
     const imported = report();
@@ -120,7 +198,8 @@ describe("State import on Carry over", () => {
     await screen.findByRole("region", { name: "State import" });
     await app.user.click(section().getByRole("button", { name: "Import" }));
     await section().findByRole("heading", { name: "Import report" });
-    await act(async () => app.environment("desk").notice("state-import.finished", report()));
+    const finished = StateImportFinishedPayload.parse(report());
+    await act(async () => app.environment("desk").notice("state-import.finished", finished));
     expect(await screen.findByRole("region", { name: "Imported profile" })).toBeDefined();
     expect(await personal.findByRole("button", { name: "Import 1 new sessions" })).toBeDefined();
     expect(await section().findByText("1 profiles; 0 banks; 0 routines; 0 instructions; 0 skill sources; 0 connections.")).toBeDefined();

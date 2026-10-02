@@ -11,7 +11,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { FILE_EDITING_TOOLS } from "../workspace/diffs.js";
 import { sessionWorkspaceStatus } from "../workspace/session.js";
 import type { ChangeRecord, JournalEntry } from "./change-table.js";
-import { digestOf, readFileState } from "./snapshot.js";
+import { digestOf, readFileState, type FileState } from "./snapshot.js";
 import type { WorkspaceWrites } from "./workspace-writes.js";
 
 /**
@@ -80,6 +80,9 @@ const isPlainFile = async (path: string): Promise<boolean> => {
     return false;
   }
 };
+
+/** Whether `now` is what the change's call left in its file: the same bytes, with the same mode. */
+const leftByTheCall = (change: ChangeRecord, now: FileState): boolean => now.kind === "kept" && digestOf(now.bytes) === change.postDigest && now.mode === change.postMode;
 
 export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): FileUndo => {
   const table = log.fileChanges;
@@ -152,10 +155,10 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
   const fileChanged = (change: ChangeRecord): Refusal =>
     conflict("file_changed", `${change.path} has changed since the change being undone; it is left as it is.`, { sessionId: change.sessionId, changeId: change.changeId, path: change.path });
 
-  /** Whether the file holds exactly what the change's call left. */
+/** Whether the file holds exactly what the change's call left: its bytes and mode, at the same plain path. */
   const holdsPostImage = async (change: ChangeRecord, target: string): Promise<boolean> => {
     const now = await readFileState(target);
-    return (await isPlainFile(target)) && now.kind === "kept" && digestOf(now.bytes) === change.postDigest;
+    return (await isPlainFile(target)) && leftByTheCall(change, now);
   };
 
   /** Writes the record's bytes and mode to a scratch file beside `target`, durably. */
@@ -200,11 +203,11 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
     const recorded = sessionWorkspaceStatus(log, change.sessionId)?.path;
     const realRoot = recorded === undefined ? null : await realpath(recorded).catch(() => null);
     if (realRoot === null) return { kind: "unknown" };
-    const target = join(realRoot, change.path);
+const target = join(realRoot, change.path);
     const now = await readFileState(target);
     if (!change.existed && now.kind === "absent" && (await realpath(dirname(target)).catch(() => null)) === dirname(target)) return { kind: "restored", change };
     if (change.existed && now.kind === "kept" && now.bytes.equals(change.pre as Buffer) && (await isPlainFile(target))) return { kind: "restored", change };
-    if (now.kind === "kept" && digestOf(now.bytes) === change.postDigest) {
+    if (leftByTheCall(change, now)) {
       log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
       return { kind: "unapplied" };
     }

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChecksStartedPayload",
+  "type": "object",
+  "properties": {
+    "terminalId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "pattern": "\\S",
+      "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+    },
+    "sourceRunId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The run whose edits set the check off; null for a manual check."
+    }
+  },
+  "required": [
+    "terminalId",
+    "command",
+    "sourceRunId"
+  ],
+  "description": "checks.started: a Workspace check began in the terminal named, running the command named; the source run is null for a manual check."
+}

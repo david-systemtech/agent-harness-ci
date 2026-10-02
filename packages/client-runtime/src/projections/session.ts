@@ -1,4 +1,6 @@
 import {
+  ChecksFinishedPayload,
+  ChecksStartedPayload,
   SESSION_STREAM_KIND,
   RunBrowserResolvedPayload,
   RunSuggestion,
@@ -25,6 +27,7 @@ import {
   type RunUpdateInterruptedPayload,
   type SessionContainmentSetPayload,
   type SessionForkedPayload,
+  type ForkHistory,
   type SessionHistoryImportedPayload,
   type SessionInstructionsSetPayload,
   type SessionRewindUndonePayload,
@@ -84,10 +87,9 @@ import type { SessionLease } from "../streams/streams.js";
  *   as the snapshot has them;
  * - **`session.forked`** is a fork's first entry, `forked` (#390): the
  *   session it was forked from and the user message it was taken before
- *   (null for the whole session), as the event names them. The fork's own
- *   stream starts at its creation, so nothing of the source's history is
- *   among its entries; a renderer names the source from the source's own
- *   projection (`forkedFrom`, `transcript/rows.ts`);
+ *   (null for the whole session), with the visible history copied at fork
+ *   under its folded row (#242). Older forks without a seed name the source
+ *   from its projection (`forkedFrom`, `transcript/rows.ts`);
  * - **`session.rewound`** cuts the message rewound to and every entry after
  *   it out of the transcript (they stay in the log; ADR 0022) into one
  *   `rewound` fold at the rewind point (#230): the cut branch, never mixed
@@ -155,6 +157,8 @@ export interface ToolCallEntry extends SnapshotItem<"tool-call"> {
 }
 
 export type CommandEntry = SnapshotItem<"command">;
+/** A Workspace check at its start sequence, with its finished outcome when known. */
+export type CheckEntry = SnapshotItem<"check">;
 export type TasksEntry = SnapshotItem<"tasks">;
 
 /** Where a prompt is: waiting for a person, or answered. */
@@ -207,9 +211,9 @@ export type HistoryUnreadableEntry = SnapshotItem<"history-unreadable">;
 
 /**
  * A fork's first entry (#390): where it came from, as its `session.forked`
- * names it. The fork's stream holds nothing of its source's history, so a
- * renderer draws this as one row naming the source and the message, which
- * opens the source.
+ * names it, with the source's visible history copied under one folded row
+ * (#242). The source and anchor labels are frozen with that copy; older
+ * forks without a seed read those labels from the source.
  */
 export interface ForkedEntry {
   readonly kind: "forked";
@@ -223,6 +227,8 @@ export interface ForkedEntry {
    * own anchor, a message of the source's source (the contracts' `SessionForkedPayload`).
    */
   readonly atMessageId: string | null;
+  /** Copied at fork, independent of the source; absent on older forks. */
+  readonly history?: ForkHistory | undefined;
 }
 
 /**
@@ -252,6 +258,7 @@ export type TranscriptEntry =
   | AssistantEntry
   | ToolCallEntry
   | CommandEntry
+  | CheckEntry
   | TasksEntry
   | PromptEntry
   | SubagentEntry
@@ -329,6 +336,7 @@ type Held =
   | Mutable<AssistantEntry>
   | Mutable<ToolCallEntry>
   | Mutable<CommandEntry>
+  | Mutable<CheckEntry>
   | Mutable<TasksEntry>
   | Mutable<PromptEntry>
   | ForkedEntry
@@ -384,6 +392,10 @@ const fromSnapshot = (item: TranscriptItem): Held => {
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
     case "update-interrupted":
       return { ...(item as UpdateInterruptedEntry) };
+    case "check": {
+      const check = item as CheckEntry;
+      return { ...check };
+    }
     case "history-unreadable":
       return { ...(item as HistoryUnreadableEntry) };
     case "forked":
@@ -460,6 +472,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   // The entries later events update, by the ids those carry.
   const messages = new Map<string, Mutable<UserMessageEntry>>();
   const toolCalls = new Map<string, Mutable<ToolCallEntry>>();
+  const checks = new Map<string, Mutable<CheckEntry>>();
   const ledgers = new Map<string, Mutable<TasksEntry>>();
   const prompts = new Map<string, Mutable<PromptEntry>>();
   /** Assistant entries by `<fragment kind> <item id>`. */
@@ -470,6 +483,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   for (const item of everyItem(items)) {
     if (item.kind === "user-message") messages.set(item.messageId, item);
     else if (item.kind === "tool-call") toolCalls.set(item.toolCallId, item);
+    else if (item.kind === "check") checks.set(item.terminalId, item);
     else if (item.kind === "tasks") ledgers.set(item.runId, item);
     else if (item.kind === "prompt" || item.kind === "question" || item.kind === "plan") prompts.set(item.promptId, item);
     else if (item.kind === "assistant-text" || item.kind === "assistant-thinking") assistant.set(`${item.kind === "assistant-text" ? "text" : "thinking"} ${item.itemId}`, item);
@@ -690,6 +704,17 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         push<Mutable<CommandEntry>>({ kind: "command", sequence, runId: payload.runId, name: payload.name, args: payload.args, output: payload.output });
         return;
       }
+      case "checks.started": {
+        const payload = ChecksStartedPayload.parse(event.payload);
+        checks.set(payload.terminalId, push<Mutable<CheckEntry>>({ kind: "check", sequence, ...payload, state: "running", result: null }));
+        return;
+      }
+      case "checks.finished": {
+        const { terminalId, output, truncated, exitCode, signal, timedOut, failure } = ChecksFinishedPayload.parse(event.payload);
+        const check = checks.get(terminalId);
+        if (check !== undefined) Object.assign(check, { state: "finished", result: { output, truncated, exitCode, signal, timedOut, failure } });
+        return;
+      }
       case "tasks.changed": {
         const payload = event.payload as TasksChangedPayload;
         if (!Array.isArray(payload.tasks)) throw new TypeError("tasks.changed carries no tasks.");
@@ -699,9 +724,9 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
         return;
       }
       case "session.forked": {
-        const { fromSessionId, atMessageId } = event.payload as SessionForkedPayload;
+        const { fromSessionId, atMessageId, history } = event.payload as SessionForkedPayload;
         if (typeof fromSessionId !== "string") throw new TypeError("session.forked names no source.");
-        push<ForkedEntry>({ kind: "forked", sequence, fromSessionId, atMessageId: atMessageId ?? null });
+        push<ForkedEntry>({ kind: "forked", sequence, fromSessionId, atMessageId: atMessageId ?? null, ...(history !== undefined && { history }) });
         return;
       }
       case "session.history-imported": {
