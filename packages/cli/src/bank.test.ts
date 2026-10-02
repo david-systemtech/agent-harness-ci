@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { JsonObject } from "@agent-harness/contracts";
 import { expect, it, vi } from "vitest";
-import { PERSONAL_BANK, TEAM_BANK, type FixtureBank } from "../../contracts/test/fixture-banks.js";
+import { PERSONAL_BANK, TEAM_BANK, markdown, personalManifest, type FixtureBank } from "../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../environment/test/cleanups.js";
 import { callHostTool, end, fakeAdapter, type HostToolCallScript } from "../../environment/test/fake-adapter.js";
 import { startTestEnvironment } from "../../environment/test/helper.js";
@@ -43,12 +43,17 @@ const start = async () => {
 };
 type Harness = Awaited<ReturnType<typeof start>>;
 
-const register = async (h: Harness, files: FixtureBank, settings: JsonObject = {}): Promise<string> => {
+const register = async (h: Harness, files: FixtureBank, settings: JsonObject = {}, path = bankRepository(files)): Promise<string> => {
   const bankId = randomUUID();
-  const answer = await h.client.request("banks.register", { commandId: randomUUID(), bankId, path: bankRepository(files), role: "read-write", accounts: "all", repositories: "all", defaultFor: [], ...settings });
+  const answer = await h.client.request("banks.register", { commandId: randomUUID(), bankId, path, role: "read-write", accounts: "all", repositories: "all", defaultFor: [], ...settings });
   expect(answer.receipt.status).toBe("accepted");
   return bankId;
 };
+
+/** The personal bank as a local-only bank, which lands by committing on its main. */
+const LOCAL_ONLY_BANK: FixtureBank = { ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ write: { ...(personalManifest()["write"] as Record<string, unknown>), land: "commit" } })) };
+
+const DESCRIPTION = "When deploying the homelab service, use the documented rollout and verification steps.";
 
 const tool = (name: string, input: JsonObject = {}): HostToolCallScript => ({ server: "memory", name, input });
 
@@ -126,4 +131,34 @@ it("reads every kind of pointer through a local client session, printing the mem
     expect(await bankCli(h, ["read", ...(pointer === undefined ? [] : [pointer])])).toMatchObject({ code: 0, out: answers[i]?.text, err: "" });
   }
   expect(await bankCli(h, ["read", "maya-memory:no-such-memory"])).toMatchObject({ code: 1, out: "", err: expect.stringMatching(/^The environment refused banks\.memory\.read: .+\n$/) });
+});
+
+it("drafts in one invocation and another, each its own client session, then promotes the outside session's queue to the bank's main", async () => {
+  const h = await start();
+  const checkout = bankRepository(LOCAL_ONLY_BANK);
+  const bankId = await register(h, LOCAL_ONLY_BANK, {}, checkout);
+  const session = randomUUID();
+  const claude = { CLAUDE_CODE_SESSION_ID: session };
+
+  const first = await bankCli(h, ["draft", "rollout-steps", "--scope", "personal/homelab", "--type", "project", "--description", DESCRIPTION, "--body", "-"], { env: claude, stdin: "Roll out once, then check the health endpoint.\n" });
+  expect(first).toMatchObject({ code: 0, err: "", out: `Queued rollout-steps for maya-memory at projects/personal/homelab/memories/rollout-steps.md (session ${session}).\n` });
+  const second = await bankCli(h, ["draft", "canary-deploys", "--scope", "personal/homelab", "--topic", "deploys", "--type", "reference", "--description", "Before a risky homelab deploy - how to send it to the canary first and what to watch", "--body", "One canary for an hour.", "--session", session]);
+  expect(second).toMatchObject({ code: 0, err: "" });
+  expect(await bankCli(h, ["draft", "orphan", "--scope", "personal/homelab", "--type", "project", "--description", DESCRIPTION, "--body", "No session names its queue."])).toMatchObject({ code: 2, out: "", err: expect.stringContaining("--session") });
+
+  const promoted = await bankCli(h, ["promote"], { env: claude });
+  expect(promoted).toMatchObject({ code: 0, err: "" });
+  expect(promoted.out).toBe([
+    "Landed in maya-memory:",
+    "  present projects/personal/homelab/memories/rollout-steps.md",
+    "  present projects/personal/homelab/memories/deploys/canary-deploys.md",
+    "",
+  ].join("\n"));
+  expect(git(checkout, "show", "main:projects/personal/homelab/memories/rollout-steps.md")).toContain("Roll out once, then check the health endpoint.");
+  expect(git(checkout, "show", "main:projects/personal/homelab/memories/deploys/canary-deploys.md")).toContain("One canary for an hour.");
+  const landed = h.t.env.log.readStream({ kind: "environment", id: h.t.env.id }).filter((event) => event.type === "bank.landed");
+  expect(landed.map((event) => event.payload)).toEqual([expect.objectContaining({ bankId, sessionId: session })]);
+  expect(await bankCli(h, ["promote", "--session", session])).toMatchObject({ code: 0, out: "Landed in maya-memory: no queued changes.\n" });
+  // Each invocation revoked the client session it was exchanged for.
+  expect((await h.client.request("access.sessions.list", { live: true })).sessions.map((entry) => entry.label).filter((label) => label.includes(" bank "))).toEqual([]);
 });

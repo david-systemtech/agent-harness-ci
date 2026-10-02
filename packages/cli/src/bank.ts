@@ -1,4 +1,4 @@
-import { PRODUCT_NAME, type MemorySearchInput } from "@agent-harness/contracts";
+import { MEMORY_TYPES, PRODUCT_NAME, SessionId, type MemoryDraftInput, type MemoryPromoteResult, type MemorySearchInput } from "@agent-harness/contracts";
 import { defaultDataDirectory } from "@agent-harness/environment";
 import { parsePort, parseVerb, UsageError } from "./args.js";
 import { LocalFailure, LocalRefusal, withLocalSession, type LocalCall, type Net } from "./local-session.js";
@@ -15,6 +15,8 @@ import { LocalFailure, LocalRefusal, withLocalSession, type LocalCall, type Net 
 export const BANK_USAGE = [
   `${PRODUCT_NAME} bank search <query> [--bank <name>] [--scope <org>[/<project>[/<area>]]] [--limit <n>] [--data-dir <path>] [--port <n>]`,
   `${PRODUCT_NAME} bank read [<pointer>] [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} bank draft <name> --scope <org>/<project>[/<area>] [--topic <topic>] --type <${MEMORY_TYPES.join("|")}> --description <text> --body <text|-> [--applies-to <repository>]... [--bank <name>] [--session <id>] [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} bank promote [--bank <name>] [--session <id>] [--data-dir <path>] [--port <n>]`,
 ] as const;
 
 export interface BankContext {
@@ -23,7 +25,21 @@ export interface BankContext {
   readonly net: Net;
   /** The directory the caller works in, whose repository scopes the banks as a session's workspace does. */
   readonly cwd: string;
+  /** The process's variables: a Claude Code session's own id names the draft queue when `--session` does not. */
+  readonly env: Readonly<Record<string, string | undefined>>;
+  /** Standard input, which `draft --body -` reads the body from. */
+  readonly stdin: () => Promise<string>;
 }
+
+/** The variable a Claude Code session sets to its own id in the commands it runs. */
+const CLAUDE_SESSION_VARIABLE = "CLAUDE_CODE_SESSION_ID";
+
+/**
+ * How long `promote` waits for the landing's answer: the Lander waits up to
+ * ten minutes on the bank's validate check (banks spec, "Landing"), then
+ * merges, fetches and verifies main.
+ */
+const PROMOTE_WAIT_MS = 15 * 60_000;
 
 /** The options every verb that asks the environment takes: which environment. */
 const TARGET_OPTIONS = { "data-dir": { type: "string" }, port: { type: "string" } } as const;
@@ -64,6 +80,24 @@ const parseLimit = (value: string): number => {
   return Number(value);
 };
 
+/** An option the verb cannot go without. */
+const required = (option: string, value: string | undefined): string => {
+  if (value === undefined) throw new UsageError(`${option} is required.`);
+  return value;
+};
+
+/**
+ * The session whose draft queue a draft joins and a promote lands: `--session`, else the Claude Code session's own
+ * id, so one outside session's drafts stay together across its invocations and land in its own promote.
+ */
+const queueSession = (option: string | undefined, env: BankContext["env"]): string => {
+  const given = option ?? env[CLAUDE_SESSION_VARIABLE]?.trim();
+  if (given === undefined || given === "") throw new UsageError(`Name the session whose draft queue this is with --session <id>; a Claude Code session's own ${CLAUDE_SESSION_VARIABLE} is taken when it is set.`);
+  const id = SessionId.safeParse(given);
+  if (!id.success) throw new UsageError(`${option === undefined ? CLAUDE_SESSION_VARIABLE : "--session"} takes a session id, a version 4 UUID; got ${given}.`);
+  return id.data;
+};
+
 /** `bank search <query>`: what the memory tool's search answers, each hit as its pointer and line, then "n of N". */
 const search = async (args: readonly string[], context: BankContext): Promise<number> => {
   const { values, positionals } = parseVerb(args, { ...TARGET_OPTIONS, bank: { type: "string" }, scope: { type: "string" }, limit: { type: "string" } });
@@ -90,8 +124,74 @@ const read = async (args: readonly string[], context: BankContext): Promise<numb
   return 0;
 };
 
+/**
+ * `bank draft <name>`: validates a memory and queues it for the session and
+ * the bank, as the memory tool's draft does; a draft of a name the bank or the
+ * queue holds replaces it. Refused with the validator's rule ids, or when
+ * several writable banks are in scope and `--bank` names none.
+ */
+const draft = async (args: readonly string[], context: BankContext): Promise<number> => {
+  const { values, positionals } = parseVerb(args, {
+    ...TARGET_OPTIONS, bank: { type: "string" }, scope: { type: "string" }, topic: { type: "string" }, type: { type: "string" },
+    description: { type: "string" }, body: { type: "string" }, "applies-to": { type: "string", multiple: true }, session: { type: "string" },
+  });
+  const [name, ...rest] = positionals;
+  if (name === undefined || rest.length > 0) throw new UsageError("bank draft takes one memory name.");
+  const scope = parseScope(required("--scope", values.scope));
+  if (scope === undefined || !("project" in scope)) throw new UsageError(`--scope of a draft takes <org>/<project>[/<area>]; got ${values.scope}.`);
+  const type = MEMORY_TYPES.find((known) => known === values.type);
+  if (type === undefined) throw new UsageError(`--type takes ${MEMORY_TYPES.join(", ")}; got ${values.type ?? "none"}.`);
+  const description = required("--description", values.description);
+  const body = required("--body", values.body);
+  const sessionId = queueSession(values.session, context.env);
+  const input: MemoryDraftInput = {
+    name, scope, type, description,
+    body: body === "-" ? await context.stdin() : body,
+    ...(values.topic !== undefined && { topic: values.topic }),
+    ...(values["applies-to"] !== undefined && { appliesTo: values["applies-to"] }),
+    ...(values.bank !== undefined && { bank: values.bank }),
+  };
+  const queued = await onEnvironment("draft", values, context, (call, repositoryIdentity) => call("banks.memory.draft", { ...input, sessionId, repositoryIdentity }));
+  context.stdout(`Queued ${queued.change.name} for ${queued.bank} at ${queued.change.path} (session ${sessionId}).\n`);
+  for (const path of queued.change.removePaths ?? []) context.stdout(`  replacing ${path}\n`);
+  return 0;
+};
+
+/** What a promotion came to, a line for the bank and one per file: on main, awaiting review, or why it failed. */
+const promotionLines = (promotion: MemoryPromoteResult): string => {
+  switch (promotion.state) {
+    case "landed":
+      if (promotion.files.length === 0) return `Landed in ${promotion.bank}: no queued changes.\n`;
+      return [`Landed in ${promotion.bank}:${promotion.pullRequest === null ? "" : ` ${promotion.pullRequest}`}`, ...promotion.files.map((file) => `  ${file.state} ${file.path}`), ""].join("\n");
+    case "awaiting-review":
+      return [`Awaiting review in ${promotion.bank}: ${promotion.pullRequest}`, ...promotion.files.map((file) => `  ${file.state} ${file.path}`), ""].join("\n");
+    case "failed":
+      return `Landing in ${promotion.bank} failed at ${promotion.step}: ${promotion.reason}\n`;
+  }
+};
+
+/**
+ * `bank promote`: lands the session's queue for the bank through the
+ * Lander, as the memory tool's promote does, and prints each file's state:
+ * verified on main, awaiting review with the pull request, or the step and
+ * reason it failed, which exits 1.
+ */
+const promote = async (args: readonly string[], context: BankContext): Promise<number> => {
+  const { values, positionals } = parseVerb(args, { ...TARGET_OPTIONS, bank: { type: "string" }, session: { type: "string" } });
+  if (positionals.length > 0) throw new UsageError("bank promote takes no arguments but its options.");
+  const sessionId = queueSession(values.session, context.env);
+  const { promotion } = await onEnvironment("promote", values, context, (call, repositoryIdentity) =>
+    call("banks.memory.promote", { ...(values.bank !== undefined && { bank: values.bank }), sessionId, repositoryIdentity }, { timeoutMs: PROMOTE_WAIT_MS }));
+  if (promotion.state === "failed") {
+    context.stderr(promotionLines(promotion));
+    return 1;
+  }
+  context.stdout(promotionLines(promotion));
+  return 0;
+};
+
 /** The `bank` verbs by name. */
-const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { search, read };
+const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { search, read, draft, promote };
 
 /**
  * `bank`: runs the verb `args` name. Exits as the verb does, 1 with a plain

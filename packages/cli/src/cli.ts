@@ -82,9 +82,9 @@ export interface CliContext extends ProcessContext {
   readonly clock?: Pick<Clock, "now" | "setTimeout">;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
-  /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
+  /** What `git-credential` reads git's attributes from, `update credential` the token, and `bank draft --body -` the body; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
-  /** The variables `git-credential` reads, and `serve` its new environment's name and channel from; preset: the process's own. */
+  /** The variables `git-credential` reads, `serve` its new environment's name and channel from, and the `bank` verbs a Claude Code session's id from; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
@@ -278,7 +278,16 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         stopRequested: context.stopRequested,
       });
     }
-    if (args[0] === "bank") return await bank(args.slice(1), { stdout: context.stdout, stderr: context.stderr, net: netOf(context), cwd: context.cwd ?? process.cwd() });
+    if (args[0] === "bank") {
+      return await bank(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        cwd: context.cwd ?? process.cwd(),
+        env: context.env ?? process.env,
+        stdin: context.stdin ?? readStandardInput,
+      });
+    }
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
