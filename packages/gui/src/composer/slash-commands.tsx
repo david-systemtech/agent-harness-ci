@@ -83,11 +83,12 @@ const useWiring = (): Wiring => {
  * Wires the slash command `name` to `run` for as long as the component is
  * mounted, and lists it among the window's wired actions with `offer`,
  * whether it can be done now, so the command palette runs it as if typed
- * bare. Throws for a name the shared list does not hold or keeps absent in
+ * bare. The handler hears whether the composer or a window action invoked it.
+ * Throws for a name the shared list does not hold or keeps absent in
  * the GUI column, and for an alias, since no key could then reach it as
  * wired.
  */
-export const useSlashCommand = (name: string, run: (argument: string) => void, offer?: Offer, options: { readonly keepComposer?: boolean } = {}): void => {
+export const useSlashCommand = (name: string, run: (argument: string, source: "composer" | "action") => void, offer?: Offer, options: { readonly keepComposer?: boolean } = {}): void => {
   const wiring = useWiring();
   const action = actionById(`command.${name}`);
   if (action === undefined || action.aliasOf !== undefined || action.gui.status !== "wired" || action.usage === undefined) {
@@ -100,8 +101,8 @@ export const useSlashCommand = (name: string, run: (argument: string) => void, o
   useLayoutEffect(() => {
     latest.current = run;
   });
-  useEffect(() => wiring.wire({ name, usage, description, keepComposer, unavailable, run: (argument) => latest.current(argument) }), [wiring, name, usage, description, keepComposer, unavailable]);
-  useWindowAction(action.id, () => latest.current(""), offer);
+  useEffect(() => wiring.wire({ name, usage, description, keepComposer, unavailable, run: (argument) => latest.current(argument, "composer") }), [wiring, name, usage, description, keepComposer, unavailable]);
+  useWindowAction(action.id, () => latest.current("", "action"), offer);
 };
 
 /** The slash commands wired now, in the shared list's order. */

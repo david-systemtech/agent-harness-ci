@@ -93,12 +93,12 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose);
   useSettingsCommand(environmentId);
-  useSlashCommand("undo", (argument) => {
+  useSlashCommand("undo", (argument, source) => {
     if (argument.length > 0) return say("Usage: /undo");
     const text = box.current();
     void undoFile(runtime, clock, environmentId, sessionId).then((outcome) => {
       say(outcome.line);
-      if (outcome.ok && box.current() === text) box.put("");
+      if (outcome.ok && source === "composer" && box.current() === text) box.put("");
     });
   }, runtime.capability(environmentId, "files.undo"), { keepComposer: true });
   const queue = useSessionQueue();

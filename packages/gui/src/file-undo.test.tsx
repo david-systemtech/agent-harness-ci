@@ -46,6 +46,23 @@ describe("GUI file undo", () => {
     expect(env.requests("runs.start")).toEqual([]);
   });
 
+  it.each(["Keep this thought", "/undo"])("keeps draft %s when palette undo succeeds", async (draft) => {
+    const { app, env, transcript, session } = await opened({ sessions: [{ title: "Undo", draft }] });
+    await waitFor(() => expect(box().value).toBe(draft));
+    env.wire.answer("files.undo", () => {
+      const result = { changeId: CHANGE, path: "src/app.ts", action: "restored" as const };
+      const event = env.emit(session, "files.undo-finished", result);
+      return { result: { receipt: { status: "accepted", sequence: event.sequence, changed: true }, result } };
+    });
+    await write(app, "{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Command palette" });
+    await app.user.click(within(palette).getByRole("option", { name: /^\/undo/ }));
+    await within(transcript).findByText("File undo: restored src/app.ts.");
+    expect(box().value).toBe(draft);
+    expect(env.requests("files.undo")).toHaveLength(1);
+    expect(env.requests("runs.start")).toEqual([]);
+  });
+
   it.each([
     [{ capabilities: [] }, "desk does not offer fileUndo; a version that does is needed."],
     [{ scopes: ["read", "sessions:write", "runs:drive"] }, "This client was paired with desk without the terminal scope."],
