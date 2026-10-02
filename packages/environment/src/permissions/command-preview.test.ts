@@ -140,6 +140,20 @@ it('reports unresolved substitutions instead of claiming nothing would be delete
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it('warns about command substitutions in unquoted heredocs without parsing their bodies as commands', async () => {
+    expect((await only('cat <<EOF\n$(rm -rf build)\nEOF', '/repo')).summary).toBe('cannot tell: command substitution in a here-document needs the shell');
+    expect(kinds("cat <<'EOF'\n$(rm -rf build)\nEOF")).toEqual([]);
+  });
+  it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
+    const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
+    expect(destructiveParts(command).map((part) => ({ kind: part.kind, targets: part.targets }))).toEqual([
+      { kind: 'truncate-redirect', targets: ['log.txt'] }, { kind: 'rm', targets: ['build'] },
+    ]);
+    expect(networkLines(command)).toEqual([]);
+    expect(kinds('cat <<-EOF\n\trm -rf build\n\tEOF\nrm src/a.ts')).toEqual(['rm']);
+    expect(destructiveParts('cat <<A <<B\nrm a\nA\nrm b\nB\nrm keep.txt')[0]?.targets).toEqual(['keep.txt']);
+    expect(kinds('cat <<< "rm -rf build"')).toEqual([]);
+  });
   it('leaves git clean dry runs out of destructive previews', () => {
     for (const command of ['git clean -n', 'git clean -nd', 'git clean -fdn', 'git clean --dry-run -d']) {
       expect(destructiveParts(command)).toEqual([]);
@@ -360,6 +374,12 @@ describe('previewing rm against a directory', () => {
 });
 
 describe('previewing the things that are not rm', () => {
+  it('previews Bash combined-output redirects without treating descriptor duplication as a file', async () => {
+    const root = await tree();
+    expect(await only('echo hi >& log.txt', root)).toMatchObject({ summary: 'log.txt would be emptied, throwing away 11 B' });
+    expect(await only('echo hi 1>&log.txt', root)).toMatchObject({ kind: 'truncate-redirect' });
+    for (const command of ['echo hi >&2', 'echo hi 2>&1', 'echo hi >&-', 'echo hi 2>&log.txt']) expect(destructiveParts(command)).toEqual([]);
+  });
   it('expands destructive glob operands for chmod, find and shred', async () => {
     const root = await tree();
     expect(await only('chmod -R 777 src/*.ts', root)).toMatchObject({ summary: 'chmod -R would change the mode of 2 entries' });

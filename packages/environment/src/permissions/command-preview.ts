@@ -62,6 +62,7 @@ export type DestructiveKind =
   | 'truncate-redirect'
   | 'chmod-recursive'
   | 'find-delete'
+  | 'shell-expansion'
   | 'other';
 
 /** One segment of a command line that would destroy something. */
@@ -179,6 +180,7 @@ interface Segment {
   readonly redirects: readonly Redirect[];
   /** The slice of the original line this came from, without any trailing comment. */
   readonly text: string;
+  readonly unresolvedHereDoc?: boolean;
 }
 
 /**
@@ -192,9 +194,9 @@ interface Segment {
  * Redirections are pulled out of the word list so that the filename of a `>`
  * is never mistaken for an operand of the command in front of it.
  *
- * Not implemented, and not missed: substitutions, expansions, subshells and
- * here-documents. None of them can be resolved without running something, and
- * running something is the one thing this file does not do.
+ * Here-document bodies are data, skipped up to their literal delimiter.
+ * Unquoted bodies can run command substitutions and earn a cannot-tell line.
+ * Substitutions and expansions are never executed to discover their effects.
  */
 function tokenize(command: string): readonly Segment[] {
   const segments: Segment[] = [];
@@ -208,14 +210,22 @@ function tokenize(command: string): readonly Segment[] {
   let open = false;
   let quoted = false;
   let pending: RedirectOp | null = null;
+  let pendingDup = false;
+  let pendingDupFile = false;
+  let pendingHereDoc: { readonly stripTabs: boolean } | null = null;
+  const hereDocs: { readonly delimiter: string; readonly stripTabs: boolean; readonly quoted: boolean }[] = [];
 
   const pushWord = (): void => {
     if (!open) return;
     const word: Word = { text, quoted, operand };
     if (pending === null) words.push(word);
     else {
-      redirects.push({ op: pending, target: word });
+      if (!(pending === '>' && pendingDup && (!pendingDupFile || /^(?:\d+|-)$/.test(word.text)))) redirects.push({ op: pending, target: word });
+      if (pendingHereDoc !== null) hereDocs.push({ delimiter: word.text, stripTabs: pendingHereDoc.stripTabs, quoted: word.quoted });
       pending = null;
+      pendingDup = false;
+      pendingDupFile = false;
+      pendingHereDoc = null;
     }
     text = '';
     operand = '';
@@ -231,20 +241,25 @@ function tokenize(command: string): readonly Segment[] {
     words = [];
     redirects = [];
     pending = null;
+    pendingDup = false;
+    pendingDupFile = false;
+    pendingHereDoc = null;
     start = nextStart;
     mark = nextStart;
   };
 
   /** A word in front of a `>` that is only digits is a file descriptor, not an operand. */
-  const flushBeforeRedirect = (): void => {
+  const flushBeforeRedirect = (): string | null => {
     if (open && /^\d+$/.test(text) && !quoted) {
+      const fd = text;
       text = '';
       operand = '';
       open = false;
       quoted = false;
-      return;
+      return fd;
     }
     pushWord();
+    return null;
   };
 
   let index = 0;
@@ -333,6 +348,23 @@ function tokenize(command: string): readonly Segment[] {
     if (char === '\n' || char === ';') {
       pushSegment(index + 1);
       index += 1;
+      if (char === '\n') {
+        // Bodies are data, even when they contain operators or unmatched quotes.
+        for (const hereDoc of hereDocs.splice(0)) {
+          let unresolved = false;
+          while (index < command.length) {
+            const newline = command.indexOf('\n', index);
+            const stop = newline === -1 ? command.length : newline;
+            const line = command.slice(index, stop);
+            index = newline === -1 ? command.length : newline + 1;
+            if ((hereDoc.stripTabs ? line.replace(/^\t+/, '') : line) === hereDoc.delimiter) break;
+            if (!hereDoc.quoted && /(^|[^\\])(?:\\\\)*(?:\$\(|`)/.test(line)) unresolved = true;
+          }
+          if (unresolved) segments.push({ words: [], redirects: [], text: 'here-document command substitution', unresolvedHereDoc: true });
+        }
+        start = index;
+        mark = index;
+      }
       continue;
     }
 
@@ -359,11 +391,16 @@ function tokenize(command: string): readonly Segment[] {
     }
 
     if (char === '>') {
-      flushBeforeRedirect();
+      const fd = flushBeforeRedirect();
       const next = command[index + 1];
       // `>>` appends and destroys nothing; `>|` truncates past `noclobber`.
       if (next === '>') {
         pending = '>>';
+        index += 2;
+      } else if (next === '&') {
+        pending = '>';
+        pendingDup = true;
+        pendingDupFile = fd === null || /^0*1$/.test(fd);
         index += 2;
       } else if (next === '|') {
         pending = '>';
@@ -379,7 +416,10 @@ function tokenize(command: string): readonly Segment[] {
     if (char === '<') {
       flushBeforeRedirect();
       pending = '<';
-      index += command[index + 1] === '<' ? 2 : 1;
+      if (command[index + 1] === '<' && command[index + 2] !== '<') {
+        pendingHereDoc = { stripTabs: command[index + 2] === '-' };
+        index += pendingHereDoc.stripTabs ? 3 : 2;
+      } else index += command[index + 1] === '<' ? 3 : 1;
       mark = index;
       continue;
     }
@@ -483,6 +523,7 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
 export function destructiveParts(command: string): readonly Destructive[] {
   const found: Destructive[] = [];
   for (const segment of tokenize(command)) {
+    if (segment.unresolvedHereDoc === true) found.push({ kind: 'shell-expansion', text: segment.text, targets: [], flags: [] });
     const invocation = invocationOf(segment);
     if (invocation !== null) found.push(...classify(invocation.name, invocation.args, segment.text));
     for (const redirect of segment.redirects) {
@@ -1058,6 +1099,8 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
         return await previewBranchDelete(part, cwd, deps);
       case 'drop':
         return previewDrop(part);
+      case 'shell-expansion':
+        return { kind: part.kind, summary: 'cannot tell: command substitution in a here-document needs the shell', lines: [] };
       case 'truncate-redirect':
         return await previewTruncate(part, cwd, deps, budget);
       case 'chmod-recursive':
