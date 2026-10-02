@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "banks.join response",
+  "title": "banks.registry.update response",
   "type": "object",
   "properties": {
     "receipt": {

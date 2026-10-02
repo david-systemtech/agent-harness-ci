@@ -66,6 +66,27 @@ describe("the bank events", () => {
 });
 
 describe("the bank methods", () => {
+  it("updates at admin with a command id, accepting repository identities and folder pins only", () => {
+    const method = registry["banks.registry.update"];
+    expect([method.scope, method.kind]).toEqual(["admin", "command"]);
+    const params = { commandId: bankId, bankId, pins: ["maya-memory:personal/homelab/"], repositories: ["https://git.example/acme/web"] };
+    expect(method.params.parse(params)).toEqual(params);
+    for (const bad of [{ ...params, commandId: undefined }, { ...params, repositories: ["homelab"] }, { ...params, pins: ["maya-memory:backup-schedule"] }, { ...params, pins: ["maya-memory:personal/../"] }, { ...params, mergeOverride: "auto" }]) {
+      expect(method.params.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it("pins at runs:drive and forgets at admin, each with a command id and one scope", () => {
+    const pointer = "maya-memory:personal/homelab/";
+    const pin = registry["banks.pin"];
+    const forget = registry["banks.forget"];
+    expect([pin.scope, pin.kind, forget.scope, forget.kind]).toEqual(["runs:drive", "command", "admin", "command"]);
+    const pinParams = { commandId: bankId, sessionId: bankId, pointer, pinned: true };
+    expect(pin.params.parse(pinParams)).toEqual(pinParams);
+    expect(pin.params.safeParse({ ...pinParams, commandId: undefined }).success).toBe(false);
+    expect(forget.params.parse({ commandId: bankId, bankId })).toEqual({ commandId: bankId, bankId });
+    expect(forget.params.safeParse({ bankId }).success).toBe(false);
+  });
   it("read records at read, register at admin with a command id, and verify as a read query", () => {
     expect(["banks.list", "banks.get", "banks.register", "banks.verify", "banks.credential.set", "banks.credential.swap", "banks.sync"].map((name) => [name, registry[name as keyof typeof registry].scope, registry[name as keyof typeof registry].kind])).toEqual([
       ["banks.list", "read", "query"],

@@ -170,6 +170,14 @@
               "minLength": 1,
               "description": "The bank's checkout on this machine, an absolute path: the BankService's, never written by a run."
             },
+            "checkoutOwnership": {
+              "description": "managed when the BankService created or cloned this checkout; registered for an adopted path. Absent on older records means registered. Only managed checkouts may be removed.",
+              "type": "string",
+              "enum": [
+                "managed",
+                "registered"
+              ]
+            },
             "role": {
               "type": "string",
               "enum": [
@@ -231,7 +239,8 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "minLength": 1
+                "pattern": "^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){1,3}|(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){2,3}memories\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/)$",
+                "description": "A folder pointer bank:org/[project/[area/]], or a topic pointer bank:org/project/[area/]memories/topic/: a pin expands it whole."
               },
               "description": "Registry pins: folder pointers expanded in every session in scope."
             },

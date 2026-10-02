@@ -1,6 +1,6 @@
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { describeRepositoryAt } from "./describe-repository.js";
-import { existsSync } from "node:fs";
-import { basename, isAbsolute } from "node:path";
 import {
   BANK_INDEX_BUDGET,
   BankName,
@@ -8,6 +8,7 @@ import {
   type BankKeyManager,
   ENVIRONMENT_STREAM_KIND,
   normaliseRemote,
+  parseBankPointer,
   type BankEntry,
   type BankIndexConflict,
   type BankLocation,
@@ -26,19 +27,21 @@ import { joinBank, previewBank } from "./join.js";
 import { createBankCommand } from "./create.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock } from "../serve/clock.js";
-import type { CommandRejection, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
+import type { CommandContext, CommandRejection, MethodHandler, PreparedCommand, PreparedMethodHandler } from "../serve/methods.js";
+import { readSummary } from "../sessions/session-reads.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { runGit } from "../workspace/git.js";
 import type { BankCredentials } from "./credentials.js";
 import { readBankFiles } from "./bank-files.js";
 import { indexBank, type BankIndex } from "./bank-index.js";
-import { bankEver, importHolder, listBanks, liveBank, nameHolder } from "./bank-store.js";
-import { renderFixedTiers } from "./index-renderer.js";
+import { bankEver, importHolder, listBanks, liveBank, nameHolder, sessionBankPins } from "./bank-store.js";
+import { readPointer, renderFixedTiers } from "./index-renderer.js";
 
 /**
  * The BankService's registry part (banks spec, "The registry" and "The
- * BankService's methods"; ADR 0010, ADR 0035, ADR 0036; #1025): it
- * registers an existing checkout, previews and joins a remote bank, verifies every enabled bank, and answers
+ * BankService's methods"; ADR 0010, ADR 0035, ADR 0036, ADR 0037; #1025, #1026): it
+ * previews, joins, registers and updates banks, keeps session pins, forgets banks with
+ * optional removal of its own checkout, verifies enabled banks, and answers
  * the records with their status, counts and rendered bank line. A bank's
  * files are read as committed at its checkout's head (`bank-files.ts`),
  * never as the working tree holds them.
@@ -203,7 +206,7 @@ export interface BankServiceOptions {
   readonly scrub: Pick<ScrubRegistry, "check">;
   /** The ForgeService's reads, which a remote bank's verification takes by its origin. */
   readonly forge: Pick<ForgeService, "repositories" | "pullRequests" | "users" | "git">;
-  readonly credentials: BankCredentials;
+  readonly credentials: Pick<BankCredentials, "git">;
   readonly creation?: {
     readonly dataDir: string;
     readonly localPersonName: string;
@@ -227,6 +230,11 @@ export interface BankService {
   /** Records a fetch outcome and refreshes the cached reading; only a moved head emits bank.synced. */
   recordSync(bankId: string, outcome: { readonly head: string; readonly previousHead: string | null } | { readonly problem: string }): Promise<void>;
   readonly register: PreparedCommand<"banks.register">;
+  readonly update: PreparedCommand<"banks.registry.update">;
+  readonly pin: PreparedCommand<"banks.pin">;
+  readonly forget: PreparedCommand<"banks.forget">;
+  /** This session's own pins for the BankLayer and renderer, separate from every entry's registry pins. */
+  sessionPins(sessionId: string): readonly string[];
   readonly join: PreparedCommand<"banks.join">;
   readonly git: BankCredentials["git"];
   readonly create: PreparedCommand<"banks.create">;
@@ -236,10 +244,31 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const { log, clock, forge } = options;
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
+  recoverCheckoutRemovals(reader, log, stream, options.dataDir);
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
   let verifyingAll: Promise<BankRecord[]> | null = null;
   const verificationGenerations = new Map<string, number>();
+
+  /** A chosen default replaces the old one for those accounts, in the same transaction. */
+  const transferDefaults = (entry: BankEntry, command: CommandContext): void => {
+    for (const bank of listBanks(reader)) {
+      if (bank.id === entry.id) continue;
+      const defaultFor = bank.defaultFor.filter((account) => !entry.defaultFor.includes(account));
+      if (defaultFor.length === bank.defaultFor.length) continue;
+      log.append(stream, [{ type: "bank.updated", payload: { bankId: bank.id, defaultFor } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+    }
+  };
+
+  /** Admission uses the renderer's fixed tiers, excluding the entry being replaced and disabled banks. */
+  const admission = (entry: BankEntry, reading: Reading | null): CommandRejection<"conflict"> | null => {
+    if (!entry.enabled) return null;
+    const weighed = listBanks(reader).filter((bank) => bank.id !== entry.id && bank.enabled).map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
+    const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
+    if (conflict === null) return null;
+    const [first] = conflict.scopes;
+    return { code: "conflict", message: `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`, data: { reason: "index_too_large", ...conflict } };
+  };
 
   /** The bank's record from its entry and reading, its shared aliases those `others` claim too. */
   const recordOf = (entry: BankEntry, reading: Reading | null, others: readonly Claim[]): BankRecord => {
@@ -398,7 +427,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return verifyingAll;
   };
 
-  const prepareRegister = async (params: ParamsOf<"banks.register">, personalDefaults = false): Promise<PreparedMethodHandler<"banks.register">> => {
+  const prepareRegister = async (params: ParamsOf<"banks.register">, personalDefaults = false, checkoutOwnership: BankEntry["checkoutOwnership"] = "registered"): Promise<PreparedMethodHandler<"banks.register">> => {
     const rejecting =
       (rejected: CommandRejection<ErrorOf<"banks.register">["code"]>): PreparedMethodHandler<"banks.register"> =>
       () => ({ aggregate: stream, rejected });
@@ -418,7 +447,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     const location = await locationOf(params.path);
     const draft = entryOf(params, named.data, manifest, location, clock.now().toISOString());
     const { status, reading } = await inspect(draft);
-    const preparedEntry: BankEntry = { ...draft, status };
+    const preparedEntry: BankEntry = { ...draft, defaultFor: [...new Set(draft.defaultFor)], checkoutOwnership, status };
     const held = await readAll();
     const claims = held.map(({ entry: bank, reading: its }) => claimOf(bank, its));
     return (_params, command) => {
@@ -430,16 +459,10 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       if (nameHolder(reader, entry.name) !== null) {
         return { aggregate: stream, rejected: { code: "conflict", message: `Another bank is named ${entry.name}.`, data: { reason: "name_taken", name: entry.name } } };
       }
-      // Weighed against the banks registered now, as the name is: one registered or forgotten while this one was read counts.
-      const weighed = listBanks(reader)
-        .filter((bank) => bank.enabled)
-        .map((bank): Weighed => ({ ...bank, bytes: fixedBytes(readings.get(bank.id) ?? null) }));
-      const conflict = overLimit(weighed, { ...entry, bytes: fixedBytes(reading) });
-      if (conflict !== null) {
-        const [first] = conflict.scopes;
-        const message = `The fixed tiers of ${listed(conflict.banks)} would come to ${conflict.bytes} bytes for ${first === undefined ? "a scope" : scopeWords(first)}, over the ${conflict.limitBytes}-byte limit.`;
-        return { aggregate: stream, rejected: { code: "conflict", message, data: { reason: "index_too_large", ...conflict } } };
-      }
+      // Weigh against the banks registered now, and transfer defaults atomically.
+      const rejected = admission(entry, reading);
+      if (rejected !== null) return { aggregate: stream, rejected };
+      transferDefaults(entry, command);
       command.tx.afterCommit(() => readings.set(entry.id, reading));
       log.append(stream, [{ type: "bank.added", payload: { bank: entry } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
       return { aggregate: stream, result: { bank: recordOf(entry, reading, claims) } };
@@ -450,7 +473,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     prepare: () => { throw new ContractError({ code: "not_found", message: "Bank creation is unavailable on this service.", data: {} }); },
   } : createBankCommand({
     ...options.creation,
-    register: prepareRegister,
+    register: (params, personalDefaults) => prepareRegister(params, personalDefaults, "managed"),
     async admit(bankId, name, files) {
       await readAll();
       if (bankEver(reader, bankId)) throw new ContractError({ code: "conflict", message: `A bank ${bankId} was registered already.`, data: { reason: "exists", bankId } });
@@ -460,6 +483,98 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       if (conflict !== null) throw new ContractError({ code: "conflict", message: "The bank would exceed the fixed-tier limit.", data: { reason: "index_too_large", ...conflict } });
     },
   });
+
+  const update: BankService["update"] = {
+    async prepare(params) {
+      const held = liveBank(reader, params.bankId);
+      if (held === null) return () => ({ aggregate: stream, rejected: { code: "not_found" } });
+      const { bankId } = params;
+      const changes = Object.fromEntries(Object.entries(params).filter(([key, value]) => key !== "commandId" && key !== "bankId" && value !== undefined)) as Partial<BankEntry>;
+      if (changes.defaultFor !== undefined) changes.defaultFor = [...new Set(changes.defaultFor)];
+      const read = await readCheckout(held.checkout, { ...held, ...changes });
+      if ("problem" in read) return () => ({ aggregate: stream, rejected: { code: "invalid_params", message: read.problem, data: { issues: [] } } });
+      const verdict = validateBank({ files: read.reading.files });
+      if (!verdict.valid) return () => ({ aggregate: stream, rejected: { code: "validation_failed", message: "The bank's committed files fail validation.", data: { rules: [...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))], findings: verdict.findings } } });
+      if (changes.pins?.some((pointer) => parseBankPointer(pointer)?.bank !== held.name || !readPointer(read.reading.index === null ? [] : [read.reading.index], pointer).found)) {
+        return () => ({ aggregate: stream, rejected: { code: "not_found", message: "A registry pin names no folder in this bank." } });
+      }
+      const others = await readAll();
+      return (_params, command) => {
+        const current = liveBank(reader, bankId);
+        if (current === null) return { aggregate: stream, rejected: { code: "not_found" } };
+        const entry = { ...current, ...changes };
+        const reading = readingFrom(read.reading.files, entry);
+        const rejected = admission(entry, reading);
+        if (rejected !== null) return { aggregate: stream, rejected };
+        transferDefaults(entry, command);
+        const changed = Object.fromEntries(Object.entries(changes).filter(([key, value]) => JSON.stringify(current[key as keyof BankEntry]) !== JSON.stringify(value)));
+        if (Object.keys(changed).length > 0) log.append(stream, [{ type: "bank.updated", payload: { bankId, ...changed } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        command.tx.afterCommit(() => readings.set(bankId, reading));
+        return { aggregate: stream, result: { bank: recordOf(entry, reading, others.map(({ entry: bank, reading: its }) => claimOf(bank, its))) } };
+      };
+    },
+  };
+
+  const pin: BankService["pin"] = {
+    async prepare(params) {
+      const named = parseBankPointer(params.pointer);
+      const entry = listBanks(reader).find((bank) => bank.name === named?.bank);
+      const reading = entry === undefined || !params.pinned ? null : await readingOf(entry);
+      const apply: MethodHandler<"banks.pin"> = (_params, command) => {
+        if (readSummary(reader, params.sessionId) === null) {
+          return { aggregate: stream, rejected: { code: "not_found", message: "The session is not present.", data: { kind: "session", sessionId: params.sessionId } } };
+        }
+        if (entry === undefined || liveBank(reader, entry.id) === null || (params.pinned && !readPointer(reading?.index == null ? [] : [reading.index], params.pointer).found)) {
+          return { aggregate: stream, rejected: { code: "not_found", message: "The bank folder is not present." } };
+        }
+        const pins = sessionBankPins(reader, params.sessionId);
+        if (pins.includes(params.pointer) !== params.pinned) {
+          log.append(stream, [{ type: "bank.pinned", payload: { bankId: entry.id, sessionId: params.sessionId, pointer: params.pointer, pinned: params.pinned } }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        }
+        return { aggregate: stream, result: { sessionId: params.sessionId, pins: sessionBankPins(reader, params.sessionId) } };
+      };
+      return apply;
+    },
+  };
+
+  const forget: BankService["forget"] = {
+    prepare(params, context) {
+      let staged: { readonly from: string; readonly to: string } | undefined;
+      context.onUndo(() => {
+        if (staged !== undefined && existsSync(staged.to)) renameSync(staged.to, staged.from);
+      });
+      return (_params, command) => {
+        const entry = liveBank(reader, params.bankId);
+        if (entry === null) return { aggregate: stream, rejected: { code: "not_found" } };
+        const remove = params.removeCheckout === true;
+        if (remove && !removableCheckout(entry, listBanks(reader), options.dataDir)) return { aggregate: stream, rejected: { code: "conflict", message: "Only a BankService-owned checkout with no registered path in it may be removed.", data: { reason: "registered_path", bankId: entry.id } } };
+        // Rename is reversible until the receipt commits; destroy only the staged checkout after it.
+        if (remove) {
+          try {
+            if (existsSync(entry.checkout)) {
+              const root = checkoutRemovalRoot(options.dataDir);
+              mkdirSync(root, { recursive: true });
+              assertRemovalRoot(root, options.dataDir);
+              const to = join(realpathSync(root), entry.id);
+              if (protectedRemovalPath(reader, to, entry.id)) return { aggregate: stream, rejected: { code: "conflict", message: "The checkout removal path belongs to another registered bank.", data: { reason: "registered_path", bankId: entry.id } } };
+              if (existsSync(to)) throw new Error("A checkout removal is pending already.");
+              renameSync(entry.checkout, to);
+              staged = { from: entry.checkout, to };
+            }
+          } catch {
+            return { aggregate: stream, rejected: { code: "internal", message: "The bank's checkout could not be staged for removal; it remains registered." } };
+          }
+        }
+        const result = { bankId: entry.id, checkoutRemoved: remove };
+        log.append(stream, [{ type: "bank.forgotten", payload: result }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+        command.tx.afterCommit(() => {
+          readings.delete(entry.id);
+          if (staged !== undefined && !protectedRemovalPath(reader, staged.to, entry.id)) rmSync(staged.to, { recursive: true, force: true });
+        });
+        return { aggregate: stream, result };
+      };
+    },
+  };
 
   return {
     git: options.credentials.git,
@@ -493,10 +608,79 @@ export const createBankService = (options: BankServiceOptions): BankService => {
       });
     },
     register,
+    update,
+    pin,
+    forget,
+    sessionPins: (sessionId) => sessionBankPins(reader, sessionId),
     preview: (url) => previewBank(options, url),
-    join: joinBank({ ...options, register }),
+    join: joinBank({ ...options, register: { prepare: (params) => prepareRegister(params, false, "managed") } }),
     create,
   };
+};
+
+/** A durable staging name: the registry retains the original path even after forgetting. */
+const checkoutRemovalRoot = (dataDir: string): string => join(dataDir, "bank-checkout-removals");
+
+const assertRemovalRoot = (root: string, dataDir: string): void => {
+  if (lstatSync(root).isSymbolicLink() || dirname(realpathSync(root)) !== realpathSync(dataDir)) throw new Error("The bank checkout removal directory must be a direct directory in the data directory.");
+};
+
+/** Adopting a staged path cancels its removal, even if that registration later forgets it. */
+const protectedRemovalPath = (reader: Reader, path: string, bankId: string): boolean => {
+  const canonical = (checkout: string): string => existsSync(checkout) ? realpathSync(checkout) : resolve(checkout);
+  try {
+    const staged = canonical(path);
+    return reader.all<{ entry: string }>("SELECT entry FROM banks WHERE id != ?", bankId).some((row) => {
+      const other = canonical((JSON.parse(row.entry) as BankEntry).checkout);
+      return other === staged || other.startsWith(staged + sep) || staged.startsWith(other + sep);
+    });
+  } catch {
+    return true;
+  }
+};
+
+/** A process interruption restores an uncommitted rename, or finishes a committed removal. */
+const recoverCheckoutRemovals = (reader: Reader, log: EventLog, stream: StreamRef, dataDir: string): void => {
+  const root = checkoutRemovalRoot(dataDir);
+  if (!existsSync(root)) return;
+  assertRemovalRoot(root, dataDir);
+  for (const directory of readdirSync(root, { withFileTypes: true })) {
+    if (!directory.isDirectory()) continue;
+    const [row] = reader.all<{ entry: string; forgotten_at: string | null }>("SELECT entry, forgotten_at FROM banks WHERE id = ?", directory.name);
+    if (row === undefined) continue;
+    const entry = JSON.parse(row.entry) as BankEntry;
+    if (entry.checkoutOwnership !== "managed") throw new Error("A pending checkout removal must belong to a managed bank.");
+    const staged = join(root, directory.name);
+    if (protectedRemovalPath(reader, staged, entry.id)) {
+      if (row.forgotten_at === null) throw new Error("The pending bank checkout cannot be restored from a path adopted by another bank.");
+      continue;
+    }
+    if (row.forgotten_at === null) {
+      if (!removableCheckout(entry, listBanks(reader), dataDir) || existsSync(entry.checkout)) throw new Error("The pending bank checkout cannot be restored into an occupied or registered path.");
+      renameSync(staged, entry.checkout);
+    } else if (log.readStream(stream).some((event) => event.type === "bank.forgotten" && event.payload.bankId === entry.id && event.payload.checkoutRemoved === true)) {
+      try { rmSync(staged, { recursive: true, force: true }); }
+      catch { console.error(`Finishing the pending checkout removal for bank ${entry.id} failed; startup will retry.`); }
+    }
+  }
+};
+
+/** Ownership is explicit; an old record or adopted path is never inferred to be ours from its location. */
+const removableCheckout = (entry: BankEntry, banks: readonly BankEntry[], dataDir: string): boolean => {
+  if (entry.checkoutOwnership !== "managed") return false;
+  const canonical = (path: string): string => existsSync(path) ? realpathSync(path) : resolve(path);
+  try {
+    const checkout = canonical(entry.checkout);
+    const root = canonical(join(dataDir, "banks"));
+    if (dirname(checkout) !== root || (existsSync(entry.checkout) && lstatSync(entry.checkout).isSymbolicLink())) return false;
+    return !banks.some((bank) => {
+      if (bank.id === entry.id) return false;
+      const other = canonical(bank.checkout);
+      return other === checkout || other.startsWith(checkout + sep) || checkout.startsWith(other + sep);
+    });
+  } catch {
+    return false;
+  }
 };
 
 /** The bytes of a bank's fixed tiers (T0 to T2), which the 8 KB rule adds up; none for a bank whose BANK.md names no kind. */

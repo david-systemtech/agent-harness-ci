@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BankPinnedPayload",
+  "title": "banks.pin params",
   "type": "object",
   "properties": {
-    "bankId": {
+    "commandId": {
       "type": "string",
       "format": "uuid",
-      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The client-generated UUID every command takes; a retry with the same id applies once."
     },
     "sessionId": {
       "type": "string",
@@ -25,10 +25,9 @@
     }
   },
   "required": [
-    "bankId",
+    "commandId",
     "sessionId",
     "pointer",
     "pinned"
-  ],
-  "description": "bank.pinned: a session pinned or unpinned a folder of a bank."
+  ]
 }
