@@ -13,6 +13,7 @@ import { BROWSER_SESSION_EVENT_TYPES } from "./session-browser.js";
 import { GROUP_EVENT_TYPES, GROUP_STREAM_KIND, SESSION_EVENT_TYPES, SESSION_STREAM_KIND } from "./sessions.js";
 import { SETUP_SESSION_EVENT_TYPES } from "./setup-minted.js";
 import { SKILLS_EVENT_TYPES, SKILLS_STREAM_KIND } from "./skills.js";
+import { STATE_IMPORT_EVENT_TYPES, STATE_IMPORT_STREAM_KIND } from "./state-import.js";
 import { TRANSCRIPT_EVENT_TYPES } from "./transcript.js";
 import { SETTINGS_EVENT_TYPES, SETTINGS_STREAM_KIND } from "./settings.js";
 import { TRUST_EVENT_TYPES, TRUST_STREAM_KIND } from "./trust.js";
@@ -93,6 +94,7 @@ export const EVENT_TYPES = {
   [INSTRUCTIONS_STREAM_KIND]: INSTRUCTIONS_EVENT_TYPES,
   [CHROME_STREAM_KIND]: CHROME_EVENT_TYPES,
   [SKILLS_STREAM_KIND]: SKILLS_EVENT_TYPES,
+  [STATE_IMPORT_STREAM_KIND]: STATE_IMPORT_EVENT_TYPES,
 } as const satisfies Readonly<Record<string, EventTypeTable>>;
 
 export type SessionEventType = keyof typeof sessionEventTypes;

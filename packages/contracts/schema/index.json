@@ -2795,6 +2795,22 @@
       "title": "StateImportReport"
     },
     {
+      "path": "state-import/event-type.json",
+      "title": "StateImportEventType"
+    },
+    {
+      "path": "state-import/item-kind.json",
+      "title": "StateImportItemKind"
+    },
+    {
+      "path": "state-import/events/state-import.started.json",
+      "title": "StateImportStartedPayload"
+    },
+    {
+      "path": "state-import/events/state-import.item-carried.json",
+      "title": "StateImportItemCarriedPayload"
+    },
+    {
       "path": "settings/settings-key.json",
       "title": "SettingsKey"
     },
@@ -5555,6 +5571,22 @@
       "title": "banks.create error"
     },
     {
+      "path": "methods/banks.publish/params.json",
+      "title": "banks.publish params"
+    },
+    {
+      "path": "methods/banks.publish/result.json",
+      "title": "banks.publish result"
+    },
+    {
+      "path": "methods/banks.publish/response.json",
+      "title": "banks.publish response"
+    },
+    {
+      "path": "methods/banks.publish/error.json",
+      "title": "banks.publish error"
+    },
+    {
       "path": "methods/banks.verify/params.json",
       "title": "banks.verify params"
     },
@@ -8261,6 +8293,16 @@
       "result": "methods/banks.create/result.json",
       "response": "methods/banks.create/response.json",
       "error": "methods/banks.create/error.json"
+    },
+    {
+      "name": "banks.publish",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.publish/params.json",
+      "result": "methods/banks.publish/result.json",
+      "response": "methods/banks.publish/response.json",
+      "error": "methods/banks.publish/error.json"
     },
     {
       "name": "banks.verify",
