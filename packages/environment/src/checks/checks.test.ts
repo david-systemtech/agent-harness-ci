@@ -38,8 +38,8 @@ const sessionEvents = async (t: TestEnvironment, client: WireClient, sessionId: 
 };
 
 /** A session in a directory of the test's own whose check command is `command`: the session, its directory's real path and the client. */
-const checkedSession = async (t: TestEnvironment, command: string) => {
-  const client = await t.client();
+const checkedSession = async (t: TestEnvironment, command: string, client?: WireClient) => {
+  client ??= await t.client();
   const dir = tempDir("agent-harness-checks-run-");
   const sessionId = await sessionIn(client, dir);
   await client.apply("checks.set", { commandId: randomUUID(), sessionId, command });
@@ -240,5 +240,65 @@ describe("how a check ends", () => {
     shell.exit(0);
     expect(await client.request("checks.run", params)).toEqual({ receipt: (first as { receipt: unknown }).receipt });
     expect(t.run.spawned).toHaveLength(1);
+  });
+});
+
+describe("a running check", () => {
+  it("runs on when its directory's command is changed or cleared, its rows naming the command it ran", async () => {
+    const t = await start();
+    const command = "make check";
+    const { client, sessionId, workspace } = await checkedSession(t, command);
+    const events = await sessionEvents(t, client, sessionId);
+    const { terminalId } = await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+    const shell = await t.run.spawnedAt(0);
+    await client.apply("checks.set", { commandId: randomUUID(), sessionId, command: "make other" });
+    expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toMatchObject({ data: { reason: "check_running", terminalId } });
+    await client.apply("checks.set", { commandId: randomUUID(), sessionId, command: null });
+    expect(shell.signals).toEqual([]);
+    shell.print("ok\n");
+    shell.exit(0);
+    expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, command, output: "ok\n", exitCode: 0, failure: null });
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: null });
+  });
+
+  it("is recorded interrupted when the environment stops under it, and after the restart nothing runs again, a retried command answered from its receipt", async () => {
+    const t = await start({ dataDir: tempDir("agent-harness-checks-stop-") });
+    const command = "make check";
+    // A client session of its own, which the restart keeps, so its retry is the same command.
+    const { token } = await t.bootstrap("tui", "the checking client");
+    const { client, sessionId } = await checkedSession(t, command, await t.client({ token }));
+    const params = { commandId: randomUUID(), sessionId };
+    const first = (await client.request("checks.run", params)) as { receipt: unknown; result: { terminalId: string } };
+    const { terminalId } = first.result;
+    const view = await follow(client, terminalId);
+    (await t.run.spawnedAt(0)).print("half way\n");
+    await view.until((v) => v.text === "half way\n");
+
+    const back = await restartAfter(t, 0, (options) => start(options));
+    const again = await back.client({ token });
+    const { subscription } = await again.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
+    const finished = await again.next((frame): frame is EventFrame => frame.type === "event" && frame.subscription === subscription && frame.event.type === "checks.finished");
+    expect(finished.event.payload).toEqual({ terminalId, command, sourceRunId: null, output: "half way\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
+    expect(await again.request("checks.run", params)).toEqual({ receipt: first.receipt });
+    expect(back.run.spawned).toEqual([]);
+  });
+
+  it("is found unfinished after a crash and recorded interrupted at the next start, its command not run again", async () => {
+    const t = await start({ dataDir: tempDir("agent-harness-checks-crash-") });
+    const command = "make check";
+    const { client, sessionId } = await checkedSession(t, command);
+    const terminalId = randomUUID();
+    // What a crash between the start's commit and the end leaves: checks.started, and no checks.finished.
+    t.env.log.append({ kind: "session", id: sessionId }, [{ type: "checks.started", payload: { terminalId, command, sourceRunId: null } }], { actor: `client_session:${client.hello.clientSessionId}` });
+
+    const back = await restartAfter(t, 0, (options) => start(options));
+    const again = await back.client();
+    const { subscription } = await again.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
+    const finished = await again.next((frame): frame is EventFrame => frame.type === "event" && frame.subscription === subscription && frame.event.type === "checks.finished");
+    expect(finished.event.payload).toEqual({ terminalId, command, sourceRunId: null, output: "", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
+    expect(back.run.spawned).toEqual([]);
+    // The directory is not left busy.
+    await again.apply("checks.run", { commandId: randomUUID(), sessionId });
+    expect(back.run.spawned.map((shell) => shell.args)).toEqual([["-c", command]]);
   });
 });
