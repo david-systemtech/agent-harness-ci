@@ -63,6 +63,18 @@ const run: RunSummary = {
 const view: Pick<SessionProjection, "items" | "runs" | "summary"> = { items, runs: [run], summary: null };
 
 describe("the text of a session", () => {
+  it("exports check commands, status, truncation and retained output", () => {
+    const items: TranscriptEntry[] = [
+      { kind: "check", sequence: 1, terminalId: "terminal-1", command: "pnpm lint", sourceRunId: null, state: "running", result: null },
+      { kind: "check", sequence: 2, terminalId: "terminal-2", command: "pnpm typecheck", sourceRunId: RUN, state: "finished", result: { output: "Type error\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null } },
+    ];
+    const exported = exportMarkdown({ items, runs: [], summary: null }, { environment: "desk", at: new Date("2026-10-02T00:00:00Z") });
+    expect(exported).toContain("`$ pnpm lint` · running");
+    expect(exported).toContain("`$ pnpm typecheck` · exit 1");
+    expect(exported).toContain("_Earlier output omitted_");
+    expect(exported).toContain("Type error");
+  });
+
   it("finds a reply's fenced code blocks without their fences", () => {
     expect(codeBlocks("a\n```ts\none\ntwo\n```\nb\n~~~\nthree\n~~~")).toEqual(["one\ntwo", "three"]);
     expect(codeBlocks("no code")).toEqual([]);

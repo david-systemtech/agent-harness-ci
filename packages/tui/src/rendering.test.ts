@@ -156,6 +156,24 @@ describe("Ink 7.1.1 on a terminal", () => {
     expect(output().split(BSU).length).toBeGreaterThan(1);
   });
 
+  it("quits on the default Ctrl+C when idle, releasing the terminal without sending an interrupt", async () => {
+    const built = await appUnderTest({ script: { environments: [{ name: "desk", reach: "local" }] } });
+    const terminal = new FakeTerminal();
+    const keyboard = new FakeKeyboard();
+    const instance = inkRender(built.element, { ...inkOptions({
+      stdin: keyboard as unknown as NodeJS.ReadStream,
+      stdout: terminal as unknown as NodeJS.WriteStream,
+      stderr: terminal as unknown as NodeJS.WriteStream,
+    }), patchConsole: false });
+    cleanups.push(async () => { instance.unmount(); await built.host.close(); built.cleanup(); });
+    await settle();
+    const exited = instance.waitUntilExit();
+    keyboard.send(KEY.ctrlC);
+    await exited;
+    expect(terminal.writes.join("")).toContain("\u001B[?1049l");
+    expect(built.world.environment("desk").requests("runs.interrupt")).toEqual([]);
+  });
+
   it("writes no synchronized-output escape of its own: none is in its source", () => {
     const root = join(import.meta.dirname);
     const files = (readdirSync(root, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts"));

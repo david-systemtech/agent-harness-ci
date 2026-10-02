@@ -1,4 +1,4 @@
-import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReport } from "@agent-harness/contracts";
+import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
 import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
@@ -21,6 +21,7 @@ import { storeChanged, type SourceStores, type StoreSnapshot } from "./source/st
 /** One store's part of a plan: its snapshot, what the report names it by, and the items read from it. */
 interface PlannedStore {
   readonly snapshot: StoreSnapshot;
+  readonly dependencies?: readonly StoreSnapshot[];
   readonly label: string;
   readonly items: readonly ImportItem[];
   readonly notCarried?: readonly StateImportNotCarried[];
@@ -33,6 +34,8 @@ export interface ImportPlan {
   readonly stores: readonly PlannedStore[];
   /** What fails before any item is applied: a store that could not be read, an item its owner's bounds refuse or that waits for a mapping. */
   readonly failed: readonly StateImportFailure[];
+  /** Repair links read from the owners after application, or anticipated for the preview's new targets. */
+  readonly repairs?: (preview: boolean) => readonly StateImportReEnter[];
   readonly notCarried: readonly StateImportNotCarried[];
   /** Read from the preferences; the snapshot they were read from is one of the stores. */
   readonly clientLocal: StateImportClientLocal;
@@ -117,7 +120,7 @@ export const includeReportStores = (plan: ImportPlan, stores: readonly SourceRep
  * when they are what changed. A store that did not change keeps its part.
  */
 export const recheckStores = async (plan: ImportPlan): Promise<ImportPlan> => {
-  const looks = await Promise.all(plan.stores.map(async (store) => ({ store, changed: await storeChanged(store.snapshot) })));
+  const looks = await Promise.all(plan.stores.map(async (store) => ({ store, changed: (await Promise.all([store.snapshot, ...(store.dependencies ?? [])].map(storeChanged))).some(Boolean) })));
   const changed = looks.filter((look) => look.changed).map((look) => look.store);
   if (changed.length === 0) return plan;
   return {
@@ -146,10 +149,10 @@ const NOTHING_CARRIED: StateImportCarried = {
 
 /** The report of a plan: for a dry run, what it would carry; for an import, what `applied` says it carried and what failed. */
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
-  const carriedItems = applied === null ? itemsOf(plan) : applied.carried;
+  const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false) : applied.carried;
   return {
-    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length },
-    reEnter: [],
+    carried: { ...NOTHING_CARRIED, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
+    reEnter: [...(plan.repairs?.(applied === null) ?? [])],
     later: plan.stores.flatMap((store) => store.later ?? []),
     notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],
     failed: [...plan.failed, ...(applied?.failed ?? [])],
