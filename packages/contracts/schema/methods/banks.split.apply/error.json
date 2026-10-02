@@ -1,0 +1,435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.split.apply error",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unauthorized"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session's token is missing, invalid, foreign or expired."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "forbidden"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "read",
+                "sessions:write",
+                "runs:drive",
+                "terminal",
+                "admin"
+              ],
+              "description": "The scope the method requires; with reason scope, the requested pairing scope the caller does not hold."
+            },
+            "reason": {
+              "description": "Present when the method's scope is held and the call is refused all the same: ceiling (it would grant a ceiling above the caller's own: a pairing, or raising another client session), scope (a pairing would grant a scope the caller does not hold, named in data.scope), local (only a local client session may ask it: an artefact path on the environment's machine, the desktop's stage), program (a program client session may not ask it: the known-environments report, whose text reaches every run) or addressed (only the client session a call is addressed to may answer it: client.answer).",
+              "type": "string",
+              "enum": [
+                "ceiling",
+                "scope",
+                "local",
+                "program",
+                "addressed"
+              ]
+            },
+            "ceiling": {
+              "description": "With reason ceiling: the caller's own ceiling, the highest it may grant.",
+              "type": "string",
+              "enum": [
+                "plan",
+                "acceptEdits",
+                "auto",
+                "bypassPermissions"
+              ]
+            }
+          },
+          "required": [
+            "scope"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The client session lacks the scope the method requires, named in data.scope; or, with data.reason ceiling, the call would grant a ceiling above the caller's own, named in data.ceiling; or, with data.reason scope, a pairing would grant a scope the caller does not hold, named in data.scope; or, with data.reason local, only a local client session may ask it; or, with data.reason program, a program client session may not; or, with data.reason addressed, the call is addressed to another client session."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "unavailable"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "readiness": {
+              "type": "string",
+              "enum": [
+                "starting",
+                "draining"
+              ],
+              "description": "Why the environment cannot answer: it is not ready yet, or it is draining."
+            }
+          },
+          "required": [
+            "readiness"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment is starting or draining; data.readiness says which."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "invalid_params"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "path",
+                  "message"
+                ],
+                "additionalProperties": {},
+                "description": "One schema issue: a code, the path to the offending value and a message."
+              }
+            }
+          },
+          "required": [
+            "issues"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The params or the frame did not match the schema; data.issues lists the schema's issues."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "not_found"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The method's target does not exist."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "conflict"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The target's state does not allow the method now."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "internal"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The environment failed; nothing the client sent is at fault."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "bank_read_only"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "bank": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+            }
+          },
+          "required": [
+            "bank"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The bank named is read-only for this account: data names it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "const": "validation_failed"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "rules": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "unreadable",
+                  "manifest_missing",
+                  "manifest_malformed",
+                  "manifest_fact_missing",
+                  "manifest_fact_invalid",
+                  "retired_key",
+                  "unknown_scope_label",
+                  "orientation_over_cap",
+                  "orientation_missing",
+                  "orientation_too_large",
+                  "scope_file_missing",
+                  "scope_file_malformed",
+                  "scope_line",
+                  "scope_topics",
+                  "unknown_scope",
+                  "undeclared_topic",
+                  "repository_identity",
+                  "index_over_cap",
+                  "root_over_cap",
+                  "memory_malformed",
+                  "memory_name",
+                  "memory_name_taken",
+                  "memory_type",
+                  "description_length",
+                  "description_is_name",
+                  "description_duplicate",
+                  "body_too_long",
+                  "secret_shaped",
+                  "description_trigger",
+                  "unresolved_link"
+                ],
+                "description": "A bank validator rule's id; data/bank-validator-rules.json says what each refuses or warns of."
+              },
+              "description": "The validator rules the write fails."
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "rule": {
+                    "type": "string",
+                    "enum": [
+                      "unreadable",
+                      "manifest_missing",
+                      "manifest_malformed",
+                      "manifest_fact_missing",
+                      "manifest_fact_invalid",
+                      "retired_key",
+                      "unknown_scope_label",
+                      "orientation_over_cap",
+                      "orientation_missing",
+                      "orientation_too_large",
+                      "scope_file_missing",
+                      "scope_file_malformed",
+                      "scope_line",
+                      "scope_topics",
+                      "unknown_scope",
+                      "undeclared_topic",
+                      "repository_identity",
+                      "index_over_cap",
+                      "root_over_cap",
+                      "memory_malformed",
+                      "memory_name",
+                      "memory_name_taken",
+                      "memory_type",
+                      "description_length",
+                      "description_is_name",
+                      "description_duplicate",
+                      "body_too_long",
+                      "secret_shaped",
+                      "description_trigger",
+                      "unresolved_link"
+                    ],
+                    "description": "A bank validator rule's id; data/bank-validator-rules.json says what each refuses or warns of."
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": [
+                      "refusal",
+                      "warning"
+                    ],
+                    "description": "refusal: the bank or the write is refused; warning: reported, nothing refused."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "The file or folder it is about, relative to the bank's root: BANK.md, projects/acme/web/, or a memory's file."
+                  },
+                  "field": {
+                    "description": "The field of the file it is about, where it is one: purpose, orientation, topics, description, body.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "secret": {
+                    "description": "secret_shaped only: the shape rule that found it, or registered-value; never the value.",
+                    "type": "string",
+                    "enum": [
+                      "anthropic",
+                      "openai-style",
+                      "aws",
+                      "google",
+                      "github",
+                      "private-key",
+                      "bearer",
+                      "key-assignment",
+                      "openbao",
+                      "doppler",
+                      "onepassword",
+                      "bitwarden",
+                      "registered-value"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "What is wrong and what to do, for the bank's author; never a secret's value."
+                  }
+                },
+                "required": [
+                  "rule",
+                  "severity",
+                  "path",
+                  "message"
+                ],
+                "description": "One finding of the bank validator: the rule's id, refusal or warning, the path and field it is about, and an actionable message."
+              },
+              "description": "Every finding of the verdict, refusals and warnings."
+            }
+          },
+          "required": [
+            "rules",
+            "findings"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "data"
+      ],
+      "description": "The bank validator refused the write: data names the rules and each finding, never a secret's value."
+    }
+  ]
+}

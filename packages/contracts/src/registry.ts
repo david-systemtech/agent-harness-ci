@@ -1,3 +1,4 @@
+import { banksSplitPropose, banksSplitApply } from "./bank-split.js";
 import { banksDraftsList, banksMemoryDraft, banksMemoryPromote, banksMemoryRead, banksMemorySearch } from "./memory-drafts.js";
 import type { z } from "zod";
 import {
@@ -305,6 +306,8 @@ export const methods = [
   forgePullRequestsUnlink,
   forgePullRequestsRefresh,
   banksList,
+  banksSplitPropose,
+  banksSplitApply,
   banksJoinPreview,
   banksJoin,
   banksDraftsList,
