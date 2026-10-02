@@ -1746,8 +1746,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
     orientation: readOrientation,
   });
-  const createInstruction = instructionHandlers["instructions.create"];
-  if (typeof createInstruction !== "function") throw new Error("The Instructions service serves no instructions.create.");
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1895,7 +1893,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       environmentId: record.id,
       coordinator: stateImports,
-      createInstruction,
+      createInstruction: instructionHandlers["instructions.create"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).
