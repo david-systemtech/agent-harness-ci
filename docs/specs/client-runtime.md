@@ -27,10 +27,10 @@ One UI-free package, the **client runtime**, that every client renders from and 
 13. As David, I want a feature a desktop cannot offer in a terminal to say why it is absent, so that a missing button is never a mystery.
 14. As David, I want a session deleted on one client to vanish from every client at once, and a command aimed at it rejected with a one-line notice, so that deletion is clean.
 15. As David, I want to disable a saved environment without forgetting it, and removing one to revoke its session and forget its cache and pending edits, so that both are complete.
-16. As Seth, I want the terminal UI to open with my sessions from the cache before the environment answers, so that startup is instant.
-17. As Seth, I want the terminal UI to tell me the service is down and offer to start it, and to authenticate on my own machine without a code, so that my own computer never asks me to pair.
-18. As Seth, I want a network blip to show as "reconnecting" for a few seconds and then be over, with no lost or doubled transcript lines, so that a flaky link is not a broken transcript.
-19. As Seth, I want the answer I give to a permission prompt to reach the run once even if the socket drops as I press the key, so that a decision is never lost or doubled.
+16. As Milo, I want the terminal UI to open with my sessions from the cache before the environment answers, so that startup is instant.
+17. As Milo, I want the terminal UI to tell me the service is down and offer to start it, and to authenticate on my own machine without a code, so that my own computer never asks me to pair.
+18. As Milo, I want a network blip to show as "reconnecting" for a few seconds and then be over, with no lost or doubled transcript lines, so that a flaky link is not a broken transcript.
+19. As Milo, I want the answer I give to a permission prompt to reach the run once even if the socket drops as I press the key, so that a decision is never lost or doubled.
 20. As a client developer in another language, I want the runtime's rules written down as behaviour, so that a second client can follow them without reading TypeScript.
 21. As the setup checklist, I want to read the saved connections with each environment's health and version, pair a new one, and run a step's health check against any of them, so that the Your machines step is a view of the registry.
 22. As a routine, I want a client-notice delivery to reach every connected client as a notice, so that a firing's result is seen.

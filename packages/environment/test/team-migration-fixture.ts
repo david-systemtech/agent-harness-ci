@@ -16,9 +16,9 @@ export const TEAM_MIGRATION_FIXTURE: Record<string, string> = {
 };
 
 export const TEAM_MIGRATION_CHOICES = {
-  team: { org: "brandsolidate", owners: ["david-systemtech"] },
-  scopeMoves: { "shared/ops/": "fixture-team:brandsolidate/holding/ops/" },
-  topicDeclarations: { "fixture-team:brandsolidate/sample-brand/product/": { "sample-line": "Synthetic product line" } },
+  team: { org: "meadowstudios", owners: ["david-systemtech"] },
+  scopeMoves: { "shared/ops/": "fixture-team:meadowstudios/holding/ops/" },
+  topicDeclarations: { "fixture-team:meadowstudios/sample-brand/product/": { "sample-line": "Synthetic product line" } },
   repositoryMappings: { "sample-repo": "https://github.com/example-fixture/sample-repo" },
   orientationDrafts: [{ name: "team-pointers", description: "Before using the synthetic team bank - follow its brand and holding fact pointers", body: "See [[brand-fact]] and [[holding-fact]].\n" }],
 };

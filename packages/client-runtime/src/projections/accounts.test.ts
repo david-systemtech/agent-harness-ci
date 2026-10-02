@@ -109,7 +109,7 @@ describe("projections.accounts and projections.models", () => {
 // Plan usage, pooled by identity.
 
 const david = { provider: "claude", email: "david@example.com", organisation: null };
-const seth = { provider: "claude", email: "seth@example.com", organisation: "RX Ventures" };
+const milo = { provider: "claude", email: "milo@example.com", organisation: "RX Ventures" };
 const window = (name: string, utilisation: number, observedAt: string) => ({ window: name, utilisation, resetsAt: "2026-09-24T05:00:00.000Z", verdict: null, observedAt });
 const reading = (accountId: string, identity: AccountUsage["identity"], readAt: string, windows: AccountUsage["windows"], unavailableReason: string | null = null): AccountUsage => ({
   accountId,
@@ -130,7 +130,7 @@ describe("plan usage", () => {
         environmentId: "laptop",
         readings: [
           reading("b-7", david, "2026-09-24T00:00:30.000Z", [window("five_hour", 0.3, "2026-09-24T00:02:00.000Z"), window("seven_day", 0.1, "2026-09-24T00:00:30.000Z")]),
-          reading("b-8", seth, "2026-09-24T00:00:10.000Z", [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")]),
+          reading("b-8", milo, "2026-09-24T00:00:10.000Z", [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")]),
         ],
       },
     ]);
@@ -146,7 +146,7 @@ describe("plan usage", () => {
         readAt: "2026-09-24T00:01:00.000Z",
         unavailableReason: null,
       },
-      { identity: seth, accounts: [{ environmentId: "laptop", accountId: "b-8" }], windows: [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")], readAt: "2026-09-24T00:00:10.000Z", unavailableReason: null },
+      { identity: milo, accounts: [{ environmentId: "laptop", accountId: "b-8" }], windows: [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")], readAt: "2026-09-24T00:00:10.000Z", unavailableReason: null },
     ]);
   });
 
@@ -210,7 +210,7 @@ describe("plan usage", () => {
       result: {
         readings: [
           reading("b-7", david, "2026-09-24T00:00:30.000Z", [laptopFiveHour]),
-          reading("b-8", seth, "2026-09-24T00:00:10.000Z", [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")]),
+          reading("b-8", milo, "2026-09-24T00:00:10.000Z", [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")]),
         ],
       },
     }));
@@ -232,7 +232,7 @@ describe("plan usage", () => {
         readAt: "2026-09-24T00:01:00.000Z",
         unavailableReason: null,
       },
-      { identity: seth, accounts: [{ environmentId: laptopId, accountId: "b-8" }], windows: [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")], readAt: "2026-09-24T00:00:10.000Z", unavailableReason: null },
+      { identity: milo, accounts: [{ environmentId: laptopId, accountId: "b-8" }], windows: [window("five_hour", 0.9, "2026-09-24T00:00:10.000Z")], readAt: "2026-09-24T00:00:10.000Z", unavailableReason: null },
     ]);
 
     // A run on the laptop reports the five-hour window: its usage.updated reads the laptop again, and the gauge takes the later observation.

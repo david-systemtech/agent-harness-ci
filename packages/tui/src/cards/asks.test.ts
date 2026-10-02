@@ -46,7 +46,7 @@ const ask = (fields: Partial<ParkedAsk> & Pick<ParkedAsk, "environmentId" | "ses
 describe("the badge", () => {
   it("takes the first letters of two words, else the first two letters, in capitals", () => {
     expect(abbreviationOf("desk")).toBe("DE");
-    expect(abbreviationOf("system server")).toBe("SS");
+    expect(abbreviationOf("sample server")).toBe("SS");
     expect(abbreviationOf("gaming-pc")).toBe("GP");
     expect(abbreviationOf(null)).toBe("TM");
   });

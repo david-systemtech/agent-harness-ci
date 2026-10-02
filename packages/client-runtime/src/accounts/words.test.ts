@@ -28,10 +28,10 @@ describe("the default model's choices", () => {
 
 const PROBE: AmbientProbe = {
   provider: "claude",
-  directory: "/home/seth/.claude",
+  directory: "/home/milo/.claude",
   present: true,
   signedIn: true,
-  identity: { provider: "claude", email: "seth@example.test", organisation: null },
+  identity: { provider: "claude", email: "milo@example.test", organisation: null },
   accountId: null,
   detail: null,
   checkedAt: "2026-09-30T10:00:00.000Z",
@@ -39,8 +39,8 @@ const PROBE: AmbientProbe = {
 
 describe("the machine's own sign-in", () => {
   it("is offered while it is there, signed in and held by no account, named by its email, else its directory", () => {
-    expect(ambientOffer(PROBE, "desk")).toBe("Use the Claude Code sign-in on desk's machine (seth@example.test)");
-    expect(ambientOffer({ ...PROBE, identity: null }, "desk")).toBe("Use the Claude Code sign-in on desk's machine (/home/seth/.claude)");
+    expect(ambientOffer(PROBE, "desk")).toBe("Use the Claude Code sign-in on desk's machine (milo@example.test)");
+    expect(ambientOffer({ ...PROBE, identity: null }, "desk")).toBe("Use the Claude Code sign-in on desk's machine (/home/milo/.claude)");
     for (const refused of [{ present: false }, { signedIn: false }, { accountId: "account-1" }, { directory: null }]) expect(ambientOffer({ ...PROBE, ...refused }, "desk")).toBeUndefined();
     expect(ambientOffer(null, "desk")).toBeUndefined();
   });
@@ -50,7 +50,7 @@ describe("an account and its gauge", () => {
   it("say the status with why when the read said, who a gauge pools, and when a window resets", () => {
     expect(accountStatusWords({ state: "signed-out", detail: null })).toBe("signed out");
     expect(accountStatusWords({ state: "unreadable", detail: "auth status exited 1" })).toBe("status unreadable: auth status exited 1");
-    expect(gaugeWho({ identity: PROBE.identity })).toBe("seth@example.test");
+    expect(gaugeWho({ identity: PROBE.identity })).toBe("milo@example.test");
     expect(gaugeWho({ identity: null })).toBe("An account never read");
     expect(resetWords(null)).toBeUndefined();
     expect(resetWords("2026-09-30T14:05:00.000Z")).toMatch(/^resets \d\d:\d\d$/);

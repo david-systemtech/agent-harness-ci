@@ -231,7 +231,7 @@ export const endpoint = {
   lastResult: { at: later, result: "delivered", status: 204, error: null },
 };
 
-const environment = { id: otherEnvironment, name: "SYSTEM-SERVER" };
+const environment = { id: otherEnvironment, name: "SAMPLE-SERVER" };
 
 export const webhookEntry = { id: firingId, kind: "firing", trigger: "schedule", dueAt: at, startedAt: at, endedAt: later, outcome: "succeeded", reason: null, sessionId };
 
@@ -245,7 +245,7 @@ export const webhookResult = {
   text: "Two sources moved: see the digest.",
 };
 
-export const webhookTest = { type: "routine.test", version: 1, environment, routine: null, entry: null, summary: "A test from SYSTEM-SERVER.", text: "" };
+export const webhookTest = { type: "routine.test", version: 1, environment, routine: null, entry: null, summary: "A test from SAMPLE-SERVER.", text: "" };
 
 const scratch = { kind: "scratch", repositoryIdentity: null };
 const worktree = { kind: "worktree", repository: "/home/david/code/agent-harness", newBranch: { base: "main" }, repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" };
@@ -458,7 +458,7 @@ const listedResult: Fixtures = { valid: [{ routine: listed }], invalid: [{}, { r
 const routineTarget: Fixtures = { valid: [{ commandId, routineId }], invalid: [{ commandId }, { routineId }, { commandId, routineId: "upstream-watch" }] };
 const moveTarget = { environmentId: otherEnvironment, routineId };
 const yaml = "kind: routine\nversion: 1\nname: Upstream watch\n";
-const reference = { provider: "openbao", connectionId: otherEnvironment, mount: "personal", path: "agents/hermes", key: "webhook-secret" };
+const reference = { provider: "openbao", connectionId: otherEnvironment, mount: "personal", path: "harness/hermes", key: "webhook-secret" };
 
 export const routineMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "routines.list": {

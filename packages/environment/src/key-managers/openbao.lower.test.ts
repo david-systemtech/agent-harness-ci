@@ -319,7 +319,7 @@ describe("a list", () => {
     bao.kv("personal", 2);
     bao.kv("legacy", 1);
     bao.kv("hidden", 2);
-    for (const path of ["harness/forge-github", "harness/bank-cortex", "notes"]) bao.secret("personal", path, { value: "a-value-for-tests" });
+    for (const path of ["harness/forge-github", "harness/bank-notebook", "notes"]) bao.secret("personal", path, { value: "a-value-for-tests" });
     bao.secret("legacy", "forge", { token: "a-value-for-tests" });
     bao.policy("browser", `path "personal/metadata/*" { capabilities = ["list"] }\npath "legacy/*" { capabilities = ["list"] }`);
     bao.token(PERSON_TOKEN, { policies: ["default", "browser"] });
@@ -336,7 +336,7 @@ describe("a list", () => {
     const bao = await withTree();
     const provider = createOpenBaoProvider();
     expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: null })).toEqual({ outcome: "listed", names: ["harness/", "notes"] });
-    expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "harness" })).toEqual({ outcome: "listed", names: ["bank-cortex", "forge-github"] });
+    expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "personal", path: "harness" })).toEqual({ outcome: "listed", names: ["bank-notebook", "forge-github"] });
     expect(await provider.list(targetOf(bao), PERSON_TOKEN, { mount: "legacy", path: null })).toEqual({ outcome: "listed", names: ["forge"] });
     expect(bao.requests).toEqual([
       { method: "GET", path: "sys/internal/ui/mounts/personal" },

@@ -28,8 +28,8 @@ const FORGE = { origin: "https://git.systemtech.dev:5526/david/agent-harness" };
 /** The identity every spelling of it comes down to. */
 const IDENTITY = "https://git.systemtech.dev/david/agent-harness";
 /** Another repository, and its identity. */
-const SHOP = "https://github.com/x/cool-jams";
-const SHOP_IDENTITY = "https://github.com/x/cool-jams";
+const SHOP = "https://github.com/x/moon-gems";
+const SHOP_IDENTITY = "https://github.com/x/moon-gems";
 
 /** The card's answer for `context` once `condition` holds, followed for the rest of the test so what it reads stays fetched. */
 const card = (runtime: Runtime, context: NewSessionContext, condition: (view: NewSessionView) => boolean = () => true): Promise<NewSessionView> => {
@@ -53,7 +53,7 @@ const signingIn = (models?: readonly ModelOption[]): FakeAdapter =>
     ...(models !== undefined && { models }),
   });
 
-/** Desk holding max's login and david's; laptop holding seth's account, signed out, and david's login, and offering no sonnet. */
+/** Desk holding max's login and david's; laptop holding milo's account, signed out, and david's login, and offering no sonnet. */
 const withAccounts = () => {
   const desk = signingIn();
   const laptop = signingIn([
@@ -63,7 +63,7 @@ const withAccounts = () => {
   const accounts = (adapter: FakeAdapter, ids: readonly string[]) => ids.map((id) => ({ id, provider: adapter.descriptor.provider }));
   return twoEnvironments({
     desk: { adapter: desk, accounts: accounts(desk, ["desk-max", "desk-david"]) },
-    laptop: { adapter: laptop, accounts: accounts(laptop, ["laptop-seth", "laptop-david"]) },
+    laptop: { adapter: laptop, accounts: accounts(laptop, ["laptop-milo", "laptop-david"]) },
   });
 };
 
@@ -109,11 +109,11 @@ describe("projections.newSession: the environment chip", () => {
     await inGroup(desk, "Receipts");
     laptop.clock.advance(60_000);
     await inGroup(laptop, "receipts");
-    // Cool-Jams on laptop and on server, not on the primary; server's session the more recent.
+    // Moon-Gems on laptop and on server, not on the primary; server's session the more recent.
     laptop.clock.advance(60_000);
-    await inGroup(laptop, "Cool-Jams");
+    await inGroup(laptop, "Moon-Gems");
     server.clock.advance(180_000);
-    await inGroup(server, "Cool-Jams");
+    await inGroup(server, "Moon-Gems");
     await runtime.connections.setLastUsed(desk.env.id);
     const heading = async (name: string) => {
       const list = await holds(runtime.projections.sessionList, (view) => view.groups.find((group) => group.name === name)?.groups.length === 2);
@@ -121,12 +121,12 @@ describe("projections.newSession: the environment chip", () => {
     };
 
     expect((await card(runtime, { focus: await heading("Receipts") })).environment).toMatchObject({ value: desk.env.id, reason: "group" });
-    expect((await card(runtime, { focus: await heading("Cool-Jams") })).environment).toMatchObject({ value: server.env.id, reason: "group" });
+    expect((await card(runtime, { focus: await heading("Moon-Gems") })).environment).toMatchObject({ value: server.env.id, reason: "group" });
 
     // A session of laptop's in the heading becomes the most recently active.
     laptop.clock.advance(300_000);
-    await inGroup(laptop, "cool-jams");
-    expect((await card(runtime, { focus: await heading("Cool-Jams") })).environment).toMatchObject({ value: laptop.env.id, reason: "group" });
+    await inGroup(laptop, "moon-gems");
+    expect((await card(runtime, { focus: await heading("Moon-Gems") })).environment).toMatchObject({ value: laptop.env.id, reason: "group" });
   });
 
   it("with a repository in focus presets an environment holding it: the last used among its holders, else the one with its most recent session", async () => {
@@ -228,7 +228,7 @@ describe("projections.newSession: the account and model chips", () => {
     expect(there.environment).toMatchObject({ value: laptop.env.id, reason: "chosen" });
     expect(there.account).toMatchObject({ value: { id: "laptop-david" }, reason: "session" });
     expect(there.model).toMatchObject({ value: { id: "opus" }, reason: "default" });
-    expect(there.account.options.map((account) => account.id)).toEqual(["laptop-seth", "laptop-david"]);
+    expect(there.account.options.map((account) => account.id)).toEqual(["laptop-milo", "laptop-david"]);
     expect(there.model.options.map((model) => model.id)).toEqual(["opus", "haiku"]);
     // One login on two environments is one gauge.
     expect(there.account.gauge).toMatchObject({

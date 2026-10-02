@@ -209,7 +209,7 @@ describe("the CLI row", () => {
     await app.user.click(within(cli).getByRole("button", { name: "Install" }));
 
     const terminal = await within(step()).findByRole("region", { name: "Installing OpenBao CLI" });
-    await waitFor(() => expect(screenOf(terminal)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for seth:"]));
+    await waitFor(() => expect(screenOf(terminal)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for milo:"]));
     const desk = app.environment("desk");
     const [run] = desk.requests("tools.run");
     expect(run?.params).toEqual({ commandId: expect.any(String), tool: "bao", action: "install", id: expect.any(String) });

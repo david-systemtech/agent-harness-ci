@@ -32,7 +32,7 @@ vi.mock("react", () => {
 
 const DESK = "0199aa00-0000-7000-8000-00000000de5c";
 const LAPTOP = "0199aa00-0000-7000-8000-0000000014a7";
-const HERE = "/home/seth/code/harness";
+const HERE = "/home/milo/code/harness";
 
 /** The selection as a later invocation makes it, on what the machine saved; a selection made is closed when the test ends. */
 const select = async (on: Machine, request: Partial<SelectionRequest> = {}) => {
@@ -120,8 +120,8 @@ describe("the screenless selection", () => {
           reach: "local",
           environmentId: DESK,
           accounts: [
-            { id: "account-1", label: "Work", identity: identity("seth@work.test") },
-            { id: "account-2", label: "Home", identity: identity("seth@home.test") },
+            { id: "account-1", label: "Work", identity: identity("milo@work.test") },
+            { id: "account-2", label: "Home", identity: identity("milo@home.test") },
           ],
           models: [
             { accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] },

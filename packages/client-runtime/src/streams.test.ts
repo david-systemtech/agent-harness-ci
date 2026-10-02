@@ -184,11 +184,11 @@ describe("applying", () => {
 
     const again = await subscription(wire, "sessions.subscribe");
     expect(again.params).toEqual({ afterSequence: 10 });
-    again.snapshot(7, { sequence: 7, sessions: [summaryOf(b, { title: "from the snapshot" })], groups: [groupOf(randomUUID(), "Cool Jams")] });
+    again.snapshot(7, { sequence: 7, sessions: [summaryOf(b, { title: "from the snapshot" })], groups: [groupOf(randomUUID(), "Moon Gems")] });
     again.synchronized(7);
     await flush();
     expect(rows(runtime)).toEqual([b]);
-    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Cool Jams"]);
+    expect(runtime.projections.sessionList.read().groups.map((h) => h.name)).toEqual(["Moon Gems"]);
     // Kept whole: started again, a runtime renders the snapshot and attaches from its cursor.
     expect(await restartedFrom({ clock, documents, secrets: platform.secrets, environmentId: wire.environmentId })).toMatchObject({
       cached: ["from the snapshot"],
@@ -209,8 +209,8 @@ describe("applying", () => {
     const { runtime, wire, platform, list, adding } = await paired({ clock, documents });
     const [a, b] = [randomUUID(), randomUUID()];
     // What a later environment sends: summaries are built as it would, the kind one this runtime has never heard of.
-    const later = (id: string, path: string) => ({ ...summaryOf(id), workspace: { kind: "bank", path, bank: "brandsolidate" } }) as unknown as SessionSummary;
-    list.snapshot(3, { sequence: 3, sessions: [later(a, "/data/banks/brandsolidate")], groups: [] });
+    const later = (id: string, path: string) => ({ ...summaryOf(id), workspace: { kind: "bank", path, bank: "meadowstudios" } }) as unknown as SessionSummary;
+    list.snapshot(3, { sequence: 3, sessions: [later(a, "/data/banks/meadowstudios")], groups: [] });
     list.event(sessionEvent(4, added(later(b, "/data/banks/notes"))));
     list.event(sessionEvent(5, { op: "set", sessionId: a, fields: { workspace: { kind: "bank", path: "/data/banks/moved" } } } as unknown as SummaryPatch, "session.workspace-set"));
     list.synchronized(5);

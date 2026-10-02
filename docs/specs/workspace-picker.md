@@ -4,7 +4,7 @@ Milestone 1 (Switch-over), phase B (daily use). Written 2026-09-28 from map tick
 
 ## Problem Statement
 
-David works in the same repositories from a laptop, SYSTEM-SERVER's agent box and the gaming PC, and nothing today treats them as the same repositories. A session's place is a working directory with a served kind beside it (directory, ephemeral scratch, or `none`, which could run nothing); nothing records which repository it holds, so no view can put the laptop's and SYSTEM-SERVER's sessions on one repository together (T3 inventory: no remote-URL identity). The served host never sweeps its scratch directories, since only the desktop host calls the sweep (surfaces audit, section 4). Where code runs is a "run location" inside the account menu. Worktrees exist only behind a suggested-task chip, under the checkout's `.worktrees/`, and nothing removes them. Recent folders are ten per window on the window's machine, not the session's. A conversation whose directory moved has no way back but a new session. Machines have no name, icon or colour of their own, so rows from two machines look alike.
+David works in the same repositories from a laptop, SAMPLE-SERVER's agent box and the gaming PC, and nothing today treats them as the same repositories. A session's place is a working directory with a served kind beside it (directory, ephemeral scratch, or `none`, which could run nothing); nothing records which repository it holds, so no view can put the laptop's and SAMPLE-SERVER's sessions on one repository together (T3 inventory: no remote-URL identity). The served host never sweeps its scratch directories, since only the desktop host calls the sweep (surfaces audit, section 4). Where code runs is a "run location" inside the account menu. Worktrees exist only behind a suggested-task chip, under the checkout's `.worktrees/`, and nothing removes them. Recent folders are ten per window on the window's machine, not the session's. A conversation whose directory moved has no way back but a new session. Machines have no name, icon or colour of their own, so rows from two machines look alike.
 
 ## Solution
 
@@ -13,7 +13,7 @@ Every session has one workspace on its environment: a directory the environment 
 ## User Stories
 
 1. As David, I want the new-session composer to ask where first, then account and model, so that where code runs is never buried in a model menu.
-2. As David, I want a new-session action on each environment heading, so that starting work on SYSTEM-SERVER is one click from its heading.
+2. As David, I want a new-session action on each environment heading, so that starting work on SAMPLE-SERVER is one click from its heading.
 3. As David, I want a new session to default to the environment of the session or group I am looking at, else the last used, else this machine, so that the preset is usually right.
 4. As David, I want a session started from a repository heading to default to an environment that has that repository, so that I am never offered a machine without the code.
 5. As David, I want switching the environment chip to keep my login, model and repository where the new environment has them, so that moving a new session between machines is one change.
@@ -27,13 +27,13 @@ Every session has one workspace on its environment: a directory the environment 
 13. As David, I want a credential embedded in a clone URL never recorded, so that no token reaches the log.
 14. As David, I want a session whose directory has gone to show missing, open normally, and ask me for a workspace when I continue it, so that an imported or moved conversation is never lost.
 15. As David, I want sessions made before this workstream to gain their identity on their own, so that phase-A sessions join the by-repository view.
-16. As David, I want each environment to start with a sensible name, icon and colour that I can change once for every client, so that MNL looks the same everywhere without my setting anything.
+16. As David, I want each environment to start with a sensible name, icon and colour that I can change once for every client, so that LAB looks the same everywhere without my setting anything.
 17. As David, I want one Claude login on two environments to show one plan gauge, so that I see one budget.
 18. As David, I want to hide a directory I opened by mistake from the picker, so that the list stays the directories I use.
 19. As David, I want the environment's own git to run no hook or repository filter when it makes or checks a worktree, and the worktree locked while its session exists, so that neither an agent's config nor my own tidying can do harm through it.
 20. As David, I want a run contained to a worktree to be able to commit, so that containment and worktrees work together.
-21. As Seth, I want the terminal UI's new-session card and `/cwd` to offer a directory, a worktree and scratch and to browse the environment, so that I can start work anywhere from the terminal.
-22. As Seth, I want each environment's name and colour on the rail and status line, and `/environment` to set them, so that I tell machines apart without the desktop window.
+21. As Milo, I want the terminal UI's new-session card and `/cwd` to offer a directory, a worktree and scratch and to browse the environment, so that I can start work anywhere from the terminal.
+22. As Milo, I want each environment's name and colour on the rail and status line, and `/environment` to set them, so that I tell machines apart without the desktop window.
 23. As the setup checklist, I want the Your machines step to write name, icon and colour through registered methods and find the environment named, so that the step registry's contract holds.
 24. As the setup checklist, I want a minted session's workspace made by the same resolver, scratch or a bank checkout, so that the step's check finds the artefact.
 25. As the Carry over step, I want to flag an imported session's gone directory missing, so that ADR 0021's read-only rule has a field.

@@ -59,7 +59,7 @@ const sourceDataFolder = (): string => {
   const folder = tempDir();
   const write = (file: string, value: unknown) => writeFileSync(join(folder, file), JSON.stringify(value));
   write("profiles.json", { version: 1, profiles: ["a", "b", "c", "d", "e", "f"].map((id) => ({ id, providerId: "claude", configDir: `/data/profiles/${id}` })) });
-  write("memory-banks.json", { version: 1, banks: [{ slug: "cortex" }, { slug: "brands" }], default: "cortex" });
+  write("memory-banks.json", { version: 1, banks: [{ slug: "notebook" }, { slug: "brands" }], default: "notebook" });
   write("routines.json", { routines: [{ id: "r1" }] });
   write("serverRoutines.json", { routines: [{ id: "r2" }] });
   write("agent-prompts.json", {

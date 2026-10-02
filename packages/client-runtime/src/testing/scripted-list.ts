@@ -74,7 +74,7 @@ export interface ScriptedListOptions {
 }
 
 /** The home a scripted environment's `~` stands for. */
-export const SCRIPTED_HOME = "/home/seth";
+export const SCRIPTED_HOME = "/home/milo";
 
 /** The commands the list applies; `sessions.listDeleted` is its one query beyond `sessions.list` and `groups.list`. */
 export const LIST_COMMANDS = [

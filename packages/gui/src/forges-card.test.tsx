@@ -242,7 +242,7 @@ describe("the gh paths", () => {
           version: "2.63.2",
           meetsMinimum: true,
           accounts: [
-            { host: "github.com", login: "seth", active: false, tokenKind: "oauth", scopes: ["repo", "read:org"] },
+            { host: "github.com", login: "milo", active: false, tokenKind: "oauth", scopes: ["repo", "read:org"] },
             { host: "github.com", login: "david", active: true, tokenKind: "oauth", scopes: ["repo", "read:org"] },
           ],
         },

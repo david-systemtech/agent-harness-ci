@@ -259,9 +259,9 @@ describe("Tags", () => {
 describe("Move to group", () => {
   it("lists the environments' groups by their merged names, the one it is in dim, a new one, and no group while it is in one", async () => {
     const app = await settled(await two());
-    expect(offered(await submenu(app, await menuOf(app, "Fix the rail"), "Move to group"))).toEqual(["Brandsolidate", "Ops", "New group…"]);
+    expect(offered(await submenu(app, await menuOf(app, "Fix the rail"), "Move to group"))).toEqual(["Meadowstudios", "Ops", "New group…"]);
     await app.user.keyboard("{Escape}{Escape}");
-    expect(offered(await submenu(app, await menuOf(app, "Brand copy"), "Move to group"))).toEqual(["BrandsolidateIt is in this group.", "Ops", "New group…", "No group"]);
+    expect(offered(await submenu(app, await menuOf(app, "Brand copy"), "Move to group"))).toEqual(["MeadowstudiosIt is in this group.", "Ops", "New group…", "No group"]);
   });
 
   it("runs commands.moveToGroup: into a group its environment has, into one it lacks, which is created there first, into a new one, and out of any", async () => {
@@ -346,10 +346,10 @@ describe("a merged heading", () => {
 
   it("is renamed in place with one groups.rename per member group, each on its own environment", async () => {
     const app = await settled(await two());
-    const menu = await groupMenu(app, "Brandsolidate");
+    const menu = await groupMenu(app, "Meadowstudios");
     expect(offered(menu)).toEqual(["Rename group", "Delete group…"]);
     await app.user.click(within(menu).getByRole("menuitem", { name: "Rename group" }));
-    const field = within(sidebar()).getByRole("textbox", { name: "Rename the group “Brandsolidate”" });
+    const field = within(sidebar()).getByRole("textbox", { name: "Rename the group “Meadowstudios”" });
     expect(document.activeElement).toBe(field);
     await app.user.keyboard("Brand work{Enter}");
     await waitFor(() => expect(drawn()).toContain("▾ Brand work"));
@@ -360,11 +360,11 @@ describe("a merged heading", () => {
 
   it("is deleted, asked once, with one groups.delete per member group, its sessions staying in no group", async () => {
     const app = await settled(await two());
-    await app.user.click(within(await groupMenu(app, "Brandsolidate")).getByRole("menuitem", { name: "Delete group…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete the group “Brandsolidate”?" });
+    await app.user.click(within(await groupMenu(app, "Meadowstudios")).getByRole("menuitem", { name: "Delete group…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete the group “Meadowstudios”?" });
     expect(within(dialog).getByText("On desk and laptop. Its sessions stay, in no group.")).toBeDefined();
     await app.user.click(within(dialog).getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(drawn()).not.toContain("▾ Brandsolidate"));
+    await waitFor(() => expect(drawn()).not.toContain("▾ Meadowstudios"));
     expect(sent(app, "desk", "groups.delete")).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_DESK }]);
     expect(sent(app, "laptop", "groups.delete")).toEqual([{ commandId: expect.stringMatching(UUIDV7), groupId: G_BRAND_LAPTOP }]);
     await waitFor(() => expect(within(region("desk")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toContain("Brand copy"));
@@ -407,7 +407,7 @@ describe("dragging", () => {
 
   it("onto a group moves the session into it, and onto the pinned block pins it where it lands, or at the end on its heading", async () => {
     const app = await settled(await two());
-    expect(drag(row("Spare"), heading("Brandsolidate"))).toBe(true);
+    expect(drag(row("Spare"), heading("Meadowstudios"))).toBe(true);
     await waitFor(() => expect(sent(app, "desk", "sessions.setGroup")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: SPARE, groupId: G_BRAND_DESK }]));
 
     expect(drag(row("Fix the rail"), lineOf("Pinned one"))).toBe(true);

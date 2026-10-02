@@ -86,7 +86,7 @@ const read = (lines: readonly RailLine[]) =>
 describe("the headings", () => {
   it("come as the runtime's headings, each followed by its rows, snoozed with wake times, then settled and the archive folded", () => {
     const pinned = row("laptop", { title: "Pinned on the laptop" });
-    const grouped = [row("desk", { title: "Brand on the desk" }, { groupName: "Brandsolidate" }), row("laptop", { title: "Brand on the laptop" }, { groupName: "brandsolidate" })];
+    const grouped = [row("desk", { title: "Brand on the desk" }, { groupName: "Meadowstudios" }), row("laptop", { title: "Brand on the laptop" }, { groupName: "meadowstudios" })];
     const loose = row("desk", { title: "Loose" });
     const snoozed = row("desk", { title: "Later", snoozedUntil: "2026-09-24T18:00:00.000Z" });
     const settled = row("desk", { title: "Done" });
@@ -100,14 +100,14 @@ describe("the headings", () => {
           snoozed: [snoozed],
           settled: [settled],
           archived: [archived],
-          groups: [heading("brandsolidate", "Brandsolidate", grouped)],
+          groups: [heading("meadowstudios", "Meadowstudios", grouped)],
         }),
       }),
     );
     expect(read(lines)).toEqual([
       "▾ Pinned",
       "  Pinned on the laptop",
-      "▾ Brandsolidate",
+      "▾ Meadowstudios",
       "  Brand on the desk",
       "  Brand on the laptop",
       "desk",

@@ -142,7 +142,7 @@ describe("normalising tags", () => {
   });
 
   it("trims, keeps one per spelling ignoring case with the latest casing, and sorts ignoring case", () => {
-    expect(normaliseTags(["wip", " Seth", "review", "WIP", "seth "])).toEqual(["review", "seth", "WIP"]);
+    expect(normaliseTags(["wip", " Milo", "review", "WIP", "milo "])).toEqual(["milo", "review", "WIP"]);
     expect(normaliseTags([])).toEqual([]);
     expect(normaliseTags(["b", "B", "a"])).toEqual(["a", "B"]);
   });
@@ -295,10 +295,10 @@ describe("deciding sessions.tag and sessions.untag", () => {
   });
 
   it("removes a tag matched ignoring case, naming it as the session held it; one not held changes nothing", () => {
-    expect(decideUntag(live(null, { tags: ["review", "Seth"] }), { sessionId: id, tag: " SETH " })).toEqual({
-      events: [{ type: "session.untagged", payload: { tag: "Seth" } }],
+    expect(decideUntag(live(null, { tags: ["review", "Milo"] }), { sessionId: id, tag: " MILO " })).toEqual({
+      events: [{ type: "session.untagged", payload: { tag: "Milo" } }],
     });
-    expect(decideUntag(live(null, { tags: ["review"] }), { sessionId: id, tag: "Seth" })).toEqual({ events: [] });
+    expect(decideUntag(live(null, { tags: ["review"] }), { sessionId: id, tag: "Milo" })).toEqual({ events: [] });
   });
 });
 

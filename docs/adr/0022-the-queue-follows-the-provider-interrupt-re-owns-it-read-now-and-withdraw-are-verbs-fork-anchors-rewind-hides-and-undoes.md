@@ -17,7 +17,7 @@ Decided 2026-09-24 on the map ticket "Decision: fork, rewind and read-now for qu
 - Restoring files on rewind through harness-made per-turn snapshots in milestone 1: deferred to the fog; the SDK's checkpointing is unavailable beside the session store, and a snapshot per workspace kind is a workstream of its own. Rewind with no undo: rejected; one misclick would lose a branch.
 - Fork and rewind only where the provider offers them, or harness-native everywhere: rejected; local models would get nothing, or a Claude fork would lose the provider's own history and cost carry-over.
 - Ctrl+C as the stop key in both clients, or Esc on by default in the GUI, or Esc with a confirming second press: rejected by David; Ctrl+C is copy in the GUI, Esc in the GUI caused accidental stops, and a stop that needs two keys comes late.
-- Removing Ctrl+C's interrupt role from the terminal UI so both clients agree: rejected; the terminal convention differs, the terminal UI's map is the existing one transcribed exactly, and Seth relies on it.
+- Removing Ctrl+C's interrupt role from the terminal UI so both clients agree: rejected; the terminal convention differs, the terminal UI's map is the existing one transcribed exactly, and Milo relies on it.
 
 ## Consequences
 

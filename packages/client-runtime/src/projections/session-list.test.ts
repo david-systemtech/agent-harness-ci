@@ -156,24 +156,24 @@ describe("merged groups", () => {
     const jams = summaryOf(randomUUID(), { title: "tower jams", groupId: towerJams });
     const view = sessionListView(
       input({
-        [DESK]: list([inDesk], [groupOf(deskJams, "Cool Jams", { orderKey: "b" }), groupOf(deskBrand, "Brandsolidate", { orderKey: "m" })]),
+        [DESK]: list([inDesk], [groupOf(deskJams, "Moon Gems", { orderKey: "b" }), groupOf(deskBrand, "Meadowstudios", { orderKey: "m" })]),
         // The laptop orders them the other way round and spells them its own way; the desk is primary.
-        [LAPTOP]: list([inLaptop], [groupOf(laptopBrand, "brandSOLIDATE", { orderKey: "a" }), groupOf(laptopOther, "Receipts", { orderKey: "z" })]),
-        [TOWER]: list([jams], [groupOf(towerJams, "cool   JAMS")]),
+        [LAPTOP]: list([inLaptop], [groupOf(laptopBrand, "meadowSTUDIOS", { orderKey: "a" }), groupOf(laptopOther, "Receipts", { orderKey: "z" })]),
+        [TOWER]: list([jams], [groupOf(towerJams, "moon   GEMS")]),
       }),
     );
-    expect(view.groups.map((h) => h.name)).toEqual(["Cool Jams", "Brandsolidate", "Receipts"]);
+    expect(view.groups.map((h) => h.name)).toEqual(["Moon Gems", "Meadowstudios", "Receipts"]);
     const brand = view.groups[1];
-    expect(brand?.key).toBe("brandsolidate");
+    expect(brand?.key).toBe("meadowstudios");
     expect(brand?.groups).toEqual([
-      { environmentId: DESK, groupId: deskBrand, name: "Brandsolidate" },
-      { environmentId: LAPTOP, groupId: laptopBrand, name: "brandSOLIDATE" },
+      { environmentId: DESK, groupId: deskBrand, name: "Meadowstudios" },
+      { environmentId: LAPTOP, groupId: laptopBrand, name: "meadowSTUDIOS" },
     ]);
     expect(named(brand?.shelves.active ?? [])).toEqual(["laptop brand", "desk brand"]);
     expect(brand?.pending).toBe(false);
     expect(view.groups[0]?.groups.map((g) => g.environmentId)).toEqual([DESK, TOWER]);
     expect(named(view.groups[0]?.shelves.active ?? [])).toEqual(["tower jams"]);
-    expect(view.rows.find((r) => r.summary.id === inLaptop.id)?.groupName).toBe("brandSOLIDATE");
+    expect(view.rows.find((r) => r.summary.id === inLaptop.id)?.groupName).toBe("meadowSTUDIOS");
   });
 
   it("takes the casing of the first environment in order that has the name when the primary has not", () => {
@@ -203,11 +203,11 @@ describe("merged groups", () => {
 
   it("splits a heading when one environment renames its group", () => {
     const [deskGroup, laptopGroup] = [randomUUID(), randomUUID()];
-    const merged = sessionListView(input({ [DESK]: list([], [groupOf(deskGroup, "Brandsolidate")]), [LAPTOP]: list([], [groupOf(laptopGroup, "brandsolidate")]) }));
+    const merged = sessionListView(input({ [DESK]: list([], [groupOf(deskGroup, "Meadowstudios")]), [LAPTOP]: list([], [groupOf(laptopGroup, "meadowstudios")]) }));
     expect(merged.groups.map((h) => h.groups.length)).toEqual([2]);
-    const split = sessionListView(input({ [DESK]: list([], [groupOf(deskGroup, "Brandsolidate")]), [LAPTOP]: list([], [groupOf(laptopGroup, "Brand")]) }));
+    const split = sessionListView(input({ [DESK]: list([], [groupOf(deskGroup, "Meadowstudios")]), [LAPTOP]: list([], [groupOf(laptopGroup, "Brand")]) }));
     expect(split.groups.map((h) => [h.name, h.groups.map((g) => g.groupId)])).toEqual([
-      ["Brandsolidate", [deskGroup]],
+      ["Meadowstudios", [deskGroup]],
       ["Brand", [laptopGroup]],
     ]);
   });
@@ -224,16 +224,16 @@ describe("by repository identity", () => {
       input(
         {
           [DESK]: list([summaryOf(randomUUID(), { title: "desk", repositoryIdentity: url }), summaryOf(randomUUID(), { title: "scratch" })]),
-          [LAPTOP]: list([summaryOf(randomUUID(), { title: "laptop", repositoryIdentity: url, lastActivityAt: at(3) }), summaryOf(randomUUID(), { title: "cool", repositoryIdentity: "https://github.com/x/cool-jams" })]),
+          [LAPTOP]: list([summaryOf(randomUUID(), { title: "laptop", repositoryIdentity: url, lastActivityAt: at(3) }), summaryOf(randomUUID(), { title: "cool", repositoryIdentity: "https://github.com/x/moon-gems" })]),
           [TOWER]: list([summaryOf(randomUUID(), { title: "on a disabled environment" })]),
         },
         [record(DESK), record(LAPTOP), record(TOWER, false)],
       ),
     );
-    expect(view.repositories.map((h) => (h.kind === "repository" ? h.repositoryIdentity : h.environmentId))).toEqual([url, "https://github.com/x/cool-jams", DESK, LAPTOP]);
+    expect(view.repositories.map((h) => (h.kind === "repository" ? h.repositoryIdentity : h.environmentId))).toEqual([url, "https://github.com/x/moon-gems", DESK, LAPTOP]);
     expect(headings(view)).toEqual([
       ["david/agent-harness", ["laptop", "desk"]],
-      ["x/cool-jams", ["cool"]],
+      ["x/moon-gems", ["cool"]],
       [DESK, ["scratch"]],
       [LAPTOP, []],
     ]);
@@ -268,17 +268,17 @@ describe("search", () => {
             summaryOf(randomUUID(), { title: "Invoices for March" }),
             summaryOf(randomUUID(), { title: "tagged", tags: ["Review"] }),
             summaryOf(randomUUID(), { title: "grouped", groupId: group }),
-            summaryOf(randomUUID(), { title: "repo", repositoryIdentity: "https://github.com/x/cool-jams" }),
+            summaryOf(randomUUID(), { title: "repo", repositoryIdentity: "https://github.com/x/moon-gems" }),
             summaryOf(randomUUID(), { title: "unrelated", draft: "invoices in the draft are not searched" }),
           ],
-          [groupOf(group, "Brandsolidate")],
+          [groupOf(group, "Meadowstudios")],
         ),
       }),
     );
     expect(named(searchRows(view, "INVOICES"))).toEqual(["Invoices for March"]);
     expect(named(searchRows(view, "revi"))).toEqual(["tagged"]);
-    expect(named(searchRows(view, "solid"))).toEqual(["grouped"]);
-    expect(named(searchRows(view, "COOL-jams"))).toEqual(["repo"]);
+    expect(named(searchRows(view, "studio"))).toEqual(["grouped"]);
+    expect(named(searchRows(view, "Moon-Gems"))).toEqual(["repo"]);
     expect(searchRows(view, "nothing like it")).toEqual([]);
     expect(searchRows(view, "  ")).toHaveLength(5);
   });

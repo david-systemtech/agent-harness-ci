@@ -28,8 +28,8 @@ describe("the scripted environment", () => {
     const app = await launch({
       script: {
         environments: [
-          { name: "desk", reach: "local", sessions: [{ title: "Fix the rail" }, { title: "Pairing" }], groups: [{ name: "Brandsolidate" }] },
-          { name: "laptop", reach: "paired", sessions: [{ title: "Train tidy-up" }], groups: [{ name: "brandsolidate" }] },
+          { name: "desk", reach: "local", sessions: [{ title: "Fix the rail" }, { title: "Pairing" }], groups: [{ name: "Meadowstudios" }] },
+          { name: "laptop", reach: "paired", sessions: [{ title: "Train tidy-up" }], groups: [{ name: "meadowstudios" }] },
         ],
       },
     });
@@ -38,7 +38,7 @@ describe("the scripted environment", () => {
     const deskSessions = await runtime.requests.call(desk, "sessions.list", {});
     const laptopGroups = await runtime.requests.call(laptop, "groups.list", {});
     expect(deskSessions).toMatchObject({ ok: true, result: { sessions: [{ title: "Fix the rail" }, { title: "Pairing" }] } });
-    expect(laptopGroups).toMatchObject({ ok: true, result: { groups: [{ name: "brandsolidate" }] } });
+    expect(laptopGroups).toMatchObject({ ok: true, result: { groups: [{ name: "meadowstudios" }] } });
   });
 
   it("answers commands with the receipts the script chose", async () => {

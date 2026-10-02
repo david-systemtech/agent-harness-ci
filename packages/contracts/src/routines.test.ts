@@ -630,7 +630,7 @@ describe("the routines methods", () => {
     const url = "https://hermes.example.com/webhooks/harness";
     expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url }).success).toBe(true);
     expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "pasted", secret: "token-for-tests" } }).success).toBe(true);
-    expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "reference", reference: { provider: "openbao", connectionId: otherEnvironment, mount: "personal", path: "agents/hermes", key: "webhook-secret" } } }).success).toBe(true);
+    expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "reference", reference: { provider: "openbao", connectionId: otherEnvironment, mount: "personal", path: "harness/hermes", key: "webhook-secret" } } }).success).toBe(true);
     expect(set.params.safeParse({ commandId: firingId, name: "hermes-home", url, secret: { kind: "pasted", secret: "" } }).success).toBe(false);
     expect(registry["routines.endpoints.test"].result.safeParse({ status: 204, durationMs: 83, error: null }).success).toBe(true);
     expect(registry["routines.endpoints.test"].result.safeParse({ status: null, durationMs: 10_000, error: "No answer in ten seconds." }).success).toBe(true);

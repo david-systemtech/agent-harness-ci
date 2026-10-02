@@ -286,7 +286,7 @@ describe("keyManagers.connections.add", () => {
   it("answers invalid_params for an address that is no origin, a CA that is no certificate or on http, a credential of another method, a missing method or username, a token at another mount, a deeper base path, OpenBao's settings on another provider, and a copy that is imported too", async () => {
     const { bao, client } = await withOpenBao();
     const base = { address: bao.address, ca: bao.ca };
-    const copiedFrom = { environmentId: randomUUID(), environmentName: "SYSTEM-SERVER" };
+    const copiedFrom = { environmentId: randomUUID(), environmentName: "SAMPLE-SERVER" };
     const cases: readonly (readonly [Parameters<typeof add>[1], readonly (string | number)[]])[] = [
       [{ ...base, address: `${bao.address}/v1`, credential: approle() }, ["address"]],
       [{ ...base, address: "bao.example.com", credential: approle() }, ["address"]],
@@ -488,7 +488,7 @@ describe("keyManagers.list", () => {
 describe("a connection without a credential", () => {
   it("waits awaiting-sign-in, a copy keeping the settings it carries, and asks OpenBao nothing", async () => {
     const { bao, client } = await withOpenBao();
-    const copiedFrom = { environmentId: randomUUID(), environmentName: "SYSTEM-SERVER" };
+    const copiedFrom = { environmentId: randomUUID(), environmentName: "SAMPLE-SERVER" };
 
     const copy = await added(client, { address: bao.address, ca: bao.ca, method: "userpass", username: "david", ticks: ["default"], basePath: "personal/harness", copiedFrom });
 
@@ -591,7 +591,7 @@ describe("keyManagers.connections.signIn", () => {
     const { t, bao, client } = await withOpenBao();
     bao.userpass("david", PASSWORD, { policies: ["default", "agent-read"] });
     bao.token(PERSON_TOKEN, { policies: ["default"] });
-    const copy = await added(client, { address: bao.address, ca: bao.ca, method: "approle", copiedFrom: { environmentId: randomUUID(), environmentName: "SYSTEM-SERVER" } });
+    const copy = await added(client, { address: bao.address, ca: bao.ca, method: "approle", copiedFrom: { environmentId: randomUUID(), environmentName: "SAMPLE-SERVER" } });
     const from = t.env.log.head();
 
     expect(await refusal(signIn(client, { connectionId: copy.id, credential: userpass() }))).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["username"] })] } });
