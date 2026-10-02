@@ -222,7 +222,7 @@ import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { sourceAccountInventories } from "../state-import/inventory.js";
 import { directoryInventory } from "../carry-over/directory-inventory.js";
-import { carryOverMethods } from "../carry-over/methods.js";
+import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
@@ -1769,6 +1769,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
     inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
   });
+  const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
   const routineHandlers = routineMethods({
     log,
     clock: now,
@@ -1834,7 +1835,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
-    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability, beforeContinuation: (sessionId) => importedHistory.beforeContinuation(sessionId) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
@@ -1920,17 +1921,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
     // into the auto memory's directories in the queue key changes take, the skills tick and the rest of the inventory (#580).
-    ...carryOverMethods({
-      log,
-      environmentId: record.id,
-      host,
-      availability,
-      identityAt: (path) => environmentResolver.identityAt(path),
-      autoMemory,
-      skills: carrySkills,
-      home: carryOverHome,
-      stateImportInventory: importInventory,
-    }),
+    ...carryOver.methods,
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
       machine: stateImportSource,
@@ -1939,6 +1930,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       coordinator: stateImports,
       accounts,
       listSessions: listImportSessions,
+      carryOver,
       createInstruction: instructionHandlers["instructions.create"],
       banks: bankService,
       directoryRules: environmentResolver,
