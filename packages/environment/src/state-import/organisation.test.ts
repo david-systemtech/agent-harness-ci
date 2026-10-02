@@ -221,3 +221,15 @@ it("rechecks organisation bytes after provider Sessions commit before applying t
   expect(report.failed).toContainEqual({ label: "Desktop organisation", message: "It changed after it was read: preview again, then import." });
   expect((await client.request("sessions.list", {})).sessions.every((s) => s.pinnedAt === null)).toBe(true);
 });
+
+it("recognises an uncontinued source Routine when the SDK normalises and truncates its first prompt", async () => {
+  const f = fixture();
+  const instructions = "Check\n" + "the repo ".repeat(40);
+  f.listing[1] = { ...f.listing[1]!, firstPrompt: "Check " + "the repo ".repeat(21) + "the r…" };
+  writeFileSync(join(f.source, "routines.json"), JSON.stringify({ routines: [{ id: "routine", providerId: "claude", profileId: "work", instructions, history: [{ sessionId: f.ids[1] }] }] }));
+  const t = await startTestEnvironment(f.options);
+  onCleanup(() => t.close());
+  const client = await t.client();
+  await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
+  expect((await client.request("sessions.list", {})).sessions.find((s) => s.title === "Session 1")?.archivedAt).not.toBeNull();
+});

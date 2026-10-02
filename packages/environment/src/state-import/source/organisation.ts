@@ -98,7 +98,10 @@ export const readOrganisationStores = async (data: string | null, terminal: stri
           if (!object(firing)) { invalid++; continue; }
           if (firing["sessionId"] === undefined) continue; // A refused launch has no Session.
           if (typeof firing["sessionId"] !== "string" || !firing["sessionId"]) { invalid++; continue; }
-          firings.push({ reference: `${routine["profileId"]}:${firing["sessionId"]}`, prompt: routine["instructions"] });
+          // The pinned SDK reports one line, shortened to 200 characters; compare that same form without reading history.
+          const firstPrompt = routine["instructions"].replaceAll("\n", " ").trim();
+          const prompt = firstPrompt.length > 200 ? `${firstPrompt.slice(0, 200).trim()}…` : firstPrompt;
+          firings.push({ reference: `${routine["profileId"]}:${firing["sessionId"]}`, prompt });
         }
       }
       return { ...EMPTY, firings, invalid };
