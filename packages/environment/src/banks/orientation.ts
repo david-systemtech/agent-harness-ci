@@ -19,6 +19,7 @@ const inScope = (held: "all" | readonly string[], one: string | null): boolean =
 const landingOf = ({ status: { landing } }: BankEntry): string =>
   landing.state === "ok"
     ? `landing works, unchanged since ${utcMinute(landing.since)}.`
+    : landing.state === "awaiting-review" ? `awaiting your review since ${utcMinute(landing.since)}: ${landing.pullRequest}.`
     : `landing failed at its ${landing.step} step since ${utcMinute(landing.since)}. ${/[.!?]$/.test(landing.reason) ? landing.reason : `${landing.reason}.`}`;
 
 const bankLine = (bank: BankEntry): string => `${bank.name} (${bank.kind ?? "kind not named yet"}, ${bank.role}): ${landingOf(bank)}`;

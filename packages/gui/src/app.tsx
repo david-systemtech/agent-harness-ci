@@ -13,7 +13,7 @@ import { STEP_CARDS, StepCardsContext, type StepCards } from "./setup/cards.js";
 import { ChecklistProvider } from "./setup/checklist-window.js";
 import { WindowSidebarProvider } from "./sidebar/window-sidebar.js";
 import { RunChoicesProvider } from "./status/run-choices.js";
-import { WindowTheme } from "./theme/window-theme.js";
+import { WindowThemeProvider } from "./theme/window-theme.js";
 import { WindowProvider, usePresentation } from "./window-context.js";
 
 export interface AppProps {
@@ -48,7 +48,8 @@ const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly chi
 /**
  * The desktop window's renderer (docs/specs/gui.md): the frame over one
  * client runtime, painted with the home environment's theme from its first
- * frame (the one cached, until the window reads it again), its keys
+ * frame (the one cached, until the window reads it again; a theme picker's
+ * preview over it while one is shown), its keys
  * dispatched through the GUI column of the shared action list with this
  * client's remaps, Settings,
  * Set up as the whole window on first launch (the full checklist) with the
@@ -60,27 +61,28 @@ const WindowKeys = ({ macOS, children }: { readonly macOS: boolean; readonly chi
  */
 export const App = ({ runtime, presentation, clock, version, macOS, shell, stepCards = STEP_CARDS }: AppProps) => (
   <WindowProvider runtime={runtime} presentation={presentation} clock={clock} version={version} shell={shell}>
-    <WindowTheme />
-    <LocalServiceProvider>
-      <PairingProvider>
-        <WindowKeys macOS={macOS}>
-          <SettingsProvider>
-            <StepCardsContext value={stepCards}>
-              <ChecklistProvider>
-                <CommandPalette>
-                  <RunChoicesProvider>
-                    <WindowSidebarProvider>
-                      <Frame />
-                    </WindowSidebarProvider>
-                  </RunChoicesProvider>
-                </CommandPalette>
-                <WindowNotices />
-                <WindowAttention />
-              </ChecklistProvider>
-            </StepCardsContext>
-          </SettingsProvider>
-        </WindowKeys>
-      </PairingProvider>
-    </LocalServiceProvider>
+    <WindowThemeProvider>
+      <LocalServiceProvider>
+        <PairingProvider>
+          <WindowKeys macOS={macOS}>
+            <SettingsProvider>
+              <StepCardsContext value={stepCards}>
+                <ChecklistProvider>
+                  <CommandPalette>
+                    <RunChoicesProvider>
+                      <WindowSidebarProvider>
+                        <Frame />
+                      </WindowSidebarProvider>
+                    </RunChoicesProvider>
+                  </CommandPalette>
+                  <WindowNotices />
+                  <WindowAttention />
+                </ChecklistProvider>
+              </StepCardsContext>
+            </SettingsProvider>
+          </WindowKeys>
+        </PairingProvider>
+      </LocalServiceProvider>
+    </WindowThemeProvider>
   </WindowProvider>
 );

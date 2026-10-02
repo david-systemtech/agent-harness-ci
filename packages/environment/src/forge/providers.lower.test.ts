@@ -376,6 +376,7 @@ describe("pull requests", () => {
       outcome: "done",
       status: 200,
       value: {
+        author: null,
         number: 1,
         title: "Land a memory",
         body: "One memory.",
