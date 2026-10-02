@@ -2052,9 +2052,9 @@ describe("plan usage", () => {
   it("takes the identity from the status command when the control channel names no one", async () => {
     fake.controls = { accountInfo: async () => ({}) };
     const adapter = adapterWith({
-      runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "seth@example.com", orgName: "Seth's" }), stderr: "" }),
+      runCommand: async () => ({ code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "milo@example.com", orgName: "Milo's" }), stderr: "" }),
     });
-    expect((await adapter.usage({ id: "work", directory: "/d" })).identity).toEqual({ provider: "claude", email: "seth@example.com", organisation: "Seth's" });
+    expect((await adapter.usage({ id: "work", directory: "/d" })).identity).toEqual({ provider: "claude", email: "milo@example.com", organisation: "Milo's" });
   });
 
   it("folds a run's rate-limit verdict into the account's reading", async () => {
@@ -2698,14 +2698,14 @@ describe("the environment the adapter was made with", () => {
   it("reads an account with no directory's status under the ambient default, set explicitly", async () => {
     const seen: string[] = [];
     const adapter = adapterWith({
-      hostEnv: { PATH: "/usr/bin", HOME: "/home/seth" },
+      hostEnv: { PATH: "/usr/bin", HOME: "/home/milo" },
       runCommand: async (_executable, _argv, env) => {
         seen.push(env["CLAUDE_CONFIG_DIR"] ?? "unset");
         return { code: 1, stdout: '{"loggedIn": false}', stderr: "" };
       },
     });
     await adapter.status({ id: "ambient", directory: null });
-    expect(seen).toEqual(["/home/seth/.claude"]);
+    expect(seen).toEqual(["/home/milo/.claude"]);
   });
 });
 

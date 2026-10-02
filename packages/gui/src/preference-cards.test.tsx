@@ -18,7 +18,7 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
 const LOUD: Theme = { name: "Loud", seeds: { ...DEFAULT_THEME.seeds, success: { hue: 150, chroma: 0.4 }, accent: { hue: 264, chroma: 0.4 } } };
 
 /** The presets the scripted environments seed their denylists with. */
-const PRESETS = denylistPresets("/home/seth/.agent-harness");
+const PRESETS = denylistPresets("/home/milo/.agent-harness");
 
 /** Set up as the whole window. */
 const checklist = () => screen.getByRole("region", { name: "Set up" });

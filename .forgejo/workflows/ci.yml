@@ -4,18 +4,12 @@
 # with it (.forgejo/scripts/github-ci.sh). The `ci / ci` status the bots and
 # the pull request page read is still this job's.
 #
-# Why (David, 2026-10-01): on 2026-09-30 this repository was 97% of all `ci`
-# minutes on the shared pool, and SYSTEM-MNL ran at load 20-45 with the agent
-# sessions and the pool's VM competing for its 16 threads. The checks
-# themselves - the secret scan, install, typecheck, lint, the suite and the
-# schema export drift check - are in agent-harness-ci's
-# .github/workflows/ci.yml; change them there. They were this job's steps
-# until then, copied from david/ci templates/ci.yml.
+# The secret scan, install, typecheck, lint, suite and schema export drift
+# check are in agent-harness-ci's .github/workflows/ci.yml; change them there.
 #
-# `relay` jobs only wait, so they run on vm-relay-1 in the Dokploy VM, a
-# runner and Docker daemon of their own (david/ci docs/runners.md), not on the
-# `ci` runners. GH_CI_TOKEN is a fine-grained GitHub token for
-# agent-harness-ci alone (OpenBao systemtechdev/github-agent-harness-ci).
+# `relay` jobs only wait, so they use the self-hosted runner's `relay` label.
+# Configure a repository secret named GH_CI_TOKEN: a fine-grained GitHub
+# token scoped to agent-harness-ci alone.
 
 name: ci
 
@@ -33,16 +27,9 @@ on:
 
 # A push to a pull request that supersedes an earlier one cancels the old run.
 # Main's runs are each their own group, so every merge gets a verdict and a red
-# main names the merge that broke it. From 2026-09-29 a push to main cancelled
-# main's run in flight too, to spare SYSTEM-MNL a run for every merge; once the
-# checks moved to GitHub (2026-10-01) a run cost the homelab almost nothing,
-# and with merges every two to three minutes against a run of about four and a
-# half, main went untested for a whole afternoon (David, 2026-10-01). A shared
-# group without cancelling would queue main's runs one at a time behind each
-# other instead. GROUP below gives GitHub's run the same group. The relay
-# waits out each run in a slot on vm-relay-1, whose 8 slots no other
-# repository's jobs use. The david/ci template still queues main pushes in one
-# group, so copy a template fix over this block by hand.
+# main names the merge that broke it. A shared main group could cancel earlier
+# merges before their checks complete, or queue all main runs serially.
+# GROUP below gives GitHub's run the same group.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true

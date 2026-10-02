@@ -15,7 +15,7 @@ import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/h
 /** Two client sessions besides this client's own, and a program's. */
 const OTHERS: ScriptedEnvironment["clientSessions"] = [
   { label: "laptop window", kind: "desktop", ceiling: "acceptEdits", lastSeenAt: "2025-03-01T12:00:00.000Z" },
-  { label: "seth@laptop:pts/1", kind: "tui", scopes: ["read", "sessions:write"], ceiling: "plan", lastSeenAt: null },
+  { label: "milo@laptop:pts/1", kind: "tui", scopes: ["read", "sessions:write"], ceiling: "plan", lastSeenAt: null },
   { label: "hermes", kind: "program", scopes: ["read", "sessions:write", "runs:drive"], ceiling: "acceptEdits" },
 ];
 
@@ -64,14 +64,14 @@ describe("the client sessions", () => {
     const access = await openAccess(app);
 
     const sessions = part(access, "Client sessions");
-    expect(await labels(sessions, "Client sessions")).toEqual(["laptop window", "seth@laptop:pts/1", "seth@desk:pts/3"]);
+    expect(await labels(sessions, "Client sessions")).toEqual(["laptop window", "milo@laptop:pts/1", "milo@desk:pts/3"]);
     expect(within(item(sessions, "laptop window")).getByText(/^Desktop window · every scope · last seen 1 Mar 2025 \d\d:\d\d$/)).toBeDefined();
-    expect(within(item(sessions, "seth@laptop:pts/1")).getByText("Terminal UI · read, sessions:write · never seen")).toBeDefined();
-    expect(within(item(sessions, "seth@desk:pts/3")).getByText(/^Terminal UI · every scope · last seen \d\d:\d\d$/)).toBeDefined();
-    expect(within(item(sessions, "seth@desk:pts/3")).getByText("This client")).toBeDefined();
+    expect(within(item(sessions, "milo@laptop:pts/1")).getByText("Terminal UI · read, sessions:write · never seen")).toBeDefined();
+    expect(within(item(sessions, "milo@desk:pts/3")).getByText(/^Terminal UI · every scope · last seen \d\d:\d\d$/)).toBeDefined();
+    expect(within(item(sessions, "milo@desk:pts/3")).getByText("This client")).toBeDefined();
     expect(within(item(sessions, "laptop window")).queryByText("This client")).toBeNull();
     expect((within(item(sessions, "laptop window")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("acceptEdits");
-    expect((within(item(sessions, "seth@laptop:pts/1")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("plan");
+    expect((within(item(sessions, "milo@laptop:pts/1")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("plan");
 
     const programs = part(access, "Program pairings");
     expect(await labels(programs, "Programs")).toEqual(["hermes"]);
@@ -95,19 +95,19 @@ describe("a ceiling", () => {
     expect(desk.clientSessions().find((session) => session.label === "laptop window")?.ceiling).toBe("plan");
     await waitFor(() => expect((within(item(sessions, "laptop window")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("plan"));
 
-    const own = within(item(sessions, "seth@desk:pts/3")).getByRole("combobox", { name: "Ceiling" });
+    const own = within(item(sessions, "milo@desk:pts/3")).getByRole("combobox", { name: "Ceiling" });
     expect(own.hasAttribute("disabled")).toBe(true);
     expect(own.getAttribute("aria-describedby")).not.toBeNull();
-    expect(within(item(sessions, "seth@desk:pts/3")).getByText("A client session cannot change its own ceiling; another admin session can.")).toBeDefined();
+    expect(within(item(sessions, "milo@desk:pts/3")).getByText("A client session cannot change its own ceiling; another admin session can.")).toBeDefined();
   });
 
   it("says why the environment refused a change in one line", async () => {
     const app = await opened({ desk: { receipts: { "access.sessions.setCeiling": { rejected: "forbidden", message: "Raising a client session to bypassPermissions is above this client session's own ceiling, auto." } } } });
     const sessions = part(await openAccess(app), "Client sessions");
     await labels(sessions, "Client sessions");
-    await app.user.selectOptions(within(item(sessions, "seth@laptop:pts/1")).getByRole("combobox", { name: "Ceiling" }), "bypassPermissions");
+    await app.user.selectOptions(within(item(sessions, "milo@laptop:pts/1")).getByRole("combobox", { name: "Ceiling" }), "bypassPermissions");
     expect(await within(pane("Access")).findByText("Not changed: Raising a client session to bypassPermissions is above this client session's own ceiling, auto.")).toBeDefined();
-    expect((within(item(sessions, "seth@laptop:pts/1")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("plan");
+    expect((within(item(sessions, "milo@laptop:pts/1")).getByRole("combobox", { name: "Ceiling" }) as HTMLSelectElement).value).toBe("plan");
   });
 });
 
@@ -139,8 +139,8 @@ describe("revoking", () => {
     const sessions = part(access, "Client sessions");
     await labels(sessions, "Client sessions");
 
-    await app.user.click(within(item(sessions, "seth@desk:pts/3")).getByRole("button", { name: "Revoke…" }));
-    const asked = await screen.findByRole("dialog", { name: "Revoke seth@desk:pts/3 on desk?" });
+    await app.user.click(within(item(sessions, "milo@desk:pts/3")).getByRole("button", { name: "Revoke…" }));
+    const asked = await screen.findByRole("dialog", { name: "Revoke milo@desk:pts/3 on desk?" });
     expect(within(asked).getByText("This is this client's own session: this window loses desk as soon as it is revoked, until it pairs with desk again.")).toBeDefined();
     await app.user.click(within(asked).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -279,7 +279,7 @@ describe("read-only", () => {
     laptop.discovery("nothing");
     laptop.server.drop();
     expect(await within(access).findByText(/^Unreachable since \d\d:\d\d: the values this window last read, read-only\.$/)).toBeDefined();
-    expect(await labels(sessions, "Client sessions")).toEqual(["phone", "seth@desk:pts/3"]);
+    expect(await labels(sessions, "Client sessions")).toEqual(["phone", "milo@desk:pts/3"]);
     expect(within(item(sessions, "phone")).getByRole("combobox", { name: "Ceiling" }).hasAttribute("disabled")).toBe(true);
     expect(within(item(sessions, "phone")).getByRole("button", { name: "Revoke…" }).hasAttribute("disabled")).toBe(true);
     expect(within(await partRead(access, "Program pairings")).getByRole("button", { name: "Make a program's pairing code" }).hasAttribute("disabled")).toBe(true);

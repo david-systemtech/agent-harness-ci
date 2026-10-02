@@ -60,7 +60,7 @@ describe("current", () => {
   });
 
   it("answers the NSIS setup's format on Windows", async () => {
-    const { shell } = await installed("win32", "C:\\Users\\seth\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe", fakeSystem(), {
+    const { shell } = await installed("win32", "C:\\Users\\milo\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe", fakeSystem(), {
       platform: { architecture: "x64" },
     });
     expect(await shell().update.current()).toEqual({ version: "0.5.0", platform: "win32", arch: "x64", format: "nsis" });
@@ -205,7 +205,7 @@ describe("apply on macOS", () => {
 });
 
 describe("apply on Windows", () => {
-  const EXECUTABLE = "C:\\Users\\seth\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe";
+  const EXECUTABLE = "C:\\Users\\milo\\AppData\\Local\\Programs\\agent-harness\\agent-harness.exe";
 
   it("at `now`, quits, and runs the staged NSIS setup silently once the desktop has quit, the setup starting it again", async () => {
     const system = fakeSystem();

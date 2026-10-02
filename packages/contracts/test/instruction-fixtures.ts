@@ -70,7 +70,7 @@ const ownedRow = { ...owned, newerVersion: null, accounts: [channelAccount, noCh
 const tickedRow = { ...ticked, newerVersion: 3, accounts: [] };
 const diff = { catalogueId: "coding.small-modules", fromVersion: 2, toVersion: 3, from: "Prefer small modules.", to: "Prefer small, deep modules.", body: "Prefer small modules, mostly." };
 
-const previewPart = { layer: "user", id: "orientation", title: "Orientation", text: "You are on SYSTEM-SERVER, a Linux machine." };
+const previewPart = { layer: "user", id: "orientation", title: "Orientation", text: "You are on SAMPLE-SERVER, a Linux machine." };
 
 export const instructionSchemaFixtures: Record<string, Fixtures> = {
   "instructions/layer.json": { valid: ["user", "team-bank", "project", "session", "persona", "always-on"], invalid: ["orientation", "bank", ""] },

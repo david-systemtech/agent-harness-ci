@@ -25,9 +25,9 @@ describe("the install lines", () => {
   });
 
   it("pass the name, quoted for each shell, and the beta channel", () => {
-    const lines = installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Seth's box " });
-    expect(lines.unix).toBe(`${TOKEN_TO_CURL} ${RELEASE}/install.sh | sh -s -- --channel beta --name 'Seth'\\''s box'`);
-    expect(lines.windows.endsWith(" -Channel beta -Name 'Seth''s box'")).toBe(true);
+    const lines = installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Milo's box " });
+    expect(lines.unix).toBe(`${TOKEN_TO_CURL} ${RELEASE}/install.sh | sh -s -- --channel beta --name 'Milo'\\''s box'`);
+    expect(lines.windows.endsWith(" -Channel beta -Name 'Milo''s box'")).toBe(true);
     expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "build-box" }).unix.endsWith(" --channel stable --name build-box")).toBe(true);
   });
 
@@ -47,8 +47,8 @@ describe("the install lines", () => {
 
   it("start the container with the channel alone when no name is given, and the name quoted for sh when one is", () => {
     expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "stable", name: "  " }).compose[2]).toBe("AGENT_HARNESS_CHANNEL=stable docker compose up -d");
-    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Seth's box " }).compose[2]).toBe(
-      "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Seth'\\''s box' docker compose up -d",
+    expect(installLines({ releaseSource: FORGEJO, version: "0.4.2", channel: "beta", name: "  Milo's box " }).compose[2]).toBe(
+      "AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Milo'\\''s box' docker compose up -d",
     );
   });
 });

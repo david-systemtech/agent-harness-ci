@@ -18,7 +18,7 @@ afterEach(async () => {
 
 const SESSION = "0199aa00-0000-4000-8000-000000000001";
 const OTHER = "0199aa00-0000-4000-8000-000000000002";
-const GONE = "/home/seth/receipts";
+const GONE = "/home/milo/receipts";
 
 const launch = async (environment: Partial<ScriptedEnvironment> = {}) => {
   const app = await renderApp({
@@ -29,7 +29,7 @@ const launch = async (environment: Partial<ScriptedEnvironment> = {}) => {
           reach: "local",
           sessions: [
             { id: SESSION, title: "Receipts", workspace: { kind: "directory", path: GONE }, workspaceMissingSince: "2026-09-23T12:00:00.000Z" },
-            { id: OTHER, title: "Parser", workspace: { kind: "directory", path: "/home/seth/parser" }, lastActivityAt: "2026-09-23T13:00:00.000Z" },
+            { id: OTHER, title: "Parser", workspace: { kind: "directory", path: "/home/milo/parser" }, lastActivityAt: "2026-09-23T13:00:00.000Z" },
           ],
           ...environment,
         },
@@ -69,11 +69,11 @@ describe("a session whose workspace is missing", () => {
     await send(app, "/cwd");
 
     await app.waitFor("Choose a workspace for “Receipts” on desk");
-    await app.waitFor("/home/seth/parser");
-    await app.type("/home/seth/receipts-moved");
+    await app.waitFor("/home/milo/parser");
+    await app.type("/home/milo/receipts-moved");
     await app.press(KEY.enter);
     await app.waitUntil(() => setWorkspaces(app).length === 1, "sessions.setWorkspace sent");
-    expect(setWorkspaces(app)).toEqual([{ commandId: expect.any(String), sessionId: SESSION, workspace: { kind: "directory", path: "/home/seth/receipts-moved" } }]);
+    expect(setWorkspaces(app)).toEqual([{ commandId: expect.any(String), sessionId: SESSION, workspace: { kind: "directory", path: "/home/milo/receipts-moved" } }]);
     await app.waitFor("message the agent");
     expect(app.frame()).not.toContain("is gone");
     expect(app.frame()).not.toContain("Choose a workspace for");

@@ -29,8 +29,8 @@ const launch = async () => {
           name: "desk",
           reach: "local",
           sessions: [
-            { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
-            { title: "Notes", workspace: { kind: "directory", path: "/home/seth/notes" } },
+            { title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } },
+            { title: "Notes", workspace: { kind: "directory", path: "/home/milo/notes" } },
           ],
         },
       ],
@@ -47,7 +47,7 @@ const lastTitle = (app: RenderedApp) => (app.chrome.titles.at(-1) ?? "").trimEnd
 describe("the title", () => {
   it("says what every session is doing: ready, working while a run goes anywhere, needs you while a prompt waits anywhere", async () => {
     const { app, desk } = await launch();
-    await app.waitUntil(() => lastTitle(app) === "◇ ready · Receipts (/home/seth/receipts)", "the title ready");
+    await app.waitUntil(() => lastTitle(app) === "◇ ready · Receipts (/home/milo/receipts)", "the title ready");
     const { runId } = desk.startRun(NOTES, "Tidy the notes");
     await app.waitUntil(() => lastTitle(app).startsWith("⠹ working · Receipts"), "the title working");
     desk.openPrompt(NOTES, { runId });

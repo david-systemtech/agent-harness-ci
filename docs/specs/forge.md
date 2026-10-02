@@ -30,7 +30,7 @@ Each environment holds one forge account per forge origin, with verified aliases
 16. As David, I want a forge account copied to my other environments without its stored token, so that no secret travels between machines.
 17. As David, I want an owner picker listing my organisations live, so that a team bank needs no stored list.
 18. As David, I want a token expiring within thirty days to turn the step amber, so that I replace it before a routine fails.
-19. As Seth, I want the terminal UI's Set up summary to say when a forge account needs attention, so that I know to open the desktop window.
+19. As Milo, I want the terminal UI's Set up summary to say when a forge account needs attention, so that I know to open the desktop window.
 20. As the setup checklist, I want a Forges check that verifies within its budget and names a failing forge account with its action, so that re-run lands on it.
 21. As the setup checklist, I want zero forge accounts to count as skipped, so that someone with no forge is never nagged.
 22. As the setup checklist, I want a pasted URL's forge kind detected, so that the card shows the right walkthrough.

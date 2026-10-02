@@ -31,9 +31,9 @@ import type { Address } from "../serve/http.js";
 
 const { onCleanup, tempDir } = useCleanups();
 
-/** Preset: a Linux machine named `mnl.tail1234.ts.net`, not a container. */
+/** Preset: a Linux machine named `lab.tail1234.ts.net`, not a container. */
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
-  const t = await startTestEnvironment({ hostname: "mnl.tail1234.ts.net", platform: "linux", ...options });
+  const t = await startTestEnvironment({ hostname: "lab.tail1234.ts.net", platform: "linux", ...options });
   onCleanup(() => t.close());
   return t;
 };
@@ -69,15 +69,15 @@ describe("an environment's look before anyone sets it", () => {
   it("names a new environment for its hostname's first label, and gives it the server icon on Linux and a colour of the twelve", async () => {
     const t = await start();
     const look = await discoveredLook(t.address);
-    expect(look).toMatchObject({ name: "mnl", icon: "server" });
+    expect(look).toMatchObject({ name: "lab", icon: "server" });
     expect(ENVIRONMENT_COLOURS).toContain(look.colour);
     expect(await helloLook(t)).toEqual(look);
-    expect(JSON.parse(readFileSync(join(t.dataDir, "environment.json"), "utf8"))).toMatchObject({ name: "mnl" });
+    expect(JSON.parse(readFileSync(join(t.dataDir, "environment.json"), "utf8"))).toMatchObject({ name: "lab" });
   });
 
   it("takes a hostname with no domain whole", async () => {
-    const t = await start({ hostname: "SYSTEM-SERVER" });
-    expect((await discoveredLook(t.address)).name).toBe("SYSTEM-SERVER");
+    const t = await start({ hostname: "SAMPLE-SERVER" });
+    expect((await discoveredLook(t.address)).name).toBe("SAMPLE-SERVER");
   });
 
   it("keeps an existing record's own name, whatever the hostname", async () => {
@@ -125,7 +125,7 @@ describe("an environment's look before anyone sets it", () => {
     const snapshot = await client.next((f): f is SnapshotFrame => f.type === "snapshot" && f.subscription === subscription);
     expect(snapshot.payload).toEqual({
       status: expect.objectContaining({ readiness: "ready" }) as unknown,
-      environment: { name: "mnl", icon: "desktop", colour: (await discoveredLook(t.address)).colour },
+      environment: { name: "lab", icon: "desktop", colour: (await discoveredLook(t.address)).colour },
       setup: expect.any(Array) as unknown,
     });
   });
@@ -150,23 +150,23 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     const head = t.env.log.head();
     const [renaming, icon, colouring] = [randomUUID(), randomUUID(), randomUUID()];
 
-    expect(await client.request("environment.rename", { commandId: renaming, name: "  MNL \t box " })).toEqual({
+    expect(await client.request("environment.rename", { commandId: renaming, name: "  LAB \t box " })).toEqual({
       receipt: { status: "accepted", sequence: head + 1, changed: true },
-      result: { name: "MNL box", icon: "server", colour },
+      result: { name: "LAB box", icon: "server", colour },
     });
     expect(await client.request("environment.setIcon", { commandId: icon, icon: "nas" })).toEqual({
       receipt: { status: "accepted", sequence: head + 2, changed: true },
-      result: { name: "MNL box", icon: "nas", colour },
+      result: { name: "LAB box", icon: "nas", colour },
     });
     const other = colour === "amber" ? "pink" : "amber";
     expect(await client.request("environment.setColour", { commandId: colouring, colour: other })).toEqual({
       receipt: { status: "accepted", sequence: head + 3, changed: true },
-      result: { name: "MNL box", icon: "nas", colour: other },
+      result: { name: "LAB box", icon: "nas", colour: other },
     });
 
     const events = t.env.log.readStream({ kinds: ["environment"] }, head);
     expect(events.map((event) => [event.type, event.payload, event.commandId, event.streamId])).toEqual([
-      ["environment.renamed", { name: "MNL box" }, renaming, t.env.id],
+      ["environment.renamed", { name: "LAB box" }, renaming, t.env.id],
       ["environment.icon-set", { icon: "nas" }, icon, t.env.id],
       ["environment.colour-set", { colour: other }, colouring, t.env.id],
     ]);
@@ -178,14 +178,14 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     const client = await t.client();
     const held = await discoveredLook(t.address);
     const head = t.env.log.head();
-    const look = { name: "mnl", icon: "server", colour: held.colour };
+    const look = { name: "lab", icon: "server", colour: held.colour };
     const unchanged = { receipt: { status: "accepted", sequence: head, changed: false }, result: look };
-    expect(await client.request("environment.rename", { commandId: randomUUID(), name: " mnl " })).toEqual(unchanged);
+    expect(await client.request("environment.rename", { commandId: randomUUID(), name: " lab " })).toEqual(unchanged);
     expect(await client.request("environment.setIcon", { commandId: randomUUID(), icon: "server" })).toEqual(unchanged);
     expect(await client.request("environment.setColour", { commandId: randomUUID(), colour: held.colour ?? "red" })).toEqual(unchanged);
     expect(t.env.log.head()).toBe(head);
     // A name that differs by its case alone is another name.
-    expect((await client.request("environment.rename", { commandId: randomUUID(), name: "MNL" })).receipt).toMatchObject({ changed: true });
+    expect((await client.request("environment.rename", { commandId: randomUUID(), name: "LAB" })).receipt).toMatchObject({ changed: true });
   });
 
   it("refuse a client session below admin forbidden, and a name outside the rule, an unknown icon or a literal colour invalid_params, appending nothing", async () => {
@@ -194,7 +194,7 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     const admin = await t.client();
     const head = t.env.log.head();
     for (const request of [
-      writer.request("environment.rename", { commandId: randomUUID(), name: "MNL" }),
+      writer.request("environment.rename", { commandId: randomUUID(), name: "LAB" }),
       writer.request("environment.setIcon", { commandId: randomUUID(), icon: "nas" }),
       writer.request("environment.setColour", { commandId: randomUUID(), colour: "amber" }),
     ]) {
@@ -210,7 +210,7 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
 
   it("show in the next discovery answer, the next hello and environment.subscribe's notices, and are kept by a restart and a rebuild", async () => {
     const dataDir = join(tempDir(), "data");
-    const t = await startTestEnvironment({ dataDir, hostname: "mnl", platform: "linux" });
+    const t = await startTestEnvironment({ dataDir, hostname: "lab", platform: "linux" });
     const client = await t.client();
     const watcher = await t.client();
     const { subscription } = await watcher.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
@@ -220,13 +220,13 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     // set changed false, it appends no notice for the wait below (#703).
     const colour = (await discoveredLook(t.address)).colour === "lime" ? "teal" : "lime";
     const changed = { receipt: { status: "accepted", changed: true } };
-    expect(await client.request("environment.rename", { commandId: randomUUID(), name: "SYSTEM-SERVER" })).toMatchObject(changed);
+    expect(await client.request("environment.rename", { commandId: randomUUID(), name: "SAMPLE-SERVER" })).toMatchObject(changed);
     expect(await client.request("environment.setIcon", { commandId: randomUUID(), icon: "lab" })).toMatchObject(changed);
     expect(await client.request("environment.setColour", { commandId: randomUUID(), colour })).toMatchObject(changed);
-    const look: EnvironmentLook = { name: "SYSTEM-SERVER", icon: "lab", colour };
+    const look: EnvironmentLook = { name: "SAMPLE-SERVER", icon: "lab", colour };
     expect(await discoveredLook(t.address)).toEqual(look);
     expect(await helloLook(t)).toEqual(look);
-    expect(t.env.name).toBe("SYSTEM-SERVER");
+    expect(t.env.name).toBe("SAMPLE-SERVER");
 
     const notices: EnvironmentNotice[] = [];
     for (let i = 0; i < 3; i++) {
@@ -234,7 +234,7 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
       notices.push(EnvironmentNotice.parse(frame.event));
     }
     expect(notices).toEqual([
-      { type: "environment.renamed", payload: { name: "SYSTEM-SERVER" } },
+      { type: "environment.renamed", payload: { name: "SAMPLE-SERVER" } },
       { type: "environment.icon-set", payload: { icon: "lab" } },
       { type: "environment.colour-set", payload: { colour } },
     ]);
@@ -245,7 +245,7 @@ describe("environment.rename, environment.setIcon and environment.setColour", ()
     await t.close();
 
     // The record keeps its id, creation time and first name; the look is the log's.
-    expect(JSON.parse(record)).toEqual({ id: t.env.id, createdAt: MANUAL_CLOCK_START, name: "mnl" });
+    expect(JSON.parse(record)).toEqual({ id: t.env.id, createdAt: MANUAL_CLOCK_START, name: "lab" });
     const again = await start({ dataDir, hostname: "elsewhere" });
     expect(await discoveredLook(again.address)).toEqual(look);
   });

@@ -107,10 +107,10 @@ describe("window", () => {
 describe("dialogs", () => {
   it("opens files modal to the window, one or several, and answers their paths, or none when cancelled", async () => {
     const { electron, shell } = await start();
-    electron.dialog.opens.push(["/home/seth/notes.md"], ["/home/seth/a.png", "/home/seth/b.png"], undefined);
+    electron.dialog.opens.push(["/home/milo/notes.md"], ["/home/milo/a.png", "/home/milo/b.png"], undefined);
 
-    expect(await shell().dialogs.openFile({ title: "Open", filters: [{ name: "Markdown", extensions: ["md"] }] })).toEqual(["/home/seth/notes.md"]);
-    expect(await shell().dialogs.openFile({ multiple: true })).toEqual(["/home/seth/a.png", "/home/seth/b.png"]);
+    expect(await shell().dialogs.openFile({ title: "Open", filters: [{ name: "Markdown", extensions: ["md"] }] })).toEqual(["/home/milo/notes.md"]);
+    expect(await shell().dialogs.openFile({ multiple: true })).toEqual(["/home/milo/a.png", "/home/milo/b.png"]);
     expect(await shell().dialogs.openFile()).toEqual([]);
 
     const window = electron.window();
@@ -138,12 +138,12 @@ describe("dialogs", () => {
 
   it("chooses a directory, and a place to save, each undefined when cancelled", async () => {
     const { electron, shell } = await start();
-    electron.dialog.opens.push(["/home/seth/code/harness"], undefined);
-    electron.dialog.saves.push("/home/seth/transcript.md", undefined);
+    electron.dialog.opens.push(["/home/milo/code/harness"], undefined);
+    electron.dialog.saves.push("/home/milo/transcript.md", undefined);
 
-    expect(await shell().dialogs.openDirectory({ title: "Workspace" })).toBe("/home/seth/code/harness");
+    expect(await shell().dialogs.openDirectory({ title: "Workspace" })).toBe("/home/milo/code/harness");
     expect(await shell().dialogs.openDirectory()).toBeUndefined();
-    expect(await shell().dialogs.save({ defaultPath: "transcript.md", filters: [{ name: "Markdown", extensions: ["md"] }] })).toBe("/home/seth/transcript.md");
+    expect(await shell().dialogs.save({ defaultPath: "transcript.md", filters: [{ name: "Markdown", extensions: ["md"] }] })).toBe("/home/milo/transcript.md");
     expect(await shell().dialogs.save()).toBeUndefined();
 
     const window = electron.window();
@@ -199,9 +199,9 @@ describe("system", () => {
   it("answers the platform, architecture, hostname and user the desktop runs as, by Node's names", async () => {
     const { shell } = await start({
       electron: fakeElectron({ os: "win32" }),
-      platform: platformOn("win32", { architecture: "x64", hostname: "STUDIO", user: "seth" }),
+      platform: platformOn("win32", { architecture: "x64", hostname: "STUDIO", user: "milo" }),
     });
-    expect(await shell().system()).toEqual({ platform: "win32", architecture: "x64", hostname: "STUDIO", user: "seth" });
+    expect(await shell().system()).toEqual({ platform: "win32", architecture: "x64", hostname: "STUDIO", user: "milo" });
   });
 });
 
@@ -270,7 +270,7 @@ describe("http", () => {
     await expect(shell().http("http://127.0.0.1:4777/api/sessions")).rejects.toThrow(/discovery, pairing, bootstrap and update routes only/);
     await expect(shell().http("http://169.254.169.254/latest/meta-data")).rejects.toThrow(/routes only/);
     await expect(shell().http("file:///api/pair")).rejects.toThrow(/http and https/);
-    await expect(shell().http("http://seth:password-for-tests@127.0.0.1:4777/api/bootstrap")).rejects.toThrow(/credentials/);
+    await expect(shell().http("http://milo:password-for-tests@127.0.0.1:4777/api/bootstrap")).rejects.toThrow(/credentials/);
     await expect(shell().http("http://127.0.0.1:4777/api/pair", { method: "DELETE" } as never)).rejects.toThrow(/GET and POST/);
   });
 });

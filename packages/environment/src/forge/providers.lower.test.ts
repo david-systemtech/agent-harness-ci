@@ -231,7 +231,7 @@ describe("repositories", () => {
         body: { full_name: fullName, private: isPrivate, default_branch: "main", html_url: `${forge.origin}/${fullName}` },
       });
       forge.answer("token-for-tests", `POST ${api}/user/repos`, created("david/bank", true));
-      forge.answer("token-for-tests", `POST ${api}/orgs/systemtech/repos`, created("systemtech/team-bank", false));
+      forge.answer("token-for-tests", `POST ${api}/orgs/exampleorg/repos`, created("exampleorg/team-bank", false));
       const provider = providerOf(forge, kind);
 
       expect(await provider.createRepository(forge.origin, "token-for-tests", { organisation: null, name: "bank", private: true }), kind).toEqual({
@@ -240,12 +240,12 @@ describe("repositories", () => {
         value: { origin: forge.origin, fullName: "david/bank", private: true, defaultBranch: "main", url: `${forge.origin}/david/bank` },
       });
       expect(
-        await provider.createRepository(forge.origin, "token-for-tests", { organisation: "systemtech", name: "team-bank", private: false, description: "The team's bank" }),
+        await provider.createRepository(forge.origin, "token-for-tests", { organisation: "exampleorg", name: "team-bank", private: false, description: "The team's bank" }),
         kind,
-      ).toMatchObject({ outcome: "done", value: { fullName: "systemtech/team-bank", private: false } });
+      ).toMatchObject({ outcome: "done", value: { fullName: "exampleorg/team-bank", private: false } });
       expect(forge.requests, kind).toEqual([
         { method: "POST", path: `${api}/user/repos`, scheme, body: { name: "bank", private: true } },
-        { method: "POST", path: `${api}/orgs/systemtech/repos`, scheme, body: { name: "team-bank", private: false, description: "The team's bank" } },
+        { method: "POST", path: `${api}/orgs/exampleorg/repos`, scheme, body: { name: "team-bank", private: false, description: "The team's bank" } },
       ]);
     }
   });
@@ -280,15 +280,15 @@ describe("repositories", () => {
 describe("organisations", () => {
   it("come on GitHub from the memberships endpoint, active ones only, since its organisation list answers a fine-grained token with none", async () => {
     const forge = await fakeForge();
-    forge.organisations("github_pat_fine-for-tests", ["systemtech", "acme"]);
+    forge.organisations("github_pat_fine-for-tests", ["exampleorg", "acme"]);
     const memberships = [
-      { state: "active", role: "admin", organization: { login: "systemtech", id: 7 } },
+      { state: "active", role: "admin", organization: { login: "exampleorg", id: 7 } },
       { state: "pending", role: "member", organization: { login: "invited", id: 8 } },
       { state: "active", role: "member", organization: { login: "acme", id: 9 } },
     ];
     forge.answer("github_pat_fine-for-tests", "GET /api/v3/user/memberships/orgs", { status: 200, body: memberships });
 
-    expect(await providerOf(forge, "github").organisations(forge.origin, "github_pat_fine-for-tests", 100)).toEqual({ outcome: "done", status: 200, value: ["systemtech", "acme"] });
+    expect(await providerOf(forge, "github").organisations(forge.origin, "github_pat_fine-for-tests", 100)).toEqual({ outcome: "done", status: 200, value: ["exampleorg", "acme"] });
     expect(forge.requests).toEqual([{ method: "GET", path: "/api/v3/user/memberships/orgs", query: "state=active&per_page=100", scheme: "Bearer" }]);
   });
 
@@ -299,10 +299,10 @@ describe("organisations", () => {
       body: names.map((name, index) => ({ id: index + 1, name, username: name, full_name: `${name} team` })),
       ...(next !== null && { headers: { link: `<${forge.origin}${next}>; rel="next"` } }),
     });
-    forge.answer("token-for-tests", "GET /api/v1/user/orgs?limit=50", page(["systemtech"], "/api/v1/user/orgs?limit=50&page=2"));
+    forge.answer("token-for-tests", "GET /api/v1/user/orgs?limit=50", page(["exampleorg"], "/api/v1/user/orgs?limit=50&page=2"));
     forge.answer("token-for-tests", "GET /api/v1/user/orgs?limit=50&page=2", page(["acme"], null));
 
-    expect(await providerOf(forge, kind).organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "done", status: 200, value: ["systemtech", "acme"] });
+    expect(await providerOf(forge, kind).organisations(forge.origin, "token-for-tests", 100)).toEqual({ outcome: "done", status: 200, value: ["exampleorg", "acme"] });
     expect(forge.requests.map((request) => [request.path, request.query, request.scheme])).toEqual([
       ["/api/v1/user/orgs", "limit=50", "token"],
       ["/api/v1/user/orgs", "limit=50&page=2", "token"],

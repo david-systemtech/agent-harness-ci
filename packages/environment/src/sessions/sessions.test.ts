@@ -79,8 +79,8 @@ describe("sessions.create", () => {
   it("keeps a title trimmed, and tags trimmed, one per spelling ignoring case with the latest casing, sorted ignoring case", async () => {
     const t = await start();
     const client = await t.client();
-    const { id, result } = await create(client, { title: "  Fix the receipts ", tags: ["wip", " Seth", "review", "WIP", `seth${" ".repeat(40)}`] });
-    const expected = freshSummary(id, { title: "Fix the receipts", titleSource: "user", tags: ["review", "seth", "WIP"] });
+    const { id, result } = await create(client, { title: "  Fix the receipts ", tags: ["wip", " Milo", "review", "WIP", `milo${" ".repeat(40)}`] });
+    const expected = freshSummary(id, { title: "Fix the receipts", titleSource: "user", tags: ["milo", "review", "WIP"] });
     expect(result).toEqual({ summary: expected });
     expect(await get(client, id)).toEqual(expected);
   });

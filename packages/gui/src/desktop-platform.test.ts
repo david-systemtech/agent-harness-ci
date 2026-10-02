@@ -23,7 +23,7 @@ const shellFor = (world: ScriptedWorld): FakeShell => {
   const shell = fakeShell();
   shell.answer("http", world.fetch);
   shell.answer("localGrant.read", async () => world.grant?.read());
-  shell.answer("system", async () => ({ platform: "darwin", architecture: "arm64", hostname: "studio", user: "seth" }));
+  shell.answer("system", async () => ({ platform: "darwin", architecture: "arm64", hostname: "studio", user: "milo" }));
   return shell;
 };
 
@@ -65,7 +65,7 @@ describe("the desktop platform", () => {
   it("is a desktop client, named <user>@<hostname> from the shell's system, of the bundle's version", async () => {
     const world = scriptedWorld(manualClock(), { environments: [] });
     const { platform } = await onDesktop(world);
-    expect(platform.client).toEqual({ kind: "desktop", label: "seth@studio", version: "0.5.0" });
+    expect(platform.client).toEqual({ kind: "desktop", label: "milo@studio", version: "0.5.0" });
   });
 
   it("reads the local grant through the shell's localGrant and reaches the environment's HTTP through its http", async () => {
@@ -79,7 +79,7 @@ describe("the desktop platform", () => {
       expect.arrayContaining(["localGrant.read", "http /.well-known/agent-harness/environment", "http /api/bootstrap"]),
     );
     const bootstrap = shell.calls.find(([member, url]) => member === "http" && String(url).endsWith("/api/bootstrap"));
-    expect(JSON.parse(String((bootstrap?.[2] as { readonly body?: string } | undefined)?.body))).toMatchObject({ kind: "desktop", label: "seth@studio" });
+    expect(JSON.parse(String((bootstrap?.[2] as { readonly body?: string } | undefined)?.body))).toMatchObject({ kind: "desktop", label: "milo@studio" });
     expect(world.environment("desk").server.received()).toContainEqual(expect.objectContaining({ type: "auth", clientKind: "desktop", harnessVersion: "0.5.0" }));
   });
 

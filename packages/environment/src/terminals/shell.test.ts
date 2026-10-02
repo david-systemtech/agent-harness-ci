@@ -81,7 +81,7 @@ describe("the passwd entry", () => {
       throw Object.assign(new Error("ENOENT: no such file or directory, uv_os_get_passwd"), { code: "ENOENT" });
     };
     expect(processUser(missing, { USER: "david", HOME: "/home/david" }, 1234)).toEqual({ username: "david", homedir: "/home/david", shell: null });
-    expect(processUser(missing, { LOGNAME: "seth" }, 1234)).toEqual({ username: "seth", homedir: "/", shell: null });
+    expect(processUser(missing, { LOGNAME: "milo" }, 1234)).toEqual({ username: "milo", homedir: "/", shell: null });
     expect(processUser(missing, {}, 1234)).toEqual({ username: "1234", homedir: "/", shell: null });
     expect(loginShell("linux", processUser(missing, {}, 1234))).toEqual({ file: "/bin/sh", args: ["-l"] });
   });

@@ -139,7 +139,7 @@ describe("a queued message's attachment bytes", () => {
     // Its instructions wait until the environment has stopped, so its adapter never has the run.
     const orientation = async () => {
       await composing.opened;
-      return { text: "You are on SYSTEM-SERVER.", unreadRegistries: [] };
+      return { text: "You are on SAMPLE-SERVER.", unreadRegistries: [] };
     };
     const t = await start(adapter, { dataDir, orientation });
     const client = await t.client();

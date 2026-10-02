@@ -11,7 +11,7 @@ import { readRoutineYaml, renderRoutineYaml } from "./routine-yaml.js";
  */
 
 const ZONE = "Asia/Manila";
-const EXPORTED = { environmentName: "SYSTEM-SERVER", exportedAt: "2026-10-01T05:00:00.000Z" };
+const EXPORTED = { environmentName: "SAMPLE-SERVER", exportedAt: "2026-10-01T05:00:00.000Z" };
 
 /** A definition as the environment saves one: every field present. */
 const watch: RoutineDefinition = {
@@ -43,7 +43,7 @@ describe("the routine YAML codec", () => {
     const yaml = renderRoutineYaml([watch], EXPORTED);
     expect(yaml).toBe(
       [
-        "# Routines exported from SYSTEM-SERVER at 2026-10-01T05:00:00.000Z.",
+        "# Routines exported from SAMPLE-SERVER at 2026-10-01T05:00:00.000Z.",
         "kind: routine",
         "version: 1",
         "name: Upstream watch",
@@ -89,7 +89,7 @@ describe("the routine YAML codec", () => {
         timezone: "Europe/London",
         ifMissed: "skip",
         workspace: { kind: "worktree", repository: "/srv/code/harness", newBranch: { name: "digest/nightly", base: "main" }, repositoryIdentity: null },
-        account: { provider: "codex", email: "seth@example.com", organisation: "Example Ltd" },
+        account: { provider: "codex", email: "milo@example.com", organisation: "Example Ltd" },
         mode: "bypassPermissions",
         containment: "workspace-no-network",
         injection: "deny",
@@ -257,7 +257,7 @@ describe("the routine YAML codec", () => {
       name: "Upstream watch",
       schedule: { kind: "weekly", day: "monday", at: "03:00" },
       timezone: "Etc/UTC",
-      workspace: { kind: "directory", path: "/work/SYSTEM-SERVER/agent-harness", repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" },
+      workspace: { kind: "directory", path: "/work/example/agent-harness", repositoryIdentity: "https://git.systemtech.dev/david/agent-harness" },
       account: { provider: "claude", organisation: null },
       model: "opus",
       effort: "high",

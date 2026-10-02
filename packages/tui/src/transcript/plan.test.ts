@@ -5,7 +5,7 @@ import { markOf, planDelta } from "./plan.js";
 /** What a turn cost the plan (docs/specs/tui.md, "The transcript"). */
 
 const gauge = (utilisation: number | null, observedAt: string, window = "five_hour"): UsageGauge => ({
-  identity: { provider: "claude", email: "seth@example.com", organisation: null },
+  identity: { provider: "claude", email: "milo@example.com", organisation: null },
   accounts: [{ environmentId: "env", accountId: "account-1" }],
   windows: [{ window, utilisation, resetsAt: null, verdict: null, observedAt }],
   readAt: observedAt,

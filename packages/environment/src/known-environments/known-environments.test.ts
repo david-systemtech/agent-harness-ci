@@ -98,7 +98,7 @@ describe("the other environments section", () => {
     const session = await create(client);
     const here = { id: t.env.id, name: "this one", address: "http://127.0.0.1:7433" };
     await report((await clientOf(t, "desktop")).client, [laptop, here, { ...nas, name: "  Attic \n NAS " }]);
-    await report((await clientOf(t, "tui")).client, [{ ...laptop, address: "http://100.64.0.7:7433" }, desk, { ...here, address: "http://mnl:7433" }]);
+    await report((await clientOf(t, "tui")).client, [{ ...laptop, address: "http://100.64.0.7:7433" }, desk, { ...here, address: "http://lab:7433" }]);
 
     const instructions = await runTo(t, client, session.id, "Where else can this run?");
 
@@ -155,7 +155,7 @@ describe("environment.knownEnvironments.report", () => {
     await report(desktop, [laptop, nas]);
     // The same union: another client's report of it, a report in another order, one naming this environment.
     await report(terminal, [nas]);
-    await report(desktop, [nas, laptop, { id: t.env.id, name: "this one", address: "http://mnl:7433" }]);
+    await report(desktop, [nas, laptop, { id: t.env.id, name: "this one", address: "http://lab:7433" }]);
     await report(desktop, [laptop]);
     await report(terminal, []);
 

@@ -82,9 +82,8 @@ jobs:
       - name: Build and push the version's image
         id: publish
         env:
-          # A user-level secret on `david`, write:package only. The job's own
-          # token cannot write packages: Forgejo answers 401 (david/ci,
-          # measured 2026-09-23).
+          # A repository secret with package-write permission; the job token
+          # cannot write packages.
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: bash .forgejo/scripts/image.sh publish
 
@@ -98,7 +97,7 @@ jobs:
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The runner's own Node 24 (david/ci's runners/macos), whose corepack gives the pinned pnpm.
+      # The runner's own Node 24 provides corepack and the pinned pnpm.
       - run: corepack enable && corepack prepare --activate
       - run: pnpm install --frozen-lockfile
 
@@ -232,13 +231,9 @@ jobs:
 
   release:
     needs: [check, image, desktop-macos, desktop-windows, desktop-arch]
-    # An x86_64 runner with node:24-bookworm: the build compiles node-pty for
-    # the linux-x64 artefact and runs that artefact on the runner, so it
-    # refuses any other platform (#356). The `ci` label is not one, since it
-    # takes in mba-ci-1, an arm64 VM; `ci-x64` is the label only the x86_64
-    # ci runners carry (vm-ci-1 and desk-ci-1, in david/ci's runners). One
-    # job builds and publishes, so the three artefacts (about 160 MB each)
-    # never travel between jobs.
+    # An x86_64 runner with node:24-bookworm builds and runs the linux-x64
+    # artefact (#356). The `ci-x64` label guarantees this architecture.
+    # One job builds and publishes so artefacts need not travel between jobs.
     runs-on: ci-x64
     timeout-minutes: 60
     steps:

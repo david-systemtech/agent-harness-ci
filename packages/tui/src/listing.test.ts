@@ -255,16 +255,16 @@ describe("agent-harness ls", () => {
     const here = directory();
     const on = await machine({
       environments: [
-        { name: "desk", reach: "local", environmentId: DESK, sessions: [{ id: id(1), title: "On the desk", workspace: at("/home/seth/code") }] },
+        { name: "desk", reach: "local", environmentId: DESK, sessions: [{ id: id(1), title: "On the desk", workspace: at("/home/milo/code") }] },
         {
           name: "laptop",
           reach: "paired",
           environmentId: LAPTOP,
           sessions: [
-            { id: id(2), title: "In the code", updatedAt: "2026-09-23T00:00:00.000Z", workspace: at("/home/seth/code") },
+            { id: id(2), title: "In the code", updatedAt: "2026-09-23T00:00:00.000Z", workspace: at("/home/milo/code") },
             { id: id(3), title: "Where the caller stands", updatedAt: "2026-09-22T00:00:00.000Z", workspace: at(here) },
-            { id: id(4), title: "A folder below", updatedAt: "2026-09-21T00:00:00.000Z", workspace: at("/home/seth/code/notes") },
-            { id: id(5), title: "Another case", updatedAt: "2026-09-20T00:00:00.000Z", workspace: at("/home/seth/Code") },
+            { id: id(4), title: "A folder below", updatedAt: "2026-09-21T00:00:00.000Z", workspace: at("/home/milo/code/notes") },
+            { id: id(5), title: "Another case", updatedAt: "2026-09-20T00:00:00.000Z", workspace: at("/home/milo/Code") },
           ],
         },
       ],
@@ -287,7 +287,7 @@ describe("agent-harness ls", () => {
     // Refused before anything is read.
     expect(laptop.requests("sessions.list")).toEqual([]);
 
-    for (const cwd of ["/home/seth/code", "/home/seth/code/", "/home/seth//code/./notes/.."]) {
+    for (const cwd of ["/home/milo/code", "/home/milo/code/", "/home/milo//code/./notes/.."]) {
       expect(await list(on, { currentDirectory: here, environment: "laptop", cwd }), cwd).toEqual({
         code: 0,
         stdout: row(2, "2026-09-23T00:00:00.000Z", "In the code"),
@@ -314,23 +314,23 @@ describe("agent-harness ls", () => {
           reach: "paired",
           environmentId: LAPTOP,
           sessions: [
-            { id: id(2), title: "In the code", updatedAt: "2026-09-23T00:00:00.000Z", workspace: at("C:\\Users\\Seth\\Code") },
-            { id: id(3), title: "A folder below", workspace: at("C:\\Users\\Seth\\Code\\notes") },
-            { id: id(4), title: "Another drive", workspace: at("D:\\Users\\Seth\\Code") },
-            { id: id(5), title: "On a share", updatedAt: "2026-09-22T00:00:00.000Z", workspace: at("\\\\nas\\home\\seth") },
+            { id: id(2), title: "In the code", updatedAt: "2026-09-23T00:00:00.000Z", workspace: at("C:\\Users\\Milo\\Code") },
+            { id: id(3), title: "A folder below", workspace: at("C:\\Users\\Milo\\Code\\notes") },
+            { id: id(4), title: "Another drive", workspace: at("D:\\Users\\Milo\\Code") },
+            { id: id(5), title: "On a share", updatedAt: "2026-09-22T00:00:00.000Z", workspace: at("\\\\nas\\home\\milo") },
           ],
         },
       ],
     });
 
-    for (const cwd of ["C:\\Users\\Seth\\Code", "c:/users/seth/code/", "C:\\USERS\\seth\\Code\\notes\\..\\"]) {
+    for (const cwd of ["C:\\Users\\Milo\\Code", "c:/users/milo/code/", "C:\\USERS\\milo\\Code\\notes\\..\\"]) {
       expect(await list(on, { currentDirectory: directory(), environment: "laptop", cwd }), cwd).toEqual({
         code: 0,
         stdout: `${id(2)}  2026-09-23T00:00:00.000Z  -  In the code\n`,
         stderr: "",
       });
     }
-    expect((await list(on, { currentDirectory: directory(), environment: "laptop", cwd: "\\\\NAS\\Home\\seth\\" })).stdout).toBe(`${id(5)}  2026-09-22T00:00:00.000Z  -  On a share\n`);
+    expect((await list(on, { currentDirectory: directory(), environment: "laptop", cwd: "\\\\NAS\\Home\\milo\\" })).stdout).toBe(`${id(5)}  2026-09-22T00:00:00.000Z  -  On a share\n`);
   });
 
   it("takes --cwd from the current directory on this machine's environment, and folds case where this machine's file systems do", async () => {

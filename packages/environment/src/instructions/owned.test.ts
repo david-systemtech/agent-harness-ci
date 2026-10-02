@@ -26,7 +26,7 @@ import type { OrientationSeam } from "./composer.js";
 
 const { onCleanup } = useCleanups();
 
-const ORIENTATION = "# Orientation\n\nYou are on SYSTEM-SERVER.";
+const ORIENTATION = "# Orientation\n\nYou are on SAMPLE-SERVER.";
 
 /** An orientation seam a test drives: its text, the registries it could not read, and the scopes it was asked for. */
 const testOrientation = () => {

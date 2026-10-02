@@ -168,8 +168,8 @@ describe("routines.endpoints.set", () => {
     const dataDir = dataDirectory();
     const t = await start({ dataDir });
     const client = await t.client();
-    const reference = { provider: "openbao" as const, connectionId: randomUUID(), mount: "personal", path: "agents/hermes", key: "secret" };
-    const display = { provider: "openbao", label: null, locator: "personal/agents/hermes (key secret)" };
+    const reference = { provider: "openbao" as const, connectionId: randomUUID(), mount: "personal", path: "harness/hermes", key: "secret" };
+    const display = { provider: "openbao", label: null, locator: "personal/harness/hermes (key secret)" };
 
     const answer = await made(client, { name: "hermes", url: "https://hermes.example.com/hook", secret: { kind: "reference", reference } });
     expect(answer).toMatchObject({ secretKind: "reference", reference: display });
@@ -207,7 +207,7 @@ describe("the URL rule", () => {
     ["http to another private range", "http://10.0.0.5/hook"],
     ["http to a tailnet address", "http://100.101.102.103:8644/hook"],
     ["http to a tailnet IPv6 address", "http://[fd7a:115c:a1e0::1]:8644/hook"],
-    ["http to a .ts.net name", "http://mnl.tail1234.ts.net:8644/webhooks/harness"],
+    ["http to a .ts.net name", "http://lab.tail1234.ts.net:8644/webhooks/harness"],
     ["https with an at-sign in its path and query", "https://hermes.example.com/hooks/a@b?from=c@d"],
   ] as const;
 

@@ -120,9 +120,9 @@ describe("banks.register and banks.list", () => {
   it("answers a repeated importedFrom with the bank registered from it, appending nothing", async () => {
     const t = await start();
     const client = await t.client();
-    const first = await registered(client, { path: gitBank(PERSONAL_BANK), importedFrom: "cortex" });
+    const first = await registered(client, { path: gitBank(PERSONAL_BANK), importedFrom: "notebook" });
     const from = t.env.log.head();
-    const again = await registered(client, { path: gitBank(PERSONAL_BANK), importedFrom: "cortex" });
+    const again = await registered(client, { path: gitBank(PERSONAL_BANK), importedFrom: "notebook" });
     expect(again).toEqual(first);
     expect(await bankEvents(client, from)).toEqual([]);
     expect(await list(client)).toEqual([first]);

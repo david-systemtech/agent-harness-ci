@@ -43,7 +43,7 @@ const fromExtension: readonly BridgeFromExtension[] = [
 ];
 
 const fromEnvironment: readonly BridgeFromEnvironment[] = [
-  { type: "announced", environmentId, environmentName: "SYSTEM-SERVER" },
+  { type: "announced", environmentId, environmentName: "SAMPLE-SERVER" },
   { type: "paired", chromeId, secret: BRIDGE_PROOF_TEST_VECTOR.secret, policy },
   { type: "challenge", environmentId, nonce: BRIDGE_PROOF_TEST_VECTOR.nonce },
   { type: "ready", policy },
@@ -143,7 +143,7 @@ describe("the proof", () => {
 describe("the port file", () => {
   it("is port.json in the extension's folder: the listener's port, the environment's id and name, and the harness version", () => {
     expect(PORT_FILE_NAME).toBe("port.json");
-    const file = { port: 47615, environmentId, environmentName: "SYSTEM-SERVER", harnessVersion: "0.4.2" };
+    const file = { port: 47615, environmentId, environmentName: "SAMPLE-SERVER", harnessVersion: "0.4.2" };
     expect(PortFile.parse(file)).toEqual(file);
     for (const broken of [{ ...file, port: 0 }, { ...file, port: 65536 }, { ...file, environmentId: "server" }, { ...file, environmentName: "" }, { port: 47615 }]) {
       expect(PortFile.safeParse(broken).success, JSON.stringify(broken)).toBe(false);

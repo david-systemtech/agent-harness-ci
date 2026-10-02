@@ -20,7 +20,7 @@ Set up is a checklist of eleven steps that every client renders from the same en
 6. As David, I want Re-run to check everything afresh and take me to the first step that needs attention, so that a green checklist is not walked for nothing.
 7. As David, I want a check that cannot finish to say it timed out and keep the last good result beneath it, dated, so that a sleeping machine never leaves a step spinning.
 8. As David, I want to pick which environment the checklist checks, and to jump into a new machine's checklist after pairing it, so that every machine gets set up the same way.
-9. As Seth, I want `/setup` in the terminal to list each step's health and point at the desktop for the rest, so that I know what is wrong without a GUI.
+9. As Milo, I want `/setup` in the terminal to list each step's health and point at the desktop for the rest, so that I know what is wrong without a GUI.
 10. As David, I want the Account step to adopt my Claude Code directory or sign in a new account from any client, and to preset the default model family to the highest tier at high effort, so that a new session just works.
 11. As David, I want Carry over to import every session in my adopted directories in one click, archived ones staying archived, so that switching loses nothing.
 12. As David, I want the state import to appear on the Carry over card when a source data folder is on the machine, with a dry run and a report of what carried, what I must re-enter and what never carries, so that I switch over knowingly.

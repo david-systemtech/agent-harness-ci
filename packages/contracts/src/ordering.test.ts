@@ -50,8 +50,8 @@ const row = (id: string, fields: Partial<SortableSummary> = {}): ListedSession =
 
 const ids = (rows: readonly ListedSession[]): string[] => rows.map((listed) => listed.summary.id);
 
-/** The client's connection list: the laptop first, then SYSTEM-SERVER. */
-const environments = ["laptop", "system-server"];
+/** The client's connection list: the laptop first, then SAMPLE-SERVER. */
+const environments = ["laptop", "sample-server"];
 
 describe("order keys", () => {
   it("are strings over a to z, never empty and never ending in a", () => {
@@ -229,10 +229,10 @@ describe("the pinned block", () => {
 
   it("breaks a tie by the environment's position in the connection list, then by id", () => {
     const rows = [
-      on("system-server", "a", { pinnedAt: t(1), pinOrderKey: "m" }),
+      on("sample-server", "a", { pinnedAt: t(1), pinOrderKey: "m" }),
       on("laptop", "c", { pinnedAt: t(1), pinOrderKey: "m" }),
       on("laptop", "b", { pinnedAt: t(1), pinOrderKey: "m" }),
-      on("system-server", "d", { pinnedAt: t(2) }),
+      on("sample-server", "d", { pinnedAt: t(2) }),
       on("laptop", "e", { pinnedAt: t(2) }),
     ];
     expect(ids(sortPinned(rows, environments))).toEqual(["b", "c", "a", "e", "d"]);
@@ -263,10 +263,10 @@ describe("the active list", () => {
   it("breaks a tie by the environment's position in the connection list, then by id; an environment not in the list goes last", () => {
     const rows = [
       on("elsewhere", "a", { createdAt: t(3) }),
-      on("system-server", "b", { createdAt: t(3) }),
+      on("sample-server", "b", { createdAt: t(3) }),
       on("laptop", "d", { createdAt: t(3) }),
       on("laptop", "c", { createdAt: t(3) }),
-      on("system-server", "e", { activeOrderKey: "n" }),
+      on("sample-server", "e", { activeOrderKey: "n" }),
       on("laptop", "f", { activeOrderKey: "n" }),
     ];
     expect(ids(sortActive(rows, environments))).toEqual(["c", "d", "b", "a", "f", "e"]);
@@ -290,7 +290,7 @@ describe("the shelves", () => {
   });
 
   it("breaks a tie on every shelf by the environment's position, then by id", () => {
-    const tied = (fields: Partial<SortableSummary>) => [on("system-server", "a", fields), on("laptop", "c", fields), on("laptop", "b", fields)];
+    const tied = (fields: Partial<SortableSummary>) => [on("sample-server", "a", fields), on("laptop", "c", fields), on("laptop", "b", fields)];
     expect(ids(sortSettled(tied({ settledAt: t(1) }), environments))).toEqual(["b", "c", "a"]);
     expect(ids(sortSnoozed(tied({ snoozedUntil: t(1) }), environments))).toEqual(["b", "c", "a"]);
     expect(ids(sortArchived(tied({ archivedAt: t(1) }), environments))).toEqual(["b", "c", "a"]);
@@ -327,10 +327,10 @@ describe("group order", () => {
 
   it("breaks a tie by the environment's position, then by id", () => {
     const rows = [
-      group("system-server", "a", "m", t(1)),
+      group("sample-server", "a", "m", t(1)),
       group("laptop", "c", "m", t(1)),
       group("laptop", "b", "m", t(1)),
-      group("system-server", "d", null, t(1)),
+      group("sample-server", "d", null, t(1)),
       group("laptop", "e", null, t(1)),
     ];
     expect(sortGroups(rows, environments).map((listed) => listed.group.id)).toEqual(["b", "c", "a", "e", "d"]);

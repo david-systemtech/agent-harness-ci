@@ -75,12 +75,12 @@ const describeBank = STEP_PROMPTS.find((prompt) => prompt.id === "describe-bank"
 const personal = {
   name: "david-memory",
   kind: "personal",
-  entities: [{ name: "Homelab", aliases: ["home lab", "SYSTEM-SERVER"] }],
+  entities: [{ name: "Homelab", aliases: ["home lab", "SAMPLE-SERVER"] }],
   scopes: ["projects/personal/agent-harness/", "projects/personal/homelab/"],
 };
 
 /** A team bank with no entity yet and one scope folder. */
-const team = { name: "brandsolidate", kind: "team", entities: [], scopes: ["projects/brandsolidate/cool-jams/"] };
+const team = { name: "meadowstudios", kind: "team", entities: [], scopes: ["projects/meadowstudios/moon-gems/"] };
 
 /**
  * The BANK.md a model writes from nothing to what a describe prompt's `text`
@@ -145,7 +145,7 @@ describe("the Memory bank step's describe prompt (#586)", () => {
       "david-memory, a personal bank",
       "BANK.md",
       "the bank validator, version 1",
-      "Homelab (home lab, SYSTEM-SERVER)",
+      "Homelab (home lab, SAMPLE-SERVER)",
       "projects/personal/agent-harness/ and projects/personal/homelab/",
       "at most 5 memory names",
       "at most 600 bytes",
@@ -161,13 +161,13 @@ describe("the Memory bank step's describe prompt (#586)", () => {
 
   it("asks a team bank for its owners and puts its orientation in its first org's bank folder, and says when it names no entity yet", () => {
     const { text } = describeBank.render("first", team);
-    for (const part of ["brandsolidate, a team bank", "owners", "projects/brandsolidate/bank/", "projects/brandsolidate/cool-jams/", "names no entity yet"]) expect(text, part).toContain(part);
+    for (const part of ["meadowstudios, a team bank", "owners", "projects/meadowstudios/bank/", "projects/meadowstudios/moon-gems/", "names no entity yet"]) expect(text, part).toContain(part);
   });
 
   it("renders revise from the same facts, asking for the BANK.md main holds to be revised and kept valid", () => {
     const rendered = describeBank.render("revise", personal);
     expect(rendered).toMatchObject({ prompt: "describe-bank", variant: "revise", validator: { name: "bank-validator", version: 1 } });
-    for (const part of ["Revise", "david-memory, a personal bank", "the bank validator, version 1", "Homelab (home lab, SYSTEM-SERVER)", "projects/personal/homelab/", "pull request"]) {
+    for (const part of ["Revise", "david-memory, a personal bank", "the bank validator, version 1", "Homelab (home lab, SAMPLE-SERVER)", "projects/personal/homelab/", "pull request"]) {
       expect(rendered.text, part).toContain(part);
     }
     expect(rendered.text).not.toBe(describeBank.render("first", personal).text);
@@ -213,13 +213,13 @@ describe("the Memory bank step's describe prompt (#586)", () => {
     for (const variant of PROMPT_VARIANTS) {
       const { text } = describeBank.render(variant, team);
       for (const part of [
-        "projects/brandsolidate/bank/memories/<name>.md",
+        "projects/meadowstudios/bank/memories/<name>.md",
         "a lower-case slug of at most 60 characters",
         "60 to 160 characters",
         "Before, When, After, While, If, Where, How, What, Which or Why",
         "one of user, feedback, project or reference",
-        "projects/brandsolidate/ORG.md with line:",
-        "projects/brandsolidate/bank/PROJECT.md with line:",
+        "projects/meadowstudios/ORG.md with line:",
+        "projects/meadowstudios/bank/PROJECT.md with line:",
         "at most 100 characters",
         "topics: ({} for none)",
         "a folder that has its folder file",

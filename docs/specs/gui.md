@@ -35,7 +35,7 @@ The window keeps its layout: a sidebar of every environment's sessions, a grid o
 17. As David, I want each environment-scoped pane to name the environment it edits, Usage and Your machines to show them all, and a health dot on each step's home row, so that I never edit the wrong machine and see where attention is needed.
 18. As David, I want a Keyboard shortcuts pane listing every action with its terminal and GUI keys, the GUI's remappable, so that one list explains both clients.
 19. As David, I want the desktop to install and start this machine's environment on first launch, hand it the server artefact it bundles and take its own update from it, so that one install gives me both and they move together.
-20. As Seth, I want every wire feature the desktop shows to be in the terminal UI with the same meaning, or filed as a `parity` issue, so that the terminal is never silently behind.
+20. As Milo, I want every wire feature the desktop shows to be in the terminal UI with the same meaning, or filed as a `parity` issue, so that the terminal is never silently behind.
 21. As the setup checklist, I want Set up as the whole window on first launch and the first Settings row afterwards, checking the environment picked, so that every step has one home in the GUI.
 22. As the setup checklist, I want the Appearance step to write `appearance.theme` and need attention when a theme misses the contrast rules, so that the registry's contract holds for the theme.
 23. As the launcher, I want the desktop to take its staged build from its local environment, so that the desktop holds no forge token.

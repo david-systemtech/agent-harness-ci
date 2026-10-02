@@ -142,9 +142,9 @@ describe("an approval", () => {
     const promptId = await park(env, session, {
       kind: "denylist",
       toolName: "Read",
-      input: { file_path: "/home/seth/.ssh/id_ed25519" },
-      summary: "Read: /home/seth/.ssh/id_ed25519",
-      denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/seth/.ssh/id_ed25519" }],
+      input: { file_path: "/home/milo/.ssh/id_ed25519" },
+      summary: "Read: /home/milo/.ssh/id_ed25519",
+      denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/milo/.ssh/id_ed25519" }],
     });
     const shown = card() as HTMLElement;
     expect(within(shown).getByRole("heading").textContent).toBe("Denylist · Read");

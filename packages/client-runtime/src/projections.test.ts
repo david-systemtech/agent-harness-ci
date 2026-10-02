@@ -87,7 +87,7 @@ describe("the home environment", () => {
     const desk = listed("desk", "local", false);
     expect(homeEnvironment([tower, desk])).toBe(desk);
     expect(homeEnvironment([tower, { ...desk, phase: "service-down", enabled: false }])?.environmentId).toBe("desk");
-    expect(homeEnvironment([tower, listed("mnl", "paired", false)])).toBe(tower);
+    expect(homeEnvironment([tower, listed("lab", "paired", false)])).toBe(tower);
     expect(homeEnvironment([])).toBeUndefined();
   });
 

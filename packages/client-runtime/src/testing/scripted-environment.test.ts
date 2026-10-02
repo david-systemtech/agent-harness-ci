@@ -48,7 +48,7 @@ describe("the scripted environment in a DOM", () => {
   it("lists the sessions and groups of two environments, the local one through its grant and the other paired by its link", async () => {
     const { runtime, until } = await launch({
       environments: [
-        { name: "desk", reach: "local", sessions: [{ title: "Fix the rail", groupId: GROUP_ID }, { title: "Pairing" }], groups: [{ name: "Brandsolidate" }] },
+        { name: "desk", reach: "local", sessions: [{ title: "Fix the rail", groupId: GROUP_ID }, { title: "Pairing" }], groups: [{ name: "Meadowstudios" }] },
         { name: "laptop", reach: "paired", sessions: [{ title: "Train tidy-up" }] },
       ],
     });
@@ -61,7 +61,7 @@ describe("the scripted environment in a DOM", () => {
       ["laptop", "ready"],
     ]);
     expect(list.rows.map((row) => row.summary.title).sort()).toEqual(["Fix the rail", "Pairing", "Train tidy-up"]);
-    expect(list.groups).toMatchObject([{ name: "Brandsolidate", groups: [{ groupId: GROUP_ID }] }]);
+    expect(list.groups).toMatchObject([{ name: "Meadowstudios", groups: [{ groupId: GROUP_ID }] }]);
   });
 
   it("writes and edits a file in a run as Claude's Write and Edit do, which projections.documents lists and files.read answers", async () => {
@@ -79,7 +79,7 @@ describe("the scripted environment in a DOM", () => {
     expect(documents.read()).toMatchObject([{ path: "site/index.html", kind: "page", first: { toolCallId: written }, last: { toolCallId: edited }, size: 17 }]);
     expect(desk.events(sessionId).find((event) => event.type === "tool.started")?.payload).toMatchObject({
       name: "Write",
-      input: { file_path: "/home/seth/code/site/index.html", content: "<h1>Receipts</h1>" },
+      input: { file_path: "/home/milo/code/site/index.html", content: "<h1>Receipts</h1>" },
     });
 
     const read = await runtime.requests.call(desk.environmentId, "files.read", { sessionId, path: "site/index.html" });
@@ -153,7 +153,7 @@ describe("the scripted environment in a DOM", () => {
           name: "desk",
           reach: "local",
           sessions: [{ title: "Fix the rail", groupId: GROUP_ID }, { title: "Copy", groupId: GROUP_ID }],
-          groups: [{ id: GROUP_ID, name: "Brandsolidate" }, { id: OTHER, name: "Ops" }],
+          groups: [{ id: GROUP_ID, name: "Meadowstudios" }, { id: OTHER, name: "Ops" }],
         },
       ],
     });
@@ -275,7 +275,7 @@ describe("the scripted environment in a DOM", () => {
     const desk = world.environment("desk");
     const adopted = await runtime.requests.call(desk.environmentId, "accounts.adopt", { commandId: COMMAND_ID, label: "home" });
     expect(adopted).toMatchObject({ ok: true, result: { receipt: { status: "accepted" } } });
-    expect(desk.accounts()).toMatchObject([{ id: "account-1", label: "home", directory: { kind: "adopted", path: "/home/seth/.claude" } }]);
+    expect(desk.accounts()).toMatchObject([{ id: "account-1", label: "home", directory: { kind: "adopted", path: "/home/milo/.claude" } }]);
     expect(await runtime.requests.call(desk.environmentId, "accounts.probe", {})).toMatchObject({ ok: true, result: { accountId: "account-1" } });
 
     desk.changeAccount("account-1", null);
