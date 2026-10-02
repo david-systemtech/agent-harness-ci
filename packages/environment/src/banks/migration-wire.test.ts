@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { expect, it } from "vitest";
+import { beforeAll, expect, it } from "vitest";
+import { BANK_VALIDATOR_DIST, buildBankValidator } from "../../../contracts/scripts/bank-validator/build.js";
 import { PERSONAL_BANK, markdown, personalManifest } from "../../../contracts/test/fixture-banks.js";
 import { startFakeForge } from "../../test/fake-forge.js";
 import { added, DAVID, TOKEN } from "../../test/forge.js";
@@ -11,6 +12,10 @@ import { startTestEnvironment } from "../../test/helper.js";
 import { git } from "../../test/workspaces.js";
 
 const { tempDir, onCleanup } = useCleanups();
+beforeAll(async () => {
+  mkdirSync(dirname(BANK_VALIDATOR_DIST), { recursive: true });
+  await buildBankValidator({ outFile: BANK_VALIDATOR_DIST });
+});
 const fixture: Record<string, string> = { ...PERSONAL_BANK, "BANK.md": markdown(personalManifest({ description: "Private machines and projects", purpose: undefined, kind: undefined, entities: undefined, orientation: undefined, index: { file: "INDEX.md" } })), "INDEX.md": "Generated index\n", ".forgejo/workflows/old.yml": "name: old\njobs:\n  check:\n    steps:\n      - run: python -m bank check\n" };
 const start = async (remote = false, role: "read-write" | "read-only" = "read-write") => {
   const checkout = tempDir("migration-bank-");
