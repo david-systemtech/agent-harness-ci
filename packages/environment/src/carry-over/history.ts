@@ -6,6 +6,7 @@ import type { AdapterHost } from "../adapter/host.js";
 import type { EventInput, EventLog } from "../event-log/event-log.js";
 import { readOrigin, readSummary, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
+import { providerSessionOf } from "../runs/run-reads.js";
 import { accountSource } from "./sessions.js";
 
 /**
@@ -51,6 +52,8 @@ export interface ImportedHistory {
    * told and the session opens as the log has it.
    */
   beforeOpen(sessionId: string): Promise<void> | null;
+  /** A first continuation must own the retained source transcript before a Run can start. */
+  beforeContinuation(sessionId: string): Promise<string | null>;
 }
 
 /** The history's events as the log records them, under `runId`: each checked against its schema, one outside it left out. */
@@ -85,10 +88,11 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
     const facts = host.account(origin.accountId);
     if (facts === null) return { unreadable: `The account ${origin.accountId} its history lives in is no longer on this environment.` };
     const source = accountSource(host, facts);
-    const where = source.account.directory ?? `the account ${origin.accountId}'s directory`;
+    const account = origin.sourceDirectory === undefined ? source.account : { ...source.account, directory: origin.sourceDirectory };
+    const where = account.directory ?? `the account ${origin.accountId}'s directory`;
     try {
       const readHistory = capability(source.adapter.descriptor, "sessionListing", source.adapter.readHistory, "read an imported session's history", "readHistory");
-      const history = await readHistory.call(source.adapter, source.account, origin.providerSessionId);
+      const history = await readHistory.call(source.adapter, account, origin.providerSessionId);
       return history === null ? { unreadable: `No transcript of ${origin.providerSessionId} is in ${where} any more.` } : { history };
     } catch (error) {
       return { unreadable: `Reading ${origin.providerSessionId} from ${where} failed: ${error instanceof Error ? error.message : String(error)}` };
@@ -113,7 +117,24 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
     });
   };
 
-  return {
+  const service: ImportedHistory = {
+    async beforeContinuation(sessionId) {
+      const origin = readOrigin(reader, sessionId);
+      if (origin?.sourceDirectory === undefined || providerSessionOf(reader, sessionId) !== null) return null;
+      const summary = readSummary(reader, sessionId);
+      if (summary === null || summary.workspaceMissingSince !== null) return null;
+      const facts = host.account(origin.accountId);
+      const refusal = "This imported Session is read-only because its source history could not be loaded. Restore the retained source and retry.";
+      if (facts === null) return refusal;
+      const source = accountSource(host, facts);
+      if (source.adapter.seedSessionStore === undefined || !source.adapter.descriptor.resume) return refusal;
+      try {
+        await source.adapter.seedSessionStore(source.account, sessionId, origin.providerSessionId, origin.sourceDirectory);
+        // A continuation is the first access when no Client has opened it yet: keep history before its new Run.
+        await service.beforeOpen(sessionId);
+        return null;
+      } catch { return refusal; }
+    },
     beforeOpen(sessionId) {
       const id = sessionId.toLowerCase();
       const under = pending.get(id);
@@ -127,4 +148,5 @@ export const createImportedHistory = (options: ImportedHistoryOptions): Imported
       return appending;
     },
   };
+  return service;
 };

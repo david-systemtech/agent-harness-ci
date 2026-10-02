@@ -63,6 +63,18 @@ const run: RunSummary = {
 const view: Pick<SessionProjection, "items" | "runs" | "summary"> = { items, runs: [run], summary: null };
 
 describe("the text of a session", () => {
+  it("exports check commands, status, truncation and retained output", () => {
+    const items: TranscriptEntry[] = [
+      { kind: "check", sequence: 1, terminalId: "terminal-1", command: "pnpm lint", sourceRunId: null, state: "running", result: null },
+      { kind: "check", sequence: 2, terminalId: "terminal-2", command: "pnpm typecheck", sourceRunId: RUN, state: "finished", result: { output: "Type error\n", truncated: true, exitCode: 1, signal: null, timedOut: false, failure: null } },
+    ];
+    const exported = exportMarkdown({ items, runs: [], summary: null }, { environment: "desk", at: new Date("2026-10-02T00:00:00Z") });
+    expect(exported).toContain("`$ pnpm lint` · running");
+    expect(exported).toContain("`$ pnpm typecheck` · exit 1");
+    expect(exported).toContain("_Earlier output omitted_");
+    expect(exported).toContain("Type error");
+  });
+
   it("finds a reply's fenced code blocks without their fences", () => {
     expect(codeBlocks("a\n```ts\none\ntwo\n```\nb\n~~~\nthree\n~~~")).toEqual(["one\ntwo", "three"]);
     expect(codeBlocks("no code")).toEqual([]);
@@ -201,5 +213,12 @@ describe("update cuts in /export", () => {
     expect(exported).toContain("_attached image state.png · 2 KB_");
     expect(exported).not.toContain("### You · ");
     expect(exported).toContain("Check the current state, then continue.");
+  });
+});
+
+describe("file undo in /export", () => {
+  it("exports the completed change id, path and action without file contents", () => {
+    const text = exportMarkdown({ items: [{ kind: "file-undo", sequence: 1, changeId: "0199aa00-0000-4000-8000-000000000002", path: "src/app.ts", action: "restored" }], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T10:00:00.000Z") });
+    expect(text).toContain("_File undo: restored src/app.ts. 0199aa00-0000-4000-8000-000000000002_");
   });
 });

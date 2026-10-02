@@ -146,6 +146,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     ...forgesStateChecks({ forge: options.forge, clock: options.clock }),
     ...keyManagerStateChecks({
       connections: () => options.keyManagerConnections.list(),
+      requiredConnections: () => options.forge.list().flatMap((account) => account.credential.kind === "reference" ? [account.credential.reference.connectionId] : []),
       verify: () => options.keyManagerConnections.verify(),
       toolRows: async () => (await options.managedTools.list()).tools,
     }),

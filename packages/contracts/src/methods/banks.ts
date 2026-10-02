@@ -107,6 +107,7 @@ export const banksRegister = defineMethod({
     bankId: BankId,
     path: z.string().min(1).meta({ description: "The checkout's absolute path on the environment's machine." }),
     role: BankRole,
+    enabled: z.boolean().optional().meta({ description: "Whether runs use this Bank; true when omitted. State import retains the source entry's enabled flag." }),
     accounts: BankAccountScope,
     repositories: BankRepositoryScope,
     defaultFor: z.array(AccountId).meta({ description: "The accounts this bank becomes the default write target for." }),

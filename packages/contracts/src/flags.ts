@@ -61,8 +61,9 @@ export const supports = (flags: readonly CapabilityFlag[], flag: CapabilityFlag)
  * - `banks`: the environment keeps the BankRegistry and answers the `banks.*` methods (the banks workstream, #90); without it a client shows Memory banks absent-with-reason.
  * - `managedTools`: the environment keeps the Managed tools registry and answers the `tools.*` methods (the key-managers workstream); without it a client shows Managed tools absent-with-reason.
  * - `stateImport`: the environment serves `stateImport.run` (the switch-over workstream, #94, whose build brings it; ADR 0036); without it the Carry over card shows no state-import section.
+ * - `fileUndo`: the environment keeps what its runs' file tools change and serves `files.undo` (the switch-over workstream, #94; #1183); without it a client shows `/undo` absent-with-reason.
  * - `workspaceChecks`: the environment keeps each Workspace directory's check command and runs checks in its own terminals, answering `checks.get`, `checks.set` and `checks.run` (the switch-over workstream, #94; #1187); without it both Clients show `/check` absent-with-reason.
  * - `setup`: the environment keeps each Set up step's latest result, which survives its restart, sends every step's in `environment.subscribe`'s snapshot as `setup` and each change as the notice `setup.result-changed` (the setup workstream, ADR 0031's `setup` subscription); without it a client calls `setup.check` when Set up or a step's pane opens.
  */
-export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge", "banks", "keyManagers", "managedTools", "setup", "stateImport", "workspaceChecks"] as const;
+export const CAPABILITY_FLAG_LIST = ["self-update", "containment:workspace", "containment:no-network", "forge", "banks", "keyManagers", "managedTools", "setup", "stateImport", "fileUndo", "workspaceChecks"] as const;
 export type KnownCapabilityFlag = (typeof CAPABILITY_FLAG_LIST)[number];

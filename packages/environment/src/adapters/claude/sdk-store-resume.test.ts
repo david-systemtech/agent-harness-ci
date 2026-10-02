@@ -2,10 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { describe, expect, it } from "vitest";
+import { WAIT_MS } from "../../../test/wire-client.js";
 import { useCleanups } from "../../../test/cleanups.js";
 import { manualClock } from "../../../test/clock.js";
 import { openEventLog } from "../../event-log/event-log.js";
 import { createProviderTranscriptStore } from "../../provider-transcripts/store.js";
+import { importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
+import { seedStoreFromDirectory } from "./imported-history.js";
+import { createConfigDirQueue } from "./config-dir-queue.js";
 import { composeRunEnvironment } from "./credentials.js";
 
 /**
@@ -53,7 +57,7 @@ writeFileSync(process.env.RECORD_TO, JSON.stringify({ argv: process.argv.slice(2
 process.exit(0);
 `;
 
-const resumeUnder = async (options: { readonly projectDirName: string | null; readonly composed?: boolean }): Promise<{ spawned: Spawned; accountB: string }> => {
+const resumeUnder = async (options: { readonly projectDirName: string | null; readonly composed?: boolean; readonly secondary?: boolean }): Promise<{ spawned: Spawned; accountB: string }> => {
   const root = tempDir("claude-store-resume-");
   const accountB = join(root, "account-b");
   mkdirSync(accountB);
@@ -63,9 +67,22 @@ const resumeUnder = async (options: { readonly projectDirName: string | null; re
   const log = openEventLog({ path: ":memory:" });
   onCleanup(() => log.close());
   const store = createProviderTranscriptStore({ log, clock: manualClock() });
-  // As a run under account A left it: the mirror keyed it by the harness session.
-  await store.append({ projectKey: HARNESS, sessionId: PROVIDER }, [{ type: "user", uuid: "u1", parentUuid: null, sessionId: PROVIDER, message: { role: "user", content: "Hi" } }]);
-  await store.append({ projectKey: HARNESS, sessionId: PROVIDER, subpath: "subagents/agent-a1" }, [{ type: "user", uuid: "s1", sessionId: PROVIDER }]);
+  if (options.secondary) {
+    const secondary = join(root, "secondary");
+    const project = join(secondary, "projects", "fixture");
+    mkdirSync(join(project, PROVIDER, "subagents"), { recursive: true });
+    writeFileSync(join(secondary, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "secondary-for-tests", refreshToken: "secondary-refresh-for-tests" } }));
+    const parent = { type: "user", uuid: "u1", parentUuid: null, sessionId: PROVIDER, cwd: root, message: { role: "user", content: "Hi from secondary" } };
+    writeFileSync(join(project, `${PROVIDER}.jsonl`), JSON.stringify(parent) + "\n");
+    writeFileSync(join(project, PROVIDER, "subagents", "agent-a1.jsonl"), JSON.stringify({ ...parent, uuid: "s1", isSidechain: true, agentId: "a1" }) + "\n");
+    await seedStoreFromDirectory({ directory: secondary, queue: createConfigDirQueue(process.env), harnessSessionId: HARNESS, providerSessionId: PROVIDER, store, required: true, importSessionToStore });
+    expect((await store.load({ projectKey: HARNESS, sessionId: PROVIDER }))?.[0]?.message).toEqual({ role: "user", content: "Hi from secondary" });
+    expect(readFileSync(join(secondary, ".credentials.json"), "utf8")).toContain("secondary-refresh-for-tests");
+  } else {
+    // As a run under account A left it: the mirror keyed it by the harness session.
+    await store.append({ projectKey: HARNESS, sessionId: PROVIDER }, [{ type: "user", uuid: "u1", parentUuid: null, sessionId: PROVIDER, message: { role: "user", content: "Hi" } }]);
+    await store.append({ projectKey: HARNESS, sessionId: PROVIDER, subpath: "subagents/agent-a1" }, [{ type: "user", uuid: "s1", sessionId: PROVIDER }]);
+  }
   const record = join(root, "spawned.json");
   // Another working directory than the first run's: the key must not depend on it.
   const cwd = join(root, "elsewhere");
@@ -121,6 +138,16 @@ describe("the pinned SDK resuming from the store", () => {
     // Passed through as the run sets it, not replaced: the pinned SDK sets the variable itself on Windows only, and only when the run has none.
     expect(spawned.secureStorage).toBe(accountB);
     expect(spawned.storedCredentials).toEqual({ claudeAiOauth: { accessToken: "b-access", refreshToken: "b-refresh", expiresAt: 1 } });
+  });
+
+  it("resumes hydrated secondary parent and subagent files using only the winner's temporary access token and original refresh store", async () => {
+    const { spawned, accountB } = await resumeUnder({ projectDirName: HARNESS, composed: true, secondary: true });
+    expect(spawned.argv).toContain(`--resume=${PROVIDER}`);
+    expect(spawned.files).toEqual([".credentials.json", `projects/${HARNESS}/${PROVIDER}.jsonl`, `projects/${HARNESS}/${PROVIDER}/subagents/agent-a1.jsonl`]);
+    expect(spawned.credentials).toEqual({ claudeAiOauth: { accessToken: "b-access", expiresAt: 1 } });
+    expect(spawned.secureStorage).toBe(accountB);
+    expect(spawned.storedCredentials).toEqual({ claudeAiOauth: { accessToken: "b-access", refreshToken: "b-refresh", expiresAt: 1 } });
+    await expect.poll(() => existsSync(spawned.configDir), { timeout: WAIT_MS }).toBe(false);
   });
 
   it("finds nothing without the project directory's name, and runs in the account's own directory", async () => {

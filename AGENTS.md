@@ -130,14 +130,17 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   real run downloads Node's archives and packs three artefacts of about 160 MB each, which
   the release workflow does. What only a machine of each platform proves is the Server
   artefacts section of `docs/agents/service-install-checklist.md`. The release workflow
-  (`.forgejo/workflows/release.yml`, #358) runs the build on the `ci-x64` label. Its asset
-  list passes the release's other assets as `--asset <kind>=<path>`, a desktop build as
-  `--asset desktop:<platform>:<format>=<path>` (#359). Its publish step puts the build's
-  folder on the release with `pnpm --filter agent-harness publish-release`
-  (`scripts/release/publish.ts`, the notes from `notes.ts`), which is tested against a fake
-  Forgejo (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts`
-  runs the workflow's steps against a fake `pnpm`. A tag's real run is the checklist's
-  Release section.
+  (`public/.github-workflows/release.yml`, #1258) builds public `v*` tags on hosted GitHub
+  runners, publishes the complete GitHub release and pushes its versioned image to GHCR.
+  The snapshot publisher (#1275, PR #1277) installs this overlay as `.github/workflows/release.yml`
+  in the public repository using a push token with `workflow` scope; the private root holds no workflows.
+  Manual dispatch builds all assets with a synthetic version without publishing; Forgejo's
+  release workflow is manual recovery only. For tagging, snapshot checks, dry runs and public
+  visibility, read `docs/agents/releases.md`. Its publish step uses `pnpm --filter
+  agent-harness publish-release` (`scripts/release/publish.ts`, notes from `notes.ts`),
+  tested against the fake release API in `packages/cli/test/fake-forgejo-releases.ts`.
+  `test/github-release-workflow.test.ts` checks the hosted workflow; a real tag run is
+  the service-install checklist's Release section.
 - The desktop build, `pnpm --filter @agent-harness/desktop build-desktop --platform <p>
   --tag v<version> --server <that platform's server artefact> --out <folder>`
   (`packages/desktop/scripts/desktop-build/`, #423), builds one platform's desktop on
@@ -152,11 +155,11 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   the Arch package on `ci-x64`, the zip on the Mac's `macos` runner, and the Windows
   setup on `ci-x64` in electron-builder's Wine image (#359), since no runner has Windows
   and electron-builder on Linux runs the setup under Wine to write its uninstaller. A
-  tag's release builds each in a job of its own with the same steps, which
-  `packages/desktop/scripts/desktop-build/workflow.test.ts` holds the two workflows to,
-  and hands it to the release job through the generic package registry
-  (`.forgejo/scripts/desktop-builds.sh`, tested by `test/desktop-builds-script.test.ts`
-  against a fake registry). Building and installing each is the desktop checklist's
+  tag's GitHub release builds each on hosted runners (arm64 macOS, Ubuntu for Arch and
+  Windows with Wine) and hands it to the release job through workflow artifacts.
+  Forgejo's manual recovery uses the generic package registry
+  (`.forgejo/scripts/desktop-builds.sh`, tested by `test/desktop-builds-script.test.ts`).
+  Building and installing each is the desktop checklist's
   "Building a desktop" and "The packaged desktop".
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
@@ -216,10 +219,10 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   `docker`, `curl` and `flock` and a held clock (a fake `date` and `sleep`);
   running it against a real Docker host is the checklist's Host-side updater
   section. The image's job, `.forgejo/scripts/image.sh` (a pull request's
-  build in `.forgejo/workflows/image.yml`, a `v` tag's push of the version's
-  image in `release.yml`), is tested by `test/image-script.test.ts` against a
-  fake `docker`; its run on the `build` runner and a pull from the registry
-  are the checklist's Release image section. Never build or run an image on
+  build in `.forgejo/workflows/image.yml`, manual recovery in Forgejo's release workflow),
+  is tested by `test/image-script.test.ts` against a fake `docker`. Public `v` tags
+  build and push to GHCR through `public/.github-workflows/release.yml`; a pull from the registry
+  is the checklist's Release image section. Never build or run an image on
   the shared agent box, nor run the updater there.
 - Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the

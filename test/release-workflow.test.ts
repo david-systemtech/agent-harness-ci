@@ -13,12 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { releaseWorkflowInput } from "./release-workflow-input.js";
 
 const root = join(import.meta.dirname, "..");
 /** The jobs that build the desktops a release publishes (#359); `packages/desktop/scripts/desktop-build/workflow.test.ts` checks what each builds. */
 const DESKTOP_JOBS = ["desktop-macos", "desktop-windows", "desktop-arch"];
 const run = promisify(execFile);
-const lines = readFileSync(join(root, ".forgejo", "workflows", "release.yml"), "utf8").split("\n");
+const { recovery } = releaseWorkflowInput(root);
+const lines = (recovery ?? "").split("\n");
 
 let cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -74,7 +76,7 @@ const pnpmCalledBy = async (step: string, env: NodeJS.ProcessEnv): Promise<strin
   return readFileSync(log, "utf8").split("\n").slice(0, -1);
 };
 
-describe("the release workflow", () => {
+describe.skipIf(recovery === undefined)("the private Forgejo recovery workflow", () => {
   it("checks, before anything is built or pushed, that the tag's release is unpublished, then runs typecheck, lint, test and the schema export's check", () => {
     const check = job("check");
     expect(check).toContain("    runs-on: ci");

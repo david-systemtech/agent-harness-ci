@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { manualClock } from "../../test/clock.js";
 import { useCleanups } from "../../test/cleanups.js";
-import { ask, fakeAdapter } from "../../test/fake-adapter.js";
+import { ask, fakeAdapter, gate } from "../../test/fake-adapter.js";
 import { startTestEnvironment } from "../../test/helper.js";
 import { create } from "../../test/sessions.js";
 import type { RunContainment } from "../adapter/contract.js";
@@ -51,6 +51,37 @@ const contained = (workspace: string): RunContainment => ({
 });
 
 describe("the preview's budget and workspace boundary", () => {
+  it.each(["mkfs.ext2", "mkfs.ext3", "mkfs.ext4", "mkfs.xfs", "mkfs.btrfs", "mkfs.vfat", "mkfs.fat", "mkfs.msdos", "mkfs.exfat", "mkfs.ntfs", "mkntfs", "mke2fs"])("previews %s with scoped target details without running a formatter", async (name) => {
+    const workspace = await tempDir();
+    const target = join(workspace, "disk.img");
+    await writeFile(target, "keep this");
+    const programs: string[] = [];
+    const inspected: string[] = [];
+    for (const executable of [name, `/usr/sbin/${name}`]) {
+      expect(await previewLines("permission", { input: { command: `${executable} disk.img` } }, {
+        workspace, clock: manualClock(), containment: contained(workspace),
+      }, {
+        execFile: async (file) => { programs.push(file); throw new Error("No formatter should run"); },
+        stat: async (path) => { inspected.push(path); return nodeBlastDeps.stat(path); },
+      })).toEqual(["⚠ no dry run for this one; it would overwrite 1 path", "  disk.img — 9 B"]);
+    }
+    expect(inspected).toEqual([target, target]);
+    expect(programs).toEqual([]);
+    expect(await readFile(target, "utf8")).toBe("keep this");
+  });
+
+  it("keeps filesystem-maker targets outside the workspace unavailable without inspecting them", async () => {
+    const workspace = await tempDir();
+    const outside = await tempDir();
+    const inspected: string[] = [];
+    expect(await previewLines("permission", { input: { command: `/usr/sbin/mkfs.ext4 '${join(outside, "disk.img")}'` } }, {
+      workspace, clock: manualClock(), containment: contained(workspace),
+    }, {
+      stat: async (path) => { inspected.push(path); return { directory: false, size: 9 }; },
+    })).toBeNull();
+    expect(inspected).toEqual([]);
+  });
+
   it.each(["EACCES", "EIO"])("reports unavailable reads (%s) through the broker preview boundary", async (code) => {
     const workspace = await tempDir();
     await mkdir(join(workspace, "build", "nested"), { recursive: true });
@@ -121,6 +152,148 @@ describe("the preview's budget and workspace boundary", () => {
       stat: async () => { stats++; return { directory: false, size: 7 }; },
     })).toBeNull();
     expect(stats).toBe(0);
+  });
+
+  it("withholds a Git cleanup preview before inspecting a denylisted file", async () => {
+    const workspace = tempDir();
+    const secret = join(workspace, "private.txt");
+    await writeFile(secret, "keep this");
+    const stats: string[] = [];
+    expect(await previewLines("permission", { input: { command: "git clean -fdx" } }, {
+      workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [secret], exempt: [], commandPatterns: [] }),
+    }, {
+      execFile: async () => "Would remove private.txt\n",
+      stat: async (path) => { stats.push(path); return nodeBlastDeps.stat(path); },
+    })).toBeNull();
+    expect(stats).toEqual([]);
+  });
+
+  it("withholds reset's tracked changes when Git reports a denylisted path", async () => {
+    const workspace = tempDir();
+    const secret = join(workspace, "private.txt");
+    await writeFile(secret, "keep this");
+    expect(await previewLines("permission", { input: { command: "git reset --hard" } }, {
+      workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [secret], exempt: [], commandPatterns: [] }),
+    }, {
+      execFile: async (_file, args) => args[0] === "status" ? " M private.txt\n" : "example current commit\n",
+    })).toBeNull();
+  });
+
+  it("withholds a cleanup directory before inspecting it, and honours an exemption", async () => {
+    const workspace = tempDir();
+    const directory = join(workspace, "private");
+    await mkdir(directory);
+    await writeFile(join(directory, "keep.txt"), "keep this");
+    const scope = { workspace, clock: manualClock(), containment: contained(workspace) };
+    const stats: string[] = [];
+    const deps = {
+      execFile: async () => "Would remove private/\n",
+      stat: async (path: string) => { stats.push(path); return nodeBlastDeps.stat(path); },
+    };
+    const detail = { input: { command: "git clean -fdx" } };
+    expect(await previewLines("permission", detail, { ...scope, denylist: () => ({ paths: [directory], exempt: [], commandPatterns: [] }) }, deps)).toBeNull();
+    expect(stats).toEqual([]);
+    expect(await previewLines("permission", detail, { ...scope, denylist: () => ({ paths: [directory], exempt: [directory], commandPatterns: [] }) }, deps))
+      .toEqual(["⚠ git clean would remove 1 path", "  private/"]);
+    expect(stats).toEqual([directory]);
+    expect(await readFile(join(directory, "keep.txt"), "utf8")).toBe("keep this");
+  });
+
+  it("honours a permitted file in an exempt directory without forwarding destructive Git flags", async () => {
+    const workspace = tempDir();
+    const directory = join(workspace, "private");
+    await mkdir(directory);
+    await writeFile(join(directory, "keep.txt"), "keep this");
+    expect(await previewLines("permission", { input: { command: "git clean -fdx -e node_modules" } }, {
+      workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [directory], exempt: [directory], commandPatterns: [] }),
+    }, {
+      execFile: async (file, args, options) => {
+        expect(file).toBe("git");
+        expect(args).toEqual(["clean", "-n", "-d", "-x", "--exclude=node_modules"]);
+        expect(options.timeout).toBe(PREVIEW_TIMEOUT_MS);
+        expect(options.signal).toBeInstanceOf(AbortSignal);
+        return "Would remove private/keep.txt\n";
+      },
+    })).toEqual(["⚠ git clean would remove 1 path", "  private/keep.txt"]);
+  });
+
+  it.skipIf(process.platform === "win32")("checks the canonical workspace boundary and denylist for Git's paths", async () => {
+    const workspace = tempDir();
+    const outside = tempDir();
+    await writeFile(join(outside, "keep.txt"), "keep this");
+    await symlink(outside, join(workspace, "outside"));
+    const privateDirectory = join(workspace, "private");
+    await mkdir(privateDirectory);
+    await writeFile(join(privateDirectory, "keep.txt"), "keep this");
+    await symlink(privateDirectory, join(workspace, "alias"));
+    for (const path of ["outside/keep.txt", "alias/keep.txt"]) {
+      const stats: string[] = [];
+      expect(await previewLines("permission", { input: { command: "git clean -fdx" } }, {
+        workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [privateDirectory], exempt: [], commandPatterns: [] }),
+      }, {
+        execFile: async () => `Would remove ${path}\n`,
+        stat: async (target) => { stats.push(target); return nodeBlastDeps.stat(target); },
+      })).toBeNull();
+      expect(stats).toEqual([]);
+    }
+  });
+
+  it.each(["missing.txt", '"private\\tname.txt"', '"\\377.txt"'])("withholds unavailable or encoded Git target %s", async (path) => {
+    const workspace = tempDir();
+    const secret = join(workspace, "private\tname.txt");
+    await writeFile(secret, "keep this");
+    const stats: string[] = [];
+    expect(await previewLines("permission", { input: { command: "git clean -fdx" } }, {
+      workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [secret], exempt: [], commandPatterns: [] }),
+    }, {
+      execFile: async () => `Would remove ${path}\n`,
+      stat: async (target) => { stats.push(target); return nodeBlastDeps.stat(target); },
+    })).toBeNull();
+    expect(stats).toEqual(path === "missing.txt" ? [join(workspace, "missing.txt")] : []);
+  });
+
+  it("checks cleanup paths beyond the card's listed-path cap", async () => {
+    const workspace = tempDir();
+    const secret = join(workspace, "private.txt");
+    await writeFile(join(workspace, "public.txt"), "keep this");
+    await writeFile(secret, "keep this");
+    expect(await previewLines("permission", { input: { command: "git clean -fdx" } }, {
+      workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [secret], exempt: [], commandPatterns: [] }),
+    }, {
+      execFile: async () => `${"Would remove public.txt\n".repeat(30)}Would remove private.txt\n`,
+    })).toBeNull();
+  });
+
+  it("checks checkout's changed paths against the denylist", async () => {
+    const workspace = tempDir();
+    const secret = join(workspace, "private.txt");
+    await writeFile(secret, "keep this");
+    expect(await previewLines("permission", { input: { command: "git checkout -- private.txt" } }, {
+      workspace, clock: manualClock(), containment: contained(workspace), denylist: () => ({ paths: [secret], exempt: [], commandPatterns: [] }),
+    }, {
+      execFile: async () => "private.txt\n",
+    })).toBeNull();
+  });
+
+  it("keeps Git target inspection inside the shared total budget", async () => {
+    const workspace = tempDir();
+    const clock = manualClock();
+    const started = gate();
+    const released = gate();
+    const stats: string[] = [];
+    const preview = previewLines("permission", { input: { command: "git clean -fdx" } }, {
+      workspace, clock, containment: contained(workspace),
+    }, {
+      execFile: async () => "Would remove one.txt\nWould remove two.txt\n",
+      stat: async (path) => { stats.push(path); started.open(); await released.opened; return { directory: false, size: 7 }; },
+    });
+    await started.opened;
+    clock.advance(PREVIEW_TIMEOUT_MS);
+    expect(await preview).toBeNull();
+    expect(clock.pending()).toBe(0);
+    released.open();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stats).toEqual([join(workspace, "one.txt")]);
   });
 
   it("expires a held read on the environment clock, records null, and stops subsequent reads", async () => {

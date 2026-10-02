@@ -119,7 +119,7 @@ describe("the queued line", () => {
 
 describe("Ctrl+Enter reads the queue now", () => {
   it("dispatches runs.readNow for the session, and the next run's transcript opens with the queued messages as its prompt", async () => {
-    const { app, env } = await launch();
+    const { app, env } = await launch({ queue: "provider", provider: { providerQueue: true, steering: true } });
     await withQueue(app, "and the tests", "and the docs");
     const runId = env.liveRun(SESSION) ?? "";
     env.emit(SESSION, "assistant.text", { runId, itemId: "i-1", text: "Reading the receipts module.", aborted: false });
@@ -137,23 +137,60 @@ describe("Ctrl+Enter reads the queue now", () => {
   });
 });
 
+describe("provider queue parity after an interrupt and replay", () => {
+  it("reads the re-owned whole queue once in order and refuses withdrawing a message the next run has read", async () => {
+    const { app, env } = await launch({ queue: "provider", provider: { providerQueue: true, steering: true } });
+    await withQueue(app, "and the tests", "and the docs");
+    const queuedIds = env.queued(SESSION).map((message) => message.messageId);
+    const session = app.runtime().projections.session(env.environmentId, SESSION);
+    await app.press(KEY.esc);
+    await app.waitFor("Interrupted");
+    expect(env.queued(SESSION).map((message) => [message.text, message.heldBy])).toEqual([["and the tests", "environment"], ["and the docs", "environment"]]);
+    // Reconnect while the queue belongs to the environment; catch-up must neither deliver nor reorder it.
+    env.discovery("nothing");
+    env.server.drop();
+    await app.waitFor("desk cannot be reached");
+    env.discovery("ready");
+    await app.jump(5_000);
+    await app.waitUntil(() => session.read().freshness === "live", "queue replay synchronized");
+    await app.press(CTRL_ENTER);
+    await app.waitFor("▌ and the docs");
+    expect(env.requests("runs.readNow")).toHaveLength(1);
+    const nextRun = env.liveRun(SESSION) ?? "";
+    await app.waitUntil(() => session.read().runs.length === 2, "the one read-now run");
+    expect(session.read().runs.map((run) => run.queuedMessageIds)).toEqual([[], queuedIds]);
+    expect(session.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts", "and the tests", "and the docs"]);
+    expect(app.runtime().projections.runs.session(env.environmentId, SESSION).read().queue).toEqual([]);
+    expect(await app.runtime().commands.dispatch(env.environmentId, "runs.withdraw", { messageId: env.messageId(SESSION, "and the tests") })).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(env.summary(SESSION).draft).toBeNull();
+    env.endRun(SESSION, nextRun);
+    await app.waitFor("message the agent");
+    env.server.drop();
+    await app.jump(5_000);
+    await app.waitUntil(() => session.read().freshness === "live", "delivered queue replay synchronized");
+    expect(session.read().runs).toHaveLength(2);
+    expect(session.read().items.filter((item) => item.kind === "user-message").map((item) => item.text)).toEqual(["Fix the receipts", "and the tests", "and the docs"]);
+    expect(env.liveRun(SESSION)).toBeUndefined();
+  });
+});
+
 describe("↑ on an empty composer withdraws the newest queued message", () => {
   it("dispatches runs.withdraw for the newest, and its text comes into the composer through the session's draft", async () => {
-    const { app, env } = await launch();
+    const { app, env } = await launch({ queue: "provider", provider: { providerQueue: true, steering: true } });
     await withQueue(app, "and the tests", "and the docs");
     const newest = env.queued(SESSION).at(-1);
     await app.press(KEY.up);
     await app.waitFor("› and the docs");
     expect(env.requests("runs.withdraw").map((request) => request.params)).toEqual([expect.objectContaining({ messageId: newest?.messageId })]);
     expect(env.summary(SESSION).draft).toBe("and the docs");
-    expect(app.frame()).toContain("⧗ queued and the tests");
+    expect(app.frame()).toContain("↳ steering and the tests");
     expect(app.frame()).not.toContain("⧗ queued and the docs");
     // Withdrawn, it is neither queued nor a message on its way.
     expect(app.frame()).not.toContain("and the docs · sending");
     // With text in the composer, ↑ is the composer's own again: nothing more is withdrawn.
     await app.press(KEY.up);
     expect(env.requests("runs.withdraw")).toHaveLength(1);
-    expect(app.frame()).toContain("⧗ queued and the tests");
+    expect(app.frame()).toContain("↳ steering and the tests");
   });
 
   it("withdraws nothing while a card takes a line: ↑ at the label of an account being added is the card's (#147)", async () => {

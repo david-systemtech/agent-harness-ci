@@ -1,7 +1,9 @@
 import {
   attachmentChip,
+  checkStatus,
   endWords,
   environmentMessage,
+  fileUndoWords,
   oneLine,
   promptsIn,
   turnFacts,
@@ -77,13 +79,14 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
       return <Prompt entry={row.entry} />;
     case "check": {
       const entry = row.entry;
-      const live = entry.status === "running" ? facts.checkOutput?.get(entry.terminalId) : undefined;
+      const live = entry.state === "running" ? facts.checkOutput?.get(entry.terminalId) : undefined;
+      const output = live?.output ?? entry.result?.output ?? "";
       return (
         <article aria-label="Workspace check result" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">
           <pre className="font-mono whitespace-pre-wrap break-words"><Marked text={`$ ${entry.command}`} /></pre>
-          <p>{entry.status}{entry.status === "running" ? "" : `; exit ${entry.exitCode ?? "none"}`}{(live?.truncated ?? entry.truncated) ? "; output truncated" : ""}</p>
-          {entry.failure !== null && <p className="text-amber">{entry.failure}</p>}
-          {(live?.output ?? entry.output) !== "" && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={live?.output ?? entry.output} /></pre>}
+          <p>{checkStatus(entry)}{entry.result === null ? "" : `; exit ${entry.result.exitCode ?? "none"}`}{(live?.truncated ?? entry.result?.truncated) ? "; output truncated" : ""}</p>
+          {entry.result?.failure != null && <p className="text-amber">{entry.result.failure}</p>}
+          {output !== "" && <pre className="max-h-48 overflow-auto font-mono whitespace-pre-wrap break-words"><Marked text={output} /></pre>}
         </article>
       );
     }
@@ -100,6 +103,8 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
           )}
         </article>
       );
+    case "file-undo":
+      return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
     case "turn":
       return <CostLine run={row.run} />;
     case "opaque":

@@ -48,6 +48,7 @@ export const ANSWERED_COMMANDS = [
   "terminal",
   "files",
   "diff",
+  "undo",
   "documents",
   "browser",
   "trust",
@@ -88,6 +89,7 @@ export type Command =
   | { readonly kind: "terminal" }
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
+  | { readonly kind: "file-undo" }
   | { readonly kind: "documents" }
   | { readonly kind: "browser" }
   | { readonly kind: "trust"; readonly decision: "trusted" | "declined" }
@@ -193,6 +195,8 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "notices" }, "/notices");
     case "terminal":
       return bare(rest, { kind: "terminal" }, "/terminal");
+    case "undo":
+      return bare(rest, { kind: "file-undo" }, "/undo");
     case "diff":
       return bare(rest, { kind: "diff" }, "/diff");
     case "browser":

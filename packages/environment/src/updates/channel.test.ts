@@ -77,8 +77,8 @@ const ok = { at: MANUAL_CLOCK_START, result: "ok" } as const;
 const after = (ms: number): string => new Date(Date.parse(MANUAL_CLOCK_START) + ms).toISOString();
 
 describe("the release source", () => {
-  it("is compiled into the build as the project's Forgejo, and updates.status says where the releases are read", async () => {
-    expect(RELEASE_SOURCE).toEqual({ origin: "https://git.systemtech.dev:5526", kind: "forgejo", repository: "david/agent-harness" });
+  it("is compiled into the build as the project's public GitHub, and updates.status says where the releases are read", async () => {
+    expect(RELEASE_SOURCE).toEqual({ origin: "https://github.com", kind: "github", repository: "david-systemtech/agent-harness" });
     const { fake, client } = await withChannel();
     expect((await client.request("updates.status", {})).releaseSource).toEqual(fake.source);
   });
@@ -243,7 +243,7 @@ describe("a failed check", () => {
     return client.received.flatMap((frame) => (frame.type === "event" && mine(frame) ? [frame.event.type] : []));
   };
 
-  it("with no forge account for the release origin reads no_release_access, reaching no forge, and raises no notice", async () => {
+  it("when the private forge refuses an anonymous read reports no_release_access and raises no update notice", async () => {
     const fake = await releaseSource();
     fake.publish({ version: "0.5.0" });
     const t = await start({ harnessVersion: "0.4.1", releaseSource: fake.source, forgeFetch: fake.forge.fetch });
@@ -254,12 +254,11 @@ describe("a failed check", () => {
       at: MANUAL_CLOCK_START,
       result: "failed",
       reason: "no_release_access",
-      message: expect.stringContaining(`No forge account on this environment covers ${fake.source.origin}`) as unknown as string,
+      message: expect.stringContaining("it refused an anonymous read (HTTP 401)") as unknown as string,
     });
-    expect(lastCheck?.result === "failed" && lastCheck.message).toContain("update credential --stdin");
     expect(target).toBeNull();
-    expect(fake.forge.requests).toEqual([]);
-    expect(await environmentEvents(client, from)).toEqual([]);
+    expect(fake.reads()).toEqual([{ method: "GET", path: "/api/v1/repos/david/agent-harness/releases", query: "limit=50", scheme: null }]);
+    expect((await environmentEvents(client, from)).filter((type) => type.startsWith("environment.update"))).toEqual([]);
   });
 
   it("with a token the forge refuses reads no_release_access, with the forge's answer", async () => {
@@ -362,7 +361,8 @@ describe("a pin", () => {
     await fake.forge.close();
     expect((await setUpdates(client, { "updates.pinnedVersion": "0.3.0" })).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "unreachable" } } });
 
-    const t = await start();
+    const privateSource = await releaseSource();
+    const t = await start({ releaseSource: privateSource.source, forgeFetch: privateSource.forge.fetch });
     const bare = await t.client();
     expect((await setUpdates(bare, { "updates.pinnedVersion": "0.3.0" })).receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "no_release_access" } } });
   });
@@ -466,7 +466,7 @@ describe("the Your machines step's release channel check", () => {
   });
 
   it("is checked again within a second of a check of the channel that failed, and says why it failed (#679)", async () => {
-    // No forge account for the release origin: the check cannot read the channel.
+    // The private forge refuses an anonymous read of the channel.
     const fake = await releaseSource();
     const t = await start({ harnessVersion: "0.5.0", releaseSource: fake.source, forgeFetch: fake.forge.fetch });
     const client = await t.client();

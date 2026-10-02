@@ -32,10 +32,12 @@ import {
   ttlWords,
   typedPath,
   undoableFold,
+  undoFile,
   userMessagesOf,
   withdrawQueued,
   workspaceLabel,
   type BrowseRow,
+  type CapabilityAnswer,
   type ClientCommandRow,
   type Clock,
   type EnvironmentView,
@@ -398,7 +400,7 @@ const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () 
  * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
  * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
  */
-const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[]): readonly CommandRow[] => {
+const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[], undo: CapabilityAnswer): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
     .map((id): ClientCommandRow => {
@@ -408,6 +410,7 @@ const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly S
   const taken = new Set(own.map((row) => row.name));
   return slashMenuRows(own, listed, (name) => taken.has(name)).map((row) => {
     const state = row.source === "skill" ? readiness.find((skill) => skill.name === row.name.replace(/^skill:/, "")) : undefined;
+    if (row.source === "client" && row.name === "undo") return { ...row, availability: undo };
     return state === undefined ? row : { ...row, readiness: state };
   });
 };
@@ -516,6 +519,12 @@ export const App = (props: AppProps) => {
   useFollow(headerView?.flags.includes("setup") ? headerSetup : undefined, request);
   const setupSummary = headerSetup && headerView ? setupHeader(headerSetup.read(), nameOf(headerView)) : undefined;
   const setupSummaryRows = setupSummary === undefined ? 0 : wrap([{ text: setupSummary }], size.columns).length;
+  const checks = useMemo(() => opened ? runtime.projections.checks(opened.environmentId, opened.sessionId) : undefined, [runtime, opened]);
+  useFollow(checks, request);
+  const checkView = checks?.read();
+  const checkUnavailable = checkView?.availability.status === "absent" ? ` Check: ${checkView.availability.message}` : undefined;
+  const checkOffer = checkView?.offer ? ` Send failure: Enter on an empty composer · ${checkView.offer.result?.timedOut ? "timeout" : "failure"}` : undefined;
+  const checkSummaryRows = [checkUnavailable, checkOffer].reduce((rows, text) => rows + (text === undefined ? 0 : wrap([{ text }], size.columns).length), 0);
 
   // The open session's workspace, when the environment has found it gone (#328): read from its list row, as the rail's.
   const openRow = opened ? list.rows.find((row) => row.environmentId === opened.environmentId && row.summary.id === opened.sessionId) : undefined;
@@ -570,7 +579,7 @@ export const App = (props: AppProps) => {
   const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) || (focus === "delegated" && tasks.length === 0) ? "composer" : focus;
   // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
   // fifths of the frame tall, within the column.
-  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows - setupSummaryRows) };
+  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows - setupSummaryRows - checkSummaryRows) };
   useEffect(() => terminal.resize(paneSize), [paneSize.cols, paneSize.rows]);
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
@@ -700,9 +709,6 @@ export const App = (props: AppProps) => {
   const now = clock.now().getTime();
   // A parked prompt is the card under the transcript until it is answered, then a row where it was asked (permissions spec,
   // "Placement"); the pager, the whole transcript unfolded, draws it in place.
-  const checks = useMemo(() => opened ? runtime.projections.checks(opened.environmentId, opened.sessionId) : undefined, [runtime, opened]);
-  useFollow(checks, request);
-  const checkView = checks?.read();
   const allRows = useMemo(() => (projection ? transcriptRows(projection) : []), [projection]);
   const rows = useMemo(() => allRows.filter((row) => !(row.kind === "prompt" && row.entry.state === "parked")), [allRows]);
   // The user messages the prompt picker lists (#232).
@@ -833,7 +839,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? []),
+      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? [], opened ? runtime.capability(opened.environmentId, "files.undo") : { status: "absent", reason: "unreachable", message: "No session is open." }),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],
@@ -1469,6 +1475,13 @@ export const App = (props: AppProps) => {
       case "files":
         openFiles(command.path);
         return true;
+      case "file-undo":
+        if (!opened) {
+          noSession();
+          return false;
+        }
+        void undoFile(runtime, clock, opened.environmentId, opened.sessionId).then((answer) => say(answer.line));
+        return false;
       case "diff":
         showDiff();
         return true;
@@ -1788,7 +1801,7 @@ export const App = (props: AppProps) => {
 
   // The help overlay's body, and the pager's: the frame less the header, the three lines, the composer and the status line
   // under the card, and the card's title and foot.
-  const helpHeight = Math.max(1, size.rows - 9 - setupSummaryRows);
+  const helpHeight = Math.max(1, size.rows - 9 - setupSummaryRows - checkSummaryRows);
   const helpMaxTop = Math.max(0, help.length - helpHeight);
   // A taller terminal, or a shorter map after `/reload`, leaves less to scroll: the overlay's place is clamped to it.
   useEffect(() => {
@@ -2451,7 +2464,7 @@ export const App = (props: AppProps) => {
   const railInPane = !railDrawn && railListed && focused === "sidebar" && card.kind === "none" && !promptShown;
   // The rows the rail and a picker have: the frame less the header and the six lines under the pane (the two lines, the
   // composer, the status line's two and the activity line).
-  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN - setupSummaryRows);
+  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN - setupSummaryRows - checkSummaryRows);
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
   /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
   const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
@@ -2739,8 +2752,8 @@ export const App = (props: AppProps) => {
       <Line text={screen.line} />
       <Line text={promptLine} color={TERMINAL_ROLES.warning} />
       {trustLine !== undefined && <Line text={trustLine} color={TERMINAL_ROLES.warning} />}
-      {checkView?.availability.status === "absent" && <Text dimColor> Check: {checkView.availability.message}</Text>}
-      {checkView?.offer && <Text color={TERMINAL_ROLES.warning}> Send failure: Enter on an empty composer · {checkView.offer.status}</Text>}
+      {checkUnavailable !== undefined && <Text dimColor>{checkUnavailable}</Text>}
+      {checkOffer !== undefined && <Text color={TERMINAL_ROLES.warning}>{checkOffer}</Text>}
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}

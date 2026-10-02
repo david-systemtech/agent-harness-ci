@@ -165,12 +165,12 @@ describe("sending", () => {
     await app.waitFor("↳ steering use the other parser");
   });
 
-  it("interrupts the live run on Esc", async () => {
+  it.each([KEY.esc, KEY.ctrlC])("interrupts the live run with the default stop key %j", async (key) => {
     const { app, env } = await launch();
     await send(app, "Fix the receipts");
     await app.waitFor("steer or queue a message");
     const runId = env.liveRun(SESSION);
-    await app.press(KEY.esc);
+    await app.press(key);
     await app.waitFor("✗ Interrupted");
     expect(paramsOf(app, "runs.interrupt")).toEqual([expect.objectContaining({ runId })]);
     await app.waitFor("message the agent");

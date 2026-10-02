@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ENVIRONMENT_STREAM_KIND, registry, type BankRecord, type EventFrame, type Frame, type ParamsOf, type ResponseOf, type StepResult } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { changed, markdown, PERSONAL_BANK, personalManifest, TEAM_BANK } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
@@ -14,6 +14,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { get } from "../../test/sessions.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { branchesOf, git } from "../../test/workspaces.js";
+import * as gitRunner from "../workspace/git.js";
 import { TRIGGER_WINDOW_MS } from "../setup/scheduler.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 
@@ -144,7 +145,11 @@ describe("the Memory bank step's checks", () => {
     const remote = forge.gitRepository("acme/bank", { files: changed(TEAM_BANK, { "BANK.md": null }) });
     const client = await (await start({ harnessCommand: [process.execPath, "fake-credential-helper.mjs"], harnessGitConfig: [[`url.${pathToFileURL(remote).href}.insteadOf`, `${forge.origin}/acme/bank.git`]] })).client();
     await added(client, { url: forge.origin, kind: "forgejo" });
-    const checkout = teamBank(forge, changed(TEAM_BANK, { "BANK.md": null }));
+    const checkout = tempDir("agent-harness-bank-clone-");
+    git(checkout, "clone", "--quiet", remote, ".");
+    git(checkout, "remote", "set-url", "origin", `${forge.origin}/acme/bank.git`);
+    forge.repository(TOKEN, "acme/bank");
+    users(forge, { "maya-reyes": true, "sam-ortiz": true });
     const bank = await register(client, checkout);
     const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
     // Finish the run's before-run sync before authoring the review fixture and verifying it.
@@ -428,7 +433,7 @@ const mint = async (client: WireClient, params: Omit<ParamsOf<"setup.mint">, "co
 /** The session `setup.mint` answered, or fails the test with its receipt. */
 const minted = async (client: WireClient, params: Omit<ParamsOf<"setup.mint">, "commandId">): Promise<string> => {
   const answer = await mint(client, params);
-  expect(answer.receipt).toMatchObject({ status: "accepted" });
+  expect(answer.receipt, JSON.stringify(answer.receipt)).toMatchObject({ status: "accepted" });
   if (answer.result === undefined) throw new Error("setup.mint answered no session.");
   return answer.result.sessionId;
 };
@@ -467,20 +472,87 @@ describe("the describe session", () => {
     expect(prompt).toMatch(/^Describe the memory bank david-memory, a personal bank, by writing its BANK\.md\./);
   });
 
-  it("mints concurrent describe sessions on distinct branches without refusing either preparation", async () => {
+  it("mints concurrent describe sessions on distinct branches while the first ref is still locked", async () => {
     const { checkout } = bankRepository();
     const t = await start();
     const client = await t.client();
     const bank = await register(client, checkout);
-    const sessions = await Promise.all([
-      minted(client, { step: "memory-bank", subject: bank.id, variant: "first" }),
-      minted(client, { step: "memory-bank", subject: bank.id, variant: "revise" }),
-    ]);
+    const repository = describeRepositoryAt(t.dataDir, checkout);
+    const branch = `setup/describe-${TODAY}`;
+    const lock = join(repository, "refs", "heads", `${branch}.lock`);
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const realGit = gitRunner.runGit;
+    const spy = vi.spyOn(gitRunner, "runGit").mockImplementation(async (cwd, args, options) => {
+      if (cwd === repository && args[0] === "branch" && args[2] === branch && !existsSync(lock)) {
+        // Hold the ref exactly where a slow git writer has locked it but has not published it.
+        mkdirSync(dirname(lock), { recursive: true });
+        writeFileSync(lock, "");
+        signalLocked();
+        await held;
+        rmSync(lock);
+      }
+      return realGit(cwd, args, options);
+    });
+    const first = mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    onCleanup(async () => {
+      release();
+      try { await first; } finally { spy.mockRestore(); }
+    });
+    await locked;
+    let second: ResponseOf<"setup.mint">;
+    try {
+      second = await mint(client, { step: "memory-bank", subject: bank.id, variant: "revise" });
+    } finally {
+      release();
+    }
+    const answers = [await first, second];
+    for (const answer of answers) expect(answer.receipt, JSON.stringify(answer.receipt)).toMatchObject({ status: "accepted" });
+    const sessions = answers.map((answer) => {
+      if (answer.result === undefined) throw new Error("setup.mint answered no session.");
+      return answer.result.sessionId;
+    });
     const summaries = await Promise.all(sessions.map((id) => get(client, id)));
     expect(summaries.map(({ workspace }) => workspace.kind === "worktree" ? workspace.branch : null).sort()).toEqual([
       `setup/describe-${TODAY}`, `setup/describe-${TODAY}-2`,
     ]);
     expect(branchesOf(checkout)).toEqual(["main"]);
+    await Promise.all(sessions.map((id) => runEnded(client, id)));
+  });
+
+  it("releases a failed branch reservation so a later describe can reuse the available name", async () => {
+    const { checkout } = bankRepository();
+    const t = await start();
+    const client = await t.client();
+    const bank = await register(client, checkout);
+    const repository = describeRepositoryAt(t.dataDir, checkout);
+    const branch = `setup/describe-${TODAY}`;
+    const lock = join(repository, "refs", "heads", `${branch}.lock`);
+    const realGit = gitRunner.runGit;
+    let blocked = false;
+    const spy = vi.spyOn(gitRunner, "runGit").mockImplementation(async (cwd, args, options) => {
+      if (cwd !== repository || args[0] !== "branch" || blocked) return realGit(cwd, args, options);
+      blocked = true;
+      mkdirSync(dirname(lock), { recursive: true });
+      writeFileSync(lock, "");
+      try {
+        return await realGit(cwd, args, options);
+      } finally {
+        rmSync(lock);
+      }
+    });
+    onCleanup(() => spy.mockRestore());
+    const refused = await mint(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    expect(refused.receipt).toMatchObject({
+      status: "rejected",
+      error: { code: "conflict", data: { reason: "git_failed", operation: "branch", diagnostic: "exit_128" } },
+    });
+    expect((await client.request("sessions.list", {})).sessions).toEqual([]);
+    const sessionId = await minted(client, { step: "memory-bank", subject: bank.id, variant: "first" });
+    expect((await get(client, sessionId)).workspace).toMatchObject({ branch });
+    await runEnded(client, sessionId);
   });
 
   it("takes the next free branch for a second session on the same day, the first one's branch kept", async () => {

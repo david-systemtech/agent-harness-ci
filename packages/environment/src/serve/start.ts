@@ -1,3 +1,4 @@
+import { validatorUpdateMethods } from "../banks/validator-update.js";
 import { migrationMethods } from "../banks/migrate.js";
 import { splitMethods } from "../banks/split.js";
 import { bankInstructionsLayer, connectBankMemory } from "../banks/bank-layer.js";
@@ -185,7 +186,7 @@ import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
-import { groupMethods } from "../sessions/group-methods.js";
+import { groupMethods, createImportedGroup } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
@@ -208,6 +209,9 @@ import { createWorkspaceResolver, type WorkspaceResolver, type WorkspaceSettings
 import { createReaper } from "../workspace/reaper.js";
 import { workspaceRoots } from "../workspace/roots.js";
 import { createSettleSweep } from "../sessions/settle-sweep.js";
+import { fileChangeObserver } from "../file-undo/observer.js";
+import { createFileUndo, type FileUndoHooks } from "../file-undo/undo.js";
+import { createWorkspaceWrites } from "../file-undo/workspace-writes.js";
 import { settingsMethods } from "../settings/methods.js";
 import { skillChoicesProjector } from "../skills/choices.js";
 import { skillsMethods } from "../skills/methods.js";
@@ -216,7 +220,9 @@ import { createSkillProbes } from "../skills/probe.js";
 import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
-import { carryOverMethods } from "../carry-over/methods.js";
+import { sourceAccountInventories } from "../state-import/inventory.js";
+import { directoryInventory } from "../carry-over/directory-inventory.js";
+import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
@@ -432,6 +438,8 @@ export interface EnvironmentOptions {
    * its own.
    */
   readonly processIdleMinutes?: () => number;
+  /** A test's hold on a file restore of `files.undo`, around its rename (#1183); preset: none. */
+  readonly fileUndoHooks?: FileUndoHooks;
   /** The adapter host's seams other workstreams fill; each has a preset (`adapter/seams.ts`). */
   readonly adapterSeams?: {
     readonly toolServers?: ToolServerFactory;
@@ -1198,7 +1206,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // check asks this (#511), since the caller's tools are its request's alone.
   bankService.configureLanding({ forge, scrub,
     temporaryDirectory: (sessionId) => sessionDirectories.of(sessionId).temporaryDirectory });
-  closers.push(() => bankService.closeLanding());
+  // Either bank worker can be queued behind the other: abort both before awaiting either.
+  closers.push(async () => { await Promise.all([bankSyncer.close(), bankService.closeLanding()]); });
   // One set of memory operations behind the runs' tools and the CLI's bank verbs, so one queue's changes are serialized whoever asks.
   const memoryOperations = createMemoryOperations({ log, environmentId: record.id, scrub, promote: (bank, sessionId, drafts) => bankService.promote(bank.id, sessionId, drafts) });
   const memoryTools = createMemoryToolServers(memoryOperations);
@@ -1294,6 +1303,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // with their verified aliases, at creation, in inspect (#329) and in a new session's instruction preview (#1072).
   const forgeAccounts = () => verifiedOrigins(forge.list());
   const environmentResolver = createWorkspaceResolver({ ...options.workspaces, log, dataDir, roots, forgeAccounts });
+  // The environment's turns at a workspace's files (#1183): a file tool's capture and files.undo's restore take them.
+  const workspaceWrites = createWorkspaceWrites();
   // The account store and the adapter host: the adapters, the accounts' sign-in states read through their probes, the run registry.
   const { host, accounts } = await step("adapter-host", async () => {
     // The denylist's presets on first start (#132), before any run can be gated.
@@ -1416,6 +1427,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       beforeRun: bankSyncer.beforeRun,
       // The browser server (#546), the seam's servers, then the caller's own tools as the `client` server (#139).
       toolServers: (scope) => [...runServers(scope), ...passthrough.toolServers(scope)],
+      // What each run's recognised file tools change, kept for files.undo (#1183).
+      fileChanges: fileChangeObserver({ log, writes: workspaceWrites }),
     });
     // Closed before the event log, so a run the close ends has its end appended (drained when a drain's cap cut it), and
     // before the launcher's channel, so the launcher hears the environment go only once every provider process has
@@ -1481,7 +1494,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   });
   closers.push(() => reaper.close());
   // The purge: `sessions.purge` runs it at once, the minute sweep for every session past its grace period.
-  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, onPurged: (purged) => reaper.purged(purged) });
+  const deletion = createDeletion({ log, transcripts: host.transcripts, providerStore, fileChanges: log.fileChanges, onPurged: (purged) => reaper.purged(purged) });
+  // File undo (#1183): the newest change a run's file tool made, restored under the workspace's turn the captures take too.
+  const fileUndo = createFileUndo({ log, host, writes: workspaceWrites, ...(options.fileUndoHooks !== undefined && { hooks: options.fileUndoHooks }) });
+  capabilities.push("fileUndo");
   // An imported session's history, read from the adopted directory the first time a client opens it (#579).
   const importedHistory = createImportedHistory({ log, host });
   // The availability watcher (#328): a session's workspace found gone or back, marked on the list, by the run commands'
@@ -1743,6 +1759,45 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
+  // Read only listed directories: source use selects Accounts, and the shared inventory previews them before adoption.
+  const listImportSessions = (directory: string) => {
+    const adapter = host.adapters.get("claude");
+    if (adapter?.listSessions === undefined) throw new Error("The Claude adapter cannot list source use.");
+    return adapter.listSessions({ id: "state-import-preview", directory });
+  };
+  const importInventory = sourceAccountInventories({
+    log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
+    inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
+  });
+  const skillHandlers = skillsMethods({
+    log,
+    trust: (place) => trustStore.of(place),
+    nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
+    environmentId: record.id,
+    own: ownSkills,
+    defaultAccountId: () => accounts.defaultId(),
+    accounts: listedAccounts,
+    carryOver: carrySkills,
+    probe: skillProbes.probe,
+    sources: skillSources,
+    sync: skillSync,
+  });
+  const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
+  const routineHandlers = routineMethods({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    accounts,
+    ceilingOf: (id) => clientSessions.ceiling(id),
+    firings,
+    workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+    scripts,
+    denylisted: denylistedHost,
+    readSkillSet,
+  });
+
   // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
   const instructionHandlers = instructionMethods({
     host,
@@ -1756,6 +1811,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     orientation: readOrientation,
   });
   const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
+  const sessionHandlers = sessionMethods({
+      log,
+      clock: now,
+      deletion,
+      resolver: workspaceResolver,
+      // An imported session's history, appended the first time a client opens it (#579).
+      beforeOpen: importedHistory.beforeOpen,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1771,16 +1836,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({
-      log,
-      clock: now,
-      deletion,
-      resolver: workspaceResolver,
-      // An imported session's history, appended the first time a client opens it (#579).
-      beforeOpen: importedHistory.beforeOpen,
-      validateRunParameters: host.validateSessionInput,
-      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    }),
+    ...sessionHandlers,
     // A missing session given another workspace (#328), from a request the create's resolver serves.
     ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
@@ -1793,7 +1849,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
-    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability, beforeContinuation: (sessionId) => importedHistory.beforeContinuation(sessionId) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
@@ -1809,6 +1865,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...bankMethods(bankService, bankCredentials, bankSyncer),
     ...splitMethods(bankService, record.id),
     ...migrationMethods(bankService, record.id, forge),
+    ...validatorUpdateMethods(bankService, record.id),
     ...memoryMethods(memoryOperations, () => accounts.defaultId()),
     "banks.drafts.list": async ({ sessionId, bankId }) => {
       const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
@@ -1821,24 +1878,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
-    ...routineMethods({
-      log,
-      clock: now,
-      environmentId: record.id,
-      environmentName: () => look.read().name,
-      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-      accounts,
-      ceilingOf: (id) => clientSessions.ceiling(id),
-      firings,
-      workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
-      scripts,
-      denylisted: denylistedHost,
-      readSkillSet,
-    }),
+    ...routineHandlers,
     ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
+    ...fileUndo.handlers,
     ...workspaceChecks.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
@@ -1851,19 +1896,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The skill set (#494): skills.get, and the own directory's create and remove.
     // Carry over's skills half (#513): an adopted account's skills and commands, and the machine's ~/.agents/skills, copied
     // into the own directory, a checkout among them offered as a source. The choices (#501), on the skills stream.
-    ...skillsMethods({
-      log,
-      trust: (place) => trustStore.of(place),
-      nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
-      environmentId: record.id,
-      own: ownSkills,
-      defaultAccountId: () => accounts.defaultId(),
-      accounts: listedAccounts,
-      carryOver: carrySkills,
-      probe: skillProbes.probe,
-      sources: skillSources,
-      sync: skillSync,
-    }),
+    ...skillHandlers,
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
     ...skillReadinessMethods({
@@ -1890,23 +1923,36 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
     // into the auto memory's directories in the queue key changes take, the skills tick and the rest of the inventory (#580).
-    ...carryOverMethods({
-      log,
-      environmentId: record.id,
-      host,
-      availability,
-      identityAt: (path) => environmentResolver.identityAt(path),
-      autoMemory,
-      skills: carrySkills,
-      home: carryOverHome,
-    }),
+    ...carryOver.methods,
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
       machine: stateImportSource,
       log,
       environmentId: record.id,
+      createGroup: createImportedGroup(log, now),
+      setDraft: sessionHandlers["sessions.setDraft"],
+      setGroup: sessionHandlers["sessions.setGroup"],
+      archive: sessionHandlers["sessions.archive"],
+      pin: sessionHandlers["sessions.pin"],
       coordinator: stateImports,
+      sources: skillSources,
+      forgeAccounts: () => verifiedOrigins(forge.list()),
+      setAlwaysOn: skillHandlers["skills.setAlwaysOn"],
+      knownSkillNames: async () => {
+        const [own, sources] = await Promise.all([ownSkills.read(), skillSources.read()]);
+        return new Set([...own, ...sources.members].flatMap((member) => member.name !== null && member.problems.length === 0 ? [member.name] : []));
+      },
+      accounts,
+      listSessions: listImportSessions,
+      carryOver,
       createInstruction: instructionHandlers["instructions.create"],
+      banks: bankService,
+      directoryRules: environmentResolver,
+      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      checkRoutineImport: routineHandlers["routines.checkImport"],
+      importRoutine: routineHandlers["routines.import"],
+      forge,
+      managers: keyManagerConnections,
       getSettings: settingsHandlers["settings.get"],
       updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
@@ -2048,6 +2094,8 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   // The startup sweep of the workspace roots (#330), after the removals those purges set off: each stray by the reaper's rules,
   // a worktree it keeps logged, not noticed.
   await reaper.sweep(strays);
+  // File restores a stop cut, recognised before any client can retry them (#1183).
+  await fileUndo.recover();
   // Then the SDK session store's rows under a purged session's key: a mirror write that raced its purge (#137).
   try {
     providerStore.sweepOrphans();

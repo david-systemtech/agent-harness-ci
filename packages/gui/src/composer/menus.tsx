@@ -1,7 +1,6 @@
 import { fuzzyMatch, matchCommands, mentionAt, slashMenuRows, type CachedAnswer, type FileMatch, type Mention, type SlashMenuRow } from "@agent-harness/client-runtime";
 import type { AdapterCapabilities } from "@agent-harness/contracts";
 import { useId, useMemo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import type { Offer } from "../keys/key-dispatch.js";
 import { classes } from "../ui/classes.js";
 import { useFollowed, useRuntime } from "../window-context.js";
 import { typedCommand, useWiredCommands } from "./slash-commands.js";
@@ -19,7 +18,7 @@ import { typedCommand, useWiredCommands } from "./slash-commands.js";
  */
 
 /** A row of the slash menu: a command the window wired, a skill of the session's set, or the provider's own (#503). */
-export type CommandRow = SlashMenuRow & { readonly availability?: Offer };
+export type CommandRow = SlashMenuRow & { readonly unavailable?: string | undefined };
 
 export type Menu =
   | { readonly kind: "commands"; readonly key: string; readonly rows: readonly CommandRow[] }
@@ -106,10 +105,10 @@ export const useMenus = ({ environmentId, sessionId, provider, text, caret }: Me
   );
   const naming = mentionAt(text, caret) !== null;
   const files = useFollowed(useMemo(() => (naming ? runtime.requests.cached(environmentId, "files.list", { sessionId }) : undefined), [runtime, environmentId, sessionId, naming]));
-  const commands = useMemo(() => slashMenuRows(wired, provided?.result?.entries ?? [], answers).map((row): CommandRow => {
-    const availability = row.source === "client" ? wired.find((command) => command.name === row.name)?.availability : undefined;
-    return { ...row, ...(availability === undefined ? {} : { availability }) };
-  }), [wired, provided]);
+  const commands = useMemo(() => slashMenuRows(wired, provided?.result?.entries ?? [], answers).map((row) => ({
+    ...row,
+    unavailable: row.source === "client" ? wired.find((command) => command.name === row.name)?.unavailable : undefined,
+  })), [wired, provided]);
   const [highlight, setHighlight] = useState<{ readonly key: string; readonly index: number } | null>(null);
   const [dismissed, dismiss] = useState<string | null>(null);
   const listId = useId();
@@ -153,16 +152,16 @@ const keepFocus = (event: MouseEvent) => event.preventDefault();
 
 /** A menu drawn over the box: its rows, the highlighted one washed, a click choosing one; its note under them. */
 export const MenuList = ({ id, menu, highlighted: at, choose }: MenuListProps) => {
-  const option = (key: string, index: number, content: ReactNode, absent = false) => (
+  const option = (key: string, index: number, content: ReactNode, unavailable?: string) => (
     <li
       key={key}
       role="option"
       id={optionId(id, index)}
       aria-selected={index === at}
-      aria-disabled={absent || undefined}
+      aria-disabled={unavailable === undefined ? undefined : true}
       onMouseDown={keepFocus}
       onClick={() => choose(index)}
-      className={classes("flex cursor-default items-baseline gap-2 rounded-sm px-2 py-1", index === at && "bg-wash", absent && "text-ink-faint")}
+      className={classes("flex cursor-default items-baseline gap-2 rounded-sm px-2 py-1", index === at && "bg-wash", unavailable !== undefined && "opacity-50")}
     >
       {content}
     </li>
@@ -172,7 +171,7 @@ export const MenuList = ({ id, menu, highlighted: at, choose }: MenuListProps) =
       {menu.rows.length > 0 && (
         <ul role="listbox" id={id} aria-label={menu.kind === "commands" ? "Commands" : "Files"} className="flex flex-col">
           {menu.kind === "commands"
-            ? menu.rows.map((row, index) => option(row.name, index, <CommandOption row={row} />, row.availability?.status === "absent"))
+            ? menu.rows.map((row, index) => option(row.name, index, <CommandOption row={row} />, row.unavailable))
             : menu.rows.map((row, index) => option(row.path, index, <span className="font-mono text-xs">{row.path}</span>))}
         </ul>
       )}
@@ -185,7 +184,7 @@ const CommandOption = ({ row }: { readonly row: CommandRow }) => (
   <>
     <span className="font-mono text-xs">/{row.name}</span>
     <span className="min-w-0 truncate text-xs text-ink-muted">
-      {row.availability?.status === "absent" ? row.availability.message : row.description}
+      {row.unavailable ?? row.description}
       {row.source === "provider" && " · the agent's"}
       {row.slashOnly && " · slash-only"}
     </span>

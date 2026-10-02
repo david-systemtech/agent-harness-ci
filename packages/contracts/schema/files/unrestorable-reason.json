@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FileChangeUnrestorableReason",
+  "type": "string",
+  "enum": [
+    "unknown",
+    "binary",
+    "oversized",
+    "imported_history",
+    "evicted"
+  ],
+  "description": "Why a change cannot be restored: unknown (the environment could not capture it, or does not restore that kind of change yet), binary (the file was binary before or after), oversized (the file was over 2 MiB before or after), imported_history (an imported session's history made it, outside the environment) or evicted (its snapshot was dropped to keep the session's 50 changes and 16 MiB)."
+}

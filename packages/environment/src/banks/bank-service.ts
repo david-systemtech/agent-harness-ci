@@ -5,6 +5,7 @@ import { createDescribeLanding } from "./describe-landing.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 import {
   BANK_INDEX_BUDGET,
+  bankValidatorStatus,
   BankName,
   ContractError,
   type BankKeyManager,
@@ -61,6 +62,9 @@ import { readPointer, renderFixedTiers } from "./index-renderer.js";
  */
 
 export const BANKS_ACTOR = formatActor({ kind: "system", id: "banks" });
+
+/** Retained refresh failures stay visible to Health until a successful sync. */
+export const REGISTERED_SYNC_BLOCKED = "Sync paused for registered checkout";
 
 /** What the purpose of the BankService's forge reads is called, for a missing origin's record. */
 const VERIFY_PURPOSE = "verify a memory bank";
@@ -223,13 +227,16 @@ export interface BankServiceOptions {
 }
 
 export interface BankService {
+  /** Serializes sync and landing work that share a bank's checkout and git refs. */
+  withCheckout<T>(bankId: string, work: () => Promise<T>): Promise<T>;
   /** Installs the environment-owned landing path once its session directories exist. */
   configureLanding(options: Pick<Parameters<typeof createBankLander>[0], "forge" | "scrub" | "temporaryDirectory">): void;
   closeLanding(): Promise<void>;
   promote(bankId: string, sessionId: string, drafts: readonly BankDraft[]): Promise<MemoryPromoteResult>;
   /** Trusted BankService callers submit non-draft changes here; remote changes always require review. */
   landChanges(bankId: string, changes: BankChanges): Promise<MemoryPromoteResult>;
-  reconcileLanding(bankId: string): Promise<MemoryPromoteResult | null>;
+  /** Reconciles a held review; expectedPaths refuses unrelated changes before any forge work. */
+  reconcileLanding(bankId: string, expectedPaths?: readonly string[]): Promise<MemoryPromoteResult | null>;
   /** Every bank registered now, with its status, counts and line. */
   list(): Promise<BankRecord[]>;
   /** The bank `bankId`; null for one not registered. */
@@ -255,16 +262,17 @@ export interface BankService {
 
 export const createBankService = (options: BankServiceOptions): BankService => {
   const { log, clock, forge } = options;
+  const checkoutWork = new Map<string, Promise<unknown>>();
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   recoverCheckoutRemovals(reader, log, stream, options.dataDir);
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
   let lander: ReturnType<typeof createBankLander> | undefined;
-  const reconcileLanding = async (bankId: string): Promise<MemoryPromoteResult | null> => {
+  const reconcileLanding = async (bankId: string, expectedPaths?: readonly string[]): Promise<MemoryPromoteResult | null> => {
     const bank = liveBank(reader, bankId);
     if (!lander || !bank) return null;
-    return lander.reconcile(bank);
+    return lander.reconcile(bank, expectedPaths);
   };
   let verifyingAll: Promise<BankRecord[]> | null = null;
   const verificationGenerations = new Map<string, number>();
@@ -293,7 +301,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const recordOf = (entry: BankEntry, reading: Reading | null, others: readonly Claim[]): BankRecord => {
     const index = reading?.index ?? null;
     const line = index === null ? null : (renderFixedTiers(index).text.split("\n")[0] ?? null);
-    return { ...entry, memories: index?.count ?? 0, folders: index?.folderCount ?? 0, line, sharedAliases: sharedAliases(claimOf(entry, reading), others) };
+    return { ...entry, validator: bankValidatorStatus(reading?.files[".agent-harness/validate.mjs"]), memories: index?.count ?? 0, folders: index?.folderCount ?? 0, line, sharedAliases: sharedAliases(claimOf(entry, reading), others) };
   };
 
   /** The reading held of the bank, read now when none is. */
@@ -389,12 +397,14 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   };
 
   /** What holds of the bank now: its status as found, every part since now, and its reading. */
-  const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
+  const inspect = async (entry: Pick<BankEntry, "name" | "role" | "checkout" | "location" | "status" | "checkoutOwnership">): Promise<{ readonly status: BankStatus; readonly reading: Reading | null }> => {
     const since = clock.now().toISOString();
     const read = await readCheckout(entry.checkout, entry);
     const unreadable = "problem" in read ? (existsSync(entry.checkout) ? `its repository at ${entry.checkout} cannot be read: ${read.problem}` : `its repository at ${entry.checkout} is not there`) : null;
     // A checkout git cannot read fails the bank wherever its remote is; a readable one with a remote fails when its forge does not have it.
-    const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null);
+    const syncProblem = entry.checkoutOwnership !== "managed" && entry.status.reachable.state === "unreachable" && entry.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)
+      ? entry.status.reachable.reason : null;
+    const unreachable = unreadable ?? (entry.location.kind === "remote" ? await reachableRemote(entry.location) : null) ?? syncProblem;
     const reachable: BankStatus["reachable"] = unreachable === null ? { state: "reachable", since } : { state: "unreachable", reason: unreachable, since };
     // A checkout that cannot be read says nothing new of what it holds: those parts stay as last found.
     if ("problem" in read) return { status: { ...entry.status, reachable }, reading: null };
@@ -608,6 +618,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return bank;
   };
   const service: BankService = {
+    async withCheckout(bankId, work) {
+      const next = (checkoutWork.get(bankId) ?? Promise.resolve()).catch(() => undefined).then(work);
+      checkoutWork.set(bankId, next);
+      try { return await next; }
+      finally { if (checkoutWork.get(bankId) === next) checkoutWork.delete(bankId); }
+    },
     configureLanding(landing) { if (lander) throw new Error("Bank landing is already configured."); lander = createBankLander({ ...landing, log, clock, environmentId: options.environmentId, banks: service }); },
     async closeLanding() { await lander?.close(); },
     promote(bankId, sessionId, drafts) {
@@ -634,7 +650,16 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async recordSync(bankId, outcome) {
       const entry = liveBank(reader, bankId);
       if (entry === null) return;
-      if ("head" in outcome) await verifyOne(entry);
+      if ("head" in outcome) {
+        // Clear the resolved block before inspecting: a newer verification must not retain it.
+        log.atomically((tx) => {
+          const held = liveBank(reader, bankId);
+          if (held?.status.reachable.state !== "unreachable" || !held.status.reachable.reason.startsWith(REGISTERED_SYNC_BLOCKED)) return;
+          const status: BankStatus = { ...held.status, reachable: { state: "reachable", since: clock.now().toISOString() } };
+          log.append(stream, [{ type: "bank.updated", payload: { bankId, status } }], { tx, actor: BANKS_ACTOR });
+        });
+        await verifyOne(entry);
+      }
       else verificationGenerations.set(bankId, (verificationGenerations.get(bankId) ?? 0) + 1);
       log.atomically((tx) => {
         const held = liveBank(reader, bankId);
@@ -774,7 +799,7 @@ const entryOf = (params: ParamsOf<"banks.register">, name: string, manifest: Man
   location,
   checkout: params.path,
   role: params.role,
-  enabled: true,
+  enabled: params.enabled ?? true,
   accounts: params.accounts,
   repositories: params.repositories,
   defaultFor: params.defaultFor,
