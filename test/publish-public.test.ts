@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -110,6 +110,39 @@ it("checks the committed repository's actual filtered test inventory before the 
   expect(output).toContain("Test inputs: pass");
   expect(git(f.remote, "for-each-ref")).toBe("");
 }, 120_000);
+
+it.skipIf(process.env["GITHUB_ACTIONS"] !== "true" || process.env["RUNNER_ENVIRONMENT"] !== "github-hosted")("runs the hosted check commands on an actual published-tree fixture", () => {
+  const f = fixture();
+  git(f.source, "rm", "-q", ".github/workflows/release.yml");
+  for (const path of git(root, "ls-files").split("\n")) {
+    mkdirSync(join(f.source, path, ".."), { recursive: true });
+    cpSync(join(root, path), join(f.source, path));
+  }
+  // This integration fixture tests public test closure before the scrub lands.
+  // Real publication always runs its selected ref's privacy policy unchanged.
+  f.write(".public-privacy.json", JSON.stringify({ deny: [], allow: [] }));
+  git(f.source, "add", "-f", ".");
+  git(f.source, "commit", "-qm", "public check fixture");
+  f.publish();
+  const published = join(f.source, "..", "published");
+  execFileSync("git", ["clone", "-q", "--branch", "main", f.remote, published]);
+  const run = (args: string[]) => {
+    try {
+      execFileSync("pnpm", args, {
+        cwd: published, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 20 * 1024 * 1024,
+      });
+    } catch (error) {
+      const failure = error as { stdout?: Buffer; stderr?: Buffer };
+      throw new Error(`Public checkout: pnpm ${args.join(" ")} failed\n${String(failure.stdout ?? "")}\n${String(failure.stderr ?? "")}`, { cause: error });
+    }
+  };
+  run(["install", "--frozen-lockfile", "--offline"]);
+  run(["typecheck"]);
+  run(["lint"]);
+  // The publisher test itself is excluded, so this full run cannot recurse.
+  run(["test", "--maxWorkers=4"]);
+  expect(git(published, "ls-tree", "-r", "--name-only", "HEAD")).toContain(".github/workflows/release.yml");
+}, 1_200_000);
 
 it("dry-runs the full checks and commit without moving public refs", () => {
   const f = fixture();

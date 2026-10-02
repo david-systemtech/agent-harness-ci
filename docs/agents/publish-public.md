@@ -62,6 +62,11 @@ and private CI; the hosted release workflow tests remain public and read the
 installed workflow through the release input helper. This lexical check does
 not replace running the hosted release's typecheck, lint and full test suite
 in CI; paths computed without literal names still need ordinary test coverage.
+The publisher's hosted-only integration test copies the development tree into
+a local fixture, applies the real mapping/exclusion policies, and runs install,
+typecheck, lint and the full test suite on the resulting public checkout. Its
+fixture privacy policy is empty so test closure can be checked before the scrub;
+real publication always uses the selected ref's complete privacy policy.
 
 `.public-privacy.json` in the selected ref defines case-insensitive deny patterns
 for private terms and addresses. The check scans both filenames and all blob
