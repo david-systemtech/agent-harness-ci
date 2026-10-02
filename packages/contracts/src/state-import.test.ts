@@ -77,7 +77,6 @@ describe("the state-import stream", () => {
     expect(payload?.parse(carried)).toEqual(carried);
     expect(payload?.safeParse({ ...carried, origin: "client" }).success).toBe(false);
     expect(payload?.safeParse({ ...carried, kind: "nothing" }).success).toBe(false);
-    const { sourceId: _sourceId, ...withoutSourceId } = carried;
-    expect(payload?.safeParse(withoutSourceId).success).toBe(false);
+    expect(payload?.safeParse({ ...carried, sourceId: undefined }).success).toBe(false);
   });
 });
