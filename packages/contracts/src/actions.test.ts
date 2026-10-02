@@ -395,7 +395,7 @@ const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly
 };
 
 /** The slash commands the GUI leaves absent: neither a session verb nor a GUI surface, or deferred as in the terminal. */
-const GUI_ABSENT_COMMANDS = ["command.check", "command.timeline", "command.snip", "command.quit", "command.reload", "command.trust"];
+const GUI_ABSENT_COMMANDS = ["command.timeline", "command.snip", "command.quit", "command.reload", "command.trust"];
 
 describe("the GUI column", () => {
   const wired = (id: string) => {
