@@ -195,7 +195,7 @@ export const StateImportStartedPayload = z
 export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
 
 /** The kinds of item a state import carries, each written through the service that owns it. */
-export const StateImportItemKind = z.enum(["instruction"]).meta({ description: "The kind of item a state import carried: instruction (an owned instruction)." });
+export const StateImportItemKind = z.enum(["instruction", "dev-site", "page-policy"]).meta({ description: "The kind of item a state import carried: an owned instruction, a dev site or the local evaluate-everywhere policy." });
 export type StateImportItemKind = z.infer<typeof StateImportItemKind>;
 
 /**
@@ -210,10 +210,10 @@ export const StateImportItemCarriedPayload = z
   .object({
     importId,
     sourceKey,
-    store: z.string().min(1).meta({ description: "The source store the item was read from: instructions for the source's instruction list." }),
+    store: z.string().min(1).meta({ description: "The source store the item was read from: instructions, browser.devSites or browser.evaluateEverywhere." }),
     sourceId: z.string().min(1).meta({ description: "The item's id in its store, or its natural identity where the store gives it none." }),
     kind: StateImportItemKind,
-    targetId: z.string().min(1).meta({ description: "The id of what the owning service made of it: an owned instruction's id." }),
+    targetId: z.string().min(1).meta({ description: "The target held by its owning service: an owned instruction's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key." }),
     origin: z.literal("import").meta({ description: "Always import: the target was written by a state import." }),
   })
   .meta({
