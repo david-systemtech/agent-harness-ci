@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankSplitTopics",
+  "type": "object",
+  "propertyNames": {
+    "type": "string",
+    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    "description": "A topic's name: a lower-case slug, the folder under memories/ its memories nest in."
+  },
+  "additionalProperties": {
+    "type": "object",
+    "properties": {
+      "line": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "pattern": "^[^\\r\\n]*$"
+      },
+      "memories": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "maxLength": 60,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "A memory's name: a lower-case slug of at most 60 characters, its file's name (<name>.md) and unique in its bank; [[name]] links it."
+        }
+      }
+    },
+    "required": [
+      "line",
+      "memories"
+    ]
+  },
+  "description": "Authored topics mapped to their one-liner and memory names. Existing declarations remain; each selected memory moves one topic level deeper without changing its file."
+}
