@@ -72,7 +72,7 @@ const MOST_BYTES = 8 * 1024 * 1024;
 const MEDIA_TYPE = /^[\w.+-]+\/[\w.+-]+([ \t]*;[ \t]*[\w.+-]+=("[^"\r\n]*"|[\w.+-]+))*$/;
 
 const answer = (status: number, body: Uint8Array | null, mediaType: string): Response =>
-  new Response(body, {
+  new Response(body === null ? null : new Uint8Array(body), {
     status,
     headers: { "content-type": mediaType, "content-security-policy": PREVIEW_POLICY, "x-content-type-options": "nosniff", "cache-control": "no-store" },
   });

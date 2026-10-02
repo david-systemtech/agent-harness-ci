@@ -3,7 +3,8 @@ import { arch, homedir, hostname, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ShellPlatform } from "@agent-harness/client-runtime";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, protocol, safeStorage, shell } from "electron";
+import { app, BrowserWindow, WebContentsView, clipboard, dialog, ipcMain, nativeTheme, Notification, protocol, safeStorage, shell } from "electron";
+import type { ElectronWebView } from "./electron.js";
 import { desktopDataDirectory, environmentDataDirectory } from "./data-directory.js";
 import { startDesktop } from "./desktop.js";
 import { desktopLog } from "./log.js";
@@ -35,8 +36,38 @@ const machine = { os, env: process.env, homedir: homedir() };
 const data = desktopDataDirectory(machine);
 const log = desktopLog(data);
 
+const nativeViews = new WeakMap<ElectronWebView, WebContentsView>();
+
 startDesktop(
-  { app, protocol, ipcMain, dialog, clipboard, shell, nativeTheme, safeStorage, openWindow: (options) => new BrowserWindow(options) },
+  {
+    app,
+    protocol,
+    ipcMain,
+    dialog,
+    clipboard,
+    shell,
+    nativeTheme,
+    safeStorage,
+    notification: { isSupported: () => Notification.isSupported(), create: (options) => new Notification(options) },
+    openWindow: (options) => {
+      const window = new BrowserWindow(options);
+      return Object.assign(window, {
+        addWebView: (view: ElectronWebView) => {
+          const native = nativeViews.get(view);
+          if (native) window.contentView.addChildView(native);
+        },
+        removeWebView: (view: ElectronWebView) => {
+          const native = nativeViews.get(view);
+          if (native) window.contentView.removeChildView(native);
+        },
+      });
+    },
+    openWebView: (options) => {
+      const view = new WebContentsView(options);
+      nativeViews.set(view, view);
+      return view;
+    },
+  },
   {
     os,
     architecture: arch(),

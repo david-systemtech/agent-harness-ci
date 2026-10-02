@@ -72,6 +72,10 @@ _Avoid_: cancel (a prompt's decision), delete, unsend
 The one-time act by which a client proves to an environment that it may connect, producing a session credential that the environment can list and revoke.
 _Avoid_: login, token exchange
 
+**Pairing preset**:
+What a pairing code minted for another client grants, chosen by name: My own client (every scope, the top ceiling), A program (read, sessions:write and runs:drive, a ceiling picked) or Custom (scopes ticked, a ceiling picked).
+_Avoid_: pairing profile, grant template
+
 **Group**:
 A named container of sessions owned by one environment; a session belongs to at most one group. Clients may merge same-named groups from several environments into one heading, which is a view, not state.
 _Avoid_: project (which is the repository being worked in), folder
@@ -123,6 +127,10 @@ _Avoid_: tab, panel, dock (the region that holds panes; the proper name "browser
 **Terminal**:
 A pseudo-terminal an environment owns, running the user's login shell in a session's workspace, which outlives every client connected to it and closes with its session; its output is kept only in its scrollback, never in the event log.
 _Avoid_: shell (the program inside it), console, the terminal UI (a client) or the user's terminal emulator (where a client runs)
+
+**One-off command**:
+A command an environment starts for a session through `terminals.run`, with closed stdin and pipe output, without a login shell or controlling terminal; its output uses terminal scrollback and the terminal stream, whose exit carries its status. `!` shows it in a pane; `!!` sends its bounded output to the agent.
+_Avoid_: interactive terminal, tool terminal (an install or update), shell (the program interpreting it)
 
 **Tool terminal**:
 A terminal the Managed tools registry owns rather than a session, running one install or update command through the user's login shell where a person can watch it and answer its prompts; no session lists it, counts it or closes it, so the Terminal entry's "closes with its session" does not cover it: it closes thirty minutes after its command exits, or when the environment stops. Any client session with the terminal scope may watch it; only one holding `admin` may type at it, resize it or close it.
@@ -177,7 +185,7 @@ A permission prompt or question a run is waiting on with nobody having answered 
 _Avoid_: pending approval, ask (already a UI word for permission prompts; fine for the "Parked asks" view name)
 
 **Idle**:
-The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
+The state of an environment with no run starting or running, no terminal whose shell runs a command in its foreground (a tool terminal's command until it exits), and no run started or ended, nor the environment itself started, within its idle window (`updates.idleWindowMinutes`, preset ten minutes); a run parked on a prompt counts as busy for the idle window only, and a terminal at its shell's prompt counts for nothing.
 _Avoid_: quiet, inactive, free
 
 **Drain**:
@@ -320,6 +328,10 @@ _Avoid_: plugin directory (Claude's delivery mechanism), skills.json, catalogue 
 A git repository and folder the environment tracks for skills, following a branch or pinned to a commit.
 _Avoid_: mirror, skills repo, marketplace
 
+**Snapshot**:
+A skill source's folder exported at one commit into an immutable, read-only copy under the data directory, with any provenance manifest one level up; the source's members are read from its current snapshot and a generation links into it, so a later sync, which makes a new snapshot, never changes a running process's files. Distinct from the database snapshot, the launcher's copy of the database.
+_Avoid_: checkout (the probe's or a sync's working copy), mirror, cache
+
 **Catalogue**:
 The suggestions list for skills and instructions that ships with the harness, versioned with the build: skills entries, each a repository folder a person may tick to track as a skill source, with its licence, members and any always-on hint; and suggested instructions in the groups Setup, Coding, Working with me and Custom, each versioned with every earlier text, which a person ticks to own a copy of. Whether an entry is tracked is derived from the environment's sources, never stored, and nothing in it is ticked or always-on until a person acts. An account's list of models is its model catalogue, never this.
 _Avoid_: marketplace, registry, library, suggestions JSON
@@ -343,6 +355,14 @@ _Avoid_: plugin directory, bridge, skills folder
 **Readiness**:
 Whether a skill can help right now on this environment: ready, setup needed (with the failing check named) or unsupported, computed by the harness from the checks the skill or its overlay declares.
 _Avoid_: compatibility (the spec's free-text field), prerequisites (the prose)
+
+**Sidecar**:
+The file `agents/agent-harness.yaml` beside a skill's `SKILL.md` that declares its readiness: version 1 and a list of checks, each with an optional one-line why and fix. It wins whole over the overlay; one that does not read is a warning on the member and counts as none. Kept out of the frontmatter, whose unknown keys claude.ai's upload refuses.
+_Avoid_: manifest (the provenance manifest), frontmatter keys
+
+**Overlay**:
+The readiness declarations the harness ships in its contracts, keyed by a member's origin (repository identity and folder path), so a skill that has no sidecar, such as a source's or a vendored copy whose provenance manifest names that origin, still says what it needs.
+_Avoid_: defaults, registry, catalogue (the suggestions list)
 
 **Standing instructions**:
 Text appended to every run through the provider's instruction channel, composed once on the run's environment, whoever started the run, from layers in a fixed order, general to specific: the user layer (the orientation block, then owned instructions), the team bank's, the project's, the session's, a bot's persona, then always-on skills; the run's own text follows. Each composition has a manifest beside its text, which the log keeps in place of the text: per layer what it put in (ids, versions and characters), the always-on skills with their origins and commits, the skill set's fingerprint, the registries the orientation block could not read, and what was left out and why.
@@ -393,8 +413,12 @@ A secrets service an environment is connected to (OpenBao or Vault, Doppler, 1Pa
 _Avoid_: secret manager, vault (the product; also the environment's local credential store), keychain
 
 **Orientation block**:
-The text the harness renders into every run from live environment state: the environment itself, its key managers and their verified token status, its forges and which is primary, its banks, and the environments the client knows.
+The text the harness renders into every run from live environment state: the environment itself, its key managers and their verified token status, its forges and which is primary, its banks, and the known environments.
 _Avoid_: setup prompt (the wizard's editable prose), system prompt, preamble
+
+**Known environments**:
+The other environments an environment's runs are told of: the union of what its live client sessions report of their other connections, each environment by its name and the address the reporting client uses, never the environment itself. A desktop's or terminal UI's runtime reports after each `hello` and whenever its connections change; each report replaces that client session's last and is dropped when the client session is revoked or expires, and a program's is refused. What the clients know, not a peer list: no environment connects to another.
+_Avoid_: peers, peer list, remotes, other connections (what one client holds)
 
 **Managed tool**:
 A CLI the harness depends on and tracks per environment: detected on PATH, compared against its latest version, installed or updated by one click in a terminal pane, verified by one command.

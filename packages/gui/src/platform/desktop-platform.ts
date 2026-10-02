@@ -35,6 +35,12 @@ export const desktopShellOf = (view: Window): DesktopShell | undefined => {
   return shell?.secrets && shell.localGrant && shell.http && shell.network && shell.system ? (shell as DesktopShell) : undefined;
 };
 
+/** Wait for the preload's device discovery before the runtime snapshots shell capabilities. */
+export const readyDesktopShellOf = async (view: Window): Promise<DesktopShell | undefined> => {
+  const shell = desktopShellOf(view) as (DesktopShell & { ready?: () => Promise<DesktopShell> }) | undefined;
+  return shell?.ready ? shell.ready() : shell;
+};
+
 export interface DesktopPlatformParts {
   readonly shell: DesktopShell;
   /** The harness version the bundle was built as. */

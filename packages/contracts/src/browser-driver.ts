@@ -104,7 +104,7 @@ const MAX_TEXT = 65_536;
 const Address = z.string().min(1).max(MAX_ADDRESS).meta({ description: "An address to open: an http or https URL, or a bare host with an optional port and path." });
 const Ref = z.string().min(1).max(MAX_REF).meta({ description: "A ref a snapshot gave an element (e12, prefixed for a child frame's elements)." });
 
-/** How long a snapshot may be, in characters: preset 30,000, at most 200,000, cut at a line boundary. */
+/** How long a snapshot may be, in characters: preset 30,000, at most 200,000, cut at a line boundary, or mid-line when no line ends within them. */
 export const SNAPSHOT_MAX_CHARS = { preset: 30_000, max: 200_000 } as const;
 
 /** What a snapshot reads: `interactive` elements (preset) or `all`, how deep, from which ref, and how long. */
@@ -118,7 +118,7 @@ const SnapshotArgs = z
       .min(1)
       .max(SNAPSHOT_MAX_CHARS.max)
       .optional()
-      .meta({ description: `The most characters to answer, cut at a line boundary; preset ${SNAPSHOT_MAX_CHARS.preset}, at most ${SNAPSHOT_MAX_CHARS.max}.` }),
+      .meta({ description: `The most characters to answer, cut at the last line boundary within them, or mid-line when no line ends within them; preset ${SNAPSHOT_MAX_CHARS.preset}, at most ${SNAPSHOT_MAX_CHARS.max}.` }),
   })
   .meta({ description: "What a snapshot reads: its filter, depth, focus and length." });
 
@@ -188,11 +188,15 @@ export type PageLocation = z.infer<typeof PageLocation>;
 const snapshotTextShape = {
   text: z.string().meta({ description: "The accessibility tree, one element per line with its role, name, state and value, and a ref on each element that can be acted on." }),
   totalChars: z.int().min(0).meta({ description: "How long the whole snapshot is, in characters." }),
-  truncated: z.boolean().meta({ description: "Whether the text was cut at maxChars, at a line boundary." }),
+  truncated: z.boolean().meta({ description: "Whether the text was cut at maxChars: at the last line boundary within them, or mid-line when no line ends within them." }),
+  midLine: z
+    .literal(true)
+    .optional()
+    .meta({ description: "Present when the text was cut mid-line, as no line ends within maxChars: at maxChars, or short of a character written as two code units or a ref the cut would split." }),
 };
 
 /** A snapshot's text, as an action answers it. */
-const SnapshotText = z.object(snapshotTextShape).meta({ description: "A snapshot's text, its full length and whether it was cut." });
+const SnapshotText = z.object(snapshotTextShape).meta({ description: "A snapshot's text, its full length, and whether and how it was cut." });
 
 /** Where an action left the page: its address and title, its snapshot when the call asked for one, and a challenge it shows. */
 const PageArrival = z
@@ -220,16 +224,17 @@ const PageReading = z
   .meta({ description: "A page of the page's readable text: the article as Markdown, or the snapshot's text; paged by offset." });
 export type PageReading = z.infer<typeof PageReading>;
 
-/** What a page looks like, base64 because every transport is JSON. */
+/** The page's address and what it looks like, base64 because every transport is JSON. */
 const PageImage = z
   .object({
+    url: pageLocationShape.url,
     mimeType: z.enum(["image/jpeg", "image/png"]).meta({ description: "The image's type: image/jpeg for a driver's screenshot of the viewport, or image/png." }),
     data: z
       .string()
       .regex(/^[A-Za-z0-9+/]*={0,2}$/)
       .meta({ description: "The image, base64." }),
   })
-  .meta({ description: "A screenshot of the viewport." });
+  .meta({ description: "The page's address and a screenshot of its viewport." });
 export type PageImage = z.infer<typeof PageImage>;
 
 /** One line of the console, or an error nobody caught. */
@@ -282,7 +287,9 @@ const StorageSnapshot = z
   .meta({ description: "The page origin's local and session storage." });
 export type StorageSnapshot = z.infer<typeof StorageSnapshot>;
 
-const EvaluateResult = z.object({ result: z.json().meta({ description: "The expression's value, as JSON." }) }).meta({ description: "What an expression evaluated to." });
+const EvaluateResult = z
+  .object({ url: pageLocationShape.url, result: z.json().meta({ description: "The expression's value, as JSON." }) })
+  .meta({ description: "The page's address and what an expression evaluated to." });
 
 const noArgs = z.object({}).meta({ description: "No arguments." });
 
@@ -338,12 +345,18 @@ export const PAGE_VERB_SCHEMAS = {
   screenshot: { args: noArgs, value: PageImage },
   scroll: { args: z.object({ to: ScrollTarget }).meta({ description: "scroll: by a direction and an amount, or to an element." }), value: PageLocation },
   waitFor: { args: z.object({ until: WaitCondition }).meta({ description: "waitFor: text, a ref or a number of milliseconds." }), value: PageLocation },
-  console: { args: noArgs, value: z.array(ConsoleEntry).meta({ description: "The console lines and uncaught errors since the last console verb." }) },
+  console: {
+    args: noArgs,
+    value: z.object({ url: pageLocationShape.url, entries: z.array(ConsoleEntry) }).meta({ description: "The page's address and the console lines and uncaught errors since the last console verb." }),
+  },
   network: {
     args: z.object({ failedOnly: z.boolean().optional().meta({ description: "Only the requests that failed; preset false." }) }).meta({ description: "network: the requests since the last network verb." }),
-    value: z.array(NetworkEntry).meta({ description: "The requests since the last network verb." }),
+    value: z.object({ url: pageLocationShape.url, entries: z.array(NetworkEntry) }).meta({ description: "The page's address and the requests since the last network verb." }),
   },
-  cookies: { args: noArgs, value: z.array(CookieEntry).meta({ description: "The cookies the page would send." }) },
+  cookies: {
+    args: noArgs,
+    value: z.object({ url: pageLocationShape.url, entries: z.array(CookieEntry) }).meta({ description: "The page's address and the cookies the page would send." }),
+  },
   storage: { args: noArgs, value: StorageSnapshot },
   evaluate: {
     args: z.object({ expression: z.string().min(1).max(MAX_TEXT) }).meta({ description: "evaluate: run a JavaScript expression in the page." }),
@@ -368,6 +381,31 @@ export const PageCommand = z
   )
   .meta({ description: "A verb and its arguments." });
 export type PageCommand = { readonly [V in PageVerb]: { readonly verb: V; readonly args: PageArgs<V> } }[PageVerb];
+
+/**
+ * How long a browser that drives through another process (the extension, a
+ * relayed client) has to answer a verb before the caller gives up (ported,
+ * per verb): 20 seconds to open, navigate, click and click at a point, 18
+ * for a screenshot, 5 to let go of a page, a wait's own bound and 5 more,
+ * and 12 for the rest. A late answer is dropped.
+ */
+export const pageCallDeadlineMs = (command: PageCommand): number => {
+  switch (command.verb) {
+    case "open":
+    case "navigate":
+    case "click":
+    case "clickAt":
+      return 20_000;
+    case "screenshot":
+      return 18_000;
+    case "close":
+      return 5_000;
+    case "waitFor":
+      return waitBoundMs(command.args.until) + 5_000;
+    default:
+      return 12_000;
+  }
+};
 
 /** A verb for a session's page: the page key, the command, and a one-time allowance a person gave for this call. */
 export const PageCall = z

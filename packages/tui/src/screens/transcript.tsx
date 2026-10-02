@@ -1,8 +1,10 @@
 import { Box, Text, useBoxMetrics, type DOMElement } from "ink";
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { oneLine, type QueuedMessage, type VerbAvailability } from "@agent-harness/client-runtime";
 import type { DelegatedWorkRow } from "@agent-harness/contracts";
-import type { Line, Span } from "../transcript/lines.js";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
+import { ThemeColoursContext, type DiffBand } from "../theme/colours.js";
+import { terminalChip, type Line, type Span } from "../transcript/lines.js";
 
 /**
  * The transcript on screen (docs/specs/tui.md, "The screen" and "The
@@ -14,29 +16,41 @@ import type { Line, Span } from "../transcript/lines.js";
  * app's.
  */
 
-/** One styled line, cut rather than wrapped (`lines.ts` has wrapped it to the width already). */
-export const StyledLine = (props: { readonly spans: readonly Span[]; readonly gutter?: string | undefined; readonly gutterColor?: string }) => (
-  <Box flexShrink={0}>
-    <Text wrap="truncate-end">
-      {props.gutter !== undefined && <Text {...(props.gutterColor !== undefined && { color: props.gutterColor })}>{props.gutter}</Text>}
-      {props.spans.length === 0 ? " " : props.spans.map((span, index) => (
-        <Text
-          key={index}
-          {...(span.color !== undefined && { color: span.color })}
-          {...(span.background !== undefined && { backgroundColor: span.background })}
-          dimColor={span.dim ?? false}
-          bold={span.bold ?? false}
-          italic={span.italic ?? false}
-          underline={span.underline ?? false}
-          inverse={span.inverse ?? false}
-          strikethrough={span.strikethrough ?? false}
-        >
-          {span.text}
-        </Text>
-      ))}
-    </Text>
-  </Box>
-);
+/**
+ * One styled line, cut rather than wrapped (`lines.ts` has wrapped it to the width already); a diff's addition or
+ * removal across the width on its band, where the theme gives one.
+ */
+export const StyledLine = (props: {
+  readonly spans: readonly Span[];
+  readonly band?: DiffBand | undefined;
+  readonly gutter?: string | undefined;
+  readonly gutterColor?: string;
+}) => {
+  const colours = useContext(ThemeColoursContext);
+  const background = props.band === undefined ? undefined : colours.band(props.band);
+  return (
+    <Box flexShrink={0} {...(background !== undefined && { backgroundColor: background })}>
+      <Text wrap="truncate-end">
+        {props.gutter !== undefined && <Text {...(props.gutterColor !== undefined && { color: props.gutterColor })}>{props.gutter}</Text>}
+        {props.spans.length === 0 ? " " : props.spans.map((span, index) => (
+          <Text
+            key={index}
+            {...(span.color !== undefined && { color: span.color })}
+            {...(span.background !== undefined && { backgroundColor: span.background })}
+            dimColor={span.dim ?? false}
+            bold={span.bold ?? false}
+            italic={span.italic ?? false}
+            underline={span.underline ?? false}
+            inverse={span.inverse ?? false}
+            strikethrough={span.strikethrough ?? false}
+          >
+            {span.text}
+          </Text>
+        ))}
+      </Text>
+    </Box>
+  );
+};
 
 /** The lines to draw in a viewport `height` lines tall, scrolled `offset` lines back from the end. */
 export const visibleLines = (lines: readonly Line[], height: number, offset: number): readonly Line[] => {
@@ -118,13 +132,13 @@ export const TranscriptView = (props: TranscriptViewProps) => {
               key={index}
               spans={line.spans}
               gutter={props.cursor === undefined ? undefined : onCursor && firstOf.has(index) ? "❯" : " "}
-              gutterColor="cyan"
+              gutterColor={TERMINAL_ROLES.machine}
             />
           );
         })}
         {scrolled && (
           <Box flexShrink={0}>
-            <Text color="yellow" wrap="truncate-end">
+            <Text color={TERMINAL_ROLES.warning} wrap="truncate-end">
               ↓ {props.offset} more line{props.offset === 1 ? "" : "s"} · {props.follow}
             </Text>
           </Box>
@@ -135,12 +149,12 @@ export const TranscriptView = (props: TranscriptViewProps) => {
 };
 
 /** Delegated work still going in the live run: one line per task, the strip under the transcript. */
-export const DelegatedStrip = (props: { readonly tasks: readonly DelegatedWorkRow[] }) => (
+export const DelegatedStrip = (props: { readonly tasks: readonly DelegatedWorkRow[]; readonly cursor?: string | undefined }) => (
   <Box flexDirection="column" flexShrink={0}>
     {props.tasks.map((task) => (
-      <Text key={task.taskId} wrap="truncate-end" dimColor>
-        {"  "}
-        <Text color="cyan">⤷ </Text>
+      <Text key={task.taskId} wrap="truncate-end" dimColor={props.cursor !== task.taskId}>
+        <Text color={TERMINAL_ROLES.accent}>{props.cursor === task.taskId ? "› " : "  "}</Text>
+        <Text color={TERMINAL_ROLES.machine}>⤷ </Text>
         {task.subagentType ?? task.kind}: {oneLine(task.description, 120)} <Text dimColor>· {task.status}</Text>
       </Text>
     ))}
@@ -157,11 +171,11 @@ export interface QueueVerb {
 /**
  * The queued line (ADR 0022; #231): the session's queue from
  * `projections.runs`, oldest first, each message with its attachments as
- * chips and saying whether the provider is steering it into the turn or it
- * waits for the next run; under it the verbs on the queue, read now and
- * withdraw, in the keys in force: those that can be used now on one line,
- * and each that cannot on a line of its own, dim with its reason, never
- * hidden.
+ * the transcript's chips and saying whether the provider is steering it into
+ * the turn or it waits for the next run; under it the verbs on the queue,
+ * read now and withdraw, in the keys in force: those that can be used now on
+ * one line, and each that cannot on a line of its own, dim with its reason,
+ * never hidden.
  */
 export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; readonly steers: boolean; readonly verbs: readonly QueueVerb[] }) => {
   if (props.queue.length === 0) return null;
@@ -173,11 +187,12 @@ export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; re
         const steering = props.steers && message.heldBy === "provider";
         return (
           <Text key={message.messageId} wrap="truncate-end">
-            <Text color={steering ? "cyan" : "yellow"}>{steering ? "  ↳ steering " : "  ⧗ queued "}</Text>
+            <Text color={steering ? TERMINAL_ROLES.machine : TERMINAL_ROLES.warning}>{steering ? "  ↳ steering " : "  ⧗ queued "}</Text>
             <Text dimColor>{oneLine(message.text, 200)}</Text>
-            {message.attachments.map((name, index) => (
+            {message.attachments.map((attachment, index) => (
               <Text key={index} dimColor>
-                {" "}[{name}]
+                {" "}
+                {terminalChip(attachment)}
               </Text>
             ))}
           </Text>
@@ -189,7 +204,7 @@ export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; re
           {present.map((verb, index) => (
             <Text key={verb.words}>
               {index > 0 && <Text dimColor> · </Text>}
-              <Text color="cyan">{verb.keys}</Text>
+              <Text color={TERMINAL_ROLES.machine}>{verb.keys}</Text>
               <Text dimColor> {verb.words}</Text>
             </Text>
           ))}
@@ -214,11 +229,11 @@ export const QueuedLine = (props: { readonly queue: readonly QueuedMessage[]; re
 export const RewoundStrip = (props: { readonly text: string; readonly undo: string; readonly availability: VerbAvailability }) => (
   <Box flexShrink={0}>
     <Text wrap="truncate-end">
-      <Text color="yellow">{"  ↶ "}</Text>
+      <Text color={TERMINAL_ROLES.warning}>{"  ↶ "}</Text>
       <Text>Rewound to {oneLine(props.text, 120)}</Text>
       <Text dimColor> · </Text>
       {props.availability.status === "present" ? (
-        <Text color="cyan">{props.undo}</Text>
+        <Text color={TERMINAL_ROLES.machine}>{props.undo}</Text>
       ) : (
         <Text dimColor>
           {props.undo} ({props.availability.message})
@@ -251,7 +266,7 @@ export const LinesCard = (props: {
       </Box>
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         {shown.map((line, index) => (
-          <StyledLine key={index} spans={line.spans} />
+          <StyledLine key={index} spans={line.spans} band={line.band} />
         ))}
       </Box>
       <Box flexShrink={0}>

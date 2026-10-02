@@ -54,6 +54,23 @@ const pathsOf = (data: Record<string, unknown>): SchemaIssue["path"][] => (data[
 /** The identity of an account the fake signs in as `<id>@example.com`. */
 const identityOf = (email: string) => ({ provider: "fake", email, organisation: null });
 
+describe("routine definition sequences", () => {
+  it("orders definition saves at the same timestamp and retains their sequence after a projection rebuild", async () => {
+    const t = await start();
+    const client = await t.client();
+    const routine = await created(client, written({ schedule: { kind: "manual" } }));
+    const updated = await routineCommand(client, "routines.update", { routineId: routine.state.id, fields: { instructions: "Updated at the same instant" } });
+    const editedSequence = updated.result?.routine.state.definitionSequence;
+    expect(editedSequence).toBeGreaterThan(routine.state.definitionSequence ?? 0);
+    const disabled = await routineCommand(client, "routines.disable", { routineId: routine.state.id });
+    expect(disabled.result?.routine.state.definitionSequence).toBeGreaterThan(editedSequence ?? 0);
+    const enabled = await routineCommand(client, "routines.enable", { routineId: routine.state.id });
+    expect(enabled.result?.routine.state.definitionSequence).toBeGreaterThan(disabled.result?.routine.state.definitionSequence ?? 0);
+    await client.apply("environment.rebuildProjections", { commandId: randomUUID() });
+    expect(await listed(client, routine.state.id)).toEqual(enabled.result?.routine);
+  });
+});
+
 describe("routines.create", () => {
   it("appends routine.created with the presets applied and the environment's zone, as the client session, and lists the routine it made", async () => {
     const t = await start();
@@ -81,12 +98,13 @@ describe("routines.create", () => {
         movedFrom: null,
         movedTo: null,
         baseline: null,
-        handledThrough: null,
+        // Saved now, it owes no due time before now (#527): its first is Monday 03:00 in Manila.
+        handledThrough: MANUAL_CLOCK_START,
         liveFiring: null,
         lastOutcome: null,
         failureStreak: 0,
       },
-      nextDueAt: null,
+      nextDueAt: "2026-09-27T19:00:00.000Z",
       attention: [],
     });
   });
@@ -157,7 +175,7 @@ describe("routines.create", () => {
     expect((await listRoutines(client)).map((routine) => routine.definition.name)).toEqual(["Digest", "upstream watch"]);
   });
 
-  it("saves a routine that names an account, model, script or endpoint the environment lacks, showing the account's gap as attention", async () => {
+  it("saves a routine that names an account, model, script or endpoint the environment lacks, showing the account's, script's and endpoint's gaps as attention", async () => {
     const t = await start();
     const client = await t.client();
     const routine = await created(
@@ -175,8 +193,8 @@ describe("routines.create", () => {
       preCheck: { kind: "script", path: "not-there.sh", timeoutSeconds: 60 },
       delivery: [{ kind: "webhook", target: "no-such-endpoint", on: "both" }],
     });
-    expect(routine.attention).toEqual(["account_missing"]);
-    expect((await listed(client, routine.state.id))?.attention).toEqual(["account_missing"]);
+    expect(routine.attention).toEqual(["account_missing", "script_missing", "endpoint_missing"]);
+    expect((await listed(client, routine.state.id))?.attention).toEqual(["account_missing", "script_missing", "endpoint_missing"]);
   });
 });
 

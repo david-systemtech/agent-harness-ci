@@ -57,7 +57,9 @@ afterAll(() => rmSync(pwshHome, { recursive: true, force: true }));
 /**
  * The version's Node, run as the launcher runs a version: its first argument
  * must be this version's CLI entry. Records `<version> <arguments>` (and the
- * token, should it ever reach the CLI's environment), fails the verb FAKE_FAIL
+ * token, should it ever reach the CLI's environment), and each argument after
+ * the entry exactly in FAKE_ARGV (a line a call, each argument ended by a unit
+ * separator), fails the verb FAKE_FAIL
  * names with exit 3, keeps what `update credential` reads on stdin, and
  * answers `pair` with a pairing.
  */
@@ -68,6 +70,7 @@ entry=$1
 shift
 [ "$entry" = "$version_dir/packages/cli/dist/main.js" ] || { echo "node.exe: $entry is not this version's CLI" >&2; exit 64; }
 printf '%s %s\\n' "$version" "$*" >> "$FAKE_LOG"
+{ for word in "$@"; do printf '%s\\037' "$word"; done; echo; } >> "$FAKE_ARGV"
 [ -z "\${AGENT_HARNESS_TOKEN:-}" ] || printf '%s saw AGENT_HARNESS_TOKEN\\n' "$version" >> "$FAKE_LOG"
 [ "$1 $2" != "\${FAKE_FAIL:-}" ] || { echo "$1 $2 failed here." >&2; exit 3; }
 data_dir=$FAKE_DATA_DIR
@@ -113,6 +116,8 @@ interface Fixture {
   readonly log: string;
   readonly env: NodeJS.ProcessEnv;
   calls(): string[];
+  /** The arguments each call of a version's CLI got after its entry, exactly as its Node read them. */
+  argv(): string[][];
   /** Forgets the calls so far, as a new run of the script would find the machine. */
   forget(): void;
 }
@@ -130,6 +135,8 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
   for (const dir of [localAppData, fakeBin, assets, listed, state, temp]) mkdirSync(dir, { recursive: true });
   const log = join(root, "calls.log");
   write(log, "");
+  const argvLog = join(root, "argv.log");
+  write(argvLog, "");
 
   write(join(fakeBin, "curl.exe"), FAKE_CURL, 0o755);
   write(join(fakeBin, "whoami.exe"), FAKE_WHOAMI, 0o755);
@@ -172,6 +179,7 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
     AGENT_HARNESS_TOKEN: TOKEN,
     EXPECTED_TOKEN: TOKEN,
     FAKE_LOG: log,
+    FAKE_ARGV: argvLog,
     FAKE_RELEASES: listed,
     FAKE_ASSETS: assets,
     FAKE_STATE: state,
@@ -186,8 +194,14 @@ const fixture = (releases: readonly ReleaseSpec[] = [{ tag: "v0.1.0" }]): Fixtur
     log,
     env,
     calls: () => readFileSync(log, "utf8").split("\n").filter(Boolean),
+    argv: () =>
+      readFileSync(argvLog, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("\x1f").slice(0, -1)),
     forget: () => {
       writeFileSync(log, "");
+      writeFileSync(argvLog, "");
       rmSync(join(state, "probes"), { force: true });
     },
   };
@@ -221,6 +235,22 @@ const inSession = (f: Fixture, command: string, env: NodeJS.ProcessEnv = {}): Pr
       cwd: f.root,
     }),
   );
+
+/**
+ * The script's function `name` called on each of `words`, in a PowerShell that defines that function
+ * alone, taken out of the parsed script, so nothing else of the script runs; answers what it returned for each.
+ */
+const callEach = async (name: string, words: readonly string[]): Promise<string[]> => {
+  const command =
+    `$ast = [Management.Automation.Language.Parser]::ParseFile($env:SCRIPT, [ref]$null, [ref]$null); ` +
+    `$definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $env:FUNCTION }, $true); ` +
+    `. ([scriptblock]::Create($definition.Extent.Text)); ` +
+    `ConvertTo-Json -Compress -InputObject @(ConvertFrom-Json $env:WORDS | ForEach-Object { & $env:FUNCTION $_ })`;
+  const { stdout } = await run(PWSH, ["-NoProfile", "-NonInteractive", "-Command", command], {
+    env: { ...process.env, ...POWERSHELL_ENV, HOME: pwshHome, SCRIPT: script, FUNCTION: name, WORDS: JSON.stringify(words) },
+  });
+  return JSON.parse(stdout) as string[];
+};
 
 /** The version's Node and CLI entry in `dataDir`, as the script runs them. */
 const cliOf = (dataDir: string, version: string) => {
@@ -412,7 +442,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       "0.1.0 update settings --channel stable",
       "0.1.0 update credential --stdin",
       `curl ${DISCOVERY}`,
-      "0.1.0 pair",
+      "0.1.0 pair --preset own-client",
     ]);
     expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
     expect(result.stdout).toContain("Verified the SHA-256 of agent-harness-win32-x64.zip.");
@@ -427,7 +457,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     const result = await install(f, [], { FAKE_AUTH_POLICY: "local-only" });
     expect(result.code).toBe(0);
     expect(f.calls().slice(-2)).toEqual(["0.1.0 update credential --stdin", `curl ${DISCOVERY}`]);
-    expect(f.calls()).not.toContain("0.1.0 pair");
+    expect(f.calls().filter((call) => call.startsWith("0.1.0 pair"))).toEqual([]);
     expect(result.stdout).toContain(
       "No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.\n",
     );
@@ -575,7 +605,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         `  wait up to 60 seconds for ${HEALTH} to say ready`,
         `  & ${node} ${entry} update settings --channel stable`,
         `  & ${node} ${entry} update credential --stdin`,
-        `  & ${node} ${entry} pair, or the Tailscale warning when only loopback is bound`,
+        `  & ${node} ${entry} pair --preset own-client, or the Tailscale warning when only loopback is bound`,
         "Dry run: nothing was downloaded or changed.",
         "",
       ].join("\n"),
@@ -591,7 +621,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
     expect(result.code).toBe(0);
     const { node, entry } = cliOf(dataDir, "0.1.0");
     expect(result.stdout).toContain(
-      `  & ${node} ${entry} pair --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`,
+      `  & ${node} ${entry} pair --preset own-client --data-dir ${dataDir} --port 7500, or the Tailscale warning when only loopback is bound\n`,
     );
   });
 
@@ -624,7 +654,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         "0.1.0 update settings --channel beta",
         "0.1.0 update credential --stdin",
         `curl ${DISCOVERY}`,
-        "0.1.0 pair",
+        "0.1.0 pair --preset own-client",
       ]);
       expect(result.stdout).toContain("The agent-harness service is running, so nothing is downloaded or unpacked.");
       expect(readFileSync(join(f.state, "credential"), "utf8").trim()).toBe(TOKEN);
@@ -650,7 +680,7 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
         `0.1.0 update credential --stdin --data-dir ${dataDir}`,
         `0.1.0 update apply --version 0.2.0 --data-dir ${dataDir}`,
         `curl ${DISCOVERY}`,
-        `0.1.0 pair --data-dir ${dataDir}`,
+        `0.1.0 pair --preset own-client --data-dir ${dataDir}`,
       ]);
       expect(readdirSync(join(dataDir, "versions"))).toEqual(["0.1.0"]);
     });
@@ -699,6 +729,85 @@ describe.skipIf(!hasPwsh && !inCi)("scripts/install.ps1", { timeout: 60_000 }, (
       expect(result.code).toBe(0);
       expect(existsSync(join(dataDir, "versions", "0.1.0", ".complete"))).toBe(true);
       expect(f.calls()).toContain(`0.1.0 service install --data-dir ${dataDir}`);
+    });
+  });
+
+  describe("keeps its own exit-code checks in a session with $PSNativeCommandUseErrorActionPreference on, which PowerShell 7.3 and later take from a profile", () => {
+    const withPreference = (f: Fixture, env: NodeJS.ProcessEnv = {}) =>
+      inSession(
+        f,
+        "$PSNativeCommandUseErrorActionPreference = $true; & ([scriptblock]::Create($text)); \"after: $LASTEXITCODE, preference: $PSNativeCommandUseErrorActionPreference\"",
+        env,
+      );
+
+    it("ends the run with a failed verb's exit code and its own message, and leaves the session's preference as it was", async () => {
+      const f = fixture();
+      const result = await withPreference(f, { FAKE_FAIL: "service start" });
+      expect(result.stderr).toBe("service start failed here.\ninstall.ps1: `agent-harness service start` failed with exit code 3; nothing after it ran.\n");
+      expect(result.stdout).toMatch(/after: 3, preference: True\n$/);
+    });
+
+    it("says the token was refused when curl.exe fails on the releases API", async () => {
+      const f = fixture();
+      const result = await withPreference(f, { EXPECTED_TOKEN: "another-token" });
+      expect(result.stderr).toBe(
+        `curl: (22) The requested URL returned error: 401\ninstall.ps1: could not read the releases from ${LIST}; check AGENT_HARNESS_TOKEN.\n`,
+      );
+      expect(result.stdout).toMatch(/after: 1, preference: True\n$/);
+    });
+
+    it("waits through health probes that get no answer, printing nothing but curl.exe's own words", async () => {
+      const f = fixture();
+      const result = await withPreference(f, { FAKE_UNANSWERED_PROBES: "2" });
+      expect(result.stderr).toBe("curl: (7) Failed to connect\n".repeat(2));
+      expect(f.calls().slice(4, 9)).toEqual(["0.1.0 service start", `curl ${HEALTH}`, `curl ${HEALTH}`, `curl ${HEALTH}`, "0.1.0 update settings --channel stable"]);
+      expect(result.stdout).toMatch(/after: 0, preference: True\n$/);
+    });
+  });
+
+  // Legacy is how Windows PowerShell 5.1 and PowerShell 7 before 7.3 pass them: PowerShell writes
+  // the command line itself, and .NET reads it back into the arguments by Windows' rules here too.
+  describe("hands every verb its arguments exactly, a double quote and a trailing backslash included, however the session passes a native command's", () => {
+    // The trailing backslash rides on the name: PowerShell on Linux turns a path's backslashes into slashes.
+    const name = 'The "big" box\\';
+    it("writes a word for the command line as the C runtime reads it back: in double quotes when it holds white space or a double quote, each quote escaped, and the backslashes before one or before the closing quote doubled", async () => {
+      const written: [word: string, onTheCommandLine: string][] = [
+        ["service", "service"],
+        ["D:\\agent-data\\", "D:\\agent-data\\"],
+        ["", '""'],
+        ["Build box", '"Build box"'],
+        [String.raw`The "big" box`, String.raw`"The \"big\" box"`],
+        ["D:\\agent data\\", '"D:\\agent data\\\\"'],
+        [String.raw`D:\a b\c d`, String.raw`"D:\a b\c d"`],
+        [String.raw`a\"b`, String.raw`"a\\\"b"`],
+        ["tab\there", '"tab\there"'],
+        ["no\u00a0break", '"no\u00a0break"'],
+      ];
+      const words = written.map(([word]) => word);
+      expect(await callEach("Format-CommandLineWord", words)).toEqual(written.map(([, onTheCommandLine]) => onTheCommandLine));
+    });
+
+    it.each(["Legacy", "Standard", "Windows"])("with $PSNativeCommandArgumentPassing at %s, installing and then run again over the running service", async (passing) => {
+      const f = fixture();
+      const dataDir = join(f.root, "agent data");
+      const line = `$PSNativeCommandArgumentPassing = '${passing}'; & ([scriptblock]::Create($text)) -Name $env:TEST_NAME -DataDir $env:TEST_DATA_DIR`;
+      const given = { TEST_NAME: name, TEST_DATA_DIR: dataDir };
+      const result = await inSession(f, line, given);
+      expect(result.stderr).toBe("");
+      expect(f.argv()).toEqual([
+        ["service", "install", "--name", name, "--data-dir", dataDir],
+        ["service", "start"],
+        ["update", "settings", "--channel", "stable", "--data-dir", dataDir],
+        ["update", "credential", "--stdin", "--data-dir", dataDir],
+        ["pair", "--preset", "own-client", "--data-dir", dataDir],
+      ]);
+
+      f.forget();
+      expect((await inSession(f, line, given)).stderr).toBe("");
+      expect(f.argv().slice(0, 2)).toEqual([
+        ["service", "status", "--json", "--data-dir", dataDir],
+        ["service", "install", "--name", name, "--data-dir", dataDir],
+      ]);
     });
   });
 });

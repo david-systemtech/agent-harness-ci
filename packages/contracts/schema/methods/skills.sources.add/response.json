@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skills.sources.add response",
+  "type": "object",
+  "properties": {
+    "receipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "accepted"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head once the command committed: its last event, or the head it saw when it appended none."
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "False for a command that was accepted and changed nothing, so appended no event."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "rejected"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "The log's head when the command was rejected."
+            },
+            "changed": {
+              "type": "boolean",
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "description": "Why the command was rejected, the code of its error: not_found when its target does not exist."
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "A stable error code in snake case."
+                },
+                "message": {
+                  "type": "string"
+                },
+                "data": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "data"
+              ],
+              "description": "The rejection as an error: its code (the reason), a message for people and structured data."
+            }
+          },
+          "required": [
+            "status",
+            "sequence",
+            "changed",
+            "reason",
+            "error"
+          ]
+        }
+      ],
+      "description": "A command's receipt: accepted (with the head sequence after it and whether it changed anything) or rejected (with the reason and the error). A retry with the same commandId answers the same receipt."
+    },
+    "result": {
+      "description": "The method's result, present when this request applied the command; absent on a retry and on a rejection.",
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A skill source's id: a version 4 UUID the environment mints when it adds the source, kept in lowercase."
+            },
+            "url": {
+              "type": "string",
+              "description": "A skill source's URL, as entered: https://, ssh:// or scp's [user@]host:path, naming a repository with an identity; no credential, query, fragment or leading hyphen, and no other scheme or local path. Refused as invalid_params, the issue's params naming the rule source-url and its reason; this pattern holds part of the rule, and cases/skill-source-url.json holds all of it.",
+              "pattern": "^(?!-)[^\\x00-\\x20\\x7f-\\x9f?#]+$"
+            },
+            "identity": {
+              "type": "string",
+              "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+              "description": "The URL's repository identity, which the source is known by with its folder."
+            },
+            "folder": {
+              "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+              "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+              "type": "string"
+            },
+            "follow": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "branch"
+                    },
+                    "branch": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(?!-)(?!\\/)(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\.\\.)(?![\\s\\S]*@\\{)(?!(?:[\\s\\S]*\\/)?\\.)(?![\\s\\S]*\\.lock(?:\\/|$))(?![\\s\\S]*[/.]$)(?!@$)[^\\s\\p{Cc}~^:?*[\\\\]{1,255}$",
+                          "description": "A branch a skill source follows, as git takes a branch name: 1 to 255 characters with no white space, control character or any of ~ ^ : ? * [ \\, no .. or @{, no empty segment, none beginning with . or ending with .lock, no trailing / or ., not @, and not beginning with -."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "The branch; null for the remote's default branch, the one its HEAD names."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "branch"
+                  ],
+                  "description": "A branch the source syncs from, at start, every six hours and on Pull now."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "pinned"
+                    },
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+                      "description": "A git commit's full object name: 40 lowercase hexadecimal digits, or 64 in a SHA-256 repository."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "commit"
+                  ],
+                  "description": "A commit the source is pinned to: it never syncs until it is unpinned."
+                }
+              ],
+              "description": "What a skill source follows: a branch (null for the remote's default), or a pinned commit, which never syncs."
+            },
+            "position": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "description": "Where the source stands among the environment's sources, in the order they were added, from 1: of two sources holding one name, the earlier wins."
+            },
+            "addedBy": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "client_session",
+                    "routine",
+                    "adapter",
+                    "system"
+                  ],
+                  "description": "What caused the event: a client session, a routine, a provider adapter or the environment itself."
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The actor's id within its kind; a system component names itself."
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "description": "Who added the source: the client session a person added it from, or the environment's own importer."
+            },
+            "addedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When the source was added."
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+              "description": "The commit of its current snapshot, whose members are the ones in the set."
+            },
+            "skillCount": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "description": "How many valid members its current snapshot yields."
+            },
+            "sync": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "outcome": {
+                      "type": "string",
+                      "const": "ok"
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the outcome began: the time of the skills.source-synced that recorded it, the source's add for its first."
+                    }
+                  },
+                  "required": [
+                    "outcome",
+                    "since"
+                  ],
+                  "description": "ok: the current snapshot is the commit the last sync fetched."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "outcome": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the outcome began: the time of the skills.source-synced that recorded it, the source's add for its first."
+                    },
+                    "problem": {
+                      "type": "string",
+                      "enum": [
+                        "authentication",
+                        "not_found",
+                        "network",
+                        "git_failed"
+                      ],
+                      "description": "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line)."
+                    },
+                    "line": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "What git said when the outcome began, its fatal: line where it wrote one, scrubbed of every secret."
+                    }
+                  },
+                  "required": [
+                    "outcome",
+                    "since",
+                    "problem",
+                    "line"
+                  ],
+                  "description": "failed: the fetch could not reach the repository, for the probe's problem; the last good snapshot stays current."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "outcome": {
+                      "type": "string",
+                      "const": "layout_moved"
+                    },
+                    "since": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the outcome began: the time of the skills.source-synced that recorded it, the source's add for its first."
+                    },
+                    "commit": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+                      "description": "The commit fetched, at which the folder yields no valid member."
+                    },
+                    "folders": {
+                      "type": "array",
+                      "items": {
+                        "description": "A folder of a repository, from its root: . for the root, else a relative path with no .. segment, kept with / between segments and no empty or . segment (a \\ is read as /). Refused as invalid_params, the issue's params naming the rule source-folder and its reason.",
+                        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:[\\s\\S]*[/\\\\])?\\.\\.(?:[/\\\\]|$))[^\\p{Cc}]+$",
+                        "type": "string"
+                      },
+                      "description": "The folders at that commit a source would read skills from, as the probe finds them; empty for none."
+                    }
+                  },
+                  "required": [
+                    "outcome",
+                    "since",
+                    "commit",
+                    "folders"
+                  ],
+                  "description": "layout_moved: the folder yields no valid member at the commit fetched, with the folders that would; the last good snapshot stays current."
+                }
+              ],
+              "description": "What a source's last sync came to and since when: ok; failed, with the probe's problem and what git said; or layout_moved, with the commit fetched and the folders that would yield skills. Failed and layout_moved keep the last good snapshot current."
+            },
+            "attemptedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "An instant as an ISO 8601 UTC timestamp."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When a fetch of the source (its add, a sync or a pin at a commit) last ended, whatever it came to; null when none has since the environment started. Kept outside the log: an unchanged sync moves it and appends nothing."
+            }
+          },
+          "required": [
+            "id",
+            "url",
+            "identity",
+            "folder",
+            "follow",
+            "position",
+            "addedBy",
+            "addedAt",
+            "commit",
+            "skillCount",
+            "sync",
+            "attemptedAt"
+          ],
+          "description": "The source as skills.get lists it now."
+        }
+      },
+      "required": [
+        "source"
+      ]
+    }
+  },
+  "required": [
+    "receipt"
+  ]
+}

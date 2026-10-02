@@ -235,6 +235,23 @@ describe("the denylist", () => {
     expect(sent[1]?.["paths"]?.map((entry) => entry.id)).toEqual(PRESETS.paths.map((entry) => entry.id));
   });
 
+  it("shows another client's change once denylist.updated is heard, with no wait for the cache's five minutes", async () => {
+    const app = await opened();
+    const desk = app.environment("desk");
+    const permissions = await openPermissions(app);
+    const paths = await section(permissions, "Paths");
+    const hosts = await section(permissions, "Hosts");
+    expect(within(hosts).getByText("No entry yet.")).toBeDefined();
+    const [ssh, ...rest] = PRESETS.paths;
+
+    desk.setDenylist({ paths: [...rest, { ...ssh!, enabled: false }], hosts: [{ id: "metadata", pattern: "169.254.169.254", note: "The metadata service.", preset: false, enabled: true }] });
+    await waitFor(() => expect(entries(hosts)).toEqual(["169.254.169.254"]));
+    expect(within(hosts).getByText("The metadata service.")).toBeDefined();
+    expect(entries(paths)).toEqual([...rest, ssh!].map((entry) => entry.pattern));
+    expect(within(within(paths).getByRole("listitem", { name: "~/.ssh" })).getByRole("switch", { name: "Enabled" }).getAttribute("aria-checked")).toBe("false");
+    expect(desk.requests("permissions.denylist.get")).toHaveLength(2);
+  });
+
   it("writes a section one change at a time, so a change made before the last one is answered cannot send the section without it", async () => {
     const app = await opened();
     const desk = app.environment("desk");
@@ -379,6 +396,22 @@ describe("the Unattended review", () => {
     expect(within(review).getByRole("button", { name: "Mark seen" }).hasAttribute("disabled")).toBe(true);
     expect(desk.requests("permissions.review.seen").map((request) => request.params["through"])).toEqual([head.result.head]);
     expect(desk.reviewWatermark()).toBe(head.result.head);
+  });
+
+  it("shows a run decided since and another client's Mark seen once review.updated is heard, with no wait for the cache's five minutes", async () => {
+    const app = await opened({ desk: { sessions: [{ title: "Receipts" }], review: [{ counts: { toolCalls: 1, autoApproved: 1, denied: 0, answeredByPerson: 0, expired: 0 } }] } });
+    const desk = app.environment("desk");
+    const permissions = await openPermissions(app);
+    const review = within(permissions).getByRole("region", { name: "Unattended review" });
+    await waitFor(() => expect(within(review).queryByRole("list", { name: "Runs" })).not.toBeNull());
+    expect(runs(review)).toEqual([expect.stringContaining("routine nightly")]);
+
+    desk.decideReviewRun({ actor: { kind: "bot", name: "triage" }, counts: { toolCalls: 2, autoApproved: 2, denied: 0, answeredByPerson: 0, expired: 0 } });
+    await waitFor(() => expect(runs(review)).toEqual([expect.stringContaining("bot triage"), expect.stringContaining("routine nightly")]));
+
+    desk.seeReview();
+    expect(await within(review).findByText("Nothing to review: no run since the review was last seen.")).toBeDefined();
+    expect(desk.requests("permissions.review.list")).toHaveLength(3);
   });
 
   it("can be marked seen without admin, and not without sessions:write, whose line it says", async () => {

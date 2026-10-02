@@ -100,6 +100,8 @@ export const taskSchedulerPlatform = (installContext: InstallContext, commands: 
 
   return {
     kind: "task-scheduler",
+    // `/End` sends the launcher no signal, so a stop ends it at once and drains nothing.
+    drainsOnStop: false,
     definitionPath: () => `\\${name}`,
     install: async (spec, { restartRunning }) => {
       const existed = (await commands.probe("schtasks", ["/Query", "/TN", name])).code === 0;

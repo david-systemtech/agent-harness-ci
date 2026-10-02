@@ -1,6 +1,6 @@
-import { ttlWords, type EnvironmentView, type ParkedAsk } from "@agent-harness/client-runtime";
-import type { PromptKind } from "@agent-harness/contracts";
+import { askDetail, ttlWords, type EnvironmentView, type ParkedAsk } from "@agent-harness/client-runtime";
 import { UNLISTED_BADGE, badgesOf, type Badge } from "../rail/badge.js";
+import type { ThemeColours } from "../theme/colours.js";
 
 /**
  * The parked-asks card as rows (docs/specs/tui.md, "Cards: permissions,
@@ -10,14 +10,11 @@ import { UNLISTED_BADGE, badgesOf, type Badge } from "../rail/badge.js";
  * until its TTL denies it, counted on its environment's clock (the
  * runtime's countdown); a prompt with no expiry shows none.
  *
- * The safety rules stand: nothing here is a default that authorises
- * (Enter opens the session), Esc decides nothing, and only a yes-or-no
- * answers in place: a `permission` or `denylist` row takes `y` and `n`, a
- * question or a plan can only be opened, since its answer is an option or a
- * mode. `a` and `N` answer every `permission` row at once behind a confirm,
- * and only when there are two or more; a `denylist` row is never among them
- * (a chosen default: allowing a call the denylist caught is one decision at
- * a time).
+ * Which rows answer in place (`decidable`: `y` and `n`), which `a` and `N`
+ * answer at once behind a confirm (`bulkAsks`: permissions only, two or
+ * more), and what a row asks (`askDetail`) are the client runtime's, which
+ * the desktop window's Parked asks view reads too. Enter opens the session,
+ * and Esc decides nothing.
  */
 
 /** A prompt's place in this terminal: its environment, its session (lowercased, as the runtime keys it) and its id. */
@@ -26,14 +23,8 @@ export const promptKey = (environmentId: string, sessionId: string, promptId: st
 export const askKey = (ask: Pick<ParkedAsk, "environmentId" | "sessionId" | "promptId">): string => promptKey(ask.environmentId, ask.sessionId, ask.promptId);
 
 /** An environment's badge, the rail's (`rail/badge.ts`), so it has the same two letters here; one not listed wears none of another's. */
-export const badgeOf = (views: readonly EnvironmentView[], environmentId: string): Badge =>
-  badgesOf(views).get(environmentId) ?? UNLISTED_BADGE;
-
-/** Whether `y` and `n` answer the row in place: a yes-or-no prompt. */
-export const decidable = (kind: PromptKind): boolean => kind === "permission" || kind === "denylist";
-
-/** Whether `a` and `N` answer the row with the rest. */
-export const inBulk = (kind: PromptKind): boolean => kind === "permission";
+export const badgeOf = (views: readonly EnvironmentView[], environmentId: string, colours: ThemeColours): Badge =>
+  badgesOf(views, colours).get(environmentId) ?? UNLISTED_BADGE;
 
 /** One row, as the card draws it. */
 export interface AskRow {
@@ -54,15 +45,16 @@ export const askRows = (
   asks: readonly ParkedAsk[],
   views: readonly EnvironmentView[],
   open: { readonly environmentId: string; readonly sessionId: string } | null,
+  colours: ThemeColours,
 ): readonly AskRow[] =>
   asks.map((ask) => ({
     key: askKey(ask),
     ask,
-    badge: badgeOf(views, ask.environmentId),
+    badge: badgeOf(views, ask.environmentId, colours),
     title: ask.title ?? "a session",
     here: open !== null && open.environmentId === ask.environmentId && open.sessionId.toLowerCase() === ask.sessionId.toLowerCase(),
     kindWord: ask.kind === "permission" ? "" : ask.kind,
-    detail: ask.kind === "question" ? (ask.prompt.questions?.[0]?.question ?? ask.summary) : ask.summary,
+    detail: askDetail(ask),
     ttl: ask.ttl === null ? undefined : ttlWords(ask.ttl.remainingMs),
   }));
 

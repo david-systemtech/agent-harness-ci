@@ -1,5 +1,7 @@
+import { workspaceLabel } from "@agent-harness/client-runtime";
+import type { Workspace } from "@agent-harness/contracts";
 import { useMemo, useState, type ReactNode } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { THIS_MACHINE } from "../connections/words.js";
 import type { PaneSession } from "../presentation.js";
 import { usePaneLine } from "../session/pane-line.js";
@@ -15,8 +17,9 @@ import { useObservable, useRuntime } from "../window-context.js";
 /**
  * A session pane's caption (docs/specs/gui.md, "A session pane"; #407):
  * the session's badge, its title, renamed in place (`sessions.rename`
- * through the outbox, a refusal said on the pane's line), its pull
- * requests' links (#419), the run info toggle, and close, the one way a pane of the grid is closed. The focused
+ * through the outbox, a refusal said on the pane's line), its workspace
+ * chip (#421), its pull requests' links (#419), the run info toggle, and
+ * close, the one way a pane of the grid is closed. The focused
  * pane's caption is edged in the accent while the grid holds more than one.
  */
 
@@ -67,7 +70,7 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
 
   return (
     <CaptionBar {...bar}>
-      <EnvironmentDot view={environment} label={environment?.name ?? THIS_MACHINE} />
+      <EnvironmentGlyph view={environment} label={environment?.name ?? THIS_MACHINE} />
       {editing ? (
         <RenameField label={`Rename ${quoted(name)}`} value={name} maxLength={TITLE_MOST} close={() => setEditing(false)} commit={rename} />
       ) : (
@@ -81,9 +84,24 @@ export const SessionCaption = ({ session, ...bar }: CaptionProps & { readonly se
           {name}
         </button>
       )}
+      {summary !== null && <WorkspaceNote workspace={summary.workspace} />}
       <PullRequestLinks pullRequests={summary?.pullRequests ?? []} />
       <RunInfo environmentId={environmentId} sessionId={sessionId} />
     </CaptionBar>
+  );
+};
+
+/**
+ * The session's workspace, read-only (workspace-picker spec, "Renderers";
+ * #421): its kind, its directory's name and a worktree's branch, as the
+ * new-session surface's chip says them, with the path on hover.
+ */
+const WorkspaceNote = ({ workspace }: { readonly workspace: Workspace }) => {
+  const label = workspaceLabel(workspace);
+  return (
+    <span role="note" aria-label={`Workspace: ${label}`} title={workspace.path} className="min-w-0 shrink truncate text-xs text-ink-muted">
+      {label}
+    </span>
   );
 };
 

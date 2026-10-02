@@ -10,6 +10,7 @@ import {
   type PageRefusal,
 } from "@agent-harness/contracts";
 import { CdpError, type CdpEvent, type CdpParams, type CdpSession } from "../cdp/session.js";
+import { RefBook } from "../snapshot/refs.js";
 
 /**
  * One session's page as the driver holds it (browser spec, "One page driver
@@ -60,7 +61,10 @@ export const systemDriverClock: DriverClock = {
 export interface FrameArrival {
   readonly url: string;
   readonly topLevel: boolean;
-  /** The IP address the document came from (`Network.responseReceived`'s `remoteIPAddress`); absent while `Network` is off. */
+  /**
+   * The IP address the document came from (`Network.responseReceived`'s `remoteIPAddress`): absent while `Network` is off,
+   * and for a document that had no response of its own (about:blank, a `srcdoc` frame).
+   */
   readonly servedFrom?: string;
 }
 
@@ -94,6 +98,32 @@ interface TrackedFrame {
   loaderId: string;
   sessionId?: string;
 }
+
+/** An in-page function sent as a declaration composed from the source texts of several (the snapshot's), with the signature it is called by. */
+export interface InPageSource<A extends unknown[], R> {
+  readonly declaration: string;
+  /** The declaration's signature, for the type checker alone. */
+  readonly signature?: (...args: A) => R;
+}
+
+/** What the driver runs in a page: a function, sent as its own source text, or a composed declaration. */
+export type InPageFunction<A extends unknown[], R> = ((...args: A) => R) | InPageSource<A, R>;
+
+/**
+ * The naming helper of a transform that keeps function names, esbuild's (tsx's, when the package runs from source): the transform
+ * declares it in the module, so an in-page function's source text calls a helper no page has (#966). Defined here as esbuild defines it.
+ */
+const NAMING_HELPER = `var __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });`;
+
+/**
+ * What the driver sends a page for an in-page function: a function of the same name that declares the naming helper, then calls the
+ * in-page function, from its source text, with its own `this` and arguments; so it runs in the page whatever transform loaded this package.
+ */
+const declarationOf = (fn: InPageFunction<never, unknown>): string => {
+  const source = typeof fn === "function" ? fn.toString() : fn.declaration;
+  const name = /^\s*(?:async\s+)?function\s*\*?\s*([\w$]+)/.exec(source)?.[1] ?? "";
+  return `function ${name}() {\n${NAMING_HELPER}\nreturn (${source}).apply(this, arguments);\n}`;
+};
 
 /** An in-page function's answer in one frame. */
 export type FrameOutcome<R> = { readonly frame: PageFrame; readonly ok: true; readonly value: R } | { readonly frame: PageFrame; readonly ok: false; readonly error: string };
@@ -135,6 +165,12 @@ const sourceOf = (url: unknown, line: unknown): string | undefined => (typeof ur
 /** What an exception's details say, as a sentence's tail. */
 export const exceptionText = (details: { text?: string; exception?: { description?: string } }): string => details.exception?.description ?? details.text ?? "an exception";
 
+/**
+ * An in-page function's exception as the driver throws it: its name and message, without the stack Chrome describes it
+ * with, so what reaches the model is a sentence, never a stack trace (#696).
+ */
+const scriptFailure = (details: ExceptionDetails): Error => new Error(`The page's script failed: ${exceptionText(details).replace(/\n\s+at [\s\S]*$/, "")}`);
+
 export class CdpPage {
   private readonly frames = new Map<string, TrackedFrame>();
   /** Each cross-site frame's child target, by the session that reaches it. */
@@ -142,8 +178,8 @@ export class CdpPage {
   private readonly setups = new Set<Promise<void>>();
   private readonly worlds = new Map<string, { readonly loaderId: string; readonly contextId: Promise<number> }>();
   private readonly waiters = new Set<() => void>();
-  /** Where each frame's latest document was served from, while `Network` is on. */
-  private readonly servedFrom = new Map<string, string>();
+  /** Where each frame's latest document response was served from, and the document (its loader) it was for, while `Network` is on. */
+  private readonly servedFrom = new Map<string, { readonly loaderId: string; readonly address: string }>();
   /** The lifecycle events the top frame's current document has sent. */
   private readonly lifecycle = new Map<string, Set<string>>();
   private mainFrameId = "";
@@ -166,6 +202,8 @@ export class CdpPage {
   /** The document the allowance opened: its frames in the allowed host stand while it is the page's. */
   private allowedLoad: { readonly host: string; readonly loaderId: string } | undefined;
   private notices: string[] = [];
+  /** The refs the page's snapshots gave, frame by frame. */
+  readonly refs = new RefBook();
   private consoleLines: ConsoleEntry[] = [];
   private consoleDropped = 0;
   private requests = new Map<string, NetworkRecord>();
@@ -233,6 +271,12 @@ export class CdpPage {
 
   mainFrame(): PageFrame {
     return this.frames.get(this.mainFrameId) as TrackedFrame;
+  }
+
+  /** The frame `frameId`, while the page has it. */
+  frame(frameId: string): PageFrame | undefined {
+    const frame = this.frames.get(frameId);
+    return frame && publicFrame(frame);
   }
 
   /** The page's address's standing under the host's policy. */
@@ -305,7 +349,7 @@ export class CdpPage {
    * answers its value. A world whose document went between the two is made
    * again once. Throws the page's exception as an `Error`.
    */
-  async callInFrame<A extends unknown[], R>(frame: PageFrame, fn: (...args: A) => R, ...args: A): Promise<Awaited<R>> {
+  async callInFrame<A extends unknown[], R>(frame: PageFrame, fn: InPageFunction<A, R>, ...args: A): Promise<Awaited<R>> {
     const tracked = this.frames.get(frame.id);
     if (!tracked) throw new CdpError(`The frame ${frame.id} has left the page`);
     for (let attempt = 1; ; attempt++) {
@@ -313,10 +357,10 @@ export class CdpPage {
       try {
         const reply = await this.session.send(
           "Runtime.callFunctionOn",
-          { functionDeclaration: fn.toString(), executionContextId, arguments: args.map((value) => ({ value })), returnByValue: true, awaitPromise: true },
+          { functionDeclaration: declarationOf(fn), executionContextId, arguments: args.map((value) => ({ value })), returnByValue: true, awaitPromise: true },
           tracked.sessionId,
         );
-        if (reply.exceptionDetails) throw new Error(`The page's script failed: ${exceptionText(reply.exceptionDetails as ExceptionDetails)}`);
+        if (reply.exceptionDetails) throw scriptFailure(reply.exceptionDetails as ExceptionDetails);
         return (reply.result as { value?: unknown }).value as Awaited<R>;
       } catch (error) {
         if (attempt > 1 || !(error instanceof CdpError) || !/context/i.test(error.message)) throw error;
@@ -330,20 +374,57 @@ export class CdpPage {
    * world, cross-site frames in their child targets: the answers keyed by
    * frame id, in document order, a frame's failure its own entry.
    */
-  async callInEveryFrame<A extends unknown[], R>(fn: (...args: A) => R, ...args: A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
+  callInEveryFrame<A extends unknown[], R>(fn: InPageFunction<A, R>, ...args: A): Promise<ReadonlyMap<string, FrameOutcome<Awaited<R>>>> {
+    return this.inEveryFrame((frame) => this.callInFrame(frame, fn, ...args));
+  }
+
+  /**
+   * Does `work` for every frame at once, its own frames and its cross-site
+   * frames' child targets once they are set up: the answers keyed by frame
+   * id, in document order, a frame's failure its own entry.
+   */
+  async inEveryFrame<R>(work: (frame: PageFrame) => Promise<R>): Promise<ReadonlyMap<string, FrameOutcome<R>>> {
     await Promise.all([...this.setups]);
     const frames = this.framesInOrder();
     const outcomes = await Promise.all(
-      frames.map(async (frame): Promise<FrameOutcome<Awaited<R>>> => {
+      frames.map(async (frame): Promise<FrameOutcome<R>> => {
         const shownFrame = publicFrame(frame);
         try {
-          return { frame: shownFrame, ok: true, value: await this.callInFrame(frame, fn, ...args) };
+          return { frame: shownFrame, ok: true, value: await work(shownFrame) };
         } catch (error) {
           return { frame: shownFrame, ok: false, error: error instanceof Error ? error.message : String(error) };
         }
       }),
     );
     return new Map(outcomes.map((outcome) => [outcome.frame.id, outcome]));
+  }
+
+  /**
+   * Calls an in-page function on the element that holds `frame` in its
+   * parent's document (its iframe), as `this`, in the parent's isolated
+   * world, through the parent's own target: the protocol names the owner,
+   * resolves it into that world, and the object is let go of after. Answers
+   * undefined for the page's top frame, which no element holds, and throws
+   * when the frame or its parent has left the page, the owner cannot be
+   * found or the call fails.
+   */
+  async callOnFrameOwner<R>(frame: PageFrame, fn: (this: Element) => R): Promise<Awaited<R> | undefined> {
+    const tracked = this.frames.get(frame.id);
+    if (tracked === undefined) throw new Error(`The frame at ${frame.url} has left the page.`);
+    if (tracked.parentId === undefined) return undefined;
+    const parent = this.frames.get(tracked.parentId);
+    if (parent === undefined) throw new Error(`The frame that held the one at ${frame.url} has left the page.`);
+    const { backendNodeId } = await this.session.send("DOM.getFrameOwner", { frameId: tracked.id }, parent.sessionId);
+    const executionContextId = await this.world(parent);
+    const { object } = await this.session.send("DOM.resolveNode", { backendNodeId, executionContextId }, parent.sessionId);
+    const { objectId } = object as { objectId: string };
+    try {
+      const reply = await this.session.send("Runtime.callFunctionOn", { functionDeclaration: declarationOf(fn), objectId, returnByValue: true, awaitPromise: true }, parent.sessionId);
+      if (reply.exceptionDetails) throw scriptFailure(reply.exceptionDetails as ExceptionDetails);
+      return (reply.result as { value?: unknown }).value as Awaited<R>;
+    } finally {
+      void this.session.send("Runtime.releaseObject", { objectId }, parent.sessionId).catch(() => undefined);
+    }
   }
 
   // Loads -----------------------------------------------------------------------------
@@ -554,39 +635,56 @@ export class CdpPage {
    * frame or a sub-frame reached it. The Chrome Web Store, and the host's
    * own rule, refuse the same way. A top-level arrival the verb's one-time
    * allowance opened spends it, and that document's frames in the allowed
-   * host stand while it is the page's.
+   * host stand while it is the page's. A frame judged where it already is
+   * (`arriving` false, before a verb) is read the same way, and spends no
+   * allowance: the verb's is for the load it opens.
    */
-  private judge(url: string, topLevel: boolean, frameId: string): void {
+  private judge(url: string, topLevel: boolean, frameId: string, arriving = true): void {
     if (this.held !== undefined || this.gone !== undefined) return;
     const main = this.frames.get(this.mainFrameId);
     const opened = this.allowedLoad !== undefined && main?.loaderId === this.allowedLoad.loaderId ? { host: this.allowedLoad.host } : undefined;
-    const allowance = topLevel ? (this.verbAllowance ?? opened) : opened;
+    const allowance = topLevel && arriving ? (this.verbAllowance ?? opened) : opened;
     const standing = this.standing(url, allowance);
     if (standing.kind === "denylisted") {
       const { entry } = standing.match;
       this.refuse({
         ok: false,
         reason: topLevel
-          ? `The page went to ${url}, which the denylist's browser section lists (${entry.pattern}), so it was stopped at about:blank. Only the person can allow it.`
-          : `A frame of the page loaded ${url}, which the denylist's browser section lists (${entry.pattern}), so the whole page was stopped at about:blank.`,
+          ? `The page ${arriving ? "went to" : "is at"} ${url}, which the denylist's browser section lists (${entry.pattern}), so it was stopped at about:blank. Only the person can allow it.`
+          : `A frame of the page ${arriving ? "loaded" : "is at"} ${url}, which the denylist's browser section lists (${entry.pattern}), so the whole page was stopped at about:blank.`,
         denylist: { frame: topLevel ? "top-level" : "sub-frame", match: standing.match },
       });
       return;
     }
     if (standing.kind === "web-store" && topLevel && this.options.kind === "chrome") {
-      this.refuse({ ok: false, reason: `The page went to ${url}, on the Chrome Web Store, where Chrome lets no extension read or act, so it was stopped at about:blank.` });
+      this.refuse({
+        ok: false,
+        reason: `The page ${arriving ? "went to" : "is at"} ${url}, on the Chrome Web Store, where Chrome lets no extension read or act, so it was stopped at about:blank.`,
+      });
       return;
     }
-    const servedFrom = this.servedFrom.get(frameId);
+    // A response for another document of the frame (the one before, or one that never committed) says nothing of this one.
+    const served = this.servedFrom.get(frameId);
+    const servedFrom = served !== undefined && served.loaderId === this.frames.get(frameId)?.loaderId ? served.address : undefined;
     const ruled = this.options.addressRule?.({ url, topLevel, ...(servedFrom !== undefined && { servedFrom }) });
     if (ruled) {
       this.refuse({ ok: false, reason: `${ruled} The page was stopped at about:blank.` });
       return;
     }
-    if (topLevel && (standing.kind === "dev-site" || standing.kind === "ordinary") && standing.spendsAllowance && allowance === this.verbAllowance && allowance) {
+    if (arriving && topLevel && (standing.kind === "dev-site" || standing.kind === "ordinary") && standing.spendsAllowance && allowance === this.verbAllowance && allowance) {
       this.allowedLoad = { host: hostOf(allowance.host) as string, loaderId: main?.loaderId ?? "" };
       this.verbAllowance = undefined;
     }
+  }
+
+  /**
+   * Puts the address each frame has now to the host's policy as it is now,
+   * before a verb reads or acts: a policy that came to list the page, or a
+   * frame of it, since it arrived refuses it as an arrival would, its
+   * refusal held for the verb.
+   */
+  judgeStanding(): void {
+    for (const frame of this.framesInOrder()) this.judge(frame.url, frame.id === this.mainFrameId, frame.id, false);
   }
 
   private refuse(refusal: PageRefusal): void {
@@ -759,7 +857,9 @@ export class CdpPage {
     // A document's response comes before it commits, where the judge reads where it was served from.
     if (event.method === "Network.responseReceived" && params.type === "Document") {
       const remote = (params.response as { remoteIPAddress?: string }).remoteIPAddress;
-      if (typeof remote === "string" && typeof params.frameId === "string") this.servedFrom.set(params.frameId, remote);
+      if (typeof remote === "string" && typeof params.frameId === "string" && typeof params.loaderId === "string") {
+        this.servedFrom.set(params.frameId, { loaderId: params.loaderId, address: remote });
+      }
     }
     if (event.method === "Network.requestWillBeSent") {
       const previous = this.requests.get(key);

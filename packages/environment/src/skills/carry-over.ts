@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { copyFile, cp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import {
+  ContractError,
   ENVIRONMENT_STREAM_KIND,
   type SkillCarriedItem,
   type SkillCarryOverInvalid,
@@ -10,11 +11,11 @@ import {
   type SkillNotCarried,
   type SkillsCarryOverReport,
 } from "@agent-harness/contracts";
-import { adoptedAccount, isCarryOverRefusal } from "../carry-over/adopted.js";
+import { adoptedAccount, isCarryOverRefusal, type AdoptedAccount } from "../carry-over/adopted.js";
 import type { AccountFacts } from "../runs/run-decider.js";
 import type { MethodHandler, PrepareContext, PreparedCommand } from "../serve/methods.js";
 import { readCheckoutSource } from "./checkout.js";
-import { occupied, type OwnDirectory } from "./own-directory.js";
+import { holdsRootSkill, occupied, rootSkill, type OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
 import { PROVENANCE_MANIFEST } from "./provenance.js";
 import { entriesOf, readCommandFileAt, readSkillFolderAt, type FoundMember } from "./reader.js";
@@ -29,9 +30,10 @@ import { entriesOf, readCommandFileAt, readSkillFolderAt, type FoundMember } fro
  *
  * Each original is, in turn: invalid, when it reads with a problem, and
  * left; offered, when it is a skill folder that resolves into a git working
- * tree with a remote (`checkout.ts`), and not copied; kept, when the own
- * directory holds its name already (a member's, before the run, or one this
- * run copied first) or the folder or file it would be copied to; else
+ * tree with a remote (`checkout.ts`), and not copied, once for each folder
+ * it resolves to (a second original leading there is left out); kept, when
+ * the own directory holds its name already (a member's, before the run, or
+ * one this run copied first) or the folder or file it would be copied to; else
  * copied into the own directory's `skills/<folder>` or `commands/<file>`,
  * links dereferenced so the copy stands alone, and any `.git` left out. A provenance manifest in the
  * folder the originals were read from has the entries of the folders
@@ -40,11 +42,17 @@ import { entriesOf, readCommandFileAt, readSkillFolderAt, type FoundMember } fro
  * it is. The adopted directory's subagents (`agents/*.md`) and plugins (as
  * `plugins/installed_plugins.json` lists them) are listed as not carried.
  *
+ * While the own directory's `skills/` holds a `SKILL.md` of its own it is
+ * one skill and no folder in it is read, so the run is refused, `conflict`
+ * with reason `root_skill`, as `skills.own.create` is, copying nothing.
+ *
  * A prepared command: the reads and copies come first, outside the
  * transaction, each copy undone when the command is not accepted; the
  * transaction appends `skills.updated` when anything was copied. A dry run
- * reads alike and writes nothing. Nothing is ever written in the adopted
- * directory or `~/.agents/skills`; git is only asked to read.
+ * reads alike and writes nothing; Carry over's inventory counts from one
+ * (`dryRun`, #580), and `carryOver.run` runs the command in its own with
+ * the skills tick. Nothing is ever written in the adopted directory or
+ * `~/.agents/skills`; git is only asked to read.
  */
 
 export interface SkillsCarryOverOptions {
@@ -141,14 +149,27 @@ const notCarriedIn = async (directory: string): Promise<SkillNotCarried[]> => {
 /** Whether copying into `path` found something there already. */
 const alreadyThere = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === "EEXIST";
 
-export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedCommand<"skills.carryOver"> => {
+/** Whether the adopted directory `directory` holds a skill folder or command file to carry, valid or not: Carry over's step asks (#580). */
+export const holdsSkillOriginals = async (directory: string): Promise<boolean> =>
+  (await skillFolders(join(directory, "skills"))).length > 0 || (await commandFiles(join(directory, "commands"))).length > 0;
+
+/** `skills.carryOver`, and the dry run Carry over's inventory reads. */
+export interface SkillsCarryOver extends PreparedCommand<"skills.carryOver"> {
+  /** What a dry run answers for the account `accountId`, having written nothing; the refusal, not held or not adopted, thrown. */
+  dryRun(accountId: string): Promise<SkillsCarryOverReport>;
+}
+
+/** How a run undoes what it made when its command is not accepted. */
+type Undoing = Pick<PrepareContext, "onUndo">;
+
+export const skillsCarryOver = (options: SkillsCarryOverOptions): SkillsCarryOver => {
   const { own } = options;
   const stream = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   /** A path in the own directory, as a member's path names it, on this machine. */
   const ownPath = (path: string): string => join(own.path, ...path.split("/"));
 
   /** Copies one original to `path` in the own directory, the copy undone when the command is not accepted; false when something is there already. */
-  const copy = async (original: Original, path: string, context: PrepareContext): Promise<boolean> => {
+  const copy = async (original: Original, path: string, context: Undoing): Promise<boolean> => {
     const target = ownPath(path);
     await mkdir(dirname(target), { recursive: true });
     if (original.kind === "command") {
@@ -174,7 +195,7 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedComman
   };
 
   /** Merges the carried entries into the own directory's manifest, undone when the command is not accepted; a manifest that does not read as the format is left. */
-  const mergeManifest = async (carried: Readonly<Record<string, unknown>>, context: PrepareContext): Promise<void> => {
+  const mergeManifest = async (carried: Readonly<Record<string, unknown>>, context: Undoing): Promise<void> => {
     const file = join(own.path, PROVENANCE_MANIFEST);
     let before: string | undefined;
     try {
@@ -197,54 +218,71 @@ export const skillsCarryOver = (options: SkillsCarryOverOptions): PreparedComman
     context.onUndo(() => (before === undefined ? rm(file, { force: true }) : writeFile(file, before)));
   };
 
+  /** What a run of the adopted account does, or with `dryRun` would do: its report. */
+  const carry = async (account: AdoptedAccount, dryRun: boolean, context: Undoing): Promise<SkillsCarryOverReport> => {
+    // The own directory's names before the run, each with the path of the member that wins it; the run adds what it copies.
+    const held = new Map<string, string>();
+    for (const member of resolveSkillSet(await own.members(), [])) if (member.name !== null && !held.has(member.name)) held.set(member.name, member.path);
+    const claimed = new Set<string>();
+    // The checkout folders offered so far: an original leading into one of them again is the same offer.
+    const offeredFolders = new Set<string>();
+
+    const originals = [
+      ...(await skillFolders(join(account.directory, "skills"))),
+      ...(await skillFolders(join(options.home, ".agents", "skills"))),
+      ...(await commandFiles(join(account.directory, "commands"))),
+    ];
+    const copied: SkillCarriedItem[] = [];
+    const kept: SkillCarriedItem[] = [];
+    const offered: SkillCarryOverOffer[] = [];
+    const invalid: SkillCarryOverInvalid[] = [];
+    const carried: Record<string, unknown> = {};
+    for (const original of originals) {
+      const { kind, from, member } = original;
+      if (member.name === null || member.problems.length > 0) {
+        invalid.push({ kind, name: member.name, from, problems: member.problems });
+        continue;
+      }
+      const name = member.name;
+      if (offeredFolders.has(original.resolved)) continue;
+      const source = kind === "skill" ? await readCheckoutSource(original.resolved) : null;
+      if (source !== null) {
+        offered.push({ name, from, ...source });
+        offeredFolders.add(original.resolved);
+        continue;
+      }
+      const path = `${kind === "skill" ? "skills" : "commands"}/${original.entry}`;
+      const holder = held.get(name) ?? (claimed.has(path) || (await occupied(ownPath(path))) ? path : undefined);
+      if (holder !== undefined || (!dryRun && !(await copy(original, path, context)))) {
+        kept.push({ kind, name, from, path: holder ?? path });
+        continue;
+      }
+      held.set(name, path);
+      claimed.add(path);
+      copied.push({ kind, name, from, path });
+      if (kind === "skill" && original.provenance !== undefined) carried[original.entry] = original.provenance;
+    }
+    if (!dryRun && Object.keys(carried).length > 0) await mergeManifest(carried, context);
+
+    return { accountId: account.id, dryRun, copied, kept, offered, invalid, notCarried: await notCarriedIn(account.directory) };
+  };
+
   return {
     async prepare({ accountId, dryRun }, context): Promise<MethodHandler<"skills.carryOver">> {
       const account = adoptedAccount(options.account, accountId);
       if (isCarryOverRefusal(account)) return () => ({ aggregate: stream, rejected: account });
 
-      // The own directory's names before the run, each with the path of the member that wins it; the run adds what it copies.
-      const held = new Map<string, string>();
-      for (const member of resolveSkillSet(await own.members(), [])) if (member.name !== null && !held.has(member.name)) held.set(member.name, member.path);
-      const claimed = new Set<string>();
+      // While skills/ is one skill no folder copied into it would be read, so nothing is carried, dry or not.
+      if (holdsRootSkill(await own.members())) return () => ({ aggregate: stream, rejected: rootSkill({ accountId }) });
 
-      const originals = [
-        ...(await skillFolders(join(account.directory, "skills"))),
-        ...(await skillFolders(join(options.home, ".agents", "skills"))),
-        ...(await commandFiles(join(account.directory, "commands"))),
-      ];
-      const copied: SkillCarriedItem[] = [];
-      const kept: SkillCarriedItem[] = [];
-      const offered: SkillCarryOverOffer[] = [];
-      const invalid: SkillCarryOverInvalid[] = [];
-      const carried: Record<string, unknown> = {};
-      for (const original of originals) {
-        const { kind, from, member } = original;
-        if (member.name === null || member.problems.length > 0) {
-          invalid.push({ kind, name: member.name, from, problems: member.problems });
-          continue;
-        }
-        const name = member.name;
-        const source = kind === "skill" ? await readCheckoutSource(original.resolved) : null;
-        if (source !== null) {
-          offered.push({ name, from, ...source });
-          continue;
-        }
-        const path = `${kind === "skill" ? "skills" : "commands"}/${original.entry}`;
-        const holder = held.get(name) ?? (claimed.has(path) || (await occupied(ownPath(path))) ? path : undefined);
-        if (holder !== undefined || (!dryRun && !(await copy(original, path, context)))) {
-          kept.push({ kind, name, from, path: holder ?? path });
-          continue;
-        }
-        held.set(name, path);
-        claimed.add(path);
-        copied.push({ kind, name, from, path });
-        if (kind === "skill" && original.provenance !== undefined) carried[original.entry] = original.provenance;
-      }
-      if (!dryRun && Object.keys(carried).length > 0) await mergeManifest(carried, context);
-
-      const report: SkillsCarryOverReport = { accountId, dryRun, copied, kept, offered, invalid, notCarried: await notCarriedIn(account.directory) };
-      const after = dryRun || copied.length === 0 ? null : await own.members();
+      const report = await carry(account, dryRun, context);
+      const after = dryRun || report.copied.length === 0 ? null : await own.members();
       return (_params, command) => ({ aggregate: stream, result: report, ...(after !== null && { events: own.changedIn(command.tx, after) }) });
+    },
+    async dryRun(accountId) {
+      const account = adoptedAccount(options.account, accountId);
+      if (isCarryOverRefusal(account)) throw new ContractError(account);
+      return carry(account, true, { onUndo: () => undefined });
     },
   };
 };

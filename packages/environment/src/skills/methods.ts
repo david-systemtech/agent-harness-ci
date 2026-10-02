@@ -1,12 +1,16 @@
-import { ContractError, ENVIRONMENT_STREAM_KIND, type SkillChoice, type SkillsViewAccount } from "@agent-harness/contracts";
+import { ContractError, ENVIRONMENT_STREAM_KIND, type NativeSkillRoot, type SkillChoice, type SkillsViewAccount } from "@agent-harness/contracts";
+import type { TrustSeam } from "../adapter/seams.js";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ListedAccount } from "../instructions/methods.js";
 import { readSessionFacts } from "../runs/run-reads.js";
-import type { CommandAnswer, CommandContext, MethodHandlers, PreparedCommand } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { Reader } from "../sessions/session-tables.js";
 import { choicesFor, readSkillChoices, skillsStream } from "./choices.js";
 import type { OwnDirectory } from "./own-directory.js";
 import { resolveSkillSet } from "./precedence.js";
+import { isNativeMember, readRepositorySkills, type RepositorySkillScope } from "./repository.js";
+import type { SkillSources } from "./sources.js";
+import type { SkillSync } from "./sync.js";
 
 /**
  * The skill set's methods (skills spec, "Choices" and "Wire summary"):
@@ -14,15 +18,20 @@ import { resolveSkillSet } from "./precedence.js";
  * set for a session's account, or the default account's, with the choices;
  * `skills.own.create` and `.remove` at `admin`, the own directory's
  * prepared commands; `skills.carryOver` at `admin`, Carry over's skills
- * half; and `skills.setEnabled` and `skills.setAlwaysOn` at `admin`, each
+ * half; `skills.probe` at `admin`, a repository URL's skill folders; and
+ * `skills.setEnabled` and `skills.setAlwaysOn` at `admin`, each
  * appending its choice on the skills stream and `skills.updated` after it,
- * in the command's transaction. Sources are none until their ticket adds
- * them, and the set holds the own directory's layer alone until the source
- * and repository layers join it.
+ * in the command's transaction; `skills.sources.add` and `.remove` at
+ * `admin`, the skill sources' (`sources.ts`); and `skills.sources.pull` and
+ * `.setFollow` at `admin`, the syncer's (`sync.ts`). The set resolves sources, the own
+ * directory and the session's trusted repository, with native flags from
+ * the account's adapter.
  */
 
 export interface SkillsMethodsOptions {
   readonly log: EventLog;
+  readonly trust: TrustSeam;
+  readonly nativeRoots: (accountId: string | null) => readonly NativeSkillRoot[];
   /** The environment's id: the id of its skills stream and its own. */
   readonly environmentId: string;
   readonly own: OwnDirectory;
@@ -32,6 +41,12 @@ export interface SkillsMethodsOptions {
   readonly accounts: () => readonly ListedAccount[];
   /** Carry over's skills half (`carry-over.ts`). */
   readonly carryOver: PreparedCommand<"skills.carryOver">;
+  /** `skills.probe` (`probe.ts`). */
+  readonly probe: MethodHandler<"skills.probe">;
+  /** The skill sources (`sources.ts`). */
+  readonly sources: Pick<SkillSources, "read" | "add" | "remove">;
+  /** The syncer (`sync.ts`): Pull now, and pinning. */
+  readonly sync: Pick<SkillSync, "pull" | "setFollow">;
 }
 
 /** The notice every committed choice is followed by. */
@@ -88,27 +103,35 @@ export const skillsMethods = (options: SkillsMethodsOptions): MethodHandlers => 
   return {
     "skills.get": async ({ sessionId }) => {
       const accountId = accountOf(sessionId);
-      const members = await own.read();
+      const session = sessionId === undefined ? null : readSessionFacts(log, reader, sessionId);
+      const scope: RepositorySkillScope | null = session === null ? null : { workspace: session.workspace, trust: options.trust(session), nativeRoots: options.nativeRoots(accountId) };
+      const [members, sources, repository] = await Promise.all([own.read(), options.sources.read(), scope === null ? [] : readRepositorySkills(scope)]);
       const choices = readSkillChoices(log);
       const applied = choicesFor(choices, accountId);
       return {
         ownDirectory: own.path,
-        sources: [],
+        sources: [...sources.sources],
         choices,
         accountId,
         accounts: options.accounts().map(viewAccount),
-        members: resolveSkillSet(members, []).map((member) => ({
+        members: resolveSkillSet([...repository, ...members, ...sources.members], sources.sources).map((member) => ({
           ...member,
+          native: scope !== null && isNativeMember(scope, member),
           enabled: member.name === null || applied.enabled(member.name),
           alwaysOn: member.name !== null && applied.alwaysOn(member.name),
           choices: choices.filter((choice) => choice.name === member.name),
         })),
       };
     },
+    "skills.probe": options.probe,
     "skills.own.create": own.create,
     "skills.own.remove": own.remove,
     "skills.carryOver": options.carryOver,
     "skills.setEnabled": ({ name, accountId, enabled }, context) => choose({ kind: "enabled", name, accountId, enabled }, context),
     "skills.setAlwaysOn": ({ name, accountId, on }, context) => choose({ kind: "always-on", name, accountId, on }, context),
+    "skills.sources.add": options.sources.add,
+    "skills.sources.remove": options.sources.remove,
+    "skills.sources.pull": options.sync.pull,
+    "skills.sources.setFollow": options.sync.setFollow,
   };
 };

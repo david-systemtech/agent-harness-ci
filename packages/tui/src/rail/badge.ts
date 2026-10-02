@@ -1,15 +1,18 @@
 import { activityOf, type EnvironmentView } from "@agent-harness/client-runtime";
-import { ENVIRONMENT_COLOURS, type EnvironmentColour, type SessionSummary } from "@agent-harness/contracts";
+import type { EnvironmentColour, SessionSummary } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
+import type { ThemeColours } from "../theme/colours.js";
 
 /**
  * The environment badge (ADR 0005; workspace-picker spec, "Sidebar and
  * header"; docs/specs/tui.md, "The rail"): a two-letter abbreviation of the
  * environment's name in the environment's colour. The terminal UI draws no
  * icon (#19), so the environment's icon is not drawn here. The colour is the
- * environment's own name for it, mapped onto one of the terminal's colours
- * (#327); an environment from before colours, which sends none, takes one of
- * the terminal's by its place in the list. Badge colours are data, not theme
- * (ADR 0023).
+ * environment's own name for it (#327), drawn as the theme's colours draw
+ * one (#392): at its slot among the terminal's sixteen, or its token's value
+ * under truecolour; an environment from before colours, which sends none,
+ * takes one by its place in the list. Which colour is data, not theme (ADR
+ * 0023).
  */
 
 export interface Badge {
@@ -20,40 +23,21 @@ export interface Badge {
    * ("??"), the badge is shared.
    */
   readonly abbreviation: string;
-  /** An Ink colour: the environment's own, mapped, or one of the terminal's by its place. */
+  /** An Ink colour: the environment's own, or one by its place, as the theme's colours draw it. */
   readonly colour: string;
 }
 
 /**
- * The terminal's colours the environment colours are drawn in
- * (workspace-picker spec, "Name, icon and colour"): the twelve names of
- * `ENVIRONMENT_COLOURS`, in order, onto red, bright red, yellow, bright
- * yellow, bright green, green, cyan, bright cyan, blue, bright blue, magenta
+ * The colours a badge takes, in turn, for an environment with no colour of
+ * its own: environment colours, drawn as one that names its own is, so
+ * among the sixteen cyan, magenta, yellow, green, blue, red, bright cyan
  * and bright magenta.
  */
-const TERMINAL_COLOURS = [
-  "red",
-  "redBright",
-  "yellow",
-  "yellowBright",
-  "greenBright",
-  "green",
-  "cyan",
-  "cyanBright",
-  "blue",
-  "blueBright",
-  "magenta",
-  "magentaBright",
-] as const satisfies { readonly length: (typeof ENVIRONMENT_COLOURS)["length"] };
-
-/** The Ink colour an environment colour is drawn in. */
-export const terminalColourOf = (colour: EnvironmentColour): string => TERMINAL_COLOURS[ENVIRONMENT_COLOURS.indexOf(colour)] ?? "white";
-
-/** The terminal's colours a badge takes, in turn, for an environment with no colour of its own. */
-const BADGE_COLOURS = ["cyan", "magenta", "yellow", "green", "blue", "red", "cyanBright", "magentaBright"] as const;
+// eslint-disable-next-line no-restricted-syntax -- environment colours' names, which the theme maps, not the terminal's.
+const PLACE_COLOURS: readonly EnvironmentColour[] = ["teal", "violet", "amber", "green", "blue", "red", "cyan", "pink"];
 
 /** The badge of an environment no list holds (one removed meanwhile): no one's letters, in grey. */
-export const UNLISTED_BADGE: Badge = { abbreviation: "??", colour: "gray" };
+export const UNLISTED_BADGE: Badge = { abbreviation: "??", colour: TERMINAL_ROLES.faint };
 
 /** The letters of a name, in capitals, with what is not a letter or a digit left out. */
 const lettersOf = (word: string): string[] => [...word.toUpperCase()].filter((c) => /[\p{L}\p{N}]/u.test(c));
@@ -79,8 +63,11 @@ const candidatesOf = (name: string | null): string[] => {
   return [abbreviationOf(name), ...rest.map((letter) => `${head}${letter}`), ...digits].filter((c) => c !== "");
 };
 
-/** The badge of every environment listed, by id: an abbreviation taken by one listed earlier is replaced by the next free one. */
-export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" | "name" | "colour">[]): ReadonlyMap<string, Badge> => {
+/**
+ * The badge of every environment listed, by id, its colour drawn as `colours` draw environment colours: an abbreviation
+ * taken by one listed earlier is replaced by the next free one.
+ */
+export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" | "name" | "colour">[], colours: ThemeColours): ReadonlyMap<string, Badge> => {
   const taken = new Set<string>();
   const badges = new Map<string, Badge>();
   views.forEach((view, index) => {
@@ -89,7 +76,7 @@ export const badgesOf = (views: readonly Pick<EnvironmentView, "environmentId" |
     taken.add(abbreviation);
     badges.set(view.environmentId, {
       abbreviation,
-      colour: view.colour !== null ? terminalColourOf(view.colour) : (BADGE_COLOURS[index % BADGE_COLOURS.length] ?? "cyan"),
+      colour: colours.environment(view.colour ?? PLACE_COLOURS[index % PLACE_COLOURS.length] ?? "teal"),
     });
   });
   return badges;
@@ -112,11 +99,11 @@ export const glyphOf = (summary: Pick<SessionSummary, "activity" | "parkedPrompt
   const activity = activityOf(summary);
   switch (activity.state) {
     case "parked":
-      return { text: `?${activity.parked > 0 ? activity.parked : ""}`, colour: "yellow", dim: false };
+      return { text: `?${activity.parked > 0 ? activity.parked : ""}`, colour: TERMINAL_ROLES.warning, dim: false };
     case "starting":
-      return { text: "◌", colour: "cyan", dim: false };
+      return { text: "◌", colour: TERMINAL_ROLES.machine, dim: false };
     case "running":
-      return { text: "●", colour: "green", dim: false };
+      return { text: "●", colour: TERMINAL_ROLES.success, dim: false };
     case "idle":
       return { text: "·", colour: undefined, dim: true };
   }

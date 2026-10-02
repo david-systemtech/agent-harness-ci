@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import { NO_DOCUMENTS, documentFacts, oneLine, type SessionDocument, type SessionRow, type UserMessageEntry, type VerbAvailability } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import type { SnippetTemplate } from "../composer/snippets.js";
 import { ListCard } from "../pickers/cards.js";
 import { messageWords } from "../session/use-fork-rewind.js";
@@ -122,7 +123,7 @@ export const PromptPickerCard = (props: {
   const footer: (readonly Span[])[] = [
     [{ text: "Files are not restored: a rewind or a branch takes back the conversation, never the files the agent changed.", dim: true }],
     ...(props.offersStop
-      ? [[{ text: `A run is live: ${keys.choose} stops it, then rewinds here.`, color: "yellow" }]]
+      ? [[{ text: `A run is live: ${keys.choose} stops it, then rewinds here.`, color: TERMINAL_ROLES.warning }]]
       : rewind?.status === "absent"
         ? [[{ text: `${keys.choose} rewind (${rewind.message})`, dim: true }]]
         : []),

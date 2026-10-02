@@ -4,8 +4,8 @@ import {
   ENVIRONMENT_STREAM_KIND,
   MANAGED_TOOL_COMMANDS,
   TOOL_COMMAND_PLATFORMS,
-  TOOL_INSTALL_ORDER,
   VerifiableToolName,
+  documentedCommand,
   installChoice,
   installedInstead,
   toolCommandEntry,
@@ -144,21 +144,10 @@ export const createToolRunner = (options: ToolRunnerOptions): ToolRunner => {
     return (program) => found.has(program);
   };
 
-  /**
-   * The vendor's documented command for `tool`, which a refusal answers for
-   * a person to copy: for an installed tool its vendor script's update (a
-   * tool installed by hand was most likely installed by it), else the
-   * install the table would run here, else the first it has for this
-   * platform; null for `vault`, and where the table has none.
-   */
+  /** The vendor's documented command for `tool`, which a refusal answers for a person to copy (`documentedCommand`); null where the table has none here. */
   const documented = (tool: ManagedToolName, installed: boolean, available: (program: string) => boolean): string | null => {
-    if (tool === "vault" || tablePlatform === null) return null;
-    const script = installed ? toolCommandEntry(tool, "script", tablePlatform, commands) : null;
-    if (script !== null) return line(script.update);
-    const install =
-      installChoice(tool, tablePlatform, available, commands)?.install ??
-      TOOL_INSTALL_ORDER.map((method) => toolCommandEntry(tool, method, tablePlatform, commands)?.install).find((command) => command !== undefined && command !== null);
-    return install === undefined || install === null ? null : line(install);
+    const command = tablePlatform === null ? null : documentedCommand(tool, installed, tablePlatform, available, commands);
+    return command === null ? null : line(command);
   };
 
   /**

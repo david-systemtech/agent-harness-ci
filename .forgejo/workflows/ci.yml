@@ -1,13 +1,21 @@
-# CI for a repository on this Forgejo. Copied from david/ci templates/ci.yml;
-# add the project's own steps at the end of the job (typecheck, lint, test,
-# build - cortex reference/playbooks/ci-standard.md lists them) and leave the
-# rest as it is, so a fix in the template can be copied over again.
+# CI for this repository. The checks run on GitHub's free public-repository
+# runners, in david-systemtech/agent-harness-ci, and this job is the relay: it
+# pushes the commit under test there, waits for the run and passes or fails
+# with it (.forgejo/scripts/github-ci.sh). The `ci / ci` status the bots and
+# the pull request page read is still this job's.
 #
-# It runs on the shared `ci` runners in the Dokploy VM, which every repository
-# on the instance shares. The secret scan is david/ci's scripts/secret-scan.sh,
-# checked out at run time, so a new gitleaks pin reaches every repository at
-# once. Reading david/ci takes CI_READ_TOKEN, a user-level secret on `david`
-# (a read-only user that can see david/ci and nothing else).
+# Why (David, 2026-10-01): on 2026-09-30 this repository was 97% of all `ci`
+# minutes on the shared pool, and SYSTEM-MNL ran at load 20-45 with the agent
+# sessions and the pool's VM competing for its 16 threads. The checks
+# themselves - the secret scan, install, typecheck, lint, the suite and the
+# schema export drift check - are in agent-harness-ci's
+# .github/workflows/ci.yml; change them there. They were this job's steps
+# until then, copied from david/ci templates/ci.yml.
+#
+# `relay` jobs only wait, so they run on vm-relay-1 in the Dokploy VM, a
+# runner and Docker daemon of their own (david/ci docs/runners.md), not on the
+# `ci` runners. GH_CI_TOKEN is a fine-grained GitHub token for
+# agent-harness-ci alone (OpenBao systemtechdev/github-agent-harness-ci).
 
 name: ci
 
@@ -24,82 +32,34 @@ on:
     types: [opened, synchronize, reopened]
 
 # A push to a pull request that supersedes an earlier one cancels the old run.
-# So does a push to main, in this repository only (David, 2026-09-29): with
-# several build bots landing, main's queue held a run for every merge (40 in
-# 16 hours, about a fifth of CI), each re-testing a tree the next merge was
-# about to replace. The newest main is always tested; a merge whose run was
-# cancelled shares the verdict of the next one, and a red main is bisected
-# across the merges since the last green. The david/ci template still queues
-# main pushes, so copy a template fix over this block by hand.
+# Main's runs are each their own group, so every merge gets a verdict and a red
+# main names the merge that broke it. From 2026-09-29 a push to main cancelled
+# main's run in flight too, to spare SYSTEM-MNL a run for every merge; once the
+# checks moved to GitHub (2026-10-01) a run cost the homelab almost nothing,
+# and with merges every two to three minutes against a run of about four and a
+# half, main went untested for a whole afternoon (David, 2026-10-01). A shared
+# group without cancelling would queue main's runs one at a time behind each
+# other instead. GROUP below gives GitHub's run the same group. The relay
+# waits out each run in a slot on vm-relay-1, whose 8 slots no other
+# repository's jobs use. The david/ci template still queues main pushes in one
+# group, so copy a template fix over this block by hand.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
   ci:
-    runs-on: ci
-    timeout-minutes: 25
+    runs-on: relay
+    # GitHub's job has 25 minutes; this leaves room for its queue and the push.
+    timeout-minutes: 40
     steps:
-      # Pinned to a commit, not a tag. Forgejo resolves `actions/checkout` to
-      # its mirror on data.forgejo.org, which carries GitHub's commits.
+      # The whole history, so the push to GitHub can send just what it lacks.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The secret scan reads every commit.
           fetch-depth: 0
-
-      - name: Check out david/ci
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: david/ci
-          token: ${{ secrets.CI_READ_TOKEN }}
-          path: .ci
-          persist-credentials: false
-
-      - name: Scan every commit for secrets
-        run: bash .ci/scripts/secret-scan.sh
-
-      # The project's own steps go here.
-      - run: corepack enable && corepack prepare --activate
-      # The pnpm store survives between runs in the ci runner's cache, keyed by
-      # the lockfile, so an install links packages instead of downloading
-      # them. pnpm checks every package against the lockfile's integrity hash
-      # as it installs (verify-store-integrity is on by default), so a stale or
-      # damaged cache costs time, never a wrong package.
-      - name: Where pnpm keeps its store
-        id: pnpm-store
-        run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ steps.pnpm-store.outputs.dir }}
-          key: pnpm-store-${{ github.repository }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-store-${{ github.repository }}-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
-      # scripts/install.ps1's tests run under PowerShell 7, which the image
-      # lacks: pwsh.sh unpacks its pinned tarball, checked by SHA-256, and puts
-      # it on the PATH. The tarball is cached by the script that pins it.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/agent-harness-pwsh
-          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
-      - name: PowerShell 7 for the install.ps1 tests
-        run: bash .forgejo/scripts/pwsh.sh
-      # Vitest sizes its pool to the 16 CPUs the job can see, but the three
-      # ci jobs share one 8-CPU, 8 GB daemon: 16 workers peaked at 2.8 GB, 4
-      # at 1.2 GB.
-      - run: pnpm test --maxWorkers=4
-
-      - name: The JSON Schema export is current
-        # packages/contracts/schema is the JSON Schema export a client in
-        # another language is written from (ADR 0001), published with every
-        # release by being committed. Regenerate it; if that changes anything,
-        # a schema changed and nobody exported it.
-        run: |
-          set -euo pipefail
-          pnpm --filter @agent-harness/contracts export-schemas
-          if [ -n "$(git status --porcelain -- packages/contracts/schema)" ]; then
-            git status --short -- packages/contracts/schema
-            echo "::error::packages/contracts/schema is stale - run: pnpm --filter @agent-harness/contracts export-schemas, and commit the result"
-            exit 1
-          fi
+      - name: Run the checks on GitHub
+        run: bash .forgejo/scripts/github-ci.sh
+        env:
+          GH_CI_TOKEN: ${{ secrets.GH_CI_TOKEN }}
+          GROUP: ${{ github.event.pull_request.number || github.sha }}
+          FORGEJO_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}

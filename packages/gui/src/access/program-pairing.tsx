@@ -1,8 +1,11 @@
-import { PROGRAM_GRANT, type EnvironmentView } from "@agent-harness/client-runtime";
-import { MODES, SCOPES, type Ceiling, type Scope } from "@agent-harness/contracts";
+import type { EnvironmentView } from "@agent-harness/client-runtime";
+import { MODES, SCOPES, pairingPreset, type Ceiling, type Scope } from "@agent-harness/contracts";
 import { useId, useState } from "react";
 import { PairingCode } from "../machines/pairing-code.js";
 import { Select } from "../ui/index.js";
+
+/** The program preset (contracts), whose scopes and ceiling the form starts from. */
+const PROGRAM = pairingPreset("program");
 
 /**
  * Pair a program (ADR 0025's program preset; env spec, "Pairing and
@@ -14,8 +17,8 @@ import { Select } from "../ui/index.js";
  * others.
  */
 export const ProgramPairing = ({ view, writable }: { readonly view: EnvironmentView; readonly writable: boolean }) => {
-  const [scopes, setScopes] = useState<readonly Scope[]>(PROGRAM_GRANT.scopes);
-  const [ceiling, setCeiling] = useState<Ceiling>(PROGRAM_GRANT.ceiling);
+  const [scopes, setScopes] = useState<readonly Scope[]>(PROGRAM.scopes);
+  const [ceiling, setCeiling] = useState<Ceiling>(PROGRAM.ceiling);
   const legend = useId();
   const ceilingId = useId();
   const tick = (scope: Scope, on: boolean) => setScopes((now) => SCOPES.filter((held) => (held === scope ? on : now.includes(held))));

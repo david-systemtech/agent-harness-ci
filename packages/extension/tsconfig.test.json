@@ -1,0 +1,18 @@
+{
+  // The extension's tests, which run under Node against a fake `chrome` API and a scripted environment on a loopback
+  // WebSocket, the options page's in a jsdom window: the DOM's types beside Node's. The repository's tooling project has
+  // no DOM, so they are checked here instead (tsconfig.tooling.json leaves them out), the build's test with them.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../../.tsbuild/extension-tests",
+    "emitDeclarationOnly": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.test.ts", "scripts/**/*.test.ts", "test"],
+  "exclude": [],
+  // The tooling project holds the lint rules' shared timeout, which the lint test reads, and the build script, which the
+  // build's test runs.
+  "references": [{ "path": "." }, { "path": "../contracts" }, { "path": "../browser" }, { "path": "../browser/tsconfig.testing.json" }, { "path": "../../tsconfig.tooling.json" }]
+}

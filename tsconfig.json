@@ -10,10 +10,13 @@
     { "path": "packages/browser" },
     { "path": "packages/browser/tsconfig.testing.json" },
     { "path": "packages/browser/tsconfig.test.json" },
+    { "path": "packages/extension" },
+    { "path": "packages/extension/tsconfig.test.json" },
     { "path": "packages/tui" },
     { "path": "packages/gui" },
     { "path": "packages/gui/tsconfig.test.json" },
     { "path": "packages/desktop" },
+    { "path": "packages/desktop/tsconfig.test.json" },
     { "path": "packages/cli" },
     { "path": "tsconfig.tooling.json" }
   ]

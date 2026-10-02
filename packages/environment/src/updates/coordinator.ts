@@ -48,20 +48,22 @@ import { StagingError, downloadDestination, stageArtefact, tarUnpack, unstage, t
  * idle; a failure leaves nothing pending, fails the check and is tried again
  * at the next. `updates.apply` stages a version asked for by name the same
  * way (Update now; with none, the pin or the channel's newest), or, from a
- * local client session, an artefact on this machine (#343). One is staged
- * at a time. A target the launcher cannot host, which no stepping stone
+ * local client session, an artefact on this machine (#343): an archive, or
+ * the folder one is unpacked in, as the desktop carries it (#789). One is
+ * staged at a time. A target the launcher cannot host, which no stepping stone
  * reaches, is `blocked` until `service install` from its release.
  *
  * **Waiting** (#343): the installed version is a pending update, `waiting`,
  * appended as `environment.update-pending` with where it comes from: the
  * channel, the pin, a request or the desktop. A newer release replacing it
- * takes a new update id and keeps its `since`; a channel's update is
- * withdrawn (`environment.update-cancelled`, cause `settings`) once the
- * settings stop calling for it. On every run-registry change, every minute
- * and at its `deferUntil`, the coordinator reads the activity, and in that
- * same tick, when the environment is idle or the deferral cap has passed
- * (or at once, asked with `when: now`), appends `environment.update-started`
- * and starts the drain with the trigger `update`, which refuses new runs
+ * takes a new update id and keeps its `since`; a channel's or a pin's
+ * update is withdrawn (`environment.update-cancelled`, cause `settings`)
+ * once the settings stop calling for it (#480). On every run-registry
+ * change, every minute and at its `deferUntil`, the coordinator reads the
+ * activity, and in that same tick, when the environment is idle or the
+ * deferral cap has passed (or at once, asked with `when: now`), appends
+ * `environment.update-started` and starts the drain with the trigger
+ * `update`, which refuses new runs
  * from then on. The drain waits for running runs up to its cap, not for parked ones; then
  * every client hears `bye: updating` and the launcher is asked `switch?`
  * (`afterDrain`); a refused switch is `environment.update-failed` at stage
@@ -100,7 +102,7 @@ const MINUTE_MS = 60_000;
 export const STOP_WAIT_MS = 5 * MINUTE_MS;
 
 /** Who the coordinator's own notices name: the environment's updates, never a client. */
-const UPDATES_ACTOR = formatActor({ kind: "system", id: "updates" });
+export const UPDATES_ACTOR = formatActor({ kind: "system", id: "updates" });
 
 export interface UpdateCoordinatorOptions {
   readonly log: EventLog;
@@ -122,7 +124,7 @@ export interface UpdateCoordinatorOptions {
   /** The run registry, whose every change the coordinator hears. */
   readonly runs: Pick<RunRegistry, "onChange">;
   /** Where the continuation of a run an update cut starts, as the settle marks it. */
-  readonly host: Pick<AdapterHost, "startFacts" | "launch">;
+  readonly host: Pick<AdapterHost, "startFacts" | "nextRunBasis" | "launch">;
   /** What looks at the workspace of each run an update cut before the settle marks it, within its bound (#691). */
   readonly availability: Pick<AvailabilityWatcher, "check">;
   /** The environment's activity now: idle, busy with why, or draining. */
@@ -168,9 +170,11 @@ export interface UpdateCoordinator {
   follow(reading: ChannelReading, settings: ChannelSettings): Promise<StagingFailure | null>;
   /**
    * `updates.settings.set` changes the settings from `before` to `after` in
-   * `context`'s command: a waiting update the channel called for that they
-   * no longer call for (auto-update turned off, the channel changed, a pin
-   * naming another version) is withdrawn in the same transaction.
+   * `context`'s command: a waiting update the channel or the pin called for
+   * that they no longer call for is withdrawn in the same transaction. The
+   * channel's, once auto-update is turned off, the channel changed or a pin
+   * names another version; the pin's, once the pin changed and does not
+   * name its version (unpinned, or pinned to another, #480).
    */
   settingsChanging(before: ChannelSettings, after: ChannelSettings, context: CommandContext): void;
   /**
@@ -641,9 +645,17 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
       armCap();
     });
 
-  /** Whether a settings change from `before` to `after` stops calling for the channel's waiting `update`. */
-  const settingsWithdraw = (update: Update, before: ChannelSettings, after: ChannelSettings): boolean =>
-    !after.autoUpdate || after.channel !== before.channel || (after.pinnedVersion !== null && after.pinnedVersion !== update.toVersion);
+  /**
+   * Whether a settings change from `before` to `after` stops calling for the
+   * waiting `update` the channel or the pin called for. A pin calls for its
+   * update while it stays: a stepping stone to it is below the version it names.
+   */
+  const settingsWithdraw = (update: Update, before: ChannelSettings, after: ChannelSettings): boolean => {
+    const pinNamesIt = after.pinnedVersion === update.toVersion;
+    if (update.source === "pin") return after.pinnedVersion !== before.pinnedVersion && !pinNamesIt;
+    if (update.source !== "channel") return false;
+    return !after.autoUpdate || after.channel !== before.channel || (after.pinnedVersion !== null && !pinNamesIt);
+  };
 
   /** Why the update that is pending is past its cap: due to drain at its `deferUntil`, it has not switched by the end of the drain's own cap. */
   const pastCap = (): string | undefined => {
@@ -745,7 +757,11 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
 
     async channelContext() {
       const versions = launcher.present() ? await launcher.request({ type: "versions?" }) : undefined;
-      return { launcherProtocol: versions?.type === "versions" ? versions.launcherProtocol : null, failedVersions: readUpdateHistory(log).outcomes.failedVersions };
+      return {
+        launcherProtocol: versions?.type === "versions" ? versions.launcherProtocol : null,
+        ...(versions?.type === "versions" && versions.failedHandoverVersion !== undefined ? { failedHandoverVersion: versions.failedHandoverVersion } : {}),
+        failedVersions: readUpdateHistory(log).outcomes.failedVersions,
+      };
     },
 
     async follow(reading, settings) {
@@ -768,7 +784,7 @@ export const createUpdateCoordinator = (options: UpdateCoordinatorOptions): Upda
     },
 
     settingsChanging(before, after, context) {
-      if (held.state !== "waiting" || held.update.source !== "channel" || !settingsWithdraw(held.update, before, after)) return;
+      if (held.state !== "waiting" || !settingsWithdraw(held.update, before, after)) return;
       const { update } = held;
       log.append(stream, [cancelledEvent(update, "settings")], { tx: context.tx, actor: context.actor, commandId: context.commandId });
       withdrawOnCommit(update, context);

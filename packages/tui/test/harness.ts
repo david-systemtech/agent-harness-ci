@@ -3,18 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cloneElement, createElement, type ReactElement } from "react";
 import { render } from "ink-testing-library";
-import { createRuntime, writable, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
+import { createRuntime, writable, type AttentionNotification, type GrantReader, type Runtime, type Writable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, runtimeSpeaking, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
-import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
+import { FAKE_HARNESS_VERSION, flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { LadderName } from "@agent-harness/theme";
 import { App, type AppProps, type DiffFilter, type OpenedFile, type ScreenFlags, type TerminalClipboard } from "../src/app.js";
-import type { AttentionNotice, TerminalChrome } from "../src/attention/chrome.js";
+import type { TerminalChrome } from "../src/attention/chrome.js";
 import type { ExternalEditResult } from "../src/composer/external-editor.js";
 import { FRAME_MS } from "../src/frames.js";
 import { DEFAULT_KEYMAP, keybindingsFor, type Keymap } from "../src/keys.js";
 import type { LocalService, ServiceOutcome } from "../src/platform/services.js";
 import type { Presentation } from "../src/presentation.js";
 import { createRuntimeHost, type RuntimeHost } from "../src/runtime-host.js";
+import { colourDepth } from "../src/theme/colours.js";
 import type { Fault } from "../src/view.js";
 
 export { scriptedWorld, type Script, type ScriptedEnvironment, type EnvironmentHandle } from "@agent-harness/client-runtime/testing/scripted-environment";
@@ -89,14 +91,14 @@ export interface RecordedChrome extends TerminalChrome {
   /** Every title set, in order. */
   readonly titles: string[];
   /** Every notification asked for, in order: the bell or OSC notification it would be. */
-  readonly notices: AttentionNotice[];
+  readonly notices: AttentionNotification[];
   /** How many times the title was handed back. */
   cleared(): number;
 }
 
 export const recordedChrome = (): RecordedChrome => {
   const titles: string[] = [];
-  const notices: AttentionNotice[] = [];
+  const notices: AttentionNotification[] = [];
   let cleared = 0;
   return {
     titles,
@@ -193,6 +195,8 @@ export interface RenderOptions {
   readonly notes?: readonly string[];
   /** The protocol version the runtime speaks, to be the newer side of a mismatch; preset this build's. */
   readonly protocolVersion?: number;
+  /** This client's version: preset the one every scripted environment runs (`FAKE_HARNESS_VERSION`), so no environment is offered it unasked. */
+  readonly version?: string;
   /** The state directory the history, snippets and `@` memory live in; preset a fresh temporary one, removed on unmount. */
   readonly stateDir?: string;
   /** Where `/attach` and `/export` resolve a relative path; preset the state directory. */
@@ -201,10 +205,16 @@ export interface RenderOptions {
   readonly clipboard?: FakeClipboard;
   /** Ctrl+G's editor; preset one that hands the text back with " (edited)" after it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** A routine's editor (`/routines`); preset one that abandons every edit, so a test that edits says what is saved. */
+  readonly editRoutine?: (yaml: string) => Promise<ExternalEditResult>;
   /** The user's diff filter; preset none, so a diff is drawn as the terminal UI colours one. */
   readonly diffFilter?: DiffFilter;
   /** The client-local presentation (the rail's folds), to launch again on another app's; preset, a fresh one in memory. */
   readonly presentation?: Presentation;
+  /** The variables the terminal UI reads its colour depth from (`COLORTERM`, `AGENT_HARNESS_TUI_BACKGROUND`); preset none, so the sixteen alone. */
+  readonly env?: NodeJS.ProcessEnv;
+  /** What the terminal answers the background colour query with, light or dark; preset no answer. */
+  readonly ground?: LadderName;
 }
 
 export interface RenderedApp {
@@ -289,7 +299,8 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   // Like the terminal's own platform, the harness always reads a grant: the local environment's, or no grant file at all.
   const grant = world.grant ?? NO_GRANT_FILE;
   const platform =
-    options.platform ?? inMemoryPlatform({ clock, kind: "tui", label: "seth@desk:pts/3", fetch: world.fetch, webSocket: world.webSocket, grant });
+    options.platform ??
+    inMemoryPlatform({ clock, kind: "tui", label: "seth@desk:pts/3", version: options.version ?? FAKE_HARNESS_VERSION, fetch: world.fetch, webSocket: world.webSocket, grant });
   const onPlatform: InMemoryPlatform = options.platform ? { ...platform, fetch: world.fetch, webSocket: world.webSocket, grant } : platform;
   const make = (): Runtime =>
     options.protocolVersion === undefined ? createRuntime(onPlatform) : runtimeSpeaking(onPlatform, options.protocolVersion);
@@ -309,6 +320,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   let commandIds = 0;
   let sessionIds = 0;
   let terminalIds = 0;
+  let routineIds = 0;
   const opened: OpenedFile[] = [];
   const faults = writable<readonly Fault[]>([]);
   const made = options.stateDir === undefined ? mkdtempSync(join(tmpdir(), "agent-harness-tui-state-")) : undefined;
@@ -329,6 +341,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     faults,
     size: options.size ?? SIZE,
     newCommandId: () => `0199ee00-0000-7000-8000-${String(++commandIds).padStart(12, "0")}`,
+    version: onPlatform.client.version,
     newSessionId: () => `0199ab00-0000-4000-8000-${String(++sessionIds).padStart(12, "0")}`,
     newTerminalId: () => `7e000000-0000-4000-8000-${String(++terminalIds).padStart(12, "0")}`,
     openFile: async (file: OpenedFile) => {
@@ -341,7 +354,10 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
     clipboard,
     chrome,
     editText: options.editText ?? (async (text: string) => ({ ok: true, text: `${text} (edited)` })),
+    editRoutine: options.editRoutine ?? (async () => ({ ok: false, reason: "no editor in this test" })),
+    newRoutineId: () => `0199cc00-0000-4000-8000-${String(++routineIds).padStart(12, "0")}`,
     ...(options.presentation && { presentation: options.presentation }),
+    depth: await colourDepth(options.env ?? {}, async () => options.ground),
   });
   const cleanup = () => {
     if (made !== undefined) rmSync(made, { recursive: true, force: true });

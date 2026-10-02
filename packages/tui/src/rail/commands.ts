@@ -10,7 +10,8 @@ import type { KeyActionId } from "@agent-harness/contracts";
  * search, the workspace and the restore pickers (a deleted session is in no
  * hand, so `/restore` lists what each environment deleted). What follows the
  * name is taken whole, spaces kept, so a title or a group's name may have
- * several words.
+ * several words. A form typed wrong says the client runtime's usage line
+ * (`organiseUsage`), which the window's session pane says too (#753).
  */
 
 export const RAIL_KEYS = [
@@ -32,6 +33,8 @@ export const RAIL_KEYS = [
   "rail.group",
   "rail.moveUp",
   "rail.moveDown",
+  "rail.renameGroup",
+  "rail.deleteGroup",
 ] as const satisfies readonly KeyActionId[];
 export type RailKey = (typeof RAIL_KEYS)[number];
 
@@ -45,19 +48,3 @@ export interface RailCommand {
 }
 
 export const isRailCommand = (name: string): name is RailCommandName => (RAIL_COMMANDS as readonly string[]).includes(name);
-
-/** The usage line when `text` is wrong for `name`, else undefined. */
-export const railUsage = (command: RailCommand): string | undefined => {
-  switch (command.name) {
-    case "archive":
-    case "pin":
-    case "settle":
-      return command.text === "" ? undefined : `Usage: /${command.name}`;
-    case "title":
-      return command.text === "" ? "Usage: /title <name>" : undefined;
-    case "tag":
-      return command.text === "" ? "Usage: /tag <tag>" : undefined;
-    default:
-      return undefined;
-  }
-};

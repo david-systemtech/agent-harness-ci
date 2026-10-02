@@ -1,6 +1,6 @@
 import {
   KEY_MANAGER_METHOD_WORDS,
-  caWords,
+  asksAddress,
   credentialOf,
   credentialTyped,
   removeConnection,
@@ -15,7 +15,7 @@ import { useState, type FormEvent } from "react";
 import { Button, Dialog, DialogClose, DialogContent, Field, Input, Select } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { CredentialFields, NO_CREDENTIAL } from "./add-connection.js";
-import { CertificateCheck } from "./certificate-check.js";
+import { CaChoice } from "./certificate-check.js";
 
 /** What every dialog of a card is given: the connection, where it is, and how to close it and say what it did in the pane. */
 export interface ConnectionDialogProps {
@@ -94,9 +94,10 @@ export const SignInAgain = ({ environmentId, connection, close, say, again }: Co
 };
 
 /**
- * Edit (`keyManagers.connections.update`): the label, the address, the token
- * role and the CA, pinned from the certificate the address presents once a
- * person trusts it, or unpinned. Save sends only what changed; a new address
+ * Edit (`keyManagers.connections.update`): the label, the address (never
+ * 1Password's, the account URL its token names, #1118), the token role and
+ * the CA, pinned from the certificate the address presents once a person
+ * trusts it, or unpinned. Save sends only what changed; a new address
  * or CA is signed in against by the environment first, and a refusal stays
  * in the form in one line.
  */
@@ -106,7 +107,6 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
   const [address, setAddress] = useState(connection.address);
   const [tokenRole, setTokenRole] = useState(connection.tokenRole ?? "");
   const [ca, setCa] = useState<string | null>(connection.ca);
-  const [checking, setChecking] = useState(false);
   const [line, setLine] = useState<string | undefined>(undefined);
   const [sending, setSending] = useState(false);
   const openBao = connection.provider === "openbao";
@@ -138,24 +138,17 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
           <Field label="Label">
             <Input value={label} onChange={(event) => setLabel(event.target.value)} />
           </Field>
-          <Field label="Address">
-            <Input value={address} onChange={(event) => setAddress(event.target.value)} />
-          </Field>
+          {asksAddress(connection.provider) && (
+            <Field label="Address">
+              <Input value={address} onChange={(event) => setAddress(event.target.value)} />
+            </Field>
+          )}
           {openBao && (
             <>
               <Field label="Token role (optional)">
                 <Input value={tokenRole} onChange={(event) => setTokenRole(event.target.value)} />
               </Field>
-              <div className="flex flex-col gap-1 text-sm">
-                <span className="text-ink">CA</span>
-                <span className="text-ink-muted">{caWords({ provider: connection.provider, ca })}</span>
-                <div className="flex gap-2">
-                  <Button disabled={!address.trim().startsWith("https://")} onClick={() => setChecking(true)}>
-                    Read its certificate
-                  </Button>
-                  {ca !== null && <Button onClick={() => setCa(null)}>Unpin the CA</Button>}
-                </div>
-              </div>
+              <CaChoice environmentId={environmentId} address={address} ca={ca} choose={setCa} />
             </>
           )}
           {line !== undefined && <p className="text-sm text-signal">{line}</p>}
@@ -166,7 +159,6 @@ export const EditConnection = ({ environmentId, connection, close, say }: Connec
             </Button>
           </div>
         </form>
-        {checking && <CertificateCheck environmentId={environmentId} address={address.trim()} trust={setCa} close={() => setChecking(false)} />}
       </DialogContent>
     </Dialog>
   );

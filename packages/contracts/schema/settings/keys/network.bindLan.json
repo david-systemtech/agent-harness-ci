@@ -25,5 +25,5 @@
       "type": "null"
     }
   ],
-  "description": "The LAN address the environment binds beside loopback from its next start, or null for none (off, the preset). It must be an address the machine holds, one environment.status lists as a LAN address it could bind; a start asked for one it does not hold fails, saying so. Anyone on that network could try to reach the environment; it still needs a paired client."
+  "description": "The LAN address the environment binds beside loopback from its next start, or null for none (off, the preset). It must be an address the machine holds, one environment.status lists as a LAN address it could bind; a start that finds the machine does not hold it binds loopback and the tailnet without it, saying so on standard error, and the Your machines step needs attention naming it. Anyone on that network could try to reach the environment; it still needs a paired client."
 }

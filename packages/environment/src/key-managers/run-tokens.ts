@@ -1,12 +1,17 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { KeyManagerConnectionRecord } from "@agent-harness/contracts";
 import type { SuppliedVariables } from "../adapter/contract.js";
 import { holderName, type ProcessEnvironmentScope, type ProcessEnvironmentSupplier } from "../adapter/process-environment.js";
 import type { ScrubRegistry, ScrubRelease } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
+import type { BackgroundWork } from "./background.js";
 import type { MintingLogin } from "./logins.js";
-import { openBaoBlock } from "./openbao-block.js";
+import { bitwardenHolderBlock } from "./bitwarden-block.js";
+import { dopplerBlock } from "./doppler-block.js";
+import { onePasswordBlock } from "./onepassword-block.js";
+import { OPENBAO_TOKEN_HELPER_SCRIPT, openBaoBlock, openBaoConfiguration } from "./openbao-block.js";
 import type { ConnectionProvider, SignInTarget } from "./provider.js";
 
 /**
@@ -18,10 +23,15 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  * starts through the same call) is given the injecting connections' blocks
  * through.
  *
- * - **What is injected**: each injecting OpenBao connection's block
- *   (`openbao-block.ts`), at most one per provider (the connections' rule);
- *   the other providers' blocks join with their tickets (#377 to #379).
- *   With none, nothing is supplied and the key is empty.
+ * - **What is injected**: each injecting OpenBao, Doppler, 1Password or
+ *   Bitwarden connection's block, at most one per provider. Doppler,
+ *   1Password and Bitwarden use the kept token as it is, each with a private
+ *   0700 folder of the holder's own deleted at holder stop, which it supplies
+ *   as the holder's to write, so a contained run's `doppler` can write its
+ *   configuration and fallback there (#1119), `op` its configuration
+ *   (#1126), and `bws` its state file, beside the configuration naming the
+ *   server and that folder (#1141). With none, nothing is supplied and the
+ *   key is empty.
  * - **The key** names, per injected connection, its id, its credential
  *   generation and its status, and while run tokens are its login's
  *   children (no token role) its login generation (#369), never a token: a
@@ -50,10 +60,13 @@ import type { ConnectionProvider, SignInTarget } from "./provider.js";
  *   five seconds, on the environment's clock, for a connection still
  *   signing in, then goes on as it stands. A mint that fails is logged,
  *   scrubbed, and the holder gets an empty token too.
- * - **The configuration** both CLIs are pointed at is an empty file under
- *   the data directory's key-manager CLI directory, written again at each
- *   spawn, which the denylist's data-directory preset exempts so a
- *   contained run's CLI can read it.
+ * - **The configuration** both CLIs are pointed at is a file under the data
+ *   directory's key-manager CLI directory naming the harness's token helper
+ *   beside it, which answers no token, so an empty token never falls back to
+ *   `~/.vault-token` (#716). Both are written again at each spawn, each
+ *   through a temporary renamed over it, so a CLI reading one meanwhile
+ *   never finds it cut short; the denylist's data-directory preset exempts
+ *   the directory, so a contained run's CLI can read and run them.
  */
 
 /** The name the key managers' supplier registers under. */
@@ -74,8 +87,14 @@ export const RUN_TOKEN_DISPLAY_NAME = "agent-harness";
 /** The data directory's key-manager CLI directory, which the denylist's data-directory preset exempts. */
 export const KEY_MANAGER_CLI_DIRECTORY = "key-manager-cli";
 
-/** The harness-owned empty configuration `BAO_CONFIG_PATH` and `VAULT_CONFIG_PATH` name, in the key-manager CLI directory. */
+/** The harness-owned configuration `BAO_CONFIG_PATH` and `VAULT_CONFIG_PATH` name, in the key-manager CLI directory. */
 export const OPENBAO_CONFIG_FILE = "openbao.hcl";
+
+/** The harness's token helper the configuration names, beside it (#716). */
+export const OPENBAO_TOKEN_HELPER_FILE = "openbao-token-helper";
+
+/** What each holder's 1Password configuration directory in the key-manager CLI directory is named from: `op-` and a random suffix (#378). */
+export const ONEPASSWORD_CONFIG_PREFIX = "op-";
 
 /** A connection that injects, as the supplier reads it: its record as it stands, its credential generation, and its login generation (#369). */
 export interface InjectingConnection {
@@ -102,6 +121,8 @@ export interface RunTokensOptions {
   readonly cliDirectory: string;
   /** How long one call to a key manager may take, on the wall clock. */
   readonly budgetMs: number;
+  /** Where each renewal and revocation runs, off any request (#745). */
+  readonly background: BackgroundWork;
 }
 
 export interface RunTokens {
@@ -128,29 +149,73 @@ interface HeldRunToken {
 
 const NOTHING: SuppliedVariables = { variables: {}, release: () => undefined };
 
+/** Writes `text` to `path` through a temporary beside it renamed over it, so a reader meanwhile finds the old text or the new, never a file cut short. */
+const replaceFile = async (path: string, text: string, mode: number): Promise<void> => {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, text, { mode });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+};
+
 export const createRunTokens = (options: RunTokensOptions): RunTokens => {
-  const { source, clock, scrub, budgetMs } = options;
+  const { source, clock, scrub, budgetMs, background } = options;
   const held = new Set<HeldRunToken>();
+  /** The holders' own CLI configuration directories (Doppler's and 1Password's), each with its token's scrub release: deleted at the holder's release or the close. */
+  const directories = new Map<string, ScrubRelease>();
+  const removeDirectory = (directory: string): void => {
+    const unregister = directories.get(directory);
+    if (unregister === undefined) return;
+    directories.delete(directory);
+    unregister();
+    background.run(rm(directory, { recursive: true, force: true }).catch((error: unknown) => console.error("Deleting a key-manager CLI's holder folder failed:", error)));
+  };
+  /**
+   * A 0700 folder of the holder's own under the CLI directory, deleted at its
+   * release, with the connection as it stands once the folder is made; null,
+   * the folder deleted, for a connection no longer injecting or an
+   * environment closed meanwhile.
+   */
+  const holderFolder = async (connectionId: string, prefix: string) => {
+    await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
+    const directory = await mkdtemp(join(options.cliDirectory, prefix));
+    const current = source.readable(connectionId);
+    directories.set(directory, () => {});
+    if (current === null || !current.record.injects || closed) {
+      removeDirectory(directory);
+      return null;
+    }
+    return { directory, current };
+  };
   /** How many times each connection's run tokens were all revoked (its sign-outs and removal): a mint under way across one is revoked as it lands. */
   const revocations = new Map<string, number>();
   let closed = false;
 
   const revocationsOf = (connectionId: string): number => revocations.get(connectionId) ?? 0;
 
-  /** The injecting connections this supplier serves: OpenBao's. */
-  const served = (): InjectingConnection[] => source.injecting().filter(({ record }) => record.provider === "openbao");
+  /** The injecting connections with a supported environment block. */
+  const served = (): InjectingConnection[] =>
+    source.injecting().filter(({ record }) => record.provider === "openbao" || record.provider === "doppler" || record.provider === "onepassword" || record.provider === "bitwarden");
 
   /** How long a run token of `login` may live from now: an hour, or for its child what is left of the login's maximum life if that is known and shorter. */
   const lifeOf = (login: MintingLogin, child: boolean): number => Math.min(RUN_TOKEN_TTL_SECONDS, (child ? login.lifeLeft() : null) ?? Number.POSITIVE_INFINITY);
 
-  /** Writes the harness-owned empty configuration, and answers its path: a CLI reads a missing one as empty too, so a failure is only logged. */
+  /**
+   * Writes the harness-owned configuration, then the token helper it names, and answers the configuration's path; a failure is
+   * logged. The configuration goes first: one naming a helper that is missing has the CLI refuse, where a missing configuration
+   * would have it read `~/.vault-token`.
+   */
   const configuration = async (): Promise<string> => {
     const path = join(options.cliDirectory, OPENBAO_CONFIG_FILE);
+    const helper = join(options.cliDirectory, OPENBAO_TOKEN_HELPER_FILE);
     try {
       await mkdir(options.cliDirectory, { recursive: true, mode: 0o700 });
-      await writeFile(path, "", { mode: 0o600 });
+      await replaceFile(path, openBaoConfiguration(helper), 0o600);
+      await replaceFile(helper, OPENBAO_TOKEN_HELPER_SCRIPT, 0o700);
     } catch (error) {
-      console.error(`Writing the key-manager CLIs' empty configuration ${path} failed:`, error);
+      console.error(`Writing the key-manager CLIs' configuration ${path} and token helper failed:`, error);
     }
     return path;
   };
@@ -191,7 +256,7 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
         registered();
         use();
       },
-      renewal: clock.setInterval(() => void renew(run).catch((error: unknown) => console.error("Renewing a run token failed:", error)), RUN_TOKEN_RENEWAL_MS),
+      renewal: clock.setInterval(() => background.run(renew(run).catch((error: unknown) => console.error("Renewing a run token failed:", error))), RUN_TOKEN_RENEWAL_MS),
       revoked: false,
     };
     held.add(run);
@@ -204,9 +269,11 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     held.delete(run);
     if (run.revoked) return run.unregister();
     run.revoked = true;
-    void revoke(run)
-      .catch((error: unknown) => console.error("Revoking a run token failed:", error))
-      .finally(run.unregister);
+    background.run(
+      revoke(run)
+        .catch((error: unknown) => console.error("Revoking a run token failed:", error))
+        .finally(run.unregister),
+    );
   };
 
   /** Waits up to five seconds on the environment's clock for the connection's sign-in under way, if one is. */
@@ -265,6 +332,42 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     await waited;
     const now = source.readable(connectionId);
     if (now === null) return null;
+    if (now.record.provider === "onepassword") {
+      const folder = await holderFolder(connectionId, ONEPASSWORD_CONFIG_PREFIX);
+      if (folder === null) return null;
+      const { directory, current } = folder;
+      const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
+      directories.set(directory, token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` }));
+      // op writes its configuration there, so a contained run's commands may write it too (#1126).
+      return { variables: onePasswordBlock({ token, configDirectory: directory }), writable: [directory], release: () => removeDirectory(directory) };
+    }
+    if (now.record.provider === "bitwarden") {
+      const folder = await holderFolder(connectionId, "bitwarden-");
+      if (folder === null) return null;
+      const { directory, current } = folder;
+      const login = current.record.status.kind === "signed-in" ? current.login : null;
+      const use = login?.use();
+      const release = () => {
+        use?.();
+        removeDirectory(directory);
+      };
+      const variables = await bitwardenHolderBlock(directory, current.record.address, login?.token ?? "").catch((error: unknown) => {
+        release();
+        throw error;
+      });
+      // bws keeps its state file there from 1.0.0, so a contained run's commands may write it too (#1141).
+      return { variables, writable: [directory], release };
+    }
+    if (now.record.provider === "doppler") {
+      const folder = await holderFolder(connectionId, "doppler-");
+      if (folder === null) return null;
+      const { directory, current } = folder;
+      const token = current.record.status.kind === "signed-in" ? current.login?.token ?? "" : "";
+      const unregister = token === "" ? () => {} : scrub.register(token, { owner: `key-manager:${connectionId}:holder` });
+      directories.set(directory, unregister);
+      // The CLI writes its configuration and fallback there, so a contained run's commands may write it too (#1119).
+      return { variables: dopplerBlock(current.record.address, token, directory), writable: [directory], release: () => removeDirectory(directory) };
+    }
     const run = await mintFor(now.record, now.login, scope);
     return {
       variables: openBaoBlock({ address: now.record.address, ca: now.record.ca, token: run?.token ?? "", configPath }),
@@ -280,9 +383,14 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
     key() {
       const injecting = served();
       if (injecting.length === 0) return "";
-      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it.
+      // A child dies with its login, so a process whose login was replaced is replaced at its next run; a token role's may outlive it, and 1Password's token is the connection's own.
       return JSON.stringify(
-        injecting.map(({ record, generation, loginGeneration }) => ({ id: record.id, generation, ...(record.tokenRole === null && { login: loginGeneration }), status: record.status.kind })),
+        injecting.map(({ record, generation, loginGeneration }) => ({
+          id: record.id,
+          generation,
+          ...(record.provider === "openbao" && record.tokenRole === null && { login: loginGeneration }),
+          status: record.status.kind,
+        })),
       );
     },
 
@@ -291,12 +399,13 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
       if (injecting.length === 0) return NOTHING;
       // The five seconds run from the spawn: each wait starts before anything is awaited.
       const waits = injecting.map(({ record }) => waitForSignIn(record.id, scope));
-      const configPath = await configuration();
+      const configPath = injecting.some(({ record }) => record.provider === "openbao") ? await configuration() : "";
       const blocks = (await Promise.all(injecting.map(({ record }, index) => blockFor(record.id, waits[index] ?? Promise.resolve(), scope, configPath)))).filter(
         (given) => given !== null,
       );
       return {
         variables: Object.assign({}, ...blocks.map((given) => given.variables)) as Record<string, string>,
+        writable: blocks.flatMap((given) => given.writable ?? []),
         release: () => {
           for (const given of blocks) given.release();
         },
@@ -313,12 +422,13 @@ export const createRunTokens = (options: RunTokensOptions): RunTokens => {
         if (run.connectionId !== connectionId || run.revoked) continue;
         run.revoked = true;
         run.renewal.cancel();
-        void revoke(run).catch((error: unknown) => console.error("Revoking a run token failed:", error));
+        background.run(revoke(run).catch((error: unknown) => console.error("Revoking a run token failed:", error)));
       }
     },
 
     close() {
       closed = true;
+      for (const directory of directories.keys()) removeDirectory(directory);
       for (const run of held) {
         run.renewal.cancel();
         run.unregister();

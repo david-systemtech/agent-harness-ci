@@ -234,6 +234,7 @@ describe("a deleted session", () => {
     "runs.withdraw": { messageId },
     "providers.processes.stop": { sessionId },
     "terminals.open": { id: randomUUID(), sessionId },
+    "terminals.run": { id: randomUUID(), sessionId, command: "pwd" },
     // A deleted session is no source to fork, and has nothing to rewind (#137).
     "sessions.fork": { sessionId, id: randomUUID() },
     "sessions.rewind": { sessionId, messageId: randomUUID() },
@@ -247,6 +248,8 @@ describe("a deleted session", () => {
     "instructions.import": { sessionId, id: randomUUID(), path: "instruction.md" },
     // A deleted session has no trust key to decide (#500).
     "trust.decide": { sessionId, decision: "trusted" },
+    // Session bank pins reject the deleted session before resolving its folder.
+    "banks.pin": { sessionId, pointer: "sample:personal/homelab/", pinned: true },
   });
 
   /**
@@ -265,7 +268,10 @@ describe("a deleted session", () => {
     "instructions.preview": { sessionId },
     "forge.pullRequests.refresh": { sessionId },
     "skills.get": { sessionId },
+    "skills.readiness": { sessionId },
     "trust.get": { sessionId },
+    "commands.list": { sessionId },
+    "banks.drafts.list": { sessionId },
   });
 
   /** Whether a command's params name a session, a run or a message. */
@@ -637,7 +643,7 @@ describe("sessions.subscribeSession", () => {
       type: "snapshot",
       subscription,
       sequence: head,
-      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" },
+      payload: { sequence: head, summary: freshSummary(id, { title: "Watched", titleSource: "user" }), runs: [], items: [], parkedPrompts: [], rewinds: [], suggestion: null, instructions: "" },
     });
     expect(await client.next((f) => "subscription" in f && f.subscription === subscription)).toEqual({
       type: "synchronized",

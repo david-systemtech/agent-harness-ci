@@ -1,11 +1,15 @@
+import { resolveSlash, type PreparedSlash, type SlashScope } from "./slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import {
   ContractError,
+  EMPTY_RUN_SKILL_SET,
   RunInstructionsComposedPayload,
   SESSION_STREAM_KIND,
   lowerMode,
   type AdapterCapabilityFlag,
+  type CommandsListEntry,
   type ContainmentLevel,
+  type InterruptCause,
   type IssueInput,
   type JsonObject,
   type MessageDeliveredPayload,
@@ -27,6 +31,7 @@ import type { HostAccounts } from "../accounts/account-service.js";
 import { formatActor, type EventEnvelope, type EventLog, type EventInput } from "../event-log/event-log.js";
 import { runContainment, temporaryContainmentDirectories, type ContainmentDirectories } from "../permissions/containment-directories.js";
 import { createToolGate, type GatedRun } from "../permissions/gate.js";
+import { bankContainment, bankWriteRule } from "../banks/attachments.js";
 import {
   DUPLICATE_PROMPT_MESSAGE,
   RUN_ENDED_MESSAGE,
@@ -49,11 +54,13 @@ import {
   latestRun,
   messageCeilings,
   providerHeld,
+  providerQueue,
   readRun,
   readSessionFacts,
   type QueuedMessage,
 } from "../runs/run-reads.js";
 import {
+  carriedAlwaysOn,
   decideStart,
   originOfActor,
   policyResolvedEvent,
@@ -65,7 +72,7 @@ import {
   type StartFacts,
 } from "../runs/run-decider.js";
 import type { Clock } from "../serve/clock.js";
-import { createRunRegistry, type MemoryRunRegistry } from "../serve/run-registry.js";
+import { createRunRegistry, type MemoryRunRegistry, type RunAdmission } from "../serve/run-registry.js";
 import { appendRunEvents } from "../sessions/activity-companions.js";
 import type { ProviderTranscripts, TranscriptDeleteAnswer } from "../sessions/deletion.js";
 import type { RunParameters, RunParametersCheck, RunParametersVerdict } from "../sessions/run-parameters.js";
@@ -74,6 +81,7 @@ import { sessionStream } from "../sessions/streams.js";
 import { runContinuation } from "../sessions/fork-rewind.js";
 import { recordProviderTitle } from "../sessions/titles.js";
 import { capability, unsupported } from "./capabilities.js";
+import { commandsListing } from "./commands-listing.js";
 import type {
   AccountRef,
   Adapter,
@@ -85,7 +93,6 @@ import type {
   PromptDecision,
   PromptMessage,
   PromptRequest,
-  ProviderCommand,
   ProviderTurn,
   RunContainment,
   RunContext,
@@ -97,9 +104,12 @@ import { composeInstructions, instructionsDigest } from "../instructions/compose
 import type { AttachmentStage } from "./attachment-stage.js";
 import { createProcessPool } from "./pool.js";
 import { createProcessEnvironments, runOverrideOf, type InjectionDecision, type ProcessEnvironmentScope, type ProcessEnvironments } from "./process-environment.js";
+import type { ToolGate, TranscriptEvent } from "./contract.js";
 import { PromptClosed, WithdrawUnsupported } from "./contract.js";
 import { createAdapterRegistry, type AdapterRegistry } from "./registry.js";
-import { createScopedAppend, type ScopedAppend } from "./scoped-append.js";
+import { createScopedAppend } from "./scoped-append.js";
+import { createDeltaAppend } from "./delta-scrub.js";
+import { createScrubRegistry, type ScrubRegistry } from "../scrub/registry.js";
 import {
   holdNothing,
   noAutoAnswer,
@@ -197,6 +207,8 @@ const NOTHING_TO_PROJECT: RunDenylist = { paths: [], exempt: [], commandPatterns
 export interface AdapterHostOptions {
   readonly log: EventLog;
   readonly clock: Clock;
+  /** The environment's shared registry, consulted before assistant deltas reach the log. */
+  readonly scrub?: ScrubRegistry;
   /** The run registry the lifecycle reads; preset: a fresh one on `clock`. */
   readonly runs?: MemoryRunRegistry;
   readonly adapters?: readonly Adapter[];
@@ -206,6 +218,8 @@ export interface AdapterHostOptions {
    * which is the environment's default.
    */
   readonly accounts: HostAccounts;
+  /** Refreshes scoped banks within their shared budget before any run instructions are composed. */
+  readonly beforeRun?: (scope: { readonly accountId: string; readonly repositoryIdentity: string | null }) => Promise<void>;
   readonly toolServers?: ToolServerFactory;
   /** Composes each run's standing instructions, and `instructions.preview`'s; preset: the composer with no layer filled (`instructions/composer.ts`). */
   readonly instructions?: InstructionComposer;
@@ -216,6 +230,14 @@ export interface AdapterHostOptions {
    * `instructions.preview`'s. Preset: every repository undecided.
    */
   readonly trust?: TrustSeam;
+  /**
+   * The repository identity a session made in the workspace at `path` gets
+   * (workspace-picker spec, "Repository identity"), which the preview scope
+   * of a session not yet made reads, for `instructions.preview` and
+   * `skills.readiness` (#1072): the environment's resolver's. Preset: none
+   * for any path.
+   */
+  readonly identityAt?: (path: string) => Promise<string | null>;
   /**
    * The skill set each run is handed and each commands listing is made
    * under (#495), resolved as the run launches, before its instructions are
@@ -232,6 +254,8 @@ export interface AdapterHostOptions {
   readonly autoAnswer?: PromptAutoAnswer;
   /** The tool gate's rules, asked in order for every call a run's adapter checks (#132); preset: none, every call goes on to the provider. */
   readonly gateRules?: readonly ToolGateRule[];
+  /** Enabled bank checkouts in the run's account and repository scope, attached for reading. Preset: none. */
+  readonly bankCheckouts?: (scope: { readonly accountId: string; readonly repositoryIdentity: string | null }) => readonly string[];
   /**
    * The denylist as a provider projects it onto its own deny rules, read as
    * each unattended run starts (#140; an attended run is handed none).
@@ -276,6 +300,13 @@ export interface AdapterHostOptions {
    * client session is revoked or expired, and such a run is not started.
    */
   readonly ceilingOf: (clientSessionId: string) => Mode | undefined;
+  /**
+   * The skills a routine's firing made the session with (#531): the extra
+   * always-on names a run the environment starts for the routine takes when
+   * the run before it is known only from the log, after a restart. Preset:
+   * none.
+   */
+  readonly routineSkills?: (sessionId: string) => readonly string[];
   /**
    * The idle time of a provider process, in minutes (`providers.processIdleMinutes`),
    * read each time a wait begins. Preset: the setting's preset; the
@@ -332,12 +363,16 @@ export interface AdapterHost {
    * reason `unsupported`, when the adapter cannot.
    */
   subagentTranscript(sessionId: string, agentId: string): Promise<readonly JsonObject[]>;
+  /** The provider's anchor check, or null when its adapter has no stored-history read. */
+  hasHistoryBefore(sessionId: string, providerSessionId: string, messageId: string): Promise<boolean | null>;
   /** Throws `unavailable` while the environment drains: the gate every new run passes. */
-  admit(): void;
+  admit(admission?: RunAdmission): void;
   /** What starting a run on the session for `actor` depends on, read now (inside a command, in its transaction). */
   startFacts(sessionId: string, actor: RunActor): StartFacts;
   /** The session's live run and its adapter's descriptor; null when none is live. */
   live(sessionId: string): LiveRunFacts | null;
+  /** The live run's gate for a browser-discovered address; null with no live run. */
+  gate(sessionId: string): ToolGate | null;
   /**
    * The run the session counts as live, as a start does (`startFacts`): its
    * live run, or, while a turn its provider opened after that run's end waits
@@ -354,7 +389,10 @@ export interface AdapterHost {
    * composed and recorded (`run.instructions.composed`), then through its
    * adapter, its events consumed from there on.
    */
-  launch(run: PlannedRun): void;
+  launch(run: PlannedRun, admission?: RunAdmission): void;
+  /** Prepares slash resolution before message.sent commits, using a live run's set when present. */
+  prepareSlash(target: string | { readonly accountId: string; readonly workspace: Workspace; readonly repositoryIdentity: string | null }): Promise<PreparedSlash>;
+  resolveMessage(text: string, scope: SlashScope): ReturnType<typeof resolveSlash>;
   /**
    * What a run would be handed now (`instructions.preview`): composed as a
    * launch composes it, for a run a client starts, on the session's next run
@@ -365,10 +403,11 @@ export interface AdapterHost {
   previewInstructions(target: InstructionTarget): Promise<ComposedInstructions>;
   /**
    * The scope `previewInstructions` composes for `target`, refused as it is,
-   * with the skill set a run would have resolved (#496): what the
-   * Orientation row renders the block for (#505).
+   * with the skill set a run would have resolved (#496).
    */
   previewScope(target: InstructionTarget): Promise<InstructionScope>;
+  /** The Orientation row and health check's local scope: no skill materialisation or provider process decision. */
+  orientationScope(accountId: string, workspace: Workspace, injection: InjectionDecision): InstructionScope;
   /**
    * Stages on disk the attachments of a message about to be queued, inside
    * the command that queues it and before it answers, so its receipt means
@@ -392,10 +431,13 @@ export interface AdapterHost {
   continueSession(sessionId: string): void;
   /**
    * Interrupts a live run with cancel; the messages its provider still held
-   * come back to the environment's queue. After a read-now on the run it is
-   * the last word: the run ends with cause `user`, and no run of the queue starts.
+   * come back to the environment's queue. Its end's cause is `cause`: `user`,
+   * a person's, unless named; `timeout` for a routine's firing past its
+   * maximum duration (#524). The first interrupt's cause stands. After a
+   * read-now on the run it is the last word: the run ends with its cause,
+   * and no run of the queue starts.
    */
-  interrupt(runId: string): void;
+  interrupt(runId: string, cause?: AskedInterrupt): void;
   /**
    * Reads the session's queue now (ADR 0022, #228), once the command that
    * asked has committed: interrupts its live run with cause `read-now`, takes
@@ -479,11 +521,13 @@ export interface AdapterHost {
   /** Plan usage for an account, with its identity (`planUsage`). */
   usage(accountId: string): Promise<UsageReading>;
   /**
-   * The slash commands for an account and workspace (`commands`), under the
-   * trust and the skill set a run there would have, which the adapter is
-   * handed on every call.
+   * A session's commands listing (`commands`, #503): the skill entries of
+   * the set its next run would have and the provider's own commands, listed
+   * under that set and the session's trust, which the adapter is handed on
+   * every call. A session the environment does not hold, or a deleted one,
+   * is refused `not_found`, and so is an account it does not hold.
    */
-  commands(accountId: string, workspace: Workspace): Promise<readonly ProviderCommand[]>;
+  commands(sessionId: string): Promise<{ readonly accountId: string; readonly entries: readonly CommandsListEntry[] }>;
   /** The adapters' descriptors, one per provider (`providers.list`). */
   providers(): readonly AdapterDescriptor[];
   /** The provider processes (`providers.processes.*`). */
@@ -521,7 +565,7 @@ export const requeuedEvents = (runId: string, messageIds: readonly string[]): Ev
  * and client tools (a completions request's, #138, #139), which the log does
  * not hold, so a run started after a restart carries neither.
  */
-export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions" | "clientTools">;
+export type NextRunBasis = Pick<PlannedRun, "sessionId" | "actor" | "model" | "effort" | "appendedInstructions" | "alwaysOn" | "clientTools">;
 
 /**
  * Who ends a run: its adapter, whose end event is recorded; or the host,
@@ -541,15 +585,19 @@ interface LiveRun {
   readonly descriptor: AdapterDescriptor;
   readonly plan: PlannedRun;
   readonly actor: string;
-  readonly append: ScopedAppend;
+  readonly append: (event: TranscriptEvent) => void;
+  readonly flushDeltas: () => void;
   readonly startedAt: number;
   /** The mode the provider runs it in now: its policy's, until a live change (`setMode`) takes. */
   mode: Mode;
   /** Its containment, as its adapter was handed it and the gate rules under it: its policy's, fixed for the run. */
   readonly containment: RunContainment;
+  readonly bankCheckouts: readonly string[];
   run: AdapterRun | undefined;
   /** Set from its launch until its adapter is asked for it: its instructions are being composed, and no provider process is begun for it. */
   composing: boolean;
+  slash: Promise<SlashScope | null>;
+  resolvedSlash: SlashScope | null;
   /**
    * Set once the host ends it, synchronously and first thing in `finish`,
    * before any await or append, so a second end (the adapter's end racing a
@@ -567,6 +615,8 @@ interface LiveRun {
   unrecorded: boolean;
   running: boolean;
   interrupting: boolean;
+  /** The cause its end records when an interrupt ended it, not a read-now: the first interrupt's (#524). */
+  interruptCause: AskedInterrupt;
   /**
    * The interrupt under way, settled once what the provider reported still
    * queued is back in the environment's queue, or, when the interrupt failed,
@@ -590,6 +640,9 @@ interface LiveRun {
   readonly calls: RunToolCalls;
 }
 
+/** Why the host is asked to interrupt a run: a person (`runs.interrupt`), or a routine's firing past its maximum duration (#524). */
+export type AskedInterrupt = Extract<InterruptCause, "user" | "timeout">;
+
 /** A read-now waiting on its run's interrupt and end (#228). */
 interface ReadNow {
   readonly actor: RunActor;
@@ -599,6 +652,15 @@ interface ReadNow {
 }
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Where a session's next run would go, or a new session's first: its account (null for none), workspace, repository identity and level. */
+interface RunPlace {
+  readonly sessionId: string | null;
+  readonly accountId: string | null;
+  readonly workspace: Workspace;
+  readonly repositoryIdentity: string | null;
+  readonly containment: ContainmentLevel | null;
+}
 
 /**
  * Runs `work` and hands a promise it answers, or a throw, to `onError`; never an unhandled rejection. Answers, when
@@ -624,13 +686,16 @@ const safely = (work: () => unknown, onError: (error: unknown) => void): Promise
 
 export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const { log, clock } = options;
+  const scrub = options.scrub ?? createScrubRegistry();
   const adapters = createAdapterRegistry(options.adapters ?? []);
   const registry = options.runs ?? createRunRegistry({ clock });
   const toolServers = options.toolServers ?? noToolServers;
   const instructions = options.instructions ?? composeInstructions();
   const trustOf = options.trust ?? undecidedTrust;
+  const identityAt = options.identityAt ?? (() => Promise.resolve(null));
   const skillSetOf = options.skillSet ?? noSkillSet;
   const holdGeneration = options.holdGeneration ?? holdNothing;
+  const routineSkills = options.routineSkills ?? (() => []);
   const autoAnswer = options.autoAnswer ?? noAutoAnswer;
   const gateRules = options.gateRules ?? [];
   /**
@@ -639,10 +704,11 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * never blocked by a rule. A read that fails projects nothing, logged:
    * the gate still asks about every call.
    */
-  const runDenylist = (attended: boolean): RunDenylist | null => {
+  const runDenylist = (attended: boolean, readableDirectories: readonly string[]): RunDenylist | null => {
     if (attended) return null;
     try {
-      return options.providerDenylist?.() ?? NOTHING_TO_PROJECT;
+      const denylist = options.providerDenylist?.() ?? NOTHING_TO_PROJECT;
+      return readableDirectories.length === 0 ? denylist : { ...denylist, exempt: [...new Set([...denylist.exempt, ...readableDirectories])] };
     } catch (error) {
       console.error("Reading the denylist for a run's provider rules failed; the run projects none, and the gate still asks about every call:", error);
       return NOTHING_TO_PROJECT;
@@ -738,6 +804,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       if (adapter === undefined) throw new Error(`No adapter serves the provider ${provider}.`);
       return stopOptions === undefined ? adapter.stopProcess(sessionId) : adapter.stopProcess(sessionId, stopOptions);
     },
+    onStopped: (sessionId) => {
+      if (runActive(sessionId) !== null || (adoptions.get(sessionId)?.length ?? 0) > 0) return;
+      safely(
+        () => requeueReported(sessionId, providerQueue(reader, sessionId)),
+        (error) => console.error(`Taking back the stopped process's messages of session ${sessionId} failed; startup recovery tries again:`, error),
+      );
+    },
     onParkedTooLong: (sessionId) => {
       const entry = live.get(sessionId);
       if (entry !== undefined && !entry.ended) finish(entry, { type: "end", reason: "interrupted", cause: "parked" }, { by: "host", stop: "parked" });
@@ -770,7 +843,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const byRunId = (runId: string): LiveRun | undefined => [...live.values()].find((entry) => entry.runId === runId && isLive(entry));
 
   const liveFacts = (entry: LiveRun | undefined): LiveRunFacts | null =>
-    entry === undefined || !isLive(entry) ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy };
+    entry === undefined || !isLive(entry) ? null : { runId: entry.runId, descriptor: entry.descriptor, policy: entry.plan.policy, browser: entry.plan.browser };
 
   const append = (sessionId: string, runId: string, actor: string, events: readonly EventInput[], commandId?: string): void => {
     if (events.length > 0) log.append(sessionStream(sessionId), events, { actor, correlationId: runId, ...(commandId !== undefined && { commandId }) });
@@ -892,7 +965,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     if (pending === null || !pending.interrupted || !pending.ended || pending.started || closing) return;
     pending.started = true;
     // The run the queue would have had after this one, for the caller: its model and effort, the caller's ceiling and each sender's.
-    startFromQueue({ ...entry.plan, actor: pending.actor });
+    startFromQueue({ ...entry.plan, actor: pending.actor, alwaysOn: carriedAlwaysOn(entry.plan, pending.actor) });
   };
 
   /** The run the session counts as live (`AdapterHost.runActive`): a start is `run_active` while there is one. */
@@ -1001,7 +1074,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       runId: entry.runId,
       reason,
       // The host knows it interrupted; an adapter that ends interrupted on its own names its cause, or none.
-      cause: reason === "interrupted" ? (entry.interrupting ? (entry.readNow !== null ? "read-now" : "user") : (full.cause ?? null)) : null,
+      cause: reason === "interrupted" ? (entry.interrupting ? (entry.readNow !== null ? "read-now" : entry.interruptCause) : (full.cause ?? null)) : null,
       error: reason === "error" ? (full.error ?? { message: "The run failed.", code: null }) : null,
       usage: full.usage === undefined || full.usage === null ? null : [...full.usage],
       durationMs: Math.max(0, clock.now().getTime() - entry.startedAt),
@@ -1045,6 +1118,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       });
     let recorded: EventEnvelope | undefined;
     try {
+      try {
+        entry.flushDeltas();
+      } catch (error) {
+        // A failed transcript append must not prevent the run's end from being recorded.
+        console.error(`Flushing assistant deltas for run ${entry.runId} failed:`, error);
+      }
       try {
         recorded = record();
       } catch (first) {
@@ -1267,7 +1346,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   const brokerFor = (sessionId: string): PermissionBroker => ({ request: async (request) => (await requestPrompt(sessionId, "adapter", request)).decision });
 
   /** A live run as the tool gate rules under it. */
-  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment });
+  const gatedRun = (entry: LiveRun): GatedRun => ({ runId: entry.runId, sessionId: entry.sessionId, workspace: entry.plan.workspace.path, containment: entry.containment, readableDirectories: entry.bankCheckouts });
   /**
    * The gate a run is handed (`permissions/gate.ts`): containment's rule, then
    * the environment's (the denylist's, #132), under the session's run live
@@ -1277,7 +1356,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    */
   const gateFor = createToolGate({
     log,
-    rules: gateRules,
+    rules: [bankWriteRule((run) => live.get(run.sessionId)?.bankCheckouts ?? []), ...gateRules],
     ask: (run, kind, detail, signal) =>
       requestPrompt(run.sessionId, "gate", { sessionId: run.sessionId, runId: run.runId, kind, detail, ...(signal !== undefined && { signal }) }),
     liveRunOf: (sessionId) => {
@@ -1291,6 +1370,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),
     adopt: (turn) => adopt(entry, turn),
+    reportSuggestion: ({ runId, suggestion }) => {
+      if (closing) return;
+      const run = latestRun(reader, entry.sessionId);
+      if (run?.runId !== runId || run.state !== "ended") return;
+      if (reader.all<{ reason: string }>("SELECT reason FROM runs WHERE run_id = ?", runId)[0]?.reason !== "completed") return;
+      const session = readSessionFacts(log, reader, entry.sessionId);
+      if (session === null || session.deleted) return;
+      createScopedAppend({ log, sessionId: entry.sessionId, runId, actor: entry.actor })({ type: "run.suggested", payload: { suggestion } });
+    },
     // Checked against the account store's identity for the run's account (#134). The check appends and may run as the
     // environment closes: a throw is logged, never handed back to the adapter or left an unhandled rejection.
     reportIdentity: (identity) =>
@@ -1310,25 +1398,36 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * run, not yet on a process. `composing` while its instructions are
    * composed (`launch`).
    */
-  const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean): LiveRun => {
+  const register = (plan: PlannedRun, launchedWith: readonly PromptMessage[], composing: boolean, admission?: RunAdmission): LiveRun => {
     const { descriptor } = plan.account;
+    const bankCheckouts = options.bankCheckouts?.({ accountId: plan.account.id, repositoryIdentity: plan.repositoryIdentity }) ?? [];
     const actor = formatActor({ kind: "adapter", id: descriptor.provider });
+    const deltas = createDeltaAppend({
+      scrub, clock, runId: plan.runId,
+      append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
+      onError: (error) => finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, { by: "host", stop: "failed" }),
+    });
     const entry: LiveRun = {
       runId: plan.runId,
       sessionId: plan.sessionId,
       descriptor,
       plan,
       actor,
-      append: createScopedAppend({ log, sessionId: plan.sessionId, runId: plan.runId, actor }),
+      append: deltas.append,
+      flushDeltas: deltas.flush,
       startedAt: clock.now().getTime(),
       mode: plan.mode,
-      containment: runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)),
+      containment: bankContainment(runContainment(plan.policy.containment, plan.workspace.path, directories.of(plan.sessionId)), bankCheckouts, plan.workspace.path),
+      bankCheckouts,
       run: undefined,
       composing,
+      slash: Promise.resolve(plan.slash ?? null),
+      resolvedSlash: plan.slash ?? null,
       ended: false,
       unrecorded: false,
       running: false,
       interrupting: false,
+      interruptCause: "user",
       interruption: null,
       readNow: null,
       prompts: new Set(),
@@ -1337,7 +1436,8 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       calls: runToolCalls(reader, plan.runId),
     };
     // Admitted first: a drain that refuses it leaves no live entry behind.
-    registry.start(plan.runId);
+    if (admission === undefined) registry.start(plan.runId);
+    else admission.transfer(plan.runId);
     live.set(plan.sessionId, entry);
     return entry;
   };
@@ -1399,28 +1499,30 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     nativeRoots: run.account.descriptor.nativeSkillRoots,
   });
 
-  /** What a run's instructions are composed for: its session, account, workspace, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
+  /** What a run's instructions are composed for: its session, account, workspace and repository identity, trust and skill set, who started it, its containment level and injection answer, and its account's channel. */
   const instructionScope = (run: {
     readonly sessionId: string | null;
     readonly account: AccountFacts;
     readonly workspace: Workspace;
+    readonly repositoryIdentity: string | null;
     readonly trust: RunTrust;
     readonly skillSet: RunSkillSet;
     readonly origin: RunActorKind;
+    readonly alwaysOn?: readonly string[];
     readonly containment: ContainmentLevel;
     readonly injection: InjectionDecision;
   }): InstructionScope => ({
     sessionId: run.sessionId,
     accountId: run.account.id,
     workspace: run.workspace,
+    repositoryIdentity: run.repositoryIdentity,
     trust: run.trust,
     skillSet: run.skillSet,
     origin: run.origin,
     containment: run.containment,
     injection: run.injection,
     bot: null,
-    // The always-on layer (#507) fills a run's extra names.
-    alwaysOn: [],
+    alwaysOn: run.alwaysOn ?? [],
     channel: run.account.descriptor.instructionChannel,
     nativeProjectInstructions: run.account.descriptor.nativeProjectInstructions,
   });
@@ -1521,12 +1623,26 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
           supplied.release();
         };
         report(release);
-        return { variables: supplied.variables, release };
+        return { variables: supplied.variables, writable: supplied.writable ?? [], release };
       },
     };
   };
 
-  const launch = (plan: PlannedRun): void => {
+  const slashScope = async (account: AccountFacts, workspace: Workspace, trust: RunTrust, skillSet: RunSkillSet, listCommands = true): Promise<SlashScope> => {
+    if (!listCommands) return { accountId: account.id, skillSet, trust, provided: null };
+    if (skillSet.members.length === 0) return { accountId: account.id, skillSet, trust, provided: [] };
+    const held = heldAccount(account.id);
+    const release = skillSet.generation === null ? undefined : holdGeneration(skillSet.generation);
+    try {
+      const provided = !held.adapter.descriptor.commands || held.adapter.commands === undefined
+        ? [] : await held.adapter.commands(held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
+      return { accountId: account.id, skillSet, trust, provided };
+    } finally {
+      release?.();
+    }
+  };
+
+  const launch = (plan: PlannedRun, admission?: RunAdmission): void => {
     const prompt: PromptMessage[] = [
       ...keptAnswers(plan.runId),
       ...plan.prompt.map((message) => {
@@ -1534,14 +1650,23 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return held === undefined || message.attachments.length > 0 ? message : { ...message, attachments: held.attachments };
       }),
     ];
-    const entry = register(plan, prompt, true);
+    const entry = register(plan, prompt, true, admission);
     // One injection answer for the run: what its instructions tell it and what its process is given.
     const injection = processEnvironments.decide(holderOf(plan));
     // Its trust, read once as it launches: its skill set, its instructions and its `trusted` all take it.
-    const trust = trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
+    const trust = plan.slash?.trust ?? trustOf({ workspace: plan.workspace, repositoryIdentity: plan.repositoryIdentity });
     // Its tool servers, built as it launches rather than once it has composed: a message queued while it resolves its skill
     // set and composes (#493, #496) is judged against the tools it is served (a completions caller's own, #139).
-    const servers = toolServers({ sessionId: plan.sessionId, runId: plan.runId, accountId: plan.account.id, workspace: plan.workspace, clientTools: plan.clientTools });
+    const servers = toolServers({
+      sessionId: plan.sessionId,
+      runId: plan.runId,
+      accountId: plan.account.id,
+      workspace: plan.workspace,
+      repositoryIdentity: plan.repositoryIdentity,
+      clientTools: plan.clientTools,
+      browser: plan.browser.browser,
+    });
+    let slash: SlashScope;
     const start = (composed: ComposedInstructions, skillSet: RunSkillSet): void =>
       attach(entry, () => {
         // At a workspace level the directories it may write in are there before the provider is.
@@ -1555,6 +1680,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             runId: plan.runId,
             account: { id: plan.account.id, directory: plan.account.directory, ...(plan.account.label !== undefined && { label: plan.account.label }) },
             workspace: plan.workspace,
+            additionalDirectories: entry.bankCheckouts,
             repositoryIdentity: plan.repositoryIdentity,
             model: plan.model,
             effort: plan.effort,
@@ -1567,10 +1693,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
             // Read once as it launched, as its instructions were composed: a decision since reaches the session's next run.
             trusted: trust.decision === "trusted",
             containment: entry.containment,
-            denylist: runDenylist(plan.policy.attended),
+            denylist: runDenylist(plan.policy.attended, entry.bankCheckouts),
             processEnvironment: processEnvironmentOf(plan, injection, skillSet),
             skillSet,
-            prompt,
+            prompt: prompt.map((message) => message.messageId === plan.literalPromptId ? message : ({ ...message, text: resolveSlash(message.text, slash, (member) => adapterOf(plan.account).invocationText(member)).text })),
           },
           contextFor(entry),
         );
@@ -1578,10 +1704,18 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         for (const message of prompt) unstage(message.messageId);
         return run;
       });
+    let settleSlash!: (scope: SlashScope | null) => void;
+    entry.slash = new Promise((resolve) => { settleSlash = resolve; });
     // Its skill set, then its instructions, whose manifest carries the set's fingerprint (#496); then its adapter.
     const prepared = async (): Promise<readonly [ComposedInstructions, RunSkillSet] | null> => {
-      const skillSet = await skillSetFor(entry, skillSetScope({ ...plan, trust }));
-      if (skillSet === null) return null;
+      await options.beforeRun?.({ accountId: plan.account.id, repositoryIdentity: plan.repositoryIdentity });
+      if (entry.ended) { settleSlash(null); return null; }
+      const skillSet = plan.slash?.skillSet ?? await skillSetFor(entry, skillSetScope({ ...plan, trust }));
+      if (skillSet === null) { settleSlash(null); return null; }
+      const scope = plan.slash ?? await slashScope(plan.account, plan.workspace, trust, skillSet, prompt.some((message) => message.messageId !== plan.literalPromptId && message.text.startsWith("/")));
+      slash = scope;
+      entry.resolvedSlash = scope;
+      settleSlash(scope);
       const composed = await composeFor(entry, instructionScope({ ...plan, trust, skillSet, origin: plan.actor.kind, containment: plan.policy.containment.effective, injection }));
       return composed === null ? null : [composed, skillSet];
     };
@@ -1589,7 +1723,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       (ready) => {
         if (ready !== null && !entry.ended) safely(() => start(...ready), (error) => console.error(`Starting run ${entry.runId} failed:`, error));
       },
-      (error: unknown) => console.error(`Ending run ${entry.runId}, which could not be prepared, failed:`, error),
+      (error: unknown) => {
+        settleSlash(null);
+        if (!entry.ended) finish(entry, { type: "end", reason: "error", error: { message: messageOf(error), code: null } }, { by: "host", stop: null });
+      },
     );
   };
 
@@ -1599,8 +1736,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * last ended it, else as the log records it (after a restart), for the
    * actor its policy names, under the ceiling it was resolved under (the
    * client session behind it is not in the log, so a ceiling lowered since
-   * is not read), in its model with the model's own effort. Null when the
-   * session has never run.
+   * is not read), in its model with the model's own effort, with no extra
+   * always-on names but a routine's skills, which its firing recorded
+   * (#531). Null when the session has never run.
    */
   const basisOf = (sessionId: string): NextRunBasis | null => {
     const held = lastPlans.get(sessionId);
@@ -1608,7 +1746,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     const run = latestRun(reader, sessionId);
     const policy = run === null ? null : readRunPolicy(reader, run.runId);
     if (run === null || policy === null) return null;
-    return { sessionId, actor: actorOfPolicy(policy), model: run.model, effort: null, appendedInstructions: null, clientTools: [] };
+    const actor = actorOfPolicy(policy);
+    const alwaysOn = actor.kind === "routine" ? routineSkills(sessionId) : [];
+    return { sessionId, actor, model: run.model, effort: null, appendedInstructions: null, alwaysOn, clientTools: [] };
   };
 
   /** `actor` with its client session's ceiling as it is now; undefined once that client session is revoked or expired. */
@@ -1637,7 +1777,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
    * the turn does not run in.
    */
   const adoptNow = (followed: LiveRun, turn: ProviderTurn): void => {
-    const previous = followed.plan;
+    const previous = { ...followed.plan, ...(followed.resolvedSlash !== null && { slash: followed.resolvedSlash }) };
     /** The turn is not run, and no run starts for it: it is disposed, and what it was to read comes back to the environment's queue for the next start. */
     const letGo = (why: string, stop: ProcessStopReason = "failed"): void => letTurnGo(previous, turn, why, stop);
     let session: ReturnType<typeof readSessionFacts>;
@@ -1680,6 +1820,10 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         `it runs at containment ${levelOf(followedContainment)} and the policy now resolves ${levelOf(policy.containment)}, which its process cannot take on, so a run from the queue reads its messages at the new level.`,
       );
     }
+    const bankCheckouts = options.bankCheckouts?.({ accountId: previous.account.id, repositoryIdentity: previous.repositoryIdentity }) ?? [];
+    if (JSON.stringify(bankCheckouts) !== JSON.stringify(followed.bankCheckouts)) {
+      return refuse("its bank attachments have changed, which its process cannot take on, so a run from the queue reads its messages with the current banks.");
+    }
     const mode = policy.mode.effective;
     // The turn is a run of its own: its browser is resolved afresh, as its policy is.
     const browser = resolveBrowser({ field: session.browser, attended: policy.attended });
@@ -1696,7 +1840,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return refuse(`changing its mode from ${followed.mode} to ${mode} failed: ${messageOf(error)}`);
       }
       if (answer instanceof Promise) {
-        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy });
+        changingMode.set(previous.sessionId, { runId: followed.runId, descriptor, policy: previous.policy, browser: previous.browser });
         // Runs once the change has answered, in a promise callback: nothing it does may throw out of it, or the rejection would be nobody's.
         const settled = (work: () => void): void => {
           changingMode.delete(previous.sessionId);
@@ -1816,7 +1960,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
   };
 
   const adopt = (followed: LiveRun, turn: ProviderTurn): void => {
-    const previous = followed.plan;
+    const previous = { ...followed.plan, ...(followed.resolvedSlash !== null && { slash: followed.resolvedSlash }) };
     if (closing) {
       safely(() => turn.dispose(), (e) => console.error("Disposing a turn adopted while closing failed:", e));
       requeueTurn(previous, turn);
@@ -1865,6 +2009,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         ...(previous.effort !== null && { effort: previous.effort }),
         ...(forAnswers && { keptAnswers: true }),
         ...(previous.appendedInstructions !== null && { appendedInstructions: previous.appendedInstructions }),
+        alwaysOn: previous.alwaysOn ?? [],
         clientTools: previous.clientTools,
       });
       if (decision.rejected !== undefined) {
@@ -1981,6 +2126,13 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return read.call(adapter, sessionId, agentId);
   };
 
+  const hasHistoryBefore = async (sessionId: string, providerSessionId: string, messageId: string): Promise<boolean | null> => {
+    const facts = account(latestRun(reader, sessionId)?.accountId ?? readSessionFacts(log, reader, sessionId)?.account ?? null);
+    if (facts === null) return null;
+    const adapter = adapterOfAccount(facts.id);
+    return adapter?.hasHistoryBefore?.({ id: facts.id, directory: facts.directory }, sessionId, providerSessionId, messageId) ?? null;
+  };
+
   /**
    * `sessions.create`'s check against the account store (#134): an account
    * named that the environment does not hold, or that is not signed in,
@@ -2054,7 +2206,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
 
   /** Asks `run`, the live run `entry` as `withdraw` found it, to take message `messageId` back (#228). */
   const withdrawThrough = async (entry: LiveRun, run: AdapterRun, messageId: string): Promise<{ readonly withdrawn: boolean }> => {
-    const withdraw = capability(entry.descriptor, "providerQueue", run.withdraw, "withdraw a queued message", "withdraw");
+    const withdraw = capability(entry.descriptor, "withdraw", run.withdraw, "withdraw a queued message", "withdraw");
     const interruption = entry.interruption;
     // Kept out of any run that starts before the command has decided on it (let go by `settleWithdraw`): one an end
     // starts from the queue once the message is back in it, or the run of a read-now whose interrupt took it.
@@ -2065,7 +2217,7 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     } catch (error) {
       withdrawing.delete(messageId);
       if (error instanceof WithdrawUnsupported) {
-        throw unsupported(entry.descriptor, "providerQueue", ["messageId"], "withdraw a queued message", error.message);
+        throw unsupported(entry.descriptor, "withdraw", ["messageId"], "withdraw a queued message", error.message);
       }
       console.error(`Withdrawing message ${messageId} from the provider of run ${entry.runId} failed:`, error);
       throw new ContractError({ code: "internal", message: `The provider could not say whether it still held message ${messageId}: ${messageOf(error)}`, data: {} });
@@ -2080,38 +2232,43 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     return answer;
   };
 
-  /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
-  const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
-    let run: {
-      readonly sessionId: string | null;
-      readonly accountId: string | null;
-      readonly workspace: Workspace;
-      readonly repositoryIdentity: string | null;
-      readonly containment: ContainmentLevel | null;
-    };
-    if ("sessionId" in target) {
-      const sessionId = target.sessionId.toLowerCase();
-      const session = readSessionFacts(log, reader, sessionId);
-      if (session === null || session.deleted) {
-        throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
-      }
-      run = {
-        sessionId,
-        accountId: session.account ?? accounts.defaultId(),
-        workspace: session.workspace,
-        repositoryIdentity: session.repositoryIdentity,
-        containment: session.containment,
-      };
-    } else {
-      // A new session's repository identity is read when it is made; until then it has none, nor a level of its own.
-      run = { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: null, containment: null };
+  /** Where the session's next run would go, its account the environment's default when it names none; refused `not_found` when it is not held or deleted. */
+  const sessionPlace = (id: string): RunPlace => {
+    const sessionId = id.toLowerCase();
+    const session = readSessionFacts(log, reader, sessionId);
+    if (session === null || session.deleted) {
+      throw new ContractError({ code: "not_found", message: `No session ${sessionId} is on this environment.`, data: { kind: "session", sessionId } });
     }
-    const { accountId } = run;
+    return {
+      sessionId,
+      accountId: session.account ?? accounts.defaultId(),
+      workspace: session.workspace,
+      repositoryIdentity: session.repositoryIdentity,
+      containment: session.containment,
+    };
+  };
+
+  /** The account a place's run would go under; refused `not_found` when it names none and the environment holds none, or one it does not hold. */
+  const placeAccount = ({ accountId }: RunPlace): AccountFacts => {
     const facts = accountId === null ? null : accounts.facts(accountId);
     if (facts === null) {
       const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
       throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
     }
+    return facts;
+  };
+
+  /** The repository identity a session made in `workspace` gets: none for a scratch directory, which is no checkout wherever it lies. */
+  const newSessionIdentity = (workspace: Workspace): Promise<string | null> => (workspace.kind === "scratch" ? Promise.resolve(null) : identityAt(workspace.path));
+
+  /** The scope a preview composes for `target`: as a run a client starts, the session's next or a new session's first, its skill set resolved. */
+  const previewScope = async (target: InstructionTarget): Promise<InstructionScope> => {
+    const run: RunPlace =
+      "sessionId" in target
+        ? sessionPlace(target.sessionId)
+        : // A new session's repository identity as its create will read it; it has no level of its own until it is made.
+          { sessionId: null, accountId: target.accountId, workspace: target.workspace, repositoryIdentity: await newSessionIdentity(target.workspace), containment: null };
+    const facts = placeAccount(run);
     // As a run a client starts would be composed: under the trust and the skill set it would have, with no extra always-on names.
     const injection = processEnvironments.decide({ sessionId: run.sessionId, accountId: facts.id, origin: "client", holder: "provider-process", override: null });
     const trust = trustOf({ workspace: run.workspace, repositoryIdentity: run.repositoryIdentity });
@@ -2127,14 +2284,28 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     validateSessionInput,
     transcripts,
     subagentTranscript,
-    admit: () => registry.admit(),
+    hasHistoryBefore,
+    admit: (admission) => admission === undefined ? registry.admit() : admission.check(),
     startFacts,
     live: (sessionId) => liveFacts(live.get(sessionId)),
+    gate: (sessionId) => {
+      const entry = live.get(sessionId);
+      if (entry === undefined || entry.ended) return null;
+      const gate = gateFor(gatedRun(entry));
+      return { check: (call, signal) => {
+        if (entry.ended || live.get(sessionId) !== entry) return Promise.resolve({ decision: "deny", message: RUN_ENDED_MESSAGE });
+        return gate.check(call, signal);
+      } };
+    },
     runActive,
     liveRun: (runId) => liveFacts(byRunId(runId)),
     unrecorded: (runId) => unrecordedRuns.has(runId),
     launch,
     previewScope,
+    orientationScope(accountId, workspace, injection) {
+      const account = placeAccount({ sessionId: null, accountId, workspace, repositoryIdentity: null, containment: null });
+      return instructionScope({ sessionId: null, account, workspace, repositoryIdentity: null, trust: trustOf({ workspace, repositoryIdentity: null }), skillSet: EMPTY_RUN_SKILL_SET, origin: "client", containment: containmentNow(null), injection });
+    },
     async previewInstructions(target) {
       return instructions(await previewScope(target));
     },
@@ -2179,8 +2350,15 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
         return;
       }
       const run = entry.run;
+      const scope = entry.resolvedSlash;
+      const sendResolved = (resolved: SlashScope | null): void | Promise<void> => run.send({
+        ...send.message,
+        text: resolved === null ? send.message.text : resolveSlash(send.message.text, resolved, (member) => adapterOf(entry.plan.account).invocationText(member)).text,
+      });
       const handing = safely(
-        () => run?.send(send.message),
+        () => scope !== null && scope.provided === null && send.message.text.startsWith("/")
+          ? slashScope(entry.plan.account, entry.plan.workspace, scope.trust, scope.skillSet).then(sendResolved)
+          : sendResolved(scope),
         (error) => {
           // The provider did not take it, so the environment holds it: the next run reads it (ADR 0022).
           console.error(`Handing message ${send.message.messageId} to run ${send.runId} failed; the environment holds it:`, error);
@@ -2190,10 +2368,12 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       // A refusal that comes after the run's end hands the message back after it: a rewind waits for the answer (#245).
       if (handing !== undefined) track(entry.sessionId, handing);
     },
-    interrupt(runId) {
+    interrupt(runId, cause = "user") {
       const entry = byRunId(runId);
       if (entry === undefined || entry.ended || (entry.run === undefined && !entry.composing)) return;
-      // A person's interrupt after a read-now is the last word: the run ends interrupted by them, and no run of the queue starts.
+      // The first interrupt's cause stands. One after a read-now is the last word: the run ends interrupted for its cause, and no run
+      // of the queue starts.
+      if (!entry.interrupting || entry.readNow !== null) entry.interruptCause = cause;
       entry.readNow = null;
       if (!entry.interrupting) void interruptRun(entry);
     },
@@ -2267,17 +2447,46 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
       const read = capability(held.adapter.descriptor, "planUsage", held.adapter.usage, "read plan usage", "usage");
       return read.call(held.adapter, held.ref);
     },
-    async commands(accountId, workspace) {
-      const held = heldAccount(accountId);
+    resolveMessage(text, scope) {
+      return resolveSlash(text, scope, (member) => heldAccount(scope.accountId).adapter.invocationText(member));
+    },
+    async prepareSlash(target) {
+      if (typeof target === "string") {
+        const entry = live.get(target.toLowerCase());
+        if (entry !== undefined && !entry.ended) {
+          const isCurrent = (): boolean => live.get(target.toLowerCase()) === entry && !entry.ended;
+          const scope = await entry.slash;
+          if (scope !== null && !entry.ended) {
+            if (scope.provided !== null) return { ...scope, isCurrent };
+            const listed = slashScope(entry.plan.account, entry.plan.workspace, scope.trust, scope.skillSet);
+            entry.slash = listed;
+            const resolved = await listed;
+            entry.resolvedSlash = resolved;
+            if (!entry.ended) return { ...resolved, isCurrent };
+          }
+        }
+      }
+      const place = typeof target === "string" ? sessionPlace(target.toLowerCase()) : { ...target, sessionId: null, containment: null };
+      const previous = typeof target === "string" ? lastPlans.get(target.toLowerCase()) : undefined;
+      const account = placeAccount(place);
+      const trust = trustOf({ workspace: place.workspace, repositoryIdentity: place.repositoryIdentity });
+      const skillSet = await skillSetOf(skillSetScope({ ...place, account, trust }));
+      const scope = await slashScope(account, place.workspace, trust, skillSet);
+      return { ...scope, isCurrent: () => typeof target !== "string" || (runActive(target.toLowerCase()) === null && lastPlans.get(target.toLowerCase()) === previous) };
+    },
+    async commands(sessionId) {
+      const place = sessionPlace(sessionId);
+      const facts = placeAccount(place);
+      const held = heldAccount(facts.id);
       const list = capability(held.adapter.descriptor, "commands", held.adapter.commands, "list commands", "commands");
-      // Under what a run in the workspace would have (#495): its trust, read with no repository identity as a new session's
-      // preview is, and the skill set resolved for the account and workspace, no session named, whose generation the
-      // listing's own process loads and so holds until it has answered (#496).
-      const trust = trustOf({ workspace, repositoryIdentity: null });
-      const skillSet = await skillSetOf({ sessionId: null, accountId: held.ref.id, workspace, trust, nativeRoots: held.adapter.descriptor.nativeSkillRoots });
+      // Under what the session's next run would have (#503): its trust, read with its repository identity, and the skill set
+      // resolved for it, whose generation the listing's own process loads and so holds until it has answered (#496).
+      const trust = trustOf({ workspace: place.workspace, repositoryIdentity: place.repositoryIdentity });
+      const skillSet = await skillSetOf(skillSetScope({ ...place, account: facts, trust }));
       const release = skillSet.generation === null ? undefined : holdGeneration(skillSet.generation);
       try {
-        return await list.call(held.adapter, held.ref, workspace, { trusted: trust.decision === "trusted", skillSet });
+        const provided = await list.call(held.adapter, held.ref, place.workspace, { trusted: trust.decision === "trusted", skillSet });
+        return { accountId: facts.id, entries: commandsListing(skillSet, provided, (member) => held.adapter.invocationText(member)) };
       } finally {
         release?.();
       }

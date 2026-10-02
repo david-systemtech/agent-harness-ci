@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { denylistPresets } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
-import type { RunContainment } from "../adapter/contract.js";
+import type { RunContainment, ToolAccess } from "../adapter/contract.js";
 import type { ToolGateRule } from "../adapter/seams.js";
 import type { ToolGateOptions } from "./gate.js";
 
@@ -26,7 +26,7 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...fs, default: { ...fs, readlinkSync }, readlinkSync };
 });
 
-const { GATE_FAILED_MESSAGE, createToolGate, resolvePath } = await import("./gate.js");
+const { GATE_FAILED_MESSAGE, containmentDenial, createToolGate, resolvePath } = await import("./gate.js");
 const { denylistRule } = await import("./denylist-gate.js");
 
 const { onCleanup, tempDir } = useCleanups();
@@ -39,6 +39,7 @@ const gateAt = (workspace: string, append: ToolGateOptions["log"]["append"], rul
     scratchDirectory: join(workspace, ".scratch"),
     temporaryDirectory: join(workspace, ".tmp"),
     writable: [workspace],
+    readOnly: [],
     network: true,
   };
   // A log that holds nothing: every call is undecided, and the gate's append is the one it makes.
@@ -138,5 +139,75 @@ describe("a rule whose ask the broker denied before any prompt opened", () => {
     expect(append.mock.calls[0]?.[1]).toEqual([
       { type: "tool.decision", payload: expect.objectContaining({ toolCallId: "toolu_1", decision: "denied", decidedBy, promptId: null, reason: `Denied: ${unopened}.` }) },
     ]);
+  });
+});
+
+describe("what containment closes inside the writable set (#791)", () => {
+  /** A run at `workspace` that may write all of it but `readOnly`. */
+  const closing = (workspace: string, readOnly: string[]): RunContainment => ({
+    level: "workspace",
+    mechanism: "bubblewrap",
+    scratchDirectory: join(workspace, ".scratch"),
+    temporaryDirectory: join(workspace, ".tmp"),
+    writable: [workspace],
+    readOnly,
+    network: true,
+  });
+  const writeTo = (...paths: string[]): ToolAccess => ({ kind: "write", paths });
+
+  it("folds case where the file system does, so .git/HOOKS is .git/hooks on macOS and Windows but not on Linux", () => {
+    const workspace = realpathSync(tempDir());
+    const containment = closing(workspace, [join(workspace, ".git", "hooks"), join(workspace, ".git", "config")]);
+    const shouted = join(workspace, ".git", "HOOKS", "pre-commit");
+    expect(containmentDenial(containment, workspace, writeTo(shouted), true)).toContain(`${shouted} is in a read-only directory`);
+    expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".GIT", "Config")), true)).not.toBeNull();
+    expect(containmentDenial(containment, workspace, writeTo(shouted), false)).toBeNull();
+  });
+
+  it("follows links on both sides: a write through a link to the git directory, and one where a hooks link leads, are denied; a neighbour is not", () => {
+    const workspace = realpathSync(tempDir());
+    mkdirSync(join(workspace, ".git"));
+    mkdirSync(join(workspace, ".githooks"));
+    symlinkSync(join(workspace, ".githooks"), join(workspace, ".git", "hooks"));
+    symlinkSync(join(workspace, ".git"), join(workspace, "git-link"));
+    const containment = closing(workspace, [join(workspace, ".git", "hooks")]);
+    expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".githooks", "pre-commit")), false)).not.toBeNull();
+    expect(containmentDenial(containment, workspace, writeTo(join(workspace, "README.md"), "git-link/hooks/pre-push"), false)).toContain(
+      "git-link/hooks/pre-push is in a read-only directory",
+    );
+    expect(containmentDenial(containment, workspace, writeTo(join(workspace, ".git", "hooks.old", "pre-commit"), join(workspace, ".git", "HEAD")), false)).toBeNull();
+  });
+
+  it("denies a .git indirection and its programs even when .git links to a directory with another name (#1094)", () => {
+    const workspace = realpathSync(tempDir());
+    const metadata = join(workspace, "metadata");
+    mkdirSync(metadata);
+    symlinkSync(metadata, join(workspace, ".git"));
+    const containment = closing(workspace, []);
+    for (const path of [".git", ".git/", ".git/config", ".git/hooks/pre-commit", ".git/commondir"]) {
+      expect(containmentDenial(containment, workspace, writeTo(path), false), path).not.toBeNull();
+    }
+    expect(containmentDenial(containment, workspace, writeTo("metadata/ordinary-file", ".githooks/pre-commit", ".git/config.lock", ".git/HEAD"), false)).toBeNull();
+  });
+
+  it("closes new git programs case-blind where needed, without closing refs named config or hooks (#1094)", () => {
+    const workspace = realpathSync(tempDir());
+    const containment = closing(workspace, []);
+    for (const path of ["nested/.GIT", "nested/.GIT/Config", "nested/.GIT/HOOKS/pre-commit", "nested/.GIT/modules/new/Config.Worktree"]) {
+      expect(containmentDenial(containment, workspace, writeTo(path), true), path).not.toBeNull();
+      expect(containmentDenial(containment, workspace, writeTo(path), false), path).toBeNull();
+    }
+    mkdirSync(join(workspace, "nested", ".git"), { recursive: true });
+    symlinkSync(join(workspace, "nested", ".git"), join(workspace, "alias"));
+    expect(containmentDenial(containment, workspace, writeTo("alias/config"), false)).not.toBeNull();
+    expect(containmentDenial(containment, workspace, writeTo("nested/.git/refs/heads/config", "nested/.git/refs/heads/hooks", "nested/.git/objects/pack/new.pack", "nested/.git/info/exclude"), false)).toBeNull();
+  });
+
+  it("closes a repository nested anywhere beneath another repository's metadata (#1094)", () => {
+    const workspace = realpathSync(tempDir());
+    const containment = closing(workspace, []);
+    for (const path of [".git/other/.git", ".git/other/.git/config", ".git/other/.git/hooks/pre-commit"]) {
+      expect(containmentDenial(containment, workspace, writeTo(path), false), path).not.toBeNull();
+    }
   });
 });

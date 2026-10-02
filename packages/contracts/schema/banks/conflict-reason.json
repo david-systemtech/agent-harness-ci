@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankConflictReason",
+  "type": "string",
+  "enum": [
+    "exists",
+    "name_taken",
+    "index_too_large",
+    "landing_in_progress",
+    "not_local_only",
+    "registered_path"
+  ],
+  "description": "Why a bank method was refused: exists (a bank was registered under the id on this environment already, forgotten or not), name_taken (another bank holds the name), index_too_large (an account and repository would carry over 8 KB of fixed tiers), landing_in_progress, not_local_only (publish on a bank with a remote) or registered_path (the checkout is a registered path, never removed)."
+}

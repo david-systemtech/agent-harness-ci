@@ -9,9 +9,9 @@
 # version's `service install` (the Task Scheduler logon task) and `service
 # start`, waits for the environment's health URL to say ready, sets the channel
 # with `update settings`, hands its token to the environment with `update
-# credential --stdin`, and ends with `pair`'s link, QR and code on the tailnet
-# address (or the Tailscale warning when only loopback is bound) and the shim's
-# Path line.
+# credential --stdin`, and ends with the link, QR and code of `pair --preset
+# own-client` (my own client's grant) on the tailnet address (or the Tailscale
+# warning when only loopback is bound) and the shim's Path line.
 #
 # Run again over a running service it downloads and unpacks nothing, since the
 # launcher alone writes the versions directory while it runs: the active
@@ -21,6 +21,10 @@
 #
 # Every verb runs as a version runs, its own node\node.exe on
 # packages\cli\dist\main.js, so no argument passes through cmd.exe's parser.
+# Where PowerShell writes Node's command line itself (Windows PowerShell 5.1,
+# and PowerShell 7 with legacy argument passing) it gets each word already
+# written by the C runtime's rules, so a double quote in -Name or a trailing
+# backslash on -DataDir reaches the verb as it was given.
 #
 # The repository is private, so the releases API and the downloads need a read
 # token: AGENT_HARNESS_TOKEN, a Forgejo access token with the read:repository
@@ -49,6 +53,11 @@ param(
 
 Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
+# The script reads each native command's exit code itself. With this on (PowerShell 7.3 and
+# later, opt-in, from a profile say), a non-zero exit would raise PowerShell's own error first,
+# over the script's message and the verb's exit code, or print one for each health probe the
+# environment does not answer yet. Set in the script's own scope, so the session keeps its own.
+$PSNativeCommandUseErrorActionPreference = $false
 
 $ProductName = 'agent-harness'
 $Forge = 'https://git.systemtech.dev:5526'
@@ -200,6 +209,28 @@ function Format-PlanWord([string]$Word) {
   return "'" + ($Word -replace "'", "''") + "'"
 }
 
+# A word as a Windows command line must hold it for a program's C runtime to read it back
+# exactly: as it is when it holds no white space and no double quote, else in double quotes,
+# each double quote in it escaped as \" and the backslashes before one, or before the closing
+# quote, doubled.
+function Format-CommandLineWord([string]$Word) {
+  if ($Word -and $Word -notmatch '[\s"]') { return $Word }
+  return '"' + ($Word -replace '(\\*)"', '$1$1\"' -replace '(\\+)\z', '$1$1') + '"'
+}
+
+# The words to hand a version's Node for it to read $Words back exactly. Windows PowerShell 5.1
+# and PowerShell 7 before 7.3, or with $PSNativeCommandArgumentPassing at Legacy, write the
+# command line themselves: they wrap a word that holds white space in double quotes, escaping no
+# double quote in it and (5.1) doubling no trailing backslash, so a -Name 'The "big" box' would
+# reach the verb as The big box. A word already written for the command line holds white space
+# only inside its double quotes, and they pass it on as it is. Otherwise PowerShell escapes each
+# word itself, for node.exe in 7.3's Windows mode too.
+function Get-NativeWords([string[]]$Words) {
+  $passing = Get-Variable -Name PSNativeCommandArgumentPassing -ValueOnly -ErrorAction Ignore
+  if ($null -ne $passing -and [string]$passing -ne 'Legacy') { return $Words }
+  return @($Words | ForEach-Object { Format-CommandLineWord $_ })
+}
+
 # A line of the printed plan: $Cli's verb $Words, as PowerShell would call it.
 function Format-PlanLine([hashtable]$Cli, [string[]]$Words) {
   return '  & ' + ((@($Cli.Node, $Cli.Entry) + $Words | ForEach-Object { Format-PlanWord $_ }) -join ' ')
@@ -224,7 +255,8 @@ function Invoke-Verb([hashtable]$Cli, [string[]]$Arguments, [switch]$WithTarget,
     Write-Host (Format-PlanLine $Cli $words)
     return
   }
-  if ($PSBoundParameters.ContainsKey('Stdin')) { $Stdin | & $Cli.Node $Cli.Entry @words } else { & $Cli.Node $Cli.Entry @words }
+  $native = @(Get-NativeWords (@($Cli.Entry) + $words))
+  if ($PSBoundParameters.ContainsKey('Stdin')) { $Stdin | & $Cli.Node @native } else { & $Cli.Node @native }
   if ($LASTEXITCODE -ne 0) {
     $code = $LASTEXITCODE
     Stop-Install "``$ProductName $($Arguments -join ' ')`` failed with exit code $code; nothing after it ran." $code
@@ -260,7 +292,8 @@ function Get-ActiveCli {
 # Whether the service runs, as its active version's own `service status` says. A read, so a dry run runs it too.
 function Test-Running([hashtable]$Cli) {
   $ErrorActionPreference = 'Continue'
-  $answer = & $Cli.Node $Cli.Entry service status --json @targetOptions 2>$null
+  $native = @(Get-NativeWords (@($Cli.Entry, 'service', 'status', '--json') + $targetOptions))
+  $answer = & $Cli.Node @native 2>$null
   try { return (($answer -join "`n") | ConvertFrom-Json).running -eq $true } catch { return $false }
 }
 
@@ -462,7 +495,7 @@ function Invoke-Install {
   if ($running -and $Version) { Invoke-Verb $cli @('update', 'apply', '--version', $Version) -WithTarget }
 
   if ($dry) {
-    Write-Host ((Format-PlanLine $cli (@('pair') + $targetOptions)) + ', or the Tailscale warning when only loopback is bound')
+    Write-Host ((Format-PlanLine $cli (@('pair', '--preset', 'own-client') + $targetOptions)) + ', or the Tailscale warning when only loopback is bound')
     Write-Host 'Dry run: nothing was downloaded or changed.'
     return
   }
@@ -470,8 +503,8 @@ function Invoke-Install {
   # A pairing on the tailnet address, which `pair` builds its link on; with only loopback bound no other machine could use one.
   $discovery = Get-EnvironmentJson "$environmentUrl/.well-known/$ProductName/environment"
   if ($null -ne $discovery -and $discovery.authPolicy -eq 'tailnet') {
-    # `pair`'s own grant: every scope, and the ceiling the environment's permissions.defaultCeiling names.
-    Invoke-Verb $cli @('pair') -WithTarget
+    # My own client's grant (ADR 0025): every scope and the top ceiling, since every client paired is the same person.
+    Invoke-Verb $cli @('pair', '--preset', 'own-client') -WithTarget
   } else {
     Write-Host ''
     Write-Host 'No Tailscale address found. This machine is reachable only from itself. Install Tailscale to reach it from your other devices.'

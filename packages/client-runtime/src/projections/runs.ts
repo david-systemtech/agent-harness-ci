@@ -19,6 +19,7 @@ import type { Clock, Timer } from "../platform.js";
 import type { CachedAnswer } from "../requests.js";
 import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
+import type { SessionListView } from "./session-list.js";
 import type { RewoundAt, SessionProjection } from "./session.js";
 import { sessionVerbs, type QueuedMessage, type SessionVerbs, type VerbMethod } from "./verbs.js";
 
@@ -64,7 +65,7 @@ import { sessionVerbs, type QueuedMessage, type SessionVerbs, type VerbMethod } 
  * **One session's runs** (`projections.runs.session(environmentId,
  * sessionId)`, ADR 0022; #230): its run state as above, its queue (the
  * queued line: each message sent during a run and not yet read, in the order
- * sent, with its text, its attachments' names and who holds it), its rewind
+ * sent, with its text, its attachments' records and who holds it), its rewind
  * (the rewound strip: the message rewound to, its text, and whether it can
  * still be undone), and each verb of ADR 0022 present or absent with its
  * reason (`verbs.ts`). Only a session's own stream carries `message.sent`
@@ -465,14 +466,16 @@ export interface SessionRunsInput {
   readonly session: SessionProjection;
   readonly connection: (method: VerbMethod) => CapabilityAnswer;
   readonly adapter: AdapterCapabilities | null;
+  /** The session's workspace while its list row marks it missing: its path; else null. */
+  readonly gone: string | null;
 }
 
 /** One session's run state, queue, rewind and verbs. */
-export const sessionRunsOf = ({ environmentId, sessionId, run, session, connection, adapter }: SessionRunsInput): SessionRunsView => {
+export const sessionRunsOf = ({ environmentId, sessionId, run, session, connection, adapter, gone }: SessionRunsInput): SessionRunsView => {
   const state = run ?? { state: "idle" as const, runId: null, since: null };
   const live = LIVE_STATES.has(state.state) || session.runs.some((summary) => summary.state === "running");
   const rewindable = session.items.some((item) => item.kind === "user-message" && item.delivery !== "queued");
-  const { queue, verbs, withdrawTarget } = sessionVerbs({ connection, adapter, live, queued: session.queued, rewound: session.rewound, rewindable, draft: session.draft });
+  const { queue, verbs, withdrawTarget } = sessionVerbs({ connection, adapter, live, queued: session.queued, rewound: session.rewound, rewindable, draft: session.draft, gone });
   return { environmentId, sessionId, state: state.state, runId: state.runId, since: state.since, queue, rewound: session.rewound, verbs, withdrawTarget };
 };
 
@@ -481,6 +484,8 @@ export interface SessionRunsHost {
   readonly runs: Observable<RunsView["sessions"]>;
   /** `projections.session` for the session: following it holds the session. */
   readonly session: Observable<SessionProjection>;
+  /** `projections.sessionList`, whose row marks the session's workspace missing (#328), as the renderers read the mark. */
+  readonly list: Observable<Pick<SessionListView, "rows">>;
   readonly records: Observable<readonly ConnectionRecord[]>;
   /** The request cache's `providers.list` for the session's environment. */
   readonly providers: Observable<CachedAnswer<"providers.list">>;
@@ -496,10 +501,12 @@ export interface SessionRunsHost {
  */
 export const sessionRunsProjection = (host: SessionRunsHost, environmentId: string, sessionId: string): Observable<SessionRunsView> => {
   let last: { readonly inputs: readonly unknown[]; readonly value: SessionRunsView } | undefined;
-  return derived([host.runs, host.session, host.records, host.providers, host.accounts] as const, (runs, session, records, providers, accounts) => {
+  return derived([host.runs, host.session, host.records, host.providers, host.accounts, host.list] as const, (runs, session, records, providers, accounts, list) => {
     const run = runs.get(environmentId)?.get(sessionId);
     const record = records.find((candidate) => candidate.environmentId === environmentId);
-    const inputs = [run?.state, run?.runId, run?.since, session, record, providers.result, accounts.result];
+    const row = list.rows.find((candidate) => candidate.environmentId === environmentId && candidate.summary.id === sessionId);
+    const gone = row === undefined || row.summary.workspaceMissingSince === null ? null : row.summary.workspace.path;
+    const inputs = [run?.state, run?.runId, run?.since, session, record, providers.result, accounts.result, gone];
     if (last !== undefined && last.inputs.every((input, i) => Object.is(input, inputs[i]))) return last.value;
     const value = sessionRunsOf({
       environmentId,
@@ -508,6 +515,7 @@ export const sessionRunsProjection = (host: SessionRunsHost, environmentId: stri
       session,
       connection: (method) => verbConnection(record, method),
       adapter: adapterOf(session.summary?.accountId ?? null, accounts.result?.accounts ?? null, providers.result?.providers ?? null),
+      gone,
     });
     last = { inputs, value };
     return value;

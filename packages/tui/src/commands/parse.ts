@@ -2,6 +2,7 @@ import { forkAsked, rewindAsked, type PairingInput } from "@agent-harness/client
 import { actionById, isCommandId } from "@agent-harness/contracts";
 import { PICKER_COMMANDS, TAKES_ARGUMENT, isPickerCommand, type PickerCommand } from "../pickers/commands.js";
 import { RAIL_COMMANDS, isRailCommand, type RailCommand } from "../rail/commands.js";
+import { ROUTINES_USAGE, routinesCommand, type RoutinesCommand } from "../routines/commands.js";
 import type { LookField } from "./environment.js";
 
 /**
@@ -17,7 +18,8 @@ import type { LookField } from "./environment.js";
  * rail, `/archive`, `/pin`, `/title`, `/group`, `/tag`, `/settle`,
  * `/snooze`, `/restore`, `/search` and `/cwd` (`rail/commands.ts`); with fork and rewind (ADR 0022; #232), `/rewind [n]`
  * (n prompts back, one by default), `/rewind undo` and `/fork [n]` (bare,
- * the whole session). A command of the shared list this build does not
+ * the whole session); `/routines` and its forms (`routines/commands.ts`,
+ * #533). A command of the shared list this build does not
  * answer yet says so in one line, and one the list keeps absent gives its
  * reason; `/profile` is a hidden alias of `/account`. Anything else that
  * begins with a slash is not the terminal's: it goes to the agent as typed,
@@ -47,9 +49,12 @@ export const ANSWERED_COMMANDS = [
   "files",
   "diff",
   "documents",
+  "browser",
+  "trust",
   ...RAIL_COMMANDS,
   "fork",
   "rewind",
+  "routines",
 ] as const;
 
 export type Command =
@@ -81,11 +86,14 @@ export type Command =
   | { readonly kind: "files"; readonly path: string | null }
   | { readonly kind: "diff" }
   | { readonly kind: "documents" }
+  | { readonly kind: "browser" }
+  | { readonly kind: "trust"; readonly decision: "trusted" | "declined" }
   /** `/rewind [n]`: to the prompt `back` prompts from the end (1, the latest). */
   | { readonly kind: "rewind"; readonly back: number }
   | { readonly kind: "rewind-undo" }
   /** `/fork [n]`: before the prompt `back` prompts from the end, or (null) the whole session. */
   | { readonly kind: "fork"; readonly back: number | null }
+  | { readonly kind: "routines"; readonly command: RoutinesCommand }
   /** A command of the shared list this build does not answer: `line` says why. */
   | { readonly kind: "not-here"; readonly name: string; readonly line: string }
   | { readonly kind: "usage"; readonly line: string }
@@ -131,6 +139,10 @@ export const parseCommand = (typed: string): Command => {
   // them is a name the switch below answers.
   if (isRailCommand(name)) return { kind: "rail", command: { name, text: tail } };
   switch (name) {
+    case "trust":
+      if (rest.length === 0) return { kind: "trust", decision: "trusted" };
+      if (rest.length === 1 && rest[0] === "decline") return { kind: "trust", decision: "declined" };
+      return { kind: "usage", line: "Usage: /trust or /trust decline" };
     case "pair": {
       if (rest.length === 1 && rest[0] === "create") return { kind: "pair-create" };
       const [first = "", second, third] = rest;
@@ -173,6 +185,8 @@ export const parseCommand = (typed: string): Command => {
       return bare(rest, { kind: "terminal" }, "/terminal");
     case "diff":
       return bare(rest, { kind: "diff" }, "/diff");
+    case "browser":
+      return bare(rest, { kind: "browser" }, "/browser");
     case "documents":
       return bare(rest, { kind: "documents" }, "/documents");
     case "files":
@@ -186,6 +200,10 @@ export const parseCommand = (typed: string): Command => {
       return tail.length > 0 ? { kind: "attach", path: tail } : { kind: "usage", line: "Usage: /attach <path>" };
     case "export":
       return { kind: "export", file: tail.length > 0 ? tail : null };
+    case "routines": {
+      const command = routinesCommand(tail);
+      return command === null ? { kind: "usage", line: ROUTINES_USAGE } : { kind: "routines", command };
+    }
     case "copy": {
       if (rest.length === 0) return { kind: "copy", block: null };
       const block = Number(rest[0]);

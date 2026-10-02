@@ -42,29 +42,32 @@ preload exposes, and a member named bare is on it: `setBadge(3)` is
 ## Building a desktop
 
 The sections that need a packaged desktop take the build of their platform
-(#423): `build-desktop` builds one platform's desktop on that platform, for a
-release's version, from that platform's server artefact of the same version.
-The macOS zip and the Arch package come from the `desktop` workflow, run by
-hand (Actions, desktop, Run workflow; the `macos` job waits while the Mac
-sleeps, the `arch` job for a `ci-x64` runner), which keeps no file: run the
-same commands on the machine to keep one. No runner has Windows, so the setup
-is built by hand. On a machine of the platform, from a checkout, after
-`pnpm install`:
+(#423): `build-desktop` builds one platform's desktop on that platform (the
+Windows setup on an x86_64 Linux with Wine too, #359), for a release's version,
+from that platform's server artefact of the same version. The `desktop`
+workflow builds all three, run by hand (Actions, desktop, Run workflow; the
+`macos` job waits while the Mac sleeps, the `arch` and `windows` jobs for a
+`ci-x64` runner), and keeps no file; a release publishes all three. To keep a
+build of no release, run the same commands on a machine that builds it, from a
+checkout, after `pnpm install`:
 
 1. **The server artefact.** On macOS or an x86_64 Linux, the release build
    makes the machine's own: `pnpm --filter agent-harness build-artefacts
    --tag v0.0.0-check.1 --out server --platform <darwin-arm64 or linux-x64>
    --image-reference ci.invalid/agent-harness:0.0.0-check.1 --image-digest
    sha256:<64 zeros>`. The Windows artefact is built on the x86_64 Linux
-   machine beside its own (`--platform linux-x64 --platform win32-x64`) and
-   copied to the Windows machine, or taken from a release.
+   machine beside its own (`--platform linux-x64 --platform win32-x64`); the
+   setup is built from it there, with Wine, or on a Windows machine it is
+   copied to.
 2. **The desktop.** `pnpm --filter @agent-harness/desktop build-desktop
    --platform <platform> --tag v0.0.0-check.1 --server
-   server/agent-harness-<platform>.<tar.gz, or zip on Windows> --out desktop`
+   server/agent-harness-<platform>.<tar.gz, or zip for win32-x64> --out desktop`
    writes `desktop/agent-harness-desktop-darwin-arm64.zip`,
    `agent-harness-desktop-win32-x64-setup.exe` or
    `agent-harness-desktop-linux-x64.pacman`. On Linux, electron-builder's
-   fpm needs `bsdtar` (Debian's `libarchive-tools`, Arch's `libarchive`). A
+   fpm needs `bsdtar` (Debian's `libarchive-tools`, Arch's `libarchive`), and
+   the Windows setup needs Wine, which runs the setup to write its
+   uninstaller, and `python3`, which unpacks the Windows zip. A
    server artefact of another version or platform is refused before anything
    is packed. Use a later tag (`v0.0.0-check.2`) for the build that a
    restart-to-update section applies.
@@ -81,9 +84,10 @@ is built by hand. On a machine of the platform, from a checkout, after
    something the window keeps (drag the sidebar's divider), quit and start
    again: it is kept, so IndexedDB has a stable origin.
 3. **The sandbox.** `typeof require`, `typeof process` and `typeof module` are
-   `"undefined"`. `Object.keys(desktopShell)` lists exactly `window`,
+   `"undefined"`. `Object.keys(await desktopShell.ready())` lists `window`,
    `dialogs`, `clipboard`, `openExternal`, `system`, `http`, `network`,
-   `deepLinks`, `secrets`, `localGrant`, `service` and `preview`; nothing
+   `deepLinks`, `secrets`, `localGrant`, `service`, `preview`, `update`,
+   `installer`, `gh`, `notifications` and `webView`, plus `camera` when a video input is present; nothing
    named `ipcRenderer` is reachable.
 4. **The content policy.** `eval("1")` throws a content-policy error;
    `document.head.append(Object.assign(document.createElement("script"), { textContent: "window.ran = 1" }))`
@@ -123,6 +127,30 @@ is built by hand. On a machine of the platform, from a checkout, after
 13. **system.** `system()` answers this machine's platform (`darwin`, `linux`
     or `win32`), architecture, hostname and login name.
 14. **Closing.** Closing the window quits the app.
+
+## Scan a pairing QR (#845)
+
+Run on macOS, Windows and Linux with a camera; also launch once with no video
+input. Camera discovery happens before the GUI mounts, so restart after
+connecting or removing a camera for this check.
+
+1. On another machine, show a fresh pairing QR on its screen. In Settings,
+   Your machines, Add a machine, choose **Scan a QR**. The camera preview
+   opens in a modal, with Cancel and instructions. Accept the OS's camera
+   prompt if shown (macOS's packaged desktop names why it needs the camera).
+2. Point the camera at the other screen. One QR closes the preview and
+   exchanges its pairing link; confirm the new machine's card.
+   The camera's activity light goes off after reading the QR.
+3. Scan again, then Cancel, Escape, and close the desktop during capture.
+   Each releases the camera; Cancel and Escape leave the pairing form as it
+   was. Cancel while the permission prompt is pending too: accepting it
+   later must not reopen the preview or keep the camera on.
+4. Deny OS camera access. The form shows the failure and stays usable; after
+   granting access in the OS's privacy settings, try scanning again.
+5. With no video input at launch, Add a machine gives the shell.camera
+   absence line and offers no Scan a QR button. Audio inputs alone do not
+   provide the member. A camera on Windows or Linux scans the same QR without
+   relying on Chromium's BarcodeDetector.
 
 ## The terminal pane under the content policy (#409, #486)
 
@@ -277,22 +305,36 @@ ordinary user. The builds are unsigned (signed ad hoc on macOS) in milestone
 
 ## Notifications and their activation (#405)
 
-Needs the shell's `notifications`, which #405 builds: until it lands, record
-this section as not run. On each platform, with a packaged desktop (the
-notification's sender is the installed app) connected to an environment:
+On each platform, with a packaged desktop (the notification's sender is the
+installed app) connected to an environment:
 
 1. **Only while unfocused.** With the window focused, park a prompt in a
    session: no OS notification. Focus another app and park another: one OS
-   notification, naming the session.
-2. **Activation.** Click it: the window comes to the front with that
-   session open in the focused pane.
-3. **macOS.** The first notification asks for permission once; record
+   notification, naming the session and what waits ("Bash is waiting for
+   permission").
+2. **Activation.** Click it: the window comes to the front, restored if it
+   was minimised, with that session open in the focused pane.
+3. **A run ending.** With a session shown in a pane and the window behind
+   another app, let its run end: one notification with the reply's first
+   line. A run ending in a session no pane shows raises none.
+4. **The title and the badge.** While a prompt waits the window's title
+   reads "needs you · agent-harness" and the badge counts the sessions
+   waiting (the platform's badge step above); once answered, "working" while
+   a run goes on, then "ready".
+5. **From the console.** `desktopShell.notifications.onActivate(console.log)`,
+   then `desktopShell.notifications.show({ title: "Checklist", body: "Click me", tag: "checklist-tag" })`:
+   a click logs `checklist-tag`; shown without a tag, a click logs nothing.
+6. **macOS.** The first notification asks for permission once; record
    whether it did, and that the Dock badge follows (see macOS step 3 above).
-4. **Windows.** The notification names the app, not Electron: the setup's
+7. **Windows.** The notification names the app, not Electron: the setup's
    Start menu shortcut carries the app's id (`dev.systemtech.agent-harness`),
-   which the app must set as its AppUserModelID to send any. Record which.
-5. **Linux.** Under a notification daemon (GNOME, KDE Plasma), the same as
-   step 1 and 2.
+   which the app sets as its AppUserModelID. Record which. Run from a
+   checkout, the app sends as Electron's executable instead; record whether
+   Windows showed that one.
+8. **Linux.** Under a notification daemon (GNOME, KDE Plasma), the same as
+   steps 1 to 3. Record what step 5 does with no daemon running: where
+   Electron says the OS offers no notifications, `show` rejects with "This
+   desktop cannot show notifications: the OS offers none to it."
 
 ## The browser dock (#411)
 

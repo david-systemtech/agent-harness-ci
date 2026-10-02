@@ -44,6 +44,7 @@ const run = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -58,8 +59,8 @@ const skillSet: RunSkillSet = {
   generation: "/data/skills/generations/3f9a",
   fingerprint: "3f9a",
   members: [
-    { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
-    { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+    { name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+    { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: true, argumentHint: null, native: true, alwaysOn: false },
   ],
   hiddenNativeNames: ["triage"],
 };
@@ -68,6 +69,7 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
   run: run(overrides),
   hostEnv: { PATH: "/usr/bin", HOME: "/home/david", ANTHROPIC_API_KEY: "sk-ant-shell", IS_SANDBOX: "1", CLAUDE_CODE_BUBBLEWRAP: "1" },
   supplied: {},
+  suppliedWritable: [],
   configDirectory: "/data/accounts/work",
   executablePath: "/sdk/claude-agent-sdk-linux-x64/claude",
   autoMemoryDirectory: "/data/auto-memory/repo",
@@ -81,6 +83,16 @@ const input = (overrides: Partial<RunInput> = {}, extra: Partial<RunOptionsInput
 });
 
 describe("the options a run is handed", () => {
+  it("attaches bank checkouts as additional directories without granting containment writes", () => {
+    const directories = ["/data/banks/personal", "/registered/team"];
+    const containment = { ...run().containment, level: "workspace" as const, mechanism: "bubblewrap" as const, readOnly: directories };
+    const options = buildRunOptions(input({ additionalDirectories: directories, containment }));
+    expect(options.additionalDirectories).toEqual(directories);
+    expect(options.additionalDirectories).not.toBe(directories);
+    expect(options.sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"]);
+    expect(options.sandbox?.filesystem?.denyWrite).toEqual(directories);
+  });
+
   it("runs in the workspace, with the model and effort asked for", () => {
     const options = buildRunOptions(input());
     expect(options.cwd).toBe("/work/repo");
@@ -255,6 +267,10 @@ describe("the options a run is handed", () => {
       expect(buildRunOptions(input({ target }, { resumePoint: { resumeSessionAt: "entry-before" } })).sessionStore).toBe(store);
     });
 
+    it.each(targets)("keeps local persistence on a %s run so the session store can mirror it", (_kind, target) => {
+      expect(buildRunOptions(input({ target }, { resumePoint: { resumeSessionAt: "entry-before" } })).persistSession).toBe(true);
+    });
+
     it("starts a fresh run with nothing to resume", () => {
       const options = buildRunOptions(input());
       expect(options).not.toHaveProperty("resume");
@@ -313,6 +329,7 @@ describe("the options a run is handed", () => {
             scratchDirectory: "/data/containment/session/scratch",
             temporaryDirectory: "/data/containment/session/tmp",
             writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            readOnly: [],
             network: level !== "workspace-no-network",
           },
           denylist,
@@ -344,6 +361,7 @@ describe("the options a run is handed", () => {
             scratchDirectory,
             temporaryDirectory,
             writable: [worktree, scratchDirectory, temporaryDirectory, "/work/repo/.git"],
+            readOnly: [],
             network: level !== "workspace-no-network",
           },
         }),
@@ -351,11 +369,68 @@ describe("the options a run is handed", () => {
       expect(options.sandbox?.filesystem?.allowWrite).toEqual([worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"]);
     });
 
+    it.each(["workspace", "workspace-no-network"] as const)(
+      "closes to a command at %s what the run may not write inside its writable set, the git directory's hooks and config and a submodule's under it (#933), and names none when there is none (#791)",
+      (level) => {
+        const worktree = "/data/worktrees/repo-3f9a2c1b";
+        const readOnly = ["hooks", "config", "config.worktree", "worktrees/repo-3f9a2c1b/config.worktree", "modules/vendor/lib/hooks", "modules/vendor/lib/config", "modules/vendor/lib/config.worktree"].map(
+          (path) => `/work/repo/.git/${path}`,
+        );
+        const options = buildRunOptions(
+          input({
+            workspace: { kind: "worktree", path: worktree, repository: "/work/repo", branch: "agent-harness/3f9a2c1b" },
+            containment: {
+              level,
+              mechanism: "bubblewrap",
+              scratchDirectory: "/data/containment/session/scratch",
+              temporaryDirectory: "/data/containment/session/tmp",
+              writable: [worktree, "/data/containment/session/scratch", "/data/containment/session/tmp", "/work/repo/.git"],
+              readOnly,
+              network: level !== "workspace-no-network",
+            },
+          }),
+        );
+        expect(options.sandbox?.filesystem?.denyWrite).toEqual(readOnly);
+        expect(at(level).sandbox?.filesystem).not.toHaveProperty("denyWrite");
+      },
+    );
+
     it("leaves the network open at workspace, local binding included, and names no domain", () => {
       const network = at("workspace").sandbox?.network;
       expect(network).toEqual({ allowLocalBinding: true });
       expect(network).not.toHaveProperty("allowedDomains");
       expect(network).not.toHaveProperty("strictAllowlist");
+    });
+
+    it.each(["workspace", "workspace-no-network"] as const)("at %s, Seatbelt closes programs below .git made during a command anywhere in the writable set (#1094)", (level) => {
+      const readOnly = ["/work/repo/.git/config"];
+      const containment: RunInput["containment"] = {
+        level,
+        mechanism: "seatbelt",
+        scratchDirectory: "/data/containment/session/scratch",
+        temporaryDirectory: "/data/containment/session/tmp",
+        writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+        readOnly,
+        network: level === "workspace",
+      };
+      expect(buildRunOptions(input({ containment })).sandbox?.filesystem?.denyWrite).toEqual([
+        ...readOnly,
+        "/**/.[gG][iI][tT]/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[mM][oO][dD][uU][lL][eE][sS]/**/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[hH][oO][oO][kK][sS]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[hH][oO][oO][kK][sS]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][nN][fF][iI][gG].[wW][oO][rR][kK][tT][rR][eE][eE]/**",
+        "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][mM][mM][oO][nN][dD][iI][rR]", "/**/.[gG][iI][tT]/[wW][oO][rR][kK][tT][rR][eE][eE][sS]/*/[cC][oO][mM][mM][oO][nN][dD][iI][rR]/**",
+      ]);
+      // Linux skips globs; its existing literal carve-outs still reach denyWrite.
+      expect(buildRunOptions(input({ containment: { ...containment, mechanism: "bubblewrap" } })).sandbox?.filesystem?.denyWrite).toEqual(readOnly);
+      expect(buildRunOptions(input({ containment: { ...containment, level: "off", mechanism: null } }))).not.toHaveProperty("sandbox");
     });
 
     it("closes the network at workspace-no-network: no domain, no unix socket, no local binding, and nothing asked about", () => {
@@ -384,6 +459,7 @@ describe("the options a run is handed", () => {
             scratchDirectory: "/data/containment/session/scratch",
             temporaryDirectory: "/data/containment/session/tmp",
             writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+            readOnly: [],
             network: true,
           },
           denylist,

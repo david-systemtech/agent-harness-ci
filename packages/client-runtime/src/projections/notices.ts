@@ -45,7 +45,7 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * routines' other notices raise none: `routine.updated`,
  * `routine.endpoint-set` and `routine.endpoint-removed` change what
  * `routines.list` and `routines.endpoints.list` answer, which the routines'
- * projections follow (#532), and a failed webhook delivery's row is #529's.
+ * projections follow (#532), and final webhook failures raise their own row (#529).
  * The forge's rows are
  * `forge-notices.ts`'s (#320). A key-manager connection's status rows (ADR
  * 0011: a failed verification raises a client notice) are
@@ -57,9 +57,12 @@ import type { Notice, NoticeInput, Notices } from "../notices.js";
  * (#500), which refreshes the cached `trust.get` and `trust.list`; nor
  * does `instructions.updated` (#505), which refreshes the cached
  * `instructions.list` and `instructions.preview`; nor
- * `carry-over.imported` (#578), which refreshes the cached
- * `carryOver.inventory`; nor `state-import.finished` (#581), which
- * refreshes the cached `stateImport.detect`.
+ * `carry-over.imported` (#578) or `carry-over.memory-assigned` (#580),
+ * which refresh the cached `carryOver.inventory`; nor
+ * `state-import.finished` (#581), which
+ * refreshes the cached `stateImport.detect`; nor `denylist.updated` and
+ * `review.updated` (#811), which refresh the cached denylist, permission
+ * settings and Unattended review.
  */
 
 export interface EnvironmentNoticeContext {
@@ -175,6 +178,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         case "environment.icon-set":
         case "environment.colour-set":
           return;
+        // The known environments' union changed (#382) raises none: the request cache reads instructions.list and
+        // instructions.preview again, whose block lists it.
+        case "environment.known-environments-updated":
+          return;
         // An update's other steps change the card and About, which follow `updates.status` in the request cache (#344).
         case "environment.update-pending":
         case "environment.update-started":
@@ -222,6 +229,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // A trust decision was recorded or revoked (#500): the request cache reads trust.get and trust.list again.
         case "trust.updated":
           return;
+        // The denylist or the Unattended review changed (#811): the request cache reads them again, and the Permissions pane
+        // and card show them.
+        case "denylist.updated":
+        case "review.updated":
+          return;
         // An owned instruction changed (#505): the request cache reads instructions.list, instructions.preview and instructions.diff (#509) again.
         case "instructions.updated":
           return;
@@ -231,6 +243,10 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
         // An import of an adopted account's directory ended (#578): the request cache reads carryOver.inventory again,
         // and Carry over's card shows what it did.
         case "carry-over.imported":
+          return;
+        // A memory folder was assigned to a repository (#580): the request cache reads carryOver.inventory again, and Carry
+        // over's card shows it copied.
+        case "carry-over.memory-assigned":
           return;
         // A state import ended (#581): the request cache reads stateImport.detect again, and Carry over's card shows its report.
         case "state-import.finished":
@@ -244,6 +260,11 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           raise({ kind: "routine", message: `${routine} on ${name}: ${summary}`, action: null, about: sessionId === null ? null : { sessionId, runId: null, promptId: null }, outcome });
           return;
         }
+        case "routine.delivery-failed": {
+          const { name: routine, endpoint, error } = notice.payload;
+          raise({ kind: "routine-delivery-failed", message: `${routine} on ${name} could not deliver to ${endpoint}: ${error}`, action: null });
+          return;
+        }
         // A worktree kept at its last session's purge (#330): where it is, on which branch, whose it was and why.
         case "workspace.kept": {
           const { path, branch, title, reason } = notice.payload;
@@ -252,9 +273,8 @@ export const createEnvironmentNotices = (notices: Notices): EnvironmentNotices =
           return;
         }
         // The routines' other notices raise none: they change what routines.list and routines.endpoints.list answer, which the
-        // routines' projections follow (#532); a failed webhook delivery's row is #529's.
+        // routines' projections follow (#532).
         case "routine.updated":
-        case "routine.delivery-failed":
         case "routine.endpoint-set":
         case "routine.endpoint-removed":
           return;

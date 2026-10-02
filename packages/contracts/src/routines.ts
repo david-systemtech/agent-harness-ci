@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { KeyManagerReference } from "./key-managers.js";
+import { KeyManagerReferenceDisplay } from "./key-manager-connections.js";
 import { AccountIdentity, RunId } from "./adapter.js";
 import { SchemaIssue } from "./errors.js";
 import type { EventTypeEntry } from "./event-types.js";
@@ -7,6 +9,7 @@ import { Mode } from "./permissions-modes.js";
 import { ClientSessionId, EnvironmentId, setOf, Timestamp } from "./primitives.js";
 import { Sha256 } from "./release.js";
 import { RepositoryIdentity } from "./repository-identity.js";
+import { RoutineSchedule, RoutineTimeZone, WrittenTimeZone } from "./schedule.js";
 import { Ceiling } from "./scopes.js";
 import { SessionId, Tag, WorkspaceRequest } from "./sessions.js";
 import { SkillName } from "./skill-rules.js";
@@ -16,9 +19,9 @@ import { ModelUsage } from "./transcript.js";
  * The routine vocabulary (routines spec; ADR 0008): a routine's definition,
  * which YAML carries and a client writes, with its bounds and presets; its
  * state, which is the environment's and never exported; the routine
- * `routines.list` answers with its attention codes. Only the shapes are
- * here: the schedule maths, the silence rule, the YAML codec and the webhook
- * signature are the tickets' that first use them.
+ * `routines.list` answers with its attention codes. The schedule, its zone
+ * and their maths are `schedule.ts`'s; the silence rule, the YAML codec and
+ * the webhook signature are the tickets' that first use them.
  */
 
 /** A routine's id: a version 4 UUID the creating client mints, so a create can queue offline. */
@@ -31,68 +34,6 @@ export const RoutineName = Tag.meta({
     "A routine's name: 1 to 40 characters once trimmed, no control or format (zero-width) characters, so it is also a valid tag; stored trimmed, unique per environment ignoring case.",
 });
 export type RoutineName = z.infer<typeof RoutineName>;
-
-/** The days a schedule names, Monday first. */
-export const ROUTINE_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
-export const RoutineDay = z.enum(ROUTINE_DAYS).meta({ description: "A day of the week, named in English and lower case: monday to sunday." });
-export type RoutineDay = z.infer<typeof RoutineDay>;
-
-/** A time of day in the routine's zone, `HH:MM` on the 24-hour clock. */
-export const RoutineTime = z
-  .string()
-  .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
-  .meta({ description: "A time of day in the routine's zone: HH:MM on the 24-hour clock, 00:00 to 23:59." });
-export type RoutineTime = z.infer<typeof RoutineTime>;
-
-const at = RoutineTime.meta({ description: "When in the day it is due, HH:MM in the routine's zone." });
-
-/** The longest cron expression a schedule takes. */
-export const MAX_CRON_EXPRESSION = 200;
-
-/**
- * When a routine is due (routines spec, "Schedules"): run now only, or a
- * kind with named days and `HH:MM` times, or a five-field cron expression,
- * each in the routine's zone at minute resolution. What only the schedule
- * maths can judge (cron's grammar, the five-minute floor) is its ticket's.
- */
-export const RoutineSchedule = z
-  .discriminatedUnion("kind", [
-    z.object({ kind: z.literal("manual") }).meta({ description: "Never due: the routine runs when run now." }),
-    z
-      .object({ kind: z.literal("hourly"), minute: z.int().min(0).max(59).meta({ description: "The minute past each hour it is due, 0 to 59." }) })
-      .meta({ description: "Due every hour at a minute past it." }),
-    z.object({ kind: z.literal("daily"), at }).meta({ description: "Due every day at a time." }),
-    z.object({ kind: z.literal("weekdays"), at }).meta({ description: "Due Monday to Friday at a time." }),
-    z.object({ kind: z.literal("weekly"), day: RoutineDay, at }).meta({ description: "Due one day a week at a time." }),
-    z
-      .object({ kind: z.literal("days"), days: setOf(RoutineDay).min(1).meta({ description: "The days it is due, each once." }), at })
-      .meta({ description: "Due on some days of the week at a time." }),
-    z
-      .object({ kind: z.literal("monthly"), day: z.int().min(1).max(31).meta({ description: "The day of the month, 1 to 31; a month without it is skipped." }), at })
-      .meta({ description: "Due one day a month at a time; a month without the day is skipped, as cron does." }),
-    z
-      .object({
-        kind: z.literal("cron"),
-        expression: z.string().min(1).max(MAX_CRON_EXPRESSION).meta({
-          description: "Five fields (minute, hour, day of month, month, day of week) with *, lists, ranges, steps and month and day names; no seconds field and no @ form.",
-        }),
-      })
-      .meta({ description: "Due when a five-field cron expression matches; both day fields restricted combine with OR, as Vixie cron's do." }),
-  ])
-  .meta({
-    description:
-      "When a routine is due, in its zone at minute resolution: manual (run now only), hourly at a minute, daily, weekdays, weekly on a day, on some days, monthly on a day, or a cron expression.",
-  });
-export type RoutineSchedule = z.infer<typeof RoutineSchedule>;
-
-/** An IANA time zone's name, as the runtime's zone data names it. */
-export const RoutineTimeZone = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z][A-Za-z0-9_+\-/]*$/)
-  .meta({ description: "An IANA time zone's name, such as Europe/London or UTC; whether the environment's zone data knows it is the schedule's to check." });
-export type RoutineTimeZone = z.infer<typeof RoutineTimeZone>;
 
 /** What a routine does with due times its environment missed: fire the latest once, within seven days, or skip them. */
 export const ROUTINE_IF_MISSED = ["run-once", "skip"] as const;
@@ -288,7 +229,7 @@ export type RoutineDefinition = z.infer<typeof RoutineDefinition>;
 export const RoutineDefinitionInput = z
   .object({
     ...definitionShape,
-    timezone: RoutineTimeZone.optional().meta({ description: "An IANA time zone's name; the environment's own zone when absent." }),
+    timezone: WrittenTimeZone.optional().meta({ description: "An IANA time zone's name the environment's zone data knows; the environment's own zone when absent." }),
     ifMissed: RoutineIfMissed.default(ROUTINE_PRESETS.ifMissed),
     injection: RoutineInjection.default(ROUTINE_PRESETS.injection),
     preCheck: PreCheckInput.nullable().meta({ description: "What runs before each firing, a script's timeout preset when absent; null for none, so every due time fires." }),
@@ -352,6 +293,7 @@ export const RoutineMoveLink = z
     environmentId: EnvironmentId,
     routineId: RoutineId,
     at: Timestamp.meta({ description: "When the move was recorded here." }),
+    definitionSequence: z.int().positive().optional().meta({ description: "The source definition's event sequence captured when this copy was made; absent for a link without that snapshot." }),
   })
   .meta({ description: "The other copy of a moved routine: its environment, its id there, and when the move was recorded here." });
 export type RoutineMoveLink = z.infer<typeof RoutineMoveLink>;
@@ -401,6 +343,7 @@ export const RoutineState = z
     savedBy: ClientSessionId.meta({ description: "The client session whose create, edit, import or enable last touched it." }),
     createdAt: Timestamp,
     editedAt: Timestamp.nullable().meta({ description: "When its definition was last edited or replaced by an import; null until then." }),
+    definitionSequence: z.int().positive().optional().meta({ description: "The event sequence of its latest create, edit, enable or disable; unchanged by firings. Absent when an environment does not supply it." }),
     movedFrom: RoutineMoveLink.nullable().meta({ description: "The routine this one is a moved copy of; null for one made here." }),
     movedTo: RoutineMoveLink.nullable().meta({ description: "The copy this one was moved to, which disabled it; null until moved, and cleared when it is enabled." }),
     baseline: z
@@ -434,9 +377,12 @@ export const ROUTINE_ATTENTION = [
 ] as const;
 export const RoutineAttention = z.enum(ROUTINE_ATTENTION).meta({
   description:
-    "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a skill is not in the skill set), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally).",
+    "What needs attention on a routine: account_missing (no account here has its identity, or none is the default), account_signed_out, model_unavailable (the account does not offer its model), skill_unknown (a name in its skills is not in the skill set of the account it resolves to; unknownSkills names each), script_missing (its pre-check's script is not in the scripts directory), endpoint_missing (a webhook target names no endpoint here), endpoint_needs_secret (a target's endpoint has no secret), clamped (its effective mode is below the mode it asks for), failing (its failure streak is not zero) or delivery_failing (the last delivery to a target failed finally).",
 });
 export type RoutineAttention = z.infer<typeof RoutineAttention>;
+
+/** The names in a routine's skills that the skill set of the account it resolves to does not hold (#531). */
+const unknownSkills = setOf(SkillName);
 
 /** A routine as `routines.list` answers it. */
 export const ListedRoutine = z
@@ -448,8 +394,11 @@ export const ListedRoutine = z
       description: "Its effective mode: its mode, else permissions.unattended.mode, clamped to the ceiling it was saved under and the account's modes, as the policy resolver clamps a firing's run.",
     }),
     attention: setOf(RoutineAttention).meta({ description: "What needs attention on it, each code once; empty when nothing does." }),
+    unknownSkills: unknownSkills.meta({
+      description: "The names in its skills that the skill set of the account it resolves to does not hold, in their order: what skill_unknown names; empty when the set holds each.",
+    }),
   })
-  .meta({ description: "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, and what needs attention." });
+  .meta({ description: "A routine as routines.list answers it: its definition and state, its next due time, its effective mode with the clamp, what needs attention, and the skills its account's skill set lacks." });
 export type ListedRoutine = z.infer<typeof ListedRoutine>;
 
 /** The longest final text a firing keeps, in characters. */
@@ -640,8 +589,18 @@ export const RoutineFiringStartedPayload = z
     requestedBy: FiringEntry.shape.requestedBy,
     preCheck: entryPart.preCheck,
     targets: FiringEntry.shape.targets,
+    silenceMarker: silenceMarker.meta({ description: "The marker its final text is read against by the silence rule (isSilent): its routine's when it was asked for, whatever an edit changes meanwhile." }),
+    maxDurationMinutes: maxDurationMinutes.meta({
+      description: "How long after its start its live run is interrupted with cause timeout, failing it timed_out: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
+    skills: setOf(SkillName).meta({
+      description: "The skills its runs load always-on, which a run the environment starts to continue it after a restart reads back: its routine's when it was asked for, whatever an edit changes meanwhile.",
+    }),
   })
-  .meta({ description: "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to whatever an edit changes meanwhile." });
+  .meta({
+    description:
+      "routine.firing-started: a firing's session and first run were made in one transaction, with the targets it delivers to, its silence marker, its maximum duration and its skills, whatever an edit changes meanwhile.",
+  });
 export type RoutineFiringStartedPayload = z.infer<typeof RoutineFiringStartedPayload>;
 
 export const RoutineFiringContinuedPayload = z
@@ -779,7 +738,7 @@ export const EndpointUrl = HttpUrl.meta({
 });
 
 export const RoutineEndpointSetPayload = z
-  .object({ name: EndpointName, url: EndpointUrl, secretKind: EndpointSecretKind })
+  .object({ name: EndpointName, url: EndpointUrl, secretKind: EndpointSecretKind, reference: KeyManagerReference.optional() })
   .meta({ description: "routine.endpoint-set: a webhook endpoint was made or replaced: its name, URL and where its secret is, never the secret." });
 export type RoutineEndpointSetPayload = z.infer<typeof RoutineEndpointSetPayload>;
 
@@ -794,6 +753,7 @@ export const WebhookEndpoint = z
     name: EndpointName,
     url: EndpointUrl,
     secretKind: EndpointSecretKind,
+    reference: KeyManagerReferenceDisplay.optional().meta({ description: "The secret reference in display form, only for a reference: never its value." }),
     lastResult: z
       .object({ at: Timestamp, result: DeliveryAttemptResult, status: DeliveryAttempt.shape.status, error: DeliveryAttempt.shape.error })
       .nullable()
@@ -885,6 +845,7 @@ export type RoutineConflictReason = z.infer<typeof RoutineConflictReason>;
 export const RoutineImportWarnings = z
   .object({
     attention: setOf(RoutineAttention).meta({ description: "What the routine would need attention for here: an account, model, skill, script or endpoint this environment lacks." }),
+    unknownSkills: unknownSkills.meta({ description: "The names in its skills that the skill set of the account it would resolve to here does not hold, in their order: what skill_unknown names." }),
     workspace: RoutineWorkspace.nullable().meta({
       description: "The workspace as re-resolved here, when the document's path is not usable on this environment: the most recently used checkout with its repository identity, else scratch; null when it is used as written.",
     }),
@@ -896,7 +857,9 @@ export type RoutineImportWarnings = z.infer<typeof RoutineImportWarnings>;
 export const RoutineImportCheck = z
   .object({
     index: z.int().nonnegative().meta({ description: "The document's place in the file, from 0." }),
-    definition: RoutineDefinition.nullable().meta({ description: "The definition as it would be saved; null when an issue refuses it." }),
+    definition: RoutineDefinition.nullable().meta({
+      description: "The definition as it would be saved, its workspace placed on this environment; null when the document does not read as a routine. A name another routine holds is an issue beside it.",
+    }),
     issues: z.array(SchemaIssue).meta({ description: "What is wrong in the document, each at its path; empty when nothing is." }),
     warnings: RoutineImportWarnings,
   })

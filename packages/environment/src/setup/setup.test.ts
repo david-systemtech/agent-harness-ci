@@ -45,7 +45,7 @@ const check = async (client: WireClient, step: RegisteredStepId): Promise<StepRe
 };
 
 describe("setup.check", () => {
-  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Carry over, Forges and Key manager, skipped with nothing to carry, no forge account and no connection, with its line and the environment's clock", async () => {
+  it("checks every registered step on a fresh environment, in the milestone-1 order: each done but Your machines, whose release channel is not read yet, and Carry over, Forges, Key manager, Memory bank, Skills and Browser, skipped with nothing to carry, no forge account, no connection, no bank and no paired Chrome, with its line and the environment's clock", async () => {
     const t = await start();
     const client = await t.client();
     const { results } = await client.request("setup.check", {});
@@ -55,8 +55,10 @@ describe("setup.check", () => {
       ["your-machines", "needs-attention", ["your-machines.release-channel"], ["check-again"]],
       ["forges", "skipped", [], []],
       ["key-manager", "skipped", [], []],
+      ["memory-bank", "skipped", [], []],
+      ["skills", "skipped", [], []],
       ["instructions", "done", [], []],
-      ["browser", "done", [], []],
+      ["browser", "skipped", [], []],
       ["permissions", "done", [], []],
       ["appearance", "done", [], []],
     ]);
@@ -81,7 +83,7 @@ describe("setup.check", () => {
     expect((await reader.request("setup.check", { step: "permissions" })).results).toHaveLength(1);
     const driver = await t.client({ token: (await t.pair({ scopes: ["runs:drive"] })).token });
     expect(await refusal(driver.request("setup.check", {}))).toMatchObject({ code: "forbidden", data: { scope: "read" } });
-    expect(await refusal(reader.request("setup.check", { step: "memory-bank" } as never))).toMatchObject({ code: "invalid_params" });
+    expect(await refusal(reader.request("setup.check", { step: "unknown-step" } as never))).toMatchObject({ code: "invalid_params" });
   });
 });
 
@@ -94,7 +96,7 @@ describe("the Your machines step's health line", () => {
     await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.autoUpdate": false } });
     expect(await check(client, "your-machines")).toMatchObject({
       state: "done",
-      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind. No host-side updater manages this environment's updates, or it polled in the last hour. The environment has a name, an icon and a colour. The environment is ready, and not draining past its cap.",
+      reason: "The environment runs as a non-root user. Auto-update is off, or the release channel was read in the last 24 hours. Auto-update is on or the channel's newest runs, no update is past its cap or blocked, and no failed update left this machine behind. No host-side updater manages this environment's updates, or it polled in the last hour. The environment has a name, an icon and a colour. The environment is ready, and not draining past its cap. LAN binding is off, or the LAN address it names is one this machine holds.",
       failing: [],
     });
   });

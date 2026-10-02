@@ -1,4 +1,4 @@
-import { MAX_DRAFT_LENGTH, type AdapterCapabilities, type QueueHolder } from "@agent-harness/contracts";
+import { MAX_DRAFT_LENGTH, type AdapterCapabilities, type AttachmentRecord, type QueueHolder } from "@agent-harness/contracts";
 import type { AbsentReason, CapabilityAnswer } from "../capabilities.js";
 import type { RewoundAt, UserMessageEntry } from "./session.js";
 
@@ -17,15 +17,17 @@ import type { RewoundAt, UserMessageEntry } from "./session.js";
  *    queues (`unreachable`, `not-ready`). `sessions.fork` is `sessions:write`
  *    and queues while the environment is unreachable, as the outbox keeps
  *    it: only its scope counts.
- * 2. **The adapter's capability flag**: `fork` and `rewind` (reason
- *    `adapter`, in the adapter's own name). Read now and withdraw have no
- *    flag: without `providerQueue` the environment holds the queue itself
- *    and does both; the flag only says who holds a message. Undo rewind has
- *    none either: with no rewind there is nothing to undo. An adapter not
+ * 2. **The adapter's capability flag**: `fork`, `rewind`, and `withdraw`
+ *    for a message the provider holds (reason `adapter`, in the adapter's
+ *    own name). An environment-held message is always withdrawable. Read
+ *    now has no flag: the environment interrupts and re-owns the queue.
+ *    Undo rewind has none either: with no rewind there is nothing to undo. An adapter not
  *    known yet (its descriptor not read) decides nothing; the environment
  *    refuses what it cannot do.
  * 3. **The session's state**, as the environment would refuse it:
- *    `run_active` for a rewind or an undo while a run is live;
+ *    `workspace_missing` for a read now while the session's workspace is
+ *    gone (#328: no run reads anything until the session is given another,
+ *    #421); `run_active` for a rewind or an undo while a run is live;
  *    `queued_messages` for a rewind while the environment holds queued
  *    messages; `run_started` for an undo once a run has started since the
  *    rewind; `draft_full` for a withdraw whose text the draft has no room
@@ -43,6 +45,7 @@ export type VerbMethod = "runs.readNow" | "runs.withdraw" | "sessions.fork" | "s
 export type VerbReason =
   | AbsentReason
   | "adapter"
+  | "workspace_missing"
   | "run_active"
   | "queued_messages"
   | "run_started"
@@ -73,8 +76,8 @@ export interface SessionVerbs {
 export interface QueuedMessage {
   readonly messageId: string;
   readonly text: string;
-  /** Its attachments' names, in order. */
-  readonly attachments: readonly string[];
+  /** Its attachments as `message.sent` logged them (kind, name, media type, size; never the bytes), in order: each drawn as its `attachmentChip`. */
+  readonly attachments: readonly AttachmentRecord[];
   /** Who holds it: the provider (which may steer it into the running turn) or the environment (the next run reads it). */
   readonly heldBy: QueueHolder;
   /** The run it was sent during. */
@@ -90,7 +93,7 @@ export interface VerbsInput {
   /** The connection's answer for a verb's command (`capability`'s, or for `sessions.fork`, which queues, its scope's alone). */
   readonly connection: (method: VerbMethod) => CapabilityAnswer;
   /** The session's adapter; null while it is not known. */
-  readonly adapter: Pick<AdapterCapabilities, "displayName" | "fork" | "rewind"> | null;
+  readonly adapter: Pick<AdapterCapabilities, "displayName" | "fork" | "rewind" | "withdraw"> | null;
   /** A run of the session is live, or starting. */
   readonly live: boolean;
   /** The session's queue, in the order sent (`projections.session`'s `queued`). */
@@ -101,7 +104,12 @@ export interface VerbsInput {
   readonly rewindable: boolean;
   /** The session's draft, which a withdraw appends to. */
   readonly draft: string | null;
+  /** The session's workspace while the environment has found it gone (`workspaceMissingSince`): its path; else null. */
+  readonly gone: string | null;
 }
+
+/** What a run command says on a session whose workspace is gone (#328, #421): nothing runs there until the session is given another. */
+export const workspaceGoneLine = (path: string): string => `${path} is gone: choose a workspace for the session first.`;
 
 const PRESENT: VerbAvailability = { status: "present" };
 const absent = (reason: VerbReason, message: string): VerbAvailability => ({ status: "absent", reason, message });
@@ -132,7 +140,7 @@ export interface SessionVerbsAnswer {
 
 /** Each verb's availability on the session, and its queue with each message's own withdraw. */
 export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
-  const { adapter, live, queued, rewound } = input;
+  const { adapter, live, queued, rewound, gone } = input;
   const connection = (method: VerbMethod) => () => input.connection(method);
   const adapterCan = (flag: "fork" | "rewind", verb: string) => () => (adapter === null || adapter[flag] ? null : absent("adapter", `${adapter.displayName} cannot ${verb} a session.`));
   const noRun = (what: string) => () => (live ? absent("run_active", `A run is live on this session: stop it before ${what}.`) : null);
@@ -148,6 +156,8 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
   const withdrawOf = (message: UserMessageEntry, heldBy: QueueHolder): VerbAvailability =>
     first(
       connection("runs.withdraw"),
+      () =>
+        heldBy === "provider" && adapter?.withdraw === false ? absent("adapter", `${adapter.displayName} cannot withdraw a message its provider holds.`) : null,
       () => (reachable(heldBy) ? null : absent("being_read", "The provider is opening a turn with this message: it can no longer be withdrawn.")),
       () =>
         draftAfterWithdraw(input.draft, message.text).length > MAX_DRAFT_LENGTH ? absent("draft_full", "The draft has no room for this message's text: shorten or clear it first.") : null,
@@ -158,7 +168,7 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
     return {
       messageId: message.messageId,
       text: message.text,
-      attachments: message.attachments.map((attachment) => attachment.name),
+      attachments: message.attachments,
       heldBy,
       runId: message.runId,
       sequence: message.sequence,
@@ -171,14 +181,18 @@ export const sessionVerbs = (input: VerbsInput): SessionVerbsAnswer => {
   const newest = readable.at(-1);
 
   const verbs: SessionVerbs = {
-    readNow: first(connection("runs.readNow"), () => (readable.length > 0 ? null : absent("no_queue", "Nothing is queued to read."))),
+    readNow: first(
+      connection("runs.readNow"),
+      () => (gone === null ? null : absent("workspace_missing", workspaceGoneLine(gone))),
+      () => (readable.length > 0 ? null : absent("no_queue", "Nothing is queued to read.")),
+    ),
     withdraw: first(connection("runs.withdraw"), () => (newest === undefined ? absent("no_queue", "Nothing is queued to withdraw.") : newest.withdraw)),
     fork: first(connection("sessions.fork"), adapterCan("fork", "fork")),
     rewind: first(
       connection("sessions.rewind"),
       adapterCan("rewind", "rewind"),
       noRun("rewinding"),
-      () => (queue.some((message) => message.heldBy === "environment") ? absent("queued_messages", "Messages are queued: withdraw them, or let a run read them, before rewinding.") : null),
+      () => (queue.length > 0 ? absent("queued_messages", "Messages are queued: withdraw them, or let a run read them, before rewinding.") : null),
       () => (input.rewindable ? null : absent("no_message", "No message a run has read to rewind to.")),
     ),
     undoRewind: first(

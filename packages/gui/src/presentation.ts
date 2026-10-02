@@ -8,7 +8,7 @@ import {
   type Observable,
   type SidebarView,
 } from "@agent-harness/client-runtime";
-import { Theme, WorkspaceRequest } from "@agent-harness/contracts";
+import { SessionBrowser, Theme, WorkspaceRequest } from "@agent-harness/contracts";
 import { readRemaps, type KeyRemaps } from "./keys/key-map.js";
 
 /**
@@ -85,9 +85,9 @@ const ONE_PANE: PaneLayout = Object.freeze({
 /**
  * The panes a session pane's side column holds (docs/specs/gui.md, "The
  * seven panes and the grid"): this build's, in the spec's order; the
- * browser dock joins them.
+ * browser dock is beside Diff.
  */
-export const SIDE_PANES = ["terminal", "files", "diff", "documents", "tasks", "preview"] as const;
+export const SIDE_PANES = ["terminal", "files", "diff", "browser", "documents", "tasks", "preview"] as const;
 export type SidePane = (typeof SIDE_PANES)[number];
 
 /**
@@ -144,6 +144,8 @@ export interface PresentationValues {
    */
   readonly collapsedHeadings: CollapsedHeadings;
   readonly paneLayout: PaneLayout;
+  /** Opaque native browser profile keys per grid pane and session; no page contents are stored here. */
+  readonly browserPartitions: Readonly<Record<string, string>>;
   /** Each session's side column, by `sideColumnKey`; a session with no pane open has none. */
   readonly sideColumns: Readonly<Record<string, SideColumn>>;
   /** The transcript's text size, in CSS pixels (`TEXT_SIZE_LEAST` to `TEXT_SIZE_MOST`). */
@@ -206,6 +208,7 @@ export const PRESENTATION_DEFAULTS: PresentationValues = Object.freeze({
   collapsedHeadings: Object.freeze({}),
   paneLayout: ONE_PANE,
   sideColumns: Object.freeze({}),
+  browserPartitions: Object.freeze({}),
   textSize: 14,
   readingWidth: "comfortable",
   reasoningShown: true,
@@ -278,11 +281,13 @@ const readChips = (stored: unknown): NewSessionChips => {
   const model = stringIn(held, "model");
   const account = { environmentId: stringIn(held["account"], "environmentId"), accountId: stringIn(held["account"], "accountId") };
   const workspaceOn = stringIn(held["workspace"], "environmentId");
+  const browser = held["browser"] === null ? null : SessionBrowser.safeParse(held["browser"]).data;
   const request = WorkspaceRequest.safeParse((held["workspace"] as Record<string, unknown> | undefined)?.["request"]).data;
   return {
     ...(environmentId !== undefined && { environmentId }),
     ...(account.environmentId !== undefined && account.accountId !== undefined && { account: { environmentId: account.environmentId, accountId: account.accountId } }),
     ...(model !== undefined && { model }),
+    ...(browser !== undefined && { browser }),
     ...(workspaceOn !== undefined && request !== undefined && { workspace: { environmentId: workspaceOn, request } }),
   };
 };
@@ -295,7 +300,10 @@ const readNewSession = (stored: unknown): PaneNewSession | undefined => {
 };
 
 /** A pane or a row as stored: an object with a string id and a share. */
-const readPart = (stored: unknown, share: "width" | "height"): { readonly id: string; readonly share: number; readonly held: Record<string, unknown> } | undefined => {
+const readPart = (
+  stored: unknown,
+  share: "width" | "height",
+): { readonly id: string; readonly share: number; readonly held: Record<string, unknown> } | undefined => {
   if (typeof stored !== "object" || stored === null) return undefined;
   const held = stored as Record<string, unknown>;
   return typeof held["id"] === "string" && isShare(held[share]) ? { id: held["id"], share: held[share], held } : undefined;
@@ -355,6 +363,12 @@ const READERS: { readonly [K in PresentationKey]: (stored: unknown) => Presentat
     return folds.every(([, shut]) => typeof shut === "boolean") ? (Object.fromEntries(folds) as CollapsedHeadings) : undefined;
   },
   paneLayout: (stored) => readPaneLayout(stored),
+  browserPartitions: (stored) => {
+    if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return undefined;
+    return Object.fromEntries(
+      Object.entries(stored).filter((entry): entry is [string, string] => typeof entry[1] === "string" && /^[a-z0-9-]{1,100}$/.test(entry[1])),
+    );
+  },
   sideColumns: (stored) => {
     if (typeof stored !== "object" || stored === null || Array.isArray(stored)) return undefined;
     const columns: Record<string, SideColumn> = {};

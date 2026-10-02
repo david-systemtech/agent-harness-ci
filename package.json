@@ -8,7 +8,7 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm --filter @agent-harness/contracts build-validator && pnpm --filter @agent-harness/extension build",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "test": "vitest run"
@@ -16,6 +16,7 @@
   "devDependencies": {
     "@eslint/css": "^2.0.0",
     "@eslint/js": "^10.0.1",
+    "@html-eslint/eslint-plugin": "^0.66.1",
     "@types/node": "^24.0.0",
     "@typescript-eslint/rule-tester": "^8.70.1",
     "@typescript-eslint/utils": "^8.70.1",

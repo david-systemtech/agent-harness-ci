@@ -109,6 +109,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -123,8 +124,8 @@ const skillSetOf = (fingerprint: string): RunSkillSet => ({
   generation: `/data/skills/generations/${fingerprint}`,
   fingerprint,
   members: [
-    { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
-    { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+    { name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+    { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: true, argumentHint: null, native: true, alwaysOn: false },
   ],
   hiddenNativeNames: ["triage"],
 });
@@ -805,6 +806,7 @@ describe("the sandbox's ask for a host (SandboxNetworkAccess)", () => {
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   };
 
@@ -1371,6 +1373,48 @@ describe("the process across turns", () => {
     expect(fake.queries).toHaveLength(3);
   });
 
+  it("spawns fresh when the attached bank directories change, including with containment off, and reuses an unchanged attachment", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const first = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/personal"] }));
+    await first.finish(sdk.tasks({ task_id: "task_1" }));
+    expect(() => adapter.createRun(runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), contextWith())).toThrow(/still has work running/);
+    first.query.emit(sdk.tasks());
+    await vi.waitFor(() => expect(port).toContain("unhold task:task_1"));
+    const second = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.additionalDirectories).toEqual(["/data/banks/team"]);
+    await second.finish();
+    const third = await oneTurn(adapter, runInput({ additionalDirectories: ["/data/banks/team"], target: resume }), second.query);
+    await third.finish();
+    expect(fake.queries).toHaveLength(2);
+    const fourth = await oneTurn(adapter, runInput({ additionalDirectories: [], target: resume }));
+    expect(second.query.closed).toBe(true);
+    expect(fourth.query.options.additionalDirectories).toBeUndefined();
+    await fourth.finish();
+  });
+
+  it("spawns fresh for a run whose containment closes other paths, a worktree made since the last, since the sandbox's denyWrite is fixed at spawn (#791)", async () => {
+    const adapter = adapterWith();
+    const resume = { kind: "resume", providerSessionId: PROVIDER_SESSION } as const;
+    const closing = (...worktrees: string[]): RunInput["containment"] => ({
+      ...runInput().containment,
+      level: "workspace",
+      mechanism: "bubblewrap",
+      readOnly: ["hooks", "config", "config.worktree", ...worktrees.map((name) => `worktrees/${name}/config.worktree`)].map((path) => `/work/repo/.git/${path}`),
+    });
+    const first = await oneTurn(adapter, runInput({ containment: closing() }));
+    await first.finish();
+    const second = await oneTurn(adapter, runInput({ containment: closing("feature"), target: resume }));
+    expect(first.query.closed).toBe(true);
+    expect(second.query.options.sandbox?.filesystem?.denyWrite).toContain("/work/repo/.git/worktrees/feature/config.worktree");
+    await second.finish();
+    // The same paths closed: the kept process serves it.
+    const third = await oneTurn(adapter, runInput({ containment: closing("feature"), target: resume }), second.query);
+    await third.finish();
+    expect(fake.queries).toHaveLength(2);
+  });
+
   it("spawns fresh, with the opt-in, for a run under a bypass ceiling in a lower mode, so its mode can later be changed to bypass", async () => {
     const adapter = adapterWith();
     const first = await oneTurn(adapter, runInput());
@@ -1501,6 +1545,33 @@ describe("the process environment (#307)", () => {
     await query.promptsPushed(2);
     expect(fake.queries).toHaveLength(1);
     expect(supplied.count).toBe(1);
+  });
+
+  it.each(["workspace", "workspace-no-network"] as const)(
+    "lets a contained command at %s write the directories its spawn was supplied as the holder's own, a key-manager CLI's per-holder directory, beside the run's writable set (#1119)",
+    async (level) => {
+      const adapter = adapterWith();
+      const holderDirectory = "/data/agent-harness/key-manager-cli/doppler-3f9a2c";
+      const environment: ProcessEnvironment = {
+        key: "key-managers generation 1",
+        supply: async () => ({ variables: { DOPPLER_CONFIG_DIR: holderDirectory }, writable: [holderDirectory], release: () => undefined }),
+      };
+      const contained: RunInput["containment"] = { ...runInput().containment, level, mechanism: "bubblewrap", network: level === "workspace" };
+      adapter.createRun(runInput({ containment: contained, processEnvironment: environment }), contextWith());
+      const query = await started();
+      expect(query.options.sandbox?.filesystem?.allowWrite).toEqual(["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp", holderDirectory]);
+    },
+  );
+
+  it("sets no sandbox at off for a spawn supplied directories to write, since nothing is contained", async () => {
+    const adapter = adapterWith();
+    const environment: ProcessEnvironment = {
+      key: "key-managers generation 1",
+      supply: async () => ({ variables: {}, writable: ["/data/agent-harness/key-manager-cli/doppler-3f9a2c"], release: () => undefined }),
+    };
+    adapter.createRun(runInput({ processEnvironment: environment }), contextWith());
+    const query = await started();
+    expect(query.options).not.toHaveProperty("sandbox");
   });
 
   it("serves a run whose key differs on a fresh process, the kept one let go with its queued message handed on, and attaches a run with the same key", async () => {
@@ -1785,11 +1856,22 @@ describe("status, models and commands", () => {
     expect(await adapter.models({ id: "work", directory: "/d" })).toMatchObject({ live: false, models: expect.arrayContaining([expect.objectContaining({ id: "fable", tier: 3 })]) });
   });
 
-  it("lists the commands for a workspace without starting a turn", async () => {
-    fake.controls = { supportedCommands: async () => [{ name: "review", description: "Review the branch", argumentHint: "" }] };
+  it("lists the commands for a workspace without starting a turn, flagged built-in where the CLI marks them Claude Code's own (#503)", async () => {
+    // As the pinned CLI (2.1.283) answers: its own marked, a project's command and the generation plugin's member unmarked.
+    fake.controls = {
+      supportedCommands: async () => [
+        { name: "compact", description: "Clear the conversation history but keep a summary", argumentHint: "<optional custom summarization instructions>", builtin: true },
+        { name: "review", description: "Review the branch", argumentHint: "[branch]" },
+        { name: "agent-harness:tdd", description: "Test first", argumentHint: "<feature>", aliases: ["tdd"] },
+      ],
+    };
     const adapter = adapterWith();
     const scope = { trusted: false, skillSet: EMPTY_RUN_SKILL_SET };
-    expect(await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, scope)).toEqual([{ name: "review", description: "Review the branch" }]);
+    expect(await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: "/work/repo" }, scope)).toEqual([
+      { name: "compact", description: "Clear the conversation history but keep a summary", builtin: true },
+      { name: "review", description: "Review the branch", builtin: false },
+      { name: "agent-harness:tdd", description: "Test first", builtin: false },
+    ]);
     expect(fake.last().options.cwd).toBe("/work/repo");
     expect(fake.last().prompts).toEqual([]);
   });
@@ -1803,6 +1885,7 @@ describe("status, models and commands", () => {
       nativeProjectInstructions: true,
       nativeSkillRoots: [".claude/skills", ".claude/commands"],
       providerQueue: true,
+      withdraw: true,
       steering: true,
       planUsage: true,
     });

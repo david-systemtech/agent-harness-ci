@@ -318,6 +318,11 @@ export const permissionSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ ...sshMatch, section: "files" }, { section: "paths", matched: "x" }, { ...sshMatch, entry: {} }],
   },
   "permissions/denylist-test-kind.json": { valid: ["browserDomain", "path", "command", "host"], invalid: ["domain", "paths", ""] },
+  "permissions/notices/denylist.updated.json": {
+    valid: [{ sections: ["paths"] }, { sections: ["browserDomains", "paths", "commandPatterns", "hosts"] }],
+    invalid: [{}, { sections: [] }, { sections: ["files"] }, { sections: ["paths", "paths"] }, { sections: "paths" }],
+  },
+  "permissions/notices/review.updated.json": { valid: [{}], invalid: [null, "updated"] },
   "errors/containment_unavailable.json": {
     valid: [{ code: "containment_unavailable", message: "m", data: { level: "workspace", reason: "bubblewrap (bwrap) is not on the PATH.", cause: "binary_missing" } }],
     invalid: [

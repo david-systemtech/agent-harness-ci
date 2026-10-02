@@ -3,19 +3,21 @@ import {
   identityWords,
   modelName,
   readingWords,
-  whenWords,
-  type KnownDirectory,
+  type EnvironmentView,
   type NewSessionChips,
   type NewSessionView,
 } from "@agent-harness/client-runtime";
-import { RequestedDirectory, type WorkspaceRequest } from "@agent-harness/contracts";
-import { useState, type ComponentType, type FormEvent, type ReactNode } from "react";
-import { EnvironmentDot } from "../connections/environment-badge.js";
+import type { WorkspaceRequest } from "@agent-harness/contracts";
+import { useState, type ComponentType, type ReactNode } from "react";
+import { EnvironmentGlyph } from "../connections/environment-badge.js";
 import { nameOf } from "../connections/words.js";
 import { classes } from "../ui/classes.js";
-import { Button, Input, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverContent, PopoverTrigger } from "../ui/index.js";
+import { Button, Menu, MenuContent, MenuItem, MenuTrigger, Popover, PopoverTrigger } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { repositoryWords, requestWords } from "./words.js";
+import { WorkspacePopover } from "../workspace/picker.js";
+import { BrowserChoiceMenu } from "../browser/choice-menu.js";
+import { checkRequest } from "./check.js";
+import { requestWords } from "./words.js";
 
 /**
  * The new-session surface's chips (docs/specs/gui.md, "A new session";
@@ -23,12 +25,9 @@ import { repositoryWords, requestWords } from "./words.js";
  * #420): environment, account, model, then workspace, each holding
  * `projections.newSession`'s preset until one is chosen on it, and changing
  * a chip re-runs the presets after it. An environment no session can start
- * on now is greyed with its reason. The workspace chip offers the
- * environment's known directories, each with its repository and a gone one
- * marked, and each hidden from this client's list by its own button; a
- * typed path; and scratch. The row is `CHIPS`, in order: a chip another
- * surface needs (#564's browser) joins it there, and the workspace chip's
- * ways (#421's Browse and Worktree) join `WorkspaceChip`.
+ * on now is greyed with its reason. The workspace chip opens the workspace
+ * picker (`../workspace/picker.tsx`, #421). The row is `CHIPS`, in order: a
+ * chip another surface needs (#564's browser) joins it there.
  */
 
 /** What each chip is drawn from, and what choosing on it does. */
@@ -104,14 +103,14 @@ const EnvironmentChip = ({ view, choose }: ChipProps) => {
               note={environment.environmentId === value ? HELD : undefined}
               onSelect={() => choose({ environmentId: environment.environmentId })}
             >
-              <EnvironmentDot view={environment} />
+              <EnvironmentGlyph view={environment} />
               {nameOf(environment)}
             </Option>
           ))
         )
       }
     >
-      {chosen !== undefined && <EnvironmentDot view={chosen} />}
+      {chosen !== undefined && <EnvironmentGlyph view={chosen} />}
       {words}
     </ChipMenu>
   );
@@ -175,91 +174,45 @@ const ModelChip = ({ view, choose }: ChipProps) => {
 };
 
 /**
- * Where the session works: the environment's known directories, most
- * recent first, each with its repository, one found gone marked and not
- * offered, and each hidden from this client's list (`hiddenDirectories`)
- * until a session uses it again; a typed path, a full one or one from the
- * environment's home; and scratch.
+ * Where the session works: the workspace picker (`WorkspacePicker`) on the
+ * chosen environment, over its known directories less those hidden here.
+ * What is chosen there is checked against the environment first
+ * (`checkRequest`), so the resolver's refusal is the picker's one line and
+ * the picker stays open; what it takes sets the chip.
  */
-const WorkspaceChip = ({ view, sessionId, choose, say }: ChipProps) => {
+const WorkspaceChip = ({ view, sessionId, choose }: ChipProps) => {
   const runtime = useRuntime();
   const rows = useObservable(runtime.projections.sessionList).rows;
   const [open, setOpen] = useState(false);
-  const [path, setPath] = useState("");
   const environmentId = view.environment.value;
   const { value, options } = view.workspace;
   const environment = view.environment.options.find((option) => option.environment.environmentId === environmentId)?.environment;
-  const where = environment === undefined ? "the environment" : nameOf(environment);
   const words = value === null || environmentId === null ? { label: "none", path: undefined } : requestWords(value, environmentId, sessionId, rows);
 
-  const take = (request: WorkspaceRequest) => {
-    if (environmentId === null) return;
-    choose({ workspace: { environmentId, request } });
-    setOpen(false);
-  };
-  const typed = (event: FormEvent) => {
-    event.preventDefault();
-    const full = RequestedDirectory.safeParse(path.trim());
-    if (!full.success) return say(`A workspace is a full path on ${where}, or one from its home (~).`);
-    setPath("");
-    take({ kind: "directory", path: full.data });
-  };
-  const hide = (directory: KnownDirectory) => {
-    if (environmentId === null) return;
-    runtime.knownDirectories.hide(environmentId, directory.path).catch((error: unknown) => say(`Not hidden: ${error instanceof Error ? error.message : String(error)}`));
+  const take = async (request: WorkspaceRequest, on: EnvironmentView): Promise<string | undefined> => {
+    const refused = await checkRequest(runtime, sessionId, request, { where: nameOf(on), environmentId: on.environmentId, rows: runtime.projections.sessionList.read().rows });
+    if (refused === undefined) choose({ workspace: { environmentId: on.environmentId, request } });
+    return refused;
   };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environmentId === null} className={CHIP}>
+        <Button aria-label={`Workspace: ${words.label}`} title={words.path} disabled={environment === undefined} className={CHIP}>
           <Face name="Workspace">{words.label}</Face>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" aria-label={`Where it works on ${where}`} className="flex w-96 flex-col gap-2">
-        <p className="text-xs font-medium text-ink-muted">Where it works on {where}</p>
-        {options.length > 0 && (
-          <ul aria-label="Known directories" className="flex max-h-64 flex-col overflow-y-auto">
-            {options.map((directory) => (
-              <KnownDirectoryRow key={directory.path} directory={directory} take={() => take({ kind: "directory", path: directory.path })} hide={() => hide(directory)} />
-            ))}
-          </ul>
-        )}
-        <form onSubmit={typed} className="flex gap-1.5">
-          <Input aria-label={`A directory on ${where}`} placeholder="/full/path or ~/in/home" value={path} onChange={(event) => setPath(event.target.value)} />
-          <Button type="submit" disabled={path.trim() === ""}>
-            Use
-          </Button>
-        </form>
-        <Button className="self-start" onClick={() => take({ kind: "scratch" })}>
-          Scratch: a directory of its own
-        </Button>
-      </PopoverContent>
+      {environment !== undefined && (
+        <WorkspacePopover align="start" environment={environment} sessionId={sessionId} known={options} take={(request) => take(request, environment)} close={() => setOpen(false)} />
+      )}
     </Popover>
   );
 };
 
-/** A known directory: chosen by its path, with its repository or its gone mark, and hidden by its own button. */
-const KnownDirectoryRow = ({ directory, take, hide }: { readonly directory: KnownDirectory; take(): void; hide(): void }) => {
-  const gone = directory.missingSince === null ? undefined : `gone since ${whenWords(new Date(directory.missingSince))}`;
-  const under = gone ?? (directory.repositoryIdentity === null ? undefined : repositoryWords(directory.repositoryIdentity));
-  return (
-    <li className="flex items-center gap-1">
-      <button
-        type="button"
-        disabled={gone !== undefined}
-        onClick={take}
-        className="flex min-w-0 flex-1 flex-col rounded-sm px-2 py-1 text-left text-sm text-ink outline-none hover:bg-wash focus-visible:outline-2 focus-visible:outline-beam disabled:text-ink-faint disabled:hover:bg-transparent"
-      >
-        <span className="truncate">{directory.path}</span>
-        {under !== undefined && <span className="truncate text-xs text-ink-faint">{under}</span>}
-      </button>
-      <Button aria-label={`Hide ${directory.path}`} title="Hide it from this client's list" className="h-6 px-1.5 text-xs font-normal text-ink-muted" onClick={hide}>
-        Hide
-      </Button>
-    </li>
-  );
-};
+/** The browser preset follows the account until a person chooses on its chip. */
+const BrowserChip = ({ view, choose }: ChipProps) => (
+  <BrowserChoiceMenu rows={view.browser.options} choose={(value) => choose({ browser: value })} className={CHIP} />
+);
 
-/** The chips in their order: environment, account, model, workspace. */
-export const CHIPS: readonly ComponentType<ChipProps>[] = [EnvironmentChip, AccountChip, ModelChip, WorkspaceChip];
+/** The chips in their order: environment, account, model, workspace, browser. */
+export const CHIPS: readonly ComponentType<ChipProps>[] = [EnvironmentChip, AccountChip, ModelChip, WorkspaceChip, BrowserChip];

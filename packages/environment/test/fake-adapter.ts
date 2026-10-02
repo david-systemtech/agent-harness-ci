@@ -17,6 +17,7 @@ import {
   isInProcess,
   recordedImage,
   toolCallSummary,
+  toolServersKey,
   type AccountRef,
   type Adapter,
   type AdapterEvent,
@@ -37,6 +38,7 @@ import {
   type RunContext,
   type RunEnd,
   type RunInput,
+  type ToolServer,
   type TranscriptEvent,
   type UsageReading,
   type UsageWindow,
@@ -80,19 +82,23 @@ import { MANUAL_CLOCK_START } from "./clock.js";
  * context's port (`backgroundTask`). A process is spawned with its run's
  * process environment (#307), supplied once and reported on its record
  * (`supplied`), with its run's instruction text (`instructions`) and with
- * its skill set's fingerprint (`fingerprint`, #495); a run whose key,
- * instructions, trust or fingerprint differ lets it go for a fresh one, as
- * Claude's adapter does; a script runs a command in what its process was
- * supplied (`runCommand`).
+ * its skill set's fingerprint (`fingerprint`, #495) and with its run's tool
+ * servers (`toolServers`); a run whose key, instructions, trust, fingerprint
+ * or in-process tools (`toolServersKey`) differ lets it go for a fresh
+ * one, as Claude's adapter does. A kept process serves a later run with the
+ * tool servers it was spawned with, as Claude's does (#139, #551): a
+ * script's `input.toolServers` are its process's. A script runs a command in
+ * what its process was supplied (`runCommand`).
  *
  * Accounts (#134): the status probe answers per account directory and can
  * be changed mid-test (`setStatus`), every read is recorded
  * (`statusReads`), and the fake names a directory of its own for
  * `accounts.adopt` (`ambientDirectory`), one that is not there unless a
  * test gives it one. It lists commands when a test gives it some, and
- * then, as Claude lists them, each member of the skill set it is handed:
- * `agent-harness:<name>` for one the generation links, `<name>` for a
- * native one; every listing is recorded with its scope (#495). A member's
+ * then, as Claude lists them, each member of the skill set it is handed
+ * that a person may invoke: `agent-harness:<name>` for one the generation
+ * links, `<name>` for a native one; every listing is recorded with its
+ * scope (#495). A member's
  * invocation text is Claude's too. It lists an account directory's
  * sessions for Carry over when a test scripts them (`sessions`, #578).
  *
@@ -113,6 +119,7 @@ import { MANUAL_CLOCK_START } from "./clock.js";
 
 /** What a script is handed: the run's input, its context, and the messages the run is sent while it plays. */
 export interface ScriptControls {
+  /** The run's input, with its process's tool servers: a kept process serves the run with the ones it was spawned with. */
   readonly input: RunInput;
   readonly context: RunContext;
   /** Resolves with the next message the run is sent (a steer), or at once with one sent and not taken yet. */
@@ -145,12 +152,16 @@ export interface FakeProcessRecord {
   readonly key: string;
   /** Settles with the variables its spawn was supplied, which its scripted commands run in (`runCommand`). */
   readonly supplied: Promise<Readonly<Record<string, string>>>;
+  /** Settles with the directories its spawn was supplied as the holder's own to write (#1119), none when it was supplied none. */
+  readonly writable: Promise<readonly string[]>;
   /** The instruction text it was spawned with, fixed for its life: a run handed other text is served by a fresh process. */
   readonly instructions: string;
   /** Whether it was spawned for a trusted repository, fixed for its life as Claude's project settings are: a run with the other answer is served by a fresh process (#500). */
   readonly trusted: boolean;
   /** The fingerprint of the skill set it was spawned with, fixed for its life as Claude's plugins are: a run with another is served by a fresh process (#495). */
   readonly fingerprint: string | null;
+  /** The tool servers it was spawned with, which serve every run on it, as Claude's MCP servers do: a run whose in-process tools differ is served by a fresh process. */
+  readonly toolServers: readonly ToolServer[];
   /** Set when `stopProcess` is called for it. */
   stopping: boolean;
   /** Set when its stop has finished. */
@@ -195,8 +206,12 @@ export interface FakeAdapterOptions {
   readonly status?: (account: AccountRef) => AuthStatus | Promise<AuthStatus>;
   /** The machine's own directory for the fake provider (`accounts.adopt`). Preset: a path that is not there. */
   readonly ambientDirectory?: string | null;
-  /** Declares `commands` with these commands, recording each listing. Preset: not declared. */
-  readonly commands?: readonly ProviderCommand[];
+  /**
+   * Declares `commands` with these commands, or those a function answers for
+   * the scope the host resolved (a trusted repository's own, say), recording
+   * each listing. Preset: not declared.
+   */
+  readonly commands?: readonly ProviderCommand[] | ((scope: CommandsScope) => readonly ProviderCommand[]);
   /**
    * Declares `sessionListing`: the sessions each account's directory holds,
    * given, or read per account from a function that may answer later or
@@ -301,6 +316,7 @@ export interface CommandListing {
 const listedMember = (member: RunSkillSetMember): ProviderCommand => ({
   name: member.native ? member.name : `${SKILL_PLUGIN_NAME}:${member.name}`,
   description: `The skill set's ${member.name}.`,
+  builtin: false,
 });
 
 /** A user title the environment mirrored into the provider's own title field. */
@@ -679,6 +695,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     interactivePrompts: true,
     partialMessages: true,
     providerQueue: true,
+    withdraw: true,
     steering: true,
     resume: true,
     fork: false,
@@ -739,17 +756,22 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
 
   /** Starts a process cold for the run: its process environment supplied once, for this spawn. */
   const spawn = (input: RunInput): FakeProcessRecord => {
-    const supplied = input.processEnvironment.supply().then((answer) => answer.variables);
+    const answer = input.processEnvironment.supply();
+    const supplied = answer.then((given) => given.variables);
+    const writable = answer.then((given) => given.writable ?? []);
     // A script that never asks for the variables leaves a failed supply unheard: it is not an unhandled rejection.
     supplied.catch(() => undefined);
+    writable.catch(() => undefined);
     const process: FakeProcessRecord = {
       sessionId: input.sessionId,
       runs: 0,
       key: input.processEnvironment.key,
       supplied,
+      writable,
       instructions: input.instructions,
       trusted: input.trusted,
       fingerprint: input.skillSet.fingerprint,
+      toolServers: input.toolServers,
       stopping: false,
       stopped: false,
       killed: false,
@@ -761,8 +783,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
   /**
    * The session's process for a new run: the live one, or one started cold.
    * A live one spawned with another process environment, other
-   * instructions, the other trust or another skill set is let go for a
-   * fresh one, as Claude lets its process go for a run it cannot serve.
+   * instructions, the other trust, another skill set or other in-process
+   * tools is let go for a fresh one, as Claude lets its process go for a run
+   * it cannot serve.
    */
   const processFor = (input: RunInput): FakeProcessRecord => {
     let process = liveProcess(input.sessionId);
@@ -771,7 +794,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
       process.key === input.processEnvironment.key &&
       process.instructions === input.instructions &&
       process.trusted === input.trusted &&
-      process.fingerprint === input.skillSet.fingerprint;
+      process.fingerprint === input.skillSet.fingerprint &&
+      toolServersKey(process.toolServers) === toolServersKey(input.toolServers);
     if (process !== undefined && !spawnedFor) {
       process.stopping = true;
       process.stopped = true;
@@ -856,7 +880,8 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     }
 
     const controls: ScriptControls = {
-      input,
+      // The process's tool servers: a kept process serves the run with the ones it was spawned with.
+      input: { ...input, toolServers: process.toolServers },
       context: gated,
       signal: abort.signal,
       adopted,
@@ -980,7 +1005,9 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     ...(options.commands !== undefined && {
       commands: async (account: AccountRef, workspace: { readonly path: string }, scope: CommandsScope) => {
         commandListings.push({ account, workspace: workspace.path, scope });
-        return [...(options.commands ?? []), ...scope.skillSet.members.map(listedMember)];
+        const own = typeof options.commands === "function" ? options.commands(scope) : (options.commands ?? []);
+        // Claude's CLI leaves a member a person may not invoke out of its listing (measured on 2.1.283, #503).
+        return [...own, ...scope.skillSet.members.filter((member) => member.userInvocable).map(listedMember)];
       },
     }),
     ...(listed !== undefined && {

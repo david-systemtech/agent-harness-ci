@@ -1,9 +1,10 @@
-import { ACCOUNT_STATUS_WORDS, identityWords, type EnvironmentView, type NewSessionChips, type NewSessionFocus, type NewSessionView, type Observable } from "@agent-harness/client-runtime";
+import { ACCOUNT_STATUS_WORDS, identityWords, requestLabel, type EnvironmentView, type NewSessionChips, type NewSessionFocus, type NewSessionView, type Observable } from "@agent-harness/client-runtime";
 import type { AccountRecord, ModelEntry } from "@agent-harness/contracts";
 import { nameOf } from "../view.js";
+import { browserPicker } from "./browser.js";
 import { pickerOf, type Chip, type Picker, type PickerRow } from "./picker.js";
 import { withBadge, type RailActs } from "./pickers.js";
-import { environmentChip, requestLabel, requestWords, sendFromStep, workspaceStep, type StepPlace } from "./workspace-step.js";
+import { environmentChip, requestWords, sendFromStep, workspaceStep, type StepPlace } from "./workspace-step.js";
 
 /**
  * The new-session card (workspace-picker spec, "The picker in the client
@@ -40,6 +41,9 @@ const modelWords = (view: NewSessionView, reading: boolean): string => {
   return model !== null ? (model.label ?? model.id) : reading ? "…" : "none";
 };
 
+/** The projection marks the browser chip, including the account's reach preset. */
+const browserWords = (view: NewSessionView): string => view.browser.options.find((row) => row.selected)?.label ?? "Default";
+
 /** The card on the environment `opening` presets, or the environment step when no environment is usable (the chip asks). */
 export const newSessionCard = (acts: RailActs, opening: CardOpening): Picker => {
   const context = (chips: NewSessionChips | undefined) => ({ focus: opening.focus, ...(chips !== undefined && { chips }) });
@@ -64,7 +68,8 @@ export const newSessionCard = (acts: RailActs, opening: CardOpening): Picker => 
       environmentChip(acts, view),
       { label: "account", value: accountWords(now, read.accounts) },
       { label: "model", value: modelWords(now, read.accounts || read.models) },
-      { label: "workspace", value: workspace ?? (now.workspace.value === null ? "…" : requestLabel(now.workspace.value, sessionId, rows())) },
+      { label: "workspace", value: workspace ?? (now.workspace.value === null ? "…" : requestLabel(now.workspace.value, sessionId, { environmentId, rows: rows() })) },
+      { label: "browser", value: browserWords(now) },
     ];
   };
   const reopen = (changed: NewSessionChips): Picker => newSessionCard(acts, { ...opening, chips: changed, query: "" });
@@ -83,7 +88,7 @@ export const newSessionCard = (acts: RailActs, opening: CardOpening): Picker => 
       return sendFromStep(place, at, {
         request,
         send: (said, accepted, refused) =>
-          acts.start(environmentId, { id: sessionId, workspace: request, ...(account !== null && { account: account.id }), ...(model !== null && { model: model.id }) }, said, accepted, refused),
+          acts.start(environmentId, { id: sessionId, workspace: request, browser: now.browser, ...(account !== null && { account: account.id }), ...(model !== null && { model: model.id }) }, said, accepted, refused),
         said: `Starting a session on ${where} in ${requestWords(request, sessionId, rows())}`,
         unsent: "No session was started",
         done: () => {
@@ -100,6 +105,11 @@ export const newSessionCard = (acts: RailActs, opening: CardOpening): Picker => 
       { key: "change:environment", text: "Another environment", detail: `on ${where} now`, choose: () => environmentStep(acts, { ...opening, chips }, back) },
       { key: "change:account", text: "Another account", detail: accountWords(now, read.accounts), choose: () => accountStep(acts, view, projection, chips, back, reopen) },
       { key: "change:model", text: "Another model", detail: modelWords(now, read.accounts || read.models), choose: () => modelStep(acts, view, projection, chips, back, reopen) },
+      { key: "change:browser", text: "Another browser", detail: browserWords(now), choose: () => browserPicker({
+        runtime: acts.runtime, environmentId, title: `New session on ${where}: its browser`,
+        rows: () => projection.read().browser.options, follows: [projection], back, say: acts.say,
+        choose: (browser) => reopen({ ...chips, browser }),
+      }) },
     ];
   };
   return workspaceStep(place, {

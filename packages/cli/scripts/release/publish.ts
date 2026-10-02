@@ -2,13 +2,15 @@ import { openAsBlob, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isPrerelease, RELEASE_MANIFEST_FILE, ReleaseManifest, releaseVersionOfTag } from "@agent-harness/contracts";
 import { sha256OfFile } from "./archive.js";
+import { releaseNotes } from "./notes.js";
 
 /**
  * The release publisher (launcher-update spec, "The release"; #358): the
  * release workflow's last step, which puts the folder the build wrote on
  * the tag's Forgejo release. It checks the folder against its
  * `release.json` (read through the contracts' schema), uploads every file to
- * a draft, checks the draft holds them all, and publishes it last, so no
+ * a draft whose notes are written from that manifest (`notes.ts`), checks
+ * the draft holds them all, and publishes it last, so no
  * reader sees a partial release; a prerelease exactly when the version has a
  * prerelease part. A draft an earlier run of the tag left is replaced; a
  * published release is never touched.
@@ -87,8 +89,8 @@ const releasesOf = (forge: ReleaseRepository) => {
       return response.status === 404 ? null : releaseOf(await response.json());
     },
     get: async (id: number): Promise<ForgeRelease> => releaseOf(await (await call("GET", `/${id}`, [200])).json()),
-    createDraft: async (tag: string, prerelease: boolean): Promise<ForgeRelease> =>
-      releaseOf(await (await call("POST", "", [201], { tag_name: tag, name: tag, body: "", draft: true, prerelease })).json()),
+    createDraft: async (tag: string, prerelease: boolean, notes: string): Promise<ForgeRelease> =>
+      releaseOf(await (await call("POST", "", [201], { tag_name: tag, name: tag, body: notes, draft: true, prerelease })).json()),
     /** Deletes the release `id`; Forgejo keeps its tag and drops its assets. */
     remove: async (id: number): Promise<void> => void (await call("DELETE", `/${id}`, [204])),
     upload: async (id: number, name: string, path: string): Promise<void> => {
@@ -104,14 +106,14 @@ const releasesOf = (forge: ReleaseRepository) => {
 const sidecarLine = (sha256: string, name: string): string => `${sha256}  ${name}\n`;
 
 /**
- * The files the release publishes from `folder`, in upload order (each
- * asset `release.json` lists then its sidecar, `release.json` and its
- * sidecar last), after checking that the manifest is one the schema reads
- * for the tag's version, that the folder holds those files and nothing else,
- * that each asset is the file listed, and that each sidecar names its file's
- * SHA-256. Any other is a `PublishError`.
+ * The release `folder` holds: its manifest, and the files it publishes in
+ * upload order (each asset `release.json` lists then its sidecar,
+ * `release.json` and its sidecar last), after checking that the manifest is
+ * one the schema reads for the tag's version, that the folder holds those
+ * files and nothing else, that each asset is the file listed, and that each
+ * sidecar names its file's SHA-256. Any other is a `PublishError`.
  */
-const releaseFiles = async (folder: string, tag: string, version: string): Promise<{ name: string; size: number }[]> => {
+const readFolder = async (folder: string, tag: string, version: string): Promise<{ manifest: ReleaseManifest; files: { name: string; size: number }[] }> => {
   let text: string;
   try {
     text = readFileSync(join(folder, RELEASE_MANIFEST_FILE), "utf8");
@@ -144,7 +146,7 @@ const releaseFiles = async (folder: string, tag: string, version: string): Promi
       throw new PublishError(`${name}.sha256 does not hold ${name}'s SHA-256 as sha256sum writes it.`);
     }
   }
-  return names.map((name) => ({ name, size: statSync(join(folder, name)).size }));
+  return { manifest: manifest.data, files: names.map((name) => ({ name, size: statSync(join(folder, name)).size })) };
 };
 
 /** The release of `tag` on `forge` when it may be published over, else a `PublishError`: a published one is never replaced. */
@@ -170,7 +172,7 @@ export const checkUnpublished = async (tag: string, forge: ReleaseRepository, se
 export const publishRelease = async ({ tag, folder }: PublishOptions, forge: ReleaseRepository, seams: PublishSeams = {}): Promise<void> => {
   const log = seams.log ?? ((line: string) => console.log(line));
   const version = versionOf(tag);
-  const files = await releaseFiles(folder, tag, version);
+  const { manifest, files } = await readFolder(folder, tag, version);
   const releases = releasesOf(forge);
   const earlier = await unpublishedRelease(releases, tag);
   if (earlier !== null) {
@@ -178,7 +180,7 @@ export const publishRelease = async ({ tag, folder }: PublishOptions, forge: Rel
     log(`${tag}: removed the draft an earlier run left`);
   }
   const prerelease = isPrerelease(version);
-  const draft = await releases.createDraft(tag, prerelease);
+  const draft = await releases.createDraft(tag, prerelease, releaseNotes(manifest.assets));
   log(`${tag}: created a draft${prerelease ? " prerelease" : ""}`);
   for (const file of files) {
     await releases.upload(draft.id, file.name, join(folder, file.name));

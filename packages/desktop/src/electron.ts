@@ -33,6 +33,8 @@ export interface ElectronApp {
   setBadgeCount(count?: number): boolean;
   /** macOS only; undefined elsewhere. */
   readonly dock: { setBadge(text: string): void } | undefined;
+  /** Windows: the AppUserModelID the app's notifications are sent as, which its Start menu shortcut must carry for them to show. */
+  setAppUserModelId(id: string): void;
   /** A second launch: its command line, where Windows and Linux put the deep link it was opened with. */
   on(name: "second-instance", listener: (details: unknown, argv: string[]) => void): unknown;
   /** macOS: a deep link opened, before or after the app is ready. */
@@ -98,6 +100,14 @@ export interface ConsoleMessage {
   readonly sourceId: string;
 }
 
+/** The frame and kind of media Electron is checking or asking to open. */
+export interface MediaPermissionDetails {
+  readonly isMainFrame: boolean;
+  readonly requestingUrl?: string;
+  readonly mediaType?: string;
+  readonly mediaTypes?: readonly string[];
+}
+
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
   /**
@@ -110,14 +120,63 @@ export interface ElectronContents {
   on(name: "console-message", listener: (details: ConsoleMessage) => void): unknown;
   setWindowOpenHandler(handler: (details: { readonly url: string }) => { action: "deny" }): void;
   send(channel: string, ...args: unknown[]): void;
-  /** The window's Chromium profile; the desktop reads its request hook only. */
-  readonly session: { readonly webRequest: { onBeforeRequest(listener: RequestListener): void } };
+  /** The window's Chromium profile: request lockdown and camera permission handlers. */
+  readonly session: {
+    readonly webRequest: { onBeforeRequest(listener: RequestListener): void };
+    setPermissionCheckHandler(handler: (contents: ElectronContents | null, permission: string, origin: string, details: MediaPermissionDetails) => boolean): void;
+    setPermissionRequestHandler(handler: (contents: ElectronContents, permission: string, answer: (allowed: boolean) => void, details: MediaPermissionDetails) => void): void;
+  };
 }
 
 /** The window the renderer loads in: `BrowserWindow`. */
 export interface ElectronBrowserWindow extends ElectronWindow {
+  addWebView(view: ElectronWebView): void;
+  removeWebView(view: ElectronWebView): void;
+  on(name: "closed", listener: () => void): unknown;
   readonly webContents: ElectronContents;
   loadURL(url: string): Promise<void>;
+}
+
+/** A dock page's rectangle in the window's content coordinates. */
+export interface ViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A sandboxed page beside the renderer, with no preload. */
+export interface ViewOptions {
+  webPreferences: {
+    partition: string;
+    sandbox: boolean;
+    contextIsolation: boolean;
+    nodeIntegration: boolean;
+    webSecurity: boolean;
+    allowRunningInsecureContent: boolean;
+  };
+}
+export interface ElectronDebugger {
+  isAttached(): boolean;
+  attach(version: string): void;
+  detach(): void;
+  sendCommand(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, unknown>>;
+  on(name: "message", listener: (details: unknown, method: string, params: Record<string, unknown>, sessionId?: string) => void): unknown;
+  on(name: "detach", listener: (details: unknown, reason: string) => void): unknown;
+}
+export interface ElectronWebView {
+  readonly webContents: ElectronContents & {
+    readonly debugger: ElectronDebugger;
+    loadURL(url: string): Promise<void>;
+    close(): void;
+    getURL(): string;
+    reload(): void;
+    navigationHistory: { canGoBack(): boolean; canGoForward(): boolean; goBack(): void; goForward(): void };
+    on(name: "before-input-event", listener: (details: Refusable, input: { readonly type: string; readonly key: string; readonly code: string; readonly control: boolean; readonly meta: boolean; readonly shift: boolean; readonly alt: boolean }) => void): unknown;
+    on(name: "did-navigate" | "did-navigate-in-page" | "did-stop-loading", listener: () => void): unknown;
+  };
+  setBounds(bounds: ViewBounds): void;
+  setVisible(visible: boolean): void;
 }
 
 /** The `BrowserWindow` options the desktop sets. */
@@ -151,7 +210,10 @@ export interface ElectronDialog {
     window: ElectronWindow,
     options: { title?: string; filters?: DialogFilter[]; properties: ("openFile" | "openDirectory" | "multiSelections" | "createDirectory")[] },
   ): Promise<{ canceled: boolean; filePaths: string[] }>;
-  showSaveDialog(window: ElectronWindow, options: { title?: string; defaultPath?: string; filters?: DialogFilter[] }): Promise<{ canceled: boolean; filePath?: string }>;
+  showSaveDialog(
+    window: ElectronWindow,
+    options: { title?: string; defaultPath?: string; filters?: DialogFilter[] },
+  ): Promise<{ canceled: boolean; filePath?: string }>;
 }
 
 /** One item on the clipboard: the media types it offers, and each one's content. */
@@ -185,6 +247,27 @@ export interface ElectronSafeStorage {
   setUsePlainTextEncryption(usePlainText: boolean): void;
 }
 
+/** What an OS notification shows: `Notification`'s options the desktop sets. */
+export interface NotificationOptions {
+  title: string;
+  body: string;
+}
+
+/** An OS notification, once made: shown by `show`, and heard when it is clicked or goes. */
+export interface ElectronNotification {
+  /** It was clicked. */
+  on(name: "click", listener: () => void): unknown;
+  /** It went: dismissed, or taken off by the OS. */
+  on(name: "close", listener: () => void): unknown;
+  show(): void;
+}
+
+/** The `Notification` class: whether this OS shows notifications at all, and `new Notification(options)`. */
+export interface ElectronNotifications {
+  isSupported(): boolean;
+  create(options: NotificationOptions): ElectronNotification;
+}
+
 /** Electron's main-process modules, and the window's constructor, as the desktop takes them. */
 export interface DesktopElectron {
   readonly app: ElectronApp;
@@ -197,6 +280,8 @@ export interface DesktopElectron {
   /** Whether the OS prefers dark: which of the preset's ladders the first window opens on. */
   readonly nativeTheme: { readonly shouldUseDarkColors: boolean };
   readonly safeStorage: ElectronSafeStorage;
+  readonly notification: ElectronNotifications;
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
+  openWebView(options: ViewOptions): ElectronWebView;
 }

@@ -159,6 +159,14 @@ export const ManagedToolAction = z.enum(MANAGED_TOOL_ACTIONS).meta({
 });
 export type ManagedToolAction = z.infer<typeof ManagedToolAction>;
 
+/** A command line as the login shell runs it, or as a person copies it. */
+export const ToolCommandLine = z
+  .string()
+  .min(1)
+  .max(8192)
+  .regex(/^[^\r\n]+$/)
+  .meta({ description: "A command line, each argument quoted as one word, steps joined by &&: as the user's login shell runs it, or as a person copies it." });
+
 /** One row of the registry: a tool as the last probe found it. */
 export const ManagedToolRow = z
   .object({
@@ -169,14 +177,21 @@ export const ManagedToolRow = z
     version: ManagedToolVersion.nullable().meta({ description: "The version its --version reported within five seconds; null when it is not installed or none was read." }),
     latest: ManagedToolVersion.nullable().meta({
       description:
-        "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry for npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
+        "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available.",
     }),
     minimum: ManagedToolVersion.nullable().meta({ description: "The tool's declared minimum; null for one that is never required." }),
     method: ManagedToolInstallMethod.nullable().meta({ description: "How it was installed; null when it is not installed." }),
     status: ManagedToolStatus,
     action: ManagedToolAction,
+    command: ToolCommandLine.nullable().meta({
+      description:
+        "For a Copy row, the vendor's documented command a person copies and runs, as tools.run's tool_not_runnable answers it (#426): the vendor script's update where the tool has one, else the install the command table would run here, else the first it has for this platform. Null for an Install or Update row, whose command tools.run runs and answers, and for a Copy row the table has nothing for (vault, which the harness never installs or updates).",
+    }),
   })
-  .meta({ description: "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status and its one action." });
+  .meta({
+    description:
+      "A managed tool as the environment's last probe found it: where, which version against its minimum and the latest known, how it was installed, its status, its one action and, for a Copy row, the command to copy.",
+  });
 export type ManagedToolRow = z.infer<typeof ManagedToolRow>;
 
 /** The tools that serve a key-manager provider, in the table's order: bao and vault for OpenBao, doppler, op and bws for the others. */

@@ -43,7 +43,7 @@ export const written = (overrides: Partial<RoutineDefinitionInput> = {}): Routin
 type Params<N extends RoutineCommand> = Omit<z.input<Registry[N]["params"]>, "commandId"> & { commandId?: string };
 
 /** The routine commands this suite drives. */
-export type RoutineCommand = "routines.create" | "routines.update" | "routines.enable" | "routines.disable" | "routines.delete";
+export type RoutineCommand = "routines.create" | "routines.update" | "routines.enable" | "routines.disable" | "routines.delete" | "routines.import";
 
 /** Sends a routine command with a fresh command id unless one is given; resolves with what its response carries, checked against its schema. */
 export const routineCommand = async <N extends RoutineCommand>(client: WireClient, method: N, params: Params<N>): Promise<ResponseOf<N>> =>

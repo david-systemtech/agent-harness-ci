@@ -59,6 +59,8 @@ describe("the method registry", () => {
       "environment.rename": "admin",
       "environment.setIcon": "admin",
       "environment.setColour": "admin",
+      // Known environments (key-managers spec, "Wire methods"; #382): refused forbidden to a program all the same.
+      "environment.knownEnvironments.report": "read",
       "access.pairings.create": "admin",
       "access.sessions.list": "admin",
       "access.sessions.revoke": "admin",
@@ -134,6 +136,7 @@ describe("the method registry", () => {
     const terminalMethods = methods.filter((m) => /^(terminals|files|diffs)\./.test(m.name));
     expect(Object.fromEntries(terminalMethods.map((m) => [m.name, [m.kind, m.scope]]))).toEqual({
       "terminals.open": ["command", "terminal"],
+      "terminals.run": ["command", "terminal"],
       "terminals.write": ["command", "terminal"],
       "terminals.resize": ["command", "terminal"],
       "terminals.close": ["command", "terminal"],
@@ -247,6 +250,14 @@ describe("the method registry", () => {
       "forge.accounts.setPrimary",
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
+      "banks.join",
+      "banks.register",
+      "banks.credential.set",
+      "banks.credential.swap",
+      "banks.create",
+      "banks.registry.update",
+      "banks.pin",
+      "banks.forget",
       "keyManagers.connections.add",
       "keyManagers.connections.signIn",
       "keyManagers.connections.update",
@@ -266,9 +277,12 @@ describe("the method registry", () => {
       "permissions.review.seen",
       "permissions.denylist.set",
       "permissions.denylist.restorePresets",
+      "setup.mint",
       "carryOver.run",
+      "carryOver.assignMemory",
       "stateImport.run",
       "terminals.open",
+      "terminals.run",
       "terminals.write",
       "terminals.resize",
       "terminals.close",
@@ -290,6 +304,10 @@ describe("the method registry", () => {
       "skills.carryOver",
       "skills.setAlwaysOn",
       "skills.setEnabled",
+      "skills.sources.add",
+      "skills.sources.remove",
+      "skills.sources.pull",
+      "skills.sources.setFollow",
       "trust.decide",
       "trust.revoke",
       "browser.chromes.rename",
@@ -375,6 +393,7 @@ describe("the method registry", () => {
       | "environment.rename"
       | "environment.setIcon"
       | "environment.setColour"
+      | "environment.knownEnvironments.report"
       | "access.pairings.create"
       | "access.sessions.list"
       | "access.sessions.revoke"
@@ -466,6 +485,20 @@ describe("the method registry", () => {
       | "forge.pullRequests.link"
       | "forge.pullRequests.unlink"
       | "forge.pullRequests.refresh"
+      | "banks.join"
+      | "banks.join.preview"
+      | "banks.drafts.list"
+      | "banks.list"
+      | "banks.get"
+      | "banks.register"
+      | "banks.registry.update"
+      | "banks.pin"
+      | "banks.forget"
+      | "banks.credential.set"
+      | "banks.credential.swap"
+      | "banks.create"
+      | "banks.verify"
+      | "banks.sync"
       | "keyManagers.list"
       | "keyManagers.connections.add"
       | "keyManagers.connections.signIn"
@@ -501,11 +534,14 @@ describe("the method registry", () => {
       | "permissions.denylist.restorePresets"
       | "permissions.denylist.test"
       | "setup.check"
+      | "setup.mint"
       | "carryOver.inventory"
       | "carryOver.run"
+      | "carryOver.assignMemory"
       | "stateImport.detect"
       | "stateImport.run"
       | "terminals.open"
+      | "terminals.run"
       | "terminals.write"
       | "terminals.resize"
       | "terminals.close"
@@ -542,11 +578,17 @@ describe("the method registry", () => {
       | "routines.endpoints.remove"
       | "routines.endpoints.test"
       | "skills.get"
+      | "skills.probe"
       | "skills.own.create"
       | "skills.own.remove"
       | "skills.carryOver"
       | "skills.setAlwaysOn"
       | "skills.setEnabled"
+      | "skills.sources.add"
+      | "skills.sources.remove"
+      | "skills.sources.pull"
+      | "skills.sources.setFollow"
+      | "skills.readiness"
       | "trust.get"
       | "trust.list"
       | "trust.decide"
@@ -556,6 +598,8 @@ describe("the method registry", () => {
       | "browser.chromes.list"
       | "browser.chromes.rename"
       | "browser.chromes.unpair"
+      | "browser.chromes.perform"
+      | "client.answer"
     >();
     expectTypeOf<ParamsOf<"access.sessions.revoke">>().toEqualTypeOf<{ commandId: string; clientSessionId: string }>();
   });

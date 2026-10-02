@@ -30,13 +30,14 @@ const runtimeDependencies = (m: Manifest): string[] => [
 ];
 
 describe("the workspace", () => {
-  it("holds the contracts, environment, client runtime, theme, browser, terminal UI, GUI and desktop packages and the CLI", () => {
+  it("holds the contracts, environment, client runtime, theme, browser, extension, terminal UI, GUI and desktop packages and the CLI", () => {
     expect(manifests.map((m) => m.name).sort()).toEqual([
       "@agent-harness/browser",
       "@agent-harness/client-runtime",
       "@agent-harness/contracts",
       "@agent-harness/desktop",
       "@agent-harness/environment",
+      "@agent-harness/extension",
       "@agent-harness/gui",
       "@agent-harness/theme",
       "@agent-harness/tui",
@@ -59,8 +60,15 @@ describe("the workspace", () => {
     expect(runtimeDependencies(manifest("@agent-harness/theme"))).toEqual(["@agent-harness/contracts"]);
   });
 
-  it("gives the browser package two runtime dependencies, contracts and Mozilla Readability, the reader: it runs in every browser, the extension's included, so it takes no environment code (browser spec; #546)", () => {
-    expect(runtimeDependencies(manifest("@agent-harness/browser")).sort()).toEqual(["@agent-harness/contracts", "@mozilla/readability"]);
+  it("gives the browser package one runtime dependency, contracts, with Mozilla Readability vendored for the reader to send into a page: it runs in every browser, the extension's included, so it takes no environment code (browser spec; #546, #545)", () => {
+    expect(runtimeDependencies(manifest("@agent-harness/browser"))).toEqual(["@agent-harness/contracts"]);
+  });
+
+  it("gives the extension no workspace dependency but contracts and the browser package: it runs in Chrome and finds its environment by itself (browser spec; #549)", () => {
+    const workspace = new Set(manifests.map((m) => m.name));
+    const deps = runtimeDependencies(manifest("@agent-harness/extension")).filter((d) => workspace.has(d));
+    expect(deps.filter((d) => d !== "@agent-harness/contracts" && d !== "@agent-harness/browser")).toEqual([]);
+    expect(deps).toContain("@agent-harness/contracts");
   });
 
   it("gives the environment no runtime dependency on a client package or the CLI", () => {
@@ -79,10 +87,10 @@ describe("the workspace", () => {
     expect(deps.filter((d) => d === "@agent-harness/environment" || d === "agent-harness")).toEqual([]);
   });
 
-  it("gives the GUI three workspace dependencies, the client runtime, contracts and theme, and neither Electron nor the environment nor the CLI: its bundle runs in a browser tab", () => {
+  it("gives the GUI four workspace dependencies, the browser, client runtime, contracts and theme, and neither Electron nor the environment nor the CLI: its bundle runs in a browser tab", () => {
     const workspace = new Set(manifests.map((m) => m.name));
     const deps = runtimeDependencies(manifest("@agent-harness/gui"));
-    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme"]);
+    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/browser", "@agent-harness/client-runtime", "@agent-harness/contracts", "@agent-harness/theme"]);
     expect(deps.filter((d) => d === "electron" || d.startsWith("@electron/"))).toEqual([]);
   });
 

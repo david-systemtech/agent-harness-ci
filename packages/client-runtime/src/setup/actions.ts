@@ -1,8 +1,10 @@
-import { DenylistSection, SETTINGS, type RegisteredStepId, type SettingsRowId, type SetupAction, type SetupTarget, type StepId } from "@agent-harness/contracts";
+import { DenylistSection, ManagedToolName, SETTINGS, type MethodName, type RegisteredStepId, type RunnableToolAction, type SettingsRowId, type SetupAction, type SetupTarget, type StepId, type UpdateWhen } from "@agent-harness/contracts";
 import type { Runtime } from "../runtime.js";
 import { restoreDenylistPresets } from "../permissions/actions.js";
 import { saveSetting } from "../settings/editor.js";
 import { adminCall } from "../status/actions.js";
+import { uuidv7 } from "../ids.js";
+import { oneLine } from "../transcript/format.js";
 import { isRegisteredStep } from "./checklist.js";
 
 /**
@@ -15,13 +17,12 @@ import { isRegisteredStep } from "./checklist.js";
  * `connections.startService`; `set-up-this-machine` the checklist switched
  * to the environment it names; `sign-in-again` the sign-in of the account it
  * names (a forge account's Forges, a key-manager connection's Key managers);
- * `update` on Your machines `updates.apply`; `move` the Key manager step's
- * Move card, on Key managers. The authoring and import verbs are the step's
- * card's (`card`). Every other verb opens the step's home row, where its
- * card's controls live: `unpair` until the Browser card maps it to
- * `browser.chromes.unpair` (#548, #593), and until the method behind it is
- * on the wire, `pull-now` (`skills.sources.pull`, #499) and `install` and
- * `update` of a tool (`tools.run`, #376).
+ * `update` on Your machines `updates.apply`; `install` and `update` of a
+ * tool `tools.run` in a tool terminal; `pull-now` `skills.sources.pull` for
+ * each source named (#733); `move` the Key manager step's Move card, on
+ * Key managers. The authoring and import verbs are the step's card's
+ * (`card`). Every other verb opens the step's home row; Browser's card
+ * binds its verbs to the browser's methods (#548, #593).
  */
 
 /** Each action in words, as a button names it: ADR 0031's names and the step decisions' verbs. */
@@ -47,6 +48,12 @@ export const SETUP_ACTION_WORDS: { readonly [Action in SetupAction]: string } = 
 
 /** The steps with a restore of their own: the Permissions step's denylist presets and the Appearance step's preset theme. */
 export type RestorableStep = Extract<StepId, "permissions" | "appearance">;
+
+/** The method each step's restore calls (`restoreStep`), whose capability says whether a connection may restore it. */
+export const RESTORE_METHODS: { readonly [Step in RestorableStep]: MethodName } = {
+  permissions: "permissions.denylist.restorePresets",
+  appearance: "settings.update",
+};
 
 /** The verbs a step's card carries out itself (the Set up specification, "Actions" and "The LLM step"): an import run again, and an authoring session's. */
 export type CardAction = Extract<SetupAction, "import-again" | "try-again" | "write-it-myself" | "start-over" | "revise">;
@@ -74,6 +81,12 @@ export type SetupActionPlan =
   | { readonly kind: "sign-in"; readonly account: NamedItem }
   /** The environment checked updated, under its idle rules (`updateEnvironment`). */
   | { readonly kind: "update" }
+  /** `skills.sources.pull` of each source the result names. */
+  | { readonly kind: "pull-sources"; readonly sources: readonly NamedItem[] }
+  /** `tools.run` for this tool's Install or Update, opening its tool terminal. */
+  | { readonly kind: "run-tool"; readonly tool: ManagedToolName; readonly action: RunnableToolAction }
+  /** About's Managed tools on the environment checked, where a tool's Install or Update runs in a tool terminal (#426). */
+  | { readonly kind: "managed-tools" }
   /** A verb the step's card carries out on the items named; on a step with no card of its own, its home row. */
   | { readonly kind: "card"; readonly action: CardAction; readonly targets: readonly SetupTarget[]; readonly home: SettingsRowId }
   /** A row of Settings opened on the environment checked. */
@@ -119,9 +132,17 @@ export const planSetupAction = (step: ActingStep, action: SetupAction, given: re
     case "sign-in-again":
       if (first?.kind === "account") return { kind: "sign-in", account: { id: first.id, label: first.label } };
       return { kind: "row", row: (first === undefined ? undefined : SIGN_IN_ROWS[first.kind]) ?? step.home };
+    case "pull-now": {
+      const sources = targets.filter((target) => target.kind === "skill-source").map(({ id, label }) => ({ id, label }));
+      return sources.length === 0 ? { kind: "row", row: step.home } : { kind: "pull-sources", sources };
+    }
+    case "install":
     case "update":
-      // A tool's update is `tools.run`'s (#376), not on the wire yet: its step's row.
-      return step.id === "your-machines" && first?.kind !== "tool" ? { kind: "update" } : { kind: "row", row: step.home };
+      if (first?.kind === "tool") {
+        const tool = ManagedToolName.safeParse(first.id);
+        return tool.success ? { kind: "run-tool", tool: tool.data, action } : { kind: "managed-tools" };
+      }
+      return action === "update" && step.id === "your-machines" ? { kind: "update" } : { kind: "row", row: step.home };
     case "move":
       return { kind: "row", row: "access.key-managers" };
     default:
@@ -136,6 +157,8 @@ export interface OfferedSetupAction {
   readonly action: SetupAction;
   /** Its name: the verb's words, and the item it acts on after a colon. */
   readonly words: string;
+  /** The items this individual button acts on. */
+  readonly targets: readonly SetupTarget[];
   readonly plan: SetupActionPlan;
 }
 
@@ -155,7 +178,8 @@ export const setupActions = (step: ActingStep, result: { readonly actions: reado
     const offer = (key: string, targets: readonly SetupTarget[]): OfferedSetupAction => {
       const plan = planSetupAction(step, action, targets);
       const verb = plan.kind === "update" ? "Update now" : SETUP_ACTION_WORDS[action];
-      return { key, action, words: targets.length === 0 ? verb : `${verb}: ${targets.map((target) => target.label).join(", ")}`, plan };
+      if (plan.kind === "run-tool") return { key, action, targets, words: `${verb} ${targets[0]!.label} in a tool terminal`, plan };
+      return { key, action, targets, words: targets.length === 0 ? verb : `${verb}: ${targets.map((target) => target.label).join(", ")}`, plan };
     };
     const targets = (result.targets ?? []).filter((target) => target.action === action);
     if (targets.length === 0 || ALL_AT_ONCE.includes(action)) return [offer(action, targets)];
@@ -167,6 +191,19 @@ export interface ActionOutcome {
   readonly ok: boolean;
   readonly line: string;
 }
+
+/** Pull each named source, continuing past refusals, and report its sync rather than just its command receipt. */
+export const pullSetupSources = async (runtime: Pick<Runtime, "requests">, environmentId: string, sources: readonly NamedItem[], now: () => Date): Promise<ActionOutcome> => {
+  const outcomes: ActionOutcome[] = [];
+  for (const source of sources) {
+    const answer = await adminCall(() => runtime.requests.call(environmentId, "skills.sources.pull", { commandId: uuidv7(now()), sourceId: source.id }));
+    const sync = answer.ok ? answer.result?.source.sync : undefined;
+    const ok = answer.ok && sync?.outcome === "ok";
+    const reason = !answer.ok ? answer.line : sync === undefined ? "the environment answered no sync result." : sync.outcome === "failed" ? sync.line : sync.outcome === "layout_moved" ? "The source's layout moved; its last good snapshot was kept." : undefined;
+    outcomes.push({ ok, line: `${source.label}: ${ok ? "Source pulled." : `Not pulled: ${oneLine(reason ?? "No sync result.")}`}` });
+  }
+  return { ok: outcomes.every((outcome) => outcome.ok), line: outcomes.map((outcome) => outcome.line).join(" ") };
+};
 
 /**
  * The step's restore, as a direct `admin` command with `commandId`: the
@@ -194,11 +231,21 @@ export const restoreStep = async (
 /**
  * Your machines' Update now (ADR 0025): `updates.apply` of the version the
  * environment waits on (the pin, else the channel's newest), under the idle
- * rules, as a direct `admin` command with `commandId`. Says which version it
- * goes to, naming the environment; a refusal is "Not updated: <why>".
+ * rules, as a direct `admin` command with `commandId`; with `when: now`,
+ * Drain and update now (#825), which takes the waiting update and drains at
+ * once. Says which version it goes to, naming the environment; a refusal is
+ * "Not updated: <why>".
  */
-export const updateEnvironment = async (runtime: Pick<Runtime, "requests">, environmentId: string, name: string, commandId: string): Promise<ActionOutcome> => {
-  const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when: "idle" }));
+export const updateEnvironment = async (
+  runtime: Pick<Runtime, "requests">,
+  environmentId: string,
+  name: string,
+  commandId: string,
+  when: UpdateWhen = "idle",
+): Promise<ActionOutcome> => {
+  const answer = await adminCall(() => runtime.requests.call(environmentId, "updates.apply", { commandId, when }));
   if (!answer.ok) return { ok: false, line: `Not updated: ${answer.line}` };
-  return { ok: true, line: answer.result === undefined ? `Updating ${name} once it is idle.` : `Updating to ${answer.result.toVersion} once ${name} is idle.` };
+  const toVersion = answer.result?.toVersion;
+  if (when === "now") return { ok: true, line: toVersion === undefined ? `Draining ${name} to update it.` : `Draining ${name} to update to ${toVersion}.` };
+  return { ok: true, line: toVersion === undefined ? `Updating ${name} once it is idle.` : `Updating to ${toVersion} once ${name} is idle.` };
 };

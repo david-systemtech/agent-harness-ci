@@ -13,13 +13,13 @@ import { Timestamp } from "./primitives.js";
  * Why an environment is busy: a run is starting; a run is running; a
  * terminal's shell runs a command in its foreground (a build, a watcher:
  * the shell is not at its prompt, #343); a run is parked on a prompt, which
- * counts for the idle window after it parked; a run started or ended within
- * the idle window.
+ * counts for the idle window after it parked; a run started or ended, or
+ * the environment started (#445), within the idle window.
  */
 export const BUSY_REASONS = ["run-starting", "run-running", "terminal-running", "parked-prompt", "recent-activity"] as const;
 export const BusyReason = z.enum(BUSY_REASONS).meta({
   description:
-    "Why the environment is busy: run-starting and run-running (a run is starting or running), terminal-running (a terminal's shell runs a command in its foreground, a build or a watcher, rather than waiting at its prompt), parked-prompt (a run parked on a prompt within the idle window, preset ten minutes), recent-activity (a run started or ended within the idle window).",
+    "Why the environment is busy: run-starting and run-running (a run is starting or running), terminal-running (a terminal's shell runs a command in its foreground, a build or a watcher, rather than waiting at its prompt), parked-prompt (a run parked on a prompt within the idle window, preset ten minutes), recent-activity (a run started or ended, or the environment started, within the idle window).",
 });
 export type BusyReason = z.infer<typeof BusyReason>;
 

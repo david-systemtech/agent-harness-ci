@@ -48,6 +48,7 @@ const terminalKeyActions = keyActions.filter((a) => a.keys.length > 0);
 
 /** The actions the harness adds to the reference rows, with their chosen defaults (the tui spec's list under the table). */
 const ADDED_KEYS: Record<string, readonly string[]> = {
+  "app.runInfo.toggle": ["Alt+I"],
   "composer.readNow": ["Ctrl+Enter"],
   "composer.withdrawLast": ["↑"],
   "row.rewind": ["w"],
@@ -61,6 +62,9 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "rail.group": ["g"],
   "rail.moveUp": ["Shift+↑"],
   "rail.moveDown": ["Shift+↓"],
+  // A merged group's heading renamed or deleted, one command per member group (#752): the window's heading has its context menu.
+  "rail.renameGroup": ["R"],
+  "rail.deleteGroup": ["D"],
   "terminal.leave": ["Ctrl+\\"],
   "terminal.scrollback": ["Ctrl+O"],
   "asks.move": ["↑", "↓"],
@@ -74,10 +78,21 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "confirm.no": ["n", "Esc"],
   // A file or document read in the pager is copied whole (#427): the pager has the keys, so a typed `/copy` would be its search.
   "pager.copy": ["y"],
+  // The routines card's row verbs (#533), and its webhook endpoints' (David, 2026-09-28): Enter, the moves and Esc are the picker's.
+  "routines.runNow": ["r"],
+  "routines.enable": ["Space"],
+  "routines.move": ["m"],
+  "routines.history": ["h"],
+  "routines.export": ["x"],
+  "routines.edit": ["e"],
+  "routines.endpoint.add": ["a"],
+  "routines.endpoint.test": ["t"],
+  "routines.endpoint.remove": ["d"],
 };
 
 /** The slash commands the harness adds (the tui spec's "The composer"), and the one rename. */
 const ADDED_COMMANDS = [
+  "browser",
   "account",
   "environment",
   "pair",
@@ -95,10 +110,12 @@ const ADDED_COMMANDS = [
   "terminal",
   "files",
   "documents",
+  "trust",
   "notices",
   "reload",
   "fork",
   "rewind",
+  "routines",
 ];
 
 describe("the fixture rule", () => {
@@ -173,9 +190,9 @@ describe("the action list's shape", () => {
     for (const entry of refused) expect(Action.safeParse(entry).success, JSON.stringify(entry)).toBe(false);
   });
 
-  it("has eleven contexts: the reference keymap's eight, the terminal pane, the parked asks and the yes or no offers", () => {
+  it("has twelve contexts: the reference keymap's eight, the terminal pane, the parked asks, the yes or no offers and the routines card", () => {
     expect([...ACTION_CONTEXTS].sort()).toEqual(
-      ["anywhere", "composer", "transcript", "sidebar", "delegated", "picker", "permission", "pager", "terminal", "asks", "confirm"].sort(),
+      ["anywhere", "composer", "transcript", "sidebar", "delegated", "picker", "permission", "pager", "terminal", "asks", "confirm", "routines"].sort(),
     );
     expect(new Set(ACTIONS.map((a) => a.context))).toEqual(new Set(ACTION_CONTEXTS));
   });
@@ -333,6 +350,7 @@ describe("conditions", () => {
 
 /** The GUI keys of the actions both clients answer, as the GUI spec's table writes them ("Keyboard: the GUI column"), with the condition each is answered under. */
 const GUI_KEYS_OF_SHARED: Record<string, { readonly keys: readonly string[]; readonly when?: string; readonly off?: true }> = {
+  "app.runInfo.toggle": { keys: ["Mod+I"] },
   "app.interrupt": { keys: ["Esc"], off: true },
   "composer.send": { keys: ["Enter"] },
   "composer.newline": { keys: ["Shift+Enter"] },
@@ -359,11 +377,15 @@ const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly
   "app.session.newInPane": { keys: ["Mod+Shift+N"] },
   "app.sidebar.toggle": { keys: ["Mod+B"] },
   "app.terminal.toggle": { keys: ["Mod+J"] },
+  "app.browser.choose": { keys: [] },
+  "app.browser.pair": { keys: [] },
+  "app.browser.unpair": { keys: [] },
+  "app.browser.allowRuns": { keys: [] },
+  "app.browser.default": { keys: [] },
   "app.browser.toggle": { keys: ["Mod+Shift+B"] },
   "app.pane.splitRight": { keys: ["Mod+\\"] },
   "app.pane.splitDown": { keys: ["Mod+Shift+\\"] },
   "app.settings.toggle": { keys: ["Mod+,"] },
-  "app.runInfo.toggle": { keys: ["Mod+I"] },
   "permission.allow": { keys: ["Mod+Enter"] },
   "picker.back": { keys: ["Backspace"], when: "picker.queryEmpty" },
   "transcript.findNext": { keys: ["Enter"], when: "transcript.finding" },
@@ -372,7 +394,7 @@ const GUI_ONLY_KEYS: Record<string, { readonly keys: readonly string[]; readonly
 };
 
 /** The slash commands the GUI leaves absent: neither a session verb nor a GUI surface, or deferred as in the terminal. */
-const GUI_ABSENT_COMMANDS = ["command.undo", "command.check", "command.timeline", "command.snip", "command.quit", "command.reload"];
+const GUI_ABSENT_COMMANDS = ["command.undo", "command.check", "command.timeline", "command.snip", "command.quit", "command.reload", "command.trust"];
 
 describe("the GUI column", () => {
   const wired = (id: string) => {

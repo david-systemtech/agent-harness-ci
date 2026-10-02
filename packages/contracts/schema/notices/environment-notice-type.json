@@ -54,6 +54,11 @@
     },
     {
       "type": "string",
+      "const": "environment.known-environments-updated",
+      "description": "The union of the other environments client sessions report changed; a client reads instructions.list and instructions.preview again."
+    },
+    {
+      "type": "string",
       "const": "account.updated",
       "description": "An account changed; a client refreshes what it caches of the accounts."
     },
@@ -81,6 +86,16 @@
       "type": "string",
       "const": "usage.updated",
       "description": "An account's plan-usage reading changed; a client refreshes what it caches of the readings."
+    },
+    {
+      "type": "string",
+      "const": "denylist.updated",
+      "description": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again."
+    },
+    {
+      "type": "string",
+      "const": "review.updated",
+      "description": "The Unattended review changed; a client reads permissions.review.list again."
     },
     {
       "type": "string",
@@ -121,6 +136,61 @@
       "type": "string",
       "const": "forge.origin-missing",
       "description": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts."
+    },
+    {
+      "type": "string",
+      "const": "bank.added",
+      "description": "A bank was registered, created or joined; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.draft-queued",
+      "description": "A session queued a validated draft or retirement; clients refresh banks.drafts.list."
+    },
+    {
+      "type": "string",
+      "const": "bank.drafts-consumed",
+      "description": "A landing consumed its queue snapshot; clients refresh banks.drafts.list."
+    },
+    {
+      "type": "string",
+      "const": "bank.updated",
+      "description": "A bank's registry settings, sync status or what its BANK.md names changed; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.pinned",
+      "description": "A session pinned or unpinned a folder of a bank."
+    },
+    {
+      "type": "string",
+      "const": "bank.forgotten",
+      "description": "A bank left the registry; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.synced",
+      "description": "A sync moved a bank's checkout to a new head; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.verified",
+      "description": "A verification found a bank's status changed; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.landed",
+      "description": "Drafts landed on a bank's main; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.landing-failed",
+      "description": "A landing on a bank failed; a client refreshes what it caches of the banks."
+    },
+    {
+      "type": "string",
+      "const": "bank.awaiting-review",
+      "description": "A landing on a bank waits for an owner's review in a pull request; no bank's record changes."
     },
     {
       "type": "string",
@@ -259,6 +329,11 @@
     },
     {
       "type": "string",
+      "const": "carry-over.memory-assigned",
+      "description": "A memory folder no transcript maps was assigned to a repository and copied; a client reads carryOver.inventory again."
+    },
+    {
+      "type": "string",
       "const": "state-import.finished",
       "description": "A state import ended, with its report and what failed; a client reads stateImport.detect again."
     },
@@ -271,6 +346,11 @@
       "type": "string",
       "const": "chrome.updated",
       "description": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again."
+    },
+    {
+      "type": "string",
+      "const": "client.call",
+      "description": "A call addressed to one client session, which answers it with client.answer before its deadline; every other client leaves it alone."
     }
   ],
   "description": "An environment notice's event type, each type described by what it tells a client."

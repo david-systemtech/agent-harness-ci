@@ -197,14 +197,26 @@
               }
             ],
             "description": "The commit of the source snapshot it was read from; null for a member linked live (the own directory, a trusted repository)."
+          },
+          "chosenBy": {
+            "type": "string",
+            "enum": [
+              "account",
+              "client",
+              "routine",
+              "bot",
+              "completions"
+            ],
+            "description": "Who made a skill always-on for a run: account (its account's always-on choice); else, for the run's extra always-on names, the kind of actor the run is for: routine (the routine's skills), completions (a request's alwaysOnSkills), client (a person's read-now run that took a completions request's names from the run before it) or bot."
           }
         },
         "required": [
           "name",
           "origin",
-          "commit"
+          "commit",
+          "chosenBy"
         ],
-        "description": "An always-on skill the composition appended: its name, its origin and the commit it was read at."
+        "description": "An always-on skill the composition appended: its name, its origin, the commit it was read at, and who made it always-on for the run."
       },
       "description": "The always-on skills the text holds, in the order it holds them."
     },
@@ -257,7 +269,7 @@
               "channel-none",
               "over-cap"
             ],
-            "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and owned instructions are left out last first until it fits)."
+            "description": "Why a composed part is not in the text: channel-none (the account's adapter has no instruction channel, so it is handed no text), or over-cap (the text was over the channel's character cap, and always-on skills are left out last first, then owned instructions, until it fits)."
           }
         },
         "required": [

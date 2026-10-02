@@ -7,28 +7,36 @@ import {
   attachmentRefusal,
   attachmentRefused,
   browse,
+  bulkAsks,
+  bulkQuestion,
+  decidable,
   directoryOf,
   followDraft,
   inWorkspace,
   interruptRun,
   isLive,
   lastReply,
-  liveTasks,
   oneOffMessage,
+  oneLine,
   outsideWorkspace,
   quietFor,
   readQueueNow,
   runOneOff,
   sendMessage,
+  sessionTasks,
   shellLine,
+  slashMenuRows,
   stopCall,
+  subagentRows,
   transcriptRows,
   ttlWords,
   typedPath,
   undoableFold,
   userMessagesOf,
   withdrawQueued,
+  workspaceLabel,
   type BrowseRow,
+  type ClientCommandRow,
   type Clock,
   type EnvironmentView,
   type GrantReader,
@@ -48,16 +56,19 @@ import {
   actionById,
   isCommandId,
   type AttachmentInput,
+  type CommandsListEntry,
   type KeyActionId,
   type PromptAnswerInput,
   type PromptKind,
+  type SkillReadiness,
 } from "@agent-harness/contracts";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
 import { ANSWERED, BUILD_WORDS, type ScreenKey } from "./answered.js";
 import { quietChrome, type TerminalChrome } from "./attention/chrome.js";
 import { RECAP_FLASH_MS } from "./attention/policy.js";
 import { useAttention } from "./attention/use-attention.js";
 import { useAnswers } from "./cards/answers.js";
-import { askKey, askRows, decidable, inBulk, parkedSessions, promptKey } from "./cards/asks.js";
+import { askKey, askRows, parkedSessions, promptKey } from "./cards/asks.js";
 import { cardFor, chosen, denied, lineClosed, lineEntered, lineOpened, lineTyped, moved, ticked, type CardState, type CardStep } from "./cards/prompt.js";
 import {
   applyAction,
@@ -74,10 +85,11 @@ import {
 } from "./commands/environment.js";
 import { parseCommand } from "./commands/parse.js";
 import { mintPairing, pairingLine, type MintedLines } from "./commands/pair.js";
+import { drainAndUpdateQuestionLine, updateCard, updateNow, updateRefusal, updateToClient } from "./commands/updates.js";
 import { startLocalEnvironment } from "./commands/service.js";
 import { expandHome, readAttachment } from "./composer/attachments.js";
 import { copyText, readClipboardImage, readClipboardText, type CopyOutcome } from "./composer/clipboard.js";
-import { editInExternalEditor, openInExternalEditor, type ExternalEditResult, type OpenedFile, type OpenedResult } from "./composer/external-editor.js";
+import { ROUTINE_FILE, editInExternalEditor, openInExternalEditor, type ExternalEditResult, type OpenedFile, type OpenedResult } from "./composer/external-editor.js";
 import { HISTORY_FILE, PromptHistory, type HistoryScope } from "./composer/history.js";
 import { Frecency, MENTIONS_FILE } from "./composer/mentions.js";
 import { EXAMPLE_SNIPPETS, SNIPPETS_FILE, Snippets, toSnippetName, type SnippetTemplate } from "./composer/snippets.js";
@@ -86,7 +98,8 @@ import { composerNote, highlighted, useComposer, type ComposerClipboard } from "
 import { nextFocus, stepCursor, type Focus } from "./focus.js";
 import { previewLine } from "./files/documents.js";
 import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Page, type Paged } from "./files/views.js";
-import type { Panel } from "./pickers/panel.js";
+import { ListCard } from "./pickers/cards.js";
+import type { Panel, PanelRow } from "./pickers/panel.js";
 import { usePickers } from "./pickers/use-pickers.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
@@ -112,12 +125,16 @@ import { PickerCard, STAYS, erasedFrom, movedBy, printableText, rowAt, typedInto
 import { badgesOf } from "./rail/badge.js";
 import type { CardOpening } from "./rail/new-session.js";
 import { RAIL_WIDTH, RailView } from "./rail/rail.js";
+import { sessionBrowserPicker } from "./rail/browser.js";
 import { useRail } from "./rail/use-rail.js";
-import { isFullPath, workspaceLabel } from "./rail/workspace-step.js";
+import { isFullPath } from "./rail/workspace-step.js";
+import type { RoutinesCard } from "./routines/cards.js";
+import { useRoutines } from "./routines/use-routines.js";
 import type { RuntimeHost } from "./runtime-host.js";
 import { AsksCard } from "./screens/asks-card.js";
 import { ClientSessionsCard, EnvironmentMenu, EnvironmentsCard, HelpCard, MintedCard } from "./screens/cards.js";
 import { ComposerView } from "./screens/composer.js";
+import { trustQuestion } from "./session/trust.js";
 import { FilesCard } from "./screens/files-card.js";
 import { OUTSIDE_COLUMN, TerminalPaneView, paneRows as terminalPaneRows } from "./screens/terminal-pane.js";
 import { Header, HintLine, Line, PairingPrompt, RAIL_MIN_COLUMNS } from "./screens/layout.js";
@@ -126,6 +143,7 @@ import { PromptCard } from "./screens/prompt-card.js";
 import { DelegatedStrip, LinesCard, QueuedLine, RewoundStrip, TranscriptView, maxOffset, offsetShowing, type QueueVerb } from "./screens/transcript.js";
 import { useForkRewind } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
+import { runInfoLines } from "./status/run-info.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
 import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
@@ -135,6 +153,8 @@ import { heldApart, keyBytes } from "./terminal/keys.js";
 import { createScreen } from "./terminal/screen.js";
 import { useRawInput } from "./terminal/raw-input.js";
 import { useTerminalPane } from "./terminal/use-terminal.js";
+import { SIXTEEN, ThemeColoursContext, type ColourDepth } from "./theme/colours.js";
+import { useThemeColours } from "./theme/use-theme-colours.js";
 import {
   activityLine,
   clockTime,
@@ -231,6 +251,8 @@ export interface AppProps {
   readonly size?: { readonly columns: number; readonly rows: number };
   /** Mints a command id for a direct `admin` command. */
   readonly newCommandId: () => string;
+  /** This client's version, the harness version it was built as: what it offers an environment running an older one (#827). */
+  readonly version: string;
   /** Mints a session id for `/new`: a version 4 UUID. */
   readonly newSessionId?: () => string;
   /** The state directory: the prompt history, the snippets and the `@` pick memory live there. None, and they are not kept. */
@@ -241,6 +263,10 @@ export interface AppProps {
   readonly clipboard?: TerminalClipboard;
   /** Ctrl+G's editor; preset `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
   readonly editText?: (text: string) => Promise<ExternalEditResult>;
+  /** A routine's YAML in the editor (`/routines`' edit and new); preset `$VISUAL` or `$EDITOR` on a `.yaml` file, with the terminal lent to it. */
+  readonly editRoutine?: (yaml: string) => Promise<ExternalEditResult>;
+  /** Mints a routine's id for `/routines new` and an import: a version 4 UUID. */
+  readonly newRoutineId?: () => string;
   /** Mints a terminal id for `/terminal` and `!!`: a version 4 UUID. */
   readonly newTerminalId?: () => string;
   /** `o` on a local environment: the file in `$VISUAL` or `$EDITOR`, with the terminal lent to it. */
@@ -251,6 +277,8 @@ export interface AppProps {
   readonly chrome?: TerminalChrome;
   /** The client-local presentation (the rail's folds): the state directory's; preset, held in memory. */
   readonly presentation?: Presentation;
+  /** How this terminal draws colour (`colourDepth`): preset the sixteen alone, so the theme is not drawn. */
+  readonly depth?: ColourDepth;
 }
 
 type Card =
@@ -276,8 +304,10 @@ type Card =
   | { readonly kind: "sessions"; readonly cursor: number; readonly filter: string }
   /** `/snip`: the saved snippets. */
   | { readonly kind: "snippets"; readonly cursor: number }
-  /** `/tasks` or `/timeline`: lines about the session; `/notices`: every notice, newest first; scrolled from `top`. */
-  | { readonly kind: "lines"; readonly which: "tasks" | "timeline" | "notices"; readonly top: number }
+  /** `/tasks`, `/timeline` or run info: lines about the session, scrolled from `top`. */
+  | { readonly kind: "lines"; readonly which: "tasks" | "timeline" | "run-info"; readonly top: number }
+  /** `/notices`: every notice, newest first; Enter on one about a session (a routine's firing, a parked prompt) opens it (#533). */
+  | { readonly kind: "notices"; readonly cursor: number }
   /** A picker or card of accounts, models, permissions and settings (`pickers/`). */
   | { readonly kind: "panel"; readonly panel: Panel }
   /** `/asks` and `Ctrl+]`: every environment's parked prompts. */
@@ -302,7 +332,9 @@ type Card =
   /** `/documents`: the session's documents, newest first, from `projections.documents` (#427). */
   | { readonly kind: "documents"; readonly cursor: number }
   /** Esc Esc: the prompt picker of the session it was opened on; the cursor on the newest user message until a key moves it (null). */
-  | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null };
+  | { readonly kind: "prompt-picker"; readonly environmentId: string; readonly sessionId: string; readonly cursor: number | null }
+  /** `/routines` (#533): every environment's routines, a routine's history, the webhook endpoints, an import, a pre-check's test (`routines/`). */
+  | { readonly kind: "routines"; readonly routines: RoutinesCard };
 
 /** The cards that page lines with the pager's keys and search. */
 const paged = (card: Card): card is Extract<Card, { readonly kind: "pager" | "page" }> => card.kind === "pager" || card.kind === "page";
@@ -359,16 +391,22 @@ const DEAF = "this build of Ink does not hand the pane its keys.";
 
 const NO_FAULTS: Observable<readonly Fault[]> = { read: () => [], subscribe: () => () => undefined };
 
-/** The slash menu's rows: the commands this build answers, from the shared list, then the provider's own. */
-const commandRows = (provider: readonly { readonly name: string; readonly description: string }[]): readonly CommandRow[] => {
+/**
+ * The slash menu's rows: the commands this build answers, from the shared list, then the open session's skills and the
+ * provider's own commands (`commands.list`, #503), by the runtime's rule for every renderer.
+ */
+const commandRows = (listed: readonly CommandsListEntry[], readiness: readonly SkillReadiness[]): readonly CommandRow[] => {
   const own = [...ANSWERED]
     .filter((id) => isCommandId(id))
-    .map((id): CommandRow => {
+    .map((id): ClientCommandRow => {
       const action = actionById(id);
-      return { name: id.slice("command.".length), usage: action?.usage ?? `/${id.slice(8)}`, description: action?.description ?? "", provider: false };
+      return { name: id.slice("command.".length), usage: action?.usage ?? `/${id.slice(8)}`, description: action?.description ?? "" };
     });
   const taken = new Set(own.map((row) => row.name));
-  return [...own, ...provider.filter((c) => !taken.has(c.name)).map((c): CommandRow => ({ name: c.name, usage: `/${c.name}`, description: c.description, provider: true }))];
+  return slashMenuRows(own, listed, (name) => taken.has(name)).map((row) => {
+    const state = row.source === "skill" ? readiness.find((skill) => skill.name === row.name.replace(/^skill:/, "")) : undefined;
+    return state === undefined ? row : { ...row, readiness: state };
+  });
 };
 
 export const App = (props: AppProps) => {
@@ -420,8 +458,9 @@ export const App = (props: AppProps) => {
   const update = (change: Partial<Screen>) => setScreen((current) => ({ ...current, ...change }));
   // The keymap in force: the launch map, until `/reload` reads the file again.
   const [keymap, setKeymap] = useState(props.keymap);
-  // What has the keys when no card does: the composer, the rail or the transcript (Tab walks them, `nextFocus`).
+  // What has the keys when no card does: Tab walks the composer, rail, delegated strip, terminal and transcript.
   const [focus, setFocus] = useState<Focus>("composer");
+  const [delegatedCursor, setDelegatedCursor] = useState<string | null>(null);
   const help = useMemo(() => helpLines(keymap, ANSWERED, BUILD_WORDS), [keymap]);
   const say = (line: string) => update({ line });
   const keys = (action: KeyActionId) => keysText(keymap, action);
@@ -445,6 +484,8 @@ export const App = (props: AppProps) => {
   // Read at render: a frame the scheduler drew, or a key's, shows the runtime as it is now.
   const views = runtime.projections.environments.read();
   const notices = runtime.projections.notices.read();
+  /** `/notices`' rows: the newest first. */
+  const newestFirst = useMemo(() => [...notices].reverse(), [notices]);
   const local = runtime.local.read();
   const preferences = runtime.preferences.read();
   const started = host.started.read();
@@ -457,7 +498,9 @@ export const App = (props: AppProps) => {
   const known = knownEnvironments(views);
   const down = started && localIsDown(views, local);
   const names = new Map(views.map((view) => [view.environmentId, nameOf(view)]));
-  const badges = useMemo(() => badgesOf(views), [views]);
+  // The colours the theme gives this terminal: the home environment's under truecolour, else the sixteen alone.
+  const colours = useThemeColours(runtime, views, props.depth ?? SIXTEEN, request);
+  const badges = useMemo(() => badgesOf(views, colours), [views, colours]);
 
   // The session on screen.
   const session = useSession(runtime, clock, request);
@@ -473,6 +516,7 @@ export const App = (props: AppProps) => {
     session.open(next);
     setView(FRESH_VIEW);
     setSending([]);
+    setDelegatedCursor(null);
     if (next) setFocus("composer");
   };
   // A send heard back leaves for good, so a message withdrawn since, gone from the transcript, is never drawn as on its way
@@ -500,13 +544,16 @@ export const App = (props: AppProps) => {
     if (terminal.pane !== null && !paneOpen) terminal.close();
   }, [paneOpen, terminal.pane]);
 
-  // The stops Tab walks that come and go: the rail, with nothing to list, and the terminal pane while it is open; the
-  // delegated strip is not drawn by this build. Under 100 columns the rail is not drawn beside the pane: with the focus it
-  // is drawn in the pane's place, the picker that stands in for it. A stop that goes takes the focus back to the composer.
+  const tasks = useMemo(() => (projection ? sessionTasks(projection).live.filter((row) => row.runId === session.liveRunId) : []), [projection, session.liveRunId]);
+  const delegatedAt = Math.max(0, tasks.findIndex((row) => row.task.taskId === delegatedCursor));
+  const delegatedTask = tasks[delegatedAt];
+  // The stops Tab walks that come and go: the rail, the live delegated strip and the terminal pane. Under 100 columns
+  // the rail is not drawn beside the pane: with the focus it is drawn in the pane's place, the picker that stands in for
+  // it. A stop that goes takes the focus back to the composer.
   const railListed = views.length > 0;
   const railDrawn = size.columns >= RAIL_MIN_COLUMNS && railListed;
-  const stops = { sidebar: railListed, delegated: false, terminal: paneOpen };
-  const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) ? "composer" : focus;
+  const stops = { sidebar: railListed, delegated: tasks.length > 0, terminal: paneOpen };
+  const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) || (focus === "delegated" && tasks.length === 0) ? "composer" : focus;
   // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
   // fifths of the frame tall, within the column.
   const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows) };
@@ -514,6 +561,9 @@ export const App = (props: AppProps) => {
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
   }, [focus, focused]);
+  useEffect(() => {
+    if (focused === "delegated" && delegatedTask && delegatedCursor !== delegatedTask.task.taskId) setDelegatedCursor(delegatedTask.task.taskId);
+  }, [focused, delegatedTask, delegatedCursor]);
 
   // `--environment` names the environment the header is about: it becomes the last used once it is known,
   // at launch or when it is paired later; a miss at launch is said once, and the watch goes on.
@@ -668,7 +718,6 @@ export const App = (props: AppProps) => {
 
   const liveRun = session.liveRunId;
   const live = isLive(session.runState) || liveRun !== undefined;
-  const tasks = useMemo(() => (projection ? liveTasks(projection, liveRun) : []), [projection, liveRun]);
 
   // The parked prompts (docs/specs/tui.md, "Cards"): every environment's, from `projections.runs` (the asks card), and the open
   // session's own, whose oldest is its card. One this terminal has answered leaves both at once (`useAnswers`).
@@ -731,6 +780,11 @@ export const App = (props: AppProps) => {
   };
 
   // The composer.
+  const readiness = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "skills.readiness", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
+  useFollow(readiness, request);
+  const trust = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "trust.get", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
+  useFollow(trust, request);
+  const trustLine = trustQuestion(trust?.read().result);
   const files = useMemo(() => (opened ? runtime.requests.cached(opened.environmentId, "files.list", { sessionId: opened.sessionId }) : undefined), [runtime, opened]);
   const paths = files?.read().result?.files ?? null;
   const scopes = useMemo((): readonly { readonly name: string; readonly scope: HistoryScope }[] => {
@@ -748,7 +802,7 @@ export const App = (props: AppProps) => {
   const composer = useComposer({
     keymap,
     sources: {
-      commands: commandRows(session.providerCommands),
+      commands: commandRows(session.listedCommands, readiness?.read().result?.skills ?? []),
       paths,
       ...(stores.mentions && { frecency: stores.mentions }),
       snippets: stores.snippets?.list() ?? [],
@@ -771,6 +825,8 @@ export const App = (props: AppProps) => {
       void stores.mentions?.save().catch(() => undefined);
     },
     active: focused === "composer" && !cardOpen,
+    suggestion: projection?.suggestion,
+    sendSuggestion: (text, onRefused) => sendText({ text, attachments: [] }, { onRefused }),
   });
   // The workspace is listed once the text names a file with `@`, or `/files` is open, and kept for five minutes by the request cache.
   useFollow(composer.text.includes("@") || screen.card.kind === "files" ? files : undefined, request);
@@ -805,8 +861,8 @@ export const App = (props: AppProps) => {
       session: openKey,
       held: projection?.summary ? (projection.draft ?? "") : undefined,
       text,
-      // A command for the terminal UI being typed (a slash command it answers, a shell line) is not the session's draft.
-      saves: !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null,
+      // Like the window, keep a single slash word (including incomplete commands) and our commands with arguments out of the draft.
+      saves: !/^\/\S*$/.test(text) && !(text.startsWith("/") && parseCommand(text).kind !== "text") && shellLine(text) === null,
     });
     synced.current = step.inStep;
     if (step.take !== undefined) composer.set(composerOf(step.take));
@@ -832,6 +888,9 @@ export const App = (props: AppProps) => {
   const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
   /** The environment the header and the status line are about: the open session's, else the current one. */
   const headerView = sessionView ?? current;
+  const runInfoEnvironment = screen.card.kind === "lines" && screen.card.which === "run-info" ? opened?.environmentId : undefined;
+  const runInfoAccounts = useMemo(() => runInfoEnvironment === undefined ? undefined : runtime.projections.accounts(runInfoEnvironment), [runtime, runInfoEnvironment]);
+  useFollow(runInfoAccounts, request);
   const pickers = usePickers({
     runtime,
     request,
@@ -848,6 +907,27 @@ export const App = (props: AppProps) => {
     openSession: (next) => open(next),
     newCommandId: props.newCommandId,
     keys,
+  });
+  const routines = useRoutines({
+    runtime,
+    clock,
+    request,
+    views,
+    current,
+    card: screen.card.kind === "routines" ? screen.card.routines : undefined,
+    open: (next) => update({ card: { kind: "routines", routines: next } }),
+    change: (next) => setScreen((s) => (s.card.kind === "routines" ? { ...s, card: { kind: "routines", routines: next(s.card.routines) } } : s)),
+    close: () => setScreen((s) => (s.card.kind === "routines" ? { ...s, card: { kind: "none" } } : s)),
+    say,
+    ask: (asked) => update({ question: asked }),
+    openSession: (next) => open(next),
+    newCommandId: props.newCommandId,
+    newRoutineId: props.newRoutineId ?? (() => crypto.randomUUID()),
+    keys,
+    editYaml:
+      props.editRoutine ??
+      ((yaml: string) => lendTerminal<ExternalEditResult>(suspendTerminal, () => editInExternalEditor(yaml, { file: ROUTINE_FILE }), { ok: false, reason: "the editor did not run" })),
+    cwd,
   });
   const status = useStatus({
     runtime,
@@ -869,7 +949,7 @@ export const App = (props: AppProps) => {
   });
 
   /** Sends `message` to the open session; `remember` false keeps it out of the prompt history (preset in it). */
-  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean } = {}): boolean => {
+  const sendText = (message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }, options: { readonly remember?: boolean; readonly onRefused?: () => void } = {}): boolean => {
     if (!opened) {
       say("There is no session open to send to: /resume opens one, /new starts one.");
       return false;
@@ -895,6 +975,7 @@ export const App = (props: AppProps) => {
     setView((v) => ({ ...v, offset: 0 }));
     void sendMessage(runtime, environmentId, sessionId, message, live, pickers.choice(opened)).then((outcome) => {
       if (!outcome.ok) {
+        options.onRefused?.();
         setSending((s) => s.filter((one) => one.id !== id));
         say(outcome.line);
         // What was not sent comes back into an empty box, so it is not lost.
@@ -1180,6 +1261,24 @@ export const App = (props: AppProps) => {
   const submit = (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }): boolean => {
     const command = parseCommand(raw);
     switch (command.kind) {
+      case "trust": {
+        if (!opened) {
+          say("Cannot decide repository trust: no session is open.");
+          return true;
+        }
+        const capability = runtime.capability(opened.environmentId, "trust.decide");
+        if (capability.status === "absent") {
+          say(`Cannot decide repository trust: ${capability.message}`);
+          return true;
+        }
+        void runtime.requests.call(opened.environmentId, "trust.decide", {
+          commandId: props.newCommandId(), sessionId: opened.sessionId, decision: command.decision,
+        }).then((answer) => {
+          const refused = !answer.ok ? answer.error.message : answer.result.receipt.status === "rejected" ? answer.result.receipt.error.message : undefined;
+          say(refused === undefined ? `Repository trust set to ${command.decision}.` : `Cannot decide repository trust: ${refused}`);
+        });
+        return true;
+      }
       case "pair":
         pair(command.input);
         return true;
@@ -1229,6 +1328,10 @@ export const App = (props: AppProps) => {
         return true;
       case "resume":
         update({ card: { kind: "sessions", cursor: 0, filter: "" } });
+        return true;
+      case "browser":
+        if (opened === null) noSession();
+        else update({ card: { kind: "picker", picker: sessionBrowserPicker(runtime, opened.environmentId, opened.sessionId, say) } });
         return true;
       case "new":
         newSession();
@@ -1282,7 +1385,7 @@ export const App = (props: AppProps) => {
         else update({ card: { kind: "asks", cursor: 0 } });
         return true;
       case "notices":
-        update({ card: { kind: "lines", which: "notices", top: 0 } });
+        update({ card: { kind: "notices", cursor: 0 } });
         return true;
       case "export":
         exportTo(command.file);
@@ -1305,6 +1408,9 @@ export const App = (props: AppProps) => {
         return true;
       case "picker":
         pickers.run(command.command);
+        return true;
+      case "routines":
+        routines.run(command.command);
         return true;
       case "rewind":
         forkRewind.rewindBack(command.back);
@@ -1334,10 +1440,46 @@ export const App = (props: AppProps) => {
 
   const viewOf = (environmentId: string): EnvironmentView | undefined => views.find((v) => v.environmentId === environmentId);
 
+  // The update of the environment whose card is open (#827): its `updates.status`, followed while the card is open, which
+  // the request cache reads again on each update notice.
+  const cardEnvironmentId = screen.card.kind === "menu" ? screen.card.environmentId : undefined;
+  const cardStatus = useMemo(
+    () => (cardEnvironmentId !== undefined ? runtime.requests.cached(cardEnvironmentId, "updates.status", {}) : undefined),
+    [runtime, cardEnvironmentId],
+  );
+  useFollow(cardStatus, request);
+  const cardView = cardEnvironmentId !== undefined ? viewOf(cardEnvironmentId) : undefined;
+  const cardUpdate = cardView ? updateCard(cardView, cardStatus?.read(), props.version, clock.now()) : undefined;
+  const cardActions = cardView && cardUpdate ? actionsFor(cardView, cardUpdate) : [];
+
+  // Drain and update now's question and the update it asks about (#878): it goes, unanswered, once the card no longer
+  // shows that update waiting on work (it went, was replaced or withdrawn, or the card closed), and the work coming
+  // back does not bring it back.
+  const drainAsked = useRef<{ readonly question: Question; readonly updateId: string } | undefined>(undefined);
+  const cardDrainableId = cardUpdate?.drainable?.updateId;
+  useEffect(() => {
+    const asked = drainAsked.current;
+    if (asked === undefined || asked.updateId === cardDrainableId) return;
+    drainAsked.current = undefined;
+    setScreen((s) => (s.question === asked.question ? { ...s, question: undefined } : s));
+  }, [cardDrainableId]);
+
+  /** Drain and update now (#878): asked once on the confirm line, unless the connection cannot send it; a yes sends `updates.apply` now. */
+  const drainAndUpdate = (environment: EnvironmentView) => {
+    const drainable = cardUpdate?.drainable;
+    if (!drainable) return;
+    const refusal = updateRefusal(runtime, environment);
+    if (refusal !== undefined) return say(refusal);
+    const question: Question = { text: drainAndUpdateQuestionLine(environment, drainable), yes: () => void updateNow(runtime, environment, props.newCommandId(), "now").then(say) };
+    drainAsked.current = { question, updateId: drainable.updateId };
+    update({ question });
+  };
+
   const presentation = useMemo(() => props.presentation ?? inMemoryPresentation(), [props.presentation]);
   const rail = useRail({
     runtime,
     views,
+    colours,
     keymap,
     presentation,
     startingService,
@@ -1407,6 +1549,7 @@ export const App = (props: AppProps) => {
   const pickerCursor = (card: Extract<Card, { kind: "prompt-picker" }>): number => clampCursor(card.cursor ?? messages.length - 1, messages.length);
   const choose = (card: Card) => {
     if (card.kind === "panel") return pickers.choose(card.panel);
+    if (card.kind === "routines") return routines.choose(card.routines);
     if (card.kind === "prompt-picker") {
       // Enter rewinds here: the card closes, and the rewind (or the offer to stop the run first) is the line's.
       const message = messages[pickerCursor(card)];
@@ -1433,10 +1576,12 @@ export const App = (props: AppProps) => {
     if (card.kind === "menu") {
       const environment = viewOf(card.environmentId);
       if (!environment) return update({ card: { kind: "environments", cursor: 0 } });
-      const actions = actionsFor(environment);
-      const action = actions[clampCursor(card.cursor, actions.length)];
+      const action = cardActions[clampCursor(card.cursor, cardActions.length)];
       if (action === "sessions") return openClientSessions(environment);
       if (action === "name" || action === "icon" || action === "colour") return changeLook(environment, action, null);
+      if (action === "update") return void updateNow(runtime, environment, props.newCommandId()).then(say);
+      if (action === "drain-and-update") return drainAndUpdate(environment);
+      if (action === "update-to-client") return void updateToClient(runtime, environment).then(say);
       if (action === "remove") {
         return update({
           question: {
@@ -1496,6 +1641,14 @@ export const App = (props: AppProps) => {
       showPage(`Reading ${document.path}…`, () => readFile(runtime, target, document.path, mainWidth), card);
       return;
     }
+    if (card.kind === "notices") {
+      const notice = newestFirst[clampCursor(card.cursor, newestFirst.length)];
+      if (!notice) return;
+      if (!notice.about) return say("That notice is about no session: there is nothing to open.");
+      update({ card: { kind: "none" } });
+      open({ environmentId: notice.environmentId, sessionId: notice.about.sessionId });
+      return;
+    }
     if (card.kind === "snippets") {
       const row = snippetRows()[clampCursor(card.cursor, snippetRows().length)];
       if (!row) return;
@@ -1519,6 +1672,10 @@ export const App = (props: AppProps) => {
         const to = pickers.back(card.panel);
         return to ? { kind: "panel", panel: to } : { kind: "none" };
       }
+      case "routines": {
+        const to = routines.back(card.routines);
+        return to ? { kind: "routines", routines: to } : { kind: "none" };
+      }
       case "picker":
         // The query first, then a step back, then the card closes.
         if (card.picker.typed && card.picker.query !== "") return { kind: "picker", picker: { ...card.picker, query: "", cursor: 0 } };
@@ -1532,10 +1689,8 @@ export const App = (props: AppProps) => {
     switch (card.kind) {
       case "environments":
         return views.length;
-      case "menu": {
-        const environment = viewOf(card.environmentId);
-        return environment ? actionsFor(environment).length : 0;
-      }
+      case "menu":
+        return cardActions.length;
       case "client-sessions":
         return card.rows?.length ?? 0;
       case "sessions":
@@ -1546,10 +1701,14 @@ export const App = (props: AppProps) => {
         return fileRows(card)?.length ?? 0;
       case "documents":
         return documentRows.length;
+      case "notices":
+        return notices.length;
       case "prompt-picker":
         return messages.length;
       case "panel":
         return pickers.rows(card.panel);
+      case "routines":
+        return routines.rows(card.routines);
       case "picker":
         return card.picker.rows(card.picker.query).length;
       default:
@@ -1566,21 +1725,27 @@ export const App = (props: AppProps) => {
     setScreen((s) => (s.card.kind === "help" && s.card.top > helpMaxTop ? { ...s, card: { ...s.card, top: helpMaxTop } } : s));
   }, [helpMaxTop]);
 
-  // The pager's lines: every row unfolded; `/tasks` and `/timeline` as lines too.
+  // The pager's lines: every row unfolded; `/tasks`, `/timeline` and run info as lines too.
   const card = screen.card;
   const pagerLines = card.kind === "pager" ? transcriptLines(allRows, { ...lineContext, width: mainWidth, expanded: true }) : card.kind === "page" ? card.lines : [];
   const cardLines: TranscriptLine[] =
     card.kind === "lines"
-      ? card.which === "timeline"
-        ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
-        : card.which === "notices"
-          ? noticesLines(notices, names)
+      ? card.which === "run-info"
+        ? runInfoLines(projection, runInfoAccounts?.read().value, mainWidth)
+        : card.which === "timeline"
+          ? (projection ? turnsOf(projection) : []).map((turn) => ({ row: turn.runId, spans: [{ text: timelineLine(turn) }] }))
           : tasksLines(projection)
       : [];
+  const runInfoMaxTop = Math.max(0, cardLines.length - helpHeight);
+  useEffect(() => {
+    setScreen((s) => s.card.kind === "lines" && s.card.which === "run-info" && s.card.top > runInfoMaxTop
+      ? { ...s, card: { ...s.card, top: runInfoMaxTop } }
+      : s);
+  }, [runInfoMaxTop]);
   // The asks card's rows: what `/asks` gathered, less what was answered from here.
-  const askList = card.kind === "asks" ? askRows(asks, views, opened) : [];
+  const askList = card.kind === "asks" ? askRows(asks, views, opened, colours) : [];
   const askAt = card.kind === "asks" ? askList[clampCursor(card.cursor, askList.length)] : undefined;
-  const bulk = askList.filter((row) => inBulk(row.ask.kind));
+  const bulk = bulkAsks(askList.map((row) => row.ask));
   /** `y` or `n` on the row under the cursor: a permission or denylist prompt answered in place; any other is opened to answer. */
   const decideInPlace = (decision: "allow" | "deny"): false | void => {
     if (!askAt) return false;
@@ -1589,12 +1754,11 @@ export const App = (props: AppProps) => {
   };
   /** `a` or `N`: every permission row answered at once, once confirmed, and only when there are two or more. */
   const decideAll = (decision: "allow" | "deny"): false | void => {
-    if (card.kind !== "asks" || bulk.length < 2) return false;
-    const targets = bulk.map((row) => row.ask);
+    if (card.kind !== "asks" || bulk.length === 0) return false;
     update({
       question: {
-        text: decision === "allow" ? `Allow all ${targets.length} permissions once? y/n` : `Deny all ${targets.length} permissions? y/n`,
-        yes: () => targets.forEach((target) => answers.answer(target, { decision })),
+        text: `${bulkQuestion(decision, bulk.length)} y/n`,
+        yes: () => bulk.forEach((target) => answers.answer(target, { decision })),
       },
     });
   };
@@ -1678,6 +1842,15 @@ export const App = (props: AppProps) => {
     },
     { isActive: focused === "composer" && !cardOpen },
   );
+  // The routines card taking a line (a path, an endpoint's name, URL or secret) takes a paste into it, as a panel does.
+  const routinesTyping = card.kind === "routines" && routines.takesText(card.routines) && !screen.question;
+  usePaste(
+    (text) => {
+      scheduler.bypass();
+      setScreen((s) => (s.card.kind === "routines" ? { ...s, card: { kind: "routines", routines: routines.typed(s.card.routines, text) } } : s));
+    },
+    { isActive: routinesTyping },
+  );
   // A card taking a line (a label, a sign-in's code, a setting's value) takes a paste into it, unless a question has the keys.
   const panelTyping = card.kind === "panel" && pickers.takesText(card.panel) && !screen.question;
   usePaste(
@@ -1731,8 +1904,10 @@ export const App = (props: AppProps) => {
       card.kind === "snippets" ||
       card.kind === "files" ||
       card.kind === "documents" ||
+      card.kind === "notices" ||
       card.kind === "picker" ||
       card.kind === "prompt-picker" ||
+      card.kind === "routines" ||
       (card.kind === "panel" && !linesPanel);
     // A list, the help overlay, the pager (the transcript's or a page's) and the lines cards have the keys whatever has the focus; the focus has them back when it closes.
     const cardHasKeys = listCard || linesPanel || card.kind === "help" || paged(card) || card.kind === "lines" || card.kind === "asks" || promptShown;
@@ -1751,6 +1926,7 @@ export const App = (props: AppProps) => {
       if (card.kind === "help" || card.kind === "lines" || linesPanel) return scroll((top) => top + step);
       if (!listCard) return false;
       if (card.kind === "panel") return update({ card: { kind: "panel", panel: pickers.move(card.panel, step) } });
+      if (card.kind === "routines") return update({ card: { kind: "routines", routines: routines.move(card.routines, step) } });
       // A list typed at takes letters into its filter or query: k and j are letters there. A typed picker's letters
       // never reach here (its intake runs before any lookup, below), so the decline states the rule as the sessions one does.
       if (action === "picker.moveVi" && (card.kind === "sessions" || card.kind === "files" || (card.kind === "picker" && card.picker.typed))) return false;
@@ -1762,10 +1938,59 @@ export const App = (props: AppProps) => {
     // Every key the screen answers, by action: the key is looked up in the keymap in force, never matched here.
     const handlers: Record<ScreenKey, Handler> & typeof composer.handlers = {
       ...composer.handlers,
+      "app.runInfo.toggle": () => {
+        if (card.kind === "lines" && card.which === "run-info") return update({ card: { kind: "none" } });
+        if (!projection) return say("No session is open.");
+        update({ card: { kind: "lines", which: "run-info", top: 0 } });
+      },
       "app.mode.step": () => pickers.stepMode(),
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
+      ...routines.handlers,
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
+      "delegated.enter": () => (tasks.length > 0 ? setFocus("delegated") : false),
+      "delegated.move": (pressed) => {
+        const row = tasks[Math.min(Math.max(delegatedAt + direction(keymap, "delegated.move", pressed), 0), tasks.length - 1)];
+        if (row) setDelegatedCursor(row.task.taskId);
+      },
+      "delegated.leave": () => setFocus("composer"),
+      "delegated.stop": () => {
+        if (!opened || !delegatedTask) return false;
+        const target = opened;
+        void stopCall(runtime, target.environmentId, delegatedTask.runId, delegatedTask.task.taskId).then((line) => {
+          if (quit.signal.aborted || latest.current.opened?.environmentId !== target.environmentId || latest.current.opened.sessionId !== target.sessionId) return;
+          if (line) say(oneLine(line, 300));
+        });
+      },
+      "delegated.open": () => {
+        if (!opened || !delegatedTask) return false;
+        if (delegatedTask.agentId === null) return say("That task is not an agent: it has no transcript to read.");
+        const target = opened;
+        const reading: Extract<Card, { readonly kind: "page" }> = {
+          kind: "page",
+          title: `${delegatedTask.task.subagentType ?? delegatedTask.task.kind}: ${oneLine(delegatedTask.task.description, 120)}`,
+          lines: [{ row: "reading", spans: [{ text: "Reading…", dim: true }] }],
+          top: 0,
+          query: "",
+          typing: false,
+          back: { kind: "none" },
+        };
+        update({ card: reading, line: undefined });
+        void runtime.requests.call(target.environmentId, "sessions.subagentTranscript", { sessionId: target.sessionId, agentId: delegatedTask.agentId }).then((answer) => {
+          if (quit.signal.aborted || latest.current.opened?.environmentId !== target.environmentId || latest.current.opened.sessionId !== target.sessionId) return;
+          const rows = answer.ok ? subagentRows(answer.result.messages) : [];
+          const lines = transcriptLines(rows, { width: mainWidth, quietMs: () => 0, stopKey: keys("row.stop"), unfoldKey: keys("row.unfold"), expanded: true });
+          // Paging or searching preserves the loading lines; closing the page replaces them, declining a late answer.
+          setScreen((s) => {
+            if (s.card.kind !== "page" || s.card.lines !== reading.lines) return s;
+            if (!answer.ok) return { ...s, card: reading.back, line: `Not read: ${oneLine(answer.error.message, 300)}` };
+            return {
+              ...s,
+              card: { ...s.card, lines: lines.length > 0 ? lines : [{ row: "empty", spans: [{ text: "Nothing is stored for this agent yet.", dim: true }] }] },
+            };
+          });
+        });
+      },
       "row.leave": () => {
         setView((v) => ({ ...v, cursor: null }));
         setFocus("composer");
@@ -2022,6 +2247,13 @@ export const App = (props: AppProps) => {
       if (key.backspace || key.delete) return update({ card: { kind: "panel", panel: pickers.erased(card.panel) } });
       if (input !== "" && !key.ctrl && !key.meta && !key.tab) return update({ card: { kind: "panel", panel: pickers.typed(card.panel, input) } });
     }
+    // The routines card taking a line (a path, an endpoint's name, URL or secret) takes it as the panels do.
+    if (card.kind === "routines" && routines.takesText(card.routines) && !screen.question && !pairedEsc) {
+      if (key.return) return routines.choose(card.routines);
+      if (key.escape) return update({ card: back(card) });
+      if (key.backspace || key.delete) return update({ card: { kind: "routines", routines: routines.erased(card.routines) } });
+      if (input !== "" && !key.ctrl && !key.meta && !key.tab) return update({ card: { kind: "routines", routines: routines.typed(card.routines, input) } });
+    }
     // The note's line on the permission card takes what is typed; the move keys wait while it is open, and a key it does not
     // take (Ctrl+C, Ctrl+]) is looked up as any other.
     if (promptShown && promptState.line !== null && !pairedEsc) {
@@ -2067,6 +2299,8 @@ export const App = (props: AppProps) => {
     // A question a key action asked (`whileTyping`) takes its answer whatever the composer holds.
     if (screen.question && (!typing || screen.question.whileTyping === true)) lookups.push("confirm");
     if (card.kind === "asks") lookups.push("asks");
+    // The routines card's verbs, then the picker's moves, Enter and Esc.
+    else if (card.kind === "routines") lookups.push("routines", "picker");
     else if (card.kind === "help" || paged(card) || card.kind === "lines" || linesPanel) lookups.push("pager", "picker");
     else if (card.kind !== "none") lookups.push("picker");
     if (promptShown) lookups.push("permission");
@@ -2116,7 +2350,7 @@ export const App = (props: AppProps) => {
   });
 
   // A card that is a list of the session's needs the session: gone, it closes. The asks card closes with its last row.
-  const sessionCard = card.kind === "pager" || card.kind === "files" || card.kind === "documents" || (card.kind === "lines" && card.which !== "notices");
+  const sessionCard = card.kind === "pager" || card.kind === "files" || card.kind === "documents" || card.kind === "lines";
   useEffect(() => {
     if (!projection && sessionCard) update({ card: { kind: "none" } });
   }, [projection, sessionCard]);
@@ -2171,8 +2405,8 @@ export const App = (props: AppProps) => {
       ? ""
       : `${rowFile(cursorRow) || cursorRow.kind === "forked" ? ` · ${keys("row.open")} open` : ""}${editCalls(cursorRow).length > 0 ? ` · ${keys("row.diff")} diff` : ""}`;
   const hint =
-    card.kind === "panel"
-      ? `The card has the keys · ${pickers.hint(card.panel)}`
+    card.kind === "panel" || card.kind === "routines"
+      ? `The card has the keys · ${card.kind === "panel" ? pickers.hint(card.panel) : `${keys("picker.leave")} ${routines.back(card.routines) ? "goes back" : "closes it"}`}`
       : card.kind === "help" || card.kind === "pager" || card.kind === "lines" || card.kind === "page"
         ? `The card has the keys · ${keys("pager.close")} closes it`
         : card.kind === "environments" ||
@@ -2180,6 +2414,7 @@ export const App = (props: AppProps) => {
             card.kind === "snippets" ||
             card.kind === "files" ||
             card.kind === "documents" ||
+            card.kind === "notices" ||
             card.kind === "prompt-picker"
           ? `The card has the keys · ${keys("picker.leave")} closes it`
           : card.kind === "menu" || card.kind === "client-sessions"
@@ -2191,16 +2426,18 @@ export const App = (props: AppProps) => {
                 : focused === "sidebar"
                   ? // What the keys do at the cursor gives way to a notice, as the composer's own hint does.
                     `The rail has the keys · ${keys("rail.leave")} ${rail.filter !== null ? "clears the filter" : `back to the composer · ${keys("app.focus.next")} next`}${rail.hint !== undefined && activity === undefined ? ` · ${rail.hint}` : ""}`
-                  : focused === "transcript"
-                    ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold${fileVerbs} · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
-                    : undefined;
+                  : focused === "delegated"
+                    ? `The delegated strip has the keys · ${keys("delegated.move")} move · ${keys("delegated.open")} open · ${keys("delegated.stop")} stop · ${keys("delegated.leave")} back to the composer`
+                    : focused === "transcript"
+                      ? `The transcript has the keys · ${keys("transcript.cursor")} rows · ${keys("row.unfold")} unfold${fileVerbs} · ${keys("row.recall")} recall · ${keys("row.stop")} stop${rowVerbs} · ${keys("row.leave")} back to the composer`
+                      : undefined;
   const own = menuView ? (runtime.connections.list.read().find((r) => r.environmentId === menuView.environmentId)?.clientSessionId ?? null) : null;
   const freshness = projection?.freshness;
   const marker =
     opened && freshness !== "live"
       ? freshness === "cached"
-        ? { text: `◌ cached: what this terminal last saw of it; ${names.get(opened.environmentId) ?? "its environment"} is not answering`, color: "yellow" }
-        : { text: "⟳ catching up…", color: "cyan" }
+        ? { text: `◌ cached: what this terminal last saw of it; ${names.get(opened.environmentId) ?? "its environment"} is not answering`, color: TERMINAL_ROLES.warning }
+        : { text: "⟳ catching up…", color: TERMINAL_ROLES.machine }
       : undefined;
   const placeholder = !opened
     ? "no session open: /resume opens one, /new starts one"
@@ -2219,7 +2456,7 @@ export const App = (props: AppProps) => {
   const popup = composer.popup;
   const searchScope = composer.state.search ? (scopes[composer.state.search.scope]?.name ?? "everywhere") : undefined;
 
-  return (
+  const drawn = (
     <Box flexDirection="column" width={size.columns} height={size.rows}>
       <Header
         current={headerView}
@@ -2234,7 +2471,9 @@ export const App = (props: AppProps) => {
         )}
         <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {card.kind === "environments" && <EnvironmentsCard views={views} cursor={clampCursor(card.cursor, views.length)} hint={listHint("actions", "close")} />}
-          {card.kind === "menu" && menuView && <EnvironmentMenu view={menuView} actions={actionsFor(menuView)} cursor={card.cursor} hint={listHint("choose", "back")} />}
+          {card.kind === "menu" && cardView && cardUpdate && (
+            <EnvironmentMenu view={cardView} update={cardUpdate} actions={cardActions} cursor={clampCursor(card.cursor, cardActions.length)} hint={listHint("choose", "back")} />
+          )}
           {card.kind === "client-sessions" && menuView && (
             <ClientSessionsCard view={menuView} rows={card.rows} own={own} cursor={clampCursor(card.cursor, card.rows?.length ?? 0)} hint={listHint("revoke", "back")} />
           )}
@@ -2323,9 +2562,20 @@ export const App = (props: AppProps) => {
               hint={listHint("open", "close")}
             />
           )}
+          {card.kind === "notices" && (
+            <ListCard
+              width={mainWidth}
+              title="Notices"
+              hint={listHint("opens its session", "close")}
+              rows={noticeRows(newestFirst, names)}
+              cursor={clampCursor(card.cursor, newestFirst.length)}
+              height={helpHeight}
+              empty="No notices."
+            />
+          )}
           {card.kind === "lines" && (
             <LinesCard
-              title={card.which === "timeline" ? "Timeline" : card.which === "notices" ? "Notices" : "Tasks"}
+              title={card.which === "run-info" ? "The latest run" : card.which === "timeline" ? "Timeline" : "Tasks"}
               hint={`${keys("pager.close")} close`}
               lines={cardLines.length > 0 ? cardLines : [{ row: "none", spans: [{ text: LINES_EMPTY[card.which], dim: true }] }]}
               top={card.top}
@@ -2333,6 +2583,7 @@ export const App = (props: AppProps) => {
             />
           )}
           {card.kind === "panel" && pickers.render(card.panel, { width: mainWidth, height: helpHeight })}
+          {card.kind === "routines" && routines.render(card.routines, { width: mainWidth, height: helpHeight })}
           {card.kind === "prompt-picker" && (
             <PromptPickerCard
               messages={messages}
@@ -2352,7 +2603,7 @@ export const App = (props: AppProps) => {
               height={Math.max(1, helpHeight - 3)}
               hint={{
                 decidable: `${keys("asks.move")} move · ${keys("asks.open")} open · ${keys("asks.allow")} allow once · ${keys("asks.deny")} deny${
-                  bulk.length > 1 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
+                  bulk.length > 0 ? ` · ${keys("asks.allowAll")} allow all · ${keys("asks.denyAll")} deny all` : ""
                 } · ${keys("asks.close")} closes, deciding nothing`,
                 other: `${keys("asks.move")} move · ${keys("asks.open")} open · this one is answered on its own card · ${keys("asks.close")} closes, deciding nothing`,
               }}
@@ -2369,7 +2620,7 @@ export const App = (props: AppProps) => {
               follow={`${keys("transcript.follow")} follows`}
             />
           )}
-          {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks} />}
+          {card.kind === "none" && opened && !railInPane && <DelegatedStrip tasks={tasks.map((row) => row.task)} cursor={focused === "delegated" ? delegatedTask?.task.taskId : undefined} />}
           {card.kind === "none" && opened && !railInPane && <QueuedLine queue={queue} steers={steers} verbs={queueVerbs} />}
           {card.kind === "none" && paneOpen && !railInPane && terminal.pane && (
             <TerminalPaneView
@@ -2406,7 +2657,8 @@ export const App = (props: AppProps) => {
         </Box>
       </Box>
       <Line text={screen.line} />
-      <Line text={promptLine} color="yellow" />
+      <Line text={promptLine} color={TERMINAL_ROLES.warning} />
+      {trustLine !== undefined && <Line text={trustLine} color={TERMINAL_ROLES.warning} />}
       <ComposerView
         editor={composer.state.editor}
         focused={focused === "composer" && !cardHasKeys}
@@ -2417,11 +2669,15 @@ export const App = (props: AppProps) => {
         highlight={popup ? highlighted(composer.state, popup) : -1}
         search={composer.state.search && searchScope !== undefined ? { query: composer.state.search.query, scope: searchScope, found: composer.state.editor !== composer.state.search.saved } : undefined}
         note={composerNote(composer.state, keys("composer.complete"))}
+        suggestion={projection?.suggestion?.suggestion}
+        suggestionKey={keymap.keys["composer.suggestion.take"].includes("1–4") ? "1" : keymap.keys["composer.suggestion.take"][0]}
       />
       <StatusLine one={status.one} two={status.two} />
       <HintLine hint={promptsHint ?? hint} activity={activity} fallback=" " />
     </Box>
   );
+  // What draws deep in the tree takes the theme's colours from here: a diff's bands.
+  return <ThemeColoursContext.Provider value={colours}>{drawn}</ThemeColoursContext.Provider>;
 };
 
 const clampCursor = (cursor: number, rows: number): number => (rows <= 0 ? 0 : Math.min(Math.max(cursor, 0), rows - 1));
@@ -2433,30 +2689,31 @@ const absentReason = (id: KeyActionId): string => {
 };
 
 /** What a lines card says with nothing to list. */
-const LINES_EMPTY: Readonly<Record<"tasks" | "timeline" | "notices", string>> = {
+const LINES_EMPTY: Readonly<Record<"tasks" | "timeline" | "run-info", string>> = {
   tasks: "No delegated work in this session.",
   timeline: "No turn yet.",
-  notices: "No notices.",
+  "run-info": "No run yet.",
 };
 
-/** `/notices`: every notice the runtime holds, newest first, with when, where from and what it offers. */
-const noticesLines = (notices: readonly Notice[], names: ReadonlyMap<string, string>): TranscriptLine[] =>
-  [...notices].reverse().map((notice) => ({
-    row: notice.id,
-    spans: [
+/** `/notices`: the notices, newest first as given, each with when, where from and what it offers. */
+const noticeRows = (notices: readonly Notice[], names: ReadonlyMap<string, string>): PanelRow[] =>
+  notices.map((notice) => ({
+    key: notice.id,
+    cells: [
       { text: `${clockTime(notice.at)}  `, dim: true },
       { text: `${names.get(notice.environmentId) ?? "an environment"}  `, bold: true },
       { text: noticeLine(notice), ...(NOTICE_COLOURS[notice.kind] !== undefined && { color: NOTICE_COLOURS[notice.kind] }) },
     ],
+    dim: false,
   }));
 
 /** The notices worth a colour in `/notices`: what blocks a connection or a command in red, a prompt waiting in yellow. */
 const NOTICE_COLOURS: Readonly<Partial<Record<Notice["kind"], string>>> = {
-  revoked: "red",
-  expired: "red",
-  "command-rejected": "red",
-  "command-dropped": "red",
-  "prompt-parked": "yellow",
+  revoked: TERMINAL_ROLES.danger,
+  expired: TERMINAL_ROLES.danger,
+  "command-rejected": TERMINAL_ROLES.danger,
+  "command-dropped": TERMINAL_ROLES.danger,
+  "prompt-parked": TERMINAL_ROLES.warning,
 };
 
 /**
@@ -2514,7 +2771,7 @@ const tasksLines = (projection: { readonly items: readonly { readonly kind: stri
         { text: `${clockTime(task.startedAt)}  ` , dim: true },
         { text: `${task.subagentType ?? task.kind}: `, bold: true },
         { text: task.description },
-        { text: ` · ${task.status}${task.error ? `: ${task.error}` : ""}`, dim: true, ...(task.status === "failed" && { color: "red" }) },
+        { text: ` · ${task.status}${task.error ? `: ${task.error}` : ""}`, dim: true, ...(task.status === "failed" && { color: TERMINAL_ROLES.danger }) },
       ],
     })),
   );

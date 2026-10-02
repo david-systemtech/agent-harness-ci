@@ -1,6 +1,6 @@
 import { FIRST_ROW, REGISTERED_STEP_IDS, settingsRow, type LastGood, type RegisteredStepId, type SettingsRowId, type StepId, type StepState } from "@agent-harness/contracts";
 import type { SetupCounts, SetupReach, SetupStepView, SetupView } from "../projections/setup.js";
-import { clockTime } from "../transcript/format.js";
+import { clockTime, whenWords } from "../transcript/format.js";
 
 /**
  * Set up's checklist as every renderer draws it from `projections.setup`
@@ -66,18 +66,23 @@ export const checkedAgoWords = (ageMs: number): string => {
 
 /**
  * A step's line: "Checking…" while this client's own check of it is pending
- * (ADR 0031's half second), else its result's reason, with its age once it
- * is older than its step's cadence, or marked stale and dated while it is not
- * known to hold now (the Set up specification, "Running checks": an
- * unreachable environment's cached results beneath its line, #573), "(stale,
- * checked 10 min ago)"; "Not checked yet." with no result.
+ * (ADR 0031's half second), else its result's reason, dated. A result this
+ * client follows says since when it is unchanged, "(unchanged since 09:14)",
+ * for a re-check that finds nothing new is never heard (#671); one it asked
+ * for says its age once older than its step's cadence, "(checked 3 h ago)".
+ * Either is marked stale while it is not known to hold now (the Set up
+ * specification, "Running checks": an unreachable environment's cached
+ * results beneath its line, #573), "(stale, checked 10 min ago)". "Not
+ * checked yet." with no result. `now` is the environment's time as this
+ * client reckons it, which says whether a time was today.
  */
-export const stepLine = (step: SetupStepView): string => {
+export const stepLine = (step: SetupStepView, now: Date): string => {
   if (step.pending) return "Checking…";
   const { result } = step;
   if (result === null) return "Not checked yet.";
-  if (result.stale) return `${result.reason} (stale, ${checkedAgoWords(result.ageMs)})`;
-  return result.olderThanCadence ? `${result.reason} (${checkedAgoWords(result.ageMs)})` : result.reason;
+  if (result.asked && !result.olderThanCadence && !result.stale) return result.reason;
+  const when = result.asked ? checkedAgoWords(result.ageMs) : `unchanged since ${whenWords(result.checkedAt, now)}`;
+  return `${result.reason} (${result.stale ? "stale, " : ""}${when})`;
 };
 
 /**

@@ -7,7 +7,9 @@ import {
   replaceMention,
   sendMessage,
   shellLine,
+  workspaceGoneLine,
   type CapabilityAnswer,
+  type Lock,
 } from "@agent-harness/client-runtime";
 import { useMemo, useState } from "react";
 import { KeyContext, useKeyAction, type Offer } from "../keys/key-dispatch.js";
@@ -15,10 +17,12 @@ import { useSessionQueue } from "../queue/session-queue.js";
 import { useModelChoice } from "../status/run-choices.js";
 import { usePaneLine } from "../session/pane-line.js";
 import { useProvider } from "../session/provider.js";
+import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { Button } from "../ui/index.js";
 import { useObservable, useRuntime } from "../window-context.js";
-import { AttachmentChips, useAttachments } from "./attachments.js";
+import { MissingWorkspace, useGoneWorkspace } from "../workspace/missing.js";
+import { AttachmentChips, AttachmentPicker, useAttachments } from "./attachments.js";
 import { useBox } from "./box.js";
 import { MenuList, optionId, useMenus, type Menu } from "./menus.js";
 import { useSessionDraft } from "./session-draft.js";
@@ -49,7 +53,10 @@ export interface ComposerProps {
  * - **Files.** `@` lists the session's workspace (`files.list`, in the
  *   request cache) as the name is typed; choosing one writes its path.
  * - **Attachments** by a paste, a drop or the shell's file dialog (Attach
- *   files, `/attach`), shown as chips.
+ *   files, `/attach`), the page's own file picker where the shell has none
+ *   (#484), shown as chips.
+ * - **`/settings [row]`** opens Settings on the row it names, or the last
+ *   one opened, on this session's environment (`useSettingsCommand`, #625).
  * - **Send and Stop** share one button (story 9).
  * - **The queue** (#401): ↑ in an empty composer takes the newest queued
  *   message back (`composer.withdrawLast`), and `composer.readNow` reads the
@@ -60,6 +67,10 @@ export interface ComposerProps {
  *   `!command` in a terminal of its own in the side column's Terminal pane,
  *   the composer keeping the keys; `!!command` in one nobody sees, what it
  *   printed sent to the agent as the session's next message.
+ * - **A missing workspace** (#328, #421): while the environment has found
+ *   the session's workspace gone, nothing is sent and the box gives way to
+ *   the gone path and Choose a workspace (`MissingWorkspace`); its actions
+ *   stay wired, Send saying why it cannot, so Stop still stops a run.
  *
  * Each action it wires is offered to the palette with whether it can be
  * done now, as the runtime says: dim there with the line while it cannot.
@@ -75,15 +86,19 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const box = useBox();
   useSessionDraft(environmentId, sessionId, projection, box);
   const attachments = useAttachments({ environmentId, provider, say, insert: box.insert });
-  const menus = useMenus({ environmentId, sessionId, summary: projection.summary, provider, text: box.text, caret: box.caret });
+  const menus = useMenus({ environmentId, sessionId, provider, text: box.text, caret: box.caret });
   const walk = usePromptWalk(projection, box);
   const wired = useWiredCommands();
-  useSlashCommand("attach", attachments.choose, attachments.dialog);
+  useSlashCommand("attach", attachments.choose);
+  useSettingsCommand(environmentId);
   const queue = useSessionQueue();
   const [choice] = useModelChoice(environmentId, sessionId);
 
-  const sending = runtime.capability(environmentId, "runs.send");
-  const lock = lockOf(sending);
+  // The session's workspace, while the environment has found it gone: no run reads anything there until it has another.
+  const gone = useGoneWorkspace(environmentId, sessionId);
+  const capability = runtime.capability(environmentId, "runs.send");
+  const sending: Offer = gone === undefined ? capability : { status: "absent", message: workspaceGoneLine(gone) };
+  const lock: Lock = gone === undefined ? lockOf(capability) : { locked: true, reason: workspaceGoneLine(gone) };
   // The run a send joins and Stop interrupts, and the run this composer asked to stop: Stopping… while it is still live.
   const liveRunId = liveRunIdOf(projection, runs);
   const live = isLive(runs.state) || liveRunId !== undefined;
@@ -166,68 +181,69 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     "composer.empty": () => box.current().length === 0 && attachments.current().length === 0,
   };
   return (
-    <KeyContext context="composer" conditions={conditions}>
-      <ComposerKeys
-        send={submit}
-        newline={() => box.insert("\n")}
-        navigate={walk}
-        complete={complete}
-        commandMenu={() => (box.current().length > 0 ? false : box.put("/"))}
-        fileMention={() => box.insert("@")}
-        paste={attachments.paste}
-        withdrawLast={withdrawLast}
-        readNow={queue.readNow}
-        stop={stop}
-        offers={{
-          send: sending,
-          paste: runtime.capability(environmentId, "shell.clipboard"),
-          withdrawLast: queue.runs.verbs.withdraw,
-          readNow: queue.runs.verbs.readNow,
-          stop: stoppable,
-        }}
-      />
-      <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3" onDragOver={attachments.dragging} onDrop={attachments.dropped}>
-        {lock.locked && <p className="text-xs text-amber">Locked: {lock.reason}</p>}
-        {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
-        <AttachmentChips attachments={attachments} />
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={box.field}
-            aria-label="Message"
-            aria-controls={menu === null ? undefined : menus.listId}
-            aria-activedescendant={menu === null || at < 0 ? undefined : optionId(menus.listId, at)}
-            value={box.text}
-            onChange={(event) => box.put(event.target.value, null)}
-            onSelect={box.moved}
-            onKeyDown={menus.keyDown}
-            onPaste={attachments.pasted}
-            rows={3}
-            className="min-w-0 flex-1 resize-none rounded-md border border-line bg-inset px-3 py-2 text-sm text-ink outline-none focus-visible:border-beam"
-          />
-          <Button
-            aria-label="Attach files"
-            disabled={attachments.dialog.status === "absent"}
-            title={attachments.dialog.status === "absent" ? attachments.dialog.message : undefined}
-            onClick={attachments.choose}
-          >
-            Attach
-          </Button>
-          <SendOrStop
-            stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
-            sends={!lock.locked && box.text.trim().length > 0}
-            stopping={liveRunId !== undefined && interruptAsked === liveRunId}
-            interrupt={liveRunId === undefined ? undefined : runtime.capability(environmentId, "runs.interrupt")}
-            send={submit}
-            stop={stop}
-          />
-        </div>
-        {line !== undefined && (
-          <p role="status" className="text-xs text-ink-muted">
-            {line}
-          </p>
+    <>
+      <KeyContext context="composer" conditions={conditions}>
+        <ComposerKeys
+          send={submit}
+          newline={() => box.insert("\n")}
+          navigate={walk}
+          complete={complete}
+          commandMenu={() => (box.current().length > 0 ? false : box.put("/"))}
+          fileMention={() => box.insert("@")}
+          paste={attachments.paste}
+          withdrawLast={withdrawLast}
+          readNow={queue.readNow}
+          stop={stop}
+          offers={{
+            send: sending,
+            paste: runtime.capability(environmentId, "shell.clipboard"),
+            withdrawLast: queue.runs.verbs.withdraw,
+            readNow: queue.runs.verbs.readNow,
+            stop: stoppable,
+          }}
+        />
+        {gone === undefined && (
+          <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-4 py-3" onDragOver={attachments.dragging} onDrop={attachments.dropped}>
+            {lock.locked && <p className="text-xs text-amber">Locked: {lock.reason}</p>}
+            {menu !== null && <MenuList id={menus.listId} menu={menu} highlighted={at} choose={choose} />}
+            <AttachmentChips attachments={attachments} />
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={box.field}
+                aria-label="Message"
+                aria-controls={menu === null ? undefined : menus.listId}
+                aria-activedescendant={menu === null || at < 0 ? undefined : optionId(menus.listId, at)}
+                value={box.text}
+                onChange={(event) => box.put(event.target.value, null)}
+                onSelect={box.moved}
+                onKeyDown={menus.keyDown}
+                onPaste={attachments.pasted}
+                rows={3}
+                className="min-w-0 flex-1 resize-none rounded-md border border-line bg-inset px-3 py-2 text-sm text-ink outline-none focus-visible:border-beam"
+              />
+              <Button aria-label="Attach files" onClick={attachments.choose}>
+                Attach
+              </Button>
+              <AttachmentPicker attachments={attachments} />
+              <SendOrStop
+                stops={live && box.text.trim().length === 0 && attachments.list.length === 0}
+                sends={!lock.locked && box.text.trim().length > 0}
+                stopping={liveRunId !== undefined && interruptAsked === liveRunId}
+                interrupt={liveRunId === undefined ? undefined : runtime.capability(environmentId, "runs.interrupt")}
+                send={submit}
+                stop={stop}
+              />
+            </div>
+            {line !== undefined && (
+              <p role="status" className="text-xs text-ink-muted">
+                {line}
+              </p>
+            )}
+          </div>
         )}
-      </div>
-    </KeyContext>
+      </KeyContext>
+      {gone !== undefined && <MissingWorkspace environmentId={environmentId} sessionId={sessionId} path={gone} line={line} />}
+    </>
   );
 };
 

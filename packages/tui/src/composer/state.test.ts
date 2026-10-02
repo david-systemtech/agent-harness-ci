@@ -32,9 +32,9 @@ import {
  */
 
 const COMMANDS: CommandRow[] = [
-  { name: "resume", usage: "/resume", description: "Pick up a session", provider: false },
-  { name: "attach", usage: "/attach <path>", description: "Send a file", provider: false },
-  { name: "compact", usage: "/compact", description: "Compact the conversation", provider: true },
+  { name: "resume", usage: "/resume", description: "Pick up a session", source: "client", slashOnly: false },
+  { name: "attach", usage: "/attach <path>", description: "Send a file", source: "client", slashOnly: false },
+  { name: "compact", usage: "/compact", description: "Compact the conversation", source: "provider", slashOnly: false },
 ];
 const SOURCES: PopupSources = { commands: COMMANDS, paths: ["src/parser.ts", "README.md"], snippets: [{ name: "explain", body: "Explain @${1:path}." }] };
 const TRACE = ["Error: nope", "    at a (a.ts:1:1)", "    at b (b.ts:2:2)", "    at c (c.ts:3:3)"].join("\n");
@@ -75,7 +75,7 @@ describe("popups", () => {
   });
 
   it("puts the command named exactly first, so Enter on a whole name runs it and not a longer one it begins (#147: /mode, /model)", () => {
-    const rows = (...names: string[]) => names.map((name) => ({ name, usage: `/${name}`, description: "", provider: false }));
+    const rows = (...names: string[]) => names.map((name): CommandRow => ({ name, usage: `/${name}`, description: "", source: "client", slashOnly: false }));
     expect(matchCommands("mode", rows("model", "mode")).map((r) => r.name)).toEqual(["mode", "model"]);
     expect(matchCommands("Mode", rows("model", "mode")).map((r) => r.name)).toEqual(["mode", "model"]);
     expect(matchCommands("mo", rows("model", "mode")).map((r) => r.name)).toEqual(["model", "mode"]);

@@ -12,7 +12,7 @@ import {
   type RoutineEntry,
   type SkipReason,
 } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { end, gate, say, type Gate, type Script } from "../../test/fake-adapter.js";
@@ -20,7 +20,7 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { created, history, ranNow, routineCommand, routineUpdates, untilSettled, untilStarted, written } from "../../test/routines.js";
 import type { WireClient } from "../../test/wire-client.js";
 import { scriptedResolver } from "../../test/workspaces.js";
-import { deliveredOutcome } from "./delivery.js";
+import { deliveredOutcome, resumeDeliveries } from "./delivery.js";
 
 /**
  * Delivery targets and the client notice (routines spec, "Delivery
@@ -81,6 +81,28 @@ const fired = async (t: TestEnvironment, client: WireClient, definition: Routine
 };
 
 describe("a client-notice target", () => {
+  it("resumes notices without reading entries already delivered, even after a projection rebuild", async () => {
+    const t = await start();
+    const client = await t.client();
+    const { state } = await created(client, routine());
+    for (let i = 0; i < 8; i += 1) {
+      const firingId = await ranNow(client, state.id);
+      await untilSettled(t, state.id, firingId);
+    }
+    expect(deliveredOn(t)).toHaveLength(8);
+    t.env.log.rebuildProjections();
+    const reads = vi.spyOn(t.env.log, "read");
+    const streams = vi.spyOn(t.env.log, "readStream");
+    resumeDeliveries({ log: t.env.log, clock: () => t.clock.now(), environmentId: t.env.id });
+    // Count materialized rows rather than relying on a wall-clock performance budget.
+    const rows = reads.mock.results.reduce((count, result) => count + (result.type === "return" ? result.value.length : 0), 0);
+    expect(rows).toBe(0);
+    expect(streams).not.toHaveBeenCalled();
+    reads.mockRestore();
+    streams.mockRestore();
+    expect(deliveredOn(t)).toHaveLength(8);
+  });
+
   it("appends routine.delivered on the environment's stream once a succeeded firing's end commits, and two connected clients each hear it", async () => {
     const t = await start();
     const desk = await t.client();
@@ -345,7 +367,7 @@ describe("which ended entries are delivered", () => {
     detail: null,
   });
 
-  // What the wire cannot make yet (a silent firing, #524; the pre-check's and the scheduler's skips, #526 and #527) is read here.
+  // Every kind of end, read here; a silent firing through the wire is firing-end.test.ts's (#524).
   it.each([
     ["a succeeded firing", firingEnded("succeeded"), "succeeded"],
     ["a failed firing", firingEnded("failed", "timed_out"), "failed"],

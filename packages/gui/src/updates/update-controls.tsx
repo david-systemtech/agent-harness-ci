@@ -1,9 +1,21 @@
-import { pendingUpdateWords, pinnedWords, updateEnvironment, uuidv7, type ActionOutcome, type EnvironmentView } from "@agent-harness/client-runtime";
-import { RELEASE_CHANNELS, type MethodName, type SettingsKey } from "@agent-harness/contracts";
-import { useId, useState } from "react";
+import {
+  drainAndUpdateDescription,
+  drainAndUpdateQuestion,
+  drainableUpdate,
+  environmentVersionWords,
+  pendingUpdateWords,
+  pinnedWords,
+  updateEnvironment,
+  updatesUnreadWords,
+  uuidv7,
+  type ActionOutcome,
+  type EnvironmentView,
+} from "@agent-harness/client-runtime";
+import { RELEASE_CHANNELS, type MethodName, type SettingsKey, type UpdateWhen } from "@agent-harness/contracts";
+import { useEffect, useId, useState } from "react";
 import { nameOf } from "../connections/words.js";
 import { useSettingsValues } from "../settings/settings-values.js";
-import { Button, Select, Switch } from "../ui/index.js";
+import { Button, Dialog, DialogClose, DialogContent, Select, Switch } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
 import { useUpdatesStatus } from "./use-updates-status.js";
 
@@ -16,11 +28,14 @@ const CHANNEL_WORDS: Readonly<Record<(typeof RELEASE_CHANNELS)[number], string>>
  * each Your machines card draw alike: the version it runs and its pending
  * update with what it waits on, from `updates.status`; its channel and
  * auto-update, from `settings.get` and set through `updates.settings.set`,
- * and a pin that holds it; and Update now, `updates.apply` when idle. What
- * Update now did, or why it or a write was not taken, is one line; a write
- * taken shows in its control, as in the generic editor. Each control is
- * read-only while the environment is not ready or the connection lacks its
- * method's scope; what holds the controls says why, once.
+ * and a pin that holds it; Update now, `updates.apply` when idle; and,
+ * while busy work holds the pending update, Drain and update now (#825),
+ * `updates.apply` now, asked once in a dialog that closes unanswered once
+ * that update no longer waits on work. What either did, or why it or a
+ * write was not taken, is one line; a write taken shows in its control, as
+ * in the generic editor. Each control is read-only while the
+ * environment is not ready or the connection lacks its method's scope; what
+ * holds the controls says why, once.
  */
 export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
@@ -29,6 +44,8 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
   const status = useUpdatesStatus(environmentId);
   const settings = useSettingsValues(environmentId);
   const [said, setSaid] = useState<ActionOutcome | undefined>(undefined);
+  // The id of the update Drain and update now's dialog asks about.
+  const [asking, setAsking] = useState<string | undefined>(undefined);
   const channelLabel = useId();
   const autoUpdateLabel = useId();
   const name = nameOf(view);
@@ -36,6 +53,12 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
   const admits = (method: MethodName) => ready && runtime.capability(environmentId, method).status === "present";
   const version = status.result?.version ?? view.version;
   const pending = status.result === null ? null : pendingUpdateWords(status.result.pending, name, clock.now());
+  const drainable = status.result === null ? null : drainableUpdate(status.result.pending);
+  const drainableId = drainable?.updateId;
+  // The question goes, for good, once the update it asks about no longer waits on work (it went, was replaced or withdrawn).
+  useEffect(() => {
+    if (asking !== undefined && asking !== drainableId) setAsking(undefined);
+  }, [asking, drainableId]);
   const values = settings.values;
   const pinned = values?.["updates.pinnedVersion"];
 
@@ -43,15 +66,16 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
     setSaid(undefined);
     void settings.save(key, value).then((saved) => !saved.ok && setSaid({ ok: false, line: `Not saved: ${saved.line}` }));
   };
-  const updateNow = () => {
+  const update = (when: UpdateWhen) => {
+    setAsking(undefined);
     setSaid(undefined);
-    void updateEnvironment(runtime, environmentId, name, uuidv7(clock.now())).then(setSaid);
+    void updateEnvironment(runtime, environmentId, name, uuidv7(clock.now()), when).then(setSaid);
   };
 
   return (
     <div className="flex flex-col gap-2 text-sm">
-      {version !== null && <p className="text-ink">Version {version}</p>}
-      {ready && status.error !== null && <p className="text-signal">Its updates could not be read: {status.error.message}</p>}
+      {version !== null && <p className="text-ink">{environmentVersionWords(version)}</p>}
+      {ready && status.error !== null && <p className="text-signal">{updatesUnreadWords(status.error.message)}</p>}
       {values !== null && (
         <div className="flex flex-wrap items-center gap-4">
           <span className="flex items-center gap-2">
@@ -86,10 +110,37 @@ export const UpdateControls = ({ view }: { readonly view: EnvironmentView }) => 
       )}
       {typeof pinned === "string" && <p className="text-ink-muted">{pinnedWords(pinned)}</p>}
       {pending !== null && <p className="text-ink-muted">{pending}</p>}
-      <Button className="self-start" disabled={!admits("updates.apply")} onClick={updateNow}>
-        Update now
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={!admits("updates.apply")} onClick={() => update("idle")}>
+          Update now
+        </Button>
+        {drainable !== null && (
+          <Button
+            disabled={!admits("updates.apply")}
+            onClick={() => {
+              setSaid(undefined);
+              setAsking(drainable.updateId);
+            }}
+          >
+            Drain and update now…
+          </Button>
+        )}
+      </div>
       {said !== undefined && <p role="status" className={said.ok ? "text-ink-muted" : "text-signal"}>{said.line}</p>}
+      <Dialog open={asking !== undefined && asking === drainableId} onOpenChange={(open) => !open && setAsking(undefined)}>
+        {drainable !== null && (
+          <DialogContent title={drainAndUpdateQuestion(name, drainable.toVersion)} description={drainAndUpdateDescription(name, drainable.toVersion)}>
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <Button>Cancel</Button>
+              </DialogClose>
+              <Button tone="danger" onClick={() => update("now")}>
+                Drain and update
+              </Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 };

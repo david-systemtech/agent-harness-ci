@@ -1,6 +1,6 @@
-import { adminCall, clockTime, grantWords, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
+import { COUNTDOWN_TICK_MS, adminCall, clockTime, grantWords, ttlWords, uuidv7, type EnvironmentView } from "@agent-harness/client-runtime";
 import { formatPairingCode, parsePairingLink, type Ceiling, type MintedPairing, type Scope } from "@agent-harness/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import { encode } from "uqr";
 import { Button } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -47,19 +47,37 @@ export interface PairingGrant {
 interface PairingCodeProps {
   readonly view: EnvironmentView;
   readonly writable: boolean;
-  /** What the code grants, said beside it; preset the environment's defaults, every scope and its default ceiling. */
-  readonly grant?: PairingGrant;
+  /** What the code is asked to grant, sent explicit. */
+  readonly grant: PairingGrant;
   /** What the button that makes one says: preset "Make a pairing code". */
   readonly action?: string;
 }
 
 /**
- * A pairing code for another client (ADR 0025; #416): `access.pairings.create`
- * at `admin` with the environment's defaults, every scope and its default
- * ceiling (the presets are #577's), or with the grant asked, which is then
- * said beside it (a program's, #417); then the link, the address and the
- * code to type, the QR of the link, and when it expires, ten minutes on and
- * for one use; once it has, that it has, and no code that no longer pairs.
+ * How long a code minted has before it expires, in words, counted down on
+ * this client's clock and drawn again every second while it runs.
+ */
+const useCountdown = (until: Date | undefined): string | undefined => {
+  const clock = useClock();
+  const [tick, redraw] = useReducer((count: number) => count + 1, 0);
+  const left = until === undefined ? undefined : until.getTime() - clock.now().getTime();
+  const running = left !== undefined && left > 0;
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = clock.setTimeout(redraw, COUNTDOWN_TICK_MS);
+    return () => timer.cancel();
+  }, [clock, running, tick]);
+  return left === undefined ? undefined : ttlWords(left);
+};
+
+/**
+ * A pairing code for another client (ADR 0025; #416, #577):
+ * `access.pairings.create` at `admin` with the grant asked, its scopes and
+ * ceiling explicit (a preset's, or a program's on Access, #417); then the
+ * link, the address and the code to type, the QR of the link, what the code
+ * grants as the environment answered it, and when it expires, ten minutes
+ * on and for one use, counted down; once it has, that it has, and no code
+ * that no longer pairs.
  */
 export const PairingCode = ({ view, writable, grant, action = "Make a pairing code" }: PairingCodeProps) => {
   const runtime = useRuntime();
@@ -76,7 +94,7 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
 
   const mint = async () => {
     setRefused(undefined);
-    const asked = grant === undefined ? {} : { scopes: [...grant.scopes], ceiling: grant.ceiling };
+    const asked = { scopes: [...grant.scopes], ceiling: grant.ceiling };
     const outcome = await adminCall(() => runtime.requests.call(view.environmentId, "access.pairings.create", { commandId: uuidv7(clock.now()), ...asked }));
     if (!outcome.ok || outcome.result === undefined) return setRefused(`No pairing code: ${outcome.ok ? "the environment answered none." : outcome.line}`);
     const left = Date.parse(outcome.result.expiresAt) - runtime.environmentNow(view.environmentId).getTime();
@@ -85,19 +103,23 @@ export const PairingCode = ({ view, writable, grant, action = "Make a pairing co
   };
 
   const live = expired ? undefined : minted;
+  const left = useCountdown(live?.until);
   const origin = live === undefined ? undefined : parsePairingLink(live.pairing.link)?.origin;
   return (
     <>
       {live !== undefined && (
-        <div className="flex flex-wrap items-start gap-4">
+        <div role="group" aria-label="Pairing code" className="flex flex-wrap items-start gap-4">
           <PairingQr link={live.pairing.link} />
           <div className="flex min-w-0 flex-col gap-1 text-sm text-ink">
             <p className="text-ink-muted">Open the link on the other client, scan the QR there, or type the address and code.</p>
             <code className="font-mono text-xs break-all select-all">{live.pairing.link}</code>
             {origin !== undefined && <p>Address: {origin.replace(/^http:\/\//, "")}</p>}
             <p>Code: {formatPairingCode(live.pairing.code)}</p>
-            {grant !== undefined && <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>}
+            <p>{grantWords(live.pairing.scopes, live.pairing.ceiling)}</p>
             <p className="text-ink-muted">Expires at {clockTime(live.until.toISOString())}, for one use.</p>
+            <p role="timer" className="text-ink-muted">
+              {left}
+            </p>
           </div>
         </div>
       )}

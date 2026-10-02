@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { SCOPES, STAGING_DIRECTORY, type ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { serverArtefact } from "../../test/artefacts.js";
+import { unpackedServerArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { testLauncher } from "../../test/launcher.js";
@@ -123,6 +123,23 @@ describe("updates.desktop.stage", () => {
     expect((await stage(client, { platform: "linux-x64", format: "pacman" })).version).toBe("0.7.0-beta.1");
   });
 
+  it("on the beta channel, stages each of the three builds a published prerelease lists as the release workflow names them (#359), by the platform and format each shell reports", async () => {
+    const { fake, t, client } = await withReleases();
+    const builds: FakeDesktopBuild[] = [
+      { name: "agent-harness-desktop-darwin-arm64.zip", platform: "darwin-arm64", format: "zip", bytes: buildBytes("0.5.0-beta.1", "zip") },
+      { name: "agent-harness-desktop-win32-x64-setup.exe", platform: "win32-x64", format: "nsis", bytes: buildBytes("0.5.0-beta.1", "nsis") },
+      { name: "agent-harness-desktop-linux-x64.pacman", platform: "linux-x64", format: "pacman", bytes: buildBytes("0.5.0-beta.1", "pacman") },
+    ];
+    fake.publish({ version: "0.5.0-beta.1", desktop: builds });
+    await setUpdates(client, { "updates.channel": "beta" });
+
+    for (const { name, platform, format, bytes } of builds) {
+      expect(await stage(client, { platform, format }), name).toEqual({ path: join(t.dataDir, "desktop-builds", "0.5.0-beta.1", name), version: "0.5.0-beta.1", sha256: sha256Of(bytes) });
+    }
+    const downloads = fake.reads().map((request) => request.path.split("/releases/download/v0.5.0-beta.1/")[1]);
+    expect(downloads.filter((name) => name !== undefined && name !== "release.json")).toEqual(builds.map((build) => build.name));
+  });
+
   it("refuses a download that does not match the manifest, conflict artefact, and keeps nothing of it", async () => {
     const { fake, t, client } = await withReleases();
     const [pacman] = desktopBuilds("0.5.0") as [FakeDesktopBuild];
@@ -203,23 +220,32 @@ describe("updates.desktop.stage", () => {
 });
 
 describe("the server artefact the desktop carries", () => {
-  it("is trusted by its path from the desktop's local client session, as the bootstrap grant is: preflighted through the launcher's install, with nothing downloaded", async () => {
-    const { fake, t } = await withReleases({ launcher: testLauncher({ present: true }) });
+  it("is trusted by its path from the desktop's local client session, as the bootstrap grant is: the folder it is unpacked in copied into the staging area and preflighted through the launcher's install, with nothing downloaded (#789)", async () => {
+    let stagedVersion: string | undefined;
+    const { fake, t } = await withReleases({
+      launcher: testLauncher({
+        present: true,
+        install: (request) => {
+          stagedVersion = readFileSync(join(request.staged, "VERSION"), "utf8");
+          return { type: "installed" };
+        },
+      }),
+    });
     fake.publish(release("0.5.0"));
     const reads = fake.reads().length;
     const desktop = await t.client({ token: (await t.bootstrap("desktop")).token });
+    // Where the desktop carries it: unpacked, in its resources (`installer.bundledServer()`'s path).
+    const bundled = unpackedServerArtefact(join(tempDir("agent-harness-desktop-"), "resources", "server"), "0.5.0");
 
-    const answer = await desktop.request("updates.apply", {
-      commandId: randomUUID(),
-      version: "0.5.0",
-      artefactPath: serverArtefact(tempDir("agent-harness-bundled-"), "0.5.0"),
-      when: "idle",
-    });
+    const answer = await desktop.request("updates.apply", { commandId: randomUUID(), version: "0.5.0", artefactPath: bundled, when: "idle" });
 
     expect(answer.receipt).toMatchObject({ status: "accepted" });
     expect(t.launcher.received.flatMap((message) => (message.type === "install?" ? [{ version: message.version, staged: message.staged }] : []))).toEqual([
       { version: "0.5.0", staged: join(t.dataDir, STAGING_DIRECTORY, "0.5.0") },
     ]);
+    expect(stagedVersion).toBe("0.5.0\n");
+    // The desktop's own copy stays where it runs its service verbs from.
+    expect(readFileSync(join(bundled, "VERSION"), "utf8")).toBe("0.5.0\n");
     expect(fake.reads()).toHaveLength(reads);
   });
 });

@@ -18,17 +18,20 @@ export const routineActor = (id: string): string => formatActor({ kind: "routine
 /**
  * Appends `event` to the routine's stream in the open transaction, then the
  * `routine.updated` notice naming `change` to the environment's, caused by
- * it, at the same instant; answers the record as appended.
+ * it, at the same instant; answers the record as appended. A `change` of
+ * null raises no notice: a `no-change` skip's, so a frequent routine does
+ * not fill the environment stream's replay bound (#526).
  */
 export const appendRoutineRecord = (
   log: EventLog,
   environmentId: string,
   routineId: string,
-  record: { readonly event: EventInput; readonly change: RoutineChange },
+  record: { readonly event: EventInput; readonly change: RoutineChange | null },
   attribution: AppendOptions & { readonly tx: Tx },
 ): EventEnvelope => {
   const [appended] = log.append(routineStream(routineId), [record.event], attribution).events;
   if (appended === undefined) throw new Error(`The ${record.event.type} of the routine ${routineId} appended no event.`);
+  if (record.change === null) return appended;
   const notice: RoutineUpdatedPayload = { routineId, change: record.change };
   log.append({ kind: ENVIRONMENT_STREAM_KIND, id: environmentId }, [{ type: "routine.updated", payload: notice, occurredAt: appended.occurredAt }], {
     ...attribution,

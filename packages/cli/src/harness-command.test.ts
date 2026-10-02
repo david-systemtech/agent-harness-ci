@@ -46,20 +46,37 @@ describe("the command line this CLI runs as", () => {
 describe("the agent-harness command serve gives git as its credential helper", () => {
   const program = () => ["/usr/bin/node", "/opt/agent-harness/dist/main.js"];
 
-  it("is the shim in the data directory's bin folder under a launcher, the one path that outlives every version", () => {
+  it("is the shim in the data directory's bin folder under a launcher, the one path that outlives every version, reading the service state and the versions directory", () => {
     const dataDir = "/Users/david/Library/Application Support/agent-harness";
     const shim = join(dataDir, "bin", "agent-harness");
-    expect(harnessCommand(dataDir, true, { platform: "darwin", program, exists: (path) => path === shim })).toEqual([shim]);
+    expect(harnessCommand(dataDir, true, { platform: "darwin", program, exists: (path) => path === shim })).toEqual({
+      command: [shim],
+      reads: [join(dataDir, "service-state.json"), join(dataDir, "versions")],
+    });
   });
 
-  it("is the cmd shim on Windows", () => {
+  it("is the cmd shim on Windows, which reads the same", () => {
     const dataDir = "C:/Users/david/AppData/Local/agent-harness";
     const shim = join(dataDir, "bin", "agent-harness.cmd");
-    expect(harnessCommand(dataDir, true, { platform: "win32", program, exists: (path) => path === shim })).toEqual([shim]);
+    expect(harnessCommand(dataDir, true, { platform: "win32", program, exists: (path) => path === shim })).toEqual({
+      command: [shim],
+      reads: [join(dataDir, "service-state.json"), join(dataDir, "versions")],
+    });
   });
 
-  it("is the command line serve runs as in the foreground, and under a launcher with no shim, one started by hand", () => {
-    expect(harnessCommand("/data", false, { platform: "linux", program, exists: () => true })).toEqual(program());
-    expect(harnessCommand("/data", true, { platform: "linux", program, exists: () => false })).toEqual(program());
+  it("is the command line serve runs as in the foreground, naming nothing it reads", () => {
+    expect(harnessCommand("/data", false, { platform: "linux", program, exists: () => true })).toEqual({ command: program(), reads: [] });
+  });
+
+  it("is the running command under a launcher with no shim, reading the versions directory so the CLI can load its packages and dependencies", () => {
+    const dataDir = "/data";
+    const running = () => [
+      join(dataDir, "versions", "0.1.0", "node", "bin", "node"),
+      join(dataDir, "versions", "0.1.0", "packages", "cli", "dist", "main.js"),
+    ];
+    expect(harnessCommand(dataDir, true, { platform: "linux", program: running, exists: () => false })).toEqual({
+      command: running(),
+      reads: [join(dataDir, "versions")],
+    });
   });
 });

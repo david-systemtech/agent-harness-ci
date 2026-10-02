@@ -7,6 +7,7 @@ import {
   TERMINAL_STREAM_KIND,
   type TerminalInfo,
 } from "@agent-harness/contracts";
+import { resolve } from "node:path";
 import { RECEIPT_RETENTION_MS, type EventLog, type StreamRef } from "../event-log/event-log.js";
 import type { Clock } from "../serve/clock.js";
 import type { CommandContext, CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
@@ -200,7 +201,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
    * session's workspace and marked it by what it found (#669): a workspace
    * marked missing is refused.
    */
-  const open: MethodHandler<"terminals.open"> = (params, context) => {
+  const open: MethodHandler<"terminals.open" | "terminals.run"> = (params, context) => {
     const id = params.id.toLowerCase();
     const sessionId = params.sessionId.toLowerCase();
     const aggregate = terminalAggregate(id);
@@ -216,11 +217,11 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
         }),
       };
     }
-    const cwd = workspace.path;
+    const cwd = "command" in params && params.cwd !== undefined ? resolve(workspace.path, params.cwd) : workspace.path;
     if (workspace.status === "missing") {
-      return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${cwd} is gone, or did not answer in time.`, { path: cwd }) };
+      return { aggregate, rejected: conflict("workspace_missing", `The session's workspace ${workspace.path} is gone, or did not answer in time.`, { path: workspace.path }) };
     }
-    const unavailable = noPty();
+    const unavailable = "command" in params ? undefined : noPty();
     if (unavailable !== undefined) return { aggregate, rejected: unavailable };
     const request = {
       id,
@@ -230,6 +231,7 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
       rows: params.rows ?? DEFAULT_TERMINAL_SIZE.rows,
       env: params.env ?? {},
       openedAt: clock.now().toISOString(),
+      ...("command" in params ? { command: params.command } : {}),
     };
     afterCommit(context, () => void terminals.open(request));
     const terminal: TerminalInfo = { id, owner: "session", sessionId, openedAt: request.openedAt, cols: request.cols, rows: request.rows, exitCode: null, signal: null };
@@ -241,6 +243,16 @@ export const createTerminalService = (options: TerminalServiceOptions): Terminal
       prepare: (params) => {
         const sessionId = params.sessionId.toLowerCase();
         // A session not here needs no look: its refusal is answered at once, keeping the command's place on its socket.
+        if (sessionWorkspace(log, sessionId) === null) return open;
+        const looked = options.availability.check(sessionId).then(() => open);
+        holdBehind(params.id.toLowerCase(), looked);
+        return looked;
+      },
+    },
+
+    "terminals.run": {
+      prepare: (params) => {
+        const sessionId = params.sessionId.toLowerCase();
         if (sessionWorkspace(log, sessionId) === null) return open;
         const looked = options.availability.check(sessionId).then(() => open);
         holdBehind(params.id.toLowerCase(), looked);

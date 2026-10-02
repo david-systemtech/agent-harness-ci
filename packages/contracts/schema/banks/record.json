@@ -1,0 +1,763 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankRecord",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "The bank's name, from BANK.md, else its checkout's folder: unique per environment."
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "personal",
+            "team"
+          ],
+          "description": "A bank's kind as its BANK.md names it: personal or team."
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "personal or team, from BANK.md; null while BANK.md names none."
+    },
+    "location": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "remote"
+            },
+            "origin": {
+              "type": "string",
+              "pattern": "^(?:https:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!443$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?|http:\\/\\/(?:[a-z0-9_-]+(?:\\.[a-z0-9_-]+)*|\\[[0-9a-f:.]+\\])(?::(?!80$)(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)$",
+              "description": "The canonical origin of the forge the bank's repository is on: its pull requests and its credential go there."
+            },
+            "repository": {
+              "type": "string",
+              "pattern": "^[^/\\s]+(?:\\/[^/\\s]+)+$",
+              "description": "The repository's path on that forge, owner/name."
+            }
+          },
+          "required": [
+            "kind",
+            "origin",
+            "repository"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "local"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ],
+      "description": "Where the bank's repository lives: remote (its forge's origin and the repository's path there) or local, a repository on this machine alone."
+    },
+    "checkout": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The bank's checkout on this machine, an absolute path: the BankService's, never written by a run."
+    },
+    "checkoutOwnership": {
+      "description": "managed when the BankService created or cloned this checkout; registered for an adopted path. Absent on older records means registered. Only managed checkouts may be removed.",
+      "type": "string",
+      "enum": [
+        "managed",
+        "registered"
+      ]
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "read-write",
+        "read-only"
+      ],
+      "description": "Whether runs may draft into the bank (read-write) or only read and search it (read-only)."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether runs use the bank."
+    },
+    "accounts": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "all"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+          }
+        }
+      ],
+      "description": "The accounts whose runs use the bank: all, or the account ids named."
+    },
+    "repositories": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "all"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https:\\/\\/[^/\\s?#A-Z]+(?:\\/[^/\\s?#A-Z]+){2,}$",
+            "description": "A repository identity: the one form every spelling of a repository's remote comes down to, https:// then the host without its port and the path of two segments or more, in lower case (repositoryIdentityOf and cases/repository-identity.json). An identity, not a link."
+          }
+        }
+      ],
+      "description": "The repositories whose runs use the bank: all, or the repository identities named."
+    },
+    "defaultFor": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "An account's id on its environment: a version 4 UUID the environment mints when it adopts or adds the account; an account carried over from configuration keeps the id it was configured with."
+      },
+      "description": "The accounts for which this bank is the default write target; one bank per account."
+    },
+    "pins": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?=[^:]{1,40}:)[a-z0-9]+(?:-[a-z0-9]+)*:(?:(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){1,3}|(?:(?!(?:memories|\\.{1,2})\\/)[^/\\s:]+\\/){2,3}memories\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/)$",
+        "description": "A folder pointer bank:org/[project/[area/]], or a topic pointer bank:org/project/[area/]memories/topic/: a pin expands it whole."
+      },
+      "description": "Registry pins: folder pointers expanded in every session in scope."
+    },
+    "mergeOverride": {
+      "type": "string",
+      "enum": [
+        "none",
+        "review-memories"
+      ],
+      "description": "The teammate's own merge rule on a team bank, the stricter of it and the bank's write.merge applying: none, or review-memories, every memory waiting for review."
+    },
+    "privateCopy": {
+      "type": "boolean",
+      "description": "Whether a team fact may also be kept in the personal bank beside it (ADR 0034); off unless set."
+    },
+    "credential": {
+      "type": "string",
+      "enum": [
+        "forge",
+        "stored",
+        "reference"
+      ],
+      "description": "Where the bank's credential comes from, never the secret: forge (the forge account the origin matches), stored (a token in the vault) or reference (a key-manager reference)."
+    },
+    "credentialEntry": {
+      "description": "The vault entry holding a stored fallback, never its value; null after a swap.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "credentialReference": {
+      "description": "The fallback's key-manager reference, resolved for each bank git operation; never its value.",
+      "anyOf": [
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "openbao"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "The key-manager connection the reference is read through."
+                },
+                "mount": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                  "description": "The KV mount, as personal or secret/team: no slash at either end."
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024,
+                  "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
+                  "description": "The secret's path under the mount, as harness/forge-github."
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The key inside the secret whose value is read."
+                }
+              },
+              "required": [
+                "provider",
+                "connectionId",
+                "mount",
+                "path",
+                "key"
+              ],
+              "description": "A value in OpenBao or Vault: a key of the secret at a path under a KV mount."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "doppler"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "The key-manager connection the reference is read through."
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "pattern": "^[A-Z_][A-Z0-9_]*$",
+                  "description": "The secret's name: upper-case letters, digits and underscores, not starting with a digit."
+                },
+                "project": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The project, when the connection's token does not fix one."
+                },
+                "config": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The config, when the connection's token does not fix one."
+                }
+              },
+              "required": [
+                "provider",
+                "connectionId",
+                "name"
+              ],
+              "description": "A Doppler secret by name, with its project and config when the token does not fix them."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "onepassword"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "The key-manager connection the reference is read through."
+                },
+                "vault": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The vault, by name or id."
+                },
+                "item": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The item, by name or id."
+                },
+                "field": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The field whose value is read."
+                }
+              },
+              "required": [
+                "provider",
+                "connectionId",
+                "vault",
+                "item",
+                "field"
+              ],
+              "description": "A 1Password field, as an op:// reference names it: vault, item and field."
+            },
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "const": "bitwarden"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                  "description": "The key-manager connection the reference is read through."
+                },
+                "secretId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                  "description": "The secret's id, which is what is read."
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\p{Cc}]+$",
+                  "description": "The secret's key, for display only."
+                }
+              },
+              "required": [
+                "provider",
+                "connectionId",
+                "secretId",
+                "key"
+              ],
+              "description": "A Bitwarden Secrets Manager secret by id, with its key for display."
+            }
+          ],
+          "description": "Where a credential sits in a key manager, never its value: the provider, the connection it is read through, and the provider's locator (OpenBao mount, path and key; a Doppler name with its project and config; a 1Password vault, item and field; a Bitwarden secret id with its key)."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "reachable": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "reachable"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "since"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "unreachable"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why it could not be reached, in a sentence."
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "reason",
+                "since"
+              ]
+            }
+          ],
+          "description": "Whether the bank's checkout can be read and, for a bank with a remote, the remote answered; why not, when not."
+        },
+        "manifest": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "valid"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "since"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "awaiting-review"
+                },
+                "pullRequest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The web address of the open pull request holding BANK.md."
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "pullRequest",
+                "since"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "missing"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "since"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "invalid"
+                },
+                "rule": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The validator rule's id it fails first."
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The rule's message."
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "rule",
+                "message",
+                "since"
+              ]
+            }
+          ],
+          "description": "The bank's BANK.md on main: valid; held by an open pull request on a bank whose merges are reviewed (awaiting-review, which counts as landed, ADR 0019); missing; or invalid, with the first rule it fails."
+        },
+        "orientation": {
+          "type": "object",
+          "properties": {
+            "missing": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "The orientation names BANK.md lists that name no memory in the bank."
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When this part of the status last changed: never when it was last verified."
+            }
+          },
+          "required": [
+            "missing",
+            "since"
+          ],
+          "description": "Whether every orientation memory BANK.md names is in the bank."
+        },
+        "owners": {
+          "type": "object",
+          "properties": {
+            "unresolved": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "The owners a team bank's BANK.md names that do not resolve on its forge; none on a personal bank."
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "When this part of the status last changed: never when it was last verified."
+            }
+          },
+          "required": [
+            "unresolved",
+            "since"
+          ],
+          "description": "Whether a team bank's owners resolve on its forge."
+        },
+        "lastSync": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+              "description": "An instant as an ISO 8601 UTC timestamp."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When a sync last fetched the bank; null before the first."
+        },
+        "landing": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "ok"
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "since"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "const": "failed"
+                },
+                "step": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The Lander's step the landing failed at."
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why, in a sentence."
+                },
+                "since": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When this part of the status last changed: never when it was last verified."
+                }
+              },
+              "required": [
+                "state",
+                "step",
+                "reason",
+                "since"
+              ]
+            }
+          ],
+          "description": "The bank's last landing: ok (none failed), or failed at a step of the Lander, with why."
+        }
+      },
+      "required": [
+        "reachable",
+        "manifest",
+        "orientation",
+        "owners",
+        "lastSync",
+        "landing"
+      ],
+      "description": "A bank's status as its last verification and landing recorded it: reachable, manifest, orientation, owners, last sync and landing, each with when it last changed."
+    },
+    "importedFrom": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What the state import registered the bank from: a repeated register naming it answers this bank; null otherwise."
+    },
+    "copiedFrom": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "environmentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "An environment's persistent id: a UUID made on its first start, kept across address changes."
+            },
+            "environmentName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The source environment's name when the copy was made."
+            }
+          },
+          "required": [
+            "environmentId",
+            "environmentName"
+          ],
+          "description": "The environment a bank's record was copied from."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+      "description": "An instant as an ISO 8601 UTC timestamp."
+    },
+    "memories": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many memories its main holds."
+    },
+    "folders": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "How many scope folders hold a memory."
+    },
+    "line": {
+      "description": "The bank's line as a session's trail renders it (T0); null while BANK.md does not read.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sharedAliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The alias, in lower case."
+          },
+          "banks": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+            },
+            "description": "The other banks whose BANK.md claims it too."
+          }
+        },
+        "required": [
+          "alias",
+          "banks"
+        ]
+      },
+      "description": "A warning: the entity aliases this bank's BANK.md claims that another bank's claims too, compared without case. A write still goes only to the bank it names; an alias never routes one (ADR 0010)."
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "kind",
+    "location",
+    "checkout",
+    "role",
+    "enabled",
+    "accounts",
+    "repositories",
+    "defaultFor",
+    "pins",
+    "mergeOverride",
+    "privateCopy",
+    "credential",
+    "status",
+    "importedFrom",
+    "copiedFrom",
+    "createdAt",
+    "memories",
+    "folders",
+    "line",
+    "sharedAliases"
+  ],
+  "description": "A registered bank with its status, its counts and its rendered bank line, as banks.list and banks.get answer it. Never a credential."
+}

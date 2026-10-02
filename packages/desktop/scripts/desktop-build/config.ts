@@ -1,5 +1,6 @@
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import type { Configuration } from "electron-builder";
+import { APP_ID } from "../../src/app-id.js";
 import { PACKAGED_SERVER } from "../../src/packaged.js";
 import { APP_SCHEME } from "../../src/schemes.js";
 import type { DesktopTarget } from "./targets.js";
@@ -11,13 +12,6 @@ import type { DesktopTarget } from "./targets.js";
  * `agent-harness://` scheme registered with the OS, and the file the
  * desktop's `update` installs (#355).
  */
-
-/**
- * The app's identifier: the macOS bundle's `CFBundleIdentifier`, and on
- * Windows the Start menu shortcut's AppUserModelID, which a notification's
- * sender must match. Reverse DNS of the forge that publishes the releases.
- */
-const APP_ID = `dev.systemtech.${PRODUCT_NAME}`;
 
 /**
  * The Linux executable, the Arch package's name and its desktop entry's:
@@ -97,6 +91,7 @@ const platformSection = (target: DesktopTarget, folders: BuildFolders): Configur
           target: targets,
           artifactName: target.name,
           category: "public.app-category.developer-tools",
+          extendInfo: { NSCameraUsageDescription: "Scan a pairing QR from another machine to add it." },
           // Milestone 1 ships unsigned builds (#359): signed ad hoc, which Apple silicon needs to run it and
           // `codesign --verify` passes, with no hardened runtime, which only notarisation needs.
           identity: "-",

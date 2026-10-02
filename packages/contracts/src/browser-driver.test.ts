@@ -12,6 +12,7 @@ import {
   SNAPSHOT_MAX_CHARS,
   WAIT_FOR_MS,
   denylistPresets,
+  pageCallDeadlineMs,
   pageKeyOf,
   waitBoundMs,
 } from "./index.js";
@@ -97,6 +98,13 @@ describe("the page-driver contract", () => {
     expect(accepts("snapshot", "value", { url: "https://example.com/", title: "Example", text: "- button \"Buy\" [ref=e1]", totalChars: 23, truncated: false })).toBe(true);
   });
 
+  it("says a snapshot was cut mid-line only by midLine present, as when no line ends within maxChars", () => {
+    const cut = { url: "https://example.com/", title: "Example", text: "- paragraph: A very lo", totalChars: 900, truncated: true };
+    expect(accepts("snapshot", "value", { ...cut, midLine: true })).toBe(true);
+    expect(accepts("snapshot", "value", { ...cut, midLine: false })).toBe(false);
+    expect(accepts("click", "value", { url: "https://example.com/", title: "Example", snapshot: { text: "- link \"Ne", totalChars: 22, truncated: true, midLine: true } })).toBe(true);
+  });
+
   it("scrolls by a direction and an amount in viewports, or to a ref", () => {
     expect(accepts("scroll", "args", { to: { direction: "down" } })).toBe(true);
     expect(accepts("scroll", "args", { to: { direction: "up", amount: 2.5 } })).toBe(true);
@@ -118,6 +126,30 @@ describe("the page-driver contract", () => {
     expect(waitBoundMs({ ms: 45_000 })).toBe(30_000);
   });
 
+  it("gives each verb its deadline: 20 seconds to open, navigate and click, 18 for a screenshot, 5 to let go, a wait's bound and 5 more, 12 for the rest", () => {
+    expect(pageCallDeadlineMs({ verb: "open", args: {} })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "navigate", args: { url: "https://example.com/" } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "click", args: { target: { ref: "e1" } } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "clickAt", args: { x: 1, y: 2 } })).toBe(20_000);
+    expect(pageCallDeadlineMs({ verb: "screenshot", args: {} })).toBe(18_000);
+    expect(pageCallDeadlineMs({ verb: "close", args: {} })).toBe(5_000);
+    expect(pageCallDeadlineMs({ verb: "waitFor", args: { until: { ms: 2_000 } } })).toBe(7_000);
+    expect(pageCallDeadlineMs({ verb: "waitFor", args: { until: { text: "Loaded" } } })).toBe(15_000);
+    expect(pageCallDeadlineMs({ verb: "waitFor", args: { until: { ref: "e3", timeoutMs: 60_000 } } })).toBe(35_000);
+    const rest: PageCommand[] = [
+      { verb: "snapshot", args: {} },
+      { verb: "type", args: { target: { ref: "e1" }, text: "x" } },
+      { verb: "read", args: {} },
+      { verb: "scroll", args: { to: { direction: "down" } } },
+      { verb: "console", args: {} },
+      { verb: "network", args: {} },
+      { verb: "cookies", args: {} },
+      { verb: "storage", args: {} },
+      { verb: "evaluate", args: { expression: "1" } },
+    ];
+    for (const command of rest) expect(pageCallDeadlineMs(command), command.verb).toBe(12_000);
+  });
+
   it("reads the page as paged Markdown, saying whether it read an article or the snapshot's text", () => {
     expect(accepts("read", "args", { offset: 24_000, links: true })).toBe(true);
     expect(accepts("read", "args", { offset: -1 })).toBe(false);
@@ -132,21 +164,32 @@ describe("the page-driver contract", () => {
     expect(accepts("navigate", "value", arrival)).toBe(true);
     expect(accepts("click", "value", { ...arrival, snapshot: { text: "- link \"Next\" [ref=e2]", totalChars: 22, truncated: false }, challenge: "recaptcha" })).toBe(true);
     expect(accepts("click", "value", { ...arrival, challenge: "captcha" })).toBe(false);
-    expect(accepts("screenshot", "value", { mimeType: "image/jpeg", data: "/9j/4AAQ" })).toBe(true);
-    expect(accepts("screenshot", "value", { mimeType: "image/gif", data: "R0lG" })).toBe(false);
+    expect(accepts("screenshot", "value", { url: "https://example.com/", mimeType: "image/jpeg", data: "/9j/4AAQ" })).toBe(true);
+    expect(accepts("screenshot", "value", { url: "https://example.com/", mimeType: "image/gif", data: "R0lG" })).toBe(false);
     expect(accepts("close", "value", null)).toBe(true);
   });
 
   it("answers the deep verbs as a developer reads them, a cookie's value only where it may be read", () => {
     const at = "2026-09-29T01:02:03.000Z";
-    expect(accepts("console", "value", [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }])).toBe(true);
+    expect(accepts("console", "value", { url: "https://example.com/", entries: [{ level: "error", text: "Uncaught TypeError", source: "app.js:12", at }] })).toBe(true);
     expect(accepts("network", "args", { failedOnly: true })).toBe(true);
-    expect(accepts("network", "value", [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }])).toBe(true);
-    expect(accepts("cookies", "value", [{ name: "session", domain: ".example.com", path: "/", httpOnly: true, secure: true, sameSite: "Lax" }])).toBe(true);
+    expect(accepts("network", "value", { url: "https://example.com/", entries: [{ method: "GET", url: "https://example.com/api", status: 500, resourceType: "fetch", durationMs: 12.5, at }] })).toBe(true);
+    expect(accepts("cookies", "value", { url: "https://example.com/", entries: [{ name: "session", domain: ".example.com", path: "/", httpOnly: true, secure: true, sameSite: "Lax" }] })).toBe(true);
     expect(accepts("storage", "value", { origin: "http://localhost:3000", local: { theme: "dark" }, session: {} })).toBe(true);
     expect(accepts("evaluate", "args", { expression: "document.title" })).toBe(true);
-    expect(accepts("evaluate", "value", { result: { a: [1, "two", null] } })).toBe(true);
+    expect(accepts("evaluate", "value", { url: "https://example.com/", result: { a: [1, "two", null] } })).toBe(true);
     expect(accepts("evaluate", "value", {})).toBe(false);
+  });
+
+  it.each([
+    ["console", { entries: [] }],
+    ["network", { entries: [] }],
+    ["cookies", { entries: [] }],
+    ["evaluate", { result: null }],
+    ["screenshot", { mimeType: "image/jpeg", data: "/9j/4AAQ" }],
+  ] as const)("requires %s to name its page's address, even before another verb reported one", (verb, value) => {
+    expect(accepts(verb, "value", value)).toBe(false);
+    expect(accepts(verb, "value", { url: "about:blank", ...value })).toBe(true);
   });
 
   it("carries a command as its verb and its arguments, and a call as the page key, the command and a one-time allowance", () => {

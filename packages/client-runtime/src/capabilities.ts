@@ -38,10 +38,12 @@ const gatedByPrefix = (prefix: string, flag: KnownCapabilityFlag): Partial<Recor
  * `keyManagers.*` method needs `keyManagers`, and every `tools.*` method
  * `managedTools` (#384): without them a client shows the Key managers pane
  * and Managed tools absent with the reason (key-managers spec, "Wire
- * methods").
+ * methods"). Every `banks.*` method needs `banks` (#1025): without it the
+ * environment keeps no bank registry.
  */
 export const METHOD_FLAGS: Partial<Readonly<Record<MethodName, KnownCapabilityFlag>>> = {
   ...gatedByPrefix("forge.", "forge"),
+  ...gatedByPrefix("banks.", "banks"),
   ...gatedByPrefix("keyManagers.", "keyManagers"),
   ...gatedByPrefix("tools.", "managedTools"),
 };
@@ -77,6 +79,7 @@ const SHELL_MEMBER_PURPOSE: Record<ShellMember, string> = {
   "shell.network": "declare the addresses its window may connect to",
   "shell.system": "tell which machine and user it runs as",
   "shell.gh": "read the gh signed in on this computer",
+  "shell.camera": "scan a QR code with a camera",
 };
 
 /** The line a shell member's absence is said with. */

@@ -196,8 +196,17 @@ describe("a run's event stream", () => {
       trusted: false,
       prompt: [{ text: "Fix it", attachments: [] }],
     });
-    // A run no completions request started declares no tools for a caller to run (#139).
-    expect(toolServers).toHaveBeenCalledWith({ sessionId: t.sessionId, runId, accountId: "acct", workspace: { kind: "directory", path: "/work" }, clientTools: [] });
+    // A run no completions request started declares no tools for a caller to run (#139); with no browser chosen and none
+    // here, its browser is none (#551).
+    expect(toolServers).toHaveBeenCalledWith({
+      sessionId: t.sessionId,
+      runId,
+      accountId: "acct",
+      workspace: { kind: "directory", path: "/work" },
+      repositoryIdentity: null,
+      clientTools: [],
+      browser: { kind: "none" },
+    });
     expect(eventsOf(t)[0]?.payload).toMatchObject({ mode: { requested: "bypassPermissions", effective: "acceptEdits", clamped: true } });
     expect(eventsOf(t)[1]).toMatchObject({ type: "run.policy.resolved", payload: { runId, mode: { effective: "acceptEdits", ceiling: "acceptEdits", clampReason: "ceiling" } } });
   });
@@ -216,8 +225,8 @@ describe("the run's skill set (#495)", () => {
     generation: `/data/skills/generations/${fingerprint}`,
     fingerprint,
     members: [
-      { name: "tdd", origin: null, invocation: "model+slash", native: false, alwaysOn: false },
-      { name: "release", origin: null, invocation: "slash-only", native: true, alwaysOn: false },
+      { name: "tdd", description: "Test-driven development.", origin: null, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+      { name: "release", description: "Cut a release.", origin: null, invocation: "slash-only", userInvocable: true, argumentHint: null, native: true, alwaysOn: false },
     ],
     hiddenNativeNames: ["triage"],
   });
@@ -259,23 +268,32 @@ describe("the run's skill set (#495)", () => {
     errors.mockRestore();
   });
 
-  it("lists commands under the trust and the set it resolves for the account and workspace, and the fake answers from what it is handed", async () => {
+  it("lists a session's commands under the trust and the set it resolves for the session, folding the fake's listing of each member into its skill entry", async () => {
     const skillSet = vi.fn(async () => setOf("3f9a"));
-    const t = await setup(fakeAdapter({ commands: [{ name: "compact", description: "Compact the conversation." }] }), {
+    const t = await setup(fakeAdapter({ commands: [{ name: "compact", description: "Compact the conversation.", builtin: true }] }), {
       skillSet,
       trust: (place) => ({ key: { kind: "directory", value: place.workspace.path }, decision: "trusted" }),
     });
-    expect(await t.host.commands("acct", workspace)).toEqual([
-      { name: "compact", description: "Compact the conversation." },
-      { name: "agent-harness:tdd", description: "The skill set's tdd." },
-      { name: "release", description: "The skill set's release." },
-    ]);
+    expect(await t.host.commands(t.sessionId)).toEqual({
+      accountId: "acct",
+      entries: [
+        { kind: "skill", name: "release", description: "Cut a release.", invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: null },
+        { kind: "skill", name: "tdd", description: "Test-driven development.", invocation: "model+slash", origin: null, alwaysOn: false, argumentHint: null },
+        { kind: "command", name: "compact", description: "Compact the conversation.", builtin: true },
+      ],
+    });
     expect(t.adapter.commandListings).toEqual([{ account: expect.objectContaining({ id: "acct" }), workspace: "/work", scope: { trusted: true, skillSet: setOf("3f9a") } }]);
-    // A listing has no session: the set is resolved for the account and workspace alone.
-    expect(skillSet).toHaveBeenCalledWith({ sessionId: null, accountId: "acct", workspace, trust: { key: { kind: "directory", value: "/work" }, decision: "trusted" }, nativeRoots: [".claude/skills", ".claude/commands"] });
+    // The set is resolved for the session, as its next run's would be (#503).
+    expect(skillSet).toHaveBeenCalledWith({
+      sessionId: t.sessionId,
+      accountId: "acct",
+      workspace,
+      trust: { key: { kind: "directory", value: "/work" }, decision: "trusted" },
+      nativeRoots: [".claude/skills", ".claude/commands"],
+    });
 
     const bare = await setup(fakeAdapter({ commands: [] }));
-    await bare.host.commands("acct", workspace);
+    await bare.host.commands(bare.sessionId);
     expect(bare.adapter.commandListings.at(-1)?.scope).toEqual({ trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
   });
 
@@ -302,7 +320,7 @@ describe("the run's skill set (#495)", () => {
       expect(held).toEqual(["/data/skills/generations/5b2d"]);
       return [];
     });
-    await listed.host.commands("acct", workspace);
+    await listed.host.commands(listed.sessionId);
     expect(listing).toHaveBeenCalledOnce();
     expect(held).toEqual([]);
   });
@@ -948,6 +966,30 @@ describe("the host's own bookkeeping", () => {
     expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "interrupted", cause: null });
   });
 
+  it("ends interrupted for the cause its interrupt names, timeout for a routine's firing past its limit, the first interrupt's cause standing", async () => {
+    const held = gate();
+    const answer = gate();
+    const t = await setup(
+      fakeAdapter({
+        holdInterruptAnswers: answer,
+        script: async function* () {
+          yield say("Working");
+          await held.opened;
+          yield end();
+        },
+      }),
+    );
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    t.host.interrupt(runId, "timeout");
+    // A person's interrupt while the limit's is under way changes nothing.
+    t.host.interrupt(runId);
+    answer.open();
+    await untilEnded(t, runId);
+    expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "interrupted", cause: "timeout" });
+    held.open();
+  });
+
   it("clamps a run of the environment's queue to the ceiling of every sender, not only the last run's starter", async () => {
     const held = gate();
     const t = await setup(
@@ -1076,7 +1118,7 @@ describe("a call the descriptor does not cover", () => {
   it("is refused invalid_params with reason unsupported, naming the missing flag", async () => {
     const t = await setup(fakeAdapter({ capabilities: { planUsage: false, commands: false, imageInput: false } }));
     expectUnsupported(await catching(() => t.host.usage("acct")), "planUsage");
-    expectUnsupported(await catching(() => t.host.commands("acct", { kind: "directory", path: "/work" })), "commands");
+    expectUnsupported(await catching(() => t.host.commands(t.sessionId)), "commands");
     const image = { kind: "image" as const, name: "a.png", mediaType: "image/png", data: "" };
     const refused = await catching(() => startRun(t, "Look", { attachments: [image] }));
     expectUnsupported(refused, "imageInput");

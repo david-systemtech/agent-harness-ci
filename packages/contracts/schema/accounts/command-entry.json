@@ -3,6 +3,10 @@
   "title": "CommandEntry",
   "type": "object",
   "properties": {
+    "kind": {
+      "type": "string",
+      "const": "command"
+    },
     "name": {
       "type": "string",
       "minLength": 1,
@@ -11,11 +15,17 @@
     "description": {
       "type": "string",
       "description": "The provider's one-line description of it."
+    },
+    "builtin": {
+      "type": "boolean",
+      "description": "Whether it is the provider's own built-in command, rather than one a user, a project or a plugin defined: /<name> stays the built-in's, and a skill of that name is reached as /skill:<name>."
     }
   },
   "required": [
+    "kind",
     "name",
-    "description"
+    "description",
+    "builtin"
   ],
-  "description": "A slash command the provider offers an account in a workspace."
+  "description": "A command entry of commands.list: a slash command the provider offers of its own, its built-ins flagged."
 }

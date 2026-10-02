@@ -55,7 +55,7 @@ the shim, written `agent-harness` below, once its folder is on the PATH.
 7. With a run going, `systemctl --user stop agent-harness`: the command waits while the log says `stopping: draining 0.0.0`, then the child's exit, and the launcher exits 0; the unit is inactive, not failed. At a logout with lingering off, or a shutdown, systemd stops the whole user manager within 120 seconds (`user@.service`'s own stop timeout) whatever the unit asks: record what happens to a run going then (it is cut, and the recovery sweep ends it `restart` at the next start).
 8. With the service running, `agent-harness service install --name other`: it says the launcher is running and rewrote only its own files (the definition, the entry, the shim and the record); the versions, the state and `launcher-version` are unchanged and `systemctl --user status` shows the same launcher pid.
 9. From a service installed before the launcher (a checkout before #338: its unit runs `serve`), run this install from the stand-in: the output says the service was restarted onto the launcher, `agent-harness status` gives the same environment id as before, and the sessions are still there.
-10. `agent-harness service uninstall`. `systemctl --user status agent-harness` says the unit could not be found; the unit, `launcher-entry.sh`, `bin/agent-harness` and `service.json` are gone; nothing answers on port 7433; the data directory keeps `versions`, `service-state.json`, `launcher-version` and the environment's files.
+10. `agent-harness service uninstall`. With a run going it first says it waits up to 30 minutes for running runs to finish, and returns once the log shows the child's exit. `systemctl --user status agent-harness` says the unit could not be found; the unit, `launcher-entry.sh`, `bin/agent-harness` and `service.json` are gone; nothing answers on port 7433; the data directory keeps `versions`, `service-state.json`, `launcher-version` and the environment's files.
 
 ## Windows (Task Scheduler)
 
@@ -175,6 +175,14 @@ is a Forgejo token with `read:repository`.
 8. With lingering off, `agent-harness service status` says so; after `sudo loginctl enable-linger <user>`, the service stays up when the SSH session ends.
 9. `agent-harness service uninstall` leaves no unit behind.
 
+Then the headless path from a client, as the Set up spec gives it (#577), on a
+fresh box or after step 9:
+
+10. Install by the script: on a desktop client, Settings, Your machines, Add a machine, Install on another machine: type the name "Checklist headless" and Copy the macOS and Linux line. It names this client's machine's channel and its release. With `AGENT_HARNESS_TOKEN` exported on the headless box, paste the line there: it installs as step 2 does and ends with a pairing whose lines read `Preset: My own client`, every scope and `Ceiling: bypassPermissions`.
+11. Pair from a client as My own client: paste that link into Add a machine's Pair with it. The machine becomes a card, "Checklist headless", saying "Paired with Checklist headless: set it up now?", and its Access row lists this client's session with every scope, up to bypassPermissions.
+12. Set up this machine, on that card: the full checklist opens on the new machine, its picker naming it, at its first step needing attention (its first step when none does).
+13. Quit every client for over an hour, then open one: the Set up pane on the new machine shows each step checked within the last hour, so its checks ran hourly with no client connected; `/setup` in a terminal UI on that machine reads the same results.
+
 On macOS, steps 1 to 5 run the same from a logged-in user's Terminal, with the
 versions under `~/Library/Application Support/agent-harness/versions`.
 
@@ -207,6 +215,7 @@ with `read:repository`, set in the session first:
 7. From a PowerShell run as administrator: it refuses before any download, naming the elevated shell.
 8. With a name holding an `&` and no space (`-Name "R&D"`), the environment's name reads `R&D`: no argument passed through `cmd.exe`.
 9. `agent-harness service uninstall` leaves no task behind.
+10. A name with double quotes and a data directory with a space and a trailing backslash (#839), run in the session as the card's line runs it, since a `powershell -File` line typed in PowerShell mangles the name on its way to the new process before the script runs: `& ([scriptblock]::Create((Get-Content -Raw .\install.ps1))) -Name 'The "big" box' -DataDir 'D:\agent data\'` (any drive). The environment's name reads `The "big" box`, the version is unpacked in `D:\agent data\versions` beside its `service-state.json`, no folder named `agent data"` appears, and the run ends with a pairing. Under `pwsh`, run it again after `$PSNativeCommandArgumentPassing = 'Legacy'`, with the same result. Then stop the service (`service stop --data-dir 'D:\agent data'`), and in `pwsh` with `$PSNativeCommandUseErrorActionPreference = $true` set first run the line with `-Version 9.9.9` added: it ends with `could not read release v9.9.9 from …`, `$LASTEXITCODE` is 1, and PowerShell prints no `ended with non-zero exit code` error. Uninstall it as step 9 does, with `--data-dir 'D:\agent data'`.
 
 ## Container (the image and `scripts/compose.yaml`)
 
@@ -228,12 +237,14 @@ verbs, or list the section as not run.
 1. `docker build -t agent-harness .` from the checkout succeeds: `node-pty` compiles in the build stage, the `--prod` reinstall drops the devDependencies without asking, and `docker run --rm agent-harness --version` prints the version.
 2. `docker compose up -d` on fresh volumes, then `docker compose exec environment id`: uid and gid 10001, not 0. `docker compose logs environment` shows the discovery address, not the root refusal, and after it a pairing link, an ASCII QR and a code, since no client has paired yet.
 3. `docker compose exec environment ls -ldn /data /work`: both owned by 10001:10001 on fresh `data` and `work` volumes, and `/data` holds the environment's files.
-4. `docker compose exec environment agent-harness pair --data-dir /data` prints a link and a code; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`. After that exchange, `docker compose restart` and `docker compose logs environment`: the new start prints the discovery address and no pairing.
+4. `docker compose exec environment agent-harness pair --preset own-client --data-dir /data` prints a link and a code, every scope up to bypassPermissions, as the start's print in step 2 grants; a client that exchanges it reads `permissions.settings.get` with `isRoot: false` and `containment.container.declared: true`. After that exchange, `docker compose restart` and `docker compose logs environment`: the new start prints the discovery address and no pairing.
 5. `setup.check` from that client answers Permissions and Your machines done (under Docker's default seccomp profile only `off` is offered, and the containment default's preset is `off`).
 6. `docker compose exec environment env | grep -E 'IS_SANDBOX|CLAUDE_CODE_BUBBLEWRAP'` prints nothing.
 7. With a run under way, `docker compose stop` waits for the drain rather than killing at ten seconds (`stop_grace_period: 31m`), and the next `up` finds no run the recovery sweep had to end.
 8. With the environment running, `docker compose run --rm environment update snapshot --update-id <a v4 UUID> --data-dir /data` exits 1 saying an environment holds the database: the one-off container sees the running one's SQLite lock through the shared volume.
 9. `docker compose stop`, then the same `update snapshot` exits 0, and `docker compose run --rm --entrypoint ls environment -l /data/snapshots/<id>` lists the database's files, `environment.db` among them; run again, it says the snapshot is kept. `update restore --update-id <id> --stage trial --reason health --to-version 9.9.9 --data-dir /data` the same way exits 0 and leaves `/data/update-outcome.json` and no `/data/restore-marker.json`; `update discard --update-id <id> --data-dir /data` removes `/data/snapshots/<id>`. Nothing of these runs as root, and `docker compose up -d` starts the environment again on the volume.
+10. A name and the channel for the first start (#846), as Add a machine's snippet starts it: `docker compose down -v`, then `AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME='Build box' docker compose up -d` on the fresh volumes. `docker compose exec environment env | grep -E 'AGENT_HARNESS_(NAME|CHANNEL)'` prints both; a client paired from the log finds the environment named `Build box`, and `settings.get` answers `updates.channel` beta. Set the channel to stable on its card, then `AGENT_HARNESS_CHANNEL=beta AGENT_HARNESS_NAME=other docker compose up -d --force-recreate`: the name stays `Build box` and the channel stable. A plain `docker compose up -d --force-recreate` passes both blank and starts the same way. `AGENT_HARNESS_CHANNEL=nightly docker compose up -d --force-recreate` leaves the container restarting, its log saying `AGENT_HARNESS_CHANNEL takes stable or beta; got nightly.`; a plain `docker compose up -d` starts it again.
+11. ssh for the skill probe (#874): `docker compose exec environment ssh -V` prints an OpenSSH version. From a paired client, `skills.probe` with an scp URL on a host no forge account covers (`git@<host>:<owner>/<repo>.git`), with no keys mounted, is refused `unreachable` with problem `authentication` and git's `fatal: Could not read from remote repository.`, not `git_failed` with `ssh: not found`. With the user's key and a `known_hosts` naming the host mounted read-only at `/home/agent-harness/.ssh` (owned by 10001, the key mode 0600), the same probe answers the repository's skill folders.
 
 ## Release image (`.forgejo/workflows/release.yml` and `image.yml`)
 
@@ -256,27 +267,34 @@ section as not run.
 
 ## Release (`.forgejo/workflows/release.yml`)
 
-On a `v` tag, the release workflow (#358) runs three jobs in order.
+On a `v` tag, the release workflow (#358) runs its jobs in order.
 `check` fails a tag whose release is already published, then runs typecheck,
 lint, test and the schema export check. `image` pushes the version's image.
-`release` builds the three server artefacts on the `ci-x64` label, together
-with the asset list's other assets and `release.json`, each with a `.sha256`
-sidecar. It uploads every file to a draft release and publishes the draft
-last. `packages/cli/scripts/release/build.test.ts` and `publish.test.ts` run
-the build over a fixture workspace and the publisher against a fake Forgejo.
-`test/release-workflow.test.ts` runs the workflow's steps against a fake
-`pnpm`. The steps below prove the run on the real runners and forge. They
+`desktop-macos`, `desktop-windows` and `desktop-arch` (#359) each build one
+platform's desktop for the version, with the `desktop` workflow's steps, and
+put it in the generic package registry as `agent-harness-desktop`.
+`release` takes the three from there and builds the three server artefacts
+on the `ci-x64` label, together with the asset list's other assets, the
+desktops among them, and `release.json`, each with a `.sha256` sidecar. It
+uploads every file to a draft release whose notes say how to open an
+unsigned desktop the first time, publishes the draft last, and then removes
+the desktops' package. `packages/cli/scripts/release/build.test.ts` and
+`publish.test.ts` run the build over a fixture workspace and the publisher
+against a fake Forgejo. `test/release-workflow.test.ts` runs the workflow's
+steps against a fake `pnpm`, and `test/desktop-builds-script.test.ts` the
+hand-over against a fake registry. The steps below prove the run on the
+real runners and forge. They
 publish a release and an image, so the tag waits for David's go-ahead, and
 nothing here runs on the shared agent box. Record the result in the pull
 request that changes the workflow, the build or the publisher, or list the
 section as not run.
 
 1. The label: `vm-ci-1` and `desk-ci-1` carry `ci-x64:docker://node:24-bookworm` beside `ci` (`runners/ci.yaml` and `runners/windows-wsl/config.yaml` in `david/ci`), and no arm64 runner carries it. Until one does, the `release` job waits in the queue and nothing is published.
-2. With David's go-ahead, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet), and `release` starts after `image`, on a `ci-x64` runner. Its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh` and `release.json`. Its publish log creates a draft prerelease, uploads 18 files and publishes it. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines.
-3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 18 files, each asset beside its `.sha256`. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and eight assets (the three artefacts, then the schema archive, `install.sh`, `install.ps1`, `compose.yaml` and `host-updater.sh`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft.
-4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image` and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
-5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 18 files and not the stray one.
-6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag.
+2. With David's go-ahead, and the Mac awake, push `v0.0.1-test.1`, the Release image section's step 2. `check` passes before `image` starts (its log says the tag has no release yet); the three desktop jobs start after `image`, `desktop-macos` on the Mac and the other two on `ci-x64` runners, `desktop-windows` in the `electronuserland/builder` Wine image, and each passes its checks and logs `put <its build> in the package agent-harness-desktop 0.0.1-test.1`; `release` starts after all three, on a `ci-x64` runner. Its log gets the three desktops, then its build log names the image job's reference and digest, and writes the three artefacts, `agent-harness-schema.tar.gz`, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, the three desktops and `release.json`. Its publish log creates a draft prerelease, uploads 24 files and publishes it, and its last step logs `removed the package agent-harness-desktop 0.0.1-test.1`. A 401 or 403 there means the job's token cannot write releases: add a write-releases token as a secret and name it in the workflow's two `RELEASE_TOKEN` lines. A 401 from the hand-over means `PACKAGES_TOKEN` cannot write the owner's packages.
+3. Read the release back with a token that has only `read:repository`: `GET /api/v1/repos/david/agent-harness/releases/tags/v0.0.1-test.1` shows `draft` false, `prerelease` true and the 24 files, each asset beside its `.sha256`, and its `body` is the notes: "The desktop builds are not signed", then how to open the macOS zip, the Windows setup and the Arch package. Where the sign-in proxy lets a release download through (#476), download `release.json`, `compose.yaml` and their sidecars, and check them with `sha256sum -c`. `release.json` then lists the image job's `reference` and `digest` and eleven assets (the three artefacts, then the schema archive, `install.sh`, `install.ps1`, `compose.yaml`, `host-updater.sh`, and the three desktops with kind `desktop`, platform and format `darwin-arm64` `zip`, `win32-x64` `nsis` and `linux-x64` `pacman`), and `compose.yaml`'s image line names `git.systemtech.dev:5526/david/agent-harness:0.0.1-test.1`. `GET /api/v1/repos/david/agent-harness/releases` without a token that can write lists no draft, and `GET /api/v1/packages/david/generic/agent-harness-desktop/0.0.1-test.1` answers 404. Then, on the beta channel, an environment of an older version stages each desktop through `updates.desktop.stage` with that platform and format: the desktop checklist's "Restart to update (#355)" on each platform.
+4. Re-run the tag's workflow from the Actions page. `check` fails with "v0.0.1-test.1 is already published", and `image`, the desktop jobs and `release` do not run, so the registry's `0.0.1-test.1` keeps its digest.
+5. Remove the release in the web UI, keeping the tag, then create a draft release for `v0.0.1-test.1` with one stray file and re-run the workflow. `check` passes with "has a draft release, which this run replaces", and the published release holds the 24 files and not the stray one.
+6. Clean up as the Release image section's step 4 does: delete the test version, the prerelease and the tag, and the `agent-harness-desktop` package's `0.0.1-test.1` if a failed run left it.
 
 ## Host-side updater (`scripts/host-updater.sh`)
 
@@ -297,3 +315,4 @@ section as not run.
 4. Ask for a release built to fail its start (the spec's manual rollback release: a version whose `serve` exits before it says ready). The updater logs the rollback at `trial` for `health`, `.env` names the older image again, the older version runs, `update status` shows the update failed and rolled back, and `/data/snapshots` holds nothing.
 5. `docker logout git.systemtech.dev:5526`, then ask for an update: the tick logs `pull-failed` once, and the container keeps running untouched; the next ticks log nothing more. `docker login` again and the next tick updates.
 6. `AGENT_HARNESS_UPDATER=0` on the crontab line or in the unit: ticks log nothing and call nothing.
+7. Ask for an update while a run is under way, and reboot the host during its stop. After the reboot the container is stopped; the next tick logs the update cut short at its `stop` step and `abandoned`, the older version runs again, `update status` shows the update failed, and `.host-updater.update` is gone. Ask again, and reboot during the watch: the next tick logs the update cut short at its `watch` step, watches to ten minutes from the target's ready, and logs `updated`.

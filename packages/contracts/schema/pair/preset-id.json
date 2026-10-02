@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PairingPresetId",
+  "type": "string",
+  "enum": [
+    "own-client",
+    "program",
+    "custom"
+  ],
+  "description": "A pairing preset: own-client (my own client), program (a script or bot driving the wire) or custom."
+}

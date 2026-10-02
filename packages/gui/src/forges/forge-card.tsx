@@ -14,6 +14,7 @@ import {
 } from "@agent-harness/client-runtime";
 import type { ForgeAccountRecord } from "@agent-harness/contracts";
 import { useId, useState } from "react";
+import { MoveToKeyManager } from "../key-managers/move-card.js";
 import { CopyDialog } from "../settings/copy-dialog.js";
 import { Button, Dialog, DialogClose, DialogContent, Fact } from "../ui/index.js";
 import { useClock, useRuntime } from "../window-context.js";
@@ -34,23 +35,16 @@ export interface ForgeCardProps {
  * comes from, its status with when it last changed and the environment's
  * line, what it can do, whether it is primary and where it was copied from;
  * then Make primary, Verify now, Remove (confirmed) and Copy to other
- * environments.
+ * environments; and on a stored token, Move to your key manager, which opens
+ * the Key manager step's Move stored tokens (#590).
  */
 export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardProps) => {
   const runtime = useRuntime();
   const clock = useClock();
   const heading = useId();
   const [open, setOpen] = useState<"remove" | "copy" | null>(null);
-  const [sending, setSending] = useState(false);
+  const { sending, send } = useForgeVerb(say);
   const sender = { runtime, clock };
-  /** Sends a verb answered in one line, taking no second press while it is on its way. */
-  const send = (verb: () => Promise<ForgeOutcome>) => {
-    setSending(true);
-    void verb().then((done) => {
-      setSending(false);
-      say(done.line);
-    });
-  };
   const close = () => setOpen(null);
   return (
     <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
@@ -80,6 +74,7 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
           Remove
         </Button>
         <Button onClick={() => setOpen("copy")}>Copy to other environments</Button>
+        {account.credential.kind === "stored" && <MoveToKeyManager environmentId={environmentId} />}
       </div>
       {open === "remove" && <ConfirmRemove environmentId={environmentId} account={account} close={close} say={say} />}
       {open === "copy" && (
@@ -94,6 +89,19 @@ export const ForgeCard = ({ environmentId, account, writable, say }: ForgeCardPr
       )}
     </section>
   );
+};
+
+/** A forge account's verbs answered in one line, said through `say`: whether one is on its way, which takes no second press, and the sender. */
+export const useForgeVerb = (say: (line: string) => void) => {
+  const [sending, setSending] = useState(false);
+  const send = (verb: () => Promise<ForgeOutcome>) => {
+    setSending(true);
+    void verb().then((done) => {
+      setSending(false);
+      say(done.line);
+    });
+  };
+  return { sending, send };
 };
 
 /** Remove, confirmed: the environment holds the forge account no more, and deletes any token it keeps for it. */

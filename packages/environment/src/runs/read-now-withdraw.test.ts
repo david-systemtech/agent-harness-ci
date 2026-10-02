@@ -10,6 +10,7 @@ import { command as sessionCommand, create, deleteSession, get, listStream, patc
 import type { WireClient } from "../../test/wire-client.js";
 import { ATTACHMENTS_DIRECTORY } from "../adapter/attachment-stage.js";
 import { WithdrawUnsupported, type AdapterRun } from "../adapter/contract.js";
+import { sessionStream } from "../sessions/streams.js";
 
 /**
  * Read now and withdraw (#228; ADR 0022; claude-adapter spec, "Wire
@@ -664,23 +665,20 @@ describe("runs.withdraw", () => {
     held.open();
   });
 
-  it("never loses a message the provider gave up when a second request under the same command id answers first: it is back in the environment's queue", async () => {
+  /** A provider whose cancel lands at once and whose answer waits for `slow`. */
+  const answeringSlowly = (slow: Gate): FakeAdapter =>
+    wrapped({ capabilities: PROVIDER }, (run) => ({
+      withdraw: async (messageId: string) => {
+        const answer = (await run.withdraw?.(messageId)) ?? { withdrawn: false };
+        await slow.opened;
+        return answer;
+      },
+    }));
+
+  it("answers a second request under the same command id, sent while the provider's answer is awaited, from the first's receipt: the provider is asked once (#448)", async () => {
     const held = gate();
     const slow = gate();
-    const t = await start(
-      wrapped({ capabilities: PROVIDER }, (run) => {
-        let calls = 0;
-        return {
-          withdraw: async (messageId: string) => {
-            calls += 1;
-            const answer = (await run.withdraw?.(messageId)) ?? { withdrawn: false };
-            // The first cancel lands at once and its answer is slow; the second finds nothing to cancel.
-            if (calls === 1) await slow.opened;
-            return answer;
-          },
-        };
-      }),
-    );
+    const t = await start(answeringSlowly(slow));
     const client = await t.client();
     const { id } = await create(client);
     const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
@@ -688,13 +686,40 @@ describe("runs.withdraw", () => {
     const commandId = randomUUID();
     const first = command(client, "runs.withdraw", { messageId }, commandId);
     await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]));
-    const second = await command(client, "runs.withdraw", { messageId }, commandId);
-    expect(second.receipt).toMatchObject({ status: "rejected", reason: "not_found" });
+    // The outbox's resend after a dropped socket. A request sent behind it is answered once it has reached dispatch, while the first still prepares.
+    const second = command(client, "runs.withdraw", { messageId }, commandId);
+    await client.request("environment.status", {});
     slow.open();
-    expect((await first).receipt).toEqual(second.receipt);
+    const answer = await first;
+    expect(answer.result).toEqual({ messageId, sessionId: id, heldBy: "provider" });
+    expect(await second).toEqual({ receipt: answer.receipt });
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]);
+    expect((await get(client, id)).draft).toBe("Also the tests");
+    held.open();
+  });
+
+  it("never loses a message the provider gave up when a receipt under its command id is stored while the provider answers: it is back in the environment's queue", async () => {
+    const held = gate();
+    const slow = gate();
+    const t = await start(answeringSlowly(slow));
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    const commandId = randomUUID();
+    const first = command(client, "runs.withdraw", { messageId }, commandId);
+    await vi.waitFor(() => expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]));
+    // Stored straight into the log: dispatch makes a second request under the key wait for the first (#448), so none answers first.
+    t.env.log.command({ actor: `client_session:${client.hello.clientSessionId}`, commandId }, () => ({
+      aggregate: sessionStream(id),
+      rejected: { code: "not_found", message: "The provider no longer holds it.", data: { kind: "message" } },
+    }));
+    slow.open();
+    const answer = await first;
+    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "not_found" });
     // A retry of that command id is answered from its receipt, the provider not asked again: its answer is final.
-    expect(await command(client, "runs.withdraw", { messageId }, commandId)).toEqual({ receipt: second.receipt });
-    expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId, messageId]);
+    expect(await command(client, "runs.withdraw", { messageId }, commandId)).toEqual({ receipt: answer.receipt });
+    expect(t.adapter.runs[0]?.withdrawals).toEqual([messageId]);
     // The provider no longer holds it, and the log says so: the environment does, where a client sees it and can take it back.
     expect(aboutMessage(t, id, "message.requeued", messageId)).toHaveLength(1);
     const again = await command(client, "runs.withdraw", { messageId });
@@ -792,6 +817,25 @@ describe("runs.withdraw", () => {
     held.open();
   });
 
+  it("refuses provider-held withdrawal by its flag, but allows it after interrupt hands the message back", async () => {
+    const held = gate();
+    const t = await start({ capabilities: { ...PROVIDER, withdraw: false } });
+    const client = await t.client();
+    const { id } = await create(client);
+    const { queued } = await liveWithQueue(t, client, id, ["Also the tests"], held);
+    const messageId = queued[0]?.messageId as string;
+    await expect(client.request("runs.withdraw", { commandId: randomUUID(), messageId })).rejects.toMatchObject({
+      code: "invalid_params",
+      data: { reason: "unsupported", capability: "withdraw" },
+    });
+    await command(client, "runs.interrupt", { runId: t.adapter.runs[0]?.input.runId as string });
+    await untilEnded(t, id, 1);
+    const answer = await command(client, "runs.withdraw", { messageId });
+    expect(answer.result).toMatchObject({ messageId, sessionId: id, heldBy: "environment" });
+    expect((await get(client, id)).draft).toBe("Also the tests");
+    held.open();
+  });
+
   it("refuses an adapter whose provider cannot take a message back invalid_params, reason unsupported, rather than as read", async () => {
     const held = gate();
     const t = await start(
@@ -807,7 +851,7 @@ describe("runs.withdraw", () => {
     const commandId = randomUUID();
     await expect(client.request("runs.withdraw", { commandId, messageId: queued[0]?.messageId as string })).rejects.toMatchObject({
       code: "invalid_params",
-      data: { reason: "unsupported", capability: "providerQueue" },
+      data: { reason: "unsupported", capability: "withdraw" },
     });
     expect(t.env.log.receipt(`client_session:${client.hello.clientSessionId}`, commandId)).toBeNull();
     held.open();

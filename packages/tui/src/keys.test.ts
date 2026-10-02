@@ -298,6 +298,17 @@ describe("the keybindings file over the whole list", () => {
   });
 });
 
+describe("suggestion key class (#251)", () => {
+  it("dispatches each digit with its own name and detects a remapped digit clash", () => {
+    const taken: string[] = [];
+    for (const digit of ["1", "2", "3", "4"]) {
+      expect(dispatch(DEFAULT_KEYMAP, ["composer"], { "composer.suggestion.take": (name) => void taken.push(name) }, digit, key())).toBe(true);
+    }
+    expect(taken).toEqual(["1", "2", "3", "4"]);
+    expect(resolveKeymap({ "composer.editor": ["1"] }).problems.length).toBeGreaterThan(0);
+  });
+});
+
 describe("dispatch through the action list", () => {
   it("finds the action a key is in each context in turn, and runs the first handler that takes it", () => {
     const ran: string[] = [];

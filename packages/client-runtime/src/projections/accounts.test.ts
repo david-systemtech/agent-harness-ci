@@ -72,7 +72,7 @@ describe("projections.accounts and projections.models", () => {
   });
 
   it("list the notices that refresh each query, plan usage's among them (#136)", () => {
-    expect(QUERY_REFRESH_NOTICES["accounts.list"]).toEqual(["account.updated", "signin.updated"]);
+    expect(QUERY_REFRESH_NOTICES["accounts.list"]).toEqual(["account.updated", "signin.updated", "state-import.finished"]);
     expect(QUERY_REFRESH_NOTICES["models.list"]).toEqual(["account.updated", "signin.updated"]);
     expect(QUERY_REFRESH_NOTICES["accounts.usage"]).toEqual(["usage.updated", "account.updated", "signin.updated"]);
     expect(QUERY_REFRESH_NOTICES["accounts.handoff.recommend"]).toEqual(["usage.updated", "account.updated", "signin.updated"]);

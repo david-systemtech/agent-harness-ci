@@ -62,7 +62,7 @@ describe("the runtime's notices", () => {
     await app.waitFor("● laptop blocked: unsupported-client");
   });
 
-  it("says to update the environment through its self-update when it offers one", async () => {
+  it("says to update the environment from its card in /environment when it can update itself", async () => {
     const newer = PROTOCOL_VERSION + 1;
     const app = await launch({
       script: { environments: [{ name: "laptop", reach: "paired", protocolVersion: newer, capabilities: ["self-update"] }] },
@@ -74,7 +74,7 @@ describe("the runtime's notices", () => {
     laptop.bye("protocol", { protocolVersion: PROTOCOL_VERSION });
     await app.waitFor("update laptop to this client's version");
     expect(app.runtime().projections.notices.read().at(-1)).toMatchObject({ kind: "protocol-mismatch", action: "update-environment" });
-    await app.waitFor("Its self-update is the way to do it.");
+    await app.waitFor("Its card in /environment offers the update.");
   });
 
   it("says the environment cannot update itself from here without the flag", async () => {

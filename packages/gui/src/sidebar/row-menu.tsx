@@ -7,7 +7,7 @@ import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "../ui
 import { useObservable, useRuntime } from "../window-context.js";
 import { Entry, SubEntry, useHandOn } from "./menu-entry.js";
 import { useOrganise } from "./organise.js";
-import { notDone, quoted } from "./words.js";
+import { quoted } from "./words.js";
 
 /**
  * A row's context menu (docs/specs/gui.md, "The window and the sidebar";
@@ -69,7 +69,7 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
   };
 
   const snooze = (at: Date) => organise.send(environmentId, "sessions.snooze", { sessionId, until: at.toISOString() });
-  const move = (name: string | null) => organise.hear(runtime.commands.moveToGroup(environmentId, sessionId, name).then((answer) => [answer]), notDone("sessions.setGroup"));
+  const move = (name: string | null) => organise.move(environmentId, sessionId, name);
   const moving = admits("sessions.setGroup");
   const choices = groupChoices(list.groups, row, "");
 
@@ -103,6 +103,9 @@ export const RowMenu = ({ line, rename }: RowMenuProps) => {
       )}
       <Entry offer={admits("sessions.tag")} onSelect={handOn(() => organise.open({ kind: "tags", row: key }))}>
         Tags…
+      </Entry>
+      <Entry offer={admits("sessions.setInstructions")} onSelect={handOn(() => organise.open({ kind: "instructions", row: key }))}>
+        Session instructions…
       </Entry>
       <SubEntry offer={moving} name="Move to group">
         {choices.listed.map(({ heading, here }) => (

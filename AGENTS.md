@@ -42,8 +42,11 @@ See `docs/agents/domain.md`.
 A pnpm workspace (`packages/`: `contracts`, `environment`, `client-runtime`,
 `theme` (the seed-to-token maths, on contracts alone), `browser` (what
 runs in every browser, the extension's pages and a page's isolated world as
-much as the environment's jsdom: on contracts and Mozilla Readability alone,
-with no Node built-in and no environment code), `tui`, `gui` (the
+much as the environment's jsdom: on contracts alone, Mozilla Readability
+vendored, with no Node built-in and no environment code), `extension` (the MV3
+extension Chrome loads unpacked, its service worker and options page: on
+contracts and the browser package alone, bundled by Vite into its `dist`,
+where the environment finds the extension it unpacks), `tui`, `gui` (the
 desktop window's renderer, a React app whose bundle runs in a browser tab
 too), `desktop` (the Electron shell that carries the `gui` build), and `cli`,
 the `agent-harness` binary). Node 24 or later: the LTS
@@ -82,6 +85,27 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Chromium skips unless `AGENT_HARNESS_CHROMIUM` names one; running it is the
   manual checklist in `docs/agents/browser-checklist.md`. Never launch a
   browser on the shared agent box.
+- Code copied from another project, rather than taken as a dependency, lives
+  in a `vendor/` folder beside what uses it, with that project's licence and
+  notice files; each copied file keeps its own notice and names the
+  repository, the commit and what was changed (Playwright's aria snapshot,
+  `packages/browser/src/snapshot/vendor/`, #544; Mozilla Readability,
+  `packages/browser/src/vendor/`, #545, kept as Mozilla wrote it and so
+  neither type-checked nor linted here).
+- The extension's tests run under Node: the service worker against the fake
+  `chrome` API (`packages/extension/test/fake-chrome.ts`, whose tabs and
+  debugger are the scripted CDP peer's) and a scripted environment speaking
+  the bridge protocol on a loopback WebSocket (`test/scripted-environment.ts`),
+  on a manual clock, and the options page in a jsdom window over its markup,
+  type-checked by `packages/extension/tsconfig.test.json`. `pnpm --filter
+  @agent-harness/extension build`, a step of `pnpm build`, bundles it into
+  `packages/extension/dist`; the build's test bundles it into a scratch folder
+  and runs the built worker on a thread with the fake `chrome`
+  (`test/built-worker-thread.ts`), the environment's extension tests build
+  `dist` and unpack it, and its end to end (`extension-pages.test.ts`) builds
+  one of its own and runs the unpacked worker on such a thread. Never load it in a
+  browser on the shared agent box: what only a real Chrome proves is the
+  extension section of `docs/agents/browser-checklist.md`.
 - The desktop shell (`packages/desktop`) takes Electron as a dev dependency
   whose package downloads its binary the first time Node requires it, never
   on install, so CI and the agent box hold none. Its tests drive the main
@@ -107,26 +131,33 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   the release workflow does. What only a machine of each platform proves is the Server
   artefacts section of `docs/agents/service-install-checklist.md`. The release workflow
   (`.forgejo/workflows/release.yml`, #358) runs the build on the `ci-x64` label. Its asset
-  list passes the release's other assets as `--asset <kind>=<path>`. Its last step publishes
-  the build's folder with `pnpm --filter agent-harness publish-release`
-  (`scripts/release/publish.ts`), which is tested against a fake Forgejo
-  (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts` runs the
-  workflow's steps against a fake `pnpm`. A tag's real run is the checklist's Release
-  section.
+  list passes the release's other assets as `--asset <kind>=<path>`, a desktop build as
+  `--asset desktop:<platform>:<format>=<path>` (#359). Its publish step puts the build's
+  folder on the release with `pnpm --filter agent-harness publish-release`
+  (`scripts/release/publish.ts`, the notes from `notes.ts`), which is tested against a fake
+  Forgejo (`packages/cli/test/fake-forgejo-releases.ts`). `test/release-workflow.test.ts`
+  runs the workflow's steps against a fake `pnpm`. A tag's real run is the checklist's
+  Release section.
 - The desktop build, `pnpm --filter @agent-harness/desktop build-desktop --platform <p>
   --tag v<version> --server <that platform's server artefact> --out <folder>`
   (`packages/desktop/scripts/desktop-build/`, #423), builds one platform's desktop on
-  that platform: the macOS zip (darwin-arm64), the Windows NSIS setup (win32-x64) or the
-  Arch package (linux-x64). It bundles the main process and the preload, builds the `gui`
+  that platform (the Windows setup on an x86_64 Linux with Wine too): the macOS zip
+  (darwin-arm64), the Windows NSIS setup (win32-x64) or the Arch package (linux-x64). It bundles the main process and the preload, builds the `gui`
   stamped with the version, checks that the server artefact is that platform's and
   version's, and has electron-builder (a dev dependency of the desktop) pack them, the
   artefact into the app's resources. Its tests fake electron-builder and the compile and
   read what they are handed; `bundle.test.ts` bundles the main process and the `gui`
   build with Vite, running neither. Never run electron-builder's packaging on the shared
   agent box. The `desktop` workflow (`.forgejo/workflows/desktop.yml`) runs it by hand:
-  the Arch package on `ci-x64`, the zip on the Mac's `macos` runner. No runner has
-  Windows, so the setup is built by hand; building and installing each is the desktop
-  checklist's "Building a desktop" and "The packaged desktop".
+  the Arch package on `ci-x64`, the zip on the Mac's `macos` runner, and the Windows
+  setup on `ci-x64` in electron-builder's Wine image (#359), since no runner has Windows
+  and electron-builder on Linux runs the setup under Wine to write its uninstaller. A
+  tag's release builds each in a job of its own with the same steps, which
+  `packages/desktop/scripts/desktop-build/workflow.test.ts` holds the two workflows to,
+  and hands it to the release job through the generic package registry
+  (`.forgejo/scripts/desktop-builds.sh`, tested by `test/desktop-builds-script.test.ts`
+  against a fake registry). Building and installing each is the desktop checklist's
+  "Building a desktop" and "The packaged desktop".
 - `packages/contracts/schema/` is the JSON Schema export of every contracts
   schema, committed as the release artefact for clients in other languages.
   After changing a schema run `pnpm --filter @agent-harness/contracts
@@ -143,6 +174,22 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   Forgejo decides mergeability with `git merge-tree`, which runs no custom merge
   driver and does apply the built-in `union`, which joins both sides' lines into
   invalid JSON and reports no conflict.
+- The bank validator is the contracts' `./bank-validator` entry (pure functions,
+  kept out of the index so no client bundles the YAML library). `pnpm --filter
+  @agent-harness/contracts build-validator` bundles it with Vite into the one
+  Node file each bank vendors, `packages/contracts/dist/bank-validator/validate.mjs`,
+  whose first line is the stamp `// bank-validator <version>` (`BANK_VALIDATOR`).
+  Its test (`scripts/bank-validator/build.test.ts`) builds it into a scratch
+  folder and runs it with Node inside every fixture bank of
+  `test/fixture-banks.ts`, which has one bank per rule; a new rule needs its
+  fixture there.
+- The IndexRenderer (`packages/environment/src/banks/index-renderer.ts`) is the
+  one source of the bank trail, of a bank's fixed-tier bytes (the registry's
+  8 KB admission) and of what a pointer reads (`memory_read`): admission,
+  placement and the memory tools call it rather than render a bank themselves.
+  It reads a bank through `bank-files.ts` (`BANK.md` and `projects/**/*.md` as
+  committed at the checkout's head) and `indexBank`, which uses the validator's
+  own tree, so the index and the verdict agree on what a memory and a topic are.
 - `agent-harness serve` refuses root (ADR 0006), and the agent box and possibly
   CI run as root: the environment's tests inject a non-privileged user check,
   and the CLI's end-to-end `serve` tests split on the runner's uid (the
@@ -179,8 +226,10 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   environment reaching into a client's or the CLI's folder). The fourth,
   `agent-harness/no-literal-colour` (ADR 0023), refuses a literal colour in
   the packages that paint with the theme's tokens (`gui`, `desktop`, `web`),
-  their stylesheets included through ESLint's CSS language (`@eslint/css`);
-  its two allowlisted modules are named in the configuration.
+  their stylesheets included through ESLint's CSS language (`@eslint/css`)
+  and their SVG assets and HTML documents through html-eslint's HTML language
+  (`@html-eslint/eslint-plugin`); its two allowlisted modules are named in the
+  configuration.
   `eslint.config.ts` scopes all four, and keeps the JavaScript rules to scripts.
 
 ## Merging

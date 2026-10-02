@@ -6,7 +6,7 @@ import type {
   KeyManagerMoveItemRef,
   KeyManagerMoveItemResult,
   KeyManagerProvider,
-  KeyManagerReference,
+  KeyManagerMoveLocator,
   ParamsOf,
 } from "@agent-harness/contracts";
 import { uuidv4, uuidv7 } from "../ids.js";
@@ -23,7 +23,14 @@ import { adminCall, type AdminOutcome } from "../status/actions.js";
  * Each answers what it did in one line, or the refusal in one line.
  */
 
-/** Where a provider's form presets its address: Doppler's API host and Bitwarden's cloud; OpenBao and 1Password have none to preset. */
+/**
+ * Whether a provider's form asks for its address: every one but 1Password,
+ * whose address is the account URL its service-account token names, which
+ * the environment learns at sign-in (#378, #1118).
+ */
+export const asksAddress = (provider: KeyManagerProvider): boolean => provider !== "onepassword";
+
+/** Where a provider's form presets its address: Doppler's API host and Bitwarden's cloud; OpenBao has none to preset, and 1Password's form asks for none (`asksAddress`). */
 export const KEY_MANAGER_ADDRESS_PRESETS: Readonly<Record<KeyManagerProvider, string>> = {
   openbao: "",
   doppler: "https://api.doppler.com",
@@ -65,6 +72,7 @@ export const credentialTyped = (credential: KeyManagerCredential): boolean => {
 export interface ConnectionForm {
   readonly provider: KeyManagerProvider;
   readonly label: string;
+  /** Neither asked of nor sent for 1Password (`asksAddress`). */
   readonly address: string;
   readonly method: KeyManagerAuthMethod;
   /** Where the method is mounted; preset the method's name. */
@@ -72,6 +80,8 @@ export interface ConnectionForm {
   readonly username: string;
   /** Empty for none. */
   readonly tokenRole: string;
+  /** The CA to pin, as PEM, which a person accepted from the certificate preview; null for none. OpenBao only. */
+  readonly ca: string | null;
 }
 
 /** What a command a pane sends did: its one line, and the connection it answered with when it answered one. */
@@ -86,7 +96,7 @@ export interface KeyManagerSender {
 /** Why the form cannot be sent, before anything is: a field it needs left empty; undefined when it can. */
 export const formProblem = (form: ConnectionForm, credential: KeyManagerCredential): string | undefined => {
   if (form.label.trim() === "") return "Give it a label.";
-  if (form.address.trim() === "") return "Give it the key manager's address.";
+  if (asksAddress(form.provider) && form.address.trim() === "") return "Give it the key manager's address.";
   if (form.provider === "openbao" && form.method === "userpass" && form.username.trim() === "") return "Give the username it signs in as.";
   if (!credentialTyped(credential)) return "Give the credential it signs in with.";
   return undefined;
@@ -95,7 +105,9 @@ export const formProblem = (form: ConnectionForm, credential: KeyManagerCredenti
 /**
  * Adds a connection with its credential (`keyManagers.connections.add`,
  * sent directly, never queued): the credential crosses the wire in this one
- * call and is kept nowhere on the client. A refusal (`verification_failed`,
+ * call and is kept nowhere on the client, and an OpenBao form's accepted CA
+ * goes as the CA it pins. A 1Password form is sent without an address,
+ * which its token names (`asksAddress`). A refusal (`verification_failed`,
  * a connection held already, the environment not reachable) is one line,
  * and so is where the connection stands once added.
  */
@@ -106,12 +118,13 @@ export const addConnection = async ({ runtime, clock }: KeyManagerSender, enviro
     connectionId: uuidv4(),
     provider: form.provider,
     label: form.label.trim(),
-    address: form.address.trim(),
+    ...(asksAddress(form.provider) && { address: form.address.trim() }),
     ...(openBao && {
       method: form.method,
       mount: form.mount.trim() === "" ? form.method : form.mount.trim(),
       ...(form.method === "userpass" && { username: form.username.trim() }),
       ...(form.tokenRole.trim() !== "" && { tokenRole: form.tokenRole.trim() }),
+      ...(form.ca !== null && { ca: form.ca }),
     }),
     credential,
   };
@@ -324,7 +337,7 @@ export const moveItems = async (
 };
 
 /** An item's stored value, answered once for a person to paste at its target, or why it was not. */
-export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerReference } | { readonly ok: false; readonly line: string };
+export type CopiedValue = { readonly ok: true; readonly value: string; readonly reference: KeyManagerMoveLocator } | { readonly ok: false; readonly line: string };
 
 /**
  * Answers an item's stored value once (`keyManagers.move.copyValue`, sent

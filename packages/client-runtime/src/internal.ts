@@ -11,18 +11,26 @@ import { awaitedTargets, keepingSameTargets, overlaidLists, pendingTargets } fro
 import type { Platform } from "./platform.js";
 import { answerOf, usageProjection, type AccountsAnswer, type ModelsAnswer } from "./projections/accounts.js";
 import { createAttention } from "./projections/attention.js";
+import { BROWSER_CHROME_CALL, browserChromeHandler } from "./projections/browser-chrome.js";
+import { browsersProjection, type BrowsersHost, type BrowsersView } from "./projections/browsers.js";
 import { createClientCalls } from "./projections/client-calls.js";
 import { documentsProjection, type SessionDocument } from "./projections/documents.js";
 import { environmentsProjection } from "./projections/environments.js";
 import { hideKnownDirectory, knownDirectoriesProjection, type KnownDirectoriesHost, type KnownDirectory } from "./projections/known-directories.js";
 import { modesProjection, type ModePicker } from "./projections/modes.js";
-import { ACCOUNT_DEFAULT_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
+import { PRESET_SETTING_KEYS, newSessionProjection, type NewSessionHost } from "./projections/new-session.js";
 import { copyTargetsOf, type CopyTarget } from "./copies.js";
 import { createForges } from "./forges.js";
+import { createRoutineSettlement } from "./routine-settlement.js";
+import { createRoutineMoves } from "./routine-moves.js";
+import { createSkillsCopies } from "./skills-copy.js";
 import { createKeyManagers } from "./key-managers.js";
+import { reportKnownEnvironments } from "./known-environments.js";
 import { createForgeNotices } from "./projections/forge-notices.js";
 import { createKeyManagerNotices } from "./projections/key-manager-notices.js";
+import { createToolRuns } from "./managed-tools/tool-runs.js";
 import { createEnvironmentNotices } from "./projections/notices.js";
+import { routineHistoryProjection, routinesProjection, type RoutineHistory } from "./projections/routines.js";
 import { createRuns, sessionRunsProjection, type RunsProjection } from "./projections/runs.js";
 import { sessionProjection, type SessionProjection } from "./projections/session.js";
 import { SETUP_CHECK_TIMEOUT_MS, createSetup } from "./projections/setup.js";
@@ -77,6 +85,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         outbox.applied(environmentId, event);
         // Every run and prompt event of every session comes on the list: the run states and the parked asks fold them all.
         runs.heard(environmentId, event);
+        if (news) requestCache.sessionChanged(environmentId, event.streamId, event.type);
         if (news && event.type === "run.ended") {
           const { runId, reason, cause } = event.payload as RunEndedPayload;
           attention.emit({ kind: "run-ended", environmentId, sessionId: event.streamId.toLowerCase(), runId, reason, cause });
@@ -87,6 +96,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       // every connection's event, for the labels and statuses it names (#384).
       forgeNotices.heard(environmentId, event, news);
       keyManagerNotices.heard(environmentId, event, news);
+      // A tool run's start and end, history too, so the run under way and each tool's last are as the stream says (#426).
+      toolRuns.heard(environmentId, event);
       // A resolution settles a parked ask, and takes back its notice, whether or not it is news: an answered prompt never parks
       // again. Only news says how it was settled (`environmentNotices.heard`, below).
       if (event.type === "prompt.resolved") {
@@ -119,6 +130,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     report,
     lists: made.lists,
     shown: (environmentId) => lists.read().get(environmentId)?.data ?? null,
+    routineName: (environmentId, routineId) =>
+      requestCache.peek(environmentId, "routines.list", {})?.routines.find((routine) => routine.state.id.toLowerCase() === routineId)?.definition.name ?? null,
+    // `routines` is made below: nothing is accepted before the runtime starts.
+    routineCreated: (environmentId, params) => routines.created(environmentId, params),
     now: (environmentId) => made.now(environmentId),
     // What the runtime holds of the session, read without subscribing anything.
     held: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`).read(),
@@ -150,7 +165,13 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const { call } = createRequests({ clock: platform.clock, capability, request: registry.seams.request });
   const requestCache = createRequestCache({ clock: platform.clock, call, records: registry.list, report });
   registry.seams.onForget((environmentId) => requestCache.forget(environmentId));
-  const requests: Requests = { call, cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params) };
+  // Each environment told of this client's other connections, after each hello and as they change (#382).
+  const stopReporting = reportKnownEnvironments({ kind: platform.client.kind, records: registry.list, call, report });
+  const requests: Requests = {
+    call,
+    cached: (environmentId, method, params) => requestCache.cached(environmentId, method, params),
+    refresh: (environmentId, method, params) => requestCache.refresh(environmentId, method, params),
+  };
   // The desktop's own update and the server it carries (#354): through the local environment, its stage given the time a download takes.
   const desktopUpdate = createDesktopUpdate({
     clock: platform.clock,
@@ -204,6 +225,8 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     report,
   });
   registry.seams.onForget((environmentId) => keyManagerNotices.forget(environmentId));
+  const toolRuns = createToolRuns(report);
+  registry.seams.onForget((environmentId) => toolRuns.forget(environmentId));
 
   // The projections of #142: runs and parked asks, one session's transcript, accounts, models and plan usage, the mode picker,
   // and the calls the environment addresses to this client.
@@ -221,6 +244,16 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
   const terminals = createTerminalSubscriptions({ clock: platform.clock, random: platform.random ?? Math.random, report, seams: registry.seams, records: registry.list });
   const clientCalls = createClientCalls({ seams: registry.seams, record: (environmentId) => registry.record(environmentId), report });
   registry.seams.onForget((environmentId) => clientCalls.forget(environmentId));
+  // Every client drives a Chrome paired with its own local environment for a run elsewhere that it started: the browser
+  // relay's client half (#554).
+  clientCalls.register(
+    BROWSER_CHROME_CALL,
+    browserChromeHandler({
+      record: (environmentId) => registry.record(environmentId),
+      request: (environmentId, method, params) => registry.seams.request(environmentId, method, params),
+      now: (environmentId) => made.now(environmentId),
+    }),
+  );
   /** One observable per environment (and session), so a renderer reading one twice follows one. */
   const memo = <T>(make: (key: string) => T) => {
     const held = new Map<string, T>();
@@ -243,6 +276,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     const host = {
       runs: runs.sessions,
       session: sessionProjections(key),
+      list: sessionList.view,
       records: registry.list,
       providers: requestCache.cached(environmentId, "providers.list", {}),
       accounts: requestCache.cached(environmentId, "accounts.list", {}),
@@ -280,16 +314,44 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     // The request cache gives the same observable for the same environment and query.
     source: (environmentId) => requestCache.cached(environmentId, "accounts.usage", {}),
   });
-  const newSessionHost: NewSessionHost = {
+  // Every enabled environment's routines (#532), the request cache giving the same observable for the same environment.
+  const routines = routinesProjection({
+    clock: platform.clock,
     records: registry.list,
-    environments,
+    outbox: outbox.view,
+    source: (environmentId) => requestCache.cached(environmentId, "routines.list", {}),
+    askedAt: (environmentId) => requestCache.askedAt(environmentId, "routines.list", {}),
+  });
+  registry.seams.onForget((environmentId) => routines.forget(environmentId));
+  const routineSettlement = createRoutineSettlement({ routines: routines.view, call, dispatch: outbox.dispatch, admits: outbox.admits, report });
+  const routineHistories = memo((key): RoutineHistory => {
+    const [environmentId, routineId] = key.split(" ") as [string, string];
+    const host = {
+      newest: requestCache.cached(environmentId, "routines.history", { routineId }),
+      page: (before: string) => call(environmentId, "routines.history", { routineId, before }),
+    };
+    return routineHistoryProjection(host, environmentId, routineId);
+  });
+  const browsersHost: BrowsersHost = {
+    records: registry.list,
     sessionList: sessionList.view,
+    chromes: (environmentId) => requestCache.cached(environmentId, "browser.chromes.list", {}),
+    status: (environmentId) => requestCache.cached(environmentId, "browser.status", {}),
+    webView: answerCapability("shell.webView", undefined, platform.shell),
+  };
+  const browsers = memo((key): Observable<BrowsersView> => {
+    const [environmentId, sessionId] = key.split(" ") as [string, string];
+    return browsersProjection(browsersHost, environmentId, sessionId);
+  });
+  const newSessionHost: NewSessionHost = {
+    ...browsersHost,
+    environments,
     preferences: registry.preferences,
     usage,
     accounts: accountsProjections,
     models: modelsProjections,
     knownDirectories,
-    defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...ACCOUNT_DEFAULT_KEYS] }),
+    defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...PRESET_SETTING_KEYS] }),
   };
 
   const runtime: Runtime = {
@@ -332,6 +394,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       knownDirectories: (environmentId) => knownDirectories(environmentId),
       newSession: (context) => newSessionProjection(newSessionHost, context),
       setup: (environmentId) => setup.view(environmentId),
+      toolRuns: (environmentId) => toolRuns.view(environmentId),
+      routines: routineSettlement.view,
+      routineHistory: (environmentId, routineId) => routineHistories(`${environmentId} ${routineId.toLowerCase()}`),
+      browsers: (environmentId, sessionId) => browsers(`${environmentId} ${sessionId.toLowerCase()}`),
     },
     attention: { subscribe: (listener) => attention.subscribe(listener) },
     clientCalls: { register: (kind, handler) => clientCalls.register(kind, handler) },
@@ -340,6 +406,12 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
     },
     commands: {
+      ...createRoutineMoves({
+        capability, admits: outbox.admits, reserve: routineSettlement.reserve, call, dispatch: outbox.dispatch,
+        cached: (environmentId, routineId) => requestCache.peek(environmentId, "routines.list", {})?.routines.find(r => r.state.id === routineId) ?? null,
+        pendingMove: (environmentId, routineId) => outbox.view.read().get(environmentId)?.entries.some(entry => entry.method === "routines.disable" && String(entry.params["routineId"]).toLowerCase() === routineId && entry.params["movedTo"] !== undefined) ?? false,
+      }),
+      ...createSkillsCopies({ clock: platform.clock, call, capability, name: (environmentId) => registry.record(environmentId)?.descriptor.name ?? null, targetIds: (environmentId) => copyTargetsOf(registry.list.read(), environmentId).map((target) => target.environmentId) }),
       dispatch: (environmentId, method, params) => outbox.dispatch(environmentId, method, params),
       moveToGroup: (environmentId, sessionId, groupName) => outbox.moveToGroup(environmentId, sessionId, groupName),
       admits: (environmentId, method) => outbox.admits(environmentId, method),
@@ -362,6 +434,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     capability,
     close() {
       closing ??= (async () => {
+        routineSettlement.close();
         desktopUpdate.close();
         registry.close();
         terminals.close();
@@ -371,6 +444,7 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         sessionList.stop();
         runs.close();
         clientCalls.close();
+        stopReporting();
         forgeNotices.close();
         keyManagerNotices.close();
         setup.close();

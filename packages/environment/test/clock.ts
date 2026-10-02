@@ -9,6 +9,13 @@ export interface ManualClock extends Clock {
    * too if it falls due before the end.
    */
   advance(ms: number): void;
+  /**
+   * Moves the wall clock by `ms`, either way, as a machine's sleep or a clock
+   * set by hand moves `Date.now()`, running no timer: each keeps the time it
+   * had left, as Node's timers on Linux's monotonic clock do through a
+   * suspend (#527).
+   */
+  jump(ms: number): void;
   /** How many timers are scheduled. */
   pending(): number;
 }
@@ -61,6 +68,10 @@ export const manualClock = (start: Date | string = MANUAL_CLOCK_START): ManualCl
         timer.callback();
       }
       now = until;
+    },
+    jump(ms) {
+      now += ms;
+      for (const timer of timers.values()) timer.due += ms;
     },
     pending: () => timers.size,
   };

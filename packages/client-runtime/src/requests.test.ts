@@ -191,9 +191,9 @@ const UPDATES_STATUS = {
 
 describe("the request cache", () => {
   /** A runtime paired with the fake wire, counting the `groups.list` requests it sends. */
-  const counting = async (setup: { readonly environmentStream?: boolean } = {}) => {
+  const counting = async (setup: { readonly environmentStream?: boolean; readonly banks?: boolean } = {}) => {
     const clock = manualClock();
-    const wire = fakeWire({ clock, name: "box" });
+    const wire = fakeWire({ clock, name: "box", capabilities: setup.banks ? ["banks"] : [] });
     let asked = 0;
     wire.answer("groups.list", () => {
       asked++;
@@ -282,6 +282,31 @@ describe("the request cache", () => {
     expect(asked()).toBe(2);
   });
 
+  it("refreshes a followed draft queue when a memory change is queued (#1030)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true, banks: true });
+    const sessionId = "0199aa00-0000-4000-8000-000000000001";
+    const bankId = "0199aa00-0000-4000-8000-000000000002";
+    const change = { kind: "retire" as const, name: "old-fact", path: "projects/team/work/memories/old-fact.md", reason: "The fact no longer applies." };
+    let queued = false;
+    wire.answer("banks.drafts.list", () => ({ result: { queues: queued ? [{ bankId, drafts: [change] }] : [] } }));
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const drafts = runtime.requests.cached(id, "banks.drafts.list", { sessionId, bankId });
+    drafts.subscribe(() => undefined);
+    await flush();
+    expect(drafts.read()).toMatchObject({ result: { queues: [] }, error: null });
+
+    queued = true;
+    environment?.event(noticeEvent(1, wire.environmentId, "bank.draft-queued", { sessionId, bankId, change }));
+    await flush();
+    expect(drafts.read()).toMatchObject({ result: { queues: [{ bankId, drafts: [change] }] }, error: null });
+    expect(asked()).toBe(1);
+    queued = false;
+    environment?.event(noticeEvent(2, wire.environmentId, "bank.drafts-consumed", { sessionId, bankId, changes: [change] }));
+    await flush();
+    expect(drafts.read()).toMatchObject({ result: { queues: [] }, error: null });
+    expect(asked()).toBe(1);
+  });
+
   it("fetches updates.status again on every update notice, and no other query for the pending, started, failed or cancelled one (#344)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let statuses = 0;
@@ -341,7 +366,46 @@ describe("the request cache", () => {
     expect(cached.read()).toMatchObject({ result: { values: { "sessions.autoSettleOnMerge": true } }, error: null });
   });
 
-  it("fetches skills.get again on skills.updated and on an account changing, and no other query (#494, #501)", async () => {
+  it("fetches permissions.denylist.get and permissions.settings.get, whose section counts it changes, again on denylist.updated, and permissions.review.list on review.updated, each no other query (#811)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    const reads = { denylist: 0, permissions: 0, review: 0 };
+    let hosts: { id: string; pattern: string; note: string; preset: boolean; enabled: boolean }[] = [];
+    wire.answer("permissions.denylist.get", () => {
+      reads.denylist++;
+      return { result: { denylist: { browserDomains: [], paths: [], commandPatterns: [], hosts } } };
+    });
+    wire.answer("permissions.settings.get", () => {
+      reads.permissions++;
+      return { result: PERMISSIONS_REPORT };
+    });
+    wire.answer("permissions.review.list", () => {
+      reads.review++;
+      return { result: { watermark: 0, head: 7, runs: [] } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const denylist = runtime.requests.cached(id, "permissions.denylist.get", {});
+    denylist.subscribe(() => undefined);
+    runtime.requests.cached(id, "permissions.settings.get", {}).subscribe(() => undefined);
+    runtime.requests.cached(id, "permissions.review.list", {}).subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 1, 1, 1]);
+
+    hosts = [{ id: "metadata", pattern: "169.254.169.254", note: "", preset: false, enabled: true }];
+    environment?.event(noticeEvent(1, wire.environmentId, "denylist.updated", { sections: ["hosts"] }));
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 2, 1]);
+    expect(denylist.read()).toMatchObject({ result: { denylist: { hosts } }, error: null });
+
+    environment?.event(noticeEvent(2, wire.environmentId, "review.updated", {}));
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 2, 2]);
+    // Neither list is a setting.
+    environment?.event(noticeEvent(3, wire.environmentId, "settings.changed", { keys: ["permissions.defaultCeiling"] }));
+    await flush();
+    expect([asked(), reads.denylist, reads.permissions, reads.review]).toEqual([1, 2, 3, 2]);
+  });
+
+  it("fetches a session's skills.get again on skills.updated, account changes, trust.updated and forge aliases, and no other query (#494, #501, #516)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     const accounts = [{ accountId: "claude-max", channel: "system-prompt-append", reason: null }];
@@ -351,7 +415,7 @@ describe("the request cache", () => {
       return { result: view };
     });
     runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
-    const skills = runtime.requests.cached(id, "skills.get", {});
+    const skills = runtime.requests.cached(id, "skills.get", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
     skills.subscribe(() => undefined);
     await flush();
     expect([asked(), reads]).toEqual([1, 1]);
@@ -363,6 +427,51 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
     await flush();
     expect([asked(), reads]).toEqual([1, 3]);
+    // Trust and canonical-host aliases determine the session's repository members.
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
+    environment?.event(noticeEvent(4, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 5]);
+    expect(skills.read()).toMatchObject({ result: view, error: null });
+  });
+
+  it("fetches skills.readiness again on skills.updated, account changes and trust.updated, and no other query (#510, #516)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    const ready = { skills: [{ name: "tdd", state: "ready", declaredBy: null }] };
+    const setupNeeded = {
+      skills: [
+        {
+          name: "to-spec",
+          state: "setup-needed",
+          declaredBy: "overlay",
+          failing: [{ check: { kind: "file", paths: ["docs/agents/issue-tracker.md"] }, outcome: "failed", message: "docs/agents/issue-tracker.md is not in the workspace." }],
+          why: null,
+          fix: "/setup-matt-pocock-skills",
+        },
+      ],
+    };
+    wire.answer("skills.readiness", () => {
+      reads++;
+      return { result: reads > 1 ? setupNeeded : ready };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const readiness = runtime.requests.cached(id, "skills.readiness", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
+    readiness.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+    environment?.event(noticeEvent(1, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(readiness.read()).toMatchObject({ result: setupNeeded, error: null });
+    environment?.event(noticeEvent(2, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
   });
 
   it("fetches trust.get and trust.list again on trust.updated and on a forge account's aliases changing, and no other query (#500)", async () => {
@@ -398,6 +507,41 @@ describe("the request cache", () => {
     expect([asked(), reads.get, reads.list]).toEqual([1, 3, 3]);
   });
 
+  it("fetches a session's commands.list again on skills.updated, trust.updated, a forge account's aliases or an account changing, and no other query (#503)", async () => {
+    const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
+    let reads = 0;
+    const tdd = { kind: "skill", name: "tdd", description: "Test-driven development.", invocation: "slash-only", origin: null, alwaysOn: false, argumentHint: null };
+    wire.answer("commands.list", () => {
+      reads++;
+      return { result: { accountId: "claude-max", entries: reads > 1 ? [tdd] : [] } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const listing = runtime.requests.cached(id, "commands.list", { sessionId: "7c9e6679-7425-40de-944b-e07fc1f90ae7" });
+    listing.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    // The set changed: a member added, switched off or made always-on.
+    environment?.event(noticeEvent(1, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+    expect(listing.read()).toMatchObject({ result: { entries: [tdd] }, error: null });
+    // The session's trust changed, and with it the repository's members and the provider's own commands.
+    environment?.event(noticeEvent(2, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 3]);
+    environment?.event(noticeEvent(3, wire.environmentId, "forge.account.verified", forgeEventPayload("forge.account.verified", forgeRecord())));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
+    // The account's choices, or the default account a session on none lists, changed.
+    environment?.event(noticeEvent(4, wire.environmentId, "account.updated", { accountId: "claude-max", change: "removed", warning: null }));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 5]);
+    environment?.event(noticeEvent(5, wire.environmentId, "instructions.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 5]);
+  });
+
   it("fetches browser.status again on extension.seen, and no other query (#547)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
@@ -409,6 +553,7 @@ describe("the request cache", () => {
           folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
           shippedVersion: "0.4.2",
           unpairedConnected: reads > 1,
+          headless: { allowRuns: true, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 },
         },
       };
     });
@@ -441,6 +586,7 @@ describe("the request cache", () => {
           folder: { path: "/home/david/.local/state/agent-harness/extension/current", problem: null },
           shippedVersion: "0.4.2",
           unpairedConnected: reads.status === 1,
+          headless: { allowRuns: true, availability: { available: false, reason: "No Chromium or Chrome was found." }, liveContexts: 0 },
         },
       };
     });
@@ -459,12 +605,21 @@ describe("the request cache", () => {
     expect(status.read()).toMatchObject({ result: { unpairedConnected: false }, error: null });
   });
 
-  it("fetches carryOver.inventory again when an import of the account's directory ends, and no other query (#578)", async () => {
+  it("fetches carryOver.inventory again when an import of the account's directory ends, a memory folder is assigned or the skill set changes, and no other query (#578, #580)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     wire.answer("carryOver.inventory", () => {
       reads++;
-      return { result: { accountId: "claude-max", sessions: { total: 3, archived: 1, missingDirectory: 1, new: reads > 1 ? 0 : 2 } } };
+      return {
+        result: {
+          accountId: "claude-max",
+          sessions: { total: 3, archived: 1, missingDirectory: 1, new: reads > 1 ? 0 : 2 },
+          memory: { folders: 2, repositories: 1, unmappable: reads > 2 ? [] : [{ folder: "-tmp-pad", path: "/home/david/.claude/projects/-tmp-pad/memory" }], new: 0 },
+          skills: { skills: 1, commands: 0, new: 0, offered: [], invalid: 0 },
+          notCarried: [],
+          doesNotCarry: { hooks: 0, mcpServers: 0, permissionRules: 0 },
+        },
+      };
     });
     runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
     const inventory = runtime.requests.cached(id, "carryOver.inventory", { accountId: "claude-max" });
@@ -477,12 +632,22 @@ describe("the request cache", () => {
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
     expect(inventory.read()).toMatchObject({ result: { sessions: { new: 0 } }, error: null });
-    environment?.event(noticeEvent(2, wire.environmentId, "skills.updated", {}));
+
+    const copy = { folder: "-tmp-pad", path: "/home/david/.claude/projects/-tmp-pad/memory", key: "https://git.example.com/david/pad", outcome: "copied", under: null, digest: `sha256:${"0".repeat(64)}` };
+    environment?.event(noticeEvent(2, wire.environmentId, "carry-over.memory-assigned", { accountId: "claude-max", repositoryIdentity: "https://git.example.com/david/pad", copy }));
     await flush();
-    expect([asked(), reads]).toEqual([1, 2]);
+    expect([asked(), reads]).toEqual([1, 3]);
+    expect(inventory.read()).toMatchObject({ result: { memory: { unmappable: [] } }, error: null });
+
+    environment?.event(noticeEvent(3, wire.environmentId, "skills.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
+    environment?.event(noticeEvent(4, wire.environmentId, "trust.updated", {}));
+    await flush();
+    expect([asked(), reads]).toEqual([1, 4]);
   });
 
-  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection or the managed tools changing, and no other query (#505)", async () => {
+  it("fetches instructions.list and instructions.preview again on instructions.updated, on the settings, an account, a forge account, a key-manager connection, the managed tools or the known environments changing, and no other query (#505)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     const reads = { list: 0, preview: 0 };
     const accounts = [{ accountId: "claude-max", label: "Claude Max", channel: { kind: "system-prompt-append", maxCharacters: null }, reason: null }];
@@ -528,6 +693,10 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(7, wire.environmentId, "tools.updated", toolsUpdatedPayload(toolRow({ version: "2.2.0" }))));
     await flush();
     expect([asked(), reads.list, reads.preview]).toEqual([1, 7, 7]);
+    // The block's other environments section (#382).
+    environment?.event(noticeEvent(8, wire.environmentId, "environment.known-environments-updated", { environments: [{ name: "laptop", address: "http://laptop:7433" }] }));
+    await flush();
+    expect([asked(), reads.list, reads.preview]).toEqual([1, 8, 8]);
   });
 
   it("fetches instructions.diff again on instructions.updated alone (#509)", async () => {
@@ -551,7 +720,7 @@ describe("the request cache", () => {
     expect(diffed.read()).toMatchObject({ result: { body: "New." }, error: null });
   });
 
-  it("fetches stateImport.detect again when a state import ends, and no other query (#581)", async () => {
+  it("fetches stateImport.detect again when a state import ends, leaving unrelated queries alone (#581)", async () => {
     const { runtime, wire, id, asked, environment } = await counting({ environmentStream: true });
     let reads = 0;
     wire.answer("stateImport.detect", () => {
@@ -572,6 +741,38 @@ describe("the request cache", () => {
     environment?.event(noticeEvent(2, wire.environmentId, "carry-over.imported", { accountId: "claude-max", sessions: { listed: 0, imported: 0, archived: 0, missingDirectory: 0, held: 0 }, failed: [] }));
     await flush();
     expect([asked(), reads]).toEqual([1, 2]);
+  });
+
+  it("fetches one query again when asked to, at once while followed and by its next follower otherwise, and no other query (#576)", async () => {
+    const { runtime, wire, id, asked } = await counting();
+    let reads = 0;
+    wire.answer("environment.status", () => {
+      reads++;
+      return { result: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false } };
+    });
+    runtime.requests.cached(id, "groups.list", {}).subscribe(() => undefined);
+    const status = runtime.requests.cached(id, "environment.status", {});
+    const stop = status.subscribe(() => undefined);
+    await flush();
+    expect([asked(), reads]).toEqual([1, 1]);
+
+    runtime.requests.refresh(id, "environment.status", {});
+    await flush();
+    expect([asked(), reads]).toEqual([1, 2]);
+
+    // Followed by nobody, it is fetched by its next follower, well inside the five minutes.
+    stop();
+    runtime.requests.refresh(id, "environment.status", {});
+    await flush();
+    expect(reads).toBe(2);
+    status.subscribe(() => undefined);
+    await flush();
+    expect(reads).toBe(3);
+
+    // A query nobody has asked for has nothing to fetch again.
+    runtime.requests.refresh(id, "trust.list", {});
+    await flush();
+    expect(runtime.requests.cached(id, "trust.list", {}).read()).toEqual({ result: null, fetchedAt: null, error: null, loading: false });
   });
 
   it("fetches once more after a fetch asked for again while under way only while followed, and never for five minutes running out during it", async () => {

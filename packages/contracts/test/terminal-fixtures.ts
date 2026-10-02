@@ -82,6 +82,13 @@ const onTerminal = { commandId, id };
 const noTerminal = [{ commandId }, { id }, { commandId, id: "t-1" }, { commandId, id: v1 }];
 
 export const terminalMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
+  "terminals.run": {
+    params: {
+      valid: [{ commandId, id, sessionId, command: "echo hi" }, { commandId, id, sessionId, command: "pwd", cwd: "/tmp", env: { TEST: "yes" } }],
+      invalid: [{ commandId, id, sessionId }, { commandId, id, command: "pwd" }, { commandId, id, sessionId, command: "" }, { commandId, id, sessionId, command: "pwd", cwd: "" }],
+    },
+    result: { valid: [{ terminal }], invalid: [{}, { terminal: { id } }] },
+  },
   "terminals.open": {
     params: {
       valid: [

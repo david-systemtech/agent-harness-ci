@@ -13,17 +13,31 @@
       "@agent-harness/source": "./src/launcher.ts",
       "types": "./dist/launcher.d.ts",
       "default": "./dist/launcher.js"
-    }
+    },
+    "./bank-validator": {
+      "@agent-harness/source": "./src/bank-validator.ts",
+      "types": "./dist/bank-validator.d.ts",
+      "default": "./dist/bank-validator.js"
+    },
+    "./routine-yaml": {
+      "@agent-harness/source": "./src/routine-yaml.ts",
+      "types": "./dist/routine-yaml.d.ts",
+      "default": "./dist/routine-yaml.js"
+    },
+    "./bank-validator-file": "./dist/bank-validator/validate.mjs"
   },
   "scripts": {
     "test": "vitest run",
-    "export-schemas": "tsx scripts/export-schemas.ts"
+    "export-schemas": "tsx scripts/export-schemas.ts",
+    "build-validator": "tsx --conditions=@agent-harness/source scripts/build-bank-validator.ts"
   },
   "dependencies": {
+    "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1"
+    "ajv-formats": "^3.0.1",
+    "vite": "8.3.0"
   }
 }

@@ -5,6 +5,7 @@ import { bundledExecutable } from "../adapters/claude/executable.js";
 import { claudeCodeVersionOf } from "../adapters/claude/version.js";
 import { applyMigrations, DATABASE_SCHEMA_VERSION } from "../event-log/migrations.js";
 import { loadSqlite } from "../event-log/sqlite.js";
+import { KEYCHAIN_BINDING, loadKeychainBinding, type KeychainBinding } from "../serve/keychain.js";
 import { HARNESS_VERSION } from "../serve/start.js";
 import { loadNodePty } from "../terminals/pty.js";
 
@@ -13,13 +14,14 @@ import { loadNodePty } from "../terminals/pty.js";
  * this build, on this machine, can load what it needs, asked before the
  * launcher installs it, so only a version that can run is ever switched to.
  * It loads SQLite and migrates a database in memory with this build's
- * migrations, loads `node-pty` (the terminals' native module), and runs the
+ * migrations, loads `node-pty` (the terminals' native module), loads the
+ * keychain binding on macOS and Windows without calling the keychain, and runs the
  * bundled Claude binary's `--version`. It touches no data directory: the
  * environment running beside it holds the database.
  */
 
-/** What a preflight checks: SQLite, `node-pty`, and the bundled Claude binary. */
-export type PreflightCheck = "sqlite" | "node-pty" | "claude";
+/** What a preflight checks: SQLite, `node-pty`, the desktop keychain binding, and the bundled Claude binary. */
+export type PreflightCheck = "sqlite" | "node-pty" | "keychain" | "claude";
 
 /** A check that failed, and why. */
 export interface PreflightFailure {
@@ -28,10 +30,17 @@ export interface PreflightFailure {
 }
 
 /** The version's report once every check passed, or every check that failed, in the order they ran. */
-export type PreflightAnswer = { readonly report: PreflightReport } | { readonly failures: readonly PreflightFailure[] };
+export type PreflightAnswer = ({ readonly report: PreflightReport } | { readonly failures: readonly PreflightFailure[] }) & {
+  /** Present only where the platform's keychain binding loaded; no keychain entry was accessed. */
+  readonly keychain?: "loaded";
+};
 
 /** What a preflight loads and runs; seams for tests. */
 export interface PreflightSeams {
+  /** Preset: this machine's OS; macOS and Windows must load their keychain binding. */
+  readonly platform?: NodeJS.Platform;
+  /** Preset: the vault's binding loader. Loading calls no keychain operation. */
+  readonly loadKeychain?: () => Promise<KeychainBinding>;
   /** Preset: the event log's loader of `node:sqlite`. */
   readonly loadSqlite?: () => typeof Sqlite;
   /** Preset: the terminals' loader of `node-pty`, which throws naming why it did not load. */
@@ -72,11 +81,22 @@ export const preflight = async (seams: PreflightSeams = {}): Promise<PreflightAn
   } catch (error) {
     failures.push({ check: "node-pty", message: messageOf(error) });
   }
+  let keychain: "loaded" | undefined;
+  const platform = seams.platform ?? process.platform;
+  if (platform === "darwin" || platform === "win32") {
+    try {
+      await (seams.loadKeychain ?? loadKeychainBinding)();
+      keychain = "loaded";
+    } catch (error) {
+      failures.push({ check: "keychain", message: `${KEYCHAIN_BINDING} did not load: ${messageOf(error)}` });
+    }
+  }
   const executable = seams.claudeExecutable === undefined ? bundledExecutable() : seams.claudeExecutable;
   const claude = await claudeCodeVersionOf({ executable, ...(seams.runClaude !== undefined && { run: seams.runClaude }) });
   if ("problem" in claude) failures.push({ check: "claude", message: claude.problem });
-  if ("problem" in claude || failures.length > 0) return { failures };
+  if ("problem" in claude || failures.length > 0) return { failures, ...(keychain !== undefined && { keychain }) };
   return {
+    ...(keychain !== undefined && { keychain }),
     report: {
       version: HARNESS_VERSION,
       protocolVersion: PROTOCOL_VERSION,

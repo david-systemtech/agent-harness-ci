@@ -49,7 +49,11 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     setText(next);
     typed.set(id, next);
   };
-  const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => ({ ...held, ...chosen }));
+  const choose = (chosen: NewSessionChips) => grid.chooseChips(id, (held) => {
+    const next = { ...held, ...chosen };
+    if (chosen.environmentId !== undefined || chosen.account !== undefined) delete next.browser;
+    return next;
+  });
 
   const start = async () => {
     const message = text.trim();
@@ -65,12 +69,14 @@ export const NewSessionSurface = ({ surface }: { readonly surface: PaneNewSessio
     const { answer } = await runtime.commands.startSession(environmentId, {
       id,
       workspace,
+      browser: view.browser,
       ...(account !== null && { account: account.id }),
       ...(model !== null && { model: model.id }),
     });
     if (!answer.ok) {
       setStarting(false);
-      return say(refusalLine(answer.error, workspace, environment === undefined ? "the environment" : nameOf(environment)));
+      const where = environment === undefined ? "the environment" : nameOf(environment);
+      return say(refusalLine(answer.error, workspace, { where, environmentId, rows: runtime.projections.sessionList.read().rows }));
     }
     const sent = await sendMessage(runtime, environmentId, id, { text: message, attachments: [] }, false);
     if (!sent.ok) runtime.drafts.set(environmentId, id, message);

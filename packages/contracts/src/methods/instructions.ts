@@ -6,6 +6,7 @@ import {
   InstructionDiff,
   InstructionId,
   InstructionManifest,
+  InstructionOrigin,
   InstructionPreviewPart,
   InstructionReach,
   InstructionTitle,
@@ -118,7 +119,9 @@ const placement = {
  * (`instructions.suggestion-restored`). Its scope is preset `all`, it is
  * preset enabled, and with no position it goes after the last. An id
  * already used, even by an instruction since removed, is `conflict`
- * (reason `exists`); an account the scope names that the environment does
+ * (reason `exists`). An explicit title and body may carry their remembered
+ * origin for a bulk copy; it is kept exactly, even on a different catalogue
+ * version. An account the scope names that the environment does
  * not hold is `not_found` (kind `account`); a catalogue id this build does
  * not hold is `not_found` (kind `instruction`). The refinement is zod's
  * half; the `oneOf` the export's.
@@ -132,16 +135,17 @@ export const instructionsCreate = defineMethod({
     catalogueId: CatalogueInstructionEntryId.optional().meta({ description: "The catalogue entry to copy, with no title and no body: a tick." }),
     title: InstructionTitle.optional().meta({ description: "With body and no catalogueId: the title of one written here (Custom)." }),
     body: InstructionBody.optional().meta({ description: "With title and no catalogueId: the body of one written here (Custom)." }),
+    origin: InstructionOrigin.optional().meta({ description: "With explicit title and body: the origin remembered by an owned copy, kept at its original version when copying between environments; omitted for Custom." }),
     ...placement,
   })
-    .refine((params) => (params.catalogueId === undefined ? params.title !== undefined && params.body !== undefined : params.title === undefined && params.body === undefined), {
+    .refine((params) => (params.catalogueId === undefined ? params.title !== undefined && params.body !== undefined : params.title === undefined && params.body === undefined && params.origin === undefined), {
       message: "Give a title and a body, or a catalogue id, not both.",
     })
     .meta({
       description: "A Custom instruction's title and body, or the catalogue entry a tick copies; then its scope, whether it is enabled and its position.",
       oneOf: [
         { required: ["title", "body"], properties: { title: true, body: true, catalogueId: false } },
-        { required: ["catalogueId"], properties: { catalogueId: true, title: false, body: false } },
+        { required: ["catalogueId"], properties: { catalogueId: true, title: false, body: false, origin: false } },
       ],
     }),
   result: instructionResult,

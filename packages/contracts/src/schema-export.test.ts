@@ -62,16 +62,21 @@ describe("the JSON Schema export", () => {
       { path: "cases/skill-source-url.json", title: "Skill source URL" },
       { path: "cases/skill-source-folder.json", title: "Skill source folder" },
       { path: "cases/bridge-proof.json", title: "Bridge proof" },
+      { path: "cases/schedule-validation.json", title: "Schedule validation" },
+      { path: "cases/schedule-due-times.json", title: "Schedule due times" },
+      { path: "cases/silence.json", title: "Silence" },
     ]);
     expect(index.data).toEqual([
       { path: "data/settings-bands.json", title: "Settings bands", schema: "settings/band.json" },
       { path: "data/settings-rows.json", title: "Settings rows", schema: "settings/row.json" },
       { path: "data/settings-addresses.json", title: "Settings addresses", schema: "settings/address-row.json" },
+      { path: "data/pairing-presets.json", title: "Pairing presets", schema: "pair/preset.json" },
       { path: "data/managed-tools.json", title: "Managed tools", schema: "managed-tools/tool.json" },
       { path: "data/managed-tool-commands.json", title: "Managed tool commands", schema: "managed-tools/command-entry.json" },
       { path: "data/catalogue-skills.json", title: "Catalogue skills", schema: "catalogue/skill-entry.json" },
       { path: "data/catalogue-instruction-groups.json", title: "Catalogue instruction groups", schema: "catalogue/instruction-group.json" },
       { path: "data/catalogue-instructions.json", title: "Catalogue instructions", schema: "catalogue/instruction-entry.json" },
+      { path: "data/bank-validator-rules.json", title: "Bank validator rules", schema: "banks/validator-rule.json" },
     ]);
     const tablePaths = new Set([...index.cases, ...index.data].map((c) => c.path));
     expect(index.schemas.map((s) => s.path).sort()).toEqual(filesOnDisk().filter((p) => p !== "index.json" && !tablePaths.has(p)));
@@ -154,6 +159,32 @@ describe("the JSON Schema export", () => {
     }
   });
 
+  it("publishes the schedule maths' cases, which a client reading only the files can run its own maths against", () => {
+    const validation = readJson("cases/schedule-validation.json") as { description: string; cases: contracts.ScheduleValidationCase[] };
+    expect(validation.description).toContain("validateSchedule");
+    expect(validation.cases).toEqual(contracts.SCHEDULE_VALIDATION_CASES);
+    expect(validation.cases).toContainEqual({ note: "every second minute is refused", schedule: { kind: "cron", expression: "*/2 * * * *" }, timezone: "UTC", issues: [{ path: ["schedule", "expression"], reason: "floor" }] });
+    for (const { note, schedule, timezone, issues } of validation.cases) {
+      expect(contracts.validateSchedule({ schedule: schedule as contracts.RoutineSchedule, timezone }).map(({ path, reason }) => ({ path, reason })), note).toEqual(issues);
+    }
+
+    const dueTimes = readJson("cases/schedule-due-times.json") as { description: string; cases: contracts.ScheduleDueTimesCase[] };
+    expect(dueTimes.description).toContain("nextDueAt and dueTimesBetween");
+    expect(dueTimes.cases).toEqual(contracts.SCHEDULE_DUE_TIME_CASES);
+    for (const { note, after, through, next, ...zoned } of dueTimes.cases) {
+      expect(contracts.nextDueAt(zoned, new Date(after))?.toISOString() ?? null, note).toBe(next);
+      expect(contracts.dueTimesBetween(zoned, new Date(after), new Date(through)).map((due) => due.toISOString()), note).toEqual(zoned.dueTimes);
+    }
+  });
+
+  it("publishes the silence rule's cases, which a client reading only the file can run its own rule against", () => {
+    const silence = readJson("cases/silence.json") as { description: string; cases: contracts.SilenceCase[] };
+    expect(silence.description).toContain("isSilent");
+    expect(silence.cases).toEqual(contracts.SILENCE_CASES);
+    expect(silence.cases).toContainEqual({ note: "the marker mid-sentence", text: "The lane said [SILENT] mid-sentence and kept talking", marker: "[SILENT]", silent: false });
+    for (const { note, text, marker, silent } of silence.cases) expect(contracts.isSilent(text, marker), note).toBe(silent);
+  });
+
   it("publishes the bridge proof's case, which a client reading only the file can check its HMAC against", () => {
     const published = readJson("cases/bridge-proof.json") as { title: string; description: string; cases: { note: string; secret: string; nonce: string; proof: string }[] };
     expect(published.title).toBe("Bridge proof");
@@ -203,6 +234,17 @@ describe("the JSON Schema export", () => {
     expect(tables["data/settings-addresses.json"]).toEqual(contracts.SETTINGS_ADDRESSES.map((address) => ({ address, row: contracts.rowOfAddress(address) })));
   });
 
+  it("exports numeric-only entry refusal on denylist input while preserving browser host-list compatibility", () => {
+    const ajv = validator();
+    const schemas = ["permissions/denylist-input.json", "settings/keys/browser.devSites.json", "settings/keys/browser.internalHosts.json"];
+    for (const path of schemas) ajv.addSchema(readJson(path), path);
+    for (const pattern of ["1.2.3.4.5", "1.2.3.256", "2852039166", "0xa9fea9fe", "0251.0376.0251.0376", "123.example"]) {
+      const accepted = !["1.2.3.4.5", "1.2.3.256"].includes(pattern);
+      for (const section of ["hosts", "browserDomains"]) expect(ajv.validate(schemas[0]!, { [section]: [{ pattern }] }), pattern).toBe(accepted);
+      for (const schema of schemas.slice(1)) expect(ajv.validate(schema, [pattern]), pattern).toBe(true);
+    }
+  });
+
   it("publishes the Managed tools table as data, each tool valid against the tool schema", () => {
     const ajv = validator();
     for (const path of filesOnDisk().filter((p) => p !== "index.json" && !p.startsWith("data/"))) ajv.addSchema(readJson(path), path);
@@ -231,6 +273,14 @@ describe("the JSON Schema export", () => {
     expect(tables["data/catalogue-instruction-groups.json"]).toEqual(contracts.CATALOGUE.instructions.groups);
     expect(tables["data/catalogue-instructions.json"]).toEqual(contracts.CATALOGUE.instructions.entries);
     expect(readJson("data/catalogue-skills.json").description).toContain("repository identity");
+  });
+
+  it("publishes the bank validator's rules as data, every rule id once in a verdict's order, each valid against the rule schema", () => {
+    const table = readJson("data/bank-validator-rules.json") as { schema: string; entries: { id: string; severity: string; summary: string }[] };
+    expect(table.entries.map((rule) => rule.id)).toEqual([...contracts.BANK_RULE_IDS]);
+    expect(table.entries.filter((rule) => rule.severity === "warning").map((rule) => rule.id)).toEqual(["description_trigger", "unresolved_link"]);
+    const validate = validator().compile(readJson(table.schema));
+    for (const rule of table.entries) expect(validate(rule), rule.id).toBe(true);
   });
 
   it("publishes the row, scope and address shapes", () => {

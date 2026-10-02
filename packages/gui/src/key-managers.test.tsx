@@ -14,7 +14,7 @@ import { certificateOf, renderApp, type RenderedApp, type ScriptedEnvironment } 
  * the scripted environment's key-manager answers.
  */
 
-/** Both flags the row reads: its connections and the CLI rows. */
+/** The flags an environment with key managers offers: `keyManagers`, which the row reads, and `managedTools`, whose `tools.list` it does not (#776). */
 const FLAGGED = ["keyManagers", "managedTools"] as const;
 
 /** The window over `desk`, this machine's environment, as `desk` scripts it, and the other environments given, paired. */
@@ -80,6 +80,24 @@ describe("a connection's card", () => {
     expect(facts(home)["Status"]).toMatch(/^Signed in since \d\d:\d\d$/);
     expect(within(home).getByText("Signed in to OpenBao as approle.")).toBeDefined();
     await waitFor(() => expect(app.environment("desk").requests("keyManagers.list").length).toBeGreaterThan(0));
+    // The CLI fact is the listed connection's own row (#375, #776): the pane asks no tools.list for it.
+    expect(app.environment("desk").requests("tools.list")).toEqual([]);
+  });
+
+  it("shows its CLI row from keyManagers.list where the environment does not offer managedTools, and its CLI not installed where none is", async () => {
+    const app = await opened({
+      capabilities: ["keyManagers"],
+      keyManagers: {
+        connections: [
+          { label: "Home OpenBao", address: "https://bao.home.test:8200" },
+          { label: "Team Doppler", address: "https://api.doppler.com", provider: "doppler", method: null, mount: null, username: null, ca: null },
+        ],
+        tools: [{ tool: "vault", version: "1.18.0", minimum: "1.15.0", status: "current" }],
+      },
+    });
+    await openKeyManagers(app);
+    expect(facts(await card("Home OpenBao"))["CLI"]).toBe("Vault CLI 1.18.0, at least 1.15.0: current.");
+    expect(facts(await card("Team Doppler"))["CLI"]).toBe("Doppler CLI: not installed: install it.");
   });
 });
 
@@ -162,6 +180,25 @@ describe("Add", () => {
     expect(params).toMatchObject({ provider: "doppler", address: "https://api.doppler.com", credential: { method: "token", token: "token-for-tests" } });
     expect(Object.keys(params)).not.toContain("method");
     expect(Object.keys(params)).not.toContain("mount");
+  });
+
+  it("asks 1Password for its token alone, never an address: the account URL the token names, learned at sign-in", async () => {
+    const app = await opened();
+    const keyManagers = await openKeyManagers(app);
+    await app.user.click(within(keyManagers).getByRole("button", { name: "Add a key manager" }));
+    const add = await dialog("Add a key manager on desk");
+    // An address typed for OpenBao first is not sent once 1Password is chosen.
+    await app.user.type(within(add).getByRole("textbox", { name: "Address" }), "https://bao.home.test:8200");
+    await app.user.selectOptions(within(add).getByRole("combobox", { name: "Provider" }), "onepassword");
+    expect((within(add).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("1Password");
+    expect(within(add).queryByRole("textbox", { name: "Address" })).toBeNull();
+    expect(within(add).getByText("No address: it is the account URL the token names, learned at sign-in.")).toBeDefined();
+    await app.user.type(within(add).getByLabelText("Token"), "token-for-tests");
+    await app.user.click(within(add).getByRole("button", { name: "Add" }));
+    expect(await within(add).findByText(/^Not added: This environment cannot sign in to 1Password yet/)).toBeDefined();
+    const params = app.environment("desk").requests("keyManagers.connections.add")[0]?.params ?? {};
+    expect(params).toMatchObject({ provider: "onepassword", label: "1Password", credential: { method: "token", token: "token-for-tests" } });
+    expect(Object.keys(params)).not.toContain("address");
   });
 
   it("says a connection the environment holds already in one line", async () => {
@@ -292,6 +329,21 @@ describe("the card's verbs", () => {
     const params = app.environment("desk").requests("keyManagers.connections.update")[0]?.params ?? {};
     expect(Object.keys(params).sort()).toEqual(["commandId", "connectionId", "label", "tokenRole"]);
     expect(params).toMatchObject({ label: "Bao at home", tokenRole: "harness-runs" });
+  });
+
+  it("offers no address in a 1Password connection's Edit, the account URL its token names", async () => {
+    const onePassword = { label: "Team 1Password", provider: "onepassword", address: "https://my.1password.com", ca: null, method: null, mount: null, username: null } as const;
+    const app = await opened({ keyManagers: { connections: [onePassword] } });
+    await openKeyManagers(app);
+    await app.user.click(within(await card("Team 1Password")).getByRole("button", { name: "Edit" }));
+    const edit = await dialog("Edit Team 1Password");
+    expect(within(edit).queryByRole("textbox", { name: "Address" })).toBeNull();
+    await app.user.clear(within(edit).getByRole("textbox", { name: "Label" }));
+    await app.user.type(within(edit).getByRole("textbox", { name: "Label" }), "Our 1Password");
+    await app.user.click(within(edit).getByRole("button", { name: "Save" }));
+    expect(await card("Our 1Password")).toBeDefined();
+    const params = app.environment("desk").requests("keyManagers.connections.update")[0]?.params ?? {};
+    expect(Object.keys(params).sort()).toEqual(["commandId", "connectionId", "label"]);
   });
 
   it("signs out and removes, each only once it is confirmed", async () => {

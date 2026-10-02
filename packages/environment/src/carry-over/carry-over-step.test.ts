@@ -111,6 +111,23 @@ describe("the Carry over step with nothing to carry", () => {
     expect((await checkCarryOver(await start({ sessions: [] }))).state).toBe("skipped");
     expect((await checkCarryOver(await start({ sessions: [listed()], directory: join(tempDir(), "gone") }))).state).toBe("skipped");
   });
+
+  it("counts memory and skills as something to carry: a directory listing no session but holding a memory folder, or a command, is not skipped (#580)", async () => {
+    const withMemory = adoptedDirectory();
+    mkdirSync(join(withMemory, "projects", "-work-repo", "memory"));
+    writeFileSync(join(withMemory, "projects", "-work-repo", "memory", "MEMORY.md"), "# Memory\n");
+    expect(await checkCarryOver(await start({ sessions: [], directory: withMemory }))).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
+
+    const withCommand = adoptedDirectory();
+    mkdirSync(join(withCommand, "commands"));
+    writeFileSync(join(withCommand, "commands", "ship.md"), "---\ndescription: Ship it.\n---\nShip.\n");
+    expect(await checkCarryOver(await start({ sessions: [], directory: withCommand }))).toMatchObject({ state: "needs-attention", failing: ["carry-over.last-import"] });
+
+    // An empty memory folder holds nothing to carry.
+    const emptyMemory = adoptedDirectory();
+    mkdirSync(join(emptyMemory, "projects", "-work-repo", "memory"));
+    expect((await checkCarryOver(await start({ sessions: [], directory: emptyMemory }))).state).toBe("skipped");
+  });
 });
 
 describe("the Carry over step with an adopted directory to carry", () => {

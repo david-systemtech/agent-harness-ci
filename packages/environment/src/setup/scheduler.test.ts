@@ -369,11 +369,11 @@ describe("the triggers", () => {
 });
 
 describe("one check of a step at a time", () => {
-  it("gives a setup.check, the cadence and a trigger that arrive while the step's check runs that run's result, running nothing beside it", async () => {
+  it("gives a setup.check and the cadence that arrive while the step's check runs that run's result, running nothing beside it", async () => {
     const late = lateCheck();
     const t = await start({
       setupSteps: {
-        steps: [scriptedStep("account", { budget: "git", triggers: ["test.poked"], stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] })],
+        steps: [scriptedStep("account", { budget: "git", stateChecks: [{ id: "account.late", holds: "The late check holds.", actions: [] }] })],
         stateChecks: { "account.late": late.checker },
       },
     });
@@ -384,10 +384,9 @@ describe("one check of a step at a time", () => {
     const client = await t.client();
     const asked = client.request("setup.check", { step: "account" });
     const call = await late.call(2);
-    // While it runs: its cadence falls due, an event it names arrives, and it is asked for again, which the environment has
-    // taken once a request sent after it is answered.
+    // While it runs: its cadence falls due, and it is asked for again, which the environment has taken once a request sent
+    // after it is answered.
     t.clock.advance(10_000);
-    poke(t, "test.poked");
     const again = client.request("setup.check", { step: "account" });
     await client.request("settings.get", { keys: ["appearance.theme"] });
     call.answer({ reason: "The late check found a problem." });
@@ -397,6 +396,87 @@ describe("one check of a step at a time", () => {
     expect((await again).results).toEqual([result]);
     await advance(t, 1_000);
     expect(late.calls()).toBe(2);
+  });
+});
+
+describe("a trigger that arrives while the step's check runs", () => {
+  /**
+   * Your machines, writing `sessions.autoSettleOnMerge`, which it holds only
+   * when on: its check reads the setting as it starts, then waits on a state
+   * check the test answers by hand. Past its start pass, the setting off.
+   */
+  const heldMachines = async () => {
+    const late = lateCheck();
+    const t = await start({
+      setupSteps: {
+        steps: [
+          scriptedStep("your-machines", {
+            writes: ["sessions.autoSettleOnMerge"],
+            checks: [{ key: "sessions.autoSettleOnMerge", check: (value) => value === true || "Sessions are not settled on merge." }],
+            budget: "network",
+            triggers: ["settings.updated"],
+            stateChecks: [{ id: "your-machines.late", holds: "The late check holds.", actions: [] }],
+          }),
+        ],
+        stateChecks: { "your-machines.late": late.checker },
+      },
+    });
+    (await late.call(1)).answer(true);
+    await t.env.setup.startPass;
+    return { t, late };
+  };
+
+  it("has the step checked once more a second after that run ends, so a change that landed mid-run is read as it is now, not as the run read it", async () => {
+    const { t, late } = await heldMachines();
+    const client = await t.client();
+    const asked = client.request("setup.check", { step: "your-machines" });
+    const held = await late.call(2);
+    // The run read the setting off as it started; it is turned on while the run waits, which triggers the step.
+    await client.request("settings.update", { commandId: randomUUID(), values: { "sessions.autoSettleOnMerge": true } });
+    await advance(t, 5_000);
+    expect(late.calls()).toBe(2);
+    held.answer(true);
+    expect((await asked).results).toEqual([
+      { step: "your-machines", state: "needs-attention", reason: "Sessions are not settled on merge.", failing: ["sessions.autoSettleOnMerge"], actions: [], checkedAt: after(0) },
+    ]);
+
+    // A second after the run ended, not after the trigger arrived.
+    await advance(t, 999);
+    expect(late.calls()).toBe(2);
+    await advance(t, 1);
+    expect(late.calls()).toBe(3);
+    (await late.call(3)).answer(true);
+    await checksSettled();
+    const done = { step: "your-machines", state: "done", reason: "The late check holds.", failing: [], actions: [], checkedAt: after(6_000) };
+    expect((await snapshot(t, client)).setup).toEqual([done]);
+    expect(resultsOf(await environmentStream(client)).at(-1)).toEqual(done);
+  });
+
+  it("is any trigger, what the run's own verification records included: the step is checked once more, and not again once a check records nothing", async () => {
+    let calls = 0;
+    /** What the next verification records as it runs, once: a forge account it found changed. */
+    let records: (() => void) | undefined;
+    const t = await start({
+      setupSteps: {
+        steps: [scriptedStep("forges", { triggers: ["test.verified"], stateChecks: [{ id: "forges.verified", holds: "Every forge account is verified.", actions: [] }] })],
+        stateChecks: {
+          "forges.verified": () => {
+            calls += 1;
+            records?.();
+            records = undefined;
+            return true;
+          },
+        },
+      },
+    });
+    await t.env.setup.startPass;
+    records = () => poke(t, "test.verified");
+    await (await t.client()).request("setup.check", { step: "forges" });
+    expect(calls).toBe(2);
+    await advance(t, 1_000);
+    expect(calls).toBe(3);
+    await advance(t, 10_000);
+    expect(calls).toBe(3);
   });
 });
 

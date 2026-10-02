@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createConnection, createServer, type Server } from "node:net";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   BRIDGE_PATH,
   EXTENSION_ORIGIN,
@@ -12,8 +16,9 @@ import {
   type BridgeFromExtension,
   type ResultOf,
 } from "@agent-harness/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
+import { EXTENSION_BUILD, HARNESS_VERSION } from "../serve/start.js";
 import { useCleanups } from "../../test/cleanups.js";
 import {
   DialRefusedError,
@@ -41,6 +46,9 @@ import { WAIT_MS } from "../../test/wire-client.js";
  */
 
 const { onCleanup, tempDir } = useCleanups();
+
+/** Spawning tsx and bundling the extension with Vite on a loaded runner: a cap for a hang, not a budget. */
+const BUILD_MS = 120_000;
 
 const start = async (options: TestEnvironmentOptions = {}): Promise<TestEnvironment> => {
   const t = await startTestEnvironment(options);
@@ -107,6 +115,7 @@ describe("the extension's folder", () => {
       folder: { path: folder, problem: null },
       shippedVersion: TEST_EXTENSION_VERSION,
       unpairedConnected: false,
+      headless: { allowRuns: true, availability: expect.objectContaining({ available: false }), liveContexts: 0 },
     });
     const port = answer.listener.state === "listening" ? answer.listener.port : 0;
     expect(readPortFile(folder)).toEqual({ port, environmentId: t.env.id, environmentName: "Laptop", harnessVersion: "1.0.0-test" });
@@ -363,5 +372,50 @@ describe("the fake extension", () => {
       { type: "result", id: "call-2", result: { ok: false, reason: "The fake extension has no answer scripted for screenshot." } },
     ]);
     expect(extension.calls.map((call) => call.id)).toEqual(["call-1", "call-2"]);
+  });
+});
+
+describe("the extension package's build (#549)", () => {
+  // The workspace build's own step, `pnpm --filter @agent-harness/extension build`, run once: the extension of the
+  // harness version into the extension package's `dist`, the build an environment carries unless told otherwise.
+  const script = fileURLToPath(new URL("../../../extension/scripts/build-extension.ts", import.meta.url));
+  const tsx = createRequire(import.meta.url).resolve("tsx");
+  beforeAll(async () => {
+    await promisify(execFile)(process.execPath, ["--conditions=@agent-harness/source", "--import", tsx, script], { cwd: join(script, "..", "..") });
+  }, BUILD_MS);
+  const carried = { browser: { extensionSource: EXTENSION_BUILD } } as const;
+
+  it("is unpacked whole into extension/current at startup, with the port file beside it, as the harness version", async () => {
+    const t = await start({ name: "Laptop", ...carried });
+    const folder = folderOf(t);
+
+    expect(readdirSync(folder).sort()).toEqual([...readdirSync(EXTENSION_BUILD), PORT_FILE_NAME].sort());
+    for (const file of readdirSync(EXTENSION_BUILD)) expect(readFileSync(join(folder, file)), file).toEqual(readFileSync(join(EXTENSION_BUILD, file)));
+    expect(await status(t)).toMatchObject({ folder: { path: folder, problem: null }, shippedVersion: HARNESS_VERSION });
+    expect(readPortFile(folder)).toMatchObject({ environmentId: t.env.id, environmentName: "Laptop", harnessVersion: HARNESS_VERSION });
+  });
+
+  it("replaces another version's folder whole", async () => {
+    const dataDir = join(tempDir("agent-harness-extension-"), "data");
+    const older = writeExtensionBuild(tempDir("agent-harness-build-"), "0.0.0-older", { "old-worker.js": "// older" });
+    await (await start({ dataDir, harnessVersion: "0.0.0-older", browser: { extensionSource: older } })).close();
+
+    const t = await start({ dataDir, ...carried });
+
+    expect(readdirSync(folderOf(t)).sort()).toEqual([...readdirSync(EXTENSION_BUILD), PORT_FILE_NAME].sort());
+    expect(await status(t)).toMatchObject({ folder: { problem: null }, shippedVersion: HARNESS_VERSION });
+  });
+
+  it("is found through its port file by an extension dialling from the folder, whose announce of the build's version raises extension.seen", async () => {
+    const t = await start({ name: "Laptop", ...carried });
+    const watcher = await t.client();
+    const { subscription } = await watcher.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    const extension = await dial(t);
+
+    expect(await extension.announce()).toEqual({ type: "announced", environmentId: t.env.id, environmentName: "Laptop" });
+
+    const frame = await watcher.next((f) => f.type === "event" && f.subscription === subscription && f.event.type === "extension.seen");
+    expect(frame).toMatchObject({ event: { payload: { protocolVersion: 2, extensionVersion: HARNESS_VERSION } } });
+    expect((await status(t)).unpairedConnected).toBe(true);
   });
 });

@@ -247,6 +247,42 @@ describe("updates.settings.set", () => {
   });
 });
 
+describe("the channel a new environment starts on (#846)", () => {
+  /** The `settings.updated` events on the settings stream that set the channel, as stored. */
+  const channelWrites = (t: TestEnvironment) =>
+    t.env.log.readStream({ kinds: ["settings"] }, 0).filter((event) => event.type === "settings.updated" && "updates.channel" in (event.payload as { values: object }).values);
+
+  it("is written at the start that creates the environment, as updates.settings.set writes it, by system:updates", async () => {
+    const t = await start({ channel: "beta" });
+    const client = await t.client();
+    expect(await client.request("settings.get", {})).toMatchObject({ values: { "updates.channel": "beta" } });
+    expect(channelWrites(t)).toEqual([
+      expect.objectContaining({ streamId: t.env.id, actor: "system:updates", payload: { values: { "updates.channel": "beta" } } }),
+    ]);
+  });
+
+  it("is left as it is by a later start given another: the one created with, or the one set since", async () => {
+    const dataDir = join(tempDir(), "data");
+    const first = await startTestEnvironment({ dataDir, channel: "beta" });
+    await first.close();
+    const second = await startTestEnvironment({ dataDir, channel: "stable" });
+    const client = await second.client();
+    expect(await client.request("settings.get", {})).toMatchObject({ values: { "updates.channel": "beta" } });
+    await setUpdates(client, { "updates.channel": "stable" });
+    await second.close();
+
+    const third = await start({ dataDir, channel: "beta" });
+    expect(await (await third.client()).request("settings.get", {})).toMatchObject({ values: { "updates.channel": "stable" } });
+    expect(channelWrites(third).map((event) => event.actor)).toEqual(["system:updates", `client_session:${client.hello.clientSessionId}`]);
+  });
+
+  it("appends nothing when it is the preset", async () => {
+    const t = await start({ channel: "stable" });
+    expect(channelWrites(t)).toEqual([]);
+    expect(await (await t.client()).request("settings.get", {})).toMatchObject({ values: { "updates.channel": "stable" } });
+  });
+});
+
 describe("settings.update", () => {
   it("refuses every update key, naming updates.settings.set, and changes nothing", async () => {
     const t = await start();

@@ -12,6 +12,7 @@ import { isLoopbackAddress } from "../auth/bootstrap.js";
 import { EXCHANGE_RATE, createRateLimiter } from "../auth/rate-limit.js";
 import type { Clock } from "../serve/clock.js";
 import { BodyTooLargeError, readBody, sendJson, type RouteHandler } from "../serve/http.js";
+import type { BankCredentials } from "../banks/credentials.js";
 import type { ForgeService } from "./forge-service.js";
 import { servedOrigins } from "./git-helper.js";
 
@@ -47,6 +48,7 @@ export type CredentialRouteForge = Pick<ForgeService, "secrets" | "list" | "reso
 export interface CredentialRouteOptions {
   readonly forge: CredentialRouteForge;
   readonly clock: Clock;
+  readonly banks?: Pick<BankCredentials, "find" | "resolveCredential">;
 }
 
 const answer = (response: ServerResponse, status: number, body: GitCredentialAnswer | GitCredentialError, headers: Record<string, string> = {}): void =>
@@ -60,7 +62,7 @@ const bearer = (header: string | undefined): string | null => {
   return match?.[1] ?? null;
 };
 
-export const createCredentialRoute = ({ forge, clock }: CredentialRouteOptions): RouteHandler => {
+export const createCredentialRoute = ({ forge, clock, banks }: CredentialRouteOptions): RouteHandler => {
   const bySecret = createRateLimiter({ clock, ...CREDENTIAL_ROUTE_RATE });
   const unmatched = createRateLimiter({ clock, ...EXCHANGE_RATE });
 
@@ -72,7 +74,8 @@ export const createCredentialRoute = ({ forge, clock }: CredentialRouteOptions):
     if (!isLoopbackAddress(request.socket.remoteAddress)) return answer(response, 403, unauthorized("The credential route answers over loopback only."));
 
     const given = bearer(request.headers.authorization);
-    const held = given === null ? null : forge.secrets.find(given);
+    const bankGrant = given === null ? null : banks?.find(given) ?? null;
+    const held = given === null ? null : forge.secrets.find(given) ?? bankGrant;
     const taken = held === null ? unmatched.take("unmatched") : bySecret.take(held.id);
     if (!taken.ok) {
       const seconds = Math.ceil(taken.retryAfterMs / 1000);
@@ -103,6 +106,20 @@ export const createCredentialRoute = ({ forge, clock }: CredentialRouteOptions):
     const { protocol, host } = parsed.data;
 
     const origin = normaliseRemote(`${protocol}://${host}`)?.origin;
+    if (bankGrant !== null) {
+      if (origin !== bankGrant.origin) return answer(response, 401, unauthorized("This bank operation does not serve that origin."));
+      if (parsed.data.action === "erase") {
+        response.writeHead(204, { "cache-control": "no-store" });
+        return void response.end();
+      }
+      try {
+        const credential = await banks!.resolveCredential(bankGrant);
+        if (credential === null) return answer(response, 503, { code: "credential_unavailable", message: "The bank credential is unavailable; check its source in Set up.", data: { origin } });
+        return answer(response, 200, { username: credential.username, password: credential.token });
+      } catch {
+        return answer(response, 503, { code: "credential_unavailable", message: "The bank credential could not be read; check its source in Set up.", data: { origin } });
+      }
+    }
     const account = origin === undefined ? null : servedOn(held.forgeAccountIds, origin);
     if (origin === undefined || account === null) {
       return answer(response, 401, unauthorized(`No forge account this secret names serves ${protocol}://${host}.`));

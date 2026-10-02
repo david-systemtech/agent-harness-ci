@@ -1,3 +1,4 @@
+import { banksDraftsList } from "./memory-drafts.js";
 import type { z } from "zod";
 import {
   accessLogList,
@@ -9,6 +10,7 @@ import {
 } from "./methods/access.js";
 import {
   environmentDrain,
+  environmentKnownEnvironmentsReport,
   environmentRebuildProjections,
   environmentRename,
   environmentSetColour,
@@ -70,8 +72,8 @@ import {
 import { runsInterrupt, runsReadNow, runsSend, runsStart, runsStopTask, runsWithdraw } from "./methods/runs.js";
 import { providersList, providersProcessesList, providersProcessesStop } from "./methods/providers.js";
 import { settingsGet, settingsUpdate } from "./methods/settings.js";
-import { setupCheck } from "./methods/setup.js";
-import { carryOverInventory, carryOverRun } from "./methods/carry-over.js";
+import { setupCheck, setupMint } from "./methods/setup.js";
+import { carryOverAssignMemory, carryOverInventory, carryOverRun } from "./methods/carry-over.js";
 import { stateImportDetect, stateImportRun } from "./methods/state-import.js";
 import {
   accountsAdd,
@@ -107,6 +109,7 @@ import {
   instructionsSetScope,
   sessionsSetInstructions,
 } from "./methods/instructions.js";
+import { banksCreate, banksCredentialSet, banksCredentialSwap, banksGet, banksJoin, banksJoinPreview, banksList, banksRegister, banksSync, banksVerify, banksRegistryUpdate, banksPin, banksForget } from "./methods/banks.js";
 import {
   forgeAccountsAdd,
   forgeAccountsList,
@@ -150,9 +153,23 @@ import {
 } from "./methods/updates.js";
 import { filesList, filesRead } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
-import { skillsCarryOver, skillsGet, skillsOwnCreate, skillsOwnRemove, skillsSetAlwaysOn, skillsSetEnabled } from "./methods/skills.js";
+import {
+  skillsCarryOver,
+  skillsGet,
+  skillsOwnCreate,
+  skillsOwnRemove,
+  skillsProbe,
+  skillsReadiness,
+  skillsSetAlwaysOn,
+  skillsSetEnabled,
+  skillsSourcesAdd,
+  skillsSourcesPull,
+  skillsSourcesRemove,
+  skillsSourcesSetFollow,
+} from "./methods/skills.js";
 import { trustDecide, trustGet, trustList, trustRevoke } from "./methods/trust.js";
-import { browserChromesList, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
+import { browserChromesList, browserChromesPerform, browserChromesRename, browserChromesUnpair, browserPairingCode, browserStatus } from "./methods/browser.js";
+import { clientAnswer } from "./methods/client.js";
 import {
   routinesCheckImport,
   routinesCreate,
@@ -177,6 +194,7 @@ import {
   terminalsClose,
   terminalsList,
   terminalsOpen,
+  terminalsRun,
   terminalsResize,
   terminalsSubscribe,
   terminalsWrite,
@@ -194,6 +212,7 @@ export const methods = [
   environmentRename,
   environmentSetIcon,
   environmentSetColour,
+  environmentKnownEnvironmentsReport,
   accessPairingsCreate,
   accessSessionsList,
   accessSessionsRevoke,
@@ -285,6 +304,20 @@ export const methods = [
   forgePullRequestsLink,
   forgePullRequestsUnlink,
   forgePullRequestsRefresh,
+  banksList,
+  banksJoinPreview,
+  banksJoin,
+  banksDraftsList,
+  banksGet,
+  banksRegister,
+  banksCredentialSet,
+  banksCredentialSwap,
+  banksCreate,
+  banksVerify,
+  banksRegistryUpdate,
+  banksPin,
+  banksForget,
+  banksSync,
   keyManagersList,
   keyManagersConnectionsAdd,
   keyManagersConnectionsSignIn,
@@ -320,11 +353,14 @@ export const methods = [
   permissionsDenylistRestorePresets,
   permissionsDenylistTest,
   setupCheck,
+  setupMint,
   carryOverInventory,
   carryOverRun,
+  carryOverAssignMemory,
   stateImportDetect,
   stateImportRun,
   terminalsOpen,
+  terminalsRun,
   terminalsWrite,
   terminalsResize,
   terminalsClose,
@@ -361,11 +397,17 @@ export const methods = [
   routinesEndpointsRemove,
   routinesEndpointsTest,
   skillsGet,
+  skillsProbe,
   skillsOwnCreate,
   skillsOwnRemove,
   skillsCarryOver,
   skillsSetAlwaysOn,
   skillsSetEnabled,
+  skillsSourcesAdd,
+  skillsSourcesRemove,
+  skillsSourcesPull,
+  skillsSourcesSetFollow,
+  skillsReadiness,
   trustGet,
   trustList,
   trustDecide,
@@ -375,6 +417,8 @@ export const methods = [
   browserChromesList,
   browserChromesRename,
   browserChromesUnpair,
+  browserChromesPerform,
+  clientAnswer,
 ] as const;
 
 type Registered = (typeof methods)[number];
@@ -393,17 +437,6 @@ export type CommandMethodName = Extract<Registered, { readonly kind: "command" }
  * registered method that is neither served nor owed here.
  */
 export const OWED_HANDLERS = {
-  // The routine vocabulary (#519) is registered ahead of the tickets that serve it; the routine store (#521) serves its list and
-  // commands, and run now (#523) routines.runNow and routines.history.
-  "routines.testPreCheck": "#526",
-  "routines.scripts.list": "#526",
-  "routines.export": "#528",
-  "routines.checkImport": "#528",
-  "routines.import": "#528",
-  "routines.endpoints.set": "#522",
-  "routines.endpoints.remove": "#522",
-  "routines.endpoints.list": "#522",
-  "routines.endpoints.test": "#522",
   // The state import's contract is #581's, which the Carry over entry writes through; the switch-over build serves it.
   "stateImport.run": "#94",
 } as const satisfies { readonly [N in MethodName]?: `#${number}` };

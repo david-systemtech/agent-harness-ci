@@ -1,5 +1,4 @@
 import {
-  MANAGED_TOOLS,
   type InjectionAnswer,
   type KeyManagerCertificate,
   type KeyManagerAuthMethod,
@@ -9,6 +8,7 @@ import {
   type KeyManagerStatus,
   type KeyManagerStatusKind,
   type KeyManagerTokenInformation,
+  type ListedKeyManagerConnection,
   type ManagedToolRow,
   type ManagedToolStatus,
 } from "@agent-harness/contracts";
@@ -20,7 +20,7 @@ import { whenWords } from "../transcript/format.js";
  * spec, "The connection record" and "Managed tools"; ADR 0028; #425): each
  * fact of `keyManagers.list`'s record a card or a line shows, what each
  * status asks David to do, the warning a ticked policy that writes carries,
- * and the connection's CLI row from `tools.list`. The environment's own
+ * and the CLI row a listed connection carries (#375). The environment's own
  * status line stands beside these; nothing here reads a secret, since the
  * record holds none.
  */
@@ -38,6 +38,7 @@ export const KEY_MANAGER_METHOD_WORDS: Readonly<Record<KeyManagerAuthMethod, str
 
 /** What each status is called, before its since-time. */
 export const KEY_MANAGER_STATUS_WORDS: Readonly<Record<KeyManagerStatusKind, string>> = {
+  "provider-unavailable": "Provider unavailable",
   "awaiting-sign-in": "Awaiting a sign-in",
   "signing-in": "Signing in",
   "signed-in": "Signed in",
@@ -55,6 +56,7 @@ export const KEY_MANAGER_STATUS_WORDS: Readonly<Record<KeyManagerStatusKind, str
  * asks nothing.
  */
 export const KEY_MANAGER_STATUS_ADVICE: Readonly<Record<KeyManagerStatusKind, string | null>> = {
+  "provider-unavailable": "Use an environment with a supported Bitwarden SDK, then Verify now.",
   "awaiting-sign-in": "Sign in to give this environment its credential.",
   "signing-in": null,
   "signed-in": null,
@@ -131,17 +133,6 @@ export const originWords = (record: Pick<KeyManagerConnectionRecord, "copiedFrom
   return record.importedFrom === null ? null : "The state import, without its credential.";
 };
 
-/**
- * The connection's CLI row: the Managed tools row of the tools that serve
- * its provider (`bao` or `vault` for OpenBao), the first installed, else the
- * first; undefined when `tools.list` holds none of them.
- */
-export const cliRowOf = (provider: KeyManagerProvider, rows: readonly ManagedToolRow[]): ManagedToolRow | undefined => {
-  const serving = MANAGED_TOOLS.filter((tool) => tool.requiredFor.kind === "key-manager" && tool.requiredFor.provider === provider).map((tool) => tool.name);
-  const held = rows.filter((row) => (serving as readonly string[]).includes(row.tool));
-  return held.find((row) => row.status !== "not-installed") ?? held[0];
-};
-
 /** What each managed tool's status says. */
 const TOOL_STATUS_WORDS: Readonly<Record<ManagedToolStatus, string>> = {
   current: "current",
@@ -151,13 +142,35 @@ const TOOL_STATUS_WORDS: Readonly<Record<ManagedToolStatus, string>> = {
   "method-unknown": "installed, but not known how",
 };
 
-/** A CLI row in one line: its label, version against its minimum, and status. */
+/** A CLI row in one line, as a listed connection's `cli` is said: its label, version against its minimum, and status. */
 export const cliWords = (row: ManagedToolRow): string => {
   if (row.status === "not-installed") return `${row.label}: ${TOOL_STATUS_WORDS[row.status]}.`;
   const version = row.version ?? "an unread version";
   const minimum = row.minimum === null ? "" : `, at least ${row.minimum}`;
   return `${row.label} ${version}${minimum}: ${TOOL_STATUS_WORDS[row.status]}.`;
 };
+
+/**
+ * What a connection's CLI asks of a person while runs receive its variables
+ * (ADR 0028; key-managers spec, "The Key manager step", `key-manager.cli`):
+ * not installed, or below its minimum, with what runs lose and what keeps
+ * working without it, since the harness resolves its own references over
+ * the key manager's API; null while it is at its minimum or later, or while
+ * runs do not receive the connection's variables, when no run reads it.
+ */
+export const cliHealthWords = (connection: Pick<ListedKeyManagerConnection, "injects" | "cli">): string | null => {
+  const { cli } = connection;
+  if (!connection.injects) return null;
+  const keeps = "The harness still resolves its own references over the key manager's API without it, so forge and bank credentials keep working.";
+  if (cli.status === "not-installed") return `${cli.label} is not installed: runs receive this key manager's variables but cannot read it from their shell until it is installed. ${keeps}`;
+  if (cli.status !== "below-minimum") return null;
+  const version = cli.version === null ? "" : ` ${cli.version}`;
+  const minimum = cli.minimum === null ? "" : `, ${cli.minimum}`;
+  return `${cli.label}${version} is below its minimum${minimum}: runs may not read this key manager from their shell until it is updated. ${keeps}`;
+};
+
+/** The sentence beside the injection switch on the Key manager card (ADR 0028; the Set up specification, "5. Key manager"). */
+export const INJECTION_SWITCH_WORDS = "Every run on this environment receives this key manager's variables unless an account, routine or bot turns it off.";
 
 /** What a policy's write flag says beside its name. */
 export const POLICY_WRITES_WORDS: Readonly<Record<KeyManagerPolicyWrites, string>> = { yes: "writes", no: "reads only", possibly: "may write" };

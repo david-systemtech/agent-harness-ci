@@ -1,5 +1,7 @@
 import { Box, Text } from "ink";
-import { asksHeading, decidable, type AskRow } from "../cards/asks.js";
+import { decidable } from "@agent-harness/client-runtime";
+import { TERMINAL_ROLES } from "@agent-harness/theme";
+import { asksHeading, type AskRow } from "../cards/asks.js";
 
 /**
  * The parked-asks card on screen (docs/specs/tui.md, "Cards"): a heading
@@ -11,7 +13,7 @@ import { asksHeading, decidable, type AskRow } from "../cards/asks.js";
  */
 
 /** A kind's word in the colour of the card it opens into. */
-const KIND_COLOURS: Readonly<Record<string, string>> = { question: "magenta", plan: "blue", denylist: "red" };
+const KIND_COLOURS: Readonly<Record<string, string>> = { question: TERMINAL_ROLES.accent, plan: TERMINAL_ROLES.thinking, denylist: TERMINAL_ROLES.danger };
 
 export interface AsksCardProps {
   readonly rows: readonly AskRow[];
@@ -29,21 +31,21 @@ export const AsksCard = (props: AsksCardProps) => {
   const shown = rows.slice(top, top + props.height);
   const row = rows[at];
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text color="yellow" bold>
+    <Box flexDirection="column" borderStyle="round" borderColor={TERMINAL_ROLES.warning} paddingX={1}>
+      <Text color={TERMINAL_ROLES.warning} bold>
         ⚿ {asksHeading(rows.length)}
       </Text>
       {shown.map((item, index) => {
         const selected = top + index === at;
         return (
           <Text key={item.key} wrap="truncate-end">
-            <Text color="yellow">{selected ? "❯ " : "  "}</Text>
+            <Text color={TERMINAL_ROLES.warning}>{selected ? "❯ " : "  "}</Text>
             <Text color={item.badge.colour}>{item.badge.abbreviation}</Text>
             <Text> </Text>
             <Text bold={selected}>{item.title}</Text>
             {item.here && <Text dimColor> (here)</Text>}
             <Text>{"  "}</Text>
-            {item.kindWord.length > 0 && <Text color={KIND_COLOURS[item.kindWord] ?? "yellow"}>{item.kindWord} </Text>}
+            {item.kindWord.length > 0 && <Text color={KIND_COLOURS[item.kindWord] ?? TERMINAL_ROLES.warning}>{item.kindWord} </Text>}
             <Text dimColor={!selected}>{item.detail}</Text>
             {item.ttl !== undefined && <Text dimColor>{` · ${item.ttl}`}</Text>}
           </Text>

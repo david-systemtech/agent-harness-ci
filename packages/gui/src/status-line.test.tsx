@@ -1,7 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { AccountUsage } from "@agent-harness/contracts";
+import { ENVIRONMENT_ICONS, type AccountUsage, type EnvironmentIcon } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type ScriptedEnvironment } from "../test/harness.js";
+import { glyphOf } from "./connections/environment-glyphs.js";
 
 /**
  * The status line under a session's composer (docs/specs/gui.md, "A session
@@ -74,12 +75,32 @@ describe("the status line", () => {
     expect(await within(line).findByRole("button", { name: "Containment: ◐ workspace (default)" })).toBeTruthy();
   });
 
-  it("draws the environment's badge as a dot in its colour's token, whatever icon it names, until the window draws the icons", async () => {
-    await opened([desk({ hello: { environmentIcon: "laptop", environmentColour: "teal" } })]);
+  it("draws the environment's icon as a glyph of its own for each of the ten, named by the icon, in its colour's token, as the environment names each in turn", async () => {
+    const { env } = await opened([desk({ icon: "laptop", colour: "teal" })]);
+    const drawings = new Set<string>();
+    for (const icon of ENVIRONMENT_ICONS) {
+      act(() => env.setLook({ icon }));
+      const glyph = await within(statusLine()).findByRole("img", { name: icon });
+      expect(glyph.tagName).toBe("svg");
+      expect(glyph.style.color).toBe("var(--environment-teal)");
+      expect(glyph.nextElementSibling?.textContent).toBe("desk");
+      drawings.add(glyph.innerHTML);
+    }
+    expect(drawings.size).toBe(ENVIRONMENT_ICONS.length);
+    // Drawn, never written: the line does not read "laptop desk".
+    expect(lineText()).not.toMatch(new RegExp(ENVIRONMENT_ICONS.join("|")));
+  });
+
+  it("draws a dot in the colour's token for an icon this window does not know (a newer environment's), as for an environment from before icons", async () => {
+    await opened([desk({ hello: { environmentIcon: "phone" as EnvironmentIcon, environmentColour: "teal" } })]);
     const line = await screen.findByRole("region", { name: "Status line" });
     const dot = within(line).getByText("desk").previousElementSibling as HTMLElement;
+    expect(dot.tagName).toBe("SPAN");
     expect(dot.style.color).toBe("var(--environment-teal)");
-    expect(lineText()).not.toContain("laptop");
+    expect(within(line).queryByRole("img", { name: "phone" })).toBeNull();
+    expect(lineText()).not.toContain("phone");
+    // The runtime reads the name as none; the window's lookup takes only the ten too, whatever reaches it.
+    for (const name of ["phone", "constructor", ""]) expect(glyphOf(name)).toBeUndefined();
   });
 
   it("says what a session with no run yet goes out as: the default account and model", async () => {

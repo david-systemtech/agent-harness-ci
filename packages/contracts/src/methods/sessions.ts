@@ -398,7 +398,11 @@ export const groupsDelete = defineMethod({
  * already used is `conflict` (reason `exists`); an account that cannot run is
  * `conflict` (reason `account_unavailable`); when there is a provider
  * session to fork, an adapter of the fork's account that cannot fork is
- * `invalid_params` with data reason `unsupported`.
+ * `invalid_params` with data reason `unsupported`. An anchor in the
+ * session's imported history is `conflict` (reason `imported_history`,
+ * naming the session and message): its id is not a provider anchor, even
+ * after a harness run links a provider session. Clients show the refusal's
+ * message; no fork is created.
  */
 export const sessionsFork = defineMethod({
   name: "sessions.fork",
@@ -407,7 +411,7 @@ export const sessionsFork = defineMethod({
   params: commandParams({
     sessionId: SessionId.meta({ description: "The session to fork: the source." }),
     id: SessionId.meta({ description: "The fork's id, minted by the client as sessions.create's is." }),
-    atMessageId: MessageId.optional().meta({ description: "A user message of the source: the fork holds the history before it, and its text becomes the fork's draft; the whole history when absent." }),
+    atMessageId: MessageId.optional().meta({ description: "A user message of the source: the fork holds the history before it, and its text becomes the fork's draft; the whole history when absent. An imported-history message is refused with conflict reason imported_history." }),
     account: z.string().min(1).optional().meta({ description: "The account the fork's runs use, one this environment holds and is signed in; the source's when absent." }),
     title: UserTitle.optional().meta({ description: "The fork's user title; the source's title is carried as its generated title when absent." }),
   }),
@@ -436,7 +440,11 @@ export const sessionsFork = defineMethod({
  * `use_new_session`: the client starts a new session with its text as the
  * draft), unless the session is a fork that carried its source's provider
  * session in, which does hold history before it; an adapter that cannot rewind is `invalid_params` with data reason
- * `unsupported`.
+ * `unsupported`. A message in imported history is `conflict` (reason
+ * `imported_history`, naming the session and message), before and after the
+ * first harness run links a provider session, including the first imported
+ * message. Clients show the refusal's message; the history and draft stay
+ * as they are, and no new session is automatically started.
  */
 export const sessionsRewind = defineMethod({
   name: "sessions.rewind",
@@ -444,7 +452,7 @@ export const sessionsRewind = defineMethod({
   kind: "command",
   params: commandParams({
     ...sessionTarget,
-    messageId: MessageId.meta({ description: "The user message to rewind to: it and everything after it are hidden." }),
+    messageId: MessageId.meta({ description: "The user message to rewind to: it and everything after it are hidden. An imported-history message is refused with conflict reason imported_history." }),
   }),
   result: z.object({ sessionId: SessionId, messageId: MessageId }),
   errors: [],

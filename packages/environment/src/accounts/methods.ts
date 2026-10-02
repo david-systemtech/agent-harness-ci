@@ -1,4 +1,3 @@
-import { ContractError } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
 import type { MethodHandlers } from "../serve/methods.js";
 import type { AccountService } from "./account-service.js";
@@ -49,15 +48,11 @@ export const accountMethods = (options: AccountMethodsOptions): MethodHandlers =
 
     "models.list": async (params) => ({ catalogues: await accounts.catalogues(params.accountId) }),
 
+    // Through the host, which reads the session and its account (`not_found` when either is not held) and refuses an adapter
+    // without the commands capability `invalid_params`, reason unsupported (#503).
     "commands.list": async (params) => {
-      const accountId = params.accountId ?? accounts.defaultId();
-      if (accountId === null || accounts.facts(accountId) === null) {
-        const message = accountId === null ? "No account is on this environment." : `No account ${accountId} is on this environment.`;
-        throw new ContractError({ code: "not_found", message, data: { kind: "account", ...(accountId !== null && { accountId }) } });
-      }
-      // Through the host, which refuses an adapter without the commands capability `invalid_params`, reason unsupported.
-      const commands = await host.commands(accountId, params.workspace);
-      return { accountId, commands: commands.map((command) => ({ name: command.name, description: command.description })) };
+      const { accountId, entries } = await host.commands(params.sessionId);
+      return { accountId, entries: [...entries] };
     },
   };
 };

@@ -1,13 +1,15 @@
 import { copyValue, moveItems, setBasePath, type MoveFollowUp, type MoveLine, type MoveOptions } from "@agent-harness/client-runtime";
-import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerReference } from "@agent-harness/contracts";
-import { useId, useMemo, useState } from "react";
+import { referenceLocator, type KeyManagerConnectionRecord, type KeyManagerMoveItem, type KeyManagerMoveItemRef, type KeyManagerMoveLocator } from "@agent-harness/contracts";
+import { useId, useMemo, useState, type Ref } from "react";
+import { useSettings } from "../settings/settings-window.js";
+import { useChecklist } from "../setup/checklist-window.js";
 import { Button, Dialog, DialogContent, Field, Input, Select } from "../ui/index.js";
 import { useClock, useObservable, useRuntime, useShell } from "../window-context.js";
 
 /** A value answered once for a person to paste, with where it goes; held only while its dialog is open. */
 interface Copied {
   readonly value: string;
-  readonly reference: KeyManagerReference;
+  readonly reference: KeyManagerMoveLocator;
 }
 
 export interface MoveCardProps {
@@ -15,6 +17,8 @@ export interface MoveCardProps {
   /** The connections a Move may go into, as the cached list holds them. */
   readonly connections: readonly KeyManagerConnectionRecord[];
   readonly writable: boolean;
+  /** The card's region, which an opening at it focuses (the Key manager card's, #590). */
+  readonly ref?: Ref<HTMLElement>;
 }
 
 /** The connection a Move is preset to go into: the one runs receive the variables of, else the first. */
@@ -31,14 +35,14 @@ const presetOf = (connections: readonly KeyManagerConnectionRecord[]): string | 
  * value (`keyManagers.move.copyValue`), shown once for a person to paste,
  * and then Verify the paste, a verify-only Move that finishes the swap.
  */
-export const MoveCard = ({ environmentId, connections, writable }: MoveCardProps) => {
+export const MoveCard = ({ environmentId, connections, writable, ref }: MoveCardProps) => {
   const heading = useId();
   const [chosen, choose] = useState<string | undefined>(undefined);
   // A choice the list no longer holds (the connection was removed) falls back to the preset.
   const connection = connections.find((each) => each.id === chosen) ?? connections.find((each) => each.id === presetOf(connections));
   if (connection === undefined) return null;
   return (
-    <section aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4">
+    <section ref={ref} tabIndex={-1} aria-labelledby={heading} className="flex flex-col gap-3 rounded-md border border-line p-4 outline-none">
       <h3 id={heading} className="text-base font-semibold text-ink">
         Move stored tokens
       </h3>
@@ -211,5 +215,26 @@ const CopiedValueDialog = ({ environmentId, label, copied, close }: { readonly e
         </div>
       </DialogContent>
     </Dialog>
+  );
+};
+
+/**
+ * Move to your key manager, on a stored token (the Set up specification,
+ * "4. Forges"; ADR 0028; #590): the full checklist on the environment that
+ * holds it, at the Key manager card's Move stored tokens, which takes the
+ * focus.
+ */
+export const MoveToKeyManager = ({ environmentId }: { readonly environmentId: string }) => {
+  const { pick } = useSettings();
+  const { open } = useChecklist();
+  return (
+    <Button
+      onClick={() => {
+        pick(environmentId);
+        open("key-manager", "move-stored-tokens");
+      }}
+    >
+      Move to your key manager
+    </Button>
   );
 };

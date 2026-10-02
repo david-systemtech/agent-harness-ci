@@ -15,7 +15,7 @@ import { useCheckOnOpen, useSetupView } from "./use-setup.js";
  * in the window"): the counts on the environment its picker checks, Re-run
  * (every step checked, then the full checklist opened on the first step
  * needing attention), Open the full checklist, Set up another machine (Your
- * machines, where a machine is added), and each step with its dot and its
+ * machines at Add a machine, #577), and each step with its dot and its
  * line, named by a link to its home row. Opening it, or picking another
  * environment, checks every step there.
  */
@@ -29,6 +29,7 @@ export const SetupPane = () => {
   const [line, setLine] = useState<string | undefined>(undefined);
   if (picked === undefined || view === undefined) return null;
   const { environmentId } = picked;
+  const now = runtime.environmentNow(environmentId);
 
   const rerun = async () => {
     setLine(undefined);
@@ -48,7 +49,7 @@ export const SetupPane = () => {
           Re-run
         </Button>
         <Button onClick={() => openChecklist()}>Open the full checklist</Button>
-        <Button onClick={() => openRow("environments.machines")}>Set up another machine</Button>
+        <Button onClick={() => openRow("environments.machines", undefined, "add-a-machine")}>Set up another machine</Button>
       </div>
       {line !== undefined && <p className="text-sm text-ink-muted">{line}</p>}
       <ol aria-label="Steps" className="flex flex-col gap-1">
@@ -60,7 +61,7 @@ export const SetupPane = () => {
             <Button className={classes("w-36 shrink-0 justify-start", !step.registered && "text-ink-faint")} onClick={() => openRow(step.home, environmentId)}>
               {step.label}
             </Button>
-            <span className="text-sm text-ink-muted">{stepLine(step)}</span>
+            <span className="text-sm text-ink-muted">{stepLine(step, now)}</span>
           </li>
         ))}
       </ol>

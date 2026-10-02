@@ -7,21 +7,23 @@ import { useClock, useObservable, useRuntime } from "../window-context.js";
 export interface DenylistValues {
   /** `permissions.denylist.get` as the request cache holds it. */
   readonly answer: CachedAnswer<"permissions.denylist.get">;
-  /** The denylist read, or the one this window's last write answered, until the cache is fetched again; null until one was read. */
+  /** The denylist read, or the one this window's last write answered until the cache is fetched again; null until one was read. */
   readonly denylist: Denylist | null;
   /** Writes a section whole (`permissions.denylist.set`). */
   save(section: DenylistSection, entries: readonly DenylistEntryInput[]): Promise<DenylistSaved>;
-  /** Puts back the presets a section lost (`permissions.denylist.restorePresets`). */
-  restore(section: DenylistSection): Promise<DenylistRestored>;
+  /** Puts back the presets the sections named lost, or every section's with none named (`permissions.denylist.restorePresets`). */
+  restore(sections: readonly DenylistSection[] | undefined): Promise<DenylistRestored>;
 }
 
 /**
- * An environment's denylist as the Permissions pane edits it (permissions
- * spec, "The denylist"; #415): `permissions.denylist.get` from the request
- * cache, and each write a direct `admin` command with a UUIDv7 command id,
- * the denylist it answered shown over the cached one until the cache is
- * fetched again (no notice says the denylist changed: its change is on the
- * access log, which a client does not follow).
+ * An environment's denylist as the Permissions pane and the Permissions
+ * step's card edit it (permissions spec, "The denylist"; #415, #594):
+ * `permissions.denylist.get` from the request cache, which fetches it again
+ * on `denylist.updated`, so another client's change shows at once (#811);
+ * and each write a direct `admin` command with a UUIDv7 command id, the
+ * denylist it answered shown over the cached one until the cache is fetched
+ * again, so the next write of a section builds on it before the notice of
+ * the last has been heard.
  */
 export const useDenylist = (environmentId: string): DenylistValues => {
   const runtime = useRuntime();
@@ -38,6 +40,6 @@ export const useDenylist = (environmentId: string): DenylistValues => {
     answer,
     denylist: written ?? answer.result?.denylist ?? null,
     save: async (section, entries) => shown(await saveDenylistSection(runtime, environmentId, section, entries, uuidv7(clock.now()))),
-    restore: async (section) => shown(await restoreDenylistPresets(runtime, environmentId, [section], uuidv7(clock.now()))),
+    restore: async (sections) => shown(await restoreDenylistPresets(runtime, environmentId, sections, uuidv7(clock.now()))),
   };
 };

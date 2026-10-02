@@ -7,13 +7,17 @@ import type { RuledRun, ToolGateRule } from "../adapter/seams.js";
 import { summarise, type BrokerAnswer } from "./broker.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import { recordToolDecision } from "./tool-decisions.js";
+import { isGitProgramPath } from "./git-program-paths.js";
 
 /**
  * The tool gate (permissions spec, "Modules": the tool gate) and its
  * containment rule: what a run's containment denies of a tool call that
  * does not pass through the provider's sandbox. At `workspace` a write
  * outside the workspace, the session's scratch directory and the session's
- * temporary directory, or one that names no path; at `workspace-no-network`
+ * temporary directory, one that names no path, or one to what the run's
+ * containment closes inside them (the repository git directory's hooks and
+ * config, #791, and the .git programs and indirection paths of existing or
+ * newly made/repointed repositories, #1094); at `workspace-no-network`
  * that, and every fetch and search. Shell commands are the sandbox's
  * (Claude's `sandbox` option, #140), reads are free at every level (the
  * denylist's paths are #132's), a browser verb and a tool server's call are
@@ -105,23 +109,19 @@ const within = (root: string, path: string): boolean => {
 
 const NOT_WIDENED = "Containment is a setting the user changes; asking again will not widen it. Continue without it and say what you could not do.";
 
-/**
- * Why `access` is denied under `containment`, as the model is told it; null
- * when containment lets it through to the provider's own evaluation.
- * `workspace` is the directory relative paths are read against.
- */
-export const containmentDenial = (containment: RunContainment, workspace: string, access: ToolAccess): string | null => {
-  if (containment.level === "off") return null;
-  if (access.kind === "write") {
-    if (access.paths.length === 0) {
-      return `Denied by containment (${containment.level}): the write names no path, so it cannot be shown to stay inside the directories this run may write in. ${NOT_WIDENED}`;
-    }
-    const roots = containment.writable.map((root) => resolvePath(root, workspace)).filter((root): root is string => root !== null);
-    const outside = access.paths.find((path) => {
-      const resolved = resolvePath(path, workspace);
-      return resolved === null || !roots.some((root) => within(root, resolved));
-    });
-    if (outside === undefined) return null;
+/** Whether paths are matched case-blind, as the denylist's matcher reads them: on macOS and Windows, whose file systems are by default. */
+const CASE_BLIND = process.platform === "darwin" || process.platform === "win32";
+
+/** Why a write to `paths` is denied under `containment` at a workspace level; null when it is not. See `containmentDenial`. */
+const writeDenial = (containment: RunContainment, workspace: string, paths: readonly string[], caseInsensitive: boolean): string | null => {
+  if (paths.length === 0) {
+    return `Denied by containment (${containment.level}): the write names no path, so it cannot be shown to stay inside the directories this run may write in. ${NOT_WIDENED}`;
+  }
+  const resolvedAll = (named: readonly string[]) => named.map((path) => resolvePath(path, workspace)).filter((path): path is string => path !== null);
+  const roots = resolvedAll(containment.writable);
+  const written = paths.map((path) => ({ path, resolved: resolvePath(path, workspace) }));
+  const outside = written.find(({ resolved }) => resolved === null || !roots.some((root) => within(root, resolved)))?.path;
+  if (outside !== undefined) {
     // The writable set is the workspace first, the session's two directories, then the repository's git directory when it lies outside the workspace (#322).
     const [workspaceRoot = workspace, ...rest] = containment.writable;
     const gitDirectory = rest.find((root) => root !== containment.scratchDirectory && root !== containment.temporaryDirectory);
@@ -131,6 +131,30 @@ export const containmentDenial = (containment: RunContainment, workspace: string
         : `the session's scratch directory (${containment.scratchDirectory}), its temporary directory (${containment.temporaryDirectory}) and the repository's git directory (${gitDirectory})`;
     return `Denied by containment (${containment.level}): this run may write only inside its workspace (${workspaceRoot}), ${directories}, and ${outside} is outside them. ${NOT_WIDENED}`;
   }
+  // Inside the writable set, but in what it closes (#791): matched as the file system finds it, links followed on both sides.
+  const fold = (path: string): string => (caseInsensitive ? path.toLowerCase() : path);
+  const closed = resolvedAll(containment.readOnly).map(fold);
+  const shut = written.find(({ resolved }) => resolved !== null && closed.some((path) => within(path, fold(resolved))))?.path;
+  if (shut !== undefined) {
+    return `Denied by containment (${containment.level}): ${shut} is in a read-only directory, so this run may not write it. ${NOT_WIDENED}`;
+  }
+  // Read both spellings: resolving a .git symlink may erase that component,
+  // while a differently named link into .git is caught only after resolution.
+  const program = written.find(({ path, resolved }) => isGitProgramPath(path, caseInsensitive) || (resolved !== null && isGitProgramPath(resolved, caseInsensitive)))?.path;
+  if (program === undefined) return null;
+  return `Denied by containment (${containment.level}): ${program} is repository git metadata that can name programs or repoint a checkout for the user's own git outside containment, so this run may not write it. ${NOT_WIDENED}`;
+};
+
+/**
+ * Why `access` is denied under `containment`, as the model is told it; null
+ * when containment lets it through to the provider's own evaluation.
+ * `workspace` is the directory relative paths are read against.
+ * `caseInsensitive` folds case where a written path meets what containment
+ * closes, so `.git/HOOKS` is `.git/hooks` on a file system that reads it so.
+ */
+export const containmentDenial = (containment: RunContainment, workspace: string, access: ToolAccess, caseInsensitive = CASE_BLIND): string | null => {
+  if (containment.level === "off") return null;
+  if (access.kind === "write") return writeDenial(containment, workspace, access.paths, caseInsensitive);
   if ((access.kind === "fetch" || access.kind === "search") && !containment.network) {
     const what = access.kind === "fetch" ? `fetching ${access.urls.join(", ")}` : "a web search";
     return `Denied by containment (${containment.level}): this run has no network, so ${what} cannot reach any host. ${NOT_WIDENED}`;
@@ -150,6 +174,7 @@ export interface GatedRun {
   readonly sessionId: string;
   readonly workspace: string;
   readonly containment: RunContainment;
+  readonly readableDirectories?: readonly string[];
 }
 
 /** Containment's rule (#133), always the gate's first: a hard denial, asking nobody, recorded by `containment`. */

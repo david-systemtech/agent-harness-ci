@@ -1,5 +1,20 @@
 import { parseArgs } from "node:util";
-import { Ceiling, DISCOVERY_PATH, MODES, PRODUCT_NAME, SCOPES, ScopeSet } from "@agent-harness/contracts";
+import {
+  Ceiling,
+  DISCOVERY_PATH,
+  MODES,
+  NEW_ENVIRONMENT_CHANNEL_VARIABLE,
+  NEW_ENVIRONMENT_NAME_VARIABLE,
+  PAIRING_PRESET_IDS,
+  PRODUCT_NAME,
+  PairingPresetId,
+  RELEASE_CHANNELS,
+  ReleaseChannel,
+  SCOPES,
+  ScopeSet,
+  pairingPreset,
+  presetGrant,
+} from "@agent-harness/contracts";
 import {
   HARNESS_VERSION,
   defaultDataDirectory,
@@ -8,11 +23,14 @@ import {
   RootRefusedError,
   StartupError,
   startEnvironment,
+  systemClock,
+  type Clock,
   type EnvironmentHandle,
   type EnvironmentOptions,
   type PreflightSeams,
 } from "@agent-harness/environment";
 import { parseOptions, parsePort, UsageError } from "./args.js";
+import { BROWSER_USAGE, browser } from "./browser.js";
 import { harnessCommand } from "./harness-command.js";
 import { launch, LAUNCH_USAGE } from "./launch/verb.js";
 import { processContext, type ProcessContext } from "./process-context.js";
@@ -35,8 +53,9 @@ const USAGE = [
   `       ${PRODUCT_NAME} service uninstall [--data-dir <path>]`,
   `       ${PRODUCT_NAME} service start`,
   `       ${PRODUCT_NAME} service status [--data-dir <path>] [--port <n>] [--json]`,
-  `       ${PRODUCT_NAME} pair [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
+  `       ${PRODUCT_NAME} pair [--preset <${PAIRING_PRESET_IDS.join("|")}>] [--scopes <a,b>] [--ceiling <mode>] [--data-dir <path>] [--port <n>]`,
   ...UPDATE_USAGE.map((line) => `       ${line}`),
+  ...BROWSER_USAGE.map((line) => `       ${line}`),
   `       ${GIT_CREDENTIAL_USAGE}`,
   `       ${TUI_USAGE}`,
   "",
@@ -55,34 +74,63 @@ export interface CliContext extends ProcessContext {
   /** What `preflight` loads and runs; seams for tests, under the same rule as `environment`. */
   readonly preflight?: PreflightSeams;
   readonly environment?: Pick<EnvironmentOptions, "user" | "launcher" | "runs" | "interfaces" | "probeContainment" | "containerDetector" | "browser">;
-  /** The network `pair` and the `update` verbs use; preset: the platform's `fetch` and `WebSocket`. */
+  /** The network `pair`, the `update` verbs and `browser pair` use; preset: the platform's `fetch` and `WebSocket`. */
   readonly net?: Net;
+  /** What `browser pair`'s countdown runs on; preset: the system clock. A seam for tests. */
+  readonly clock?: Pick<Clock, "now" | "setTimeout">;
   /** The terminal UI `tui` runs; a seam for tests. Preset: the terminal UI package's `runTui`. */
   readonly tui?: RunTui;
   /** What `git-credential` reads git's attributes from, and `update credential` the token; preset: the process's standard input. */
   readonly stdin?: () => Promise<string>;
-  /** The variables `git-credential` reads; preset: the process's own. */
+  /** The variables `git-credential` reads, and `serve` its new environment's name and channel from; preset: the process's own. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** How long `git-credential` waits on the environment; preset fifteen seconds. A seam for tests. */
   readonly gitCredentialTimeoutMs?: number;
 }
 
-const parseServe = (args: readonly string[]): Pick<EnvironmentOptions, "dataDir" | "port" | "name"> => {
+/** A variable's value trimmed, or undefined when it is unset or blank, as the compose file passes one left unset. */
+const given = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed === "" ? undefined : trimmed;
+};
+
+/**
+ * `serve`'s options. A new environment's name is `--name`, else
+ * `AGENT_HARNESS_NAME`, and its channel `AGENT_HARNESS_CHANNEL` (#846): the
+ * variables the published compose file passes into the container. Only the
+ * start that creates the environment uses either.
+ */
+const parseServe = (args: readonly string[], env: Readonly<Record<string, string | undefined>>): Pick<EnvironmentOptions, "dataDir" | "port" | "name" | "channel"> => {
   const values = parseOptions(args, { "data-dir": { type: "string" }, port: { type: "string" }, name: { type: "string" } });
   const port = parsePort(values.port, 0);
+  const name = values.name ?? given(env[NEW_ENVIRONMENT_NAME_VARIABLE]);
+  const channelValue = given(env[NEW_ENVIRONMENT_CHANNEL_VARIABLE]);
+  let channel: ReleaseChannel | undefined;
+  if (channelValue !== undefined) {
+    const parsed = ReleaseChannel.safeParse(channelValue);
+    if (!parsed.success) throw new UsageError(`${NEW_ENVIRONMENT_CHANNEL_VARIABLE} takes ${RELEASE_CHANNELS.join(" or ")}; got ${channelValue}.`);
+    channel = parsed.data;
+  }
   return {
     ...(values["data-dir"] !== undefined && { dataDir: values["data-dir"] }),
     ...(port !== undefined && { port }),
-    ...(values.name !== undefined && { name: values.name }),
+    ...(name !== undefined && { name }),
+    ...(channel !== undefined && { channel }),
   };
 };
 
+/**
+ * `pair`'s arguments. `--preset` asks for a pairing preset's grant (ADR 0025;
+ * #577), with `--scopes` and `--ceiling` only where the preset lets them
+ * change (a program's ceiling; a custom code's both); without it, the
+ * scopes and ceiling given, each the environment's default when absent.
+ */
 const parsePair = (args: readonly string[]): PairArgs => {
-  let values: { "data-dir"?: string; port?: string; scopes?: string; ceiling?: string };
+  let values: { "data-dir"?: string; port?: string; preset?: string; scopes?: string; ceiling?: string };
   try {
     ({ values } = parseArgs({
       args: [...args],
-      options: { "data-dir": { type: "string" }, port: { type: "string" }, scopes: { type: "string" }, ceiling: { type: "string" } },
+      options: { "data-dir": { type: "string" }, port: { type: "string" }, preset: { type: "string" }, scopes: { type: "string" }, ceiling: { type: "string" } },
       strict: true,
       allowPositionals: false,
     }));
@@ -105,7 +153,14 @@ const parsePair = (args: readonly string[]): PairArgs => {
     if (!parsed.success) throw new UsageError(`--ceiling takes one of ${MODES.join(", ")}; got ${values.ceiling === "" ? "nothing" : values.ceiling}.`);
     ceiling = parsed.data;
   }
-  return { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port), scopes, ceiling };
+  const target = { dataDir: values["data-dir"] ?? defaultDataDirectory(), port: port === undefined ? undefined : Number(port) };
+  if (values.preset === undefined) return { ...target, scopes, ceiling };
+  const id = PairingPresetId.safeParse(values.preset);
+  if (!id.success) throw new UsageError(`--preset takes one of ${PAIRING_PRESET_IDS.join(", ")}; got ${values.preset === "" ? "nothing" : values.preset}.`);
+  const preset = pairingPreset(id.data);
+  const grant = presetGrant(preset, { ...(scopes !== undefined && { scopes }), ...(ceiling !== undefined && { ceiling }) });
+  if (!grant.ok) throw new UsageError(grant.message);
+  return { ...target, scopes: grant.scopes, ceiling: grant.ceiling, preset };
 };
 
 /** The network the verbs that reach the local environment use: the context's, else the platform's. */
@@ -120,7 +175,7 @@ const pair = async (args: readonly string[], context: CliContext): Promise<numbe
   const parsed = parsePair(args);
   const net = netOf(context);
   try {
-    context.stdout(renderPairing(await mintPairing(parsed, net)));
+    context.stdout(renderPairing(await mintPairing(parsed, net), parsed.preset));
     return 0;
   } catch (error) {
     if (!(error instanceof LocalFailure)) throw error;
@@ -143,11 +198,12 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   let environment: EnvironmentHandle;
   try {
     refusePrivilegedUser(user);
-    const options = parseServe(args);
-    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459).
+    const options = parseServe(args, context.env ?? process.env);
+    // git names this command, with git-credential, as its credential helper (#314): under a launcher, the shim (#459), with
+    // what it reads as it runs, which a contained run's sandbox must let it read (#705).
     const underLauncher = context.environment?.launcher?.present() ?? typeof process.send === "function";
-    const command = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
-    environment = await startEnvironment({ ...options, harnessCommand: command, ...context.environment, user });
+    const { command, reads } = harnessCommand(options.dataDir ?? defaultDataDirectory(), underLauncher);
+    environment = await startEnvironment({ ...options, harnessCommand: command, harnessReads: reads, ...context.environment, user });
   } catch (error) {
     if (error instanceof RootRefusedError) {
       context.stderr(`${error.message}\n`);
@@ -164,7 +220,7 @@ const serve = async (args: readonly string[], context: CliContext): Promise<numb
   // A declared container no client has paired with pairs from this output, its log (ADR 0025, #349).
   if (environment.startPairing !== undefined) {
     context.stdout(
-      `No client has paired with this environment yet. Pair one with this code, or run ${PRODUCT_NAME} pair --data-dir ${environment.dataDir} in the container for a new one.\n${renderPairing(environment.startPairing)}`,
+      `No client has paired with this environment yet. Pair one with this code, or run ${PRODUCT_NAME} pair --preset own-client --data-dir ${environment.dataDir} in the container for a new one.\n${renderPairing(environment.startPairing)}`,
     );
   }
   // The drain's own end is awaited below, whatever started it.
@@ -207,6 +263,15 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
         stderr: context.stderr,
         env: context.env ?? process.env,
         ...(context.gitCredentialTimeoutMs !== undefined && { timeoutMs: context.gitCredentialTimeoutMs }),
+      });
+    }
+    if (args[0] === "browser") {
+      return await browser(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        net: netOf(context),
+        clock: context.clock ?? systemClock,
+        stopRequested: context.stopRequested,
       });
     }
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });

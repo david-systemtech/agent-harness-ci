@@ -1,5 +1,6 @@
 import { bundledClaudeCodeWords, type EnvironmentView } from "@agent-harness/client-runtime";
 import type { MethodName } from "@agent-harness/contracts";
+import { MANAGED_TOOLS_SENT, ManagedTools } from "../managed-tools/managed-tools.js";
 import { lackingLines, readOnlyLine } from "../settings/generic-editor.js";
 import { Part } from "../settings/part.js";
 import { usePickedEnvironment } from "../settings/settings-window.js";
@@ -16,9 +17,10 @@ const SENT: readonly MethodName[] = ["updates.settings.set", "updates.apply"];
  * names, below this client's version, which the row's header pins: the
  * environment's update controls (its version, channel, auto-update, pending
  * update and Update now) and the Claude Code its version bundles, which
- * updates with it. Without `admin` the controls are read-only with the
- * capability's line, said once; while the environment cannot be reached
- * they show what this window last read, read-only.
+ * updates with it; then its Managed tools (#426). Without `admin` the
+ * controls, Install, Update and Verify are read-only with the capability's
+ * line, said once; while the environment cannot be reached they show what
+ * this window last read, read-only.
  */
 export const AboutPane = () => {
   const picked = usePickedEnvironment();
@@ -29,11 +31,14 @@ const AboutOn = ({ view }: { readonly view: EnvironmentView }) => {
   const runtime = useRuntime();
   const status = useUpdatesStatus(view.environmentId);
   const ready = view.phase === "ready";
+  // Managed tools' verbs join the line only where the environment offers them: one that does not says so in its section.
+  const offersTools = runtime.capability(view.environmentId, "managedTools").status === "present";
+  const sent = offersTools ? [...SENT, ...MANAGED_TOOLS_SENT] : SENT;
   return (
     <>
       {!ready && <p className="text-sm text-amber">{readOnlyLine(runtime, view, status.result !== null)}</p>}
       {ready &&
-        lackingLines(runtime, view.environmentId, SENT).map((line) => (
+        lackingLines(runtime, view.environmentId, sent).map((line) => (
           <p key={line} className="text-sm text-amber">
             Read-only: {line}
           </p>
@@ -42,6 +47,7 @@ const AboutOn = ({ view }: { readonly view: EnvironmentView }) => {
         <UpdateControls view={view} />
         {status.result !== null && <p className="text-sm text-ink">{bundledClaudeCodeWords(status.result.bundledClaudeCodeVersion)}</p>}
       </Part>
+      <ManagedTools view={view} />
     </>
   );
 };

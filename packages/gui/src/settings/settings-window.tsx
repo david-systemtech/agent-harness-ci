@@ -8,11 +8,11 @@ import { useObservable, usePresentation, useRuntime, useShell } from "../window-
  * Settings as the window holds it (docs/specs/gui.md, "Settings: the rail,
  * the rows and the addresses"; ADR 0027): whether it is open, the row it
  * shows, and the environment the last `environment` pane picked. Mod+,
- * (`app.settings.toggle`) opens and closes it; the palette, a step's link and
- * a settings deep link open it on a row. The row last opened is presentation,
- * kept as its id (`settingsRow`) and read against the registry, so an id it
- * no longer holds opens Set up; the environment picked lives as long as the
- * window does.
+ * (`app.settings.toggle`) opens and closes it; the palette, a step's link,
+ * a settings deep link and `/settings [row]` open it on a row. The row last
+ * opened is presentation, kept as its id (`settingsRow`) and read against
+ * the registry, so an id it no longer holds opens Set up; the environment
+ * picked lives as long as the window does.
  */
 export interface SettingsWindow {
   /** Whether Settings is open over the window. */
@@ -21,12 +21,17 @@ export interface SettingsWindow {
   readonly row: SettingsRowId;
   /** The environment the last `environment` pane picked in this window; undefined until one was. */
   readonly picked: string | undefined;
-  /** Opens Settings on `row` (the last row opened when none is named), on `environmentId` where its pane picks one. */
-  open(row?: SettingsRowId | null, environmentId?: string): void;
+  /** The part of the row's pane the last opening asked to go to; undefined when it asked for none. */
+  readonly part: SettingsPart | undefined;
+  /** Opens Settings on `row` (the last row opened when none is named), on `environmentId` where its pane picks one, at `part` of its pane. */
+  open(row?: SettingsRowId | null, environmentId?: string, part?: SettingsPart): void;
   close(): void;
   /** Picks the environment `environment` panes edit, for as long as the window lives. */
   pick(environmentId: string): void;
 }
+
+/** A part of a pane an opening may go to, which takes the focus: Your machines' Add a machine (#577), About's Managed tools (#426). */
+export type SettingsPart = "add-a-machine" | "managed-tools";
 
 const SettingsContext = createContext<SettingsWindow | null>(null);
 
@@ -49,11 +54,13 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
   const [stored, keepRow] = usePresentation("settingsRow");
   const [shown, setShown] = useState(false);
   const [picked, setPicked] = useState<string | undefined>(undefined);
+  const [part, setPart] = useState<SettingsPart | undefined>(undefined);
 
   const open = useCallback(
-    (row?: SettingsRowId | null, environmentId?: string) => {
+    (row?: SettingsRowId | null, environmentId?: string, at?: SettingsPart) => {
       if (row !== undefined && row !== null) keepRow(row);
       if (environmentId !== undefined) setPicked(environmentId);
+      setPart(at);
       setShown(true);
     },
     [keepRow],
@@ -70,7 +77,7 @@ export const SettingsProvider = ({ children }: { readonly children: ReactNode })
     });
   }, [runtime, shell, open]);
 
-  const settings = useMemo<SettingsWindow>(() => ({ shown, row: readStoredRow(stored), picked, open, close, pick: setPicked }), [shown, stored, picked, open, close]);
+  const settings = useMemo<SettingsWindow>(() => ({ shown, row: readStoredRow(stored), picked, part, open, close, pick: setPicked }), [shown, stored, picked, part, open, close]);
   return <SettingsContext value={settings}>{children}</SettingsContext>;
 };
 
