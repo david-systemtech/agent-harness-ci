@@ -90,7 +90,7 @@ it("bounds stalled downloads independently of the package manager's request time
   expect(result.stderr).toContain("fetch attempt 2/2 failed (exit 124)");
   const timers = f.calls().filter((call) => call.startsWith("timeout "));
   expect(timers).toHaveLength(2);
-  for (const timer of timers) expect(timer).toMatch(/^timeout --kill-after=30s 540s pnpm fetch /);
+  for (const timer of timers) expect(timer).toMatch(/^timeout --kill-after=30s 540s node .*\/scripts\/image-sdk-cache.mjs fetch /);
 });
 
 it("fetches the pinned packages with integrity checks and bounded registry retries, stopping on success", async () => {

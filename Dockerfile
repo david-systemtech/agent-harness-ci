@@ -31,12 +31,15 @@ COPY . .
 # builder. Keep fetching and installing in one cache-mounted instruction:
 # if the cache is evicted, the next build fetches it again before going
 # offline. The bounded fetch leaves time for compilation in the image job.
+# A job may supply the SDK archive after checking the lockfile integrity.
+# The public build has no archive and fetches the same pin from npm instead.
 # node-pty compiles with this image's python3, make and g++.
 RUN --mount=type=cache,id=agent-harness-pnpm-linux-amd64,target=/pnpm/store,sharing=shared \
   bash scripts/image-deps.sh \
   && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store \
   && pnpm exec tsc -b packages/cli \
-  && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false
+  && pnpm install --frozen-lockfile --offline --store-dir=/pnpm/store --prod --config.confirmModulesPurge=false \
+  && rm -rf .image-sdk-cache
 
 FROM node:24-bookworm-slim
 # git for the workspace and the provider's runs; bubblewrap and socat so a

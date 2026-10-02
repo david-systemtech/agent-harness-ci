@@ -29,4 +29,8 @@ jobs:
       # The Dockerfile fetches dependencies through scripts/image-deps.sh,
       # which is kept in the public snapshot too.
       - name: Build the image and throw it away
+        env:
+          # Reads the SDK package linked to this repository. The token stays
+          # outside Docker; the lockfile checks the supplied archive.
+          FORGEJO_TOKEN: ${{ github.token }}
         run: bash .forgejo/scripts/image.sh build

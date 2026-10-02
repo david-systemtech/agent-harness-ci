@@ -2,6 +2,7 @@
 # The image's registry fetch. The Dockerfile mounts /pnpm/store as a
 # persistent cache, including packages saved before a failed build.
 set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
 
 # Two nine-minute attempts, with at most 30 seconds to kill each process
 # group and one ten-second pause: at most 19m10s, leaving the 30-minute
@@ -9,7 +10,7 @@ set -euo pipefail
 # did not bound the stalled SDK tarball's download.
 for attempt in 1 2; do
   echo "image dependencies: fetch attempt $attempt/2" >&2
-  if timeout --kill-after=30s 540s pnpm fetch \
+  if timeout --kill-after=30s 540s node "$root/scripts/image-sdk-cache.mjs" fetch \
     --frozen-lockfile --store-dir=/pnpm/store \
     --verify-store-integrity=true \
     --network-concurrency=8 \

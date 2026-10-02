@@ -80,6 +80,8 @@ interface Fixture {
   outputs: () => string;
   /** What `docker login` read on stdin, or null when it never ran. */
   loginStdin: () => string | null;
+  downloadSource: () => string | null;
+  downloadToken: () => string | null;
 }
 
 /** A job's environment on a fake PATH: the job's ref, and nothing of the environment the tests run in. */
@@ -94,6 +96,10 @@ const fixture = (ref: string): Fixture => {
   write(log, "");
   write(outputs, "");
   write(join(fakeBin, "docker"), FAKE_DOCKER, 0o755);
+  write(join(fakeBin, "node"), `#!/bin/sh
+printf '%s\\n' "$IMAGE_SDK_CACHE_BASE" > "$FAKE_STATE/download-source"
+printf '%s\\n' "$FORGEJO_TOKEN" > "$FAKE_STATE/download-token"
+`, 0o755);
   return {
     env: {
       PATH: `${fakeBin}:${process.env["PATH"] ?? "/usr/bin:/bin"}`,
@@ -111,6 +117,8 @@ const fixture = (ref: string): Fixture => {
     calls: () => readFileSync(log, "utf8").split("\n").filter(Boolean),
     outputs: () => readFileSync(outputs, "utf8"),
     loginStdin: () => (existsSync(join(state, "login-stdin")) ? readFileSync(join(state, "login-stdin"), "utf8") : null),
+    downloadSource: () => existsSync(join(state, "download-source")) ? readFileSync(join(state, "download-source"), "utf8").trim() : null,
+    downloadToken: () => existsSync(join(state, "download-token")) ? readFileSync(join(state, "download-token"), "utf8").trim() : null,
   };
 };
 
@@ -133,6 +141,16 @@ describe("a pull request's build", () => {
     expect(f.outputs()).toBe("");
     expect(f.loginStdin()).toBeNull();
   });
+
+  it("uses the job token to prepare the pinned download before Docker, without giving Docker any credential", async () => {
+    const f = fixture("refs/pull/12/head");
+    const result = await image(f, "build", { FORGEJO_TOKEN: TOKEN });
+    expect(result.code).toBe(0);
+    expect(f.downloadSource()).toBe(`${SERVER}/api/packages/${REPOSITORY.split("/")[1]}/generic`);
+    expect(f.downloadToken()).toBe(TOKEN);
+    expect(f.calls().join("\n") + result.stdout + result.stderr).not.toContain(TOKEN);
+    expect(f.loginStdin()).toBeNull();
+  });
 });
 
 describe("a v tag's release image", () => {
@@ -152,6 +170,7 @@ describe("a v tag's release image", () => {
     expect(f.loginStdin()).toBe(`${TOKEN}\n`);
     expect(f.calls().join("\n")).not.toContain(TOKEN);
     expect(f.outputs()).toBe(`reference=${released}\ndigest=${DIGEST}\n`);
+    expect(f.downloadToken()).toBe(TOKEN);
   });
 
   it("tags a prerelease with its whole version, prerelease part and all", async () => {
@@ -259,6 +278,7 @@ describe("the workflows that run it", () => {
     expect(triggers(lines)).toEqual(["  pull_request:", "    types: [opened, synchronize, reopened]"]);
     expect(lines).toContain("    runs-on: build");
     expect(lines).toContain("        run: bash .forgejo/scripts/image.sh build");
+    expect(lines).toContain("          FORGEJO_TOKEN: ${{ github.token }}");
     expect(lines.join("\n")).not.toMatch(/secrets\.|image\.sh publish/);
   });
 
