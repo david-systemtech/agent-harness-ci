@@ -27,7 +27,7 @@ import { composeInstructions } from "../instructions/composer.js";
 
 const { onCleanup } = useCleanups();
 
-/** The butler's pairing: the three scopes and the bypass ceiling (spec L115). */
+/** The butler's pairing: the three scopes, with the bypass ceiling (switch-over spec, "Hermes cut-over and Bank migration"). */
 const BUTLER_SCOPES: readonly Scope[] = ["read", "sessions:write", "runs:drive"];
 
 /** Two signed-in accounts: the default one first, and the one whose Claude billing the butler keeps, second. */
@@ -189,6 +189,7 @@ describe("a two-turn chat", () => {
     expect(prompt?.endsWith("When is the boiler serviced?")).toBe(true);
     // Hermes's own system prompt is never part of the preamble: it is appended to the instructions on each turn.
     expect(prompt).not.toContain(HERMES_SYSTEM_PROMPT);
+    expect(t.adapter.lastRun().input.instructions.endsWith(`${BUTLER_INSTRUCTIONS}\n\n${HERMES_SYSTEM_PROMPT}`)).toBe(true);
   });
 });
 
