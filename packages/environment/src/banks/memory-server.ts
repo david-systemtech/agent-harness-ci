@@ -44,12 +44,17 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
     const used = (pointers: readonly string[]) => {
       for (const bank of available()) recordBankUse(log, scope.sessionId, bank.id, pointers.filter((pointer) => parseBankPointer(pointer)?.bank === bank.name));
     };
-    const indices = async () => {
-      const entries = available();
-      const banks = await Promise.all(entries.map(async (bank) => indexBank({ ...bank, files: await readBankFiles(bank.checkout) })));
+    const indices = async (name?: string) => {
+      const entries = available().filter((bank) => name === undefined || bank.name === name);
+      const results = await Promise.allSettled(entries.map(async (bank) => indexBank({ ...bank, files: await readBankFiles(bank.checkout) })));
       const live = new Set(available().map((bank) => bank.id));
-      return banks.filter((_, i) => live.has(entries[i]!.id));
+      const scoped = results.flatMap((result, i) => live.has(entries[i]!.id) ? [{ result, entry: entries[i]! }] : []);
+      return {
+        banks: scoped.flatMap(({ result }) => result.status === "fulfilled" ? [result.value] : []),
+        unavailable: scoped.flatMap(({ result, entry }) => result.status === "rejected" ? [entry.name] : []),
+      };
     };
+    const unavailableLines = (names: readonly string[]) => names.map((name) => `${name} — could not be read\n`).join("");
     const target = (name?: string): BankEntry => {
       const banks = available();
       const writable = banks.filter((bank) => bank.role === "read-write");
@@ -98,11 +103,13 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
             try {
               const parsed = MemorySearchInput.safeParse(input);
               if (!parsed.success || parsed.data.query.trim() === "") return refuse("invalid_params", "The search input does not match its published schema.");
-              const banks = await indices();
+              const { banks, unavailable } = await indices(parsed.data.bank);
+              if (parsed.data.bank !== undefined && unavailable.includes(parsed.data.bank)) return refuse("not_found", `${parsed.data.bank} could not be read.`);
               if (parsed.data.bank !== undefined && !banks.some((bank) => bank.name === parsed.data.bank)) return refuse("not_found", "No matching bank is in scope.");
               const answer = searchBanks(banks, parsed.data);
               used(answer.hits.flatMap((hit) => hit.folder === null ? [] : [hit.folder]));
-              return { text: answer.text, isError: false };
+              const missing = unavailable.length === 0 ? "" : `${unavailableLines(unavailable)}Search covers readable banks only.\n`;
+              return { text: missing + answer.text, isError: false };
             } catch (error) { return answerError(error); }
           },
         },
@@ -113,12 +120,14 @@ export const createMemoryToolServers = ({ log, environmentId, scrub, promote }: 
             try {
               const parsed = MemoryReadInput.safeParse(input);
               if (!parsed.success) return refuse("invalid_params", "The read input does not match its published schema.");
-              const banks = await indices();
+              const name = parseBankPointer(parsed.data.pointer ?? "")?.bank;
+              const { banks, unavailable } = await indices(name);
+              if (name !== undefined && unavailable.includes(name)) return refuse("not_found", `${name} could not be read.`);
               const answer = readPointer(banks, parsed.data.pointer);
               if (!answer.found) return refuse("not_found", answer.message);
               const folder = parsed.data.pointer === undefined ? null : pointerFolder(banks, parsed.data.pointer);
               if (folder !== null) used([folder]);
-              return { text: answer.text, isError: false };
+              return { text: answer.text + unavailableLines(unavailable), isError: false };
             } catch (error) { return answerError(error); }
           },
         },

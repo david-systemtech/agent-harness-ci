@@ -233,6 +233,39 @@ it("lets a run continue with an honest unavailable-bank line when a registered c
   expect(h.adapter.lastRun().input.instructions).toContain("## maya-memory (personal, read-write) — could not be read");
 });
 
+it("keeps healthy banks readable and searchable while reporting unavailable checkouts and partial totals", async () => {
+  const h = await start();
+  const bankId = await register(h, PERSONAL_BANK);
+  await register(h, TEAM_BANK, { role: "read-only" });
+  const held = await h.client.request("banks.get", { bankId });
+  rmSync(held.bank.checkout, { recursive: true });
+  const { id } = await create(h.client);
+  const [memory, scoped, listed, all, unavailableRead, unavailableSearch] = await call(h, id, [
+    tool("read", { pointer: "acme:storefront-fact-01" }),
+    tool("search", { query: "storefront needs", bank: "acme", limit: 2 }),
+    tool("read"),
+    tool("search", { query: "storefront needs", limit: 2 }),
+    tool("read", { pointer: "maya-memory:backup-schedule" }),
+    tool("search", { query: "backup", bank: "maya-memory" }),
+  ]);
+  expect(memory?.isError).toBe(false);
+  expect(memory?.text).toContain("When the storefront needs fact 1");
+  expect(scoped?.isError).toBe(false);
+  expect(scoped?.text).toMatch(/2 of 40\n$/);
+  expect(scoped?.text).not.toContain("could not be read");
+  expect(listed?.isError).toBe(false);
+  expect(listed?.text).toContain("## acme (team, read-only) — 41 memories in 2 folders");
+  expect(listed?.text).toContain("maya-memory — could not be read");
+  expect(all?.isError).toBe(false);
+  expect(all?.text).toContain("maya-memory — could not be read");
+  expect(all?.text).toContain("Search covers readable banks only.");
+  expect(all?.text).toMatch(/2 of 40\n$/);
+  for (const answer of [unavailableRead, unavailableSearch]) {
+    expect(answer?.isError).toBe(true);
+    expect(JSON.parse(answer!.text)).toMatchObject({ code: "not_found", message: "maya-memory could not be read." });
+  }
+});
+
 it("offers read/search beside draft/retire/promote in one provider run and reads the newly landed main", async () => {
   const h = await start();
   const local = { ...PERSONAL_BANK, "BANK.md": PERSONAL_BANK["BANK.md"]!.replace("land: pull-request", "land: commit") };
