@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportEventType",
+  "type": "string",
+  "enum": [
+    "state-import.started",
+    "state-import.item-carried"
+  ],
+  "description": "The event types of the state-import stream: state-import.started and state-import.item-carried."
+}
