@@ -115,10 +115,10 @@ describe("the list", () => {
     ]);
     expect(within(quit).queryByRole("button")).toBeNull();
     expect(actionRow(pane, "Anywhere", "Show or hide the sidebar").hasAttribute("aria-disabled")).toBe(false);
-    // File undo is wired in the terminal; the GUI surface follows separately.
+    // File undo is a shared command in both Clients.
     expect(cells(actionRow(pane, "Slash commands", "Take back the last file change the agent made")).slice(1)).toEqual([
       "/undo",
-      "File undo is not offered by this GUI build yet.",
+      "/undo",
     ]);
   });
 

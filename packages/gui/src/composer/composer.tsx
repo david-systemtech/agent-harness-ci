@@ -8,6 +8,7 @@ import {
   sendMessage,
   shellLine,
   workspaceGoneLine,
+  undoFile,
   type CapabilityAnswer,
   type Lock,
 } from "@agent-harness/client-runtime";
@@ -20,7 +21,7 @@ import { useProvider } from "../session/provider.js";
 import { useSettingsCommand } from "../settings/settings-command.js";
 import { useShellLines } from "../terminal/shell-lines.js";
 import { Button } from "../ui/index.js";
-import { useObservable, useRuntime } from "../window-context.js";
+import { useClock, useObservable, useRuntime } from "../window-context.js";
 import { MissingWorkspace, useGoneWorkspace } from "../workspace/missing.js";
 import { AttachmentChips, AttachmentPicker, useAttachments } from "./attachments.js";
 import { useBox } from "./box.js";
@@ -77,6 +78,7 @@ export interface ComposerProps {
  */
 export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const runtime = useRuntime();
+  const clock = useClock();
   // The connections' phases: the lock and the shell's members are asked again whenever one moves.
   useObservable(runtime.projections.environments);
   const projection = useObservable(useMemo(() => runtime.projections.session(environmentId, sessionId), [runtime, environmentId, sessionId]));
@@ -91,6 +93,14 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
   const wired = useWiredCommands();
   useSlashCommand("attach", attachments.choose);
   useSettingsCommand(environmentId);
+  useSlashCommand("undo", (argument, source) => {
+    if (argument.length > 0) return say("Usage: /undo");
+    const text = box.current();
+    void undoFile(runtime, clock, environmentId, sessionId).then((outcome) => {
+      say(outcome.line);
+      if (outcome.ok && source === "composer" && box.current() === text) box.put("");
+    });
+  }, runtime.capability(environmentId, "files.undo"), { keepComposer: true });
   const queue = useSessionQueue();
   const [choice] = useModelChoice(environmentId, sessionId);
 
@@ -117,7 +127,7 @@ export const Composer = ({ environmentId, sessionId }: ComposerProps) => {
     if (typed !== undefined) {
       const command = wired.find((candidate) => candidate.name === typed.name);
       if (command === undefined) return say(notWired(typed.name));
-      box.put("");
+      if (!command.keepComposer) box.put("");
       say(undefined);
       return command.run(typed.argument);
     }
