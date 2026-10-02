@@ -124,8 +124,6 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
   /** The account's sessions as its adapter lists them, each provider session once; `unsupported` for an adapter that cannot list them. */
   const listed = ({ account, adapter }: AccountSource): Promise<ProviderSessionInfo[]> => listAccountSessions(adapter, account);
 
-
-
   /**
    * Records one planned session in the command's transaction, as its
    * caller: `session.created` with origin `import`, the missing mark right
