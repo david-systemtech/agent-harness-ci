@@ -11,7 +11,9 @@
 #
 # The image is built from the repository's Dockerfile for linux/amd64 only.
 # It reads the job's GITHUB_* variables; publish reads PACKAGES_TOKEN, a
-# token with write:package, and gives it to `docker login` on stdin.
+# token with write:package, and gives it to `docker login` on stdin. A job
+# token can read the pinned SDK package linked to this repository; only the
+# checked archive is copied into Docker's context.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -45,6 +47,16 @@ version_of() {
 build() {
   local tag=$1
   shift
+  # Authentication stays in the job. Only an archive checked against the
+  # lockfile enters Docker's context; public builds need no private source.
+  rm -rf "$root/.image-sdk-cache"
+  if [ -n "${FORGEJO_TOKEN:-${PACKAGES_TOKEN:-}}" ]; then
+    if ! (cd "$root" && IMAGE_SDK_CACHE_BASE="$GITHUB_SERVER_URL/api/packages/${GITHUB_REPOSITORY%%/*}/generic" \
+      FORGEJO_TOKEN="${FORGEJO_TOKEN:-${PACKAGES_TOKEN:-}}" node scripts/image-sdk-cache.mjs download); then
+      rm -rf "$root/.image-sdk-cache"
+      echo "image: SDK cache preparation failed; using npm" >&2
+    fi
+  fi
   local labels=(--label "org.opencontainers.image.source=$source_url" --label "org.opencontainers.image.revision=$GITHUB_SHA")
   local label
   for label in "$@"; do labels+=(--label "$label"); done
@@ -59,7 +71,7 @@ case "${1:-}" in
   build)
     # A name without the registry's host, so this image is never pushed there.
     local_tag="$repository:${GITHUB_SHA::12}"
-    trap 'docker image rm "$local_tag" >/dev/null 2>&1 || true' EXIT
+    trap 'rm -rf "$root/.image-sdk-cache"; docker image rm "$local_tag" >/dev/null 2>&1 || true' EXIT
     build "$local_tag"
     ;;
   publish)
@@ -68,7 +80,7 @@ case "${1:-}" in
     reference="$registry/$repository:$version"
     push_log=$(mktemp)
     login_tried=false
-    trap 'rm -f "$push_log"; [ "$login_tried" = false ] || docker logout "$registry" >/dev/null 2>&1 || true; docker image rm "$reference" >/dev/null 2>&1 || true' EXIT
+    trap 'rm -rf "$root/.image-sdk-cache"; rm -f "$push_log"; [ "$login_tried" = false ] || docker logout "$registry" >/dev/null 2>&1 || true; docker image rm "$reference" >/dev/null 2>&1 || true' EXIT
     build "$reference" "org.opencontainers.image.version=$version"
     login_tried=true
     printf '%s\n' "$PACKAGES_TOKEN" | docker login "$registry" -u "$GITHUB_REPOSITORY_OWNER" --password-stdin
