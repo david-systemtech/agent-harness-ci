@@ -175,6 +175,40 @@ export const MIGRATIONS: readonly Migration[] = [
       ) STRICT;
     `,
   },
+  {
+    version: 9,
+    name: "file undo: the change records of the runs' file tools and the restores under way, beside the log (#1183)",
+    // The file's bytes before a call are the environment's own, never an event's; a record is consumed in the transaction
+    // that appends its files.undo-finished, and a restore's journal row goes in the one that writes its receipt.
+    sql: `
+      CREATE TABLE file_changes (
+        change_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        tool_call_id TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        path TEXT NOT NULL,
+        inside INTEGER NOT NULL CHECK (inside IN (0, 1)),
+        existed INTEGER NOT NULL CHECK (existed IN (0, 1)),
+        state TEXT NOT NULL CHECK (state IN ('pending', 'completed', 'consumed')),
+        position INTEGER,
+        unrestorable TEXT,
+        pre BLOB,
+        pre_mode INTEGER,
+        post_digest TEXT,
+        UNIQUE (session_id, tool_call_id, path)
+      ) STRICT;
+      CREATE INDEX file_changes_by_session ON file_changes (session_id, state, position);
+
+      CREATE TABLE file_undo_journal (
+        actor TEXT NOT NULL,
+        command_id TEXT NOT NULL,
+        change_id TEXT NOT NULL,
+        scratch TEXT NOT NULL,
+        PRIMARY KEY (actor, command_id)
+      ) STRICT;
+    `,
+  },
 ];
 
 /**

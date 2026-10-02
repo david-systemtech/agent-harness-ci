@@ -153,7 +153,7 @@ import {
   updatesSettingsSet,
   updatesStatus,
 } from "./methods/updates.js";
-import { filesList, filesRead } from "./methods/files.js";
+import { filesList, filesRead, filesUndo } from "./methods/files.js";
 import { workspacesBrowse, workspacesInspect } from "./methods/workspaces.js";
 import {
   skillsCarryOver,
@@ -382,6 +382,7 @@ export const methods = [
   checksRun,
   filesList,
   filesRead,
+  filesUndo,
   diffsWorkingTree,
   diffsSession,
   workspacesBrowse,

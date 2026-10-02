@@ -253,6 +253,8 @@ describe("a deleted session", () => {
     // A deleted session has no Workspace directory to set a check for or to check (#1187).
     "checks.set": { sessionId, command: "pnpm test" },
     "checks.run": { sessionId },
+    // A deleted session's changes are not undone (#1183).
+    "files.undo": { sessionId },
   });
 
   /**
