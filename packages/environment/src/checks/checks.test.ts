@@ -1,4 +1,4 @@
-import type { EventEnvelope, EventFrame } from "@agent-harness/contracts";
+import { CHECK_OUTPUT_MAX_BYTES, CHECK_TIMEOUT_MS, type EventEnvelope, type EventFrame } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
 import { realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -159,5 +159,86 @@ describe("checks.run's refusals", () => {
 
     const unknown = randomUUID();
     expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId: unknown }))).toEqual({ code: "not_found", data: { kind: "session", sessionId: unknown } });
+  });
+});
+
+describe("how a check ends", () => {
+  it("closes its terminal after 120 seconds on the environment's clock, recording the timeout with no exit", async () => {
+    const t = await start();
+    const command = "pnpm exec vitest --watch";
+    const { client, sessionId } = await checkedSession(t, command);
+    const events = await sessionEvents(t, client, sessionId);
+    const { terminalId } = await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+    const shell = await t.run.spawnedAt(0);
+    shell.print("watching for changes\n");
+    t.clock.advance(CHECK_TIMEOUT_MS - 1);
+    expect(shell.signals).toEqual([]);
+    t.clock.advance(1);
+    // Closed as terminals.close closes one: hung up.
+    expect(shell.signals).toEqual(["SIGHUP"]);
+    shell.exit(0, 1);
+    expect((await events.next("checks.finished")).payload).toEqual({
+      terminalId,
+      command,
+      sourceRunId: null,
+      output: "watching for changes\n",
+      truncated: false,
+      exitCode: null,
+      signal: null,
+      timedOut: true,
+      failure: null,
+    });
+  });
+
+  it("keeps the last 64 KiB of its output, whole characters, scrubbed of values registered before and while it ran, and marks the cut", async () => {
+    const t = await start();
+    t.scrub.register("value-for-check-tests-early", { owner: "test:checks" });
+    const { client, sessionId } = await checkedSession(t, "make check");
+    const events = await sessionEvents(t, client, sessionId);
+    await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+    const shell = await t.run.spawnedAt(0);
+    shell.print("token value-for-check-tests-early\n");
+    shell.print("€".repeat(30_000));
+    shell.print("later value-for-check-tests-late\n");
+    t.scrub.register("value-for-check-tests-late", { owner: "test:checks" });
+    shell.exit(1);
+    const finished = (await events.next("checks.finished")).payload;
+    // "later [redacted]\n" is 17 bytes; the rest of the 64 KiB would start inside a three-byte character, so it starts at the next.
+    const tail = "later [redacted]\n";
+    expect(finished).toMatchObject({ truncated: true, exitCode: 1, output: "€".repeat(Math.floor((CHECK_OUTPUT_MAX_BYTES - 17) / 3)) + tail });
+  });
+
+  it("records a command that could not start as a launch failure with no exit, and a terminal closed under it as closed", async () => {
+    const t = await start();
+    const { client, sessionId } = await checkedSession(t, "make check");
+    const events = await sessionEvents(t, client, sessionId);
+    t.run.failNext = "spawn /bin/sh ENOENT";
+    await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+    expect((await events.next("checks.finished")).payload).toMatchObject({
+      output: expect.stringContaining("could not start"),
+      exitCode: null,
+      signal: null,
+      timedOut: false,
+      failure: "launch_failed",
+    });
+
+    const { terminalId } = await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+    const shell = await t.run.spawnedAt(0);
+    await client.apply("terminals.close", { commandId: randomUUID(), id: terminalId });
+    shell.exit(0, 1);
+    expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, exitCode: null, signal: null, timedOut: false, failure: "closed" });
+    // The directory is free again.
+    await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+  });
+
+  it("answers a retried command from its receipt, opening nothing again", async () => {
+    const t = await start();
+    const { client, sessionId } = await checkedSession(t, "make check");
+    const params = { commandId: randomUUID(), sessionId };
+    const first = await client.request("checks.run", params);
+    const shell = await t.run.spawnedAt(0);
+    shell.exit(0);
+    expect(await client.request("checks.run", params)).toEqual({ receipt: (first as { receipt: unknown }).receipt });
+    expect(t.run.spawned).toHaveLength(1);
   });
 });
