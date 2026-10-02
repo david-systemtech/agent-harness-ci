@@ -7,19 +7,13 @@
 # (#359; packages/desktop/scripts/desktop-build/workflow.test.ts holds the
 # two to that), and this proves the build by hand before a tag needs it.
 #
-#   arch     linux-x64, the Arch package, on `ci-x64`, an x86_64 ci runner
-#            in node:24-bookworm (the release job's label; until #813 puts
-#            it on vm-ci-1 and desk-ci-1 the job waits in the queue)
-#   macos    darwin-arm64, the macOS zip, on `macos` (mba-macos-1, jobs run
-#            on David's MacBook itself), which signs it ad hoc; a job waits
-#            in the queue while the Mac sleeps
+#   arch     linux-x64, the Arch package, on an x86_64 `ci-x64` runner
+#            in node:24-bookworm
+#   macos    darwin-arm64, the macOS zip, on the `macos` runner, signed ad hoc
 #   windows  win32-x64, the Windows NSIS setup, on `ci-x64` in
-#            electron-builder's Wine image, since no runner has Windows: on
-#            Linux, electron-builder runs the setup under Wine to write its
-#            uninstaller
+#            electron-builder's Wine image, which writes the installer on Linux
 #
-# By hand only (workflow_dispatch), never on a pull request or main: the Mac
-# sleeps, and each job downloads Node and Electron and packs about 250 MB.
+# By hand only (workflow_dispatch), never on a pull request or main.
 
 name: desktop
 
@@ -86,7 +80,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The runner's own Node 24 (david/ci's runners/macos), whose corepack gives the pinned pnpm.
+      # The runner's own Node 24 provides corepack and the pinned pnpm.
       - run: corepack enable && corepack prepare --activate
       - run: pnpm install --frozen-lockfile
 

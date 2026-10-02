@@ -172,7 +172,7 @@ describe("agent-harness tui -p", () => {
     const on = await machine({ environments: [{
       name: "laptop", reach,
       environmentId: "0199aa00-0000-7000-8000-0000000014a7",
-      accounts: [{ ...account, identity: { provider: "claude", email: "seth@work.test", organisation: null } }],
+      accounts: [{ ...account, identity: { provider: "claude", email: "milo@work.test", organisation: null } }],
       models: [{ accountId: account.id, live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] }],
       sessions: [{ workspace: { kind: "directory", path: directory } }],
     }] });
@@ -197,9 +197,9 @@ describe("agent-harness tui -p", () => {
 
   it.each([
     "/srv/Code/../Code/",
-    String.raw`C:\Users\Seth\Code`,
-    "C:/Users/Seth/Code/",
-    String.raw`\\server\share\Seth\Code/`,
+    String.raw`C:\Users\Milo\Code`,
+    "C:/Users/Milo/Code/",
+    String.raw`\\server\share\Milo\Code/`,
   ])("keeps the paired directory %s intact for a new workspace and -c matching", async (directory) => {
     for (const selectors of [[], ["--environment", "laptop", "-c"]]) {
       const cli = await onEnvironment("paired", directory);

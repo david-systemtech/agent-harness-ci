@@ -311,9 +311,9 @@ describe("the session a print continues", () => {
 
   it.each([
     { platform: "darwin", reach: "local", directory: HERE, workspace: `${HERE.toUpperCase()}/` },
-    { platform: "win32", reach: "local", directory: "C:\\Users\\Seth\\Code", workspace: "c:/users/seth/code/" },
-    { platform: "linux", reach: "paired", directory: "C:\\Users\\Seth\\Code", workspace: "c:/users/seth/code/" },
-    { platform: "linux", reach: "paired", directory: "\\\\NAS\\Home\\Seth", workspace: "\\\\nas\\home\\seth\\" },
+    { platform: "win32", reach: "local", directory: "C:\\Users\\Milo\\Code", workspace: "c:/users/milo/code/" },
+    { platform: "linux", reach: "paired", directory: "C:\\Users\\Milo\\Code", workspace: "c:/users/milo/code/" },
+    { platform: "linux", reach: "paired", directory: "\\\\NAS\\Home\\Milo", workspace: "\\\\nas\\home\\milo\\" },
   ] as const)("continues the same case-folded directory session ls lists on $platform when $reach", async ({ platform, reach, directory, workspace }) => {
     const original = Object.getOwnPropertyDescriptor(process, "platform");
     Object.defineProperty(process, "platform", { value: platform });
