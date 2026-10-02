@@ -33,21 +33,23 @@ export const stateImportProjector: Projector = {
       source_id TEXT NOT NULL,
       kind TEXT NOT NULL,
       target_id TEXT NOT NULL,
+      source_directory TEXT,
       import_id TEXT NOT NULL,
       PRIMARY KEY (source_key, store, source_id)
     ) STRICT`,
   },
   apply(event, db) {
     if (event.streamKind !== STATE_IMPORT_STREAM_KIND || event.type !== "state-import.item-carried") return;
-    const { sourceKey, store, sourceId, kind, targetId, importId } = event.payload as StateImportItemCarriedPayload;
+    const { sourceKey, store, sourceId, kind, targetId, importId, sourceDirectory } = event.payload as StateImportItemCarriedPayload;
     db.run(
-      "INSERT OR IGNORE INTO state_import_items (source_key, store, source_id, kind, target_id, import_id) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO state_import_items (source_key, store, source_id, kind, target_id, import_id, source_directory) VALUES (?, ?, ?, ?, ?, ?, ?)",
       sourceKey,
       store,
       sourceId,
       kind,
       targetId,
       importId,
+      sourceDirectory ?? null,
     );
   },
 };
@@ -62,6 +64,10 @@ export interface ItemKey {
 /** The target an earlier import made of the item; undefined for one never carried. Inside a command, as of its transaction. */
 export const mappedTarget = (log: Pick<EventLog, "read">, { sourceKey, store, sourceId }: ItemKey): string | undefined =>
   log.read<{ target_id: string }>("SELECT target_id FROM state_import_items WHERE source_key = ? AND store = ? AND source_id = ?", sourceKey, store, sourceId)[0]?.target_id;
+
+/** The original declared directory, retained alongside its Account mapping for secondary-source imports. */
+export const mappedDirectory = (log: Pick<EventLog, "read">, { sourceKey, store, sourceId }: ItemKey): string | undefined =>
+  log.read<{ source_directory: string | null }>("SELECT source_directory FROM state_import_items WHERE source_key = ? AND store = ? AND source_id = ?", sourceKey, store, sourceId)[0]?.source_directory ?? undefined;
 
 /**
  * A version 4 UUID derived from `parts`: the same parts always give the
@@ -81,6 +87,9 @@ export interface ImportItem extends ItemKey {
   readonly kind: StateImportItemKind;
   /** The item as the report names it when it fails. */
   readonly label: string;
+  /** Whether this item adds a report count; alias/reused Account mappings do not. */
+  readonly contributes?: () => boolean;
+  readonly sourceDirectory?: string;
   /** False in a preview when the owner will reuse a target; apply answers its actual carried count at commit. */
   readonly counted?: boolean;
   /** Applies the item through its owner; a reused target is mapped but not counted as newly carried. */
@@ -132,7 +141,7 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
           return { aggregate: answer.aggregate, rejected: { code, message, data } };
         }
         const { sourceKey, store, sourceId, kind } = item;
-        const payload: StateImportItemCarriedPayload = { importId, sourceKey, store, sourceId, kind, targetId: answer.result.targetId, origin: "import" };
+        const payload: StateImportItemCarriedPayload = { importId, sourceKey, store, sourceId, kind, targetId: answer.result.targetId, origin: "import", ...(item.sourceDirectory !== undefined && { sourceDirectory: item.sourceDirectory }) };
         log.append(stream, [{ type: "state-import.item-carried", payload: { ...payload } }], { tx, actor, commandId, correlationId: importId });
         return { aggregate: answer.aggregate, result: { carried: answer.result.carried !== false }, ...(answer.events !== undefined && { events: answer.events }) };
       });

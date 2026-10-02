@@ -3,6 +3,8 @@ import type { ForgeService } from "../forge/forge-service.js";
 import { planCredentials } from "./credentials.js";
 import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, type StateImportFinishedPayload, type StateImportReport } from "@agent-harness/contracts";
+import type { AccountService } from "../accounts/account-service.js";
+import type { ProviderSessionInfo } from "../adapter/contract.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { SettingsHandlers } from "../settings/methods.js";
@@ -46,6 +48,8 @@ export interface StateImportOptions {
   readonly environmentId: string;
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
+  readonly accounts: AccountService;
+  readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   /** The Instructions service's create command, which carries each instruction. */
   readonly createInstruction: MethodHandler<"instructions.create">;
   readonly forge: ForgeService;
@@ -79,7 +83,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const dataPlan =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, get: options.getSettings, update: options.updateSettings });
+            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, listSessions: options.listSessions, get: options.getSettings, update: options.updateSettings });
         const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
         const combined = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };

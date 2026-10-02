@@ -1,5 +1,6 @@
 import {
   SESSION_STREAM_KIND,
+  FilesUndoFinishedPayload,
   eventTypeEntry,
   type AssistantDeltaPayload,
   type AssistantTextPayload,
@@ -417,6 +418,11 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         const payload = event.payload as ToolEndedPayload;
         const item = toolCalls.get(payload.toolCallId);
         if (item !== undefined) Object.assign(item, { status: payload.status, output: payload.output, durationMs: payload.durationMs });
+        break;
+      }
+      case "files.undo-finished": {
+        const payload = FilesUndoFinishedPayload.parse(event.payload);
+        push<ItemOf<"file-undo">>({ kind: "file-undo", sequence, ...payload });
         break;
       }
       case "command.ran": {

@@ -1,8 +1,7 @@
-import { posix } from "node:path";
 import type { SessionSummary } from "@agent-harness/contracts";
 import type { TerminalSelection } from "../startup/selection.js";
 import { nameOf } from "../view.js";
-import { rulesOf } from "../listing/directory.js";
+import { isDirectory, machineRules, rulesOf, type DirectoryRules } from "../listing/directory.js";
 import { PrintFailure } from "./failure.js";
 
 /**
@@ -16,14 +15,13 @@ export type Target =
   | { readonly sessionId: string; readonly summary: SessionSummary }
   | { readonly sessionId: null; readonly workspace: string | undefined };
 
-/** A workspace path as compared: normalised, without a trailing slash. */
-const comparable = (path: string): string => posix.normalize(path).replace(/(.)\/+$/, "$1");
-
 /** The newest unarchived session working in `directory`, whatever its workspace's kind: updated time descending, then id ascending. */
-const latestIn = (sessions: readonly SessionSummary[], directory: string): SessionSummary | undefined =>
-  sessions
-    .filter((summary) => summary.archivedAt === null && comparable(summary.workspace.path) === comparable(directory))
+const latestIn = (sessions: readonly SessionSummary[], directory: string, rules: DirectoryRules): SessionSummary | undefined => {
+  const matches = isDirectory(rules, directory);
+  return sessions
+    .filter((summary) => summary.archivedAt === null && matches(summary.workspace.path))
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+};
 
 export const targetOf = async (selection: TerminalSelection): Promise<Target> => {
   const { environment, session, runtime } = selection;
@@ -36,9 +34,11 @@ export const targetOf = async (selection: TerminalSelection): Promise<Target> =>
   if (sessionId === undefined && !session.continueLatest) return { sessionId: null, workspace: elsewhere ? undefined : session.workspace };
   if (sessionId === undefined) {
     if (elsewhere) throw new PrintFailure(`-c on ${name}, another machine's environment, needs --cwd naming the directory there.`, 2);
+    const rules = environment.kind === "local" ? machineRules(process.platform) : rulesOf(session.workspace);
+    if (rules === undefined) throw new PrintFailure(`--cwd names a directory on ${name} by its absolute path there; got ${session.workspace}.`, 2);
     const listed = await runtime.requests.call(environment.environmentId, "sessions.list", {});
     if (!listed.ok) throw new PrintFailure(`${name} did not list its sessions: ${listed.error.message}`);
-    const latest = latestIn(listed.result.sessions, session.workspace);
+    const latest = latestIn(listed.result.sessions, session.workspace, rules);
     if (latest === undefined) throw new PrintFailure(`${name} has no session in ${session.workspace} to continue.`);
     sessionId = latest.id;
   }
