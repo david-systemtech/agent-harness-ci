@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { manualClock } from "../../test/clock.js";
 import { startFakeForge } from "../../test/fake-forge.js";
@@ -413,7 +413,7 @@ it("does not replay growing environment history when reconciling a bank without 
   expect(read).not.toHaveBeenCalled();
 });
 
-it("resumes a held review after restart without losing newer drafts or creating another PR", async () => {
+it.each([false, true])("resumes a held review after restart without losing newer drafts or creating another PR (held startup sync: %s)", async (holdSync) => {
   const h = await remoteBank({ ...PERSONAL_BANK, "BANK.md": PERSONAL_BANK["BANK.md"]!.replace("memories: auto", "memories: review") });
   scriptLanding(h, "success");
   const { id } = await create(h.client);
@@ -423,12 +423,71 @@ it("resumes a held review after restart without losing newer drafts or creating 
   await h.t.close();
   git(h.remote, "update-ref", "refs/heads/main", sha);
   h.forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch, sha, state: "merged" });
-  const resumed = await start(h.t.dataDir, h.restartOptions);
-  await resumed.client.request("banks.verify", { bankId: h.bankId });
-  expect((await resumed.client.request("banks.get", { bankId: h.bankId })).bank?.status.landing.state).toBe("ok");
+  const lock = join(h.checkout, ".git/index.lock");
+  let unlock!: () => void;
+  const gate = new Promise<void>((resolve) => { unlock = resolve; });
+  let entered!: () => void;
+  const holding = new Promise<void>((resolve) => { entered = resolve; });
+  const resumed = await start(h.t.dataDir, {
+    ...h.restartOptions,
+    ...(holdSync && { setupSteps: NO_SETUP_STEPS }),
+    banksGit: async (request, execute) => {
+      const answer = await execute(request);
+      if (!holdSync) return answer;
+      writeFileSync(lock, "");
+      entered();
+      await gate;
+      rmSync(lock, { force: true });
+      return answer;
+    },
+  });
+  onCleanup(unlock);
+  if (holdSync) {
+    await holding;
+    // A sentinel in the shared queue observes the completed sync before
+    // reconciliation can refresh the same checkout.
+    const beforeLanding = resumed.t.env.banks.withCheckout(h.bankId, async () => {
+      expect((await resumed.t.env.banks.get(h.bankId))?.status.landing.state).toBe("awaiting-review");
+      expect(git(h.checkout, "status", "--porcelain")).toBe("");
+    });
+    const verifying = resumed.t.env.banks.verify(h.bankId);
+    unlock();
+    await beforeLanding;
+    await verifying;
+  } else {
+    await resumed.client.request("banks.verify", { bankId: h.bankId });
+  }
+  expect((await resumed.client.request("banks.get", { bankId: h.bankId })).bank?.status.landing).toMatchObject({ state: "ok" });
+  expect(resumed.t.env.log.readStream({ kind: "environment", id: resumed.t.env.id }).filter((event) => event.type === "bank.landing-failed")).toEqual([]);
   expect((await resumed.client.request("banks.drafts.list", { sessionId: id })).queues[0]?.drafts[0]).toMatchObject({ content: expect.stringContaining("A later draft stays queued.") });
   expect(readFileSync(join(h.checkout, "projects/personal/homelab/memories/new-fact.md"), "utf8")).toContain("Roll out once");
   expect(h.forge.requests.filter((request) => request.method === "POST" && request.path.endsWith("/pulls"))).toHaveLength(1);
+});
+
+it("closes with reconciliation queued behind a held startup sync", async () => {
+  const h = await remoteBank({ ...PERSONAL_BANK, "BANK.md": PERSONAL_BANK["BANK.md"]!.replace("memories: auto", "memories: review") }, { setupSteps: NO_SETUP_STEPS });
+  scriptLanding(h, "success");
+  const { id } = await create(h.client);
+  await call(h, id, tool("draft", draft), tool("promote", {}));
+  await h.t.close();
+  let entered!: () => void;
+  const holding = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const resumed = await start(h.t.dataDir, {
+    ...h.restartOptions,
+    banksGit: async (request, execute) => {
+      entered();
+      request.signal?.addEventListener("abort", release, { once: true });
+      await gate;
+      return execute(request);
+    },
+  });
+  onCleanup(release);
+  await holding;
+  const reconciliation = resumed.t.env.banks.reconcileLanding(h.bankId);
+  await resumed.t.close();
+  expect(await reconciliation).toMatchObject({ state: "failed", reason: "The environment is closing." });
 });
 
 it("reports verify failure when a manual merge did not put the reviewed files on main", async () => {

@@ -187,6 +187,11 @@ export interface KeyManagerConnections {
    * prepare answers inside a command of their own.
    */
   readonly add: PreparedCommand<"keyManagers.connections.add">;
+  /** Read-only import exclusion: an occupied id must describe exactly this connection. */
+  canImport(params: Omit<ParamsOf<"keyManagers.connections.add">, "credential">): boolean;
+  /** Carries a record with no credential, checking the id again inside its item transaction. */
+  importRecord(params: Omit<ParamsOf<"keyManagers.connections.add">, "credential">, context: CommandContext): CommandAnswer<{ readonly targetId: string; readonly carried: boolean }>;
+
   readonly signIn: PreparedCommand<"keyManagers.connections.signIn">;
   readonly update: PreparedCommand<"keyManagers.connections.update">;
   readonly setPolicies: MethodHandler<"keyManagers.connections.setPolicies">;
@@ -1005,7 +1010,33 @@ export const createKeyManagerConnections = (options: KeyManagerConnectionsOption
     background,
   });
 
+  const canImport: KeyManagerConnections["canImport"] = (params) => {
+    const address = httpOriginOf(params.address ?? "");
+    if (address === null) return false;
+    const settings = settingsOf({ ...params, credential: undefined }, address);
+    const held = liveConnection(reader, params.connectionId.toLowerCase());
+    if (held === null) return addRefusal(params.connectionId.toLowerCase(), params.provider, address) === null;
+    return held.record.provider === params.provider && held.record.address === address &&
+      (Object.keys(settings) as (keyof typeof settings)[]).every((key) => held.record[key] === settings[key]);
+  };
+
   return {
+    canImport,
+    importRecord(params, command) {
+      const connectionId = params.connectionId.toLowerCase();
+      if (!canImport(params)) return { aggregate: stream, rejected: conflict("exists", "Its connection id or address is occupied by incompatible settings; no reference was retargeted.", { connectionId }) };
+      if (liveConnection(reader, connectionId) !== null) return { aggregate: stream, result: { targetId: connectionId, carried: false } };
+      const address = httpOriginOf(params.address ?? "");
+      if (address === null) return { aggregate: stream, rejected: conflict("exists", "The connection has no valid address.", { connectionId }) };
+      const payload: KeyManagerConnectionAddedPayload = {
+        connectionId, provider: params.provider, label: params.label, address,
+        ...settingsOf({ ...params, credential: undefined }, address),
+        ticks: null, basePath: null, injects: false, status: awaitingSignIn(), tokenInformation: null,
+        credential: null, copiedFrom: null, importedFrom: params.importedFrom ?? null,
+      };
+      log.append(stream, [{ type: "key-manager.connection.added", payload }], { tx: command.tx, actor: command.actor, commandId: command.commandId });
+      return { aggregate: stream, result: { targetId: connectionId, carried: true } };
+    },
     async start() {
       const entries = new Set<string>();
       for (const { record, credential } of listConnections(reader)) {
