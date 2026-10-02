@@ -1,8 +1,8 @@
 /**
  * Fixtures for the state import's contract (#581): what `stateImport.detect`
  * answers, the report's four groups and what failed, the client-local
- * values, the `state-import.finished` payload, and the two methods' params
- * and results. A valid and an invalid instance of each file the export
+ * values, the `state-import.finished` payload, the `state-import` stream's
+ * events (#1165), and the two methods' params and results. A valid and an invalid instance of each file the export
  * writes; `fixtures.ts` folds them into the package's table.
  */
 
@@ -18,6 +18,8 @@ const unreadable = { ...holds, banks: null };
 const dataFolder = { path: "/home/david/.config/source", holds };
 const terminalFolder = { path: "/home/david/.local/state/source/terminal" };
 const detection = { dataFolder, terminalFolder };
+const started = { importId: commandId, sourceKey: "/home/david/.config/source" };
+const itemCarried = { ...started, store: "instructions", sourceId: "p1", kind: "instruction", targetId: "8f2c1a7e-5b9d-4c3e-9a1f-2d6b7e8c9f0a", origin: "import" };
 /** What an import carried, per kind: also the `state-import.finished` notice fixtures' counts. */
 export const stateImportCarried = {
   accounts: 4,
@@ -93,6 +95,16 @@ export const stateImportSchemaFixtures: Record<string, Fixtures> = {
   "state-import/report.json": {
     valid: [report, { ...finished, clientLocal: {}, dryRun: true }],
     invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }],
+  },
+  "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried"], invalid: ["state-import.finished", "state-import.carried", ""] },
+  "state-import/item-kind.json": { valid: ["instruction", "forge-account", "key-manager-connection", "dev-site", "page-policy"], invalid: ["instructions", "account-mapping", ""] },
+  "state-import/events/state-import.started.json": {
+    valid: [started],
+    invalid: [{ importId: commandId }, { ...started, importId: "not-a-uuid" }, { ...started, sourceKey: "" }],
+  },
+  "state-import/events/state-import.item-carried.json": {
+    valid: [itemCarried, { ...itemCarried, kind: "forge-account", store: "forge-credentials", sourceId: "https://github.com" }, { ...itemCarried, kind: "key-manager-connection", store: "key-manager-connections", sourceId: commandId }, { ...itemCarried, store: "browser.devSites", sourceId: "dev.example", kind: "dev-site", targetId: "dev.example" }, { ...itemCarried, store: "browser.evaluateEverywhere", sourceId: "evaluate-everywhere", kind: "page-policy", targetId: "browser.evaluateEverywhere" }],
+    invalid: [{ ...itemCarried, origin: "client" }, { ...itemCarried, kind: "routine-firing" }, { ...itemCarried, sourceId: "" }, { ...itemCarried, targetId: undefined }],
   },
 };
 

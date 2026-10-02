@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportItemCarriedPayload",
+  "type": "object",
+  "properties": {
+    "importId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The import: the command id of the stateImport.run that applied it, in lowercase."
+    },
+    "sourceKey": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source data folder's canonical path on the environment's machine: symbolic links resolved."
+    },
+    "store": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The source store the item was read from: instructions, browser.devSites or browser.evaluateEverywhere."
+    },
+    "sourceId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The item's id in its store, or its natural identity where the store gives it none."
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "instruction",
+        "forge-account",
+        "key-manager-connection",
+        "dev-site",
+        "page-policy"
+      ],
+      "description": "The kind of item a state import carried: an owned instruction, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
+    },
+    "targetId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The target held by its owning service: an owned instruction's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key."
+    },
+    "origin": {
+      "type": "string",
+      "const": "import",
+      "description": "Always import: the target was written by a state import."
+    }
+  },
+  "required": [
+    "importId",
+    "sourceKey",
+    "store",
+    "sourceId",
+    "kind",
+    "targetId",
+    "origin"
+  ],
+  "description": "state-import.item-carried: a source item was carried: its folder, store and id there, its kind, the target its owning service made of it, the import that carried it, and origin import."
+}

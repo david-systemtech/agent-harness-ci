@@ -11,12 +11,15 @@ export type {
   TerminalSelection,
 } from "./startup/selection.js";
 export { listSessions, type ListIo, type ListRequest } from "./listing/listing.js";
+export { printAnswer, type PrintIo, type PrintRequest } from "./print/print.js";
+export { refusedResult, type PrintFormat, type PrintResult } from "./print/output.js";
 
 /**
  * The terminal UI's entry without a screen (`@agent-harness/tui/screenless`,
  * #1178): what the CLI's printing and listing choose their environment
- * with. Nothing it loads draws or reads a terminal, so it runs with standard
- * input and output piped, and the CLI loads it without Ink or React.
+ * with, and `tui -p`'s printing itself (#1180). Nothing it loads draws or
+ * reads a terminal, so it runs with standard input and output piped, and
+ * the CLI loads it without Ink or React.
  */
 
 /** `agent-harness tui`'s selectors and what the CLI hands in beside them. */

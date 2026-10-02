@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { BankManifest, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankReviewHeldPayload, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
+import { BankManifest, ContractError, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankReviewHeldPayload, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, validateBank } from "@agent-harness/contracts/bank-validator";
 import type { EventEnvelope, EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -62,13 +62,7 @@ export const createBankLander = (options: {
   }
   const stopFollowing = options.log.subscribe(rememberReview);
   const heldReview = (bankId: string): BankReviewHeldPayload | null => reviews.get(bankId) ?? null;
-  const promote = async (bank: BankEntry, sessionId: string | null, drafts: readonly BankDraft[], changes?: BankChanges): Promise<MemoryPromoteResult> => {
-    if (busy.has(bank.id)) {
-      const reason = "A landing is already in progress for this bank.";
-      options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [{ type: "bank.landing-failed", payload: { bankId: bank.id, sessionId, step: "prepare", reason } }], { tx, actor: BANKS_ACTOR }));
-      return { state: "failed", bank: bank.name, step: "prepare", reason };
-    }
-    busy.add(bank.id);
+  const land = async (bank: BankEntry, sessionId: string | null, drafts: readonly BankDraft[], changes?: BankChanges): Promise<MemoryPromoteResult> => {
     let step = "prepare";
     let worktree: string | undefined;
     let root: string | undefined;
@@ -310,6 +304,15 @@ export const createBankLander = (options: {
       busy.delete(bank.id);
     }
   };
+  const promote = async (bank: BankEntry, sessionId: string | null, drafts: readonly BankDraft[], changes?: BankChanges): Promise<MemoryPromoteResult> => {
+    if (busy.has(bank.id)) {
+      const reason = "A landing is already in progress for this bank.";
+      options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [{ type: "bank.landing-failed", payload: { bankId: bank.id, sessionId, step: "prepare", reason } }], { tx, actor: BANKS_ACTOR }));
+      return { state: "failed", bank: bank.name, step: "prepare", reason };
+    }
+    busy.add(bank.id);
+    return options.banks.withCheckout(bank.id, () => land(bank, sessionId, drafts, changes));
+  };
   const track = (bankId: string, work: Promise<MemoryPromoteResult>) => {
     running.add(work);
     if (!active.has(bankId)) active.set(bankId, work);
@@ -323,9 +326,19 @@ export const createBankLander = (options: {
     }
   }, REVIEW_POLL_MS);
   const lander = {
-    reconcile(bank: BankEntry): Promise<MemoryPromoteResult | null> {
-      if (busy.has(bank.id)) return active.get(bank.id) ?? Promise.resolve(null);
+    /** Publication holds the same exclusion as promotion until its receipt records the remote review. */
+    reserve(bankId: string): (() => void) | null {
+      if (busy.has(bankId) || heldReview(bankId) !== null) return null;
+      busy.add(bankId);
+      return () => busy.delete(bankId);
+    },
+    reconcile(bank: BankEntry, expectedPaths?: readonly string[]): Promise<MemoryPromoteResult | null> {
       const review = heldReview(bank.id);
+      if (review !== null && expectedPaths !== undefined) {
+        const paths = Object.keys(review.writes);
+        if (paths.length !== expectedPaths.length || paths.some((path) => !expectedPaths.includes(path))) throw new ContractError({ code: "conflict", message: "Another reviewed change is awaiting reconciliation for this bank.", data: { reason: "landing_in_progress", bankId: bank.id } });
+      }
+      if (busy.has(bank.id)) return active.get(bank.id) ?? Promise.resolve(null);
       return review === null ? Promise.resolve(null) : track(bank.id, promote(bank, review.sessionId, []));
     },
     promote(bank: BankEntry, sessionId: string, drafts: readonly BankDraft[]) {

@@ -164,6 +164,8 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
       readiness: "ready",
       activity: { state: "busy", reason: "recent-activity", busyUntil: expect.any(String) as string },
       updatesManagedOutside: false,
+      // What it binds (#574): no LAN address while network.bindLan names none; the tailnet and the addresses it could bind are the machine's.
+      binding: expect.objectContaining({ lan: null, lanAddresses: expect.any(Array) as string[] }) as unknown,
     });
     child.send({ type: "drain?" });
     expect(await nth(2)).toMatchObject({ type: "draining", drainingSince: expect.any(String) as string, trigger: "launcher" });

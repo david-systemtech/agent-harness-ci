@@ -115,6 +115,8 @@ export interface TestEnvironmentOptions {
   readonly launcher?: TestLauncher;
   /** The adapter host's seams (the broker's automatic answers, the policy resolver, ...); preset: each seam's own. */
   readonly adapterSeams?: EnvironmentOptions["adapterSeams"];
+  /** A hold on each file restore of `files.undo`, around its rename (#1183); preset: none. */
+  readonly fileUndoHooks?: EnvironmentOptions["fileUndoHooks"];
   /** Sections registered with the OrientationRenderer beside the environment's own, each in place of the environment's own of its name (#380, #381); preset: none. */
   readonly orientationSections?: EnvironmentOptions["orientationSections"];
   /** An orientation seam in place of the OrientationRenderer's, which the composer and the Orientation row read (#505); preset: the renderer's. */
@@ -139,6 +141,8 @@ export interface TestEnvironmentOptions {
   readonly scrub?: ScrubRegistry;
   /** The machine the state import's source reader looks at (`machinePointedAt`); preset: one whose folders hold nothing, never this box's. */
   readonly stateImportSource?: EnvironmentOptions["stateImportSource"];
+  /** Seams into the state import: after its plan, after each item it carried (#1165); preset none. */
+  readonly stateImportHooks?: EnvironmentOptions["stateImportHooks"];
   /** The home whose `.agents/skills` Carry over's skills half reads; preset: a folder under the data directory that is not there. */
   readonly carryOverHome?: EnvironmentOptions["carryOverHome"];
   /** How the ForgeService reaches a forge (`test/fake-forge.ts` routes github.com's API to a fake one); preset: the environment's. */
@@ -387,6 +391,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.lanAddress !== undefined && { lanAddress: options.lanAddress }),
     ...(options.tailnetName !== undefined && { tailnetName: options.tailnetName }),
     ...(options.adapterSeams !== undefined && { adapterSeams: options.adapterSeams }),
+    ...(options.fileUndoHooks !== undefined && { fileUndoHooks: options.fileUndoHooks }),
     ...(options.orientationSections !== undefined && { orientationSections: options.orientationSections }),
     ...(options.orientation !== undefined && { orientation: options.orientation }),
     ...(options.catalogue !== undefined && { catalogue: options.catalogue }),
@@ -399,6 +404,7 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
     ...(options.workspaces !== undefined && { workspaces: options.workspaces }),
     ...(options.forgeFetch !== undefined && { forgeFetch: options.forgeFetch }),
     stateImportSource: options.stateImportSource ?? { env: {}, platform: "linux", home: join(dataDir, "no-source-home") },
+    ...(options.stateImportHooks !== undefined && { stateImportHooks: options.stateImportHooks }),
     carryOverHome: options.carryOverHome ?? join(dataDir, "no-carry-over-home"),
     ...(options.forgeTimeoutMs !== undefined && { forgeTimeoutMs: options.forgeTimeoutMs }),
     managedTools: {

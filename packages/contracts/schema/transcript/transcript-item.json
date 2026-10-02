@@ -409,6 +409,190 @@
     {
       "type": "object",
       "properties": {
+        "terminalId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "\\S",
+          "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+        },
+        "sourceRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run whose edits set the check off; null for a manual check."
+        },
+        "kind": {
+          "type": "string",
+          "const": "check"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "state": {
+          "type": "string",
+          "const": "running"
+        },
+        "result": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "terminalId",
+        "command",
+        "sourceRunId",
+        "kind",
+        "sequence",
+        "state",
+        "result"
+      ],
+      "description": "A Workspace check at its checks.started sequence, still running in its terminal."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "terminalId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+          "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "\\S",
+          "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+        },
+        "sourceRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run whose edits set the check off; null for a manual check."
+        },
+        "kind": {
+          "type": "string",
+          "const": "check"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The sequence of the event that opened the item."
+        },
+        "state": {
+          "type": "string",
+          "const": "finished"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "output": {
+              "type": "string",
+              "maxLength": 65536,
+              "description": "The check's terminal output, scrubbed of registered values: its last 64 KiB (UTF-8) when more came."
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "Whether earlier output was dropped to keep the last 64 KiB."
+            },
+            "exitCode": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The command's exit code; null when it timed out or failed without exiting."
+            },
+            "signal": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The signal that ended the command, when one did; null otherwise."
+            },
+            "timedOut": {
+              "type": "boolean",
+              "description": "Whether the check ran past its 120 seconds and its terminal was closed."
+            },
+            "failure": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "launch_failed",
+                    "closed",
+                    "interrupted"
+                  ],
+                  "description": "Why a check ended without its command's exit: launch_failed (the command could not start in its terminal), closed (its terminal was closed, or its session deleted, before the command exited) or interrupted (the environment stopped while it ran; the command is not run again)."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Why the check ended without its command's exit; null when the command exited or timed out."
+            }
+          },
+          "required": [
+            "output",
+            "truncated",
+            "exitCode",
+            "signal",
+            "timedOut",
+            "failure"
+          ]
+        }
+      },
+      "required": [
+        "terminalId",
+        "command",
+        "sourceRunId",
+        "kind",
+        "sequence",
+        "state",
+        "result"
+      ],
+      "description": "A Workspace check at its checks.started sequence, with its checks.finished outcome folded in."
+    },
+    {
+      "type": "object",
+      "properties": {
         "kind": {
           "type": "string",
           "const": "tasks"
@@ -616,6 +800,20 @@
                 }
               ],
               "description": "The tool's input as the model gave it; null when there is none."
+            },
+            "previewLines": {
+              "description": "Environment-owned read-only command preview, drawn under the command. Null when unavailable, timed out or not applicable; absent on events recorded before this field existed.",
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "summary": {
               "type": "string",
@@ -1154,8 +1352,1857 @@
             {
               "type": "null"
             }
+          ]
+        },
+        "history": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "anchor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "user-message"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "messageId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "image",
+                                "file"
+                              ],
+                              "description": "What an attachment is: an image (the adapter needs imageInput) or a file (fileInput)."
+                            },
+                            "name": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "mediaType": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Its media type: image/png."
+                            },
+                            "size": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991,
+                              "description": "Its size in bytes."
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "name",
+                            "mediaType",
+                            "size"
+                          ],
+                          "description": "An attachment as the log records it: kind, name, media type and size; the bytes are never logged."
+                        }
+                      },
+                      "delivery": {
+                        "type": "string",
+                        "enum": [
+                          "prompt",
+                          "steered",
+                          "queued"
+                        ],
+                        "description": "Where a message went: prompt (a run starts with it, or a queued turn opened with it), steered (the provider folded it into the running turn), or queued (held until a turn reads it)."
+                      },
+                      "heldBy": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "provider",
+                              "environment"
+                            ],
+                            "description": "Who holds a queued message: the provider's queue (it may steer it into the running turn), or the environment's (the next run starts with it)."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Who holds it while it is queued; null once it is read."
+                      },
+                      "sentAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "An instant as an ISO 8601 UTC timestamp."
+                      },
+                      "sender": {
+                        "description": "The message's event actor; system actors authored environment messages, except system:carry-over, which imported historical human messages. Absent in older snapshots.",
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "client_session",
+                              "routine",
+                              "adapter",
+                              "system"
+                            ],
+                            "description": "What caused the event: a client session, a routine, a provider adapter or the environment itself."
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The actor's id within its kind; a system component names itself."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "messageId",
+                      "text",
+                      "attachments",
+                      "delivery",
+                      "heldBy",
+                      "sentAt"
+                    ],
+                    "description": "A message a client or the environment sent: its sender, text, attachments and where it went."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "assistant-text"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "itemId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "aborted": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "itemId",
+                      "text",
+                      "aborted"
+                    ],
+                    "description": "The assistant's text, settled."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "assistant-thinking"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "itemId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "aborted": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "itemId",
+                      "text",
+                      "aborted"
+                    ],
+                    "description": "The assistant's thinking, settled."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "tool-call"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "toolCallId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "input": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {}
+                      },
+                      "title": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "agentId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "parentToolCallId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "running",
+                          "ok",
+                          "error",
+                          "cancelled"
+                        ],
+                        "description": "running until tool.ended, then how it ended: ok, error or cancelled."
+                      },
+                      "update": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The latest tool.updated, folded in; null before any."
+                      },
+                      "output": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "array",
+                            "items": {}
+                          },
+                          {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        ],
+                        "description": "The tool's result once it ended; null before."
+                      },
+                      "durationMs": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "toolCallId",
+                      "name",
+                      "input",
+                      "title",
+                      "agentId",
+                      "parentToolCallId",
+                      "status",
+                      "update",
+                      "output",
+                      "durationMs"
+                    ],
+                    "description": "A tool call with its updates folded in and, once it ended, its status and output."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "command"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "args": {
+                        "type": "string"
+                      },
+                      "output": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "name",
+                      "args",
+                      "output"
+                    ],
+                    "description": "A slash command that ran."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "terminalId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+                      },
+                      "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384,
+                        "pattern": "\\S",
+                        "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+                      },
+                      "sourceRunId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                            "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The run whose edits set the check off; null for a manual check."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "check"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "state": {
+                        "type": "string",
+                        "const": "running"
+                      },
+                      "result": {
+                        "type": "null"
+                      }
+                    },
+                    "required": [
+                      "terminalId",
+                      "command",
+                      "sourceRunId",
+                      "kind",
+                      "sequence",
+                      "state",
+                      "result"
+                    ],
+                    "description": "A Workspace check at its checks.started sequence, still running in its terminal."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "terminalId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "The terminal the check runs in, which the environment opened and terminals.subscribe streams while it is open."
+                      },
+                      "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16384,
+                        "pattern": "\\S",
+                        "description": "A Workspace check's shell text, kept and run verbatim through the environment's one-off shell (/bin/sh -c on POSIX) in the Workspace directory; at most 16,384 characters, and not white space alone."
+                      },
+                      "sourceRunId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                            "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The run whose edits set the check off; null for a manual check."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "check"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "state": {
+                        "type": "string",
+                        "const": "finished"
+                      },
+                      "result": {
+                        "type": "object",
+                        "properties": {
+                          "output": {
+                            "type": "string",
+                            "maxLength": 65536,
+                            "description": "The check's terminal output, scrubbed of registered values: its last 64 KiB (UTF-8) when more came."
+                          },
+                          "truncated": {
+                            "type": "boolean",
+                            "description": "Whether earlier output was dropped to keep the last 64 KiB."
+                          },
+                          "exitCode": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The command's exit code; null when it timed out or failed without exiting."
+                          },
+                          "signal": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The signal that ended the command, when one did; null otherwise."
+                          },
+                          "timedOut": {
+                            "type": "boolean",
+                            "description": "Whether the check ran past its 120 seconds and its terminal was closed."
+                          },
+                          "failure": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "launch_failed",
+                                  "closed",
+                                  "interrupted"
+                                ],
+                                "description": "Why a check ended without its command's exit: launch_failed (the command could not start in its terminal), closed (its terminal was closed, or its session deleted, before the command exited) or interrupted (the environment stopped while it ran; the command is not run again)."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Why the check ended without its command's exit; null when the command exited or timed out."
+                          }
+                        },
+                        "required": [
+                          "output",
+                          "truncated",
+                          "exitCode",
+                          "signal",
+                          "timedOut",
+                          "failure"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "terminalId",
+                      "command",
+                      "sourceRunId",
+                      "kind",
+                      "sequence",
+                      "state",
+                      "result"
+                    ],
+                    "description": "A Workspace check at its checks.started sequence, with its checks.finished outcome folded in."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "tasks"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "tasks": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "taskId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The provider's task id, stable for the task's life; runs.stopTask names it."
+                            },
+                            "kind": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "The provider's own word for the kind of work (local_bash, local_agent); an open set."
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "The provider's one-line description of the task."
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "pending",
+                                "running",
+                                "paused",
+                                "completed",
+                                "failed",
+                                "stopped"
+                              ],
+                              "description": "Where a piece of delegated work has got to: pending, running or paused (live), completed, failed or stopped (settled)."
+                            },
+                            "startedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                              "description": "When the environment first heard of the task."
+                            },
+                            "endedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                                  "description": "An instant as an ISO 8601 UTC timestamp."
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "When it settled; null while it is live."
+                            },
+                            "subagentType": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "The agent type of a subagent (Explore, Plan), else null."
+                            },
+                            "toolCallId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "The tool call that started it, when the provider says."
+                            },
+                            "error": {
+                              "description": "Why it failed, when it did.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "taskId",
+                            "kind",
+                            "description",
+                            "status",
+                            "startedAt",
+                            "endedAt",
+                            "subagentType",
+                            "toolCallId",
+                            "error"
+                          ],
+                          "description": "One piece of delegated work a run holds: a subagent or a background task, with its status."
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "tasks"
+                    ],
+                    "description": "A run's delegated-work ledger as it stands, at the place its first tasks.changed came."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "prompt"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "promptId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "prompt": {
+                        "type": "object",
+                        "properties": {
+                          "runId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                            "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                          },
+                          "promptId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The prompt's id: the adapter's own for the call when it names one, else one the environment minted."
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "permission",
+                              "denylist",
+                              "question",
+                              "plan"
+                            ],
+                            "description": "What a prompt asks: permission (a tool call the mode does not allow without asking), denylist (a call that touches the denylist), question (the model asks its user), or plan (a plan to approve, with the mode to continue in)."
+                          },
+                          "toolName": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The tool the call is for; null when the prompt is about no tool."
+                          },
+                          "toolCallId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The provider's id for the tool call, when it names one."
+                          },
+                          "input": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {}
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The tool's input as the model gave it; null when there is none."
+                          },
+                          "previewLines": {
+                            "description": "Environment-owned read-only command preview, drawn under the command. Null when unavailable, timed out or not applicable; absent on events recorded before this field existed.",
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "summary": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 300,
+                            "description": "One line saying what is asked, for a list, a notification or a card's title."
+                          },
+                          "blockedPath": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The path that made the provider ask, when one did."
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Why the provider asked, in its own words, when it says."
+                          },
+                          "questions": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "header": {
+                                      "type": "string",
+                                      "description": "A short label for the question, shown as a chip; empty when the provider gives none."
+                                    },
+                                    "question": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "description": "The question as the model asks it; an answer is keyed by it."
+                                    },
+                                    "options": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "label": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "description": "What the option says, as the person picks it."
+                                          },
+                                          "description": {
+                                            "type": "string",
+                                            "description": "What choosing it means; empty when the provider gives none."
+                                          }
+                                        },
+                                        "required": [
+                                          "label",
+                                          "description"
+                                        ],
+                                        "description": "One option of a question: its label and what it means."
+                                      },
+                                      "description": "The choices offered; a person may also answer in their own words."
+                                    },
+                                    "multiSelect": {
+                                      "type": "boolean",
+                                      "description": "Whether several options may be chosen."
+                                    }
+                                  },
+                                  "required": [
+                                    "header",
+                                    "question",
+                                    "options",
+                                    "multiSelect"
+                                  ],
+                                  "description": "One question the model asks: header, question, options and whether several may be chosen."
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "A question prompt's questions; null for the other kinds."
+                          },
+                          "plan": {
+                            "description": "A plan prompt's plan text; null for the other kinds, or when the provider gives none.",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "suggestions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {}
+                            },
+                            "description": "The provider's remember-suggestions, in its own terms: what answering with remember 'session' applies. Empty when it offers none."
+                          },
+                          "agentId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The subagent that asked; null for the run's own agent."
+                          },
+                          "denylist": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "section": {
+                                      "type": "string",
+                                      "enum": [
+                                        "browserDomains",
+                                        "paths",
+                                        "commandPatterns",
+                                        "hosts"
+                                      ],
+                                      "description": "A section of the denylist: browserDomains (where a browser verb may not go unasked), paths (files and directories), commandPatterns (shell command lines), or hosts (what a command, a fetch, a search or one of the harness's own tools may not reach unasked)."
+                                    },
+                                    "entry": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 200,
+                                          "description": "The entry's id, unique in its section: a preset's is the same on every environment."
+                                        },
+                                        "pattern": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "description": "The pattern, in its section's grammar."
+                                        },
+                                        "note": {
+                                          "type": "string",
+                                          "maxLength": 500,
+                                          "description": "Why the entry is there, for people; empty for none."
+                                        },
+                                        "preset": {
+                                          "type": "boolean",
+                                          "description": "Whether it came from the presets (seeded on first start, or restored); an edited preset keeps it."
+                                        },
+                                        "enabled": {
+                                          "type": "boolean",
+                                          "description": "Whether it matches: a disabled entry never does."
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "pattern",
+                                        "note",
+                                        "preset",
+                                        "enabled"
+                                      ],
+                                      "description": "One entry of the denylist: its id, pattern, note, whether it is a preset, and whether it is enabled."
+                                    },
+                                    "matched": {
+                                      "type": "string",
+                                      "description": "What the call gave that matched it: a path, a command line, an address."
+                                    }
+                                  },
+                                  "required": [
+                                    "section",
+                                    "entry",
+                                    "matched"
+                                  ],
+                                  "description": "One denylist entry a call matched: the section, the entry, and what matched it."
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "A denylist prompt's matches: each entry the call matched, with its section and what matched it, the first the one the summary names. Null for the other kinds."
+                          },
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "plan",
+                              "acceptEdits",
+                              "auto",
+                              "bypassPermissions"
+                            ],
+                            "description": "The mode the run was in when it asked."
+                          },
+                          "ceiling": {
+                            "type": "string",
+                            "enum": [
+                              "plan",
+                              "acceptEdits",
+                              "auto",
+                              "bypassPermissions"
+                            ],
+                            "description": "The ceiling the run was resolved under: a plan's continue mode is clamped to it."
+                          },
+                          "ttlExpiresAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                                "description": "An instant as an ISO 8601 UTC timestamp."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "When the prompt is denied unanswered (permissions.parkedPrompt.ttl, fixed when it opens); null when it never is."
+                          }
+                        },
+                        "required": [
+                          "runId",
+                          "promptId",
+                          "kind",
+                          "toolName",
+                          "toolCallId",
+                          "input",
+                          "summary",
+                          "blockedPath",
+                          "reason",
+                          "questions",
+                          "plan",
+                          "suggestions",
+                          "agentId",
+                          "denylist",
+                          "mode",
+                          "ceiling",
+                          "ttlExpiresAt"
+                        ],
+                        "description": "prompt.opened: a run asked a person something; it is parked until its one prompt.answered."
+                      },
+                      "answer": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "runId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                                "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                              },
+                              "promptId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "decision": {
+                                "type": "string",
+                                "enum": [
+                                  "allow",
+                                  "deny"
+                                ],
+                                "description": "Whether the call may go ahead: allow, or deny."
+                              },
+                              "message": {
+                                "description": "A message for the model, with an allow or a deny; null for none.",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "answers": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "A question prompt's answers, keyed by the question's text; several options chosen are joined with a comma and a space. Null for the other kinds."
+                              },
+                              "updatedInput": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The tool's input as the person edited it; null when it runs as the model gave it."
+                              },
+                              "mode": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "requested": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "plan",
+                                              "acceptEdits",
+                                              "auto",
+                                              "bypassPermissions"
+                                            ],
+                                            "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "The mode asked for; null when none was, so a default applied (acceptEdits, or the unattended default)."
+                                      },
+                                      "effective": {
+                                        "type": "string",
+                                        "enum": [
+                                          "plan",
+                                          "acceptEdits",
+                                          "auto",
+                                          "bypassPermissions"
+                                        ],
+                                        "description": "The mode it got."
+                                      },
+                                      "ceiling": {
+                                        "type": "string",
+                                        "enum": [
+                                          "plan",
+                                          "acceptEdits",
+                                          "auto",
+                                          "bypassPermissions"
+                                        ],
+                                        "description": "The ceiling it was clamped to."
+                                      },
+                                      "clamped": {
+                                        "type": "boolean",
+                                        "description": "Whether the mode got is below the one asked for; false when none was asked for, since a default applied then and nothing was clamped."
+                                      },
+                                      "clampReason": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "ceiling",
+                                              "unavailable"
+                                            ],
+                                            "description": "Why a mode was lowered: ceiling (above the ceiling, lowered to it), or unavailable (the mode it would have had is one the account lists as unavailable, so the next lower available one)."
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Why the mode asked for was lowered; null when it was not, or when none was asked for."
+                                      }
+                                    },
+                                    "required": [
+                                      "requested",
+                                      "effective",
+                                      "ceiling",
+                                      "clamped",
+                                      "clampReason"
+                                    ],
+                                    "description": "A mode as the resolver decided it: requested, effective, the ceiling, and whether and why it was clamped."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "An approved plan's mode to continue in, clamped to the run's ceiling and its account's modes (acceptEdits when none was asked for); null otherwise."
+                              },
+                              "remember": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "const": "session"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "session: no further prompt for this tool in this session (permission prompts only, with an allow); null otherwise."
+                              },
+                              "decidedBy": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "A client session's id, as hello names it and the access methods list and revoke it."
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "auto": {
+                                        "type": "string",
+                                        "enum": [
+                                          "unattended",
+                                          "bypass",
+                                          "ttl",
+                                          "run_ended",
+                                          "reviewer",
+                                          "cancelled"
+                                        ],
+                                        "description": "What answered a prompt when no person did: unattended (nobody is present for the run), bypass (a residual prompt in bypassPermissions), ttl (it waited past its TTL), run_ended (its run ended on its own first), reviewer (a provider's automatic reviewer), cancelled (the provider cancelled the request, its tool call moot, while the run went on)."
+                                      }
+                                    },
+                                    "required": [
+                                      "auto"
+                                    ],
+                                    "description": "An automatic rule answered it."
+                                  }
+                                ],
+                                "description": "Who answered a prompt: the id of the client session a person answered from, or {auto} naming the rule."
+                              },
+                              "delivery": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "live",
+                                      "next-run"
+                                    ],
+                                    "description": "Where an answer went: live (handed to the run that asked, still waiting on it), or next-run (the run had gone, a restart or a parked stop taking it, so the answer is the first message of the session's next run)."
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Where a person's answer went; null for one no run was waiting for (an automatic end, or a cancellation)."
+                              }
+                            },
+                            "required": [
+                              "runId",
+                              "promptId",
+                              "decision",
+                              "message",
+                              "answers",
+                              "updatedInput",
+                              "mode",
+                              "remember",
+                              "decidedBy",
+                              "delivery"
+                            ],
+                            "description": "prompt.answered: the prompt's one answer, and who or what gave it."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Its prompt.answered once it has one; null while it is parked."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "runId",
+                      "promptId",
+                      "prompt",
+                      "answer"
+                    ],
+                    "description": "A prompt, where it was asked: what it asked and, once answered, its answer and who gave it."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "history-unreadable"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Why it could not be read, as its session.history-imported says."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence",
+                      "message"
+                    ],
+                    "description": "The line an imported session shows where its history could not be read from the account's directory (session.history-imported, outcome unreadable)."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "updateId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+                      },
+                      "toVersion": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The version the update that cut the run went to."
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "const": "continued"
+                      },
+                      "reason": {
+                        "type": "null"
+                      },
+                      "continuationRunId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "The run that continued it, as system:updates with the origin update."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "update-interrupted"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      }
+                    },
+                    "required": [
+                      "runId",
+                      "updateId",
+                      "toVersion",
+                      "outcome",
+                      "reason",
+                      "continuationRunId",
+                      "kind",
+                      "sequence"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "updateId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+                      },
+                      "toVersion": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The version the update that cut the run went to."
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "const": "waiting-on-prompt"
+                      },
+                      "reason": {
+                        "type": "null"
+                      },
+                      "continuationRunId": {
+                        "type": "null"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "update-interrupted"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      }
+                    },
+                    "required": [
+                      "runId",
+                      "updateId",
+                      "toVersion",
+                      "outcome",
+                      "reason",
+                      "continuationRunId",
+                      "kind",
+                      "sequence"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "runId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                      },
+                      "updateId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "An update's id: a version 4 UUID the environment mints when it takes a target, named by each of the update's notices, the launcher's switch, its database snapshot and its outcome record; a newer release replacing the target gets a new one."
+                      },
+                      "toVersion": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The version the update that cut the run went to."
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "const": "next-message"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "no-resume",
+                          "account",
+                          "mode",
+                          "workspace",
+                          "deleted",
+                          "completions"
+                        ],
+                        "description": "Why a run an update cut was not continued on its own: no-resume (its adapter cannot resume, or no provider session was linked), account (the session's account is another now, or signed out), mode (the mode resolved now differs from the run's), workspace (the workspace is gone), deleted (the session is deleted) or completions (the caller was answered 503 drained and owns the retry)."
+                      },
+                      "continuationRunId": {
+                        "type": "null"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "update-interrupted"
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "The sequence of the event that opened the item."
+                      }
+                    },
+                    "required": [
+                      "runId",
+                      "updateId",
+                      "toVersion",
+                      "outcome",
+                      "reason",
+                      "continuationRunId",
+                      "kind",
+                      "sequence"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|check|tasks|prompt|history-unreadable|forked|update-interrupted)$).+$",
+                        "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, check, tasks, prompt, history-unreadable, forked, update-interrupted), which must match their own schema."
+                      },
+                      "sequence": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "A position in the event log's global sequence; 0 is the cursor before the first event."
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sequence"
+                    ],
+                    "additionalProperties": {},
+                    "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
+                  }
+                ],
+                "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a running or finished Workspace check, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque."
+              }
+            },
+            "runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "runId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                    "description": "A run's id: a version 4 UUID the environment mints when the run starts or is adopted."
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "running",
+                      "ended"
+                    ],
+                    "description": "Where a run is: running (started, not ended) or ended."
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "client",
+                      "routine",
+                      "completions",
+                      "provider",
+                      "update"
+                    ],
+                    "description": "Where a run came from: client (runs.start or runs.send, or the environment's queue after a client's run), routine, completions, provider (a turn the provider opened itself, adopted as a run), or update (the turn that continues a run an update cut, started as system:updates)."
+                  },
+                  "accountId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "effort": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mode": {
+                    "type": "object",
+                    "properties": {
+                      "requested": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "plan",
+                              "acceptEdits",
+                              "auto",
+                              "bypassPermissions"
+                            ],
+                            "description": "What an agent may do without asking during a run, in the order ceilings use: plan < acceptEdits < auto < bypassPermissions. Claude's default and dontAsk are never used."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The mode asked for, by the command or the session; null when neither names one, so a default applied."
+                      },
+                      "effective": {
+                        "type": "string",
+                        "enum": [
+                          "plan",
+                          "acceptEdits",
+                          "auto",
+                          "bypassPermissions"
+                        ],
+                        "description": "The mode the run got, after the clamp to the client session's ceiling and the account's modes."
+                      },
+                      "clamped": {
+                        "type": "boolean",
+                        "description": "Whether the clamp lowered the mode asked for; run.policy.resolved says why."
+                      }
+                    },
+                    "required": [
+                      "requested",
+                      "effective",
+                      "clamped"
+                    ],
+                    "description": "A run's mode: requested, effective after the ceiling's clamp, and whether it was clamped; run.policy.resolved has the rest."
+                  },
+                  "promptMessageId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                        "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "queuedMessageIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+                      "description": "A user message's id: a version 4 UUID the environment mints when a client sends it, and the id the provider is handed."
+                    }
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "An instant as an ISO 8601 UTC timestamp."
+                  },
+                  "endedAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "An instant as an ISO 8601 UTC timestamp."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "completed",
+                          "error",
+                          "interrupted",
+                          "disposed",
+                          "drained"
+                        ],
+                        "description": "Why a run ended: completed, error, interrupted (with its cause), disposed (the environment let the run go: its session was deleted, or the environment closed), drained (cut by a drain's cap)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cause": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "read-now",
+                          "restart",
+                          "parked",
+                          "timeout"
+                        ],
+                        "description": "What interrupted a run: user (runs.interrupt), read-now, restart (the recovery sweep after a restart), parked (its process was stopped while parked on a prompt), timeout (a routine's firing ran past its maximum duration)."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "error": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "code": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "The provider's or the environment's code for it, when there is one."
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "code"
+                        ],
+                        "description": "What went wrong in a run: a message and, when there is one, a code."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "usage": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "model": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "inputTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "outputTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "cacheReadTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "cacheWriteTokens": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "costUsd": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "What the tokens cost in US dollars, when the provider says."
+                            },
+                            "contextWindow": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "The model's context window in tokens, when the provider says."
+                            }
+                          },
+                          "required": [
+                            "model",
+                            "inputTokens",
+                            "outputTokens",
+                            "cacheReadTokens",
+                            "cacheWriteTokens",
+                            "costUsd",
+                            "contextWindow"
+                          ],
+                          "description": "One model's token spend in a run: input, output, cache reads and writes, cost and context window."
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The latest token spend per model: run.ended's, else the last usage.reported."
+                  },
+                  "durationMs": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "runId",
+                  "state",
+                  "origin",
+                  "accountId",
+                  "model",
+                  "effort",
+                  "mode",
+                  "promptMessageId",
+                  "queuedMessageIds",
+                  "startedAt",
+                  "endedAt",
+                  "reason",
+                  "cause",
+                  "error",
+                  "usage",
+                  "durationMs"
+                ],
+                "description": "One run of a session: its state, where it came from, its account, model, effort and mode, and how it ended."
+              }
+            }
+          },
+          "required": [
+            "title",
+            "anchor",
+            "items",
+            "runs"
           ],
-          "description": "The user message the fork was taken before, or null for a fork of the whole session, except in two cases. A source no run of which had linked a provider session but which carried one in as a fork itself: what its own session.forked named (a message, or null), whichever message the fork was taken before, since nothing the source was sent reached the provider; the text of the message it was taken before is still the fork's draft. A fork of the whole of a source that had linked one and holds a rewind not yet continued from: the rewind's message, since that provider session still holds what the rewind hid."
+          "description": "A fork's independent copy of the source's visible transcript, before the requested anchor or at the end, and the labels at the time it was copied. Source ids remain provenance, never command targets of this fork."
         }
       },
       "required": [
@@ -1164,7 +3211,7 @@
         "fromSessionId",
         "atMessageId"
       ],
-      "description": "A fork's first row: the source and anchor its session.forked named, at that event's sequence."
+      "description": "A fork's folded row with the source's copied visible history; retained in session snapshots."
     },
     {
       "type": "object",
@@ -1339,8 +3386,8 @@
       "properties": {
         "kind": {
           "type": "string",
-          "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|tasks|prompt|history-unreadable|forked|update-interrupted)$).+$",
-          "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, tasks, prompt, history-unreadable, forked, update-interrupted), which must match their own schema."
+          "pattern": "^(?!(?:user-message|assistant-text|assistant-thinking|tool-call|command|check|tasks|prompt|history-unreadable|forked|update-interrupted)$).+$",
+          "description": "Any kind but the known ones (user-message, assistant-text, assistant-thinking, tool-call, command, check, tasks, prompt, history-unreadable, forked, update-interrupted), which must match their own schema."
         },
         "sequence": {
           "type": "integer",
@@ -1357,5 +3404,5 @@
       "description": "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type."
     }
   ],
-  "description": "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque."
+  "description": "One transcript item, including a fork's copied history fold; unknown kinds are opaque."
 }

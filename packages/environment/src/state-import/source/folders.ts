@@ -37,7 +37,7 @@ export interface SourceMachine {
 }
 
 /** The files the source writes in its data folder, by what they hold. */
-const DATA_FILES = {
+export const DATA_FILES = {
   profiles: "profiles.json",
   banks: "memory-banks.json",
   desktopRoutines: "routines.json",
@@ -47,10 +47,11 @@ const DATA_FILES = {
   connections: "secret-managers.json",
   preferences: "prefs.json",
   sessions: "serverSessions.json",
+  browser: "paired-browsers.json",
 } as const;
 
 /** The files the source's terminal client writes in its state folder. */
-const TERMINAL_FILES = ["preferences.json", "history.jsonl", "snippets.json"] as const;
+const TERMINAL_FILES = ["preferences.json", "history.jsonl", "snippets.json", "files.json"] as const;
 
 /** A variable's value when it is set to something. */
 const declared = (machine: SourceMachine, name: string): string | undefined => {

@@ -56,6 +56,9 @@ export const PromptOpenedPayload = z
     toolName: z.string().min(1).nullable().meta({ description: "The tool the call is for; null when the prompt is about no tool." }),
     toolCallId: z.string().min(1).nullable().meta({ description: "The provider's id for the tool call, when it names one." }),
     input: JsonObject.nullable().meta({ description: "The tool's input as the model gave it; null when there is none." }),
+    previewLines: z.array(z.string()).nullable().optional().meta({
+      description: "Environment-owned read-only command preview, drawn under the command. Null when unavailable, timed out or not applicable; absent on events recorded before this field existed.",
+    }),
     summary: z.string().min(1).max(PROMPT_SUMMARY_MAX).meta({ description: "One line saying what is asked, for a list, a notification or a card's title." }),
     blockedPath: z.string().min(1).nullable().meta({ description: "The path that made the provider ask, when one did." }),
     reason: z.string().min(1).nullable().meta({ description: "Why the provider asked, in its own words, when it says." }),

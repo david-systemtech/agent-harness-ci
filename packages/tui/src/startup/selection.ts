@@ -62,7 +62,7 @@ export interface TerminalSelection {
   readonly session: SessionSelection;
   /** The started runtime the environment was chosen on, for the caller's reads and commands there; `close` closes it. */
   readonly runtime: Runtime;
-  /** What a new session on the environment starts on, as the screen's new-session card presets it (`projections.newSession`). */
+  /** What a new session on the environment starts on, as the screen's new-session card presets it (`projections.newSession`); rejects when the selection closes first. */
   newSessionPresets(): Promise<NewSessionPresets>;
   /** Closes the runtime. */
   close(): Promise<void>;
@@ -133,9 +133,14 @@ const choose = async (platform: Platform, runtime: Runtime, wanted: string | und
  * opens the screen's card, followed until what its account and model chips
  * read has answered or failed: the environment's accounts, its models and
  * the preset settings (`PRESET_SETTING_KEYS`). A screen draws each chip as
- * it arrives; a caller without one takes them once, settled.
+ * it arrives; a caller without one takes them once, settled. The selection
+ * closed first (`closing`) rejects it, rather than leave it waiting on
+ * answers that will not come, or settle it on the failures the close
+ * makes (#1180).
  */
-const newSessionPresets = (runtime: Runtime, environmentId: string): Promise<NewSessionPresets> => {
+const newSessionPresets = (runtime: Runtime, environmentId: string, closing: AbortSignal): Promise<NewSessionPresets> => {
+  const closed = () => new Error("The selection was closed before the new-session presets were read.");
+  if (closing.aborted) return Promise.reject(closed());
   const view = runtime.projections.newSession({ focus: { kind: "environment", environmentId } });
   const read = [
     runtime.projections.accounts(environmentId),
@@ -143,14 +148,23 @@ const newSessionPresets = (runtime: Runtime, environmentId: string): Promise<New
     runtime.requests.cached(environmentId, "settings.get", { keys: [...PRESET_SETTING_KEYS] }),
   ] as const;
   const answered = () => read.every((answer) => answer.read().fetchedAt !== null || answer.read().error !== null);
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const following: (() => void)[] = [];
+    const stop = () => {
+      closing.removeEventListener("abort", onClose);
+      for (const unfollow of following.splice(0)) unfollow();
+    };
+    const onClose = () => {
+      stop();
+      reject(closed());
+    };
     const settle = () => {
-      if (following.length === 0 || !answered()) return;
+      if (following.length === 0 || closing.aborted || !answered()) return;
       const { account, model } = view.read();
-      for (const stop of following.splice(0)) stop();
+      stop();
       resolve({ account, model });
     };
+    closing.addEventListener("abort", onClose);
     // Following the card fetches what it reads; following the answers too hears each arrive.
     following.push(view.subscribe(settle), ...read.map((answer) => answer.subscribe(settle)));
     settle();
@@ -185,6 +199,7 @@ export const selectOn = async (platform: Platform, request: SelectionRequest): P
       cwd: request.cwd,
       workspace: request.cwd ?? request.currentDirectory,
     };
+    const closing = new AbortController();
     return {
       ok: true,
       selection: {
@@ -192,8 +207,11 @@ export const selectOn = async (platform: Platform, request: SelectionRequest): P
         credential,
         session,
         runtime,
-        newSessionPresets: () => newSessionPresets(runtime, environment.environmentId),
-        close: () => runtime.close(),
+        newSessionPresets: () => newSessionPresets(runtime, environment.environmentId, closing.signal),
+        close: () => {
+          closing.abort();
+          return runtime.close();
+        },
       },
     };
   } catch (error) {
