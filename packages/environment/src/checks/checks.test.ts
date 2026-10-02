@@ -1,13 +1,13 @@
 import type { EventEnvelope, EventFrame } from "@agent-harness/contracts";
 import { randomUUID } from "node:crypto";
-import { realpathSync, symlinkSync } from "node:fs";
+import { realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakePty, type FakePty } from "../../test/fake-pty.js";
 import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { noticesOf } from "../../test/notices.js";
-import { follow, sessionIn } from "../../test/terminals.js";
+import { follow, openTerminal, sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 
 /**
@@ -44,6 +44,13 @@ const checkedSession = async (t: TestEnvironment, command: string) => {
   const sessionId = await sessionIn(client, dir);
   await client.apply("checks.set", { commandId: randomUUID(), sessionId, command });
   return { client, sessionId, dir, workspace: realpathSync(dir) };
+};
+
+/** The refusal a command's receipt carries: its code and data. */
+const refusalOf = (answer: unknown) => {
+  const { receipt } = answer as { receipt: { status: string; error?: { code: string; data: Record<string, unknown> } } };
+  if (receipt.status !== "rejected" || receipt.error === undefined) throw new Error(`The command was not refused: ${JSON.stringify(receipt)}`);
+  return { code: receipt.error.code, data: receipt.error.data };
 };
 
 /** A second client session of the environment, as another Client would hold. */
@@ -104,5 +111,53 @@ describe("a manual check", () => {
     // Its result kept, the exited terminal is closed: it no longer counts against the session.
     expect(await client.request("terminals.list", { sessionId })).toEqual({ terminals: [] });
     expect(t.adapter.runs).toEqual([]);
+  });
+});
+
+describe("checks.run's refusals", () => {
+  it("refuses check_unset while the directory has no command, cleared included, and check_running while its check runs, from any session or client there", async () => {
+    const t = await start();
+    const client = await t.client();
+    const dir = tempDir("agent-harness-checks-refused-");
+    const workspace = realpathSync(dir);
+    const sessionId = await sessionIn(client, dir);
+    const run = (on: WireClient, session: string) => on.request("checks.run", { commandId: randomUUID(), sessionId: session });
+    expect(refusalOf(await run(client, sessionId))).toEqual({ code: "conflict", data: { reason: "check_unset", workspace } });
+
+    await client.apply("checks.set", { commandId: randomUUID(), sessionId, command: "make check" });
+    const other = await otherClient(t);
+    const sibling = await sessionIn(other, dir);
+    const events = await sessionEvents(t, client, sessionId);
+    const { terminalId } = await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+    expect(refusalOf(await run(other, sibling))).toEqual({ code: "conflict", data: { reason: "check_running", workspace, terminalId } });
+    expect(refusalOf(await run(client, sessionId))).toMatchObject({ data: { reason: "check_running" } });
+
+    (await t.run.spawnedAt(0)).exit(0);
+    expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, exitCode: 0, failure: null });
+    const again = await other.apply("checks.run", { commandId: randomUUID(), sessionId: sibling });
+    (await t.run.spawnedAt(1)).exit(0);
+
+    expect(await other.apply("checks.set", { commandId: randomUUID(), sessionId: sibling, command: null })).toEqual({ workspace, command: null });
+    expect(refusalOf(await run(client, sessionId))).toEqual({ code: "conflict", data: { reason: "check_unset", workspace } });
+    expect(t.run.spawned.map((shell) => shell.args)).toEqual([["-c", "make check"], ["-c", "make check"]]);
+    expect(again.terminalId).not.toBe(terminalId);
+  });
+
+  it("refuses a gone workspace and a session holding sixteen terminals, as terminals.run would, running nothing", async () => {
+    const t = await start({ terminals: { pty: fakePty() } });
+    const { client, sessionId, dir } = await checkedSession(t, "make check");
+    for (let i = 0; i < 16; i++) await openTerminal(client, sessionId);
+    expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toMatchObject({ code: "conflict", data: { reason: "too_many_terminals", limit: 16 } });
+
+    rmSync(dir, { recursive: true });
+    const missing = { code: "conflict", data: { reason: "workspace_missing", path: dir } };
+    expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toEqual(missing);
+    expect(refusalOf(await client.request("checks.set", { commandId: randomUUID(), sessionId, command: "make other" }))).toEqual(missing);
+    // The directory gone, get answers the path the session recorded and that path's command.
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace: dir, command: "make check" });
+    expect(t.run.spawned).toEqual([]);
+
+    const unknown = randomUUID();
+    expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId: unknown }))).toEqual({ code: "not_found", data: { kind: "session", sessionId: unknown } });
   });
 });
