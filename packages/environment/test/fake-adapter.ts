@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import {
   MODES,
   SKILL_PLUGIN_NAME,
@@ -22,6 +24,7 @@ import {
   type Adapter,
   type AdapterEvent,
   type CommandsScope,
+  type FileToolCall,
   type GateDecision,
   type GatedToolCall,
   type HistoryEvent,
@@ -563,6 +566,68 @@ export async function* toolCall(
     payload: decision.decision === "allow" ? { toolCallId, status: "ok", output: "done", durationMs: 1 } : { toolCallId, status: "error", output: decision.message, durationMs: 1 },
   };
 }
+
+/** A file tool's call a script plays (`fileTool`): the tool, its input, the paths it writes as the input names them, and its write. */
+export interface FileToolScript {
+  /** Preset: `Edit`. */
+  readonly tool?: string;
+  readonly input: JsonObject;
+  readonly paths: readonly string[];
+  /** What the tool does to the files once its call is let through; a throw fails the call. */
+  readonly write: () => void | Promise<void>;
+  /** The provider's id for the call; preset: a fresh `toolu_` id. */
+  readonly toolCallId?: string;
+}
+
+/**
+ * A recognised file tool's call played as the Claude adapter plays one under
+ * its hooks (#1182): `tool.started`, the gate's ruling on the write, then,
+ * allowed, the run's file-change observer told before the tool writes and
+ * waited on, the write, and the observer told the call completed, or failed
+ * when the write threw; then `tool.ended`, `ok` or `error`. What the observer
+ * throws is swallowed, as the adapter logs it and lets the call go on.
+ */
+export async function* fileTool(controls: ScriptControls, script: FileToolScript): AsyncGenerator<AdapterEvent> {
+  const toolCallId = script.toolCallId ?? `toolu_${randomUUID()}`;
+  const tool = script.tool ?? "Edit";
+  yield { type: "tool.started", payload: { toolCallId, name: tool, input: script.input, title: null, agentId: null, parentToolCallId: null } };
+  const access = { kind: "write", paths: script.paths } as const;
+  const decision = await controls.context.gate.check({ toolCallId, tool, summary: toolCallSummary(tool, access), access, input: script.input }, controls.signal);
+  if (decision.decision === "deny") {
+    yield { type: "tool.ended", payload: { toolCallId, status: "error", output: decision.message, durationMs: 1 } };
+    return;
+  }
+  const observer = controls.context.fileChanges;
+  const call: FileToolCall = { toolCallId, tool, paths: script.paths, cwd: controls.input.workspace.path };
+  await observer?.before(call, controls.signal).catch(() => undefined);
+  try {
+    await script.write();
+  } catch (error) {
+    observer?.failed(call);
+    yield { type: "tool.ended", payload: { toolCallId, status: "error", output: error instanceof Error ? error.message : String(error), durationMs: 1 } };
+    return;
+  }
+  await observer?.completed(call, controls.signal).catch(() => undefined);
+  yield { type: "tool.ended", payload: { toolCallId, status: "ok", output: "done", durationMs: 1 } };
+}
+
+/**
+ * An `Edit` of `path` (absolute, or relative to the run's workspace) played
+ * through `fileTool`: the first `oldString` in the file is replaced by
+ * `newString` in place, as Claude's Edit writes; a file without it fails the call.
+ */
+export const editFile = (controls: ScriptControls, edit: { readonly path: string; readonly oldString: string; readonly newString: string; readonly toolCallId?: string }) =>
+  fileTool(controls, {
+    input: { file_path: edit.path, old_string: edit.oldString, new_string: edit.newString },
+    paths: [edit.path],
+    ...(edit.toolCallId !== undefined && { toolCallId: edit.toolCallId }),
+    write: async () => {
+      const file = isAbsolute(edit.path) ? edit.path : join(controls.input.workspace.path, edit.path);
+      const text = await readFile(file, "utf8");
+      if (!text.includes(edit.oldString)) throw new Error(`String to replace not found in file: ${edit.oldString}`);
+      await writeFile(file, text.replace(edit.oldString, () => edit.newString));
+    },
+  });
 
 /** What a scripted command answered: its exit code (null when it could not run or a signal ended it), and what it printed. */
 export interface CommandResult {

@@ -1,6 +1,7 @@
 import { ContractError, type ProviderTranscriptOutcome, type SessionPurgedPayload, type Workspace } from "@agent-harness/contracts";
 import { SYSTEM } from "../auth/access-log.js";
 import { formatActor, type EventEnvelope, type EventLog, type Tx } from "../event-log/event-log.js";
+import type { FileChangeTable } from "../file-undo/change-table.js";
 import { sessionStream } from "./streams.js";
 
 /**
@@ -95,6 +96,8 @@ export interface DeletionOptions {
   readonly transcripts?: ProviderTranscripts;
   /** The SDK session store (`provider-transcripts/store.ts`); preset: none. */
   readonly providerStore?: ProviderStorePurge;
+  /** File undo's change records (#1183), whose snapshots go with the session; preset: none. */
+  readonly fileChanges?: Pick<FileChangeTable, "purgeSession">;
   /** Told of each purge once it has committed, never if it rolls back (the reaper, #330); preset: nobody. */
   readonly onPurged?: (purged: PurgedSession) => void;
 }
@@ -148,6 +151,8 @@ export const createDeletion = (options: DeletionOptions): Deletion => {
     // The store's entries are the environment's own record of the provider's conversation, not a file another tool
     // made: they go with every purge, whatever the delete asked of the provider's transcript (#137).
     options.providerStore?.purgeSession(context.tx, sessionId);
+    // The files' bytes its runs' changes kept are the environment's own as well.
+    options.fileChanges?.purgeSession(context.tx, sessionId);
     // The adapter last, since what it does cannot be undone: after it only the tombstone's append and its projection.
     const payload: SessionPurgedPayload = { providerTranscript: providerTranscript(sessionId, row.delete_provider_transcript === 1) };
     const { events } = log.append(stream, [{ type: "session.purged", payload }], {
