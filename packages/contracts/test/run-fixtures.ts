@@ -212,12 +212,14 @@ const payloads: Record<string, Fixtures> = {
     valid: [
       { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: null },
       { fromSessionId: sessionId, atMessageId: messageId, fromProviderSessionId: "provider-session-1" },
+      { fromSessionId: sessionId, atMessageId: messageId, fromProviderSessionId: "provider-session-1", history: { title: "Receipts", anchor: "Add the tests", items: [], runs: [] } },
     ],
     invalid: [
       { fromSessionId: "s-1", atMessageId: null, fromProviderSessionId: null },
       { atMessageId: null, fromProviderSessionId: null },
       { fromSessionId: sessionId, atMessageId: null },
       { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: "" },
+      { fromSessionId: sessionId, atMessageId: null, fromProviderSessionId: null, history: { title: "Receipts", anchor: null, items: [{ kind: "user-message", sequence: 1 }], runs: [] } },
     ],
   },
   "session.rewound": { valid: [{ toMessageId: messageId }], invalid: [{}, { toMessageId: "m-1" }] },
@@ -412,9 +414,14 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
+  "transcript/fork-history.json": {
+    valid: [{ title: "Receipts", anchor: "Add the tests", items, runs: [runSummary] }, { title: "", anchor: null, items: [], runs: [] }],
+    invalid: [{ title: "Receipts", anchor: null, items: [{ kind: "assistant-text", sequence: 3 }], runs: [] }, { title: "Receipts", anchor: 3, items: [], runs: [] }],
+  },
   "transcript/transcript-item.json": { valid: [...items, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: null },
+      { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId, history: { title: "Receipts", anchor: "Add the tests", items, runs: [runSummary] } },
     ], invalid: [
       { sequence: 3 },
       { kind: "plan-card" },
