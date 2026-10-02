@@ -45,6 +45,7 @@ import {
   readRememberedLocal,
   writePairedConnections,
   type ClientPreferences,
+  type ConnectionCredential,
   type ConnectionRecord,
   type EnvironmentDescriptor,
   type RemoveResult,
@@ -63,7 +64,7 @@ import { actionOf, initialMachine, type DiscoveryAnswer, type RefreshOutcome } f
  * record, the notices.
  */
 
-export type { RemoveResult } from "./records.js";
+export type { ConnectionCredential, RemoveResult } from "./records.js";
 
 /** The in-process API, `connections.*`. None of these is a wire method. */
 export interface Connections {
@@ -115,6 +116,16 @@ export interface Connections {
    * Rejects for an unknown environment.
    */
   updateEnvironment(environmentId: string): Promise<UpdateEnvironmentOutcome>;
+  /**
+   * The connection's address and the token its client session holds now,
+   * for a caller that authenticates as this client on the environment's
+   * HTTP routes (the terminal UI's printing, ADR 0015's completions): read
+   * from where the connection keeps it, minting and saving nothing.
+   * Undefined for an environment with no connection, or one that holds no
+   * token (a local connection whose grant was never exchanged, a token
+   * cleared by a revoke).
+   */
+  credential(environmentId: string): Promise<ConnectionCredential | undefined>;
 }
 
 /** Where the rest of the runtime attaches to connections: #127's subscriptions, #128's outbox. Internal: never on `Runtime`. */
@@ -1127,6 +1138,14 @@ export const createRegistry = (platform: Platform, protocolVersion: number, noti
       }
       if (failures.length > 0) throw new AggregateError(failures, `Forgetting environment ${environmentId} failed.`);
       return result;
+    },
+
+    async credential(environmentId) {
+      if (!loaded) await ensureLoaded();
+      const entry = entries.get(environmentId);
+      if (entry === undefined) return undefined;
+      const token = await tokenOf(environmentId, entry);
+      return token === undefined ? undefined : { origin: entry.saved.address, token };
     },
 
     async retryNow(environmentId) {

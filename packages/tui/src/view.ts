@@ -44,9 +44,16 @@ export const headingState = (view: EnvironmentView, startingService: boolean): s
   return phaseWords(view);
 };
 
-/** Matches `--environment`: an id exactly, or a name ignoring case. */
-export const findEnvironment = (views: readonly EnvironmentView[], wanted: string): EnvironmentView | undefined =>
-  views.find((v) => v.environmentId === wanted) ?? views.find((v) => v.name?.toLowerCase() === wanted.trim().toLowerCase());
+/** What `--environment` names: the environment with that id exactly, else every one with that name, ignoring case, in the list's order. */
+export const environmentsNamed = (views: readonly EnvironmentView[], wanted: string): readonly EnvironmentView[] => {
+  const byId = views.find((v) => v.environmentId === wanted);
+  if (byId) return [byId];
+  const name = wanted.trim().toLowerCase();
+  return views.filter((v) => v.name?.toLowerCase() === name);
+};
+
+/** Matches `--environment`: an id exactly, or a name ignoring case, the first in the list's order when names repeat. */
+export const findEnvironment = (views: readonly EnvironmentView[], wanted: string): EnvironmentView | undefined => environmentsNamed(views, wanted)[0];
 
 /** The runtime's stand-in for a local environment that has not answered yet (#181): listed, but no environment to use. */
 export const isPlaceholder = (view: EnvironmentView): boolean => view.environmentId === LOCAL_PLACEHOLDER_ID;

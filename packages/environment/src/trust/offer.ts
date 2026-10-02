@@ -5,6 +5,7 @@ import { SKILL_REPOSITORY_ROOTS, type TrustOffer, type TrustOfferSkillRoot, type
 import { hooksOf, mcpServerNames, readJsonObject, rulesIn } from "../adapters/claude/settings-file.js";
 import { worktreeCheckout } from "../adapters/claude/workspace.js";
 import { readSkillFolder } from "../skills/reader.js";
+import { repositorySkillPlaces, type RepositorySkillPlaces } from "../skills/repository.js";
 import { repositoryRoot } from "../workspace/repository-key.js";
 
 /**
@@ -16,10 +17,13 @@ import { repositoryRoot } from "../workspace/repository-key.js";
  *
  * - The **repository's root** is the innermost repository's holding the
  *   workspace (a worktree's own); a workspace in none is its own root.
- * - **Instruction files** and **skill roots** are read in the workspace
- *   directory and each parent up to the root, as Claude Code and Codex scan
- *   them: `CLAUDE.md`, `.claude/CLAUDE.md` and `AGENTS.md` from the root
- *   down; `.claude/skills` and `.agents/skills`, the nearest first.
+ * - **Instruction files** are read in the workspace directory and each
+ *   parent up to the root, as Claude Code and Codex scan them: `CLAUDE.md`,
+ *   `.claude/CLAUDE.md` and `AGENTS.md` from the root down.
+ * - **Skill roots**, `.claude/skills` and `.agents/skills`, are read where
+ *   the run's skill set reads them (`repositorySkillPlaces`): the same
+ *   directories, the nearest first, or for a linked worktree its main
+ *   checkout's root (#998).
  * - The rest is read where the provider takes a trusted repository's
  *   project settings: the root, or for a linked worktree of a checkout the
  *   checkout (`projectConfigRoot`), so what a branch carries is not what is
@@ -76,10 +80,10 @@ const markdownUnder = async (root: string, folder: string, depth = 0): Promise<s
   return found;
 };
 
-/** The skill roots in `directories`, the nearest first and `.claude/skills` before `.agents/skills`, each holding a skill. */
-const skillRootsIn = async (root: string, directories: readonly string[]): Promise<TrustOfferSkillRoot[]> => {
+/** The skill roots where a trusted run reads them (`repositorySkillPlaces`), the nearest first and `.claude/skills` before `.agents/skills`, each holding a skill. */
+const skillRootsIn = async ({ root, directories }: RepositorySkillPlaces): Promise<TrustOfferSkillRoot[]> => {
   const found: TrustOfferSkillRoot[] = [];
-  for (const directory of [...directories].reverse()) {
+  for (const directory of directories) {
     for (const skills of SKILL_REPOSITORY_ROOTS) {
       const members = await readSkillFolder(join(directory, ...skills.split("/")), { sourceFolderSegment: null, repositorySegment: null });
       if (members.length > 0) found.push({ root: skills, directory: from(root, directory), members: members.length });
@@ -102,7 +106,7 @@ export const readTrustOffer = async (workspace: Workspace): Promise<TrustOffer> 
     markdownUnder(settingsRoot, join(claude, "rules")),
     markdownUnder(settingsRoot, join(claude, "commands")),
     markdownUnder(settingsRoot, join(claude, "agents")),
-    skillRootsIn(root, directories),
+    skillRootsIn(repositorySkillPlaces(workspace.path)),
     readJsonObject(join(claude, "settings.json")),
     readJsonObject(join(settingsRoot, ".mcp.json")),
   ]);
