@@ -301,7 +301,6 @@ Chosen defaults not decided on a ticket, for review:
 Things a build session must verify first:
 
 - The launcher workstream's service start verb (assumed `service start`) and whether install and start work from the terminal without a desktop.
-- The Set up workstream's `setup.check` and `projections.setup`, which reports each step's state and check reason per environment, filled from check answers and the environment stream's setup results (ADR 0031).
 - The adapter workstream's names for start, send, steer, interrupt, attachments, the commands query, sign-in, and the follow-up suggestions the `1`–`4` keys consume; whether a session may change account mid-way (`/handoff`).
 - That the session-state vocabulary has a draft command (ticket 80 assumes drafts are session fields) and that `sessions.create` accepts a `directory` workspace from the terminal.
 - That `ink-testing-library` drives Ink 7.1.1 with `incrementalRendering` on, and that the option removes the flicker in Seth's terminal and tmux (audit open question 2), before anything is decided about `pi-tui`.
