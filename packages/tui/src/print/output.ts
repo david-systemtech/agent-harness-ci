@@ -1,4 +1,4 @@
-import type { CompletionUsage, RunEndReason } from "@agent-harness/contracts";
+import type { CompletionsActivity, CompletionsClamp, CompletionUsage, RunEndReason } from "@agent-harness/contracts";
 
 /** What standard output carries: the answer's text, one JSON result, or each chunk as a JSON line and then the result. */
 export const PRINT_FORMATS = ["text", "json", "stream-json"] as const;
@@ -49,3 +49,41 @@ export const formatWriter = (format: PrintFormat, stdout: (text: string) => void
     },
   };
 };
+
+/**
+ * What the turn did besides answering, one line each on standard error
+ * whatever the format (docs/specs/switch-over.md L101): the mode lowered,
+ * the parameters ignored, the agent's tool calls (and how one ended when
+ * not well), and its prompts with who answered them, so an unattended
+ * denial shows. Never on standard output.
+ */
+export const narrator = (stderr: (text: string) => void) => {
+  const say = (line: string) => stderr(`${line}\n`);
+  const tools = new Map<string, string>();
+  const prompts = new Map<string, string>();
+  return {
+    clamped(clamp: CompletionsClamp): void {
+      const why = clamp.reason === "ceiling" ? "the connection's ceiling" : `${clamp.requested} is unavailable on the account`;
+      say(`Asked for ${clamp.requested}; running in ${clamp.effective}, ${why}.`);
+    },
+    ignored(paths: readonly string[]): void {
+      if (paths.length > 0) say(`Ignored: ${paths.join(", ")}.`);
+    },
+    activity(activity: CompletionsActivity): void {
+      switch (activity.type) {
+        case "tool.started":
+          tools.set(activity.toolCallId, activity.name);
+          return say(`Tool ${activity.name}${activity.title === null ? "" : `: ${activity.title}`}`);
+        case "tool.ended":
+          if (activity.status !== "ok") say(`Tool ${tools.get(activity.toolCallId) ?? activity.toolCallId} ended: ${activity.status}.`);
+          return;
+        case "prompt.opened":
+          prompts.set(activity.promptId, activity.summary);
+          return say(`Prompt: ${activity.summary}`);
+        case "prompt.answered":
+          return say(`Prompt ${activity.decision === "allow" ? "allowed" : "denied"}${activity.auto === null ? "" : ` (${activity.auto})`}: ${prompts.get(activity.promptId) ?? activity.promptId}`);
+      }
+    },
+  };
+};
+export type Narrator = ReturnType<typeof narrator>;

@@ -13,7 +13,7 @@ import {
 import type { ConnectionCredential } from "@agent-harness/client-runtime";
 import type { SelectionOutcome } from "../startup/selection.js";
 import { nameOf } from "../view.js";
-import { formatWriter, type FormatWriter, type PrintFormat } from "./output.js";
+import { formatWriter, narrator, type FormatWriter, type Narrator, type PrintFormat } from "./output.js";
 import { eventData } from "./sse.js";
 
 /**
@@ -113,7 +113,7 @@ const chunkOf = (data: string): { readonly raw: unknown; readonly chunk: ChatCom
 };
 
 /** Reads the streamed answer into `learned`, handing each chunk to `writer` as it comes. */
-const readAnswer = async (body: ReadableStream<Uint8Array>, environment: string, learned: Learned, writer: FormatWriter): Promise<void> => {
+const readAnswer = async (body: ReadableStream<Uint8Array>, environment: string, learned: Learned, writer: FormatWriter, narrate: Narrator): Promise<void> => {
   let finished = false;
   /** The final chunk's error: said once the usage after it is read too. */
   let failed: string | undefined;
@@ -142,11 +142,14 @@ const readAnswer = async (body: ReadableStream<Uint8Array>, environment: string,
     if (content !== undefined) learned.text += content;
     if (chunk.usage !== undefined) learned.usage = chunk.usage;
     writer.chunk(raw, content);
+    if (fields.clamped != null) narrate.clamped(fields.clamped);
+    if (fields.ignored !== undefined) narrate.ignored(fields.ignored);
+    if (fields.activity !== undefined) narrate.activity(fields.activity);
     if (choice?.finish_reason == null) continue;
     finished = true;
     if (fields.ended !== undefined) learned.reason = fields.ended.reason;
-    learned.completed = choice.finish_reason === "stop" && fields.ended?.reason === "completed";
-    failed = chunk.error?.message;
+    learned.completed = choice.finish_reason === "stop" && fields.ended?.reason === "completed" && fields.waiting === undefined;
+    failed = chunk.error?.message ?? (fields.waiting === undefined ? undefined : "The message still waits in the session's queue: no run has read it.");
   }
   if (!finished) throw new PrintFailure("The answer ended before its run did.");
   if (failed !== undefined) throw new PrintFailure(failed);
@@ -188,7 +191,12 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
       messages: [{ role: "user", content: request.prompt }],
       stream: true,
       stream_options: { include_usage: true },
-      [COMPLETIONS_NAMESPACE]: { workspace: session.workspace, attended: false },
+      [COMPLETIONS_NAMESPACE]: {
+        workspace: session.workspace,
+        ...(request.mode !== undefined && { permissionMode: request.mode }),
+        ...(request.effort !== undefined && { thinking: request.effort }),
+        attended: false,
+      },
     };
     const response = await ask(io, environment, `${credential.origin}${CHAT_COMPLETIONS_PATH}`, {
       method: "POST",
@@ -196,7 +204,7 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
       body: JSON.stringify(body),
     });
     if (!response.ok || response.body === null) throw await refusalOf(response, learned, environment);
-    await readAnswer(response.body, environment, learned, writer);
+    await readAnswer(response.body, environment, learned, writer, narrator(io.stderr));
     return end(learned.completed ? 0 : 1);
   } catch (error) {
     if (error instanceof PrintFailure) return fail(error.message);

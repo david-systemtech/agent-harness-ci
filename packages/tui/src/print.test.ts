@@ -199,6 +199,71 @@ describe("printing one answer", () => {
   });
 });
 
+describe("what the turn did besides answering", () => {
+  it("is said on standard error, clamps and unattended denials among it, and a completed turn still exits 0", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { mode: "bypassPermissions" });
+    const turn = await http.turn();
+    expect(turn.body["agent-harness"]).toEqual({ workspace: HERE, permissionMode: "bypassPermissions", attended: false });
+    const sessionId = environment.sessionId(0);
+    const run = environment.startRun(sessionId, "Say hello");
+    const answer = turn.open();
+    answer.chunk(
+      chunkOf(3, {
+        role: true,
+        ext: {
+          sessionId,
+          runId: run.runId,
+          messageId: run.messageId,
+          delivery: "prompt",
+          mode: "acceptEdits",
+          clamped: { requested: "bypassPermissions", effective: "acceptEdits", ceiling: "acceptEdits", reason: "ceiling" },
+          ignored: ["temperature"],
+        },
+      }),
+    );
+    answer.chunk(chunkOf(4, { ext: { activity: { type: "tool.started", toolCallId: "toolu-1", name: "Bash", title: "Run the tests" } } }));
+    answer.chunk(chunkOf(5, { ext: { activity: { type: "tool.ended", toolCallId: "toolu-1", status: "error" } } }));
+    answer.chunk(chunkOf(6, { ext: { activity: { type: "prompt.opened", promptId: "prompt-1", kind: "permission", summary: "Write /etc/hosts" } } }));
+    answer.chunk(chunkOf(7, { ext: { activity: { type: "prompt.answered", promptId: "prompt-1", decision: "deny", auto: "unattended" } } }));
+    answer.chunk(chunkOf(8, { content: "I could not edit /etc/hosts." }));
+    completed(answer, 9);
+
+    expect(await printing.exit).toBe(0);
+    expect(printing.stdout()).toBe("I could not edit /etc/hosts.\n");
+    expect(printing.stderr().split("\n")).toEqual([
+      "Asked for bypassPermissions; running in acceptEdits, the connection's ceiling.",
+      "Ignored: temperature.",
+      "Tool Bash: Run the tests",
+      "Tool Bash ended: error.",
+      "Prompt: Write /etc/hosts",
+      "Prompt denied (unattended): Write /etc/hosts",
+      "",
+    ]);
+  });
+
+  it("exits 1 when the turn's message still waits in the session's queue, though the run the answer followed completed", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "json" });
+    const turn = await http.turn();
+    const sessionId = environment.sessionId(0);
+    const run = environment.startRun(sessionId, "Someone else's turn");
+    const answer = turn.open();
+    answer.chunk(chunkOf(4, { role: true, ext: { sessionId, runId: run.runId, messageId: "0199a200-0000-4000-8000-000000000009", delivery: "queued", mode: "acceptEdits", clamped: null, ignored: [] } }));
+    answer.chunk(chunkOf(6, { finish: "stop", ext: { ended: { reason: "completed", cause: null }, waiting: "0199a200-0000-4000-8000-000000000009" } }));
+    answer.done();
+
+    expect(await printing.exit).toBe(1);
+    const message = "The message still waits in the session's queue: no run has read it.";
+    expect(printing.stderr()).toBe(`${message}\n`);
+    expect(resultOf(printing.stdout())).toMatchObject({ sessionId, text: "", usage: null, reason: "completed", error: message });
+  });
+});
+
 /** The one JSON result standard output holds. */
 const resultOf = (stdout: string): unknown => {
   const lines = stdout.trimEnd().split("\n");
