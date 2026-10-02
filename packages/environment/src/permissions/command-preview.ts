@@ -1013,10 +1013,16 @@ async function entriesOf(directory: string, deps: BlastRadiusDeps, budget: Budge
   try {
     const entries = await deps.readdir(directory);
     return [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  } catch {
-    // Unreadable, gone, or not a directory: it contributes nothing.
-    return [];
+  } catch (error) {
+    if (missingPath(error)) return [];
+    throw error;
   }
+}
+
+/** Only absence, including a non-directory path component, proves no match. */
+function missingPath(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
 /**
@@ -1463,8 +1469,9 @@ async function expandedPaths(part: Destructive, cwd: string, deps: BlastRadiusDe
 const statOf = async (path: string, deps: BlastRadiusDeps): Promise<FileInfo | null> => {
   try {
     return await deps.stat(path);
-  } catch {
-    return null;
+  } catch (error) {
+    if (missingPath(error)) return null;
+    throw error;
   }
 };
 
