@@ -23,6 +23,18 @@ export const BankDraft = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("retire"), name: z.string().min(1), path: z.string().min(1), removePaths: z.array(z.string().min(1)).optional().meta({ description: "Prior paths removed by queued moves of this name." }), reason: z.string().min(1) }),
 ]);
 export type BankDraft = z.infer<typeof BankDraft>;
+/** The immutable snapshot held for review; later queued drafts cannot change it. */
+export const BankReviewHeldPayload = z.object({
+  bankId: BankId,
+  sessionId: SessionId.nullable(),
+  pullRequest: z.string().min(1),
+  number: z.number().int().positive(),
+  head: z.string().regex(/^[0-9a-f]{40,64}$/),
+  writes: z.record(z.string().min(1), z.string().nullable()),
+  drafts: z.array(BankDraft),
+});
+export type BankReviewHeldPayload = z.infer<typeof BankReviewHeldPayload>;
+
 export const BankDraftQueuedPayload = z.object({ sessionId: SessionId, bankId: BankId, change: BankDraft });
 export type BankDraftQueuedPayload = z.infer<typeof BankDraftQueuedPayload>;
 export const banksDraftsList = defineMethod({

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { BankManifest, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
+import { BankManifest, ENVIRONMENT_STREAM_KIND, normaliseRemote, type BankReviewHeldPayload, type BankDraft, type BankEntry, type MemoryPromoteResult } from "@agent-harness/contracts";
 import { bankTreeOf, readBankMarkdown, validateBank } from "@agent-harness/contracts/bank-validator";
 import type { EventLog } from "../event-log/event-log.js";
 import type { ForgeService } from "../forge/forge-service.js";
@@ -9,11 +9,22 @@ import type { Clock } from "../serve/clock.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import { runGit } from "../workspace/git.js";
 import { readBankFiles } from "./bank-files.js";
-import { BANKS_ACTOR, type BankService } from "./bank-service.js";
+import type { BankService } from "./bank-service.js";
+import { formatActor } from "../event-log/envelope.js";
+const BANKS_ACTOR = formatActor({ kind: "system", id: "banks" });
+
+export interface BankChanges {
+  readonly writes: Readonly<Record<string, string | null>>;
+  readonly sessionId?: string;
+  readonly title: string;
+  readonly body: string;
+}
+
 
 const REMOTE_MAIN = "refs/remotes/origin/main";
 const CHECK_BUDGET_MS = 10 * 60_000;
 const CHECK_POLL_MS = 5_000;
+const REVIEW_POLL_MS = 30_000;
 const valueOf = <T>(answer: ForgeAnswer<T>): T => {
   if (answer.outcome === "done") return answer.value;
   throw new Error(answer.outcome === "refused" ? answer.error.message : answer.message);
@@ -27,7 +38,12 @@ export const createBankLander = (options: {
   const busy = new Set<string>();
   const controller = new AbortController();
   const running = new Set<Promise<MemoryPromoteResult>>();
-  const promote = async (bank: BankEntry, sessionId: string, drafts: readonly BankDraft[]): Promise<MemoryPromoteResult> => {
+  const active = new Map<string, Promise<MemoryPromoteResult>>();
+  const heldReview = (bankId: string): BankReviewHeldPayload | null => {
+    const last = options.log.readStream({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }).filter((event) => event.payload["bankId"] === bankId && ["bank.review-held", "bank.landed"].includes(event.type)).at(-1);
+    return last?.type === "bank.review-held" ? last.payload as unknown as BankReviewHeldPayload : null;
+  };
+  const promote = async (bank: BankEntry, sessionId: string | null, drafts: readonly BankDraft[], changes?: BankChanges): Promise<MemoryPromoteResult> => {
     if (busy.has(bank.id)) {
       const reason = "A landing is already in progress for this bank.";
       options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [{ type: "bank.landing-failed", payload: { bankId: bank.id, sessionId, step: "prepare", reason } }], { tx, actor: BANKS_ACTOR }));
@@ -43,6 +59,14 @@ export const createBankLander = (options: {
       if (!answer.ok || answer.truncated) throw new Error(`Git ${args[0]} failed.`);
       return answer.stdout.toString("utf8").trim();
     };
+    const blob = async (cwd: string, ref: string, path: string) => {
+      const entries = (await git(cwd, ["--literal-pathspecs", "ls-tree", "-z", ref, "--", path])).split("\0").filter(Boolean);
+      const entry = entries[0];
+      if (entries.length !== 1 || entry === undefined || !/^100(?:644|755) blob /.test(entry) || entry.slice(entry.indexOf("\t") + 1) !== path) throw new Error("A landed file is not a regular bank file.");
+      const answer = await runGit(cwd, ["show", `${ref}:${path}`], { maxBytes: 64 * 1024 * 1024, signal: controller.signal });
+      if (!answer.ok || answer.truncated) throw new Error("A landed file could not be read.");
+      return answer.stdout.toString("utf8");
+    };
     const emit = (type: string, payload: Record<string, unknown>) => options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [{ type, payload: { bankId: bank.id, sessionId, ...payload } }], { tx, actor: BANKS_ACTOR }));
     const remote = bank.location.kind === "remote" ? bank.location : null;
     const main = remote === null ? "refs/heads/main" : REMOTE_MAIN;
@@ -52,23 +76,86 @@ export const createBankLander = (options: {
       if (answer.outcome === "refused") throw new Error(answer.error.message);
       if (!answer.git.ok || answer.git.truncated) throw new Error(`The bank's ${operation} failed.`);
     };
+    const finish = async (writes: Readonly<Record<string, string | null>>, consumed: readonly BankDraft[], head: string, previousHead: string): Promise<MemoryPromoteResult> => {
+      step = "verify";
+      for (const [path, content] of Object.entries(writes)) {
+        const mismatch = content === null ? await git(bank.checkout, ["--literal-pathspecs", "ls-tree", "-r", "--name-only", head, "--", path]) !== "" : await blob(bank.checkout, head, path) !== content;
+        if (mismatch) throw new Error("A landed file does not match main.");
+      }
+      step = "refresh";
+      await git(bank.checkout, ["reset", "--hard", head]);
+      await git(bank.checkout, ["clean", "-fdx"]);
+      await options.banks.recordSync(bank.id, { head, previousHead });
+      options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [
+        { type: "bank.landed", payload: { bankId: bank.id, sessionId, pullRequest, files: Object.keys(writes) } },
+        ...(consumed.length === 0 ? [] : [{ type: "bank.drafts-consumed", payload: { bankId: bank.id, sessionId, changes: [...consumed] } }]),
+      ], { tx, actor: BANKS_ACTOR }));
+      return { state: "landed", bank: bank.name, pullRequest, files: Object.entries(writes).map(([path, content]) => ({ path, state: content === null ? "removed" : "present" })) };
+    };
     try {
       if (controller.signal.aborted) throw new Error("The environment is closing.");
-      // Review-pending work belongs to the review reconciler, not another promotion.
-      const events = options.log.readStream({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }).filter((event) => event.payload["bankId"] === bank.id && ["bank.awaiting-review", "bank.landed"].includes(event.type));
-      const held = events.at(-1);
-      if (held?.type === "bank.awaiting-review") return { state: "awaiting-review", bank: bank.name, pullRequest: String(held.payload["pullRequest"]), files: [] };
+      // The durable review record survives a restart and keeps the submitted bytes separate from later drafts.
+      const review = heldReview(bank.id);
+      if (review !== null) {
+        sessionId = review.sessionId;
+        pullRequest = review.pullRequest;
+        const pending = (): MemoryPromoteResult => {
+          if (bank.status.landing.state !== "awaiting-review") emit("bank.awaiting-review", { pullRequest });
+          return { state: "awaiting-review", bank: bank.name, pullRequest: review.pullRequest, files: Object.keys(review.writes).map((path) => ({ path, state: "pending" })) };
+        };
+        if (remote === null) throw new Error("A reviewed pull request needs a remote bank.");
+        const target = { origin: remote.origin, repository: remote.repository, number: review.number, purpose: "review bank changes" };
+        step = "review";
+        const pr = valueOf(await options.forge.pullRequests.get(target));
+        if (pr.head.sha !== review.head || pr.base.ref !== "main") throw new Error("The reviewed pull request's head or base changed.");
+        if (pr.state === "closed") throw new Error("The reviewed pull request was closed without merging.");
+        if (pr.state !== "merged") {
+          if (!bank.enabled || bank.role !== "read-write") return pending();
+          step = "fetch-review-main";
+          await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
+          const current = await readBankFiles(bank.checkout, main);
+          const parsed = readBankMarkdown(current["BANK.md"] ?? "");
+          const currentManifest = BankManifest.safeParse(parsed.ok ? parsed.data : null);
+          // A migration cannot bootstrap its own authority; an invalid old manifest requires a manual merge.
+          if (!currentManifest.success) return pending();
+          const manifest = currentManifest.data;
+          const owners = new Set((manifest.owners ?? []).map((owner) => owner.toLowerCase()));
+          // Owners come from current main, never from the change requesting ownership.
+          if (manifest.kind !== "team" || owners.size < 2) return pending();
+          const author = pr.author?.toLowerCase();
+          if (author === undefined) throw new Error("The forge omitted the pull request author.");
+          step = "review";
+          const reviews = valueOf(await options.forge.pullRequests.reviews(target));
+          const latest = new Map<string, (typeof reviews)[number]>();
+          for (const approval of [...reviews].sort((a, b) => a.id - b.id)) {
+            if (approval.state !== "commented" && approval.state !== "pending") latest.set(approval.login.toLowerCase(), approval);
+          }
+          const approved = [...latest.values()].some((approval) => approval.state === "approved" && approval.commit === review.head && owners.has(approval.login.toLowerCase()) && approval.login.toLowerCase() !== author);
+          if (!approved) return pending();
+          step = "validate-check";
+          const check = valueOf(await options.forge.pullRequests.validateCheck({ ...target, sha: review.head, signal: controller.signal }));
+          if (check === "failure") throw new Error("The bank's validate check failed.");
+          if (check !== "success") return pending();
+          step = "merge";
+          valueOf(await options.forge.pullRequests.merge({ ...target, expectedHead: review.head }));
+        }
+        step = "fetch-merged-main";
+        const previous = await git(bank.checkout, ["rev-parse", "HEAD"]);
+        await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
+        const head = await git(bank.checkout, ["rev-parse", main]);
+        return await finish(review.writes, review.drafts, head, previous);
+      }
       step = "fetch";
-      if (remote !== null) await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`, `+refs/heads/memory/${sessionId.slice(0, 8)}-*:refs/remotes/origin/memory/${sessionId.slice(0, 8)}-*`]);
+      if (remote !== null) await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`, `+refs/heads/memory/${(sessionId ?? bank.id).slice(0, 8)}-*:refs/remotes/origin/memory/${(sessionId ?? bank.id).slice(0, 8)}-*`]);
       const base = await git(bank.checkout, ["rev-parse", main]);
-      const temporary = options.temporaryDirectory(sessionId);
+      const temporary = options.temporaryDirectory(sessionId ?? bank.id);
       await mkdir(temporary, { recursive: true, mode: 0o700 });
       root = await mkdtemp(join(temporary, "bank-landing-"));
       worktree = join(root, "worktree");
       await git(bank.checkout, ["worktree", "add", "--detach", worktree, base]);
       step = "validate";
       const files = await readBankFiles(worktree);
-      const writes: Record<string, string | null> = {};
+      const writes: Record<string, string | null> = { ...changes?.writes };
       for (const change of drafts) {
         for (const path of change.removePaths ?? []) writes[path] = null;
         writes[change.path] = change.kind === "draft" ? change.content : null;
@@ -76,16 +163,16 @@ export const createBankLander = (options: {
       // The queue is persisted state, but no path from it may escape the detached worktree or traverse a symlink.
       const memories = new Set(bankTreeOf([...Object.keys(files), ...Object.keys(writes)]).memories.map(({ path }) => path));
       for (const path of Object.keys(writes)) {
-        if (!memories.has(path) || path.split("/").some((part) => part === "." || part === ".." || part === "")) throw new Error("A queued path is outside the bank's memories.");
+        if ((changes === undefined && !memories.has(path)) || path.startsWith("/") || path.includes("\\") || path.split("/").some((part) => part === "." || part === ".." || part === "" || part === ".git")) throw new Error("A landing path is outside the bank's writable files.");
       }
-      const secret = options.scrub.check(JSON.stringify(drafts));
+      const secret = options.scrub.check(JSON.stringify({ drafts, writes, title: changes?.title, body: changes?.body }));
       if (secret !== null) throw new Error(`The queued changes contain a secret-shaped value (${secret}).`);
       const tree = await git(worktree, ["ls-tree", "-r", "-z", "HEAD"]);
       const links = tree.split("\0").filter((entry) => entry.startsWith("120000 ")).map((entry) => entry.slice(entry.indexOf("\t") + 1));
       if (Object.keys(writes).some((path) => links.some((link) => path === link || path.startsWith(`${link}/`)))) throw new Error("A queued path traverses a symbolic link.");
       const verdict = validateBank({ files, writes });
       if (!verdict.valid) throw new Error(`The current main refuses the changes: ${[...new Set(verdict.findings.filter((finding) => finding.severity === "refusal").map((finding) => finding.rule))].join(", ")}.`);
-      const manifestFile = readBankMarkdown(files["BANK.md"] ?? "");
+      const manifestFile = readBankMarkdown((changes === undefined ? files["BANK.md"] : writes["BANK.md"] ?? files["BANK.md"]) ?? "");
       const manifest = BankManifest.parse(manifestFile.ok ? manifestFile.data : null);
       if ((remote === null) !== (manifest.write.land === "commit")) throw new Error("The bank's landing mode does not match its location.");
       for (const [path, content] of Object.entries(writes)) {
@@ -98,14 +185,14 @@ export const createBankLander = (options: {
       const login = account?.identity?.login ?? bank.name;
       await git(worktree, ["add", "--all"]);
       const changed = await git(worktree, ["diff", "--cached", "--name-only"]) !== "";
-      if (changed) await git(worktree, ["-c", `user.name=${login}`, "-c", `user.email=${login.replace(/[^a-zA-Z0-9._-]/g, "-")}@users.noreply`, "commit", "--quiet", "-m", "Promote session memories."]);
+      if (changed) await git(worktree, ["-c", `user.name=${login}`, "-c", `user.email=${login.replace(/[^a-zA-Z0-9._-]/g, "-")}@users.noreply`, "commit", "--quiet", "-m", changes?.title ?? "Promote session memories."]);
       let head = await git(worktree, ["rev-parse", "HEAD"]);
       if (remote === null) {
         step = "land";
         await git(bank.checkout, ["update-ref", "refs/heads/main", head, base]);
       } else if (changed) {
         step = "push";
-        const prefix = `memory/${sessionId.slice(0, 8)}-`;
+        const prefix = `memory/${(sessionId ?? bank.id).slice(0, 8)}-`;
         const refs = await git(bank.checkout, ["for-each-ref", "--format=%(refname:short)", "refs/heads/memory/", "refs/remotes/origin/memory/"]);
         let n = 1;
         while (refs.split("\n").some((ref) => ref === `${prefix}${n}` || ref === `origin/${prefix}${n}`)) n++;
@@ -114,14 +201,21 @@ export const createBankLander = (options: {
         await network("push", worktree, [`HEAD:refs/heads/${branch}`]);
         step = "pull-request";
         const target = { origin: remote.origin, repository: remote.repository, purpose: "land session memories" };
-        const pr = valueOf(await options.forge.pullRequests.create({ ...target, title: "Promote session memories", body: "Validated session drafts and retirements.", head: branch, base: "main" }));
+        const pr = valueOf(await options.forge.pullRequests.create({ ...target, title: changes?.title ?? "Promote session memories", body: changes?.body ?? "Validated session drafts and retirements.", head: branch, base: "main" }));
         pullRequest = pr.url;
-        const orientation = new Set(manifest.orientation);
-        const reviewed = drafts.some((draft) => orientation.has(draft.name) || [...(draft.removePaths ?? []), draft.path].some((path) => /\/decisions\//.test(path)));
-        if (manifest.write.merge.memories !== "auto" || bank.mergeOverride === "review-memories" || reviewed) {
-          emit("bank.awaiting-review", { pullRequest });
-          return { state: "awaiting-review", bank: bank.name, pullRequest, files: Object.keys(writes).map((path) => ({ path, state: "pending" })) };
-        }
+        const requiresReview = (policy: typeof manifest, override: BankEntry["mergeOverride"]) => {
+          const orientation = new Set(policy.orientation);
+          return changes !== undefined || policy.write.merge.memories !== "auto" || override === "review-memories"
+            || drafts.some((draft) => orientation.has(draft.name) || [...(draft.removePaths ?? []), draft.path].some((path) => /\/decisions\//.test(path)));
+        };
+        const hold = (): MemoryPromoteResult => {
+          options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [
+            { type: "bank.review-held", payload: { bankId: bank.id, sessionId, pullRequest, number: pr.number, head, writes, drafts: [...drafts] } },
+            { type: "bank.awaiting-review", payload: { bankId: bank.id, sessionId, pullRequest } },
+          ], { tx, actor: BANKS_ACTOR }));
+          return { state: "awaiting-review", bank: bank.name, pullRequest: pr.url, files: Object.keys(writes).map((path) => ({ path, state: "pending" })) };
+        };
+        if (requiresReview(manifest, bank.mergeOverride)) return hold();
         step = "validate-check";
         const checkController = new AbortController();
         const signal = AbortSignal.any([controller.signal, checkController.signal]);
@@ -139,30 +233,26 @@ export const createBankLander = (options: {
             finally { poll?.cancel(); }
           }
         } finally { timer.cancel(); checkController.abort(); }
+        // A check can take ten minutes: neither a stricter main policy nor a new user override may be bypassed.
+        step = "fetch-merge-rule";
+        await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
+        const current = await readBankFiles(bank.checkout, main);
+        const parsed = readBankMarkdown(current["BANK.md"] ?? "");
+        const policy = BankManifest.parse(parsed.ok ? parsed.data : null);
+        const registered = options.banks.entries().find(({ entry }) => entry.id === bank.id)?.entry;
+        if (!registered?.enabled || registered.role !== "read-write") throw new Error("No writable bank is registered.");
+        if (requiresReview(policy, registered.mergeOverride)) return hold();
         step = "merge";
         valueOf(await options.forge.pullRequests.merge({ ...target, number: pr.number, expectedHead: head }));
         step = "fetch-merged-main";
         await network("fetch", bank.checkout, [`+refs/heads/main:${REMOTE_MAIN}`]);
         head = await git(bank.checkout, ["rev-parse", main]);
       }
-      step = "verify";
-      const landed = await readBankFiles(bank.checkout, head);
-      for (const [path, content] of Object.entries(writes)) {
-        const present = content === null ? await git(bank.checkout, ["ls-tree", "-r", "--name-only", head, "--", path]) !== "" : landed[path] !== content;
-        if (present) throw new Error("A promoted file does not match main.");
-      }
-      step = "refresh";
-      await git(bank.checkout, ["reset", "--hard", head]);
-      await git(bank.checkout, ["clean", "-fdx"]);
-      await options.banks.recordSync(bank.id, { head, previousHead: base });
-      options.log.atomically((tx) => options.log.append({ kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId }, [
-        { type: "bank.landed", payload: { bankId: bank.id, sessionId, pullRequest, files: Object.keys(writes) } },
-        { type: "bank.drafts-consumed", payload: { bankId: bank.id, sessionId, changes: [...drafts] } },
-      ], { tx, actor: BANKS_ACTOR }));
-      return { state: "landed", bank: bank.name, pullRequest, files: Object.entries(writes).map(([path, content]) => ({ path, state: content === null ? "removed" : "present" })) };
+      return await finish(writes, drafts, head, base);
     } catch (error) {
       const reason = options.scrub.scrubOutput(error instanceof Error ? error.message : "Landing failed.");
-      emit("bank.landing-failed", { step, reason });
+      const last = options.banks.entries().find(({ entry }) => entry.id === bank.id)?.entry.status.landing;
+      if (last?.state !== "failed" || last.step !== step || last.reason !== reason) emit("bank.landing-failed", { step, reason });
       return { state: "failed", bank: bank.name, step, reason };
     } finally {
       if (worktree !== undefined) await runGit(bank.checkout, ["worktree", "remove", "--force", worktree], { maxBytes: 1024 * 1024 });
@@ -170,13 +260,31 @@ export const createBankLander = (options: {
       busy.delete(bank.id);
     }
   };
-  return {
-    promote(bank: BankEntry, sessionId: string, drafts: readonly BankDraft[]) {
-      const work = promote(bank, sessionId, drafts);
-      running.add(work);
-      void work.then(() => running.delete(work), () => running.delete(work));
-      return work;
-    },
-    async close() { controller.abort(); await Promise.allSettled(running); },
+  const track = (bankId: string, work: Promise<MemoryPromoteResult>) => {
+    running.add(work);
+    if (!active.has(bankId)) active.set(bankId, work);
+    const finished = () => { running.delete(work); if (active.get(bankId) === work) active.delete(bankId); };
+    void work.then(finished, finished);
+    return work;
   };
+  const interval = options.clock.setInterval(() => {
+    for (const { entry } of options.banks.entries()) {
+      if (entry.enabled) void lander.reconcile(entry).catch(() => undefined);
+    }
+  }, REVIEW_POLL_MS);
+  const lander = {
+    reconcile(bank: BankEntry): Promise<MemoryPromoteResult | null> {
+      if (busy.has(bank.id)) return active.get(bank.id) ?? Promise.resolve(null);
+      const review = heldReview(bank.id);
+      return review === null ? Promise.resolve(null) : track(bank.id, promote(bank, review.sessionId, []));
+    },
+    promote(bank: BankEntry, sessionId: string, drafts: readonly BankDraft[]) {
+      return track(bank.id, promote(bank, sessionId, drafts));
+    },
+    landChanges(bank: BankEntry, changes: BankChanges) {
+      return track(bank.id, promote(bank, changes.sessionId ?? null, [], changes));
+    },
+    async close() { interval.cancel(); controller.abort(); await Promise.allSettled(running); },
+  };
+  return lander;
 };

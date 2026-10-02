@@ -148,8 +148,8 @@ export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ state: "awaiting-review", since }, { state: "invalid", rule: "manifest_missing", since }, { state: "valid" }],
   },
   "banks/landing-status.json": {
-    valid: [status.landing, troubledStatus.landing],
-    invalid: [{ state: "failed", step: "push", since }, { state: "ok" }, { state: "landing", since }],
+    valid: [status.landing, troubledStatus.landing, { state: "awaiting-review", pullRequest: "https://git.example.test/acme/memory/pulls/7", since }],
+    invalid: [{ state: "awaiting-review", since }, { state: "failed", step: "push", since }, { state: "ok" }, { state: "landing", since }],
   },
   "banks/status.json": {
     valid: [status, troubledStatus],

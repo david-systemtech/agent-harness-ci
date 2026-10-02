@@ -1,3 +1,4 @@
+import { createBankLander, type BankChanges } from "./lander.js";
 import { describeRepositoryAt } from "./describe-repository.js";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
@@ -14,6 +15,8 @@ import {
   type BankJoinPreview,
   type BankManifestStatus,
   type BankRecord,
+  type BankDraft,
+  type MemoryPromoteResult,
   type BankStatus,
   type ErrorOf,
   type ParamsOf,
@@ -215,6 +218,13 @@ export interface BankServiceOptions {
 }
 
 export interface BankService {
+  /** Installs the environment-owned landing path once its session directories exist. */
+  configureLanding(options: Pick<Parameters<typeof createBankLander>[0], "forge" | "scrub" | "temporaryDirectory">): void;
+  closeLanding(): Promise<void>;
+  promote(bankId: string, sessionId: string, drafts: readonly BankDraft[]): Promise<MemoryPromoteResult>;
+  /** Trusted BankService callers submit non-draft changes here; remote changes always require review. */
+  landChanges(bankId: string, changes: BankChanges): Promise<MemoryPromoteResult>;
+  reconcileLanding(bankId: string): Promise<MemoryPromoteResult | null>;
   /** Every bank registered now, with its status, counts and line. */
   list(): Promise<BankRecord[]>;
   /** The bank `bankId`; null for one not registered. */
@@ -238,6 +248,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   // What each bank's checkout read as when last read: its counts, line, entities and scopes come from here.
   const readings = new Map<string, Reading | null>();
+  let lander: ReturnType<typeof createBankLander> | undefined;
+  const reconcileLanding = async (bankId: string): Promise<MemoryPromoteResult | null> => {
+    const bank = liveBank(reader, bankId);
+    if (!lander || !bank) return null;
+    return lander.reconcile(bank);
+  };
   let verifyingAll: Promise<BankRecord[]> | null = null;
   const verificationGenerations = new Map<string, number>();
 
@@ -389,7 +405,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
   const verifyAll = (): Promise<BankRecord[]> => {
     verifyingAll ??= (async () => {
       try {
-        for (const entry of listBanks(reader).filter((bank) => bank.enabled)) await verifyOne(entry);
+        for (const entry of listBanks(reader).filter((bank) => bank.enabled)) { await reconcileLanding(entry.id); await verifyOne(entry); }
         return await records();
       } finally {
         verifyingAll = null;
@@ -461,7 +477,25 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     },
   });
 
-  return {
+  const writable = (bankId: string): BankEntry => {
+    const bank = liveBank(reader, bankId);
+    if (!bank || !bank.enabled || bank.role !== "read-write") throw new Error("No writable bank is registered.");
+    return bank;
+  };
+  const service: BankService = {
+    configureLanding(landing) { if (lander) throw new Error("Bank landing is already configured."); lander = createBankLander({ ...landing, log, clock, environmentId: options.environmentId, banks: service }); },
+    async closeLanding() { await lander?.close(); },
+    promote(bankId, sessionId, drafts) {
+      const bank = writable(bankId);
+      if (!lander) throw new Error("Bank landing is not configured.");
+      return lander.promote(bank, sessionId, drafts);
+    },
+    landChanges(bankId, changes) {
+      const bank = writable(bankId);
+      if (!lander) throw new Error("Bank landing is not configured.");
+      return lander.landChanges(bank, changes);
+    },
+    reconcileLanding,
     git: options.credentials.git,
     list: records,
     get: async (bankId) => (await records()).find((bank) => bank.id === bankId) ?? null,
@@ -469,7 +503,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     async verify(bankId) {
       if (bankId === undefined) return verifyAll();
       const entry = liveBank(reader, bankId);
-      if (entry !== null) await verifyOne(entry);
+      if (entry !== null) { await reconcileLanding(entry.id); await verifyOne(entry); }
       return records();
     },
     async recordSync(bankId, outcome) {
@@ -497,6 +531,7 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     join: joinBank({ ...options, register }),
     create,
   };
+  return service;
 };
 
 /** The bytes of a bank's fixed tiers (T0 to T2), which the 8 KB rule adds up; none for a bank whose BANK.md names no kind. */
