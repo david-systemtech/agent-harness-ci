@@ -143,6 +143,20 @@ describe("the published compose file", () => {
     expect(uid).not.toBe("0");
   });
 
+  it("shares the Linux host's Tailscale interface without a CLI, daemon socket or added privileges (#1265)", () => {
+    const lines = composeService("environment");
+    expect(lines).toContain("    network_mode: host");
+    expect(lines.join("\n")).not.toMatch(/ports:|tailscaled\.sock|\/dev\/net\/tun|privileged:|cap_add:/);
+    const installed = finalStage()
+      .filter((line) => /^RUN .*\bapt-get install\b/.test(line))
+      .flatMap((line) => line.split(/\s+/));
+    expect(installed).not.toContain("tailscale");
+    const header = composeHeader();
+    expect(header).toContain("tailscale0");
+    expect(header).toContain("kernel TUN mode");
+    expect(header).toContain("same tailnet");
+  });
+
   it("mounts /data and /work as named volumes, which Docker creates owned by the image's user", () => {
     const lines = composeLines();
     expect(lines).toContain("      - data:/data");

@@ -27,6 +27,17 @@
 #
 #   docker compose exec environment agent-harness pair --preset own-client --data-dir /data
 #
+# Remote pairing on Linux: install Tailscale on the host, sign it in, and
+# keep it running in kernel TUN mode (the default), with a tailscale0
+# interface. This service shares the host network, so the environment
+# discovers that interface's IPv4 address even though the image has no
+# tailscale CLI. No daemon socket, host CLI or extra capability is mounted.
+# Join the client machine to the same tailnet and allow TCP port 7433 in
+# the tailnet policy and host firewall. Pair using the IP link and code in
+# the log. Loopback remains available; LAN binding stays off unless enabled
+# in the environment's settings. Userspace networking without tailscale0
+# and Docker Desktop's virtual host network do not support this path.
+#
 # A container never updates itself (ADR 0007). The host-side updater,
 # host-updater.sh from the same release, carries out the environment's update
 # plan from the host: it pulls the new image, stops the container, snapshots
@@ -76,10 +87,9 @@ services:
     restart: unless-stopped
     # The image's user, by its uid and gid: the root refusal lets it start.
     user: "10001:10001"
-    # The environment binds loopback, and the tailnet address where the
-    # tailscale CLI answers, never the wildcard address (env spec, "Binding
-    # and discovery"), so it shares the host's network instead of publishing
-    # a port.
+    # The environment binds loopback and the host's tailscale0 IPv4 address,
+    # never the wildcard address (env spec, "Binding and discovery"), so it
+    # shares the Linux host's network instead of publishing a port.
     network_mode: host
     environment:
       # Declares the container (#133): the containment report names it as the
