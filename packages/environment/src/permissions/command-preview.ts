@@ -64,13 +64,14 @@ export type DestructiveKind =
   | 'chmod-recursive'
   | 'find-delete'
   | 'shell-expansion'
+  | 'indirect-shell'
   | 'input-targets'
   | 'other';
 
 /** One segment of a command line that would destroy something. */
 export interface Destructive {
   readonly kind: DestructiveKind;
-  /** The segment as typed, comments and surrounding operators removed. */
+  /** The segment as typed, or the whole command when indirect execution makes it opaque. */
   readonly text: string;
   /**
    * What the verb acts on: paths for `rm`, pathspecs for `git clean`, branch
@@ -186,6 +187,7 @@ interface Segment {
   /** The slice of the original line this came from, without any trailing comment. */
   readonly text: string;
   readonly unresolvedHereDoc?: boolean;
+  readonly indirectShell?: boolean;
 }
 
 /**
@@ -214,6 +216,7 @@ function tokenize(command: string): readonly Segment[] {
   let operand = '';
   let open = false;
   let quoted = false;
+  let indirectShell = false;
   let pending: RedirectOp | null = null;
   let pendingDup = false;
   let pendingDupFile = false;
@@ -241,10 +244,11 @@ function tokenize(command: string): readonly Segment[] {
   const pushSegment = (nextStart: number): void => {
     pushWord();
     if (words.length > 0 || redirects.length > 0) {
-      segments.push({ words, redirects, text: command.slice(start, Math.max(start, mark)).trim() });
+      segments.push({ words, redirects, text: command.slice(start, Math.max(start, mark)).trim(), indirectShell });
     }
     words = [];
     redirects = [];
+    indirectShell = false;
     pending = null;
     pendingDup = false;
     pendingDupFile = false;
@@ -326,6 +330,7 @@ function tokenize(command: string): readonly Segment[] {
           at += 1;
           continue;
         }
+        if (inner === '`' || (inner === '$' && command[at + 1] === '(')) indirectShell = true;
         text += inner;
         operand += '$`'.includes(inner) ? inner : escapeLiteral(inner);
         at += 1;
@@ -430,6 +435,7 @@ function tokenize(command: string): readonly Segment[] {
       continue;
     }
 
+    if (char === '(' || char === '`' || (char === '{' && !open && words.every((word) => !word.quoted && ASSIGNMENT.test(word.text)) && /\s/.test(command[index + 1] ?? ''))) indirectShell = true;
     open = true;
     text += char;
     operand += char;
@@ -534,6 +540,25 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
   return null;
 }
 
+const SHELLS = new Set(['sh', 'bash', 'dash', 'ash', 'ksh', 'zsh', 'fish', 'csh', 'tcsh']);
+const SHELL_VALUE_OPTIONS = new Set(['-o', '-O', '--rcfile', '--init-file']);
+
+/** Only invocation options count: `sh script -c text` passes data to a script. */
+function evaluatesShell(segment: Segment): boolean {
+  const invocation = invocationOf(segment);
+  if (invocation === null) return false;
+  const { name, args } = invocation;
+  if (name === 'eval') return args.length > 0;
+  if (!SHELLS.has(name)) return false;
+  for (let at = 0; at < args.length; at += 1) {
+    const option = args[at]?.text ?? '';
+    if (option === '--' || option === '-' || !/^[+-]/.test(option)) break;
+    if (/^-[^-]*c/.test(option) || option === '--command' || option.startsWith('--command=')) return true;
+    if (SHELL_VALUE_OPTIONS.has(option)) at += 1;
+  }
+  return false;
+}
+
 /**
  * The segments of a command that would destroy something.
  *
@@ -541,8 +566,14 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
  * nothing, which is the common case and the one that keeps the card quiet.
  */
 export function destructiveParts(command: string): readonly Destructive[] {
+  const segments = tokenize(command);
+  // Nested syntax can split into misleading apparent commands. Keep the whole
+  // request opaque rather than inspecting targets that only the shell resolves.
+  if (segments.some((segment) => segment.indirectShell === true || evaluatesShell(segment))) {
+    return [{ kind: 'indirect-shell', text: command, targets: [], flags: [] }];
+  }
   const found: Destructive[] = [];
-  for (const segment of tokenize(command)) {
+  for (const segment of segments) {
     if (segment.unresolvedHereDoc === true) found.push({ kind: 'shell-expansion', text: segment.text, targets: [], flags: [] });
     const invocation = invocationOf(segment);
     if (invocation !== null) {
@@ -1143,6 +1174,8 @@ async function previewOne(part: Destructive, cwd: string, deps: BlastRadiusDeps,
         return previewDrop(part);
       case 'shell-expansion':
         return { kind: part.kind, summary: 'cannot tell: command substitution in a here-document needs the shell', lines: [] };
+      case 'indirect-shell':
+        return { kind: part.kind, summary: 'cannot tell: indirect shell execution may change files or contact the network', lines: [] };
       case 'input-targets':
         return { kind: part.kind, summary: 'cannot tell: xargs supplies destructive targets from input', lines: [] };
       case 'truncate-redirect':

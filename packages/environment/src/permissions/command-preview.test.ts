@@ -153,14 +153,51 @@ it('reports locale-sensitive character classes as unavailable rather than an emp
 // ===========================================================================
 
 describe('reading a command line', () => {
+  it('warns about a subshell without querying or evaluating its contents', async () => {
+    const command = '(rm -rf build)';
+    expect(destructiveParts(command)).toEqual([{ kind: 'indirect-shell', text: command, targets: [], flags: [] }]);
+    const calls: string[] = [];
+    const previews = await previewBlastRadius(destructiveParts(command), '/repo', {
+      execFile: async () => { calls.push('exec'); return ''; },
+      readdir: async () => { calls.push('readdir'); return []; },
+      stat: async () => { calls.push('stat'); return { size: 0, directory: false }; },
+    });
+    expect(previews).toEqual([{ kind: 'indirect-shell', summary: 'cannot tell: indirect shell execution may change files or contact the network', lines: [] }]);
+    expect(calls).toEqual([]);
+  });
   it('does not mistake read-write redirection for truncation', () => {
     expect(destructiveParts('cat <> log.txt')).toEqual([]);
     expect(destructiveParts('cat 3<>log.txt')).toEqual([]);
     expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
   });
+  it('warns about brace groups while leaving quoted groups and brace data quiet', () => {
+    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}']) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+    expect(destructiveParts('rm build/{a,b}')[0]?.targets).toEqual(['build/{a,b}']);
+  });
   it('warns about command substitutions in unquoted heredocs without parsing their bodies as commands', async () => {
     expect((await only('cat <<EOF\n$(rm -rf build)\nEOF', '/repo')).summary).toBe('cannot tell: command substitution in a here-document needs the shell');
     expect(kinds("cat <<'EOF'\n$(rm -rf build)\nEOF")).toEqual([]);
+  });
+  it('warns about executed substitutions in arguments and assignments but skips literal data', () => {
+    for (const command of ['echo $(rm -rf build)', 'X=$(rm -rf build)', 'echo "$(rm -rf build)"', 'echo `rm -rf build`', 'X=`rm -rf build`', 'echo "`rm -rf build`"', 'echo $(echo ready; rm -rf /outside)']) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo '$(rm -rf build)'", "echo '`rm -rf build`'", 'echo "\\$(rm -rf build)"', 'echo "\\`rm -rf build\\`"', 'echo \\(rm -rf build\\)', 'echo ok # $(rm -rf build)', "cat <<'EOF'\n$(rm -rf build)\nEOF"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('warns when eval or a shell command option evaluates even quoted command text', () => {
+    for (const command of ['eval rm -rf build', "eval 'rm -rf build'", "sh -c 'rm -rf build'", '/bin/bash -lc "rm -rf build"', 'env X=1 sh -ec "rm -rf build"', "sudo -- sh '-c' 'rm -rf build'", "dash -o errexit -c 'rm -rf build'", "zsh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ['eval', "echo 'eval rm -rf build'", "echo \"sh -c 'rm -rf build'\"", "sh script.sh 'rm -rf build'", "sh script.sh '-c' 'rm -rf build'", "sh -- -c 'rm -rf build'", "bash -o noclobber script.sh 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
   });
   it('skips heredoc data, preserving redirects and commands after the delimiter', () => {
     const command = "cat > log.txt <<'EOF'\nrm -rf /outside\ncurl https://preview.example.test\n'\nEOF\nrm -rf build";
