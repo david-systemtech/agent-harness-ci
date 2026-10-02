@@ -225,8 +225,12 @@ export const createFileChangeTable = (sql: Sql, requireTx: (tx: Tx) => void): Fi
     },
     pending: (sessionId, toolCallId) =>
       sql
-        .all<ChangeRow>("SELECT * FROM file_changes WHERE session_id = ? AND tool_call_id = ? AND state = 'pending' ORDER BY path", sessionId, toolCallId)
-        .map(toRecord),
+        .all<Pick<ChangeRow, "change_id" | "path" | "inside" | "unrestorable">>(
+          "SELECT change_id, path, inside, unrestorable FROM file_changes WHERE session_id = ? AND tool_call_id = ? AND state = 'pending' ORDER BY path",
+          sessionId,
+          toolCallId,
+        )
+        .map((row) => ({ changeId: row.change_id, path: row.path, inside: row.inside === 1, unrestorable: row.unrestorable as FileChangeUnrestorableReason | null })),
     complete,
     discard(tx, sessionId, toolCallId) {
       requireTx(tx);

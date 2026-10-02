@@ -3,9 +3,9 @@ import { lstat, open, realpath, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { SESSION_STREAM_KIND, type FileUndoConflictReason, type FileUndoOutcome, type TranscriptItem } from "@agent-harness/contracts";
 import type { AdapterHost } from "../adapter/host.js";
-import { formatActor, type EventLog, type StreamRef, type Tx } from "../event-log/event-log.js";
+import { formatActor, type EventInput, type EventLog, type StreamRef, type Tx } from "../event-log/event-log.js";
 import { sessionTranscript } from "../runs/transcript.js";
-import type { CommandAnswer, MethodHandlers, PreparedMethodHandler } from "../serve/methods.js";
+import type { MethodHandlers, PreparedMethodHandler } from "../serve/methods.js";
 import { sessionNotFound, type Refusal } from "../sessions/decider.js";
 import { sessionStream } from "../sessions/streams.js";
 import { FILE_EDITING_TOOLS } from "../workspace/diffs.js";
@@ -63,8 +63,6 @@ export interface FileUndo {
 }
 
 type ToolCall = Extract<TranscriptItem, { kind: "tool-call" }>;
-
-type Answer = CommandAnswer<FileUndoOutcome, Refusal["code"]>;
 
 const conflict = (reason: FileUndoConflictReason, message: string, data: Record<string, string>): Refusal => ({
   code: "conflict",
@@ -171,7 +169,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
   };
 
   /** The change undone, in the transaction of the command that undid it: its event, the record consumed, its journal row gone. */
-  const finished = (aggregate: StreamRef, change: ChangeRecord, entry: JournalEntry, tx: Tx): Answer => {
+  const finished = (aggregate: StreamRef, change: ChangeRecord, entry: JournalEntry, tx: Tx): { aggregate: StreamRef; result: FileUndoOutcome; events: EventInput[] } => {
     const outcome: FileUndoOutcome = { changeId: change.changeId, path: change.path, action: "restored" };
     table.consume(tx, change.changeId);
     table.unjournal(tx, entry.actor, entry.commandId);
@@ -179,7 +177,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
   };
 
   /** A journalled restore found refused: its journal row goes with the refusal's receipt. */
-  const refusedAfter = (aggregate: StreamRef, entry: JournalEntry, refusal: Refusal, tx: Tx): Answer => {
+  const refusedAfter = (aggregate: StreamRef, entry: JournalEntry, refusal: Refusal, tx: Tx): { aggregate: StreamRef; rejected: Refusal } => {
     table.unjournal(tx, entry.actor, entry.commandId);
     return { aggregate, rejected: refusal };
   };
@@ -293,10 +291,9 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
           if (settled.kind === "unapplied" || settled.kind === "unknown") continue;
           const aggregate = sessionStream(settled.change.sessionId);
           const key = { actor: entry.actor, commandId: entry.commandId };
-          const run = log.command(key, (tx) => {
-            const answer = settled.kind === "restored" ? finished(aggregate, settled.change, entry, tx) : refusedAfter(aggregate, entry, fileChanged(settled.change), tx);
-            return answer.rejected === undefined ? answer : { aggregate, rejected: { code: answer.rejected.code, message: answer.rejected.message ?? "", data: answer.rejected.data ?? {} } };
-          });
+          const run = log.command(key, (tx) =>
+            settled.kind === "restored" ? finished(aggregate, settled.change, entry, tx) : refusedAfter(aggregate, entry, fileChanged(settled.change), tx),
+          );
           // Its receipt was written by an attempt that left the row: the row alone goes.
           if (run.replayed) log.atomically((tx) => table.unjournal(tx, entry.actor, entry.commandId));
         } catch (error) {

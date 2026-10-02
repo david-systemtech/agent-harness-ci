@@ -183,6 +183,18 @@ describe("files.undo", () => {
     expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "big.txt", unrestorable: "oversized" });
   });
 
+  it("keeps a session's newest 50 changes: past them, undo stops at an evicted one", async () => {
+    const files = Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`f${String(index).padStart(2, "0")}.txt`, "before\n"]));
+    const { t, client, root, sessionId } = await setUp(files);
+    const paths = Object.keys(files);
+    await runScript(t, client, sessionId, playing(...paths.map((path) => (controls: ScriptControls) => editFile(controls, { path, oldString: "before", newString: "after" }))));
+
+    for (const path of [...paths].reverse().slice(0, 50)) expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe(path);
+    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "f00.txt", unrestorable: "evicted" });
+    expect(readFileSync(join(root, "f00.txt"), "utf8")).toBe("after\n");
+    expect(readFileSync(join(root, "f01.txt"), "utf8")).toBe("before\n");
+  });
+
   it("refuses run_active while a run of the session, or of another session in its workspace, is live", async () => {
     const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
     await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
