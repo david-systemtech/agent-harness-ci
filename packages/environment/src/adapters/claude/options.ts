@@ -5,6 +5,7 @@ import type {
   HookCallback,
   HookCallbackMatcher,
   HookEvent,
+  HookJSONOutput,
   McpServerConfig,
   Options,
   PermissionMode,
@@ -16,6 +17,7 @@ import type {
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
 import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
+import { CLAUDE_FILE_TOOLS } from "./gate-access.js";
 import { hostToolServer, serverRule } from "./host-tools.js";
 
 /**
@@ -96,12 +98,29 @@ export interface RunOptionsInput {
   readonly canUseTool: CanUseTool;
   /** The tool gate, asked before the provider's own evaluation of every tool call (#140). */
   readonly preToolUse: HookCallback;
+  /** The observation of the recognised file tools' calls (#1182), around what the gate lets through. */
+  readonly fileTools: FileToolHooks;
   /** Called as each turn stops, with the session's scheduled jobs as the CLI lists them (`session_crons`). */
   readonly onStop?: HookCallback;
   /** The process's own spawn of the CLI, so a kill reaches the child; absent, the SDK spawns it. */
   readonly spawnProcess?: NonNullable<Options["spawnClaudeCodeProcess"]>;
   readonly abortController: AbortController;
   readonly stderr?: (data: string) => void;
+}
+
+/**
+ * The process's observation of the recognised file tools' calls
+ * (`file-tools.ts`; switch-over spec, "File undo"), as SDK callbacks:
+ * `before`, asked in the run's one `PreToolUse` callback once the gate has
+ * let a call through, which the CLI waits on before it evaluates the call and
+ * runs it; `completed`, the `PostToolUse` of a file tool's call that
+ * succeeded; `failed`, its `PostToolUseFailure`. What they answer is never
+ * the hook's answer: an observation decides nothing about a call.
+ */
+export interface FileToolHooks {
+  readonly before: HookCallback;
+  readonly completed: HookCallback;
+  readonly failed: HookCallback;
 }
 
 /** The mode a run runs in: its own, or the default; anything outside the four is refused, never downgraded. */
@@ -144,14 +163,40 @@ const mcpServers = (run: RunInput): Record<string, McpServerConfig> | null => {
  */
 const allowedTools = (run: RunInput): string[] => run.toolServers.filter((server) => isInProcess(server) && server.external).map((server) => serverRule(server.name));
 
+/** The recognised file tools as a hook matcher: the pinned CLI reads a list of plain names joined by `|` as those exact tools. */
+const FILE_TOOL_MATCHER = CLAUDE_FILE_TOOLS.join("|");
+
+/** Whether a `PreToolUse` answer denies the call. */
+const deniesCall = (output: HookJSONOutput): boolean =>
+  "hookSpecificOutput" in output && output.hookSpecificOutput?.hookEventName === "PreToolUse" && output.hookSpecificOutput.permissionDecision === "deny";
+
 /**
- * The run's hooks: the tool gate's `PreToolUse`, matching every tool (no
- * matcher) and waiting as long as the CLI can, and the process's `Stop`
- * when it has one.
+ * The gate, then, for a call it did not deny, the file tools' observation,
+ * as one callback answering the gate's answer: the CLI runs an event's
+ * callbacks in parallel, so an observer registered beside the gate would see
+ * calls the gate denies and could not wait for it to rule.
  */
-const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
-  PreToolUse: [{ hooks: [preToolUse], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
-  ...(onStop !== undefined && { Stop: [{ hooks: [onStop] }] }),
+const gatedThenObserved =
+  (gate: HookCallback, observe: HookCallback): HookCallback =>
+  async (hookInput, toolUseID, options) => {
+    const ruling = await gate(hookInput, toolUseID, options);
+    if (deniesCall(ruling)) return ruling;
+    await observe(hookInput, toolUseID, options);
+    return ruling;
+  };
+
+/**
+ * The run's hooks: one `PreToolUse`, matching every tool (no matcher) and
+ * waiting as long as the CLI can, which is the tool gate and then the file
+ * tools' observation of a call it let through; the file tools' `PostToolUse`
+ * and `PostToolUseFailure`, matching those tools alone; and the process's
+ * `Stop` when it has one.
+ */
+const hooksOf = (input: RunOptionsInput): Partial<Record<HookEvent, HookCallbackMatcher[]>> => ({
+  PreToolUse: [{ hooks: [gatedThenObserved(input.preToolUse, input.fileTools.before)], timeout: GATE_HOOK_TIMEOUT_SECONDS }],
+  PostToolUse: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.completed] }],
+  PostToolUseFailure: [{ matcher: FILE_TOOL_MATCHER, hooks: [input.fileTools.failed] }],
+  ...(input.onStop !== undefined && { Stop: [{ hooks: [input.onStop] }] }),
 });
 
 /**
@@ -299,7 +344,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(run.ceiling === "bypassPermissions" && { allowDangerouslySkipPermissions: true }),
     permissionPrompts: "host",
     canUseTool: input.canUseTool,
-    hooks: hooksOf(input.preToolUse, input.onStop),
+    hooks: hooksOf(input),
     ...(sandbox !== null && { sandbox }),
     ...(disallowedTools.length > 0 && { disallowedTools }),
     ...(input.spawnProcess !== undefined && { spawnClaudeCodeProcess: input.spawnProcess }),

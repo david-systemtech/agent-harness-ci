@@ -716,6 +716,42 @@ export interface ToolGate {
   check(call: GatedToolCall, signal?: AbortSignal): Promise<GateDecision>;
 }
 
+/**
+ * One call of a file tool its adapter recognises (Claude's `Edit`,
+ * `MultiEdit`, `Write` and `NotebookEdit`), as the file-change observer is
+ * told of it: the provider's id for the call, its tool, the paths it writes
+ * as its input names them, and the provider's working directory at the call,
+ * which a relative one is read against.
+ */
+export interface FileToolCall {
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly paths: readonly string[];
+  readonly cwd: string;
+}
+
+/**
+ * The environment's observer of a run's recognised file tools (switch-over
+ * spec, "File undo"; #1182), which keeps what they change. The adapter asks
+ * `before` once the tool gate has let a call through, and the provider does
+ * not run the call until it settles; then tells `completed` once the call
+ * succeeded, or `failed` once it failed, was interrupted, ran on other paths
+ * than it was announced with, or can no longer end (its process ended).
+ * Every call announced to `before` ends at most once, always with the same
+ * `FileToolCall`, on the observer that was told of it. A call the provider
+ * refuses after the gate (its rules, its mode, a person's answer) ends with
+ * neither. `before` rejecting never stops the call: it goes on, and ends as
+ * any other. Nothing else is observed: a denied call, another tool's, a
+ * shell command's writes. The observer decides nothing about a call.
+ */
+export interface FileChangeObserver {
+  /** Before the call writes; `signal` aborts when the provider gives up on the call. */
+  before(call: FileToolCall, signal: AbortSignal): Promise<void>;
+  /** The call succeeded; `signal` aborts when the provider stops waiting. */
+  completed(call: FileToolCall, signal: AbortSignal): Promise<void>;
+  failed(call: FileToolCall): void;
+}
+
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
 export const ADAPTER_EVENT_TYPES = [
   "run.suggested",
@@ -898,6 +934,12 @@ export interface RunContext {
   readonly gate: ToolGate;
   /** Held work on the session's provider process (the pool's port). */
   readonly process: ProcessPort;
+  /**
+   * The observer of the run's recognised file tools, when the environment
+   * keeps what they change; a turn the provider opened on its own is
+   * observed by the observer of the run it followed, as it is gated.
+   */
+  readonly fileChanges?: FileChangeObserver;
   /**
    * Who the provider says the run is signed in as (Claude's `accountInfo`),
    * when it says: the account store checks it against the identity it holds
