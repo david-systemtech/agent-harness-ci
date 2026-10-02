@@ -5,7 +5,7 @@ import { ForgeAccountMissingError, ForgeOwner, ForgeUnreachableError, KindUnsupp
 import { ForgeAccountId } from "../forge-accounts.js";
 import { SecretShapedError } from "../shape-rules.js";
 import { AccountId } from "../accounts.js";
-import { BankAccountScope, BankFolderPointer, BankId, BankRecord, BankRepositoryScope, BankRole, BankUpdatedPayload } from "../bank-registry.js";
+import { BankAccountScope, BankCopiedFrom, BankFolderPointer, BankId, BankRecord, BankRepositoryScope, BankRole, BankUpdatedPayload } from "../bank-registry.js";
 import { BankFinding, BankName, BankRuleId } from "../banks.js";
 import { errorSchema } from "../errors.js";
 import { commandParams, defineMethod } from "../method.js";
@@ -111,6 +111,7 @@ export const banksRegister = defineMethod({
     repositories: BankRepositoryScope,
     defaultFor: z.array(AccountId).meta({ description: "The accounts this bank becomes the default write target for." }),
     importedFrom: z.string().min(1).optional().meta({ description: "What the state import registers it from; a repeated one answers the bank registered from it." }),
+    copiedFrom: BankCopiedFrom.optional(),
   }),
   result: z.object({ bank: BankRecord }),
   errors: [],
@@ -183,6 +184,7 @@ export const banksJoin = defineMethod({
     url: z.string().min(1).max(2048),
     accounts: z.array(AccountId).meta({ description: "Exactly the accounts ticked by the teammate, none preset; an empty selection attaches to no account." }),
     repositories: BankRepositoryScope,
+    copiedFrom: BankCopiedFrom.optional(),
   }),
   result: z.object({ bank: BankRecord }),
   errors: [ValidationFailedError, ForgeAccountMissingError, CredentialUnavailableError, ForgeUnreachableError, KindUnsupportedError],

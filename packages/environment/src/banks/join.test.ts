@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ParamsOf } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { changed, markdown, memory, PERSONAL_BANK, personalManifest, scopeFile, TEAM_BANK, teamManifest } from "../../../contracts/test/fixture-banks.js";
 import { useCleanups } from "../../test/cleanups.js";
@@ -74,11 +75,21 @@ describe("banks.join.preview", () => {
 });
 
 describe("banks.join", () => {
+  it("keeps copy provenance in the joined record and add event without adopting the source checkout", async () => {
+    const { t, client, url } = await setup();
+    const copiedFrom = { environmentId: randomUUID(), environmentName: "source-desk" };
+    const bankId = randomUUID();
+    const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
+    const answer = await client.request("banks.join", { commandId: randomUUID(), bankId, url, accounts: [], repositories: "all", copiedFrom });
+    expect(answer.result?.bank).toMatchObject({ copiedFrom, checkout: join(t.dataDir, "banks", "acme"), credential: "forge" });
+    expect(await client.next((frame) => frame.type === "event" && frame.subscription === subscription && frame.event.type === "bank.added")).toMatchObject({ event: { payload: { bank: { id: bankId, copiedFrom } } } });
+    expect((await client.request("banks.get", { bankId })).bank.copiedFrom).toEqual(copiedFrom);
+  });
   it("clones into the named bank directory with exactly one selected account, emitting the add and update notice once", async () => {
     const { t, client, url } = await setup();
     const commandId = randomUUID();
     const bankId = randomUUID();
-    const params = { commandId, bankId, url, accounts: ["work"], repositories: ["https://github.com/acme/web"] };
+    const params: ParamsOf<"banks.join"> = { commandId, bankId, url, accounts: ["work"], repositories: ["https://github.com/acme/web"] };
     const { subscription } = await client.subscribe("environment.subscribe", { afterSequence: t.env.log.head() });
     const answer = await client.request("banks.join", params);
     expect(answer.receipt.status).toBe("accepted");
@@ -127,7 +138,7 @@ it("refuses invalid manifests before retaining a checkout or adding a bank", asy
 
 it("refuses a second name without removing the first bank's checkout", async () => {
   const { t, client, url } = await setup();
-  const params = { commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" as const };
+  const params: ParamsOf<"banks.join"> = { commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" };
   const first = await client.request("banks.join", params);
   const before = t.env.log.head();
   const second = await client.request("banks.join", { ...params, commandId: randomUUID(), bankId: randomUUID() });
@@ -213,7 +224,7 @@ it("a reused bank id refuses the new name and removes its checkout", async () =>
 it("concurrent joins of one name register once and preserve the accepted checkout", async () => {
   const { t, client, url } = await setup();
   const other = await t.client();
-  const params = () => ({ commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" as const });
+  const params = (): ParamsOf<"banks.join"> => ({ commandId: randomUUID(), bankId: randomUUID(), url, accounts: ["work"], repositories: "all" });
   const answers = await Promise.all([client.request("banks.join", params()), other.request("banks.join", params())]);
   expect(answers.map((answer) => answer.receipt.status).sort()).toEqual(["accepted", "rejected"]);
   expect((await client.request("banks.list", {})).banks).toHaveLength(1);
