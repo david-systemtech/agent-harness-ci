@@ -1,5 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { SOURCE_PRODUCT_NAME } from "../src/state-import/source/folders.js";
+
+/** A saved server Connection, in the source's profile list: values are deliberately fake. */
+export const sourceConnection = (): Record<string, unknown> => ({ id: "connection-fixture", label: "token-for-tests", providerId: SOURCE_PRODUCT_NAME.toLowerCase(), configDir: "/fixture/connection", publicEnv: {}, secretRef: "token-for-tests" });
 
 /**
  * A source data folder for the state import's tests (ADR 0036; #1165),

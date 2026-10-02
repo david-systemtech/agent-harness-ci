@@ -17,7 +17,7 @@
     "store": {
       "type": "string",
       "minLength": 1,
-      "description": "The source store the item was read from: instructions for the source's instruction list."
+      "description": "The source store the item was read from: instructions, browser.devSites or browser.evaluateEverywhere."
     },
     "sourceId": {
       "type": "string",
@@ -27,14 +27,16 @@
     "kind": {
       "type": "string",
       "enum": [
-        "instruction"
+        "instruction",
+        "dev-site",
+        "page-policy"
       ],
-      "description": "The kind of item a state import carried: instruction (an owned instruction)."
+      "description": "The kind of item a state import carried: an owned instruction, a dev site or the local evaluate-everywhere policy."
     },
     "targetId": {
       "type": "string",
       "minLength": 1,
-      "description": "The id of what the owning service made of it: an owned instruction's id."
+      "description": "The target held by its owning service: an owned instruction's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key."
     },
     "origin": {
       "type": "string",
