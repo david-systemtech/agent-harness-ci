@@ -186,7 +186,7 @@ import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
-import { groupMethods } from "../sessions/group-methods.js";
+import { groupMethods, createImportedGroup } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
@@ -1811,6 +1811,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     orientation: readOrientation,
   });
   const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
+  const sessionHandlers = sessionMethods({
+      log,
+      clock: now,
+      deletion,
+      resolver: workspaceResolver,
+      // An imported session's history, appended the first time a client opens it (#579).
+      beforeOpen: importedHistory.beforeOpen,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1826,16 +1836,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({
-      log,
-      clock: now,
-      deletion,
-      resolver: workspaceResolver,
-      // An imported session's history, appended the first time a client opens it (#579).
-      beforeOpen: importedHistory.beforeOpen,
-      validateRunParameters: host.validateSessionInput,
-      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    }),
+    ...sessionHandlers,
     // A missing session given another workspace (#328), from a request the create's resolver serves.
     ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
@@ -1928,6 +1929,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       machine: stateImportSource,
       log,
       environmentId: record.id,
+      createGroup: createImportedGroup(log, now),
+      setDraft: sessionHandlers["sessions.setDraft"],
+      setGroup: sessionHandlers["sessions.setGroup"],
+      archive: sessionHandlers["sessions.archive"],
+      pin: sessionHandlers["sessions.pin"],
       coordinator: stateImports,
       sources: skillSources,
       forgeAccounts: () => verifiedOrigins(forge.list()),

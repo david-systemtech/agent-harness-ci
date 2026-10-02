@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 import { snapshotOf } from "../../../test/accounts.js";
 import { useCleanups } from "../../../test/cleanups.js";
 import type { ProviderSessionInfo } from "../../adapter/contract.js";
+import { startTestEnvironment } from "../../../test/helper.js";
+import { NO_SETUP_STEPS } from "../../../test/setup-steps.js";
+import { machinePointedAt } from "../../state-import/source/folders.js";
 import { createClaudeAdapter } from "./index.js";
 
 /**
@@ -17,7 +20,7 @@ import { createClaudeAdapter } from "./index.js";
  * linked or deleted.
  */
 
-const { tempDir } = useCleanups();
+const { tempDir, onCleanup } = useCleanups();
 
 const WRITTEN = new Date("2026-08-03T17:30:00.000Z");
 
@@ -145,4 +148,30 @@ describe("the Claude adapter's session listing", () => {
       ]);
     }
   });
+});
+
+
+it("lists a continued firing with the pinned SDK's later first prompt and imports it active without loading history (#756)", async () => {
+  const directory = tempDir();
+  const workspace = tempDir();
+  const source = tempDir();
+  const continued = transcript(directory, "fixture", (id) => [
+    user(id, workspace, '<scheduled-task name="fixture">Check the repo</scheduled-task>'),
+    assistant(id, workspace, "Checked."),
+    user(id, workspace, "Please continue with my change", "2026-08-02T09:00:00.000Z"),
+    assistant(id, workspace, "Continued."),
+  ].join(""));
+  writeFileSync(join(directory, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "fixture@example.com" } }));
+  writeFileSync(join(source, "profiles.json"), JSON.stringify({ version: 2, profiles: [{ id: "work", label: "Work", providerId: "claude", configDir: directory }] }));
+  const adapter = createClaudeAdapter({ executablePath: null, hostEnv: { HOME: tempDir() }, runCommand: async () => { throw new Error("No provider process during import."); } });
+  let historyReads = 0;
+  Object.assign(adapter, { readHistory: async () => { historyReads++; throw new Error("Import must not load history."); } });
+  expect(await adapter.listSessions({ id: "preview", directory })).toMatchObject([{ providerSessionId: continued, firstPrompt: "Please continue with my change" }]);
+  const t = await startTestEnvironment({ accounts: [], otherAdapters: [adapter], setupSteps: NO_SETUP_STEPS, stateImportSource: machinePointedAt({ dataFolder: source, home: tempDir() }) });
+  onCleanup(() => t.close());
+  const client = await t.client();
+  expect(await client.request("carryOver.inventory", { source: "state-import" })).toMatchObject({ accounts: [{ inventory: { sessions: { archived: 0 } } }] });
+  expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result?.failed).toEqual([]);
+  expect((await client.request("sessions.list", {})).sessions).toMatchObject([{ title: "Please continue with my change", archivedAt: null }]);
+  expect(historyReads).toBe(0);
 });

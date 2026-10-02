@@ -134,7 +134,7 @@ export interface ProviderSessionInfo {
   readonly customTitle: string | null;
   /** The provider's one line for it (its summary); null for none. */
   readonly summary: string | null;
-  /** The session's first prompt as its transcript opens; null for none. */
+  /** The first prompt the SDK reports; for a continued Routine firing this is the person's later prompt (#756, David 2026-10-02). Null for none. */
   readonly firstPrompt: string | null;
   /** The directory the session ran in, as the transcript names it. */
   readonly workingDirectory: string;

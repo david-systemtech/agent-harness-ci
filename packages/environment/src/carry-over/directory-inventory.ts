@@ -52,7 +52,7 @@ export const directoryInventory = (options: DirectoryInventoryOptions) => {
       if (error instanceof ContractError) throw error;
       throw new ContractError({ code: "internal", message: listingFailed(account, error), data: {} });
     }
-    const held = heldProviderSessions(reader);
+    const held = heldProviderSessions(reader, undefined, account.id);
     const directories = await findDirectories(
       sessions.map((session) => session.workingDirectory),
       looks,

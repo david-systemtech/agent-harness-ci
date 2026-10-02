@@ -17,7 +17,7 @@
     "store": {
       "type": "string",
       "minLength": 1,
-      "description": "The source store the item was read from: instructions, profiles, preferences, browser.devSites or browser.evaluateEverywhere."
+      "description": "The source store or organisation decision kind, including provider-sessions and organisation.archive/pin/group/group-source/membership/draft."
     },
     "sourceId": {
       "type": "string",
@@ -28,18 +28,23 @@
       "type": "string",
       "enum": [
         "instruction",
-        "account",
-        "account-default",
-        "session",
         "forge-account",
         "key-manager-connection",
         "dev-site",
         "page-policy",
+        "account",
+        "account-default",
+        "session",
+        "archive",
+        "pin",
+        "group",
+        "group-membership",
+        "draft",
         "routine",
         "skill-source",
         "skill-always-on"
       ],
-      "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site, the local evaluate-everywhere policy, a tracked Skill repository, an Account Skill choice or a disabled local Routine."
+      "description": "The owning service kind for a carried instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection, dev site, page policy or a disabled local Routine, tracked Skill repository or Account Skill choice."
     },
     "sourceDirectory": {
       "description": "The canonical listed Claude directory retained as an import source for an Account or Session mapping, including a secondary directory. No credentials.",
@@ -49,7 +54,7 @@
     "targetId": {
       "type": "string",
       "minLength": 1,
-      "description": "The target held by its owning service: an owned instruction's id, an Account's id, a dev-site host pattern or the local browser.evaluateEverywhere setting key."
+      "description": "The target held by its owning service: an Account, Session, Group or instruction id, a dev-site host pattern, connection id or setting key."
     },
     "origin": {
       "type": "string",
