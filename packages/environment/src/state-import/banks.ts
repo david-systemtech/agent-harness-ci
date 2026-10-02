@@ -34,7 +34,7 @@ export const planBanks = async (records: SourceBanks, options: PlanBanksOptions)
   const defaultHeld = mappedTarget(log, defaultKey) !== undefined;
   const selected = records.entries.find((bank) => bank.sourceId === records.defaultSlug);
   const usableDefault = selected !== undefined && selected.role === "read-write" && selected.enabled && scopeOf(selected, true) !== null;
-  if (!defaultHeld && selected !== undefined && !usableDefault) failed.push({ label: "Default Bank", message: "The source default has no writable mapped scope; the harness defaults are preserved." });
+  if (!defaultHeld && selected !== undefined && !usableDefault) failed.push({ label: "Default Bank", message: "The source default is not an enabled, writable Bank with a mapped Account scope; the harness defaults are preserved." });
   for (const bank of records.entries) {
     if (mappedTarget(log, keyOf(bank.sourceId)) !== undefined) continue;
     const label = `Bank "${bank.sourceId}"`;
