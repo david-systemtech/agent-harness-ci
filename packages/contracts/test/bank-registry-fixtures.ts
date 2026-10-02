@@ -111,7 +111,7 @@ const invalidEventPayloads: Record<keyof typeof BANK_EVENT_PAYLOADS, readonly un
   "bank.synced": [{ bankId, head }, { bankId, head: "abc123", previousHead: null }],
   "bank.verified": [{ bankId }, { bankId, status: without(status, "owners") }],
   "bank.landed": [without(eventPayloads["bank.landed"], "files"), { ...eventPayloads["bank.landed"], files: [""] }],
-  "bank.landing-failed": [without(eventPayloads["bank.landing-failed"], "step"), { ...eventPayloads["bank.landing-failed"], reason: "" }],
+  "bank.landing-failed": [without(eventPayloads["bank.landing-failed"], "step"), { ...eventPayloads["bank.landing-failed"], reason: "" }, { ...eventPayloads["bank.landing-failed"], reviewReleased: "yes" }],
   "bank.awaiting-review": [without(eventPayloads["bank.awaiting-review"], "pullRequest"), { ...eventPayloads["bank.awaiting-review"], sessionId: "s-1" }],
 };
 
@@ -169,7 +169,7 @@ export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
   ...Object.fromEntries(
     Object.entries(eventPayloads).map(([type, payload]): [string, Fixtures] => [
       `banks/events/${type}.json`,
-      { valid: [payload], invalid: invalidEventPayloads[type as keyof typeof BANK_EVENT_PAYLOADS] },
+      { valid: type === "bank.landing-failed" ? [payload, { ...payload, reviewReleased: true }] : [payload], invalid: invalidEventPayloads[type as keyof typeof BANK_EVENT_PAYLOADS] },
     ]),
   ),
   "errors/bank_required.json": {

@@ -138,17 +138,18 @@ it("pushes a numbered session branch from a detached temporary worktree, validat
 });
 
 const scriptLanding = (h: Awaited<ReturnType<typeof remoteBank>>, check: "pending" | "success" | "failure", merge: "all" | "keep-retired" = "all") => {
-  let sha = "";
+  let number = 0;
   h.forge.answer(TOKEN, "POST /api/v1/repos/maya/memory/pulls", (request) => {
+    const created = ++number;
     const branch = (request.body as { head: string }).head;
-    sha = git(h.remote, "rev-parse", branch).trim();
-    h.forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch, sha, author: "david" });
+    const sha = git(h.remote, "rev-parse", branch).trim();
+    h.forge.pullRequest(TOKEN, "maya/memory", created, { head: branch, sha, author: "david" });
     h.forge.validateCheck(TOKEN, "maya/memory", sha, check);
-    return { status: 201, body: { number: 1, title: "Memories", state: "open", user: { login: "david" }, head: { ref: branch, sha, repo: { full_name: "maya/memory" } }, base: { ref: "main" }, html_url: `${h.forge.origin}/maya/memory/pulls/1` } };
-  });
-  h.forge.answer(TOKEN, "POST /api/v1/repos/maya/memory/pulls/1/merge", () => {
-    if (merge === "all") git(h.remote, "update-ref", "refs/heads/main", sha);
-    return { status: 200 };
+    h.forge.answer(TOKEN, `POST /api/v1/repos/maya/memory/pulls/${created}/merge`, () => {
+      if (merge === "all") git(h.remote, "update-ref", "refs/heads/main", sha);
+      return { status: 200 };
+    });
+    return { status: 201, body: { number: created, title: "Memories", state: "open", user: { login: "david" }, head: { ref: branch, sha, repo: { full_name: "maya/memory" } }, base: { ref: "main" }, html_url: `${h.forge.origin}/maya/memory/pulls/${created}` } };
   });
 };
 
@@ -456,7 +457,7 @@ it.each(["pending", "failure"] as const)("keeps an owner-approved change unmerge
   expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "landed" });
 });
 
-it.each(["head", "base", "closed"])("refuses a reviewed PR whose %s changed", async (rule) => {
+it.each(["head", "base", "closed"])("releases a reviewed PR whose %s changed, retaining drafts for resubmission after restart", async (rule) => {
   const h = await remoteBank({ ...PERSONAL_BANK, "BANK.md": PERSONAL_BANK["BANK.md"]!.replace("memories: auto", "memories: review") });
   scriptLanding(h, "success");
   const { id } = await create(h.client);
@@ -465,6 +466,30 @@ it.each(["head", "base", "closed"])("refuses a reviewed PR whose %s changed", as
   h.forge.answer(TOKEN, "GET /api/v1/repos/maya/memory/pulls/1", { status: 200, body: { number: 1, title: "Held change", state: rule === "closed" ? "closed" : "open", user: { login: "david" }, head: { ref: "memory/change", sha: rule === "head" ? "0".repeat(40) : sha }, base: { ref: rule === "base" ? "other" : "main" }, html_url: `${h.forge.origin}/maya/memory/pulls/1` } });
   expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "failed", step: "review" });
   expect(h.forge.requests.some((request) => request.path.endsWith("/merge"))).toBe(false);
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toBeNull();
+  await h.t.close();
+  const resumed = await start(h.t.dataDir, h.restartOptions);
+  expect(await resumed.t.env.banks.reconcileLanding(h.bankId)).toBeNull();
+  const queued = await resumed.client.request("banks.drafts.list", { sessionId: id, bankId: h.bankId });
+  expect(queued.queues[0]?.drafts).toHaveLength(1);
+  expect(await resumed.t.env.banks.promote(h.bankId, id, queued.queues[0]!.drafts)).toMatchObject({ state: "awaiting-review", pullRequest: expect.stringContaining("/pulls/2") });
+});
+
+it("verifies a manual merge with an amended head against the immutable submitted files", async () => {
+  const h = await remoteBank();
+  scriptLanding(h, "success");
+  await h.t.env.banks.landChanges(h.bankId, { title: "Update reference", body: "Reviewed reference.", writes: { "reference/first.txt": "Submitted bytes.\n" } });
+  const branch = `memory/${h.bankId.slice(0, 8)}-1`;
+  const editor = tempDir("amended-review-");
+  git(editor, "clone", h.remote, ".");
+  git(editor, "switch", branch);
+  writeFileSync(join(editor, "README.md"), "An unrelated reviewer amendment.\n");
+  git(editor, "add", "README.md"); git(editor, "commit", "-m", "Amend the reference review.");
+  git(editor, "push", "origin", `${branch}:main`);
+  const sha = git(editor, "rev-parse", "HEAD").trim();
+  h.forge.pullRequest(TOKEN, "maya/memory", 1, { head: branch, sha, state: "merged" });
+  expect(await h.t.env.banks.reconcileLanding(h.bankId)).toMatchObject({ state: "landed", files: [{ path: "reference/first.txt", state: "present" }] });
+  expect(readFileSync(join(h.checkout, "reference/first.txt"), "utf8")).toBe("Submitted bytes.\n");
 });
 
 

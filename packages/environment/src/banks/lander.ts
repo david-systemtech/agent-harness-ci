@@ -47,6 +47,7 @@ export const createBankLander = (options: {
     if (typeof bankId !== "string") return;
     if (event.type === "bank.review-held") reviews.set(bankId, event.payload as unknown as BankReviewHeldPayload);
     else if (event.type === "bank.landed" || event.type === "bank.forgotten") reviews.delete(bankId);
+    else if (event.type === "bank.landing-failed" && event.payload["reviewReleased"] === true) reviews.delete(bankId);
   };
   // Rebuild once, in bounded batches; committed events maintain the index during this lifetime.
   let cursor = 0;
@@ -70,6 +71,7 @@ export const createBankLander = (options: {
     let worktree: string | undefined;
     let root: string | undefined;
     let pullRequest: string | null = null;
+    let reviewReleased = false;
     const git = async (cwd: string, args: readonly string[]) => {
       const answer = await runGit(cwd, args, { maxBytes: 1024 * 1024, signal: controller.signal });
       if (!answer.ok || answer.truncated) throw new Error(`Git ${args[0]} failed.`);
@@ -124,8 +126,14 @@ export const createBankLander = (options: {
         const target = { origin: remote.origin, repository: remote.repository, number: review.number, purpose: "review bank changes" };
         step = "review";
         const pr = valueOf(await options.forge.pullRequests.get(target));
-        if (pr.head.sha !== review.head || pr.base.ref !== "main") throw new Error("The reviewed pull request's head or base changed.");
-        if (pr.state === "closed") throw new Error("The reviewed pull request was closed without merging.");
+        if (pr.base.ref !== "main" || (pr.state !== "merged" && pr.head.sha !== review.head)) {
+          reviewReleased = true;
+          throw new Error("The reviewed pull request's head or base changed.");
+        }
+        if (pr.state === "closed") {
+          reviewReleased = true;
+          throw new Error("The reviewed pull request was closed without merging.");
+        }
         if (pr.state !== "merged") {
           if (!bank.enabled || bank.role !== "read-write") return pending();
           step = "fetch-review-main";
@@ -269,7 +277,7 @@ export const createBankLander = (options: {
     } catch (error) {
       const reason = options.scrub.scrubOutput(error instanceof Error ? error.message : "Landing failed.");
       const last = options.banks.entries().find(({ entry }) => entry.id === bank.id)?.entry.status.landing;
-      if (last?.state !== "failed" || last.step !== step || last.reason !== reason) emit("bank.landing-failed", { step, reason });
+      if (reviewReleased || last?.state !== "failed" || last.step !== step || last.reason !== reason) emit("bank.landing-failed", { step, reason, ...(reviewReleased ? { reviewReleased: true } : {}) });
       return { state: "failed", bank: bank.name, step, reason };
     } finally {
       if (worktree !== undefined) await runGit(bank.checkout, ["worktree", "remove", "--force", worktree], { maxBytes: 1024 * 1024 });
