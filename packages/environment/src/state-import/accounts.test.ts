@@ -187,7 +187,8 @@ it("fails unreadable identities, invalid labels, unresolved scopes and defaults 
   const commandId = randomUUID();
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview.result?.failed).toHaveLength(4);
-  expect(preview.result?.later).toEqual([{ label: "Other provider: profile, Sessions and archive", provider: "codex" }]);
+  expect(preview.result?.later).toEqual([{ label: "Profile for codex", provider: "codex" }]);
+  expect(await client.request("carryOver.inventory", { source: "state-import" })).toMatchObject({ later: [{ label: "Profile for codex", provider: "codex" }] });
   expect(await client.request("stateImport.run", { commandId, dryRun: false })).toMatchObject({ result: { carried: { accounts: 1, instructions: 1 }, failed: preview.result?.failed } });
   expect(await client.request("settings.get", { keys: ["accounts.defaultAccount"] })).toEqual({ values: { "accounts.defaultAccount": "existing" } });
   identity(badIdentity, "repaired@example.com");

@@ -1755,7 +1755,6 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
     inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
   });
-  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
   const instructionHandlers = instructionMethods({
     host,
@@ -1768,6 +1767,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The Orientation row's block: as the first run of a new session of the default account, started from a client, is handed it.
     orientation: readOrientation,
   });
+  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1921,8 +1921,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       coordinator: stateImports,
       accounts,
       listSessions: listImportSessions,
-      updateSettings: settingsHandlers["settings.update"],
       createInstruction: instructionHandlers["instructions.create"],
+      getSettings: settingsHandlers["settings.get"],
+      updateSettings: settingsHandlers["settings.update"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
     // What runs, who manages its updates and what is installed, and the update settings (#342).

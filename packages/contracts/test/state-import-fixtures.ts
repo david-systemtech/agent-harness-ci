@@ -97,13 +97,13 @@ export const stateImportSchemaFixtures: Record<string, Fixtures> = {
     invalid: [finished, { ...report, dryRun: "yes" }, { ...report, clientLocal: undefined }],
   },
   "state-import/event-type.json": { valid: ["state-import.started", "state-import.item-carried"], invalid: ["state-import.finished", "state-import.carried", ""] },
-  "state-import/item-kind.json": { valid: ["instruction", "account", "account-default"], invalid: ["instructions", "account-mapping", ""] },
+  "state-import/item-kind.json": { valid: ["instruction", "account", "account-default", "dev-site", "page-policy"], invalid: ["instructions", "account-mapping", ""] },
   "state-import/events/state-import.started.json": {
     valid: [started],
     invalid: [{ importId: commandId }, { ...started, importId: "not-a-uuid" }, { ...started, sourceKey: "" }],
   },
   "state-import/events/state-import.item-carried.json": {
-    valid: [itemCarried, { ...itemCarried, kind: "account", store: "profiles", sourceDirectory: "/fixture/profile" }, { ...itemCarried, kind: "account-default", store: "preferences" }],
+    valid: [itemCarried, { ...itemCarried, kind: "account", store: "profiles", sourceDirectory: "/fixture/profile" }, { ...itemCarried, kind: "account-default", store: "preferences" }, { ...itemCarried, store: "browser.devSites", sourceId: "dev.example", kind: "dev-site", targetId: "dev.example" }, { ...itemCarried, store: "browser.evaluateEverywhere", sourceId: "evaluate-everywhere", kind: "page-policy", targetId: "browser.evaluateEverywhere" }],
     invalid: [{ ...itemCarried, sourceDirectory: "" }, { ...itemCarried, origin: "client" }, { ...itemCarried, kind: "routine-firing" }, { ...itemCarried, sourceId: "" }, { ...itemCarried, targetId: undefined }],
   },
 };
