@@ -29,7 +29,7 @@ afterEach(() => {
   cleanups = [];
 });
 
-const REPOSITORY = "git.systemtech.dev:5526/david/agent-harness";
+const REPOSITORY = "ghcr.io/david-systemtech/agent-harness";
 const OLDER = `${REPOSITORY}:0.4.0`;
 const OLD = `${REPOSITORY}:0.5.0`;
 const NEW = `${REPOSITORY}:0.6.0`;
