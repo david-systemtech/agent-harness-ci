@@ -28,7 +28,7 @@ export interface TuiContext extends Pick<ServiceContext, "fetch" | "user" | "sea
 
 type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings">;
 
-const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
+export const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
   if (value !== undefined && value.trim() === "") throw new UsageError(`${flag} takes a value; got an empty one.`);
   return value;
 };
