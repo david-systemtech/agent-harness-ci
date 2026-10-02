@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import type { SessionSummary } from "@agent-harness/contracts";
 import type { TerminalSelection } from "../startup/selection.js";
 import { nameOf } from "../view.js";
+import { rulesOf } from "../listing/directory.js";
 import { PrintFailure } from "./failure.js";
 
 /**
@@ -28,6 +29,9 @@ export const targetOf = async (selection: TerminalSelection): Promise<Target> =>
   const { environment, session, runtime } = selection;
   const name = nameOf(environment);
   const elsewhere = environment.kind !== "local" && session.cwd === undefined;
+  if (environment.kind !== "local" && session.cwd !== undefined && rulesOf(session.cwd) === undefined) {
+    throw new PrintFailure(`--cwd names a directory on ${name} by its absolute path there; got ${session.cwd}.`, 2);
+  }
   let sessionId = session.sessionId;
   if (sessionId === undefined && !session.continueLatest) return { sessionId: null, workspace: elsewhere ? undefined : session.workspace };
   if (sessionId === undefined) {
