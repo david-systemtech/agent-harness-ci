@@ -74,9 +74,10 @@ const deskAndLaptop: Script = {
   ],
 };
 
-/** How many sockets each environment has open: none, once the selection is closed or refused. */
-const allClosed = (on: Machine) => on.world.environments.map((environment) => [environment.name, environment.wire.open()]);
-const NONE_OPEN = (on: Machine) => on.world.environments.map((environment) => [environment.name, 0]);
+/** How many sockets each environment has open, by name. */
+const openSockets = (on: Machine) => on.world.environments.map((environment) => [environment.name, environment.wire.open()]);
+/** No environment has a socket open: the selection's runtime is closed. */
+const noneOpen = (on: Machine) => on.world.environments.map((environment) => [environment.name, 0]);
 
 describe("the screenless selection", () => {
   it("chooses this machine's environment when none is named, with the token its grant exchange gave", async () => {
@@ -192,7 +193,7 @@ describe("the screenless selection", () => {
 
     await selection.close();
 
-    expect(allClosed(on)).toEqual(NONE_OPEN(on));
+    expect(openSockets(on)).toEqual(noneOpen(on));
   });
 });
 
@@ -213,7 +214,7 @@ describe("a selection refused", () => {
       reason: "ambiguous",
       message: `More than one environment here is named BUILD: give the id of the one meant (${BUILD} build, ${OTHER} Build).`,
     });
-    expect(allClosed(on)).toEqual(NONE_OPEN(on));
+    expect(openSockets(on)).toEqual(noneOpen(on));
     // An id is never ambiguous.
     expect((await chosen(on, { environment: OTHER })).environment.name).toBe("Build");
   });
@@ -222,7 +223,7 @@ describe("a selection refused", () => {
     const on = await machine(deskAndLaptop);
 
     expect(await select(on, { environment: "nas" })).toEqual({ ok: false, reason: "unknown", message: "No environment named nas is known here." });
-    expect(allClosed(on)).toEqual(NONE_OPEN(on));
+    expect(openSockets(on)).toEqual(noneOpen(on));
   });
 
   it("refuses the environment chosen when it cannot be reached now", async () => {
@@ -230,7 +231,7 @@ describe("a selection refused", () => {
     on.world.environment("laptop").discovery("nothing");
 
     expect(await select(on, { environment: "laptop" })).toEqual({ ok: false, reason: "unreachable", message: "laptop cannot be reached now (reconnecting)." });
-    expect(allClosed(on)).toEqual(NONE_OPEN(on));
+    expect(openSockets(on)).toEqual(noneOpen(on));
   });
 
   it("says this machine's environment is not running, in the screen's words, whether or not it answered before", async () => {
@@ -243,7 +244,7 @@ describe("a selection refused", () => {
     seenBefore.world.environment("desk").discovery("nothing");
     expect(await select(seenBefore)).toEqual(notRunning);
     expect(await select(seenBefore, { environment: "desk" })).toEqual(notRunning);
-    expect(allClosed(seenBefore)).toEqual(NONE_OPEN(seenBefore));
+    expect(openSockets(seenBefore)).toEqual(noneOpen(seenBefore));
   });
 
   it("says when no environment is known here at all", async () => {

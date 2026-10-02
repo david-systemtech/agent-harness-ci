@@ -58,6 +58,7 @@ export interface TerminalSelection {
   readonly environment: EnvironmentView;
   /** Its connection's address and client session token (`connections.credential`), for the environment's HTTP routes. */
   readonly credential: ConnectionCredential;
+  /** The session and directory flags, as given. */
   readonly session: SessionSelection;
   /** The started runtime the environment was chosen on, for the caller's reads and commands there; `close` closes it. */
   readonly runtime: Runtime;
