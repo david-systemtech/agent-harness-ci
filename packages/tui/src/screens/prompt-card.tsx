@@ -88,6 +88,11 @@ export const PromptCard = (props: PromptCardProps) => {
             {line}
           </Text>
         ))}
+      {prompt.previewLines?.map((line, at) => (
+        <Text key={`preview-${at}`} color={TERMINAL_ROLES.warning} wrap="truncate-end">
+          {"  "}{line}
+        </Text>
+      ))}
       {planLines.slice(0, PLAN_LINES).map((line, at) => (
         <Text key={at} wrap="truncate-end">
           {"  "}
