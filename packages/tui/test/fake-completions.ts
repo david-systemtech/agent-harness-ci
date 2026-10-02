@@ -51,6 +51,8 @@ export interface AnswerStream {
   fail(): void;
   /** Whether the printer let go of the answer (it aborted or stopped reading). */
   readonly abandoned: () => boolean;
+  /** Calls `then` the moment the printer lets go of the answer. */
+  onAbandoned(then: () => void): void;
 }
 
 export interface FakeCompletions {
@@ -110,6 +112,12 @@ export const fakeCompletions = (origin: string, listing: readonly CompletionsMod
           let wake: (() => void) | undefined;
           let over = false;
           let abandoned = false;
+          const watchers: (() => void)[] = [];
+          const letGo = () => {
+            if (abandoned) return;
+            abandoned = true;
+            for (const watcher of watchers.splice(0)) watcher();
+          };
           const push = (item: Uint8Array | Error | "end") => {
             if (over) return;
             if (!(item instanceof Uint8Array)) over = true;
@@ -125,12 +133,12 @@ export const fakeCompletions = (origin: string, listing: readonly CompletionsMod
                 else if (next instanceof Error) controller.error(next);
                 else controller.enqueue(next);
               },
-              cancel: () => void (abandoned = true),
+              cancel: letGo,
             },
             { highWaterMark: 0 },
           );
           signal?.addEventListener("abort", () => {
-            abandoned = true;
+            letGo();
             // An abort drops what was not read yet.
             queue.length = 0;
             over = false;
@@ -152,6 +160,7 @@ export const fakeCompletions = (origin: string, listing: readonly CompletionsMod
             end,
             fail: () => push(new TypeError("terminated")),
             abandoned: () => abandoned,
+            onAbandoned: (then) => void (abandoned ? then() : watchers.push(then)),
           };
         },
       });

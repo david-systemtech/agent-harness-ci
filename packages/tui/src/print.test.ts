@@ -459,6 +459,13 @@ describe("a print that fails", () => {
     expect(http.sent()).toEqual([]);
   });
 
+  it("ends with one result when choosing the environment fails outright", async () => {
+    const term = terminal(fakeCompletions("http://nowhere.test"));
+    const exit = await printAnswer(() => Promise.reject(new Error("The terminal's state directory cannot be read.")), { prompt: "Say hello", format: "json" }, term.io);
+    expect(exit).toBe(1);
+    expect(resultOf(term.stdout())).toMatchObject({ environmentId: null, reason: "error", error: "The terminal's state directory cannot be read." });
+  });
+
   it("ends with the surface's refusal of the turn, in its words, with the session it names", async () => {
     const on = await machine(desk);
     const environment = on.world.environment("desk");
@@ -600,9 +607,13 @@ describe("SIGINT", () => {
     const messageId = queueTurn(environment, sessionId, theirs.runId, 1);
     const answer = turn.open();
     answer.chunk(queuedHead(sessionId, theirs.runId, messageId));
+    let withdrawnFirst: unknown[] = [];
+    answer.onAbandoned(() => (withdrawnFirst = commanded(environment, "runs.withdraw", "messageId")));
     printing.interrupt();
 
     expect(await printing.exit).toBe(130);
+    // Taken back before the answer was let go of.
+    expect(withdrawnFirst).toEqual([messageId]);
     expect(commanded(environment, "runs.withdraw", "messageId")).toEqual([messageId]);
     expect(environment.requests("runs.interrupt")).toEqual([]);
     expect(environment.liveRun(sessionId)).toBe(theirs.runId);
@@ -627,8 +638,12 @@ describe("SIGINT", () => {
     const answer = turn.open();
     answer.chunk(headOf(environment, sessionId, run));
     answer.chunk(chunkOf(4, { content: "Hel" }));
+    let liveWhenLetGo: string | undefined = "not let go";
+    answer.onAbandoned(() => (liveWhenLetGo = environment.liveRun(sessionId)));
 
     expect(await printing.exit).toBe(130);
+    // The run was stopped before the answer was let go of.
+    expect(liveWhenLetGo).toBeUndefined();
     expect(commanded(environment, "runs.interrupt", "runId")).toEqual([run.runId]);
     expect(environment.requests("runs.withdraw")).toEqual([]);
     expect(environment.liveRun(sessionId)).toBeUndefined();

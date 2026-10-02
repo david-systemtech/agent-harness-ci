@@ -1,6 +1,6 @@
 import { CHAT_COMPLETIONS_PATH, COMPLETIONS_NAMESPACE, CompletionsModelList, MODELS_PATH, type CompletionsModel, type Mode } from "@agent-harness/contracts";
 import type { ConnectionCredential, Observable, SessionProjection } from "@agent-harness/client-runtime";
-import type { SelectionOutcome, TerminalSelection } from "../startup/selection.js";
+import type { SelectionOutcome, SelectionRefusal, TerminalSelection } from "../startup/selection.js";
 import { nameOf } from "../view.js";
 import { AnswerAbandoned, readAnswer, refusalOf, type Head, type Learned } from "./answer.js";
 import { cancelTurn, readerOf } from "./cancel.js";
@@ -140,7 +140,7 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
   let cancelled: Promise<string | null> = Promise.resolve(null);
   let over = false;
 
-  const outcome = await select();
+  const outcome = await select().catch((error: unknown): SelectionRefusal => ({ ok: false, reason: "unreachable", message: messageOf(error) }));
   if (!outcome.ok) return fail(outcome.message);
   const { selection } = outcome;
   const environmentId = selection.environment.environmentId;
@@ -230,8 +230,8 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
       say(learned.error);
       return end(130);
     }
-    if (error instanceof PrintFailure) return fail(error.message, error.exit);
-    throw error;
+    // A failure is said in one line, as the result's error: an unforeseen one too, so a JSON format still ends with its result.
+    return error instanceof PrintFailure ? fail(error.message, error.exit) : fail(messageOf(error));
   } finally {
     over = true;
     following?.stop();
