@@ -1317,13 +1317,15 @@ async function previewRemove(part: Destructive, cwd: string, deps: BlastRadiusDe
  */
 async function previewClean(part: Destructive, cwd: string, deps: BlastRadiusDeps): Promise<Preview> {
   const stdout = await gitIn(cwd, deps)(cleanArgv(part));
-  const paths = stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(/^Would (?:remove|skip repository|not remove) /, ''));
+  const paths = cleanPaths(stdout);
   if (paths.length === 0) return { kind: part.kind, summary: 'git clean would remove nothing', lines: [], count: 0 };
   return { kind: part.kind, summary: `git clean would remove ${plural(paths.length, 'path')}`, lines: paths.slice(0, MAX_LISTED), count: paths.length };
+}
+
+/** Raw path labels from the fixed clean dry run, shared with the broker's path checks. */
+export function cleanPaths(stdout: string): readonly string[] {
+  return stdout.split('\n').filter((line) => line.length > 0)
+    .map((line) => line.replace(/^Would (?:remove|skip repository|not remove) /, ''));
 }
 
 /** The dry-run argv: `-n` first, the flags that only narrow the search, then the pathspecs. */

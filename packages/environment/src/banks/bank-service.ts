@@ -223,6 +223,8 @@ export interface BankServiceOptions {
 }
 
 export interface BankService {
+  /** Serializes sync and landing work that share a bank's checkout and git refs. */
+  withCheckout<T>(bankId: string, work: () => Promise<T>): Promise<T>;
   /** Installs the environment-owned landing path once its session directories exist. */
   configureLanding(options: Pick<Parameters<typeof createBankLander>[0], "forge" | "scrub" | "temporaryDirectory">): void;
   closeLanding(): Promise<void>;
@@ -255,6 +257,7 @@ export interface BankService {
 
 export const createBankService = (options: BankServiceOptions): BankService => {
   const { log, clock, forge } = options;
+  const checkoutWork = new Map<string, Promise<unknown>>();
   const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const stream: StreamRef = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   recoverCheckoutRemovals(reader, log, stream, options.dataDir);
@@ -608,6 +611,12 @@ export const createBankService = (options: BankServiceOptions): BankService => {
     return bank;
   };
   const service: BankService = {
+    async withCheckout(bankId, work) {
+      const next = (checkoutWork.get(bankId) ?? Promise.resolve()).catch(() => undefined).then(work);
+      checkoutWork.set(bankId, next);
+      try { return await next; }
+      finally { if (checkoutWork.get(bankId) === next) checkoutWork.delete(bankId); }
+    },
     configureLanding(landing) { if (lander) throw new Error("Bank landing is already configured."); lander = createBankLander({ ...landing, log, clock, environmentId: options.environmentId, banks: service }); },
     async closeLanding() { await lander?.close(); },
     promote(bankId, sessionId, drafts) {
