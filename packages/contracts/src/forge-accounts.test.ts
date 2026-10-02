@@ -33,7 +33,7 @@ const forgeAccountId = "5b1c6f3e-2a4d-4e8f-9b0a-1c2d3e4f5a6b";
 const pasted = { kind: "stored", provenance: "pasted", token: "token-for-tests" } as const;
 const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
 const reference = { kind: "reference", reference: { provider: "openbao", connectionId, mount: "personal", path: "harness/forge-github", key: "token" } } as const;
-const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SYSTEM-SERVER" };
+const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SAMPLE-SERVER" };
 
 describe("the forge account methods", () => {
   it("have one scope each: the list, the gh probe, the owners and a session's pull requests' refresh at read, add, update, remove and setPrimary as admin commands, verify and detect admin queries, and a session's pull request linked and unlinked at sessions:write", () => {
@@ -92,11 +92,11 @@ describe("the forge account methods", () => {
     expect(orgs.params.safeParse({}).success).toBe(false);
     const owners = [
       { login: "david", kind: "user" },
-      { login: "systemtech", kind: "organisation" },
+      { login: "exampleorg", kind: "organisation" },
     ];
     expect(orgs.result.safeParse({ owners }).success).toBe(true);
     expect(orgs.result.safeParse({ owners: [{ login: "", kind: "user" }] }).success).toBe(false);
-    expect(orgs.result.safeParse({ owners: [{ login: "systemtech", kind: "organization" }] }).success).toBe(false);
+    expect(orgs.result.safeParse({ owners: [{ login: "exampleorg", kind: "organization" }] }).success).toBe(false);
   });
 
   it("verify takes one forge account or none, for every one, and answers the records", () => {
@@ -128,7 +128,7 @@ describe("the forge account methods", () => {
     expect(add.safeParse({ ...base, kind: "gitea" }).success).toBe(true);
     // GitLab is milestone 2's (ADR 0033), and a slug outside 1 to 40 of a-z, digits and underscore is refused.
     expect(add.safeParse({ ...base, kind: "gitlab" }).success).toBe(false);
-    for (const slug of ["", "Work", "git-systemtech", "x".repeat(41)]) expect(add.safeParse({ ...base, slug }).success, slug).toBe(false);
+    for (const slug of ["", "Work", "git-example", "x".repeat(41)]) expect(add.safeParse({ ...base, slug }).success, slug).toBe(false);
     expect(add.safeParse({ ...base, credential: { ...pasted, token: "two words" } }).success).toBe(false);
     expect(add.safeParse({ ...base, credential: undefined }).success).toBe(false);
   });

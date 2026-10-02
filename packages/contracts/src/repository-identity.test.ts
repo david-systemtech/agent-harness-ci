@@ -10,7 +10,7 @@ import { REPOSITORY_IDENTITY_CASES, repositoryIdentityOf, type ForgeAccountOrigi
  */
 
 /** The Forgejo instance's account: its web origin, and its tailnet address verified as an alias. */
-const systemtech: ForgeAccountOrigins = { origin: "https://git.systemtech.dev:5526", aliases: ["http://100.101.102.103:3000"] };
+const exampleorg: ForgeAccountOrigins = { origin: "https://git.systemtech.dev:5526", aliases: ["http://100.101.102.103:3000"] };
 
 const cases: Record<string, RepositoryIdentityCase[]> = {
   "gives the three spellings of one repository one identity, without the port": [
@@ -36,13 +36,13 @@ const cases: Record<string, RepositoryIdentityCase[]> = {
     {
       note: "ssh to the alias's host",
       remote: "ssh://git@100.101.102.103:2222/david/agent-harness.git",
-      forgeAccounts: [systemtech],
+      forgeAccounts: [exampleorg],
       identity: "https://git.systemtech.dev/david/agent-harness",
     },
     {
       note: "http on the alias's origin",
       remote: "http://100.101.102.103:3000/david/agent-harness",
-      forgeAccounts: [systemtech],
+      forgeAccounts: [exampleorg],
       identity: "https://git.systemtech.dev/david/agent-harness",
     },
     { note: "the same remote with no forge accounts", remote: "ssh://git@100.101.102.103:2222/david/agent-harness.git", identity: "https://100.101.102.103/david/agent-harness" },
@@ -78,9 +78,9 @@ describe("the repository identity rule", () => {
 
   it("keeps a host that is some forge account's canonical host, and one that is an alias of two accounts", () => {
     const other: ForgeAccountOrigins = { origin: "https://code.example.com", aliases: ["http://100.101.102.103:8080"] };
-    expect(repositoryIdentityOf("ssh://git@100.101.102.103/david/agent-harness", [systemtech, other])).toBe("https://100.101.102.103/david/agent-harness");
+    expect(repositoryIdentityOf("ssh://git@100.101.102.103/david/agent-harness", [exampleorg, other])).toBe("https://100.101.102.103/david/agent-harness");
     const aliasOfTheOther: ForgeAccountOrigins = { origin: "https://mirror.example.com", aliases: ["https://git.systemtech.dev"] };
-    expect(repositoryIdentityOf("git@git.systemtech.dev:david/agent-harness.git", [systemtech, aliasOfTheOther])).toBe("https://git.systemtech.dev/david/agent-harness");
+    expect(repositoryIdentityOf("git@git.systemtech.dev:david/agent-harness.git", [exampleorg, aliasOfTheOther])).toBe("https://git.systemtech.dev/david/agent-harness");
   });
 
   it.each(REPOSITORY_IDENTITY_CASES.map((entry) => [entry.note, entry] as const))("holds for the published case: %s", (_note, entry) => {

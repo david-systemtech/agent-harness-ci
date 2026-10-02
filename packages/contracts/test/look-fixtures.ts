@@ -12,11 +12,11 @@ interface Fixtures {
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
-export const validLook = { name: "MNL", icon: "server", colour: "teal" } as const;
+export const validLook = { name: "LAB", icon: "server", colour: "teal" } as const;
 
 const looks: Fixtures = {
   valid: [validLook, { name: "a-hostname-label-longer-than-forty-code-points-is-kept", icon: "laptop", colour: "pink" }],
-  invalid: [{ ...validLook, name: "" }, { ...validLook, icon: "phone" }, { ...validLook, colour: "#008080" }, { name: "MNL", icon: "server" }],
+  invalid: [{ ...validLook, name: "" }, { ...validLook, icon: "phone" }, { ...validLook, colour: "#008080" }, { name: "LAB", icon: "server" }],
 };
 
 export const lookSchemaFixtures: Record<string, Fixtures> = {
@@ -25,18 +25,18 @@ export const lookSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["Laptop", "phone", "💻", "", null],
   },
   "environment/name.json": {
-    valid: ["MNL", "x".repeat(40), ` ${"x".repeat(40)} `, "🖥".repeat(40), "SYSTEM \t SERVER"],
+    valid: ["LAB", "x".repeat(40), ` ${"x".repeat(40)} `, "🖥".repeat(40), "SYSTEM \t SERVER"],
     invalid: ["", "   ", "x".repeat(41), "a\u0000b", "a\u200bb", "a\u2066b", 7],
   },
   "environment/look.json": looks,
-  "environment/renamed.json": { valid: [{ name: "MNL" }], invalid: [{ name: "" }, { name: "x".repeat(41) }, {}] },
+  "environment/renamed.json": { valid: [{ name: "LAB" }], invalid: [{ name: "" }, { name: "x".repeat(41) }, {}] },
   "environment/icon-set.json": { valid: [{ icon: "nas" }], invalid: [{ icon: "phone" }, {}] },
   "environment/colour-set.json": { valid: [{ colour: "amber" }], invalid: [{ colour: "#ffbf00" }, { colour: "Amber" }, {}] },
 };
 
 export const lookMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "environment.rename": {
-    params: { valid: [{ commandId, name: "MNL" }, { commandId, name: "  SYSTEM  SERVER " }], invalid: [{ name: "MNL" }, { commandId, name: "" }, { commandId, name: "x".repeat(41) }] },
+    params: { valid: [{ commandId, name: "LAB" }, { commandId, name: "  SYSTEM  SERVER " }], invalid: [{ name: "LAB" }, { commandId, name: "" }, { commandId, name: "x".repeat(41) }] },
     result: looks,
   },
   "environment.setIcon": {

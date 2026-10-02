@@ -355,7 +355,7 @@ const group = <const Id extends string>(title: string, context: ActionContext, r
 });
 
 const RULES_PER_SESSION = "Rules are per session on the harness: a prompt never saves a rule (docs/specs/permissions.md).";
-const PHASE_D = "Deferred to phase D, carried if Seth relies on it (docs/specs/tui.md, Out of Scope).";
+const PHASE_D = "Deferred to phase D, carried if a teammate relies on it (docs/specs/tui.md, Out of Scope).";
 
 /*
  * The GUI column's reasons for the keys it leaves to something else (the GUI

@@ -79,7 +79,7 @@ const teamEntry = {
   credential: "stored",
   status: troubledStatus,
   importedFrom: "/home/maya/.config/memory/acme",
-  copiedFrom: { environmentId, environmentName: "MNL" },
+  copiedFrom: { environmentId, environmentName: "LAB" },
 };
 
 const counts = { memories: 5, folders: 3, line: "## maya-memory (personal, read-write) — 5 memories in 3 folders — Maya's memory.", sharedAliases: [] };
@@ -139,7 +139,7 @@ export const bankRegistrySchemaFixtures: Record<string, Fixtures> = {
   },
   "banks/merge-override.json": { valid: ["none", "review-memories"], invalid: ["review", ""] },
   "banks/credential-source.json": { valid: ["forge", "stored", "reference"], invalid: ["token", ""] },
-  "banks/copied-from.json": { valid: [{ environmentId, environmentName: "MNL" }], invalid: [{ environmentId }, { environmentId: "mnl", environmentName: "MNL" }, { environmentId, environmentName: "" }] },
+  "banks/copied-from.json": { valid: [{ environmentId, environmentName: "LAB" }], invalid: [{ environmentId }, { environmentId: "lab", environmentName: "LAB" }, { environmentId, environmentName: "" }] },
   "banks/reachability.json": {
     valid: [status.reachable, troubledStatus.reachable],
     invalid: [{ state: "unreachable", since }, { state: "reachable" }, { state: "offline", since }],
