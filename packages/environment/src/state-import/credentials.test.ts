@@ -33,19 +33,23 @@ describe("state import's Forge credentials and Key-manager records", () => {
     const folder = tempDir();
     store(folder, "memory-banks.json", { version: 2, banks: [bank("alpha", "git@github.com:team/alpha.git"), bank("beta", "https://GITHUB.COM:443/team/beta.git")] });
     store(folder, "memory-bank-tokens.json", { alpha: { username: "git", token: "encrypted-for-tests" }, beta: { kind: "token", username: "git", token: "plaintext-for-tests" } });
+    store(folder, "paired-browsers.json", { policy: { devSites: ["dev.example"], evaluateEverywhere: true }, browsers: [{ secret: "browser-secret-for-tests" }] });
     const forgeFetch = vi.fn();
     const { t, client } = await start(folder, { forgeFetch });
     const head = t.env.log.head();
     const preview = (await run(client, true)).result;
-    expect(preview?.carried.forgeAccounts).toBe(1);
+    expect(preview?.carried).toMatchObject({ forgeAccounts: 1, devSites: 1 });
     expect(preview?.reEnter).toEqual([{ label: "Forge https://github.com", step: "forges" }]);
     expect(preview?.notCarried).toContainEqual({ label: 'Competing Forge credential from Bank "beta"', count: 1, step: null });
+    expect(preview?.notCarried).toContainEqual({ label: "Browser Pairings", count: 1, step: "browser" });
     expect(t.env.log.head()).toBe(head);
+    expect((await client.request("settings.get", { keys: ["browser.devSites", "browser.evaluateEverywhere"] })).values).toEqual({ "browser.devSites": [], "browser.evaluateEverywhere": false });
     expect(forgeFetch).not.toHaveBeenCalled();
     const applied = (await run(client)).result;
     expect(applied).toEqual({ ...preview, dryRun: false });
+    expect((await client.request("settings.get", { keys: ["browser.devSites", "browser.evaluateEverywhere"] })).values).toEqual({ "browser.devSites": ["dev.example"], "browser.evaluateEverywhere": true });
     expect((await client.request("forge.accounts.list", {})).accounts).toMatchObject([{ origin: "https://github.com", credential: { kind: "none" }, problem: { kind: "needs-credential" } }]);
-    expect(JSON.stringify({ applied, events: t.env.log.readStream({ kinds: ["environment", "state-import"] }) })).not.toMatch(/encrypted-for-tests|plaintext-for-tests/);
+    expect(JSON.stringify({ applied, events: t.env.log.readStream({ kinds: ["environment", "state-import"] }) })).not.toMatch(/encrypted-for-tests|plaintext-for-tests|browser-secret-for-tests/);
     expect(forgeFetch).not.toHaveBeenCalled();
   });
   it("preserves a winning reference and the connection settings unsigned-in without resolving or storing credentials", async () => {

@@ -17,6 +17,7 @@ import {
   SendResponse,
   SessionEventType,
   SessionSnapshot,
+  SessionForkedPayload,
   StandingRewind,
   SummaryPatch,
   TRANSCRIPT_EVENT_TYPES,
@@ -251,6 +252,16 @@ describe("the per-session snapshot", () => {
     expect(snapshot.$defs.StandingRewind.properties.rewinds.items.$ref).toBe("#/$defs/StandingRewind");
     // The hand-written interface the recursion needs is the schema's own type.
     expectTypeOf<z.infer<typeof StandingRewind>>().toEqualTypeOf<StandingRewind>();
+  });
+
+  it("retains a fork seed in event payloads and snapshots and validates the copied items", () => {
+    const history = { title: "Receipts", anchor: "Add the tests", items: [item], runs: [] };
+    const payload = { fromSessionId: summary.id, atMessageId: null, fromProviderSessionId: null, history };
+    expect(SessionForkedPayload.parse(payload)).toEqual(payload);
+    const forked = { kind: "forked", sequence: 8, fromSessionId: summary.id, atMessageId: null, history };
+    expect(SessionSnapshot.parse({ sequence: 9, summary, runs: [], items: [forked], parkedPrompts: [], rewinds: [] }).items).toEqual([forked]);
+    expect(SessionForkedPayload.safeParse({ ...payload, history: { ...history, items: [{ kind: "assistant-text", sequence: 4 }] } }).success).toBe(false);
+    expect(TranscriptItem.safeParse({ ...forked, history: { ...history, anchor: 3 } }).success).toBe(false);
   });
 
   it("keeps an update cut's outcome, reason and continuation as a known item, refusing inconsistent outcomes", () => {

@@ -5,11 +5,13 @@ import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, type StateImportFinishedPayload, type StateImportReport } from "@agent-harness/contracts";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
+import type { SettingsHandlers } from "../settings/methods.js";
 import type { ImportCoordinator } from "./coordinator.js";
 import { applyItems, stateImportStream, type ImportItem } from "./items.js";
-import { emptyPlan, itemsOf, planImport, recheckStores, reportOf } from "./plan.js";
+import { emptyPlan, includeReportStores, itemsOf, planImport, recheckStores, reportOf } from "./plan.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { readSourceStores } from "./source/stores.js";
+import { readSourceFileFrecency } from "./source/report-stores.js";
 
 /**
  * The state import's methods (setup spec, "2. Carry over"; switch-over spec,
@@ -48,6 +50,8 @@ export interface StateImportOptions {
   readonly createInstruction: MethodHandler<"instructions.create">;
   readonly forge: ForgeService;
   readonly managers: KeyManagerConnections;
+  readonly getSettings: SettingsHandlers["settings.get"];
+  readonly updateSettings: SettingsHandlers["settings.update"];
   readonly hooks?: StateImportHooks;
 }
 
@@ -71,11 +75,12 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         if (folder === null) {
           return refused({ code: "conflict", message: "No source data folder or terminal-client state folder is on this machine.", data: { reason: "no_source" } });
         }
-        // A terminal-client state folder alone holds nothing the environment carries: its client imports it (ADR 0036).
-        const planned =
+        // Terminal history/snippets remain client-owned; the Environment reports the file-picker cache omission.
+        const dataPlan =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction });
+            : planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, get: options.getSettings, update: options.updateSettings });
+        const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
         const combined = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };
         if (dryRun) {
