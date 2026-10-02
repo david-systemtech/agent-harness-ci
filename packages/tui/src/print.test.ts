@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRuntime } from "@agent-harness/client-runtime";
-import { inMemoryPlatform, manualClock, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
-import { scriptedWorld, type EnvironmentHandle, type Script, type ScriptedEnvironment, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
+import type { EnvironmentHandle, Script, ScriptedEnvironment } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { chunkOf, fakeCompletions, listed, type AnswerStream, type FakeCompletions } from "../test/fake-completions.js";
 import { printAnswer, type PrintRequest } from "./screenless.js";
 import { selectOn, type SelectionRequest } from "./startup/selection.js";
+import { machine, noneOpen, openSockets, type Machine } from "../test/machine.js";
 
 // Printing draws nothing: Ink or React imported anywhere under it fails the import.
 vi.mock("ink", () => {
@@ -27,26 +26,6 @@ const DESK = "0199aa00-0000-7000-8000-00000000de5c";
 const HERE = "/home/seth/code/harness";
 const WORK = { id: "account-1", label: "Work" };
 const OPUS = listed("work", "claude-opus-5", "opus", 3, WORK);
-
-interface Machine {
-  readonly world: ScriptedWorld;
-  readonly platform: InMemoryPlatform;
-}
-
-/** This machine's terminal over `script`, each `paired` environment paired once before, as `/pair` saves it. */
-const machine = async (script: Script): Promise<Machine> => {
-  const clock = manualClock();
-  const world = scriptedWorld(clock, script);
-  const platform = inMemoryPlatform({ clock, fetch: world.fetch, webSocket: world.webSocket, ...(world.grant && { grant: world.grant }) });
-  const paired = script.environments.filter((spec) => spec.reach === "paired");
-  if (paired.length > 0) {
-    const earlier = createRuntime(platform);
-    await earlier.start();
-    for (const spec of paired) expect(await earlier.connections.add({ link: world.environment(spec.name).wire.link })).toMatchObject({ status: "paired" });
-    await earlier.close();
-  }
-  return { world, platform };
-};
 
 const desk: Script = {
   environments: [
@@ -93,9 +72,6 @@ const completed = (answer: AnswerStream, seq: number) => {
   answer.chunk(chunkOf(seq, { usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16, prompt_tokens_details: { cached_tokens: 8 } } }));
   answer.done();
 };
-
-const openSockets = (on: Machine) => on.world.environments.map((environment) => [environment.name, environment.wire.open()]);
-const noneOpen = (on: Machine) => on.world.environments.map((environment) => [environment.name, 0]);
 
 describe("printing one answer", () => {
   it("sends the prompt through completions on the selected credential and writes the answer's text once, with a final newline", async () => {
