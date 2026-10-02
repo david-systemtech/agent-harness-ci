@@ -1,0 +1,56 @@
+# Cutting a release
+
+Forgejo (`david/agent-harness` at `git.systemtech.dev:5526`) is the development
+origin. Its push mirror carries every branch and tag to GitHub's public
+`david-systemtech/agent-harness` repository. GitHub builds and publishes releases;
+branch pushes start no release jobs. No stored release secret is needed: the
+workflow uses `GITHUB_TOKEN` with `contents: write` and `packages: write`.
+
+Before the first public release, complete the pre-publication secret audit and
+make the GitHub repository public, as decided on #1258. GHCR packages start
+private even for a public repository: the owner must make the new
+`agent-harness` package public after its first publication. The workflow does
+not change repository or package settings. This makes release and image reads
+available without an account.
+
+1. Choose a merged main commit with green CI. Verify the mirror has that commit.
+2. For a build rehearsal, manually dispatch GitHub's **release** workflow on
+   that commit's branch. Dispatch always uses `v0.0.0-ci.<run number>`, even on
+   a stable tag, and builds every server artefact, desktop installer and the
+   image without publishing or logging in to GHCR. Download the `release-assets`
+   workflow artifact (kept seven days), check `release.json` and its SHA-256
+   sidecars, and run the desktop and service-install checklists on real machines.
+   Its image digest belongs to that local build; it cannot be pulled from GHCR.
+3. Tag the chosen commit on Forgejo and push the tag to `origin`:
+
+   ```sh
+   git tag -a v1.2.3 <commit> -m "Release v1.2.3"
+   git push origin v1.2.3
+   ```
+
+   Use `v1.2.3-beta.1` for a prerelease. The tag must be a semantic version
+   without build metadata (`+...`), since the image uses that version as its tag.
+4. Wait for the mirror to carry the tag and GitHub's **release** workflow to
+   finish. It checks the release is unpublished before building; builds the
+   versioned linux/amd64 image and pushes it to
+   `ghcr.io/david-systemtech/agent-harness:<version>`; builds the macOS zip,
+   Windows NSIS setup (cross-built with Wine) and Linux Arch package; then writes
+   the three server artefacts, scripts, schema export, manifest and sidecars.
+5. Verify the single GitHub release holds every manifest asset and sidecar, plus
+   `release.json` and its sidecar. Prerelease tags must show **Pre-release**.
+   Confirm the manifest's image reference and digest can be pulled publicly.
+   Only after publishing a stable release does the workflow move `latest` to
+   its exact image; prereleases leave `latest` alone.
+
+An upload failure leaves at most a draft. Re-run the failed workflow to replace
+that draft; a published release is never replaced. Tag a new version to correct
+one. If publishing succeeded but moving `latest` failed, repair that alias to
+`release.json`'s exact digest rather than rebuilding or replacing the release.
+The Forgejo release workflow is retained for manual recovery only: it has no
+push trigger. Do not dispatch it during a GitHub release, since it publishes to
+Forgejo's own release and registry.
+
+The publisher uses [GitHub's release upload API](https://docs.github.com/en/rest/releases/assets#upload-a-release-asset)
+and [GHCR's workflow token authentication](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+[Hosted runner architectures](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+explain the arm64 `macos-latest` runner and the x64 Ubuntu runners.

@@ -1,27 +1,39 @@
-# Manual recovery only: select a v tag when dispatching. Tag pushes publish
-# through .github/workflows/release.yml on the public GitHub mirror (#1258).
+# Forgejo's push mirror carries v tags here. Branch pushes register no run.
+# Manual dispatch builds all assets with a synthetic version, without publishing.
 name: release
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
 
-# A tag's run is never cancelled half-way through its push: a second run of
-# the same tag queues behind it.
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  # The tag this run releases: v0.5.0.
-  TAG: ${{ github.ref_name }}
-
 jobs:
   check:
-    runs-on: ci
-    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.run.outputs.tag }}
+      version: ${{ steps.run.outputs.version }}
+      publish: ${{ steps.run.outputs.publish }}
+      prerelease: ${{ steps.run.outputs.prerelease }}
     steps:
-      # Pinned to a commit, not a tag, as ci.yml's.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -33,30 +45,20 @@ jobs:
           restore-keys: pnpm-store-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
 
+      - name: Prepare the tag or dry run
+        id: run
+        run: pnpm exec tsx --conditions=@agent-harness/source packages/cli/scripts/prepare-release.ts
       - name: The tag's release is not published yet
+        if: steps.run.outputs.publish == 'true'
         env:
-          # The job's own token, which can write this repository's releases
-          # (so it reads a draft too) on a push: Forgejo 16 gives a job write
-          # access to every unit of its own repository unless it runs for a
-          # fork's pull request (models/perm/access/repo_permission.go,
-          # GetActionRepoPermission). Packages are not a unit of the
-          # repository, hence the image job's PACKAGES_TOKEN.
+          TAG: ${{ steps.run.outputs.tag }}
           RELEASE_TOKEN: ${{ github.token }}
         run: pnpm --filter agent-harness publish-release --tag "$TAG" --check
 
       - run: pnpm typecheck
       - run: pnpm lint
-      # PowerShell 7 for the install.ps1 tests, as ci.yml puts it on the PATH.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/agent-harness-pwsh
-          key: pwsh-${{ runner.arch }}-${{ hashFiles('.forgejo/scripts/pwsh.sh') }}
-      - name: PowerShell 7 for the install.ps1 tests
-        run: bash .forgejo/scripts/pwsh.sh
-      # ci.yml's worker count, for the same shared daemon.
       - run: pnpm test --maxWorkers=4
       - name: The JSON Schema export is current
-        # The release publishes packages/contracts/schema as it is committed.
         run: |
           set -euo pipefail
           pnpm --filter @agent-harness/contracts export-schemas
@@ -68,41 +70,57 @@ jobs:
 
   image:
     needs: check
-    runs-on: build
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The pushed image's reference and digest, for release.json: a host pulls
-    # the image by both.
+    permissions:
+      contents: read
+      packages: write
     outputs:
-      reference: ${{ steps.publish.outputs.reference }}
-      digest: ${{ steps.publish.outputs.digest }}
+      reference: ghcr.io/david-systemtech/agent-harness:${{ needs.check.outputs.version }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      # Pinned to a commit, not a tag, as ci.yml's.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Build and push the version's image
-        id: publish
-        env:
-          # A user-level secret on `david`, write:package only. The job's own
-          # token cannot write packages: Forgejo answers 401 (david/ci,
-          # measured 2026-09-23).
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: bash .forgejo/scripts/image.sh publish
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Authenticate to ghcr for a tag only
+        if: needs.check.outputs.publish == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build the image; push only on a tag
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ needs.check.outputs.publish == 'true' }}
+          load: ${{ needs.check.outputs.publish != 'true' }}
+          provenance: false
+          sbom: false
+          tags: ghcr.io/david-systemtech/agent-harness:${{ needs.check.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/david-systemtech/agent-harness
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.check.outputs.version }}
 
   desktop-macos:
     needs: [check, image]
-    runs-on: macos
+    runs-on: macos-latest
     timeout-minutes: 60
     env:
-      # The release build of the server artefact names the release's image, as the release job's does.
+      TAG: ${{ needs.check.outputs.tag }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
       IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The runner's own Node 24 (david/ci's runners/macos), whose corepack gives the pinned pnpm.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - run: corepack enable && corepack prepare --activate
       - run: pnpm install --frozen-lockfile
 
-      # The Mac keeps its workspace between runs, so the folders a run writes are cleared first.
       - name: The darwin-arm64 server artefact
         run: |
           set -euo pipefail
@@ -113,7 +131,6 @@ jobs:
       - name: The macOS zip
         run: pnpm --filter @agent-harness/desktop build-desktop --platform darwin-arm64 --tag "$TAG" --server server/agent-harness-darwin-arm64.tar.gz --out desktop
 
-      # No file in it is quarantined, so the bundle the desktop's update unpacks from it meets no Gatekeeper check.
       - name: The zip holds one bundle, signed ad hoc and not quarantined, which claims the scheme and carries its server artefact
         run: |
           set -euo pipefail
@@ -128,30 +145,34 @@ jobs:
           test -x "$app/Contents/Resources/server/node/bin/node"
           grep -q "\"version\": *\"${TAG#v}\"" "$app/Contents/Resources/server/packages/cli/package.json"
 
-      - name: Hand the desktop to the release job
-        env:
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-darwin-arm64.zip
+      - name: Keep the desktop build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-darwin-arm64
+          path: desktop/agent-harness-desktop-darwin-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
 
   desktop-windows:
     needs: [check, image]
-    runs-on: ci-x64
-    # electron-builder's own Wine image, pinned by its digest: Ubuntu 22.04 with winehq-stable and a Wine prefix made,
-    # Node 24, build-essential, Python 3 and bsdtar. The email app's Windows release builds in it too.
+    runs-on: ubuntu-latest
     container:
       image: electronuserland/builder:24-wine-05.26@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64
     timeout-minutes: 60
     env:
-      # The release build of the server artefact names the release's image, as the release job's does.
+      TAG: ${{ needs.check.outputs.tag }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
       IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
         run: echo "dir=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      # A store of its own: pnpm's side-effects cache would hand it node-pty as built against bookworm's C library.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.pnpm-store.outputs.dir }}
@@ -159,7 +180,6 @@ jobs:
           restore-keys: pnpm-store-wine-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
 
-      # The release build checks the artefact of the platform it runs on, so it builds linux-x64's beside it.
       - name: The win32-x64 server artefact
         run: |
           set -euo pipefail
@@ -169,26 +189,31 @@ jobs:
       - name: The Windows setup
         run: pnpm --filter @agent-harness/desktop build-desktop --platform win32-x64 --tag "$TAG" --server server/agent-harness-win32-x64.zip --out desktop
 
-      # What Linux can read of it: electron-builder fails the step above when Wine did not write the uninstaller.
       - name: The setup is a Windows executable
         run: test "$(head -c 2 desktop/agent-harness-desktop-win32-x64-setup.exe)" = MZ
 
-      - name: Hand the desktop to the release job
-        env:
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-win32-x64-setup.exe
+      - name: Keep the desktop build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-win32-x64
+          path: desktop/agent-harness-desktop-win32-x64-setup.exe
+          if-no-files-found: error
+          retention-days: 7
 
   desktop-arch:
     needs: [check, image]
-    runs-on: ci-x64
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # The release build of the server artefact names the release's image, as the release job's does.
+      TAG: ${{ needs.check.outputs.tag }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
       IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
       IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
-      # Pinned to a commit, not a tag, as ci.yml's.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -200,9 +225,8 @@ jobs:
           restore-keys: pnpm-store-${{ github.repository }}-
       - run: pnpm install --frozen-lockfile
 
-      # electron-builder's fpm writes the package's .MTREE with bsdtar, which node:24-bookworm lacks.
       - name: The tools the Arch package is packed with
-        run: apt-get update && apt-get install -y --no-install-recommends libarchive-tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libarchive-tools
 
       - name: The linux-x64 server artefact
         run: |
@@ -225,24 +249,28 @@ jobs:
           test -x unpacked/opt/agent-harness/resources/server/node/bin/node
           grep -q "\"version\": *\"${TAG#v}\"" unpacked/opt/agent-harness/resources/server/packages/cli/package.json
 
-      - name: Hand the desktop to the release job
-        env:
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: bash .forgejo/scripts/desktop-builds.sh put desktop/agent-harness-desktop-linux-x64.pacman
+      - name: Keep the desktop build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-linux-x64
+          path: desktop/agent-harness-desktop-linux-x64.pacman
+          if-no-files-found: error
+          retention-days: 7
 
   release:
     needs: [check, image, desktop-macos, desktop-windows, desktop-arch]
-    # An x86_64 runner with node:24-bookworm: the build compiles node-pty for
-    # the linux-x64 artefact and runs that artefact on the runner, so it
-    # refuses any other platform (#356). The `ci` label is not one, since it
-    # takes in mba-ci-1, an arm64 VM; `ci-x64` is the label only the x86_64
-    # ci runners carry (vm-ci-1 and desk-ci-1, in david/ci's runners). One
-    # job builds and publishes, so the three artefacts (about 160 MB each)
-    # never travel between jobs.
-    runs-on: ci-x64
+    runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+    env:
+      TAG: ${{ needs.check.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
       - run: corepack enable && corepack prepare --activate
       - name: Where pnpm keeps its store
         id: pnpm-store
@@ -255,22 +283,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: The desktop jobs' builds
-        env:
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: |
-          bash .forgejo/scripts/desktop-builds.sh get desktop agent-harness-desktop-darwin-arm64.zip \
-            agent-harness-desktop-win32-x64-setup.exe agent-harness-desktop-linux-x64.pacman
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: desktop-*
+          path: desktop
+          merge-multiple: true
 
-      # The asset list: every asset of the release beside the server
-      # artefacts and release.json, one `--asset <kind>=<path>` line each,
-      # which the build writes into release-assets with its sidecar and lists
-      # in release.json (kinds: the contracts' RELEASE_ASSET_KINDS). A file is
-      # published under its own name, the compose file with this release's
-      # image in place of its unreleased placeholder; a folder as
-      # agent-harness-<kind>.tar.gz. A desktop is listed with the platform
-      # and format its shell's update installs (`desktop:<platform>:<format>=`),
-      # which the environment stages it by. Adding an asset is one more line
-      # here.
       - name: Build the server artefacts and the release's assets
         env:
           IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
@@ -287,13 +305,32 @@ jobs:
             --asset desktop:win32-x64:nsis=desktop/agent-harness-desktop-win32-x64-setup.exe \
             --asset desktop:linux-x64:pacman=desktop/agent-harness-desktop-linux-x64.pacman
 
+      - name: Keep all artefacts, including for a dry run
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-assets
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload every asset to a draft release, then publish it
+        if: needs.check.outputs.publish == 'true'
         env:
           RELEASE_TOKEN: ${{ github.token }}
         run: pnpm --filter agent-harness publish-release --tag "$TAG" --from release-assets
 
-      # Only once the release is out: until then a re-run of this job alone finds them again.
-      - name: Remove the desktop jobs' builds from the package registry
+      - name: Authenticate to ghcr after publishing a stable release
+        if: needs.check.outputs.publish == 'true' && needs.check.outputs.prerelease == 'false'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: needs.check.outputs.publish == 'true' && needs.check.outputs.prerelease == 'false'
+      - name: Point latest at the stable release's exact image
+        if: needs.check.outputs.publish == 'true' && needs.check.outputs.prerelease == 'false'
         env:
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: bash .forgejo/scripts/desktop-builds.sh remove
+          IMAGE_REFERENCE: ${{ needs.image.outputs.reference }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+        run: docker buildx imagetools create --prefer-index=false --tag ghcr.io/david-systemtech/agent-harness:latest "$IMAGE_REFERENCE@$IMAGE_DIGEST"
