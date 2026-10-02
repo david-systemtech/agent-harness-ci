@@ -14,6 +14,7 @@ import { LocalFailure, LocalRefusal, withLocalSession, type LocalCall, type Net 
 
 export const BANK_USAGE = [
   `${PRODUCT_NAME} bank search <query> [--bank <name>] [--scope <org>[/<project>[/<area>]]] [--limit <n>] [--data-dir <path>] [--port <n>]`,
+  `${PRODUCT_NAME} bank read [<pointer>] [--data-dir <path>] [--port <n>]`,
 ] as const;
 
 export interface BankContext {
@@ -79,8 +80,18 @@ const search = async (args: readonly string[], context: BankContext): Promise<nu
   return 0;
 };
 
+/** `bank read [<pointer>]`: what the memory tool's read answers: every bank's line, a bank's root, a folder's or topic's index, or a memory's file, each ending with its folder and count. */
+const read = async (args: readonly string[], context: BankContext): Promise<number> => {
+  const { values, positionals } = parseVerb(args, TARGET_OPTIONS);
+  const [pointer, ...rest] = positionals;
+  if (rest.length > 0) throw new UsageError("bank read takes at most one pointer.");
+  const { text } = await onEnvironment("read", values, context, (call, repositoryIdentity) => call("banks.memory.read", { ...(pointer !== undefined && { pointer }), repositoryIdentity }));
+  context.stdout(text);
+  return 0;
+};
+
 /** The `bank` verbs by name. */
-const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { search };
+const VERBS: Readonly<Record<string, (args: readonly string[], context: BankContext) => Promise<number>>> = { search, read };
 
 /**
  * `bank`: runs the verb `args` name. Exits as the verb does, 1 with a plain

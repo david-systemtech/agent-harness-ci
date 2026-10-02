@@ -113,3 +113,17 @@ it("searches the banks in scope through a local client session, printing what th
   expect(await bankCli(h, ["search", "disk", "--bank", "maya-memory", "--scope", "personal/homelab/nas"])).toMatchObject({ code: 0, out: scoped?.text, err: "" });
   expect(await bankCli(h, ["search", "storefront", "--scope", "personal"])).toMatchObject({ code: 0, out: prefixed?.text, err: "" });
 });
+
+it("reads every kind of pointer through a local client session, printing the memory tool's exact text and its sideways count", async () => {
+  const h = await start();
+  await register(h, PERSONAL_BANK);
+  await register(h, TEAM_BANK, { role: "read-only" });
+  const pointers = [undefined, "maya-memory", "maya-memory:personal/homelab/", "maya-memory:personal/homelab/memories/deploys/", "maya-memory:rollback-steps", "acme:storefront-fact-01"];
+  const answers = await toolAnswers(h, pointers.map((pointer) => tool("read", pointer === undefined ? {} : { pointer })));
+  expect(answers[4]?.text).toContain("In maya-memory:personal/homelab/memories/deploys/ (1)");
+  for (const [i, pointer] of pointers.entries()) {
+    expect(answers[i]?.isError).toBe(false);
+    expect(await bankCli(h, ["read", ...(pointer === undefined ? [] : [pointer])])).toMatchObject({ code: 0, out: answers[i]?.text, err: "" });
+  }
+  expect(await bankCli(h, ["read", "maya-memory:no-such-memory"])).toMatchObject({ code: 1, out: "", err: expect.stringMatching(/^The environment refused banks\.memory\.read: .+\n$/) });
+});
