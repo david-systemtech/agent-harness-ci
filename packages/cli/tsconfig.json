@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "types": ["node"] },
-  "references": [{ "path": "../contracts" }, { "path": "../environment" }, { "path": "../tui" }]
+  "references": [{ "path": "../filesystem" }, { "path": "../contracts" }, { "path": "../environment" }, { "path": "../tui" }]
 }

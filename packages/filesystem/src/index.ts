@@ -3,7 +3,7 @@ import { chmod, lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Restores owner access before descending; links and missing entries are left alone. */
-export const makeTreeWritable = async (path: string): Promise<void> => {
+const makeTreeWritable = async (path: string): Promise<void> => {
   try {
     const found = await lstat(path);
     if (found.isSymbolicLink()) return;

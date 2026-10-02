@@ -47,7 +47,7 @@ describe("the versions directory", () => {
     for (const reached of ["../versions/0.5.0", "0.5.0/.", "latest/../0.5.0"]) expect(isComplete(dataDir, reached), reached).toBe(false);
   });
 
-  it("prunes a version holding read-only artefact directories", () => {
+  it.skipIf(process.getuid?.() === 0)("prunes a version holding read-only artefact directories", () => {
     const dataDir = dataDirectory();
     const folder = versionDirectory(dataDir, "0.5.0");
     const nested = join(folder, "packages");

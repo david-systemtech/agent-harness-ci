@@ -406,7 +406,7 @@ describe("the session's directories", () => {
     expect(existsSync(other)).toBe(true);
   });
 
-  it("are made at a workspace level and removed when the session is purged", async () => {
+  it.skipIf(process.getuid?.() === 0)("are made at a workspace level and removed when the session is purged", async () => {
     const { t, client, id, adapter } = await sessionAt("workspace");
     await runScript(t, client, id, calling());
     const { scratchDirectory, temporaryDirectory } = adapter.lastRun().input.containment;

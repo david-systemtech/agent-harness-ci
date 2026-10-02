@@ -1,4 +1,4 @@
-import { removeTree } from "../serve/remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";

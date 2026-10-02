@@ -1,4 +1,4 @@
-import { removeTreeSync } from "@agent-harness/environment/remove-tree";
+import { removeTreeSync } from "@agent-harness/filesystem";
 import { spawn } from "node:child_process";
 import * as nodeFs from "node:fs";
 import { lstatSync, realpathSync, statSync } from "node:fs";

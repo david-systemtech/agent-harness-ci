@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "types": ["node"] },
-  "references": [{ "path": "../contracts" }, { "path": "../theme" }, { "path": "../browser" }]
+  "references": [{ "path": "../filesystem" }, { "path": "../contracts" }, { "path": "../theme" }, { "path": "../browser" }]
 }

@@ -1,6 +1,6 @@
-import { makeTreeWritable, removeTree } from "./remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, readdir, rename } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readdir, rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { Clock } from "./clock.js";
 
@@ -39,9 +39,25 @@ export interface Trash {
 
 /** Moves `from` to `to`; across file systems, by a copy that keeps links as they are, then a removal. */
 const move = async (from: string, to: string): Promise<void> => {
-  await makeTreeWritable(from);
   try {
-    await rename(from, to);
+    try {
+      await rename(from, to);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EACCES" && code !== "EPERM") throw error;
+      const found = await lstat(from);
+      if (!found.isDirectory() || (found.mode & 0o200) !== 0) throw error;
+      // Moving a directory between parents can need write access to update its parent entry.
+      // Restore its mode at the resulting path; nothing below it needs to change.
+      await chmod(from, found.mode | 0o200);
+      let moved = false;
+      try {
+        await rename(from, to);
+        moved = true;
+      } finally {
+        await chmod(moved ? to : from, found.mode);
+      }
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
     await cp(from, to, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });

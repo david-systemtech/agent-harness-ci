@@ -1,4 +1,4 @@
-import { removeTree } from "../serve/remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 import { constants } from "node:fs";
 import { copyFile, cp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";

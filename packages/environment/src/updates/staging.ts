@@ -1,4 +1,4 @@
-import { removeTreeSync } from "../serve/remove-tree.js";
+import { removeTreeSync } from "@agent-harness/filesystem";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, statSync } from "node:fs";

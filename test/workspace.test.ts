@@ -30,7 +30,7 @@ const runtimeDependencies = (m: Manifest): string[] => [
 ];
 
 describe("the workspace", () => {
-  it("holds the contracts, environment, client runtime, theme, browser, extension, terminal UI, GUI and desktop packages and the CLI", () => {
+  it("holds the contracts, filesystem, environment, client runtime, theme, browser, extension, terminal UI, GUI and desktop packages and the CLI", () => {
     expect(manifests.map((m) => m.name).sort()).toEqual([
       "@agent-harness/browser",
       "@agent-harness/client-runtime",
@@ -38,11 +38,16 @@ describe("the workspace", () => {
       "@agent-harness/desktop",
       "@agent-harness/environment",
       "@agent-harness/extension",
+      "@agent-harness/filesystem",
       "@agent-harness/gui",
       "@agent-harness/theme",
       "@agent-harness/tui",
       "agent-harness",
     ]);
+  });
+
+  it("gives filesystem cleanup no runtime dependency, so a launcher can use it without the environment", () => {
+    expect(runtimeDependencies(manifest("@agent-harness/filesystem"))).toEqual([]);
   });
 
   it("gives contracts no runtime dependency on the environment, or on any other workspace package", () => {
@@ -76,10 +81,10 @@ describe("the workspace", () => {
     expect(deps.filter((d) => /^(@agent-harness\/(client-runtime|tui|gui|web|desktop)|agent-harness)$/.test(d))).toEqual([]);
   });
 
-  it("gives the environment three workspace dependencies: contracts, the theme package, whose derivation the Appearance step's contrast check runs (ADR 0023; #391), and the browser package, whose reader web_read runs (#546)", () => {
+  it("gives the environment four workspace dependencies: filesystem cleanup, contracts, the theme package, whose derivation the Appearance step's contrast check runs (ADR 0023; #391), and the browser package, whose reader web_read runs (#546)", () => {
     const workspace = new Set(manifests.map((m) => m.name));
     const deps = runtimeDependencies(manifest("@agent-harness/environment"));
-    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/browser", "@agent-harness/contracts", "@agent-harness/theme"]);
+    expect(deps.filter((d) => workspace.has(d)).sort()).toEqual(["@agent-harness/browser", "@agent-harness/contracts", "@agent-harness/filesystem", "@agent-harness/theme"]);
   });
 
   it("gives the terminal UI no runtime dependency on the environment or the CLI", () => {

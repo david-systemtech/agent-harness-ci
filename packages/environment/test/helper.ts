@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { removeTree } from "../src/serve/remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

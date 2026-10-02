@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
-import { removeTree } from "../src/serve/remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 
 /**
  * Per-test cleanup for a test file: `onCleanup` queues work that runs after

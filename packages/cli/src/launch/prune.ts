@@ -1,4 +1,4 @@
-import { removeTreeSync } from "@agent-harness/environment/remove-tree";
+import { removeTreeSync } from "@agent-harness/filesystem";
 import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { compareReleaseVersions, RELEASE_VERSION_PATTERN, UPDATE_ID_PATTERN } from "@agent-harness/contracts/launcher";

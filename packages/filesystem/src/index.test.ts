@@ -1,10 +1,16 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, it } from "vitest";
-import { useCleanups } from "../../test/cleanups.js";
-import { removeTree, removeTreeSync } from "./remove-tree.js";
+import { afterEach, expect, it } from "vitest";
+import { tmpdir } from "node:os";
+import { removeTree, removeTreeSync } from "./index.js";
 
-const { tempDir, onCleanup } = useCleanups();
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const tempDir = (): string => {
+  const root = mkdtempSync(join(tmpdir(), "agent-harness-tree-"));
+  roots.push(root);
+  return root;
+};
 
 // Root ignores mode bits, so only an ordinary user can verify this removal.
 it.skipIf(process.getuid?.() === 0).each([{ name: "async", remove: removeTree }, { name: "sync", remove: removeTreeSync }])("$name removal clears an unreadable owned tree and leaves linked files and their permissions alone", async ({ remove }) => {
@@ -22,13 +28,13 @@ it.skipIf(process.getuid?.() === 0).each([{ name: "async", remove: removeTree },
   chmodSync(join(nested, "skill.md"), 0o400);
   chmodSync(nested, 0o500);
   chmodSync(tree, 0);
-  // Restore access even when the removal fails, so the failing run can clean up.
-  onCleanup(() => {
+
+  try {
+    await remove(tree);
+  } finally {
     if (existsSync(tree)) chmodSync(tree, 0o700);
     if (existsSync(nested)) chmodSync(nested, 0o700);
-  });
-
-  await remove(tree);
+  }
   expect(existsSync(tree)).toBe(false);
   expect(readFileSync(join(outside, "keep.md"), "utf8")).toBe("keep");
   expect(statSync(join(outside, "keep.md")).mode).toBe(outsideMode);

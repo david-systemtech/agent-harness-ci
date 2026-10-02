@@ -8,7 +8,7 @@ import { errorCode } from "./resolver.js";
 import { GIT_TIMEOUT_MS, UNTRANSLATED, filtersNamed, gitComplaint, repositoryFilters, runGit, type GitAnswer } from "./git.js";
 import { WORKSPACES_ACTOR } from "./identity-passes.js";
 import { isInside } from "./paths.js";
-import { removeTree } from "../serve/remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 import type { WorkspaceRoots } from "./roots.js";
 import { WORKTREE_LIST, listedWorktrees } from "./worktree-listing.js";
 

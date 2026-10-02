@@ -75,6 +75,9 @@ importers:
       '@agent-harness/environment':
         specifier: workspace:*
         version: link:../environment
+      '@agent-harness/filesystem':
+        specifier: workspace:*
+        version: link:../filesystem
       '@agent-harness/tui':
         specifier: workspace:*
         version: link:../tui
@@ -153,6 +156,9 @@ importers:
       '@agent-harness/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@agent-harness/filesystem':
+        specifier: workspace:*
+        version: link:../filesystem
       '@agent-harness/theme':
         specifier: workspace:*
         version: link:../theme
@@ -219,6 +225,8 @@ importers:
       ws:
         specifier: ^8.21.3
         version: 8.21.3
+
+  packages/filesystem: {}
 
   packages/gui:
     dependencies:

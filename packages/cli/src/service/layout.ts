@@ -1,4 +1,4 @@
-import { removeTreeSync } from "@agent-harness/environment/remove-tree";
+import { removeTreeSync } from "@agent-harness/filesystem";
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";

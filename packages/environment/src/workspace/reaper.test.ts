@@ -86,7 +86,7 @@ const purge = async (t: TestEnvironment, client: WireClient, sessionId: string):
 };
 
 describe("a scratch workspace", () => {
-  it("is removed once its session's purge commits, whatever it holds", async () => {
+  it.skipIf(process.getuid?.() === 0)("is removed once its session's purge commits, whatever it holds", async () => {
     const t = await start();
     const client = await t.client();
     const { id, result } = await create(client, { workspace: { kind: "scratch" } });

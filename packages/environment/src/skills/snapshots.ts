@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { removeTree } from "../serve/remove-tree.js";
+import { removeTree } from "@agent-harness/filesystem";
 import { chmod, copyFile, cp, lstat, mkdir, readdir, readlink, realpath, rename, rmdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { GitCommit } from "@agent-harness/contracts";

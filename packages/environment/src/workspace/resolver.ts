@@ -1,4 +1,4 @@
-import { removeTreeSync } from "../serve/remove-tree.js";
+import { removeTreeSync } from "@agent-harness/filesystem";
 import { constants, mkdirSync } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
