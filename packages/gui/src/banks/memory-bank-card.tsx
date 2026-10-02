@@ -1,5 +1,5 @@
 import { adminCall, oneLine, uuidv4, uuidv7 } from "@agent-harness/client-runtime";
-import type { ParamsOf } from "@agent-harness/contracts";
+import type { MemoryPromoteResult, ParamsOf } from "@agent-harness/contracts";
 import { useMemo, useState } from "react";
 import type { StepCardProps } from "../setup/cards.js";
 import { MintedSessionCard } from "../setup/minted-session-card.js";
@@ -31,9 +31,11 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
   const [mode, setMode] = useState<"personal" | "team" | "join">("personal");
   const [line, say] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [updates, setUpdates] = useState<Record<string, MemoryPromoteResult | null>>({});
   const verified = forges.result?.accounts.filter((account) => account.identity !== null && account.problem === null) ?? [];
   const command = runtime.capability(environmentId, mode === "join" ? "banks.join" : "banks.create");
   const publication = runtime.capability(environmentId, "banks.publish");
+  const validatorUpdate = runtime.capability(environmentId, "banks.validator.update");
   const disabled = busy || command.status === "absent";
   const create = async (name: string, creation: ParamsOf<"banks.create">["creation"]) => {
     say(undefined);
@@ -62,6 +64,19 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
       else runtime.requests.refresh(environmentId, "banks.list", {});
     } finally { setBusy(false); }
   };
+  const updateValidator = async (bankId: string) => {
+    say(undefined);
+    setBusy(true);
+    try {
+      const answer = await adminCall(() => runtime.requests.call(environmentId, "banks.validator.update", { commandId: uuidv7(clock.now()), bankId }));
+      if (!answer.ok) say(oneLine(answer.line));
+      else {
+        const landing = answer.result?.landing;
+        if (landing !== undefined) setUpdates((held) => ({ ...held, [`${environmentId}:${bankId}`]: landing }));
+        runtime.requests.refresh(environmentId, "banks.list", {});
+      }
+    } finally { setBusy(false); }
+  };
   return <>
     {(read.result === null || read.result.banks.length === 0) && <StepStatus environmentId={environmentId} step={step} />}
     <div role="group" aria-label="Bank kind">
@@ -79,15 +94,21 @@ export const MemoryBankCard = ({ environmentId, step }: StepCardProps) => {
     {read.error !== null && <p role="alert">{oneLine(read.error.message)}</p>}
     {read.result?.banks.map((bank) => {
       const subjectStep = stepForBank(step, bank.id);
+      const update = updates[`${environmentId}:${bank.id}`];
+      const landing = bank.validator?.needsUpdate === false ? bank.status.landing : update ?? bank.status.landing;
       return <section key={bank.id} aria-label={bank.name}>
         <h3>{bank.name}</h3>
         {bank.location.kind === "local" && <>
           <p>This bank lives on this machine only until you publish it.</p>
           <Button disabled={busy || publication.status === "absent" || !verified.some((forge) => forge.primary)} onClick={() => void publish(bank.id)}>Publish</Button>
         </>}
-        {bank.status.landing.state === "awaiting-review" && <ExternalLink url={bank.status.landing.pullRequest}>Awaiting owner review</ExternalLink>}
+        {bank.validator?.needsUpdate && <Button disabled={busy || !bank.enabled || bank.role !== "read-write" || validatorUpdate.status === "absent" || landing.state === "awaiting-review"} onClick={() => void updateValidator(bank.id)}>Update validator</Button>}
+        {landing.state === "awaiting-review" && <ExternalLink url={landing.pullRequest}>Awaiting owner review</ExternalLink>}
+        {landing.state === "failed" && <p role="alert">{oneLine(`${update?.state === "failed" ? "Validator update" : "Landing"} failed at ${landing.step}: ${landing.reason}`)}</p>}
+        {update?.state === "landed" && <p>Validator update verified on main.</p>}
+        {update === null && <p>Validator is up to date.</p>}
         {bank.kind === "team" && bank.location.kind === "remote" && <BankInvitation environmentId={environmentId} location={bank.location} forges={forges.result?.accounts ?? []} />}
-        {bank.role === "read-write" ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} startLabel="Describe this bank" {...((bank.status.landing.state === "awaiting-review" || bank.status.manifest.state === "awaiting-review") && { outcome: "landed and awaiting review" })} /> : <StepStatus environmentId={environmentId} step={step} />}
+        {bank.role === "read-write" ? <MintedSessionCard environmentId={environmentId} step={subjectStep} subject={bank.id} artefact={{ kind: "folder", path: bank.checkout }} startLabel="Describe this bank" {...((landing.state === "awaiting-review" || bank.status.manifest.state === "awaiting-review") && { outcome: "landed and awaiting review" })} /> : <StepStatus environmentId={environmentId} step={step} />}
       </section>;
     })}
   </>;
