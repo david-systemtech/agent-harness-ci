@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { EventTypeEntry } from "./event-types.js";
+import { CommandId } from "./primitives.js";
 import { SettingsRowId } from "./settings-rows.js";
 import { StepId } from "./steps.js";
 
@@ -9,7 +11,10 @@ import { StepId } from "./steps.js";
  * that own each kind. `stateImport.detect` answers whether either folder is
  * there and what the data folder holds (#581); `stateImport.run`'s report
  * and the `state-import.finished` notice are the contract the switch-over
- * build (#94) serves and the Carry over card (#583) reads.
+ * build (#94) serves and the Carry over card (#583) reads. The import's own
+ * evidence goes on the `state-import` stream: `state-import.started` before
+ * it applies anything, and one `state-import.item-carried` per item it
+ * carried, committed with the item's own events (#1165).
  */
 
 const count = (description: string) => z.int().nonnegative().meta({ description });
@@ -161,3 +166,60 @@ export const StateImportReport = StateImportFinishedPayload.extend({
     "What a state import did, or, in a dry run, would do: carried (counts per kind), re-enter, arriving in milestone 2, not carried, what failed, and the client-local values.",
 });
 export type StateImportReport = z.infer<typeof StateImportReport>;
+
+/** The state import's own stream, one per environment, its id the environment's: where an import starts and what it carried. */
+export const STATE_IMPORT_STREAM_KIND = "state-import";
+
+const importId = CommandId.meta({ description: "The import: the command id of the stateImport.run that applied it, in lowercase." });
+const sourceKey = z.string().min(1).meta({ description: "The source data folder's canonical path on the environment's machine: symbolic links resolved." });
+
+/**
+ * `state-import.started`: an import is about to apply what it planned,
+ * before any item. Its `state-import.finished` notice (correlated by the
+ * import's id) follows once it has applied everything; one with none after
+ * it, once the import is no longer under way, is an import that stopped part
+ * way, which Carry over's last-import check names.
+ */
+export const StateImportStartedPayload = z
+  .object({ importId, sourceKey })
+  .meta({ description: "state-import.started: an import is about to apply what it planned: its id and the source data folder it reads." });
+export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
+
+/** The kinds of item a state import carries, each written through the service that owns it. */
+export const StateImportItemKind = z.enum(["instruction"]).meta({ description: "The kind of item a state import carried: instruction (an owned instruction)." });
+export type StateImportItemKind = z.infer<typeof StateImportItemKind>;
+
+/**
+ * `state-import.item-carried`: one source item carried, committed in the
+ * same transaction as the events its owning service appended for it. The
+ * item is named by the source folder, the store it was read from and its id
+ * there (or its natural identity when the store gives it none), never its
+ * position in a list; a re-run finds it held by this and leaves its target
+ * alone, edited or deleted since. It carries no secret.
+ */
+export const StateImportItemCarriedPayload = z
+  .object({
+    importId,
+    sourceKey,
+    store: z.string().min(1).meta({ description: "The source store the item was read from: instructions for the source's instruction list." }),
+    sourceId: z.string().min(1).meta({ description: "The item's id in its store, or its natural identity where the store gives it none." }),
+    kind: StateImportItemKind,
+    targetId: z.string().min(1).meta({ description: "The id of what the owning service made of it: an owned instruction's id." }),
+    origin: z.literal("import").meta({ description: "Always import: the target was written by a state import." }),
+  })
+  .meta({
+    description:
+      "state-import.item-carried: a source item was carried: its folder, store and id there, its kind, the target its owning service made of it, the import that carried it, and origin import.",
+  });
+export type StateImportItemCarriedPayload = z.infer<typeof StateImportItemCarriedPayload>;
+
+/** The event types of the `state-import` stream; neither is in the session list. */
+export const STATE_IMPORT_EVENT_TYPES = {
+  "state-import.started": { list: false, payload: StateImportStartedPayload },
+  "state-import.item-carried": { list: false, payload: StateImportItemCarriedPayload },
+} as const satisfies Record<string, EventTypeEntry>;
+
+export type StateImportEventType = keyof typeof STATE_IMPORT_EVENT_TYPES;
+export const StateImportEventType = z
+  .enum(Object.keys(STATE_IMPORT_EVENT_TYPES) as [StateImportEventType, ...StateImportEventType[]])
+  .meta({ description: "The event types of the state-import stream: state-import.started and state-import.item-carried." });
