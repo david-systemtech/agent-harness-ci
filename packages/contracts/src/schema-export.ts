@@ -558,6 +558,7 @@ import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
+import { FileChangeId, FileChangeUnrestorableReason, FileUndoAction, FileUndoConflictReason, FilesUndoFinishedPayload } from "./file-undo.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
 import {
   AutoDecider,
@@ -1065,6 +1066,11 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "banks/scope-segment.json", title: "MemoryScopeSegment", schema: MemoryScopeSegment },
   { path: "banks/draft-scope.json", title: "MemoryDraftScope", schema: MemoryDraftScope },
   { path: "sessions/events/session.bank-used.json", title: "SessionBankUsedPayload", schema: SessionBankUsedPayload },
+  { path: "files/change-id.json", title: "FileChangeId", schema: FileChangeId },
+  { path: "files/undo-action.json", title: "FileUndoAction", schema: FileUndoAction },
+  { path: "files/undo-conflict-reason.json", title: "FileUndoConflictReason", schema: FileUndoConflictReason },
+  { path: "files/unrestorable-reason.json", title: "FileChangeUnrestorableReason", schema: FileChangeUnrestorableReason },
+  { path: "sessions/events/files.undo-finished.json", title: "FilesUndoFinishedPayload", schema: FilesUndoFinishedPayload },
   { path: "banks/tools/search.json", title: "MemorySearchInput", schema: MemorySearchInput },
   { path: "banks/tools/read.json", title: "MemoryReadInput", schema: MemoryReadInput },
   { path: "banks/tools/promote.json", title: "MemoryPromoteInput", schema: MemoryPromoteInput },
