@@ -33,6 +33,7 @@ export const SCREEN_KEYS = [
   "row.recall",
   "row.copy",
   "row.unfold",
+  "row.checkFailure.send",
   "row.stop",
   "row.open",
   "row.diff",

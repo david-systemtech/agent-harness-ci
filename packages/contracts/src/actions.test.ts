@@ -54,6 +54,7 @@ const ADDED_KEYS: Record<string, readonly string[]> = {
   "row.rewind": ["w"],
   "row.fork": ["f"],
   "row.rewindUndo": ["u"],
+  "row.checkFailure.send": ["s"],
   "picker.branch": ["b"],
   "picker.hide": ["Ctrl+D"],
   "rail.settle": ["s"],
@@ -221,7 +222,7 @@ describe("the action list's shape", () => {
 
   it("keeps the rows the harness lacks as absent with their reason, and wires the rest", () => {
     const absent = ACTIONS.filter((a) => a.status === "absent" && !isGuiOnly(a));
-    expect(absent.map((a) => a.id)).toEqual(["permission.rule.edit", "permission.scope.walk", "command.undo", "command.check"]);
+    expect(absent.map((a) => a.id)).toEqual(["permission.rule.edit", "permission.scope.walk", "command.undo"]);
     for (const a of absent) expect(a.status === "absent" && a.reason.length > 0, a.id).toBe(true);
     expect(actionById("permission.rule.edit")?.keys).toEqual(["e"]);
     expect(actionById("permission.scope.walk")?.keys).toEqual(["s"]);

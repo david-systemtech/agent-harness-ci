@@ -104,6 +104,7 @@ export const RESULT_TAIL = 1;
 export const PLAN_LINES = 12;
 
 export interface LineContext {
+  readonly checkOutput?: (terminalId: string) => { readonly output: string; readonly truncated: boolean } | undefined;
   /** The columns a line has. */
   readonly width: number;
   /** Nothing folded: every call, every line of every result. */
@@ -393,6 +394,16 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
     }
     case "calls":
       return callsLines(row.id, row.calls, context);
+    case "check": {
+      const { entry } = row;
+      const color = entry.status === "pass" ? TERMINAL_ROLES.success : entry.status === "running" ? TERMINAL_ROLES.machine : TERMINAL_ROLES.danger;
+      const head: Span[] = [{ text: entry.command }, { text: ` · ${entry.status}${entry.status === "running" ? "" : ` · exit ${entry.exitCode ?? "none"}`}`, color }];
+      const live = entry.status === "running" ? context.checkOutput?.(entry.terminalId) : undefined;
+      const body = [head, ...returned(cutLines(nonBlank(live?.output ?? entry.output), context.expanded))];
+      if (live?.truncated ?? entry.truncated) body.push([{ text: "(output truncated to last 64 KiB)", dim: true }]);
+      if (entry.failure !== null) body.push([{ text: entry.failure, color: TERMINAL_ROLES.danger }]);
+      return block(row.id, { text: "$", color }, body, width, true);
+    }
     case "command": {
       const { entry } = row;
       const head: Span[] = [{ text: `${entry.name}${entry.args.length > 0 ? ` ${entry.args}` : ""}`, dim: true }];

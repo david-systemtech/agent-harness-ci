@@ -53,6 +53,8 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
           return output.length > 0 && call.status !== "ok" ? `${head}\n\n  \`\`\`\n${output.split("\n").map((l) => `  ${l}`).join("\n")}\n  \`\`\`` : head;
         })
         .join("\n");
+    case "check":
+      return [`$ ${row.entry.command}`, `${row.entry.status}; exit ${row.entry.exitCode ?? "none"}${row.entry.truncated ? "; output truncated" : ""}`, row.entry.output].join("\n\n");
     case "command":
       return [`\`/${row.entry.name}${row.entry.args.length > 0 ? ` ${row.entry.args}` : ""}\``, row.entry.output ?? ""].filter((part) => part.length > 0).join("\n\n");
     case "prompt": {

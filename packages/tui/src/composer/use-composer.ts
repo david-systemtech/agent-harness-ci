@@ -129,6 +129,7 @@ export interface ComposerHost {
    * `message` what would go to the agent. True when it went, and the box
    * empties.
    */
+  readonly sendFailure?: (() => boolean) | undefined;
   readonly submit: (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }) => boolean;
   /** A path chosen from the `@` list, for the pick memory. */
   readonly picked: (path: string) => void;
@@ -204,6 +205,7 @@ export const useComposer = (host: ComposerHost): Composer => {
     const state = box.current;
     const raw = state.editor.text;
     const message = outgoing(state);
+    if (raw.length === 0 && message.attachments.length === 0) return latest.current.sendFailure?.() ?? false;
     if (raw.trim().length === 0 && message.attachments.length === 0) return false;
     if (latest.current.submit(raw, message)) set(sent(box.current));
     return true;

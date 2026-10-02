@@ -1,3 +1,6 @@
+import { sendMessage, isLive } from "./composer/send.js";
+import { ChecksChangedPayload } from "@agent-harness/contracts";
+import { createChecks } from "./checks.js";
 import { PROTOCOL_VERSION, type PromptKind, type RunEndedPayload } from "@agent-harness/contracts";
 import { answerCapability } from "./capabilities.js";
 import { LOCAL_PLACEHOLDER_ID, type ConnectionRecord } from "./connections/records.js";
@@ -107,6 +110,10 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       }
       // A notice replayed onto a stream that held nothing is history: every ready fetches the cache again anyway, and it says nothing new.
       if (!news) return;
+      if (event.type === "checks.changed") {
+        const payload = ChecksChangedPayload.safeParse(event.payload);
+        if (payload.success) checks.changed(environmentId, payload.data);
+      }
       requestCache.noticed(environmentId, event.type);
       clientCalls.heard(environmentId, event);
       if (event.type === "prompt.parked") {
@@ -354,6 +361,11 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
     defaults: (environmentId) => requestCache.cached(environmentId, "settings.get", { keys: [...PRESET_SETTING_KEYS] }),
   };
 
+  const checks = createChecks({ clock: platform.clock, requests, records: registry.list, capability,
+    terminal: (environmentId, terminalId, listener) => terminals.open(environmentId, terminalId, listener),
+    session: (environmentId, sessionId) => sessionProjections(`${environmentId} ${sessionId.toLowerCase()}`),
+    send: (environmentId, sessionId, message, choice) => sendMessage(runtime, environmentId, sessionId, message, isLive(runsProjection.session(environmentId, sessionId).read().state), choice),
+  });
   const runtime: Runtime = {
     // A start that failed is not kept: the next call starts again.
     start: () =>
@@ -379,7 +391,9 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
       credential: (environmentId) => registry.credential(environmentId),
     },
     preferences: registry.preferences,
+    checks: checks.actions,
     projections: {
+      checks: checks.view,
       environments,
       notices: notices.list,
       sessionList: sessionList.view,

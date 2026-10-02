@@ -1,3 +1,4 @@
+import { ChecksStartedPayload, ChecksFinishedPayload, checkPassed } from "@agent-harness/contracts";
 import {
   SESSION_STREAM_KIND,
   RunBrowserResolvedPayload,
@@ -154,6 +155,22 @@ export interface ToolCallEntry extends SnapshotItem<"tool-call"> {
   readonly decision: ToolDecisionPayload | null;
 }
 
+/** One Environment-owned check, kept at its start as its result arrives. */
+export interface CheckEntry {
+  readonly kind: "check";
+  readonly sequence: number;
+  readonly terminalId: string;
+  readonly command: string;
+  readonly sourceRunId: string | null;
+  readonly status: "running" | "pass" | "failure" | "timeout";
+  readonly output: string;
+  readonly truncated: boolean;
+  readonly exitCode: number | null;
+  readonly signal: number | null;
+  readonly timedOut: boolean;
+  readonly failure: string | null;
+}
+
 export type CommandEntry = SnapshotItem<"command">;
 export type TasksEntry = SnapshotItem<"tasks">;
 
@@ -254,6 +271,7 @@ export type TranscriptEntry =
   | AssistantEntry
   | ToolCallEntry
   | CommandEntry
+  | CheckEntry
   | TasksEntry
   | PromptEntry
   | SubagentEntry
@@ -331,6 +349,7 @@ type Held =
   | Mutable<AssistantEntry>
   | Mutable<ToolCallEntry>
   | Mutable<CommandEntry>
+  | Mutable<CheckEntry>
   | Mutable<TasksEntry>
   | Mutable<PromptEntry>
   | ForkedEntry
@@ -485,6 +504,24 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   const fold = (event: EventEnvelope): void => {
     const { sequence } = event;
     switch (event.type) {
+      case "checks.started": {
+        const checked = ChecksStartedPayload.safeParse(event.payload);
+        if (!checked.success) break;
+        const payload = checked.data;
+        if (!everyItem(items).some((item) => item.kind === "check" && item.terminalId === payload.terminalId))
+          push<Mutable<CheckEntry>>({ kind: "check", sequence, ...payload, status: "running", output: "", truncated: false, exitCode: null, signal: null, timedOut: false, failure: null });
+        return;
+      }
+      case "checks.finished": {
+        const checked = ChecksFinishedPayload.safeParse(event.payload);
+        if (!checked.success) break;
+        const payload = checked.data;
+        const status = payload.timedOut ? "timeout" : checkPassed(payload) ? "pass" : "failure";
+        const held = everyItem(items).find((item): item is Mutable<CheckEntry> => item.kind === "check" && item.terminalId === payload.terminalId);
+        if (held) Object.assign(held, payload, { status });
+        else push<Mutable<CheckEntry>>({ kind: "check", sequence, ...payload, status });
+        return;
+      }
       case "run.started": {
         suggestion = null;
         const payload = event.payload as RunStartedPayload;
