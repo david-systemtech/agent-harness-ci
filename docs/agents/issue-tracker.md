@@ -16,8 +16,8 @@ TOKEN=$(printf 'protocol=https\nhost=git.systemtech.dev:5526\n\n' \
   | git credential fill | sed -n 's/^password=//p')
 ```
 
-If that comes back empty, read `personal/forgejo/claude-token` (field `token`)
-from OpenBao instead. Never embed the token in a remote URL: it persists in
+If that comes back empty, configure a repository-scoped token in your git
+credential store. Never embed the token in a remote URL: it persists in
 `.git/config`.
 
 Every call below assumes:

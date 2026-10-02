@@ -1,5 +1,8 @@
 # Switch-over: operator runbook
 
+Deployment labels, identities, paths and observations here are examples. Keep the
+actual inventory, version pins and operator approvals in a private acceptance record.
+
 The day-of path for [#94][94], specified in [Switch-over](../specs/switch-over.md)
 and ADRs [0017](../adr/0017-milestone-1-is-the-switch-over-built-in-four-phases.md),
 [0036](../adr/0036-the-state-import-adopts-listed-provider-directories-in-place-and-carries-environment-state-through-the-owning-services.md)
@@ -17,8 +20,8 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
 
 ## 1. Inventory and save rollback inputs
 
-1. David confirms coverage of SYSTEM-SERVER/container, every David/Seth desktop
-   and terminal-state folder, and SYSTEM-MNL Hermes. Record one row per
+1. The maintainer confirms coverage of all server/container deployments, desktops,
+   terminal-state folders and external receiver hosts. Record one row per
    machine/Environment, including OS user, the container's host/operator boundary
    and no-source machines. Split rows for multiple Environments/users. List every
    source data folder, listed Claude directory, secondary transcript source,
@@ -30,7 +33,7 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    credential **reference**. Record snapshot locators and restore checks, never
    credentials or private transcripts. Keep a way to recover every affected row.
 3. Capture the current butler's Claude Account identity and subscription billing,
-   pin `v2026.9.24`, auxiliary overrides and parked librarian. Record Matrix room
+   pin the selected receiver version, auxiliary overrides and parked librarian. Record Matrix room
    ids/Tuwunel deployment and disabled netdata routes as preservation checks.
    Keep sources, backups and lazy-history folders readable. No automatic deletion,
    during preparation or after acceptance: only David's explicit deletion approval
@@ -47,7 +50,7 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    client-local unapplied values and per-Account `carryOver.inventory` counts.
    Check every listed directory, winning Account identity/directory, secondary
    source, archive/pins/Groups/drafts, Banks, Routines, Skills and page policy.
-   Do not rely on ambient sign-in on SYSTEM-SERVER. Secondary credentials must
+   Do not rely on ambient sign-in on SAMPLE-SERVER. Secondary credentials must
    not be copied or used; prove lazy history/continuation through the winner.
 3. Re-enter sign-ins/references through Forges and Key manager; repair Bank
    manifests/scopes, missing Workspaces, unknown skills and ambiguous references
@@ -98,10 +101,10 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
    cadence, trigger, skip-check and subscription proof. A declared optional skip
    needs its state/reason; a stub or unrun required Health check cannot pass.
 2. Follow [#1042][1042]/[#1043][1043] for `banks.migrate {bankId, dryRun}` previews
-   and preparation of cortex/brandsolidate migration PRs. Record clean source
+   and preparation of notebook/meadowstudios migration PRs. Record clean source
    heads, reconcile open branches, preserve memory names/links/counts, and get
-   David's approval of topics and orientation. Record Albert's heads-up issue
-   with the moves, agreed day and open-work effects **before** brandsolidate lands.
+   David's approval of topics and orientation. Record the team owner's heads-up issue
+   with the moves, agreed day and open-work effects **before** meadowstudios lands.
 3. Use [#1032][1032]'s reviewed path: non-author manifest-owner approval for a
    multi-owner team Bank; the personal or sole team owner merges by hand. Keep
    both PRs prepared/unmerged until step 8. A missing handler, owner-review read,
@@ -109,8 +112,8 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
 
 ## 6. Switch and prove only the Hermes butler
 
-1. The assigned operator switches the butler on SYSTEM-MNL to SYSTEM-SERVER's
-   harness URL and the built `agent-harness` namespace, retaining `v2026.9.24`.
+1. The assigned operator switches the butler on EXAMPLE-VM to SAMPLE-SERVER's
+   harness URL and the built `agent-harness` namespace, retaining the selected receiver version.
    Leave the librarian parked. Pair as `program` with `read`, `sessions:write`,
    `runs:drive` and `bypassPermissions` Ceiling; other programs keep `acceptEdits`.
    Store the credential in OpenBao's agents namespace and record only its locator.
@@ -127,21 +130,18 @@ checks remain owed. Never substitute an automated fixture for a deployed check.
 4. Configure/test compression and all auxiliary overrides explicitly: they need
    not inherit the main model/effort. Keep title generation off until its effort
    and unsupported-parameter checks pass. Prove `/keep` and `/save`. Do not import
-   Hermes profiles, memory or cron; cortex remains durable memory.
+   Hermes profiles, memory or cron; notebook remains durable memory.
 5. Follow [the delivery checklist](../routines/hermes-delivery.md) and [#1009][1009]
    for the signed delivery-only route, Matrix destination and stable-id retries.
-   The newer David decision on [#1009][1009] overrides older checklist wording for exactly
-   two `v2026.9.24` gaps: deduplication lost across Hermes restart, and a failed
-   Matrix send counted as delivered on retry. Record what each live probe observes
-   and David's explicit acceptance dated 2026-10-02; see the record's gap rows.
-   Live checks and upstream reports remain owed. [#1196][1196] owns the checklist
-   clarification; do not patch its document or deployment here.
+   Probe deduplication across a receiver restart and retry after a failed Matrix
+   send separately. Record each observed failure and any explicit maintainer
+   acceptance for that pinned deployment in the private acceptance record.
+   Live checks and upstream reports remain owed; see the record's gap rows.
 6. Require valid-signature delivery, rejection of wrong/missing signatures,
    altered bodies and old/future timestamps (300-second window), the correct
    Matrix room, and a lost-ack retry with one message. Any other signature or
-   retry failure blocks acceptance. Keep netdata routes disabled; do not interpret
-   older “confirm netdata still delivers” wording as authority to enable them.
-   Preserve existing Matrix rooms and Tuwunel. Remove controlled fault injection
+   retry failure blocks acceptance. Preserve existing alert routes in their
+   configured state and preserve Matrix rooms. Remove controlled fault injection
    and restore any chat settings reset by deployment rendering.
 
 ## 7. Prove Client acceptance
@@ -152,7 +152,7 @@ checklists on the deployed release head. Record per-platform passed/failed/not-r
 results; explicitly justify any platform outside David's confirmed inventory.
 An unavailable machine is an owed check, not platform inapplicability.
 
-1. Demonstrate David's daily Sessions across the inventory and Seth's terminal/
+1. Demonstrate David's daily Sessions across the inventory and Milo's terminal/
    tmux, incremental rendering, editor/diff and normal TUI workflows.
 2. [#1180][1180]/[#1181][1181]: `-p`/`--print` text, JSON and stream-json,
    selectors, exact exits and safe cancellation/broken stdout; `ls` live directory,
@@ -178,9 +178,9 @@ An unavailable machine is an owed check, not platform inapplicability.
 ## 8. Land both reviewed Bank migrations that day
 
 Recheck owner approvals and green vendored validators on the **actual landing
-heads**, including any reconciled commits. Land cortex and brandsolidate on the
+heads**, including any reconciled commits. Land notebook and meadowstudios on the
 agreed switch-over day, under the owner rules from step 5; record both merge
-heads/PRs and Albert's earlier heads-up. If either cannot land, stop progression
+heads/PRs and the team owner's earlier heads-up. If either cannot land, stop progression
 and record the partial state for rollback; do not call a one-Bank day complete.
 Sync every attached checkout and compare heads. Prove harness read/search and a
 reviewed write with its landed files/head. Replace cerebro with [#1044][1044]'s
@@ -211,7 +211,7 @@ readable even though their executables no longer start.
 ## 11. Observe normal use, then obtain acceptance
 
 Keep a dated daily-use record for at least one week after cut-over, covering
-David's inventory and Seth's TUI. Wait longer if any enabled Routine has not yet
+David's inventory and Milo's TUI. Wait longer if any enabled Routine has not yet
 had a scheduled Firing; skipped due times and Run-now are insufficient. Review all
 machine rows, seventeen workstreams, repairs, external failures and release-head
 CI/manual checks. Only explicitly inapplicable platforms and the two named [#1009][1009]

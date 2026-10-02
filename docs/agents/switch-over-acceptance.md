@@ -1,5 +1,8 @@
 # Switch-over: acceptance record template
 
+Deployment labels, identities, paths and observations here are examples. Keep the
+actual inventory, version pins and operator approvals in a private acceptance record.
+
 Copy this record for [the operator runbook](switch-over-runbook.md), owned by
 [#94][94]/[#1197][1197]. Nothing below is live evidence until an operator fills it.
 The [synthetic example](switch-over-example.md) exercises the gates only.
@@ -14,11 +17,11 @@ David supplies the complete inventory/operators and day; only David signs.
 - Cut-over completion time; earliest one-week sign-off; actual sign-off time: **owed**.
 - Release tag/head, artefact/container digest, contract CI URL/result: **owed**.
 - Required platform checklist sections and results on that release head: **owed**.
-- Normal-use dates and David/Seth workflow evidence: **owed**.
+- Normal-use dates and David/Milo workflow evidence: **owed**.
 - Decision: **blocked — inventory and evidence not yet supplied**.
 
-Required coverage is SYSTEM-SERVER/container, all David/Seth desktops and terminal
-folders, and SYSTEM-MNL Hermes. Record container host and contained OS users, and
+Required coverage includes all server/container deployments, desktops, terminal
+folders and external receiver hosts. Record container host and contained OS users, and
 split rows for distinct Environments. Include no-source machines with detection
 proof; never drop them from restart or Client/Hermes checks. Unknown coverage
 blocks done. Add rows until David confirms that no machine/folder is missing.
@@ -29,10 +32,10 @@ Account identity plus the winning credential directory. Never record secrets.
 
 | Machine / Environment id | OS user / host-container boundary | Source, terminal, adopted/secondary, harness and Bank folders | Accounts / identity / winner | Operator / backup owner | Detection / preview reports | Application reports / import ids | Repairs / disposition | Bank heads | Pairings / scopes / Ceiling / reference locator | Enabled Routines | Evidence links |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| SYSTEM-SERVER/container / owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
+| SAMPLE-SERVER/container / owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
 | Every David desktop/terminal / enumerate | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
-| Every Seth desktop/terminal / enumerate | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
-| SYSTEM-MNL Hermes / no-source only if proved | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
+| Every Milo desktop/terminal / enumerate | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
+| EXAMPLE-VM Hermes / no-source only if proved | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed | owed |
 
 ## Evidence states and acceptance gates
 
@@ -58,8 +61,8 @@ into “none” or count an optional skip without its declared check/reason.
 - Butler-only pinned Hermes, same Claude billing identity, live Account-qualified
   model, correct Ceiling/OpenBao reference, streaming/tools/auxiliary overrides,
   `/keep`/`/save`, librarian parked; signed delivery/Matrix/retry checks with only
-  the two explicitly accepted [#1009][1009] gaps below.
-- David/Seth daily Client workflows, all four commands and parity/theme checks;
+  only the two receiver failure modes below eligible for explicit acceptance.
+- David/Milo daily Client workflows, all four commands and parity/theme checks;
   contract CI and required manual results on the release head; matrix complete.
 - Both reviewed Bank migrations landed on the supplied day with owner review,
   green validators on landing heads, synced checkouts and read/search/reviewed-write proof.
@@ -98,7 +101,7 @@ owner column routes debt; it does not claim that any linked ticket has passed.
 | [#78][78] Environment | Non-root install, identity across restart, Pairing/revocation, replay/receipts, live Runs survive Client reconnect. | [#877][877]; service checklist. | none supplied | all required checks | none supplied |
 | [#79][79] Session state | ADR 0003 fields; Groups/pins/archive/drafts identical in two Clients; lazy import/re-run preserve edits. | [#1167][1167]/[#1168][1168]; release contract CI. | none supplied | all required checks | none supplied |
 | [#80][80] Client runtime | Outbox/recovery; immediate offline drive refusal; capability reasons/import notices in both Clients. | [#1174][1174]/[#1191][1191]; release runtime CI and manual recovery. | none supplied | all required checks | none supplied |
-| [#81][81] TUI | Seth terminal/tmux; -p, ls, /undo, /check formats/exits/guards/offers and GUI parity; defaults, incremental rendering, editor/diff, labelled gaps. | [#1176][1176]/[#1177][1177]/[#1178][1178]/[#1179][1179]/[#1180][1180]/[#1181][1181]/[#1185][1185]/[#1189][1189]/[#1191][1191]. | none supplied | all required checks | none supplied |
+| [#81][81] TUI | Milo terminal/tmux; -p, ls, /undo, /check formats/exits/guards/offers and GUI parity; defaults, incremental rendering, editor/diff, labelled gaps. | [#1176][1176]/[#1177][1177]/[#1178][1178]/[#1179][1179]/[#1180][1180]/[#1181][1181]/[#1185][1185]/[#1189][1189]/[#1191][1191]. | none supplied | all required checks | none supplied |
 | [#82][82] Claude Adapter | Listed adoption, secondary history/continuation, process reuse, subscription billing, caller tools and queue operations. | [#1164][1164]/[#1166][1166]/[#1167][1167]/[#1193][1193]; [#210][210]/[#217][217] sign-in/cold resume. | none supplied | all required checks | none supplied |
 | [#83][83] Permissions | Ceiling clamps, unattended denial/review, Trust gate/containment on deployed platforms; signed-in auto and known git-write gaps recorded. | Permissions workstream; [#1191][1191]/[#1193][1193]; deployed checks. | none supplied | all required checks | none supplied |
 | [#84][84] GUI/Desktop shell | Seven Panes/native shell per OS, shortcut Settings, no default stop key, /undo and /check parity, phase-D theme picker. | [#831][831]/[#1129][1129]; [#1186][1186]/[#1190][1190]/[#1191][1191]/[#1194][1194]; [#435][435]/[#640][640] confirmations; desktop checklist. | none supplied | all required checks | none supplied |
@@ -107,7 +110,7 @@ owner column routes debt; it does not claim that any linked ticket has passed.
 | [#87][87] Forge | Origins/aliases, contained helper injection, Bank git credentials and owner-review reads; reachable primary Forge/release channel. | [#458][458]; [#1027][1027]/[#1032][1032]; Forge workstream. | none supplied | all required checks | none supplied |
 | [#88][88] Set up | All eleven STEP_ORDER ids registered with budgets/cadences/triggers/skip checks; callable Health and subscribed results per Environment. | [#1192][1192]; [#1165][1165]; [#587][587] Bank card and [#1028][1028]/[#1029][1029]/[#1033][1033]/[#1034][1034] methods. | none supplied | all required checks | none supplied |
 | [#89][89] Skills/Instructions | Source sync/Readiness, imported copies/scopes, trusted repo loading and stable composition including Banks. | [#764][764]; [#1172][1172]; [#1165][1165]/[#1166][1166]; [#1022][1022]/[#1036][1036]. | none supplied | all required checks | none supplied |
-| [#90][90] Banks | BankService handlers/five card methods, scope/read exemption, reviewed cortex/brandsolidate migrations, vendored validators, CLI bank. | [#1042][1042]/[#1043][1043]/[#1032][1032]/[#1044][1044]; [#587][587]/[#1033][1033]/[#1034][1034]/[#1039][1039]/[#1040][1040]; [#1022][1022]/[#1027][1027]/[#1038][1038]. | none supplied | all required checks | none supplied |
+| [#90][90] Banks | BankService handlers/five card methods, scope/read exemption, reviewed notebook/meadowstudios migrations, vendored validators, CLI bank. | [#1042][1042]/[#1043][1043]/[#1032][1032]/[#1044][1044]; [#587][587]/[#1033][1033]/[#1034][1034]/[#1039][1039]/[#1040][1040]; [#1022][1022]/[#1027][1027]/[#1038][1038]. | none supplied | all required checks | none supplied |
 | [#91][91] Key managers | Re-entered sign-ins/references, child-token permissions/renewal/revocation, locked-screen/keychain, scrub checks/CLI minimums. | [#1169][1169]; [#636][636]; [#1122][1122] Bitwarden availability; service keychain checklist. | none supplied | all required checks | none supplied |
 | [#92][92] Routines | Disabled import/manual enable; pre-check/no-change, silence, kept output/delivery; one upstream scheduler/no duplicate Monday. | [#1171][1171]; [#988][988]; [#1009][1009] delivery and accepted gaps. | none supplied | all required checks | none supplied |
 | [#93][93] Browser | Fresh local Pairing; real Chrome extension/relay/snapshot; headless availability per deployment; imported policy; honest completions defaults. | [#1173][1173]; [#913][913]/[#944][944]/[#858][858]/[#925][925]/[#922][922]/[#981][981]/[#562][562]/[#563][563]/[#731][731]/[#743][743]; [#1129][1129] camera; browser checklist. | none supplied | all required checks | none supplied |
@@ -129,29 +132,30 @@ confirmation decisions in this record.
 
 | Required check | Deployment/Environment / date/operator | Observation / sanitized evidence | Result |
 | --- | --- | --- | --- |
-| Butler only; v2026.9.24; librarian parked | owed | saved deployment/config/reference, live inventory | owed |
+| Butler only; selected receiver version; librarian parked | owed | saved deployment/config/reference, live inventory | owed |
 | Same Claude identity/subscription; live GET /v1/models Account-qualified selection | owed | identity/model/routing evidence, no secret | owed |
-| program scopes read, sessions:write, runs:drive; bypassPermissions Ceiling; OpenBao agents locator | owed | scopes/clamps/reference, other programs acceptEdits | owed |
+| program scopes read, sessions:write, runs:drive; bypassPermissions Ceiling; configured OpenBao reference | owed | scopes/clamps/reference, other programs acceptEdits | owed |
 | Streaming, tools, two-turn same Session/credential, model/effort and auxiliary overrides, /keep, /save | owed | [#1193][1193] scripted results plus separate live proof; title generation gated | owed |
 | Signed delivery-only route, Matrix destination, signature/body/timestamp rejection, lost-ack stable-id retry | owed | [#1009][1009] checklist, room/message ids, attempts; any other failure blocks | owed |
-| netdata routes disabled; Matrix rooms/Tuwunel preserved; fault injection removed | owed | before/after state and restore checks | owed |
+| Existing alert routes retain their configured state; Matrix rooms preserved; fault injection removed | owed | before/after state and restore checks | owed |
 
-David explicitly accepted exactly these two gaps for milestone 1 on 2026-10-02
-in [#1009][1009]. This is not a blanket retry waiver. Both live probes are still
-owed; attach observed status/attempt/message ids, pinned deployment and date.
-If another behavior fails, or these cells are unrun, acceptance remains blocked.
+For the two receiver failure modes below, record the maintainer's explicit
+acceptance for the observed pinned deployment in the private acceptance record.
+This is not a blanket retry waiver. Both live probes remain owed; attach
+observed status/attempt/message ids, deployment version and date. Any other
+failure, missing approval or unrun probe still blocks acceptance.
 
-| Accepted known gap on pinned Hermes v2026.9.24 | Expected limitation | What was observed live / operator / date / evidence | Acceptance and upstream tracking |
+| Accepted known gap on pinned Hermes selected receiver version | Expected limitation | What was observed live / operator / date / evidence | Acceptance and upstream tracking |
 | --- | --- | --- | --- |
-| Deduplication lost across receiver restart | Seen ids are in memory; a retry after restart may post a second Matrix message. | owed, not observed by this ticket | David, 2026-10-02, [#1009][1009]; upstream issue/evidence owed |
-| Failed Matrix send counted as delivered on retry | Id retained before send: initial 502, retry 200 duplicate, harness delivered despite missing room message. | owed, not observed by this ticket | David, 2026-10-02, [#1009][1009]; upstream issue/evidence owed |
+| Deduplication lost across receiver restart | Seen ids are in memory; a retry after restart may post a second Matrix message. | owed, not observed by this ticket | Explicit operator approval and upstream issue/evidence owed |
+| Failed Matrix send counted as delivered on retry | Id retained before send: initial 502, retry 200 duplicate, harness delivered despite missing room message. | owed, not observed by this ticket | Explicit operator approval and upstream issue/evidence owed |
 
 ## Bank landing, scheduled Firings and retirement
 
-| Bank | Clean source head / reconciled branches | Preview / prepared PR / owner approval | Albert heads-up issue/time | Landing day/head / green validator URL | Synced checkouts / read/search/reviewed-write evidence |
+| Bank | Clean source head / reconciled branches | Preview / prepared PR / owner approval | team owner heads-up issue/time | Landing day/head / green validator URL | Synced checkouts / read/search/reviewed-write evidence |
 | --- | --- | --- | --- | --- | --- |
-| cortex ([#1042][1042]) | owed | owed, [#1032][1032] review rule | inapplicable, personal Bank | owed | owed, [#1044][1044] bank verbs |
-| brandsolidate ([#1043][1043]) | owed | owed, [#1032][1032] review rule | owed, before landing | owed, same day as cortex | owed, [#1044][1044] bank verbs |
+| notebook ([#1042][1042]) | owed | owed, [#1032][1032] review rule | inapplicable, personal Bank | owed | owed, [#1044][1044] bank verbs |
+| meadowstudios ([#1043][1043]) | owed | owed, [#1032][1032] review rule | owed, before landing | owed, same day as notebook | owed, [#1044][1044] bank verbs |
 
 | Environment / enabled Routine id | Account/Workspace/Ceiling/skills/delivery revalidation | Source schedule disabled evidence | Manual enable time / schedule / zone / next due | Scheduled Firing time / history / outcome / Session | Remaining wait |
 | --- | --- | --- | --- | --- | --- |
