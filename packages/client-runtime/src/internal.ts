@@ -110,16 +110,16 @@ export const createRuntimeWithSeams = (platform: Platform, options: InternalOpti
         runs.resolved(environmentId, sessionId, promptId);
         if (!news) environmentNotices.settled(environmentId, sessionId, promptId);
       }
-      // A notice replayed onto a stream that held nothing is history: every ready fetches the cache again anyway, and it says nothing new.
-      if (!news) return;
       if (event.type === "checks.changed") {
         const payload = ChecksChangedPayload.safeParse(event.payload);
-        if (payload.success) checks.changed(environmentId, payload.data);
+        if (payload.success) checks.changed(environmentId, payload.data, event.sequence);
       }
       if (event.type === "checks.failures-reset") {
         const payload = ChecksFailuresResetPayload.safeParse(event.payload);
-        if (payload.success) checks.failuresReset(environmentId, payload.data);
+        if (payload.success) checks.failuresReset(environmentId, payload.data, event.sequence);
       }
+      // A notice replayed onto a stream that held nothing is history: every ready fetches the cache again anyway, and it says nothing new.
+      if (!news) return;
       requestCache.noticed(environmentId, event.type);
       clientCalls.heard(environmentId, event);
       if (event.type === "prompt.parked") {

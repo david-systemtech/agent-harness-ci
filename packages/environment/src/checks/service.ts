@@ -327,7 +327,8 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
       const sessionId = params.sessionId.toLowerCase();
       const recorded = requireSessionWorkspace(log, sessionId);
       const workspace = (await located(sessionId, recorded)) ?? (await realpathOfGone(recorded));
-      return { workspace, command: readWorkspaceCheck(reader, workspace)?.command ?? null };
+      const config = readWorkspaceCheck(reader, workspace);
+      return { workspace, command: config?.command ?? null, failureResetSequence: config?.failureResetSequence ?? 0 };
     },
 
     "checks.set": {

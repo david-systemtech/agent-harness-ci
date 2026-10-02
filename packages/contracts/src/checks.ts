@@ -4,6 +4,7 @@ import { utf8Bytes } from "./banks.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { AbsolutePath } from "./sessions.js";
 import { TerminalId } from "./terminals.js";
+import { Sequence } from "./primitives.js";
 
 /**
  * Workspace checks (switch-over spec, "Phase-D commands and parity",
@@ -46,6 +47,7 @@ export const WorkspaceCheck = z
   .object({
     workspace: AbsolutePath.meta({ description: "The session's Workspace directory as checks are keyed: its real path, symlinks resolved." }),
     command: CheckCommand.nullable().meta({ description: "The directory's check command, verbatim; null when none is set." }),
+    failureResetSequence: Sequence.optional().meta({ description: "Supplied by checks.get: the latest durable directory reset cutoff; offers finishing at or before it are stale. Absent from older Environments." }),
   })
   .meta({ description: "A Workspace directory's check: the canonical directory and its command, null when none is set." });
 export type WorkspaceCheck = z.infer<typeof WorkspaceCheck>;

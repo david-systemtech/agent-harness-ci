@@ -595,6 +595,12 @@
                   "timedOut",
                   "failure"
                 ]
+              },
+              "finishedSequence": {
+                "description": "The checks.finished event sequence, used to order directory-wide failure resets; absent in older snapshots.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
               }
             },
             "required": [

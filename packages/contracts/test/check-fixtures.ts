@@ -29,7 +29,7 @@ export const checksChangedNotice = {
 
 export const checkSchemaFixtures: Record<string, Fixtures> = {
   "checks/check-command.json": { valid: [command, "  make check\n"], invalid: ["", " \n\t", 7] },
-  "checks/workspace-check.json": { valid: [check, cleared, { ...check, workspace: "C:\\work\\project" }], invalid: [{ workspace: "project", command }, { command }, { ...check, command: "" }] },
+  "checks/workspace-check.json": { valid: [check, cleared, { ...check, failureResetSequence: 7 }, { ...check, workspace: "C:\\work\\project" }], invalid: [{ workspace: "project", command }, { command }, { ...check, command: "" }, { ...check, failureResetSequence: -1 }] },
   "checks/check-failure.json": { valid: ["launch_failed", "closed", "interrupted"], invalid: ["timeout", ""] },
   "checks/notices/checks.changed.json": { valid: [check, cleared], invalid: [{ ...check, command: " " }, { workspace: "/home/milo/project" }] },
   "checks/notices/checks.failures-reset.json": { valid: [{ workspace: check.workspace }], invalid: [{}, { workspace: "relative" }] },

@@ -48,14 +48,15 @@ const check = (terminalId = TERMINAL, extra = {}) => ({ terminalId, command: "pn
 
 it("offers failures from replay, sends only explicitly, and preserves the Session draft", async () => {
   const { runtime, wire, id } = await paired();
+  let sequence = 0;
   wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
   wire.answer("sessions.subscribeSession", () => undefined);
-  wire.answer("runs.start", () => ({ result: { receipt: { status: "accepted", sequence: 9, changed: true }, result: { runId: "0199aa00-0000-4000-8000-000000000005", messageId: "0199aa00-0000-4000-8000-000000000006", state: "starting" } } }));
+  wire.answer("runs.start", () => ({ result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { runId: "0199aa00-0000-4000-8000-000000000005", messageId: "0199aa00-0000-4000-8000-000000000006", state: "starting" } } }));
   const view = runtime.projections.checks(id, SESSION);
   onTestFinished(view.subscribe(() => undefined));
   const stream = await subscription(wire, "sessions.subscribeSession");
   stream.snapshot(0, { ...recordedSnapshot(), sequence: 0, runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" });
-  stream.event(numbered(1, [["checks.finished", check()]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check()]])[0]!);
   stream.synchronized(1);
   await flush();
   expect(view.read().offer).toMatchObject({ terminalId: TERMINAL, result: { output: "failed assertion" } });
@@ -65,27 +66,27 @@ it("offers failures from replay, sends only explicitly, and preserves the Sessio
   expect(runtime.projections.session(id, SESSION).read().draft).toBe("untouched draft");
   expect(view.read().offer).toBeNull();
   expect(wire.server.received()).toContainEqual(expect.objectContaining({ method: "runs.start", params: expect.objectContaining({ text: expect.stringContaining("failed assertion") }) }));
-  stream.event(numbered(2, [["checks.finished", check("0199aa00-0000-4000-8000-000000000007")]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000007")]])[0]!);
   await flush();
   expect(view.read().offer).toBeNull();
-  stream.event(numbered(3, [["checks.finished", check("0199aa00-0000-4000-8000-000000000008", { exitCode: 0 })]])[0]!);
-  stream.event(numbered(4, [["checks.finished", check("0199aa00-0000-4000-8000-000000000009")]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000008", { exitCode: 0 })]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000009")]])[0]!);
   await flush();
   expect(view.read().offer).not.toBeNull();
   wire.answer("runs.start", () => ({ error: { code: "conflict", message: "cannot start", data: {} } }));
   expect(await runtime.checks.sendFailure(id, SESSION)).toMatchObject({ ok: false });
   expect(view.read().offer).not.toBeNull();
-  wire.answer("checks.run", () => ({ result: { receipt: { status: "accepted", sequence: 5, changed: true }, result: { terminalId: "0199aa00-0000-4000-8000-000000000010" } } }));
+  wire.answer("checks.run", () => ({ result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { terminalId: "0199aa00-0000-4000-8000-000000000010" } } }));
   expect(await runtime.checks.run(id, SESSION)).toMatchObject({ ok: true });
   expect(view.read().offer).toBeNull();
-  stream.event(numbered(5, [["checks.finished", check("0199aa00-0000-4000-8000-000000000010", { sourceRunId: null })]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000010", { sourceRunId: null })]])[0]!);
   await flush();
   expect(view.read().offer).not.toBeNull();
   let command: string | null = "pnpm test";
   wire.answer("checks.get", () => ({ result: { workspace: "/repo", command } }));
   wire.answer("checks.set", (params) => {
     command = params["command"] as string | null;
-    return { result: { receipt: { status: "accepted", sequence: 6, changed: true }, result: { workspace: "/repo", command } } };
+    return { result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { workspace: "/repo", command } } };
   });
   await runtime.checks.set(id, SESSION, "pnpm lint");
   await flush();
@@ -93,7 +94,7 @@ it("offers failures from replay, sends only explicitly, and preserves the Sessio
   await runtime.checks.set(id, SESSION, "pnpm test");
   await flush();
   expect(view.read().offer).toBeNull();
-  stream.event(numbered(6, [["checks.finished", check("0199aa00-0000-4000-8000-000000000011")]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000011")]])[0]!);
   await flush();
   expect(view.read().offer).not.toBeNull();
   await runtime.checks.set(id, SESSION, null);
@@ -101,7 +102,7 @@ it("offers failures from replay, sends only explicitly, and preserves the Sessio
   expect(view.read().offer).toBeNull();
   await runtime.checks.set(id, SESSION, "pnpm test");
   await flush();
-  stream.event(numbered(7, [["checks.finished", check("0199aa00-0000-4000-8000-000000000012")]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000012")]])[0]!);
   await flush();
   wire.answer("runs.start", () => undefined);
   const sending = runtime.checks.sendFailure(id, SESSION);
@@ -111,9 +112,9 @@ it("offers failures from replay, sends only explicitly, and preserves the Sessio
   await runtime.checks.set(id, SESSION, null);
   await runtime.checks.set(id, SESSION, "pnpm test");
   await flush();
-  stream.event(numbered(8, [["checks.finished", check("0199aa00-0000-4000-8000-000000000013")]])[0]!);
+  stream.event(numbered(++sequence, [["checks.finished", check("0199aa00-0000-4000-8000-000000000013")]])[0]!);
   await flush();
-  wire.server.send({ type: "response", id: request.id, result: { receipt: { status: "accepted", sequence: 9, changed: true }, result: { runId: "0199aa00-0000-4000-8000-000000000005", messageId: "0199aa00-0000-4000-8000-000000000006", state: "starting" } } });
+  wire.server.send({ type: "response", id: request.id, result: { receipt: { status: "accepted", sequence: ++sequence, changed: true }, result: { runId: "0199aa00-0000-4000-8000-000000000005", messageId: "0199aa00-0000-4000-8000-000000000006", state: "starting" } } });
   expect(await sending).toMatchObject({ ok: true });
   expect(view.read().offer).toMatchObject({ terminalId: "0199aa00-0000-4000-8000-000000000013" });
 });
@@ -216,16 +217,70 @@ it("clears completed failure offers across a directory when another Client passe
   stream.event(numbered(1, [["checks.finished", check(TERMINAL, { offerFailure: true })]])[0]!);
   await flush();
   expect(view.read().offer).not.toBeNull();
-  notices.event(noticeEvent(1, id, "checks.failures-reset", { workspace: "/other" }));
+  notices.event(noticeEvent(2, id, "checks.failures-reset", { workspace: "/other" }));
   await flush();
   expect(view.read().offer).not.toBeNull();
-  notices.event(noticeEvent(2, id, "checks.failures-reset", { workspace: "/repo" }));
-  await flush();
-  expect(view.read().offer).toBeNull();
-  stream.event(numbered(2, [["checks.started", { terminalId: TERMINAL, command: "pnpm test", sourceRunId: null }]])[0]!);
   notices.event(noticeEvent(3, id, "checks.failures-reset", { workspace: "/repo" }));
   await flush();
-  stream.event(numbered(3, [["checks.finished", check(TERMINAL, { sourceRunId: null, offerFailure: true })]])[0]!);
+  expect(view.read().offer).toBeNull();
+  stream.event(numbered(4, [["checks.started", { terminalId: TERMINAL, command: "pnpm test", sourceRunId: null }]])[0]!);
+  notices.event(noticeEvent(5, id, "checks.failures-reset", { workspace: "/repo" }));
   await flush();
+  stream.event(numbered(6, [["checks.finished", check(TERMINAL, { sourceRunId: null, offerFailure: true })]])[0]!);
+  await flush();
+  expect(view.read().offer).not.toBeNull();
+});
+
+
+it("keeps a post-pass failure when the directory reset arrives after the Session finish", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  const notices = await subscription(wire, "environment.subscribe");
+  notices.synchronized(0);
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  stream.snapshot(0, { ...recordedSnapshot(), sequence: 0, runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(0);
+  stream.event(numbered(1, [["checks.started", { terminalId: TERMINAL, command: "pnpm test", sourceRunId: check().sourceRunId }]])[0]!);
+  stream.event(numbered(10, [["checks.finished", check(TERMINAL, { offerFailure: true })]])[0]!);
+  await flush();
+  expect(view.read().offer).not.toBeNull();
+  notices.event(noticeEvent(5, id, "checks.failures-reset", { workspace: "/repo" }));
+  await flush();
+  expect(view.read().offer).toMatchObject({ terminalId: TERMINAL });
+});
+
+
+it("uses the durable directory reset cutoff when a view starts after notice history was folded away", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test", failureResetSequence: 5 } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  const { terminalId, command, sourceRunId, ...result } = check(TERMINAL, { offerFailure: true });
+  stream.snapshot(10, { ...recordedSnapshot(), sequence: 10, runs: [], items: [{ kind: "check", sequence: 1, terminalId, command, sourceRunId, state: "finished", finishedSequence: 3, result }], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(10);
+  await flush();
+  expect(view.read().offer).toBeNull();
+});
+
+
+it("keeps an existing failure offer when manual now is rejected as busy", async () => {
+  const { runtime, wire, id } = await paired();
+  wire.answer("checks.get", () => ({ result: { workspace: "/repo", command: "pnpm test" } }));
+  wire.answer("sessions.subscribeSession", () => undefined);
+  wire.answer("checks.run", () => ({ result: { receipt: { status: "rejected", sequence: 2, changed: false, reason: "conflict", error: { code: "conflict", message: "The check is busy.", data: { reason: "check_running" } } } } }));
+  const view = runtime.projections.checks(id, SESSION);
+  onTestFinished(view.subscribe(() => undefined));
+  const stream = await subscription(wire, "sessions.subscribeSession");
+  stream.snapshot(0, { ...recordedSnapshot(), sequence: 0, runs: [], items: [], parkedPrompts: [], rewinds: [], instructions: "" });
+  stream.synchronized(0);
+  stream.event(numbered(1, [["checks.finished", check(TERMINAL, { offerFailure: true })]])[0]!);
+  await flush();
+  expect(view.read().offer).not.toBeNull();
+  expect(await runtime.checks.run(id, SESSION)).toMatchObject({ ok: true, result: { receipt: { status: "rejected" } } });
   expect(view.read().offer).not.toBeNull();
 });

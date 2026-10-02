@@ -212,7 +212,7 @@ describe("failure offers", () => {
     const resets = t.env.log.readStream({ kind: "environment", id: t.env.id }, head).filter((event) => event.type === "checks.failures-reset");
     expect(resets.map((event) => event.payload)).toEqual([{ workspace: root }, { workspace: root }]);
     expect(t.adapter.runs).toHaveLength(0);
-    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace: root, command: "make check" });
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace: root, command: "make check", failureResetSequence: resets[1]!.sequence });
   });
 });
 

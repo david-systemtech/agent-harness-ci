@@ -32,10 +32,10 @@ describe("the checks store", () => {
     const set = (command: string | null, actor: string) => log.append(environment, [{ type: "checks.changed", payload: { workspace: "/home/milo/project", command } }], { actor });
     set("make check", "client_session:cs-tui");
     set("make test", "client_session:cs-desktop");
-    expect(readWorkspaceCheck(reader(log), "/home/milo/project")).toEqual({ command: "make test", configuredBy: "client_session:cs-desktop" });
+    expect(readWorkspaceCheck(reader(log), "/home/milo/project")).toEqual({ command: "make test", configuredBy: "client_session:cs-desktop", failureResetSequence: log.head() });
     set(null, "client_session:cs-tui");
     log.rebuildProjections();
-    expect(readWorkspaceCheck(reader(log), "/home/milo/project")).toEqual({ command: null, configuredBy: "client_session:cs-tui" });
+    expect(readWorkspaceCheck(reader(log), "/home/milo/project")).toEqual({ command: null, configuredBy: "client_session:cs-tui", failureResetSequence: log.head() });
     expect(readWorkspaceCheck(reader(log), "/home/milo/other")).toBeUndefined();
   });
 

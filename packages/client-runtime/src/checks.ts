@@ -37,34 +37,25 @@ export const createChecks = (host: {
   readonly capability: (environmentId: string, name: "checks.get") => CapabilityAnswer;
 }) => {
   const resets = writable(0);
-  const state = new Map<string, { floor: number; sent: Set<string>; sending: boolean; generation: number }>();
+  const directoryFloors = new Map<string, number>();
+  const floorFor = (environmentId: string, value: WorkspaceCheck | null | undefined) => value === undefined || value === null ? 0 : Math.max(value.failureResetSequence ?? 0, directoryFloors.get(`${environmentId} ${value.workspace}`) ?? 0);
+  const state = new Map<string, { sent: Map<string, number>; sending: boolean }>();
   const entries = (environmentId: string, sessionId: string) => host.session(environmentId, sessionId).read().items.filter((item): item is CheckEntry => item.kind === "check");
-  const reset = (environmentId: string, sessionId: string) => {
-    const key = `${environmentId} ${sessionId}`;
-    const prior = state.get(key);
-    if (prior) {
-      // A reset dismisses completed offers; an in-flight check may still produce a new failure.
-      prior.floor = Math.max(prior.floor, ...entries(environmentId, sessionId).filter((item) => item.state !== "running").map((item) => item.sequence));
-      prior.sent.clear();
-      prior.generation++;
-    }
-    resets.update((n) => n + 1);
-  };
   const identity = (entry: CheckEntry) => JSON.stringify([entry.command, entry.result?.output, entry.result?.exitCode]);
-  const offered = (items: readonly CheckEntry[], command: string | null | undefined, key: string): { entry: Extract<CheckEntry, { state: "finished" }>; id: string } | null => {
+  const offered = (items: readonly CheckEntry[], command: string | null | undefined, key: string, directoryFloor: number): { entry: Extract<CheckEntry, { state: "finished" }>; id: string } | null => {
     const saved = state.get(key)!;
     let epoch = "initial";
     let offer: { entry: Extract<CheckEntry, { state: "finished" }>; id: string } | null = null;
     const seen = new Set<string>();
     for (const entry of items) {
-      if (entry.sequence <= saved.floor) continue;
+      if (entry.state === "finished" && (entry.finishedSequence ?? entry.sequence) <= directoryFloor) continue;
       if (entry.sourceRunId === null || (entry.state === "finished" && checkPassed(entry.result))) { epoch = entry.terminalId; seen.clear(); offer = null; }
       if (entry.state === "running") { offer = null; continue; }
       if (checkPassed(entry.result) || entry.command !== command || entry.result.offerFailure === false) continue;
       const id = entry.result.offerFailure === true ? entry.terminalId : `${epoch} ${identity(entry)}`;
       if (seen.has(id)) continue;
       seen.add(id);
-      offer = saved.sent.has(id) ? null : { entry, id };
+      offer = (saved.sent.get(id) ?? -1) >= (entry.finishedSequence ?? entry.sequence) ? null : { entry, id };
     }
     return offer;
   };
@@ -74,11 +65,11 @@ export const createChecks = (host: {
     const key = `${environmentId} ${sessionId}`;
     let held = views.get(key);
     if (held === undefined) {
-      state.set(key, { floor: -1, sent: new Set(), sending: false, generation: 0 });
+      state.set(key, { sent: new Map(), sending: false });
       const session = host.session(environmentId, sessionId);
       const query = answerOf(environmentId, host.requests.cached(environmentId, "checks.get", { sessionId }), (result) => result);
       const output = writable<ChecksView["runningOutput"]>(new Map());
-      const base = derived([query, host.records, session, resets, output] as const, (answer, _records, transcript, _reset, runningOutput): ChecksView => ({ ...answer, availability: host.capability(environmentId, "checks.get"), offer: offered(transcript.items.filter((item): item is CheckEntry => item.kind === "check"), answer.value?.command, key)?.entry ?? null, runningOutput }));
+      const base = derived([query, host.records, session, resets, output] as const, (answer, _records, transcript, _reset, runningOutput): ChecksView => ({ ...answer, availability: host.capability(environmentId, "checks.get"), offer: offered(transcript.items.filter((item): item is CheckEntry => item.kind === "check"), answer.value?.command, key, floorFor(environmentId, answer.value))?.entry ?? null, runningOutput }));
       const handles = new Map<string, TerminalHandle>();
       let followers = 0;
       let stopWatching: (() => void) | undefined;
@@ -135,44 +126,47 @@ export const createChecks = (host: {
     async set(environmentId, sessionId, command) {
       const answer = await host.requests.call(environmentId, "checks.set", { sessionId, command, commandId: uuidv7(host.clock.now()) });
       if (answer.ok && answer.result.receipt.status === "accepted" && answer.result.result !== undefined) {
-        changed(environmentId, answer.result.result);
+        if (answer.result.receipt.changed) changed(environmentId, answer.result.result, answer.result.receipt.sequence);
         // A directory's other Session queries must see a successful save too, before its notice arrives.
         for (const key of views.keys()) if (key.startsWith(`${environmentId} `)) host.requests.refresh(environmentId, "checks.get", { sessionId: key.slice(environmentId.length + 1) });
       }
       return answer;
     },
-    run(environmentId, sessionId) {
-      const workspace = view(environmentId, sessionId).read().value?.workspace;
-      for (const [key, other] of views) if (key.startsWith(`${environmentId} `) && (key === `${environmentId} ${sessionId}` || (workspace !== undefined && other.read().value?.workspace === workspace))) reset(environmentId, key.slice(environmentId.length + 1));
-      return host.requests.call(environmentId, "checks.run", { sessionId, commandId: uuidv7(host.clock.now()) });
+    async run(environmentId, sessionId) {
+      const selected = view(environmentId, sessionId);
+      const answer = await host.requests.call(environmentId, "checks.run", { sessionId, commandId: uuidv7(host.clock.now()) });
+      if (answer.ok && answer.result.receipt.status === "accepted") {
+        const workspace = selected.read().value?.workspace;
+        if (workspace !== undefined) failuresReset(environmentId, { workspace }, answer.result.receipt.sequence);
+        for (const key of views.keys()) if (key.startsWith(`${environmentId} `)) host.requests.refresh(environmentId, "checks.get", { sessionId: key.slice(environmentId.length + 1) });
+      }
+      return answer;
     },
     async sendFailure(environmentId, sessionId, choice) {
       const current = view(environmentId, sessionId).read();
       const key = `${environmentId} ${sessionId.toLowerCase()}`;
       const saved = state.get(key)!;
-      const offer = offered(entries(environmentId, sessionId), current.value?.command, key);
+      const offer = offered(entries(environmentId, sessionId), current.value?.command, key, floorFor(environmentId, current.value));
       if (!offer || saved.sending) return { ok: false, line: "No check failure is offered." };
-      const generation = saved.generation;
       saved.sending = true;
       try {
         const entry = offer.entry;
         const text = `$ ${entry.command}\nCheck ${entry.result.timedOut ? "timeout" : "failure"}; exit ${entry.result.exitCode ?? "none"}${entry.result.truncated ? "; output truncated" : ""}\n${entry.result.output}`;
         const answer = await host.send(environmentId, sessionId, { text, attachments: [] }, choice);
-        if (answer.ok && saved.generation === generation) { saved.sent.add(offer.id); resets.update((n) => n + 1); }
+        if (answer.ok && (offer.entry.finishedSequence ?? offer.entry.sequence) > floorFor(environmentId, view(environmentId, sessionId).read().value)) { saved.sent.set(offer.id, offer.entry.finishedSequence ?? offer.entry.sequence); resets.update((n) => n + 1); }
         return answer;
       } finally { saved.sending = false; }
     },
   };
-  const changed = (environmentId: string, payload: ChecksChangedPayload) => {
+  const changed = (environmentId: string, payload: ChecksChangedPayload, sequence: number) => failuresReset(environmentId, payload, sequence);
+  const failuresReset = (environmentId: string, payload: ChecksFailuresResetPayload, sequence: number) => {
+    const directory = `${environmentId} ${payload.workspace}`;
+    directoryFloors.set(directory, Math.max(directoryFloors.get(directory) ?? 0, sequence));
     for (const [key, other] of views) {
-      const value = other.read().value;
-      if (key.startsWith(`${environmentId} `) && value?.workspace === payload.workspace && value.command !== payload.command) reset(environmentId, key.slice(environmentId.length + 1));
+      if (!key.startsWith(`${environmentId} `) || other.read().value?.workspace !== payload.workspace) continue;
+      for (const [id, finishedAt] of state.get(key)!.sent) if (finishedAt <= sequence) state.get(key)!.sent.delete(id);
     }
-  };
-  const failuresReset = (environmentId: string, payload: ChecksFailuresResetPayload) => {
-    for (const [key, other] of views) {
-      if (key.startsWith(`${environmentId} `) && other.read().value?.workspace === payload.workspace) reset(environmentId, key.slice(environmentId.length + 1));
-    }
+    resets.update((n) => n + 1);
   };
   return { view, actions, changed, failuresReset };
 };

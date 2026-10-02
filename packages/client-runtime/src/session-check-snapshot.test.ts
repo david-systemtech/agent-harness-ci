@@ -29,7 +29,7 @@ describe("Workspace check snapshot catch-up", () => {
     const session = runtime.projections.session(t.env.id, sessionId);
     const caughtUp = await holds(session, (view) => view.freshness === "live");
     expect(caughtUp.items).toEqual([
-      { kind: "check", sequence: appended.events[0]!.sequence, ...check, state: "finished", result },
+      { kind: "check", sequence: appended.events[0]!.sequence, ...check, state: "finished", finishedSequence: appended.events[1]!.sequence, result },
       { kind: "check", sequence: appended.events[2]!.sequence, ...running, state: "running", result: null },
     ]);
     expect(transcriptRows(caughtUp).map((row) => row.kind)).toEqual(["check", "check"]);

@@ -68,19 +68,19 @@ describe("a Workspace directory's check command", () => {
     const workspace = realpathSync(dir);
     const here = await sessionIn(first, dir);
     const throughLink = await sessionIn(second, link);
-    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command: null });
+    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command: null, failureResetSequence: expect.any(Number) });
 
     const head = t.env.log.head();
     const command = "  pnpm typecheck && pnpm exec vitest run 'a b.test.ts' \\\n  --maxWorkers=2\n";
     expect(await first.apply("checks.set", { commandId: randomUUID(), sessionId: here, command })).toEqual({ workspace, command });
-    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command });
+    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command, failureResetSequence: expect.any(Number) });
     // Setting the command it has changes nothing.
     expect(await second.request("checks.set", { commandId: randomUUID(), sessionId: throughLink, command })).toMatchObject({ receipt: { status: "accepted", changed: false }, result: { workspace, command } });
     const notices = await noticesOf(second, "checks.changed", head);
     expect(notices.map(({ payload, actor }) => ({ payload, actor }))).toEqual([{ payload: { workspace, command }, actor: { kind: "client_session", id: first.hello.clientSessionId } }]);
 
     const back = await restartAfter(t, 0, (options) => start(options));
-    expect(await (await back.client()).request("checks.get", { sessionId: here })).toEqual({ workspace, command });
+    expect(await (await back.client()).request("checks.get", { sessionId: here })).toEqual({ workspace, command, failureResetSequence: expect.any(Number) });
   });
 
   it("is read, its directory gone, under the real path it was set by, for a session recorded through a link to it or to a folder above it", async () => {
@@ -100,7 +100,7 @@ describe("a Workspace directory's check command", () => {
     rmSync(dir, { recursive: true });
     for (const sessionId of [throughLink, belowLink]) {
       expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toMatchObject({ data: { reason: "workspace_missing" } });
-      expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check" });
+      expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check", failureResetSequence: expect.any(Number) });
     }
   });
 });
@@ -179,7 +179,7 @@ describe("checks.run's refusals", () => {
     expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toEqual(missing);
     expect(refusalOf(await client.request("checks.set", { commandId: randomUUID(), sessionId, command: "make other" }))).toEqual(missing);
     // The directory gone, get answers the real path it had and that path's command.
-    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check" });
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check", failureResetSequence: expect.any(Number) });
     expect(t.run.spawned).toEqual([]);
 
     const unknown = randomUUID();
@@ -284,7 +284,7 @@ describe("a running check", () => {
     shell.print("ok\n");
     shell.exit(0);
     expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, command, output: "ok\n", exitCode: 0, failure: null });
-    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: null });
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: null, failureResetSequence: expect.any(Number) });
   });
 
   it("is recorded interrupted when the environment stops under it, and after the restart nothing runs again, a retried command answered from its receipt", async () => {
@@ -347,4 +347,20 @@ it("keeps a passing result and closes its terminal when the failure-reset notice
   expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, exitCode: 0, failure: null });
   expect(await client.request("terminals.list", { sessionId })).toEqual({ terminals: [] });
   expect(quiet).toHaveBeenCalled();
+});
+
+
+it("keeps the directory failure-reset cutoff through projection rebuild and restart", async () => {
+  const t = await start({ dataDir: tempDir("agent-harness-check-reset-") });
+  const { client, sessionId } = await checkedSession(t, "make check");
+  const events = await sessionEvents(t, client, sessionId);
+  await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+  (await t.run.spawnedAt(0)).exit(0);
+  const finished = await events.next("checks.finished");
+  const value = await client.request("checks.get", { sessionId });
+  expect(value.failureResetSequence).toBeGreaterThanOrEqual(finished.sequence);
+  t.env.log.rebuildProjections();
+  expect(await client.request("checks.get", { sessionId })).toEqual(value);
+  const back = await restartAfter(t, 0, (options) => start(options));
+  expect(await (await back.client()).request("checks.get", { sessionId })).toEqual(value);
 });

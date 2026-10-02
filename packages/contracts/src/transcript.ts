@@ -556,7 +556,7 @@ const checkItemPart = { kind: z.literal("check"), ...itemPart };
 const CheckResult = ChecksFinishedPayload.omit({ terminalId: true, command: true, sourceRunId: true });
 const RunningCheckItem = ChecksStartedPayload.extend({ ...checkItemPart, state: z.literal("running"), result: z.null() })
   .meta({ description: "A Workspace check at its checks.started sequence, still running in its terminal." });
-const FinishedCheckItem = ChecksStartedPayload.extend({ ...checkItemPart, state: z.literal("finished"), result: CheckResult })
+const FinishedCheckItem = ChecksStartedPayload.extend({ ...checkItemPart, state: z.literal("finished"), result: CheckResult, finishedSequence: Sequence.min(1).optional().meta({ description: "The checks.finished event sequence, used to order directory-wide failure resets; absent in older snapshots." }) })
   .meta({ description: "A Workspace check at its checks.started sequence, with its checks.finished outcome folded in." });
 
 const TasksItem = z

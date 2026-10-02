@@ -20,7 +20,8 @@ export const CHECKS_TABLES = {
     workspace TEXT PRIMARY KEY,
     command TEXT,
     configured_by TEXT NOT NULL,
-    revision INTEGER NOT NULL
+    revision INTEGER NOT NULL,
+    failure_reset_sequence INTEGER NOT NULL
   ) STRICT`,
   check_failure_offers: `CREATE TABLE check_failure_offers (
     workspace TEXT NOT NULL,
@@ -55,14 +56,19 @@ export const checksProjector: Projector = {
   apply(event, db) {
     if (event.streamKind === ENVIRONMENT_STREAM_KIND && event.type === "checks.changed") {
       db.run(
-        "INSERT INTO workspace_checks (workspace, command, configured_by, revision) VALUES (?, ?, ?, ?) ON CONFLICT (workspace) DO UPDATE SET command = excluded.command, configured_by = excluded.configured_by, revision = excluded.revision",
+        "INSERT INTO workspace_checks (workspace, command, configured_by, revision, failure_reset_sequence) VALUES (?, ?, ?, ?, ?) ON CONFLICT (workspace) DO UPDATE SET command = excluded.command, configured_by = excluded.configured_by, revision = excluded.revision, failure_reset_sequence = excluded.failure_reset_sequence",
         String(event.payload["workspace"]),
         (event.payload["command"] as string | null) ?? null,
         event.actor,
         event.sequence,
+        event.sequence,
       );
       db.run("DELETE FROM pending_checks WHERE workspace = ?", String(event.payload["workspace"]));
       db.run("DELETE FROM check_failure_offers WHERE workspace = ?", String(event.payload["workspace"]));
+      return;
+    }
+    if (event.streamKind === ENVIRONMENT_STREAM_KIND && event.type === "checks.failures-reset") {
+      db.run("UPDATE workspace_checks SET failure_reset_sequence = MAX(failure_reset_sequence, ?) WHERE workspace = ?", event.sequence, String(event.payload["workspace"]));
       return;
     }
     if (event.streamKind !== SESSION_STREAM_KIND) return;
@@ -88,14 +94,20 @@ export const checksProjector: Projector = {
         (event.metadata["workspace"] as string | undefined) ?? null,
         (event.metadata["revision"] as number | undefined) ?? null,
       );
-      if (started.sourceRunId === null && typeof event.metadata["workspace"] === "string") db.run("DELETE FROM check_failure_offers WHERE workspace = ?", event.metadata["workspace"]);
+      if (started.sourceRunId === null && typeof event.metadata["workspace"] === "string") {
+        db.run("DELETE FROM check_failure_offers WHERE workspace = ?", event.metadata["workspace"]);
+        db.run("UPDATE workspace_checks SET failure_reset_sequence = MAX(failure_reset_sequence, ?) WHERE workspace = ?", event.sequence, event.metadata["workspace"]);
+      }
       if (started.sourceRunId !== null) db.run("DELETE FROM pending_checks WHERE run_id = ?", started.sourceRunId);
     } else if (event.type === "checks.finished") {
       const terminalId = String(event.payload["terminalId"]);
       const context = db.get<{ workspace: string | null; revision: number | null }>("SELECT workspace, revision FROM unfinished_checks WHERE terminal_id = ?", terminalId);
       const config = context?.workspace == null ? undefined : db.get<{ revision: number }>("SELECT revision FROM workspace_checks WHERE workspace = ?", context.workspace);
       if (context?.workspace != null && context.revision === config?.revision) {
-        if (checkPassed(event.payload as ChecksFinishedPayload)) db.run("DELETE FROM check_failure_offers WHERE workspace = ?", context.workspace);
+        if (checkPassed(event.payload as ChecksFinishedPayload)) {
+          db.run("DELETE FROM check_failure_offers WHERE workspace = ?", context.workspace);
+          db.run("UPDATE workspace_checks SET failure_reset_sequence = MAX(failure_reset_sequence, ?) WHERE workspace = ?", event.sequence, context.workspace);
+        }
         else if (event.payload["offerFailure"] === true && typeof event.metadata["failureKey"] === "string") db.run("INSERT OR IGNORE INTO check_failure_offers (workspace, failure_key) VALUES (?, ?)", context.workspace, event.metadata["failureKey"]);
       }
       db.run("DELETE FROM unfinished_checks WHERE terminal_id = ?", String(event.payload["terminalId"]));
@@ -109,9 +121,9 @@ export const checksProjector: Projector = {
 };
 
 /** A canonical directory's check: its command (null once cleared) and the client session that set it, as the log names an actor; undefined for a directory never set. */
-export const readWorkspaceCheck = (reader: Reader, workspace: string): { readonly command: string | null; readonly configuredBy: string } | undefined => {
-  const [row] = reader.all<{ command: string | null; configured_by: string }>("SELECT command, configured_by FROM workspace_checks WHERE workspace = ?", workspace);
-  return row === undefined ? undefined : { command: row.command, configuredBy: row.configured_by };
+export const readWorkspaceCheck = (reader: Reader, workspace: string): { readonly command: string | null; readonly configuredBy: string; readonly failureResetSequence: number } | undefined => {
+  const [row] = reader.all<{ command: string | null; configured_by: string; failure_reset_sequence: number }>("SELECT command, configured_by, failure_reset_sequence FROM workspace_checks WHERE workspace = ?", workspace);
+  return row === undefined ? undefined : { command: row.command, configuredBy: row.configured_by, failureResetSequence: row.failure_reset_sequence };
 };
 
 /** The checks started and never finished, each with its session: what the environment's stop or crash cut. */
