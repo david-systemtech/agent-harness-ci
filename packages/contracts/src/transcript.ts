@@ -9,6 +9,7 @@ import {
   RunSuggestion,
 } from "./adapter.js";
 import type { EventTypeEntry } from "./event-types.js";
+import { ChecksFinishedPayload, ChecksStartedPayload } from "./checks.js";
 import { SkillOrigin } from "./skills.js";
 import { SkillName } from "./skill-rules.js";
 import { SessionInstructions } from "./instructions.js";
@@ -19,6 +20,9 @@ import { Ceiling } from "./scopes.js";
 import { SessionId, SessionSummary, SummaryPatch, Workspace } from "./sessions.js";
 import { Actor } from "./envelope.js";
 import { UpdateId } from "./updates.js";
+import { TOOL_STATUSES, ToolStatus } from "./tool-status.js";
+
+export { TOOL_STATUSES, ToolStatus } from "./tool-status.js";
 
 /**
  * The transcript vocabulary (claude-adapter spec, "The transcript event
@@ -259,11 +263,6 @@ export const ToolUpdatedPayload = z
   .object({ ...runPart, ...toolCallPart, update: JsonObject.meta({ description: "What the call reports while it runs; the latest replaces the one before." }) })
   .meta({ description: "tool.updated: a running tool call reported progress." });
 export type ToolUpdatedPayload = z.infer<typeof ToolUpdatedPayload>;
-
-/** How a tool call ended. */
-export const TOOL_STATUSES = ["ok", "error", "cancelled"] as const;
-export const ToolStatus = z.enum(TOOL_STATUSES).meta({ description: "How a tool call ended: ok, error, or cancelled." });
-export type ToolStatus = z.infer<typeof ToolStatus>;
 
 export const ToolEndedPayload = z
   .object({
@@ -549,6 +548,13 @@ const CommandItem = z
   .object({ kind: z.literal("command"), ...itemPart, runId: RunId, name: z.string().min(1), args: z.string(), output: z.string().nullable() })
   .meta({ description: "A slash command that ran." });
 
+const checkItemPart = { kind: z.literal("check"), ...itemPart };
+const CheckResult = ChecksFinishedPayload.omit({ terminalId: true, command: true, sourceRunId: true });
+const RunningCheckItem = ChecksStartedPayload.extend({ ...checkItemPart, state: z.literal("running"), result: z.null() })
+  .meta({ description: "A Workspace check at its checks.started sequence, still running in its terminal." });
+const FinishedCheckItem = ChecksStartedPayload.extend({ ...checkItemPart, state: z.literal("finished"), result: CheckResult })
+  .meta({ description: "A Workspace check at its checks.started sequence, with its checks.finished outcome folded in." });
+
 const TasksItem = z
   .object({ kind: z.literal("tasks"), ...itemPart, runId: RunId, tasks: z.array(DelegatedWorkRow) })
   .meta({ description: "A run's delegated-work ledger as it stands, at the place its first tasks.changed came." });
@@ -582,7 +588,7 @@ const ForkedItem = z
   .meta({ description: "A fork's first row: the source and anchor its session.forked named, at that event's sequence." });
 
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
-export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "tasks", "prompt", "history-unreadable", "forked", "update-interrupted"] as const;
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "check", "tasks", "prompt", "history-unreadable", "forked", "update-interrupted"] as const;
 
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
@@ -600,7 +606,7 @@ const OpaqueItem = z
   })
   .meta({ description: "An item of a kind the reader does not know: kept as it is and shown opaque (ADR 0001); kind opaque names an unknown event type." });
 
-/** One settled item of a session's transcript, in the order it came; unknown kinds are opaque. */
+/** One item of a session's transcript, in the order it opened; assistant text and thinking are settled, and unknown kinds are opaque. */
 export const TranscriptItem = z
   .union([
     UserMessageItem,
@@ -608,6 +614,8 @@ export const TranscriptItem = z
     assistantItem("assistant-thinking", "thinking"),
     ToolCallItem,
     CommandItem,
+    RunningCheckItem,
+    FinishedCheckItem,
     TasksItem,
     PromptItem,
     HistoryUnreadableItem,
@@ -617,7 +625,7 @@ export const TranscriptItem = z
   ])
   .meta({
     description:
-      "One settled item of a transcript: a user message, assistant text or thinking, a tool call, a command, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque.",
+      "One item of a transcript: a user message, assistant text or thinking, a tool call, a command, a running or finished Workspace check, a run's delegated work, a prompt with its answer, the line saying an imported session's history could not be read, a fork's source and anchor, an update cut with its outcome, or an item of a kind the reader does not know, kept opaque.",
   });
 export type TranscriptItem = z.infer<typeof TranscriptItem>;
 

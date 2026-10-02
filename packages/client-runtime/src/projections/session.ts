@@ -7,6 +7,8 @@ import {
   type AssistantDeltaPayload,
   type AssistantTextPayload,
   type CommandRanPayload,
+  ChecksFinishedPayload,
+  ChecksStartedPayload,
   type ContainmentLevel,
   type DelegatedWorkRow,
   type EventEnvelope,
@@ -155,6 +157,8 @@ export interface ToolCallEntry extends SnapshotItem<"tool-call"> {
 }
 
 export type CommandEntry = SnapshotItem<"command">;
+/** A Workspace check at its start sequence, with its finished outcome when known. */
+export type CheckEntry = SnapshotItem<"check">;
 export type TasksEntry = SnapshotItem<"tasks">;
 
 /** Where a prompt is: waiting for a person, or answered. */
@@ -252,6 +256,7 @@ export type TranscriptEntry =
   | AssistantEntry
   | ToolCallEntry
   | CommandEntry
+  | CheckEntry
   | TasksEntry
   | PromptEntry
   | SubagentEntry
@@ -329,6 +334,7 @@ type Held =
   | Mutable<AssistantEntry>
   | Mutable<ToolCallEntry>
   | Mutable<CommandEntry>
+  | Mutable<CheckEntry>
   | Mutable<TasksEntry>
   | Mutable<PromptEntry>
   | ForkedEntry
@@ -384,6 +390,10 @@ const fromSnapshot = (item: TranscriptItem): Held => {
       return { ...(item as SnapshotItem<"command" | "tasks">) } as Held;
     case "update-interrupted":
       return { ...(item as UpdateInterruptedEntry) };
+    case "check": {
+      const check = item as CheckEntry;
+      return { ...check };
+    }
     case "history-unreadable":
       return { ...(item as HistoryUnreadableEntry) };
     case "forked":
@@ -460,6 +470,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   // The entries later events update, by the ids those carry.
   const messages = new Map<string, Mutable<UserMessageEntry>>();
   const toolCalls = new Map<string, Mutable<ToolCallEntry>>();
+  const checks = new Map<string, Mutable<CheckEntry>>();
   const ledgers = new Map<string, Mutable<TasksEntry>>();
   const prompts = new Map<string, Mutable<PromptEntry>>();
   /** Assistant entries by `<fragment kind> <item id>`. */
@@ -470,6 +481,7 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
   for (const item of everyItem(items)) {
     if (item.kind === "user-message") messages.set(item.messageId, item);
     else if (item.kind === "tool-call") toolCalls.set(item.toolCallId, item);
+    else if (item.kind === "check") checks.set(item.terminalId, item);
     else if (item.kind === "tasks") ledgers.set(item.runId, item);
     else if (item.kind === "prompt" || item.kind === "question" || item.kind === "plan") prompts.set(item.promptId, item);
     else if (item.kind === "assistant-text" || item.kind === "assistant-thinking") assistant.set(`${item.kind === "assistant-text" ? "text" : "thinking"} ${item.itemId}`, item);
@@ -688,6 +700,17 @@ export const reduceSession = (snapshot: SessionSnapshotParts, events: readonly E
       case "command.ran": {
         const payload = event.payload as CommandRanPayload;
         push<Mutable<CommandEntry>>({ kind: "command", sequence, runId: payload.runId, name: payload.name, args: payload.args, output: payload.output });
+        return;
+      }
+      case "checks.started": {
+        const payload = ChecksStartedPayload.parse(event.payload);
+        checks.set(payload.terminalId, push<Mutable<CheckEntry>>({ kind: "check", sequence, ...payload, state: "running", result: null }));
+        return;
+      }
+      case "checks.finished": {
+        const { terminalId, output, truncated, exitCode, signal, timedOut, failure } = ChecksFinishedPayload.parse(event.payload);
+        const check = checks.get(terminalId);
+        if (check !== undefined) Object.assign(check, { state: "finished", result: { output, truncated, exitCode, signal, timedOut, failure } });
         return;
       }
       case "tasks.changed": {

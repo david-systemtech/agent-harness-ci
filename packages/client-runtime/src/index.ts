@@ -301,6 +301,7 @@ export {
 export type {
   AssistantEntry,
   CommandEntry,
+  CheckEntry,
   ForkedEntry,
   HistoryUnreadableEntry,
   OpaqueEntry,
@@ -383,6 +384,7 @@ export {
   transcriptRows,
   undoableFold,
   updateInterruptedText,
+  checkStatus,
   type ForkedFrom,
   type TranscriptRow,
 } from "./transcript/rows.js";

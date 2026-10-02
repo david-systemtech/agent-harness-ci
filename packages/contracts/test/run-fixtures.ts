@@ -299,6 +299,8 @@ const toolCall = {
   output: "file.txt",
   durationMs: 12,
 };
+const runningCheck = { kind: "check", sequence: 7, terminalId: messageId, command: "pnpm lint", sourceRunId: null, state: "running", result: null };
+const finishedCheck = { ...runningCheck, state: "finished", result: { output: "Lint passed\n", truncated: false, exitCode: 0, signal: null, timedOut: false, failure: null } };
 const items = [
   userMessage,
   { kind: "assistant-thinking", sequence: 4, runId, itemId: "i-2", text: "Look first.", aborted: false },
@@ -412,10 +414,17 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
-  "transcript/transcript-item.json": { valid: [...items, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
+  "transcript/transcript-item.json": { valid: [...items, runningCheck, finishedCheck, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId },
       { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: null },
     ], invalid: [
+      { kind: "check", sequence: 7 },
+      { ...runningCheck, terminalId: "not-a-terminal" },
+      { ...runningCheck, command: " " },
+      { ...runningCheck, state: "finished" },
+      { ...finishedCheck, state: "running" },
+      { ...finishedCheck, result: { ...finishedCheck.result, failure: "unknown" } },
+      { ...finishedCheck, result: { ...finishedCheck.result, output: "x".repeat(65537) } },
       { sequence: 3 },
       { kind: "plan-card" },
       { kind: 3, sequence: 3 },
@@ -442,7 +451,7 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   },
   "transcript/session-snapshot.json": {
     // The last valid one is an environment's from before #260, with no rewinds or instructions: read as none standing, and none.
-    valid: [snapshot, { ...snapshot, suggestion: { runId, suggestion: "Run the tests" } }, { ...snapshot, suggestion: null }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
+    valid: [snapshot, { ...snapshot, items: [runningCheck, finishedCheck] }, { ...snapshot, suggestion: { runId, suggestion: "Run the tests" } }, { ...snapshot, suggestion: null }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
     invalid: [
       { sequence: 13, summary: freshSummary, transcript: {} },
       { ...snapshot, suggestion: { runId, suggestion: "" } },
