@@ -61,7 +61,7 @@ it("fails invalid entries independently, reports omitted baselines and the revie
   write(source, "profiles.json", { version: 2, profiles: [{ id: "deferred", label: "Deferred", providerId: "codex", configDir: cwd }, { id: "work", label: "Work", providerId: "claude", configDir: tempDir() }] });
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview.result?.carried.routines).toBe(1);
-  expect(preview.result?.failed).toHaveLength(5);
+  expect(preview.result?.failed).toHaveLength(6);
   expect(preview.result?.notCarried).toContainEqual({ label: "Routine pre-check baselines", count: 1, step: null });
   expect(preview.result?.notCarried).toContainEqual({ label: "Upstream watch: use docs/routines/upstream-watch.md; live cut-over #988", count: 1, step: null });
   const commandId = randomUUID();
@@ -112,7 +112,7 @@ it("rejects changed Routine store bytes independently and does not infer a local
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
   expect(preview.result).toMatchObject({ carried: { routines: 1 }, failed: [{ label: "Service Routines" }] });
   const imported = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false });
-  expect(imported.result).toMatchObject({ carried: { accounts: 1, routines: 0 }, failed: [{ label: "Service Routines" }, { label: "Desktop Routines", message: "It changed after it was read: preview again, then import." }] });
+  expect(imported.result).toMatchObject({ carried: { accounts: 1, routines: 0 }, failed: [{ label: "Service Routines" }, { label: "Desktop Routines", message: "It changed after it was read: preview again, then import." }, { label: "Routine firings", message: "It changed after it was read: preview again, then import." }] });
   expect((await client.request("routines.list", {})).routines).toEqual([]);
 });
 
@@ -154,7 +154,7 @@ it("reads the service store when desktop JSON is malformed, and refuses unsuppor
   write(source, "serverRoutines.json", { routines: [sourceRoutine(cwd, { scope: `dir:${cwd}`, connectionId: "ignored-connection" }), sourceRoutine(cwd, { id: "bad-zone", name: "Bad zone", scope: `dir:${cwd}`, connectionId: "ignored-connection", timezone: "unsupported-for-tests" })] });
   const { client } = await start(source);
   const preview = await client.request("stateImport.run", { commandId: randomUUID(), dryRun: true });
-  expect(preview.result).toMatchObject({ carried: { routines: 1 }, failed: [{ label: "Desktop Routines" }, { label: "Service Routines" }] });
+  expect(preview.result).toMatchObject({ carried: { routines: 1 }, failed: [{ label: "Desktop Routines" }, { label: "Service Routines" }, { label: "Routine firings" }] });
   expect((await client.request("stateImport.run", { commandId: randomUUID(), dryRun: false })).result).toEqual({ ...preview.result, dryRun: false });
   expect((await client.request("routines.list", {})).routines).toHaveLength(1);
 });

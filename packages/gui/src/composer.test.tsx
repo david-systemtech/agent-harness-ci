@@ -356,6 +356,7 @@ const WINDOW_COMMANDS = [
   "/modeSet the permission mode for the next turn",
   "/attachSend an image or file with the next message",
   "/diffWhat this conversation changed, and the working tree's diff",
+  "/undodesk does not offer fileUndo; a version that does is needed.",
   "/pinKeep this conversation at the top of its folder",
   "/titleName this conversation",
   "/tasksBackground work: what is running, and what a delegated agent did",
@@ -378,7 +379,7 @@ const WINDOW_COMMANDS = [
 ];
 
 /** The window's commands holding an `m`, as `/m` offers them: those it begins, then those holding it in order. */
-const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[9], WINDOW_COMMANDS[18], WINDOW_COMMANDS[20]];
+const WINDOW_M = [WINDOW_COMMANDS[0], WINDOW_COMMANDS[1], WINDOW_COMMANDS[10], WINDOW_COMMANDS[19], WINDOW_COMMANDS[21]];
 
 describe("slash commands", () => {
   it("open a menu of the commands the window wires and the provider's own, leaving out one a command of the window's shadows", async () => {

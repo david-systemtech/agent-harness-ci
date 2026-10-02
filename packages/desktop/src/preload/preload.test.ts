@@ -128,10 +128,10 @@ describe("the preload bundle", () => {
   });
 
   it("reaches each member's own channel, awaiting what answers and telling what does not", async () => {
-    const loaded = preload({ "shell:dialogs.openFile": ["/home/seth/notes.md"], "shell:http": { status: 200, body: '{"protocol":1}' } });
+    const loaded = preload({ "shell:dialogs.openFile": ["/home/milo/notes.md"], "shell:http": { status: 200, body: '{"protocol":1}' } });
     const shell = shellOf(loaded);
 
-    expect(await shell["dialogs"]?.["openFile"]?.({ title: "Attach" })).toEqual(["/home/seth/notes.md"]);
+    expect(await shell["dialogs"]?.["openFile"]?.({ title: "Attach" })).toEqual(["/home/milo/notes.md"]);
     const response = (await shell["http"]?.("http://127.0.0.1:4777/.well-known/agent-harness/environment", { method: "GET" })) as {
       readonly status: number;
       json(): Promise<unknown>;

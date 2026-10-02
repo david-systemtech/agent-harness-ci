@@ -26,12 +26,12 @@ const SESSION = "0199aa00-0000-4000-8000-000000000001";
 const FIRST = "7e000000-0000-4000-8000-000000000001";
 const SECOND = "7e000000-0000-4000-8000-000000000002";
 const EXISTING = "0a1b2c3d-0000-4000-8000-000000000009";
-/** The pane at the harness's 100 by 30: the width beside the rail, and 40% of the rows. */
-const PANE = { cols: 72, rows: 12 };
+/** The pane at the harness's 100 by 30: the width beside the rail, and 40% of the rows left after the check reason. */
+const PANE = { cols: 72, rows: 11 };
 
 const opened = async (extra: Partial<Parameters<typeof renderApp>[0]["script"]["environments"][number]> = {}, keymap?: Keymap) => {
   const app = await renderApp({
-    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }], ...extra }] },
+    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }], ...extra }] },
     flags: { session: SESSION },
     ...(keymap && { keymap }),
   });
@@ -104,20 +104,20 @@ describe("opening the pane", () => {
     await app.waitFor("terminal · desk");
     await app.resize({ columns: 128, rows: 40 });
     await app.waitUntil(() => env.terminal(FIRST).resizes.length === 1, "the terminal to be resized");
-    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 16 }]);
+    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 15 }]);
   });
 
-  it("keeps the pane inside the column above the six rows under it on a short frame, the status lines and the composer drawn", async () => {
+  it("keeps the pane inside the column above the seven rows under it on a short frame, the status lines and the composer drawn", async () => {
     const { app, env } = await opened();
     await command(app, "/terminal");
     await app.waitFor("terminal · desk");
-    // 12 rows: the header and the six rows under the column leave it 5, the pane's header one of them.
+    // 12 rows: the header, check reason and six other footer rows leave 4, the pane's header one of them.
     await app.resize({ columns: 100, rows: 12 });
     await app.waitUntil(() => env.terminal(FIRST).resizes.length === 1, "the terminal to be resized");
-    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 72, rows: 4 }]);
+    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 72, rows: 3 }]);
     await app.resize({ columns: 100, rows: 10 });
     await app.waitUntil(() => env.terminal(FIRST).resizes.length === 2, "the terminal to be resized again");
-    expect(env.terminal(FIRST).resizes.at(-1)).toEqual({ cols: 72, rows: 2 });
+    expect(env.terminal(FIRST).resizes.at(-1)).toEqual({ cols: 72, rows: 1 });
     const rows = app.rows();
     expect(rows).toHaveLength(10);
     expect(rows.findIndex((row) => row.includes("terminal · desk"))).toBeGreaterThan(0);
@@ -133,7 +133,7 @@ describe("opening the pane", () => {
     await app.resize({ columns: 128, rows: 40 });
     await app.waitUntil(() => !app.frame().includes("reconnecting"), "the environment to be back");
     await app.waitUntil(() => env.terminal(FIRST).resizes.length === 1, "the terminal to be sized to the pane");
-    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 16 }]);
+    expect(env.terminal(FIRST).resizes).toEqual([{ cols: 100, rows: 15 }]);
   });
 
   it("sends the terminal no size after the environment refused one, since a refusal is the terminal's end", async () => {
@@ -572,8 +572,8 @@ describe("a shell line", () => {
   it("sends a !! command's output to nobody when its session is no longer open, and leaves a later line alone", async () => {
     const { app, env } = await opened({
       sessions: [
-        { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
-        { title: "Parser", workspace: { kind: "directory", path: "/home/seth/parser" } },
+        { title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } },
+        { title: "Parser", workspace: { kind: "directory", path: "/home/milo/parser" } },
       ],
       oneOff: () => ({ output: "slow\n" }),
     });

@@ -123,7 +123,7 @@ describe("/group", () => {
     const app = await opened(DESK.copy);
     await send(app, "/group");
     let dialog = await screen.findByRole("dialog", { name: "Move “Brand copy” to a group" });
-    expect(listed(dialog, "Groups")).toEqual(["BrandsolidateIt is in this group.", "Ops", "New group…", "No group"]);
+    expect(listed(dialog, "Groups")).toEqual(["MeadowstudiosIt is in this group.", "Ops", "New group…", "No group"]);
     await app.user.click(within(dialog).getByRole("button", { name: "Ops" }));
     await waitFor(() => expect(under("Ops")).toEqual(["Brand copy"]));
     expect(sent(app, "desk", "sessions.setGroup")).toEqual([{ commandId: expect.stringMatching(UUIDV7), sessionId: COPY, groupId: G_OPS }]);
@@ -231,7 +231,7 @@ describe("/search", () => {
 
     await send(app, "/search");
     await waitFor(() => expect(filter().value).toBe(""));
-    expect(drawn()).toContain("▾ Brandsolidate");
+    expect(drawn()).toContain("▾ Meadowstudios");
     expect(document.activeElement).toBe(filter());
   });
 });

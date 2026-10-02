@@ -136,6 +136,7 @@ describe("its entries", () => {
       "/modeSet the permission mode for the next turn",
       "/attachSend an image or file with the next message",
       "/diffWhat this conversation changed, and the working tree's diff",
+      "/undoTake back the last file change the agent madedesk does not offer fileUndo; a version that does is needed.",
       "/pinKeep this conversation at the top of its folder",
       "/titleName this conversation",
       "/tasksBackground work: what is running, and what a delegated agent did",

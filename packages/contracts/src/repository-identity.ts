@@ -72,7 +72,7 @@ export interface RepositoryIdentityCase {
 }
 
 /** The Forgejo instance the cases use: its web origin, and its tailnet address verified as an alias. */
-const SYSTEMTECH: ForgeAccountOrigins = { origin: "https://git.systemtech.dev:5526", aliases: ["http://100.101.102.103:3000"] };
+const EXAMPLEORG: ForgeAccountOrigins = { origin: "https://git.systemtech.dev:5526", aliases: ["http://100.101.102.103:3000"] };
 
 /**
  * The rule's cases, published in the JSON Schema export as
@@ -105,26 +105,26 @@ export const REPOSITORY_IDENTITY_CASES: readonly RepositoryIdentityCase[] = [
   {
     note: "ssh to the alias's host",
     remote: "ssh://git@100.101.102.103:2222/david/agent-harness.git",
-    forgeAccounts: [SYSTEMTECH],
+    forgeAccounts: [EXAMPLEORG],
     identity: "https://git.systemtech.dev/david/agent-harness",
   },
   {
     note: "http on the alias's origin",
     remote: "http://100.101.102.103:3000/david/agent-harness",
-    forgeAccounts: [SYSTEMTECH],
+    forgeAccounts: [EXAMPLEORG],
     identity: "https://git.systemtech.dev/david/agent-harness",
   },
   { note: "the same remote with no forge accounts", remote: "ssh://git@100.101.102.103:2222/david/agent-harness.git", identity: "https://100.101.102.103/david/agent-harness" },
   {
     note: "a host that is an alias of two forge accounts, kept",
     remote: "ssh://git@100.101.102.103/david/agent-harness",
-    forgeAccounts: [SYSTEMTECH, { origin: "https://code.example.com", aliases: ["http://100.101.102.103:8080"] }],
+    forgeAccounts: [EXAMPLEORG, { origin: "https://code.example.com", aliases: ["http://100.101.102.103:8080"] }],
     identity: "https://100.101.102.103/david/agent-harness",
   },
   {
     note: "a canonical host that is another account's alias, kept",
     remote: "git@git.systemtech.dev:david/agent-harness.git",
-    forgeAccounts: [SYSTEMTECH, { origin: "https://mirror.example.com", aliases: ["https://git.systemtech.dev"] }],
+    forgeAccounts: [EXAMPLEORG, { origin: "https://mirror.example.com", aliases: ["https://git.systemtech.dev"] }],
     identity: "https://git.systemtech.dev/david/agent-harness",
   },
   // None.

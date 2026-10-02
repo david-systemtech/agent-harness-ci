@@ -45,7 +45,7 @@ const NO_BUBBLEWRAP: Partial<ContainmentReport> = {
 };
 
 /** The presets the scripted environments seed their denylists with. */
-const PRESETS = denylistPresets("/home/seth/.agent-harness");
+const PRESETS = denylistPresets("/home/milo/.agent-harness");
 
 /** The Denylist part of the pane. */
 const denylistOf = (region: HTMLElement) => within(region).getByRole("region", { name: "Denylist" });

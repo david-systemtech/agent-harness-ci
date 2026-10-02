@@ -400,7 +400,7 @@ describe("a key-manager reference", () => {
 });
 
 describe("none, a copy awaiting a credential", () => {
-  const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SYSTEM-SERVER" };
+  const copiedFrom = { environmentId: "1b4e28ba-2fa1-41d2-883f-0016d3cca427", environmentName: "SAMPLE-SERVER" };
 
   it("asks nothing, has problem needs-credential, injects nothing, and is never read; a credential given later clears it", async () => {
     const forge = await fakeForge();
@@ -434,7 +434,7 @@ describe("a copy to another environment", () => {
     const reference: KeyManagerReference = { provider: "doppler", connectionId: "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e", name: "FORGE_WORK_TOKEN" };
     keyManagers.answer(reference, TOKEN);
     const gh = fakeGh({ version: "2.63.2", accounts: [github("david", GH_TOKEN)] });
-    const source = await start({ name: "SYSTEM-SERVER", forgeFetch: forge.fetch, managedTools: gh.managedTools, keyManagers: keyManagers.registry });
+    const source = await start({ name: "SAMPLE-SERVER", forgeFetch: forge.fetch, managedTools: gh.managedTools, keyManagers: keyManagers.registry });
     const sourceClient = await source.client();
     const other = await fakeForge();
     other.user(TOKEN, DAVID);

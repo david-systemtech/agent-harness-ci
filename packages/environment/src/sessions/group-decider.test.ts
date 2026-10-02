@@ -18,14 +18,14 @@ import {
 const groupId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const otherId = "9f8e7d6c-5b4a-4c3d-8e2f-1a0b9c8d7e6f";
 
-const group = (fields: Partial<GroupState> = {}): GroupState => ({ deleted: false, name: "Brandsolidate", orderKey: null, ...fields });
+const group = (fields: Partial<GroupState> = {}): GroupState => ({ deleted: false, name: "Meadowstudios", orderKey: null, ...fields });
 const free = { nameHeldBy: null };
 const heldBy = (id: string, name: string) => ({ nameHeldBy: { id, name } });
 
 describe("group names", () => {
   it("keeps a name trimmed with every run of white space one space, and keys it lowercased", () => {
-    expect(normaliseGroupName("  Cool \t Jams\n\n and  friends ")).toBe("Cool Jams and friends");
-    expect(groupNameKey("  COOL   jams ")).toBe("cool jams");
+    expect(normaliseGroupName("  Moon \t Gems\n\n and  friends ")).toBe("Moon Gems and friends");
+    expect(groupNameKey("  MOON   gems ")).toBe("moon gems");
   });
 });
 
@@ -49,9 +49,9 @@ describe("deciding group commands", () => {
   });
 
   it("renames: its own name normalised is unchanged, its own name in another case is a rename, another group's is name_taken", () => {
-    expect(decideRenameGroup(group(), { groupId, name: " Brandsolidate " }, heldBy(groupId, "Brandsolidate"))).toEqual({ events: [] });
-    expect(decideRenameGroup(group(), { groupId, name: "BRANDSOLIDATE" }, heldBy(groupId, "Brandsolidate"))).toEqual({
-      events: [{ type: "group.renamed", payload: { name: "BRANDSOLIDATE" } }],
+    expect(decideRenameGroup(group(), { groupId, name: " Meadowstudios " }, heldBy(groupId, "Meadowstudios"))).toEqual({ events: [] });
+    expect(decideRenameGroup(group(), { groupId, name: "MEADOWSTUDIOS" }, heldBy(groupId, "Meadowstudios"))).toEqual({
+      events: [{ type: "group.renamed", payload: { name: "MEADOWSTUDIOS" } }],
     });
     expect(decideRenameGroup(group(), { groupId, name: "other" }, heldBy(otherId, "Other"))).toMatchObject({
       rejected: { code: "conflict", data: { reason: "name_taken", name: "other", heldName: "Other", groupId: otherId } },

@@ -53,8 +53,8 @@ const shown = (runtime: Runtime) => {
 
 describe("the connection descriptor's name, icon and colour", () => {
   it("are read from discovery and hello, and projections.environments shows them", async () => {
-    const { runtime } = await paired({ name: "MNL", icon: "server", colour: "teal" });
-    expect(shown(runtime)).toEqual({ name: "MNL", icon: "server", colour: "teal" });
+    const { runtime } = await paired({ name: "LAB", icon: "server", colour: "teal" });
+    expect(shown(runtime)).toEqual({ name: "LAB", icon: "server", colour: "teal" });
   });
 
   it("are null for an environment that sends no icon or colour, one from before them", async () => {
@@ -63,7 +63,7 @@ describe("the connection descriptor's name, icon and colour", () => {
   });
 
   it("connect to a newer environment whose icon or colour this build does not know, reading them as none", async () => {
-    const s = runtimeOn({ name: "MNL" });
+    const s = runtimeOn({ name: "LAB" });
     s.wire.discovery({ environmentIcon: "phone", environmentColour: "magenta" } as never);
     await s.runtime.start();
     const adding = s.runtime.connections.add({ link: s.wire.link });
@@ -71,45 +71,45 @@ describe("the connection descriptor's name, icon and colour", () => {
     (await subscription(s.wire, "sessions.subscribe")).synchronized(0);
     await adding;
     expect(s.runtime.connections.list.read()[0]?.phase).toBe("ready");
-    expect(shown(s.runtime)).toEqual({ name: "MNL", icon: null, colour: null });
+    expect(shown(s.runtime)).toEqual({ name: "LAB", icon: null, colour: null });
   });
 
   it("take what hello says over the discovery read before it", async () => {
-    const s = runtimeOn({ name: "MNL", icon: "server", colour: "teal" });
+    const s = runtimeOn({ name: "LAB", icon: "server", colour: "teal" });
     await s.runtime.start();
     const adding = s.runtime.connections.add({ link: s.wire.link });
-    await s.wire.server.accept({ environmentName: "MNL box", environmentIcon: "nas", environmentColour: "amber" });
+    await s.wire.server.accept({ environmentName: "LAB box", environmentIcon: "nas", environmentColour: "amber" });
     (await subscription(s.wire, "sessions.subscribe")).synchronized(0);
     await adding;
-    expect(shown(s.runtime)).toEqual({ name: "MNL box", icon: "nas", colour: "amber" });
+    expect(shown(s.runtime)).toEqual({ name: "LAB box", icon: "nas", colour: "amber" });
   });
 
   it("follow environment.subscribe's snapshot", async () => {
-    const { runtime, environment } = await paired({ name: "MNL", icon: "server", colour: "teal" });
+    const { runtime, environment } = await paired({ name: "LAB", icon: "server", colour: "teal" });
     environment.snapshot(12, {
       status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
-      environment: { name: "SYSTEM-SERVER", icon: "lab", colour: "lime" },
+      environment: { name: "SAMPLE-SERVER", icon: "lab", colour: "lime" },
     });
     environment.synchronized(12);
     await flush();
-    expect(shown(runtime)).toEqual({ name: "SYSTEM-SERVER", icon: "lab", colour: "lime" });
+    expect(shown(runtime)).toEqual({ name: "SAMPLE-SERVER", icon: "lab", colour: "lime" });
   });
 
   it("take a rename, an icon and a colour another client set, live, with no notice", async () => {
-    const { runtime, wire, environment } = await paired({ name: "MNL", icon: "server", colour: "teal" });
+    const { runtime, wire, environment } = await paired({ name: "LAB", icon: "server", colour: "teal" });
     environment.synchronized(4);
     await flush();
     const seen: unknown[] = [];
     runtime.projections.environments.subscribe((views) => seen.push(views[0]?.name));
 
-    environment.event(noticeEvent(5, wire.environmentId, "environment.renamed", { name: "MNL box" }));
+    environment.event(noticeEvent(5, wire.environmentId, "environment.renamed", { name: "LAB box" }));
     await flush();
-    expect(shown(runtime)).toEqual({ name: "MNL box", icon: "server", colour: "teal" });
+    expect(shown(runtime)).toEqual({ name: "LAB box", icon: "server", colour: "teal" });
     environment.event(noticeEvent(6, wire.environmentId, "environment.icon-set", { icon: "nas" }));
     environment.event(noticeEvent(7, wire.environmentId, "environment.colour-set", { colour: "amber" }));
     await flush();
-    expect(shown(runtime)).toEqual({ name: "MNL box", icon: "nas", colour: "amber" });
-    expect(seen).toContain("MNL box");
+    expect(shown(runtime)).toEqual({ name: "LAB box", icon: "nas", colour: "amber" });
+    expect(seen).toContain("LAB box");
     expect(runtime.projections.notices.read()).toEqual([]);
   });
 
@@ -127,17 +127,17 @@ describe("the connection descriptor's name, icon and colour", () => {
   });
 
   it("are saved with the connection, so the next start shows them before any socket", async () => {
-    const first = await paired({ name: "MNL", icon: "server", colour: "teal" });
+    const first = await paired({ name: "LAB", icon: "server", colour: "teal" });
     first.environment.synchronized(0);
-    first.environment.event(noticeEvent(1, first.wire.environmentId, "environment.renamed", { name: "MNL box" }));
+    first.environment.event(noticeEvent(1, first.wire.environmentId, "environment.renamed", { name: "LAB box" }));
     first.environment.event(noticeEvent(2, first.wire.environmentId, "environment.colour-set", { colour: "violet" }));
     await flush();
     await first.runtime.close();
 
-    const second = runtimeOn({ name: "MNL box", icon: "server", colour: "violet" }, { clock: first.clock, documents: first.documents, environmentId: first.wire.environmentId });
+    const second = runtimeOn({ name: "LAB box", icon: "server", colour: "violet" }, { clock: first.clock, documents: first.documents, environmentId: first.wire.environmentId });
     second.wire.discovery("unreachable");
     void second.runtime.start();
     await flush();
-    expect(shown(second.runtime)).toEqual({ name: "MNL box", icon: "server", colour: "violet" });
+    expect(shown(second.runtime)).toEqual({ name: "LAB box", icon: "server", colour: "violet" });
   });
 });

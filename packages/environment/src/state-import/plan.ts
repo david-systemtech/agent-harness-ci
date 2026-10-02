@@ -1,6 +1,8 @@
+import { planBanks, BANK_REGISTRY_LABEL, type PlanBanksOptions } from "./banks.js";
 import type { StateImportCarried, StateImportClientLocal, StateImportFailure, StateImportLater, StateImportNotCarried, StateImportReEnter, StateImportReport } from "@agent-harness/contracts";
 import { mappedTarget, type ImportItem, type ItemsApplied } from "./items.js";
 import { defaultAccountItem, planAccounts, type PlanAccountsOptions } from "./accounts.js";
+import { planSkills, type PlanSkillsOptions } from "./skills.js";
 import { planRoutines, type PlanRoutinesOptions } from "./routines.js";
 import { planInstructions, type PlanInstructionsOptions } from "./instructions.js";
 import { planPagePolicy, type PagePolicyOwner } from "./page-policy.js";
@@ -25,6 +27,7 @@ interface PlannedStore {
   readonly dependencies?: readonly StoreSnapshot[];
   readonly label: string;
   readonly items: readonly ImportItem[];
+  readonly directories?: readonly { readonly sourceId: string; readonly directory: string }[];
   readonly notCarried?: readonly StateImportNotCarried[];
   readonly later?: readonly StateImportLater[];
 }
@@ -33,6 +36,7 @@ export interface ImportPlan {
   /** The source folder's canonical path: what the import's events name it by. */
   readonly sourceKey: string;
   readonly stores: readonly PlannedStore[];
+  readonly accountIds?: ReadonlyMap<string, string>;
   /** What fails before any item is applied: a store that could not be read, an item its owner's bounds refuse or that waits for a mapping. */
   readonly failed: readonly StateImportFailure[];
   /** Repair links read from the owners after application, or anticipated for the preview's new targets. */
@@ -43,6 +47,8 @@ export interface ImportPlan {
 }
 
 /** Every item the plan carries, in order. */
+export const directoriesOf = (plan: ImportPlan) => plan.stores.flatMap((store) => store.directories ?? []);
+
 export const itemsOf = (plan: ImportPlan): readonly ImportItem[] => plan.stores.flatMap((store) => store.items);
 
 /** A plan with nothing to carry from `sourceKey`: a source with a terminal-client state folder alone. */
@@ -51,14 +57,14 @@ export const emptyPlan = (sourceKey: string): ImportPlan => ({ sourceKey, stores
 const INSTRUCTIONS = "Instructions";
 const PREFERENCES = "Desktop preferences";
 
-export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanRoutinesOptions, "sourceKey" | "accountPlan" | "routineNames"> & PagePolicyOwner): Promise<ImportPlan> => {
-  const { sourceKey, instructions, preferences, profiles, browser } = stores;
+export const planImport = async (stores: SourceStores, options: Omit<PlanInstructionsOptions, "sourceKey"> & Omit<PlanAccountsOptions, "sourceKey"> & Omit<PlanBanksOptions, "sourceKey"> & Omit<PlanSkillsOptions, "sourceKey"> & Omit<PlanRoutinesOptions, "sourceKey" | "accountPlan" | "routineNames"> & PagePolicyOwner): Promise<ImportPlan> => {
+  const { sourceKey, instructions, preferences, profiles, browser, banks, skills } = stores;
   const failed: StateImportFailure[] = [];
   const notCarried: StateImportNotCarried[] = [];
   const planned: PlannedStore[] = [];
   const accounts = profiles.status === "read" ? await planAccounts(profiles.records, { ...options, sourceKey }) : undefined;
   if (accounts !== undefined && profiles.status === "read") {
-    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items });
+    planned.push({ snapshot: profiles.snapshot, label: "Accounts", items: accounts.items, directories: accounts.listed.filter((entry) => entry.failure === null && accounts.accountIds.has(entry.sourceId)).map((entry) => ({ sourceId: entry.sourceId, directory: entry.observation?.directory ?? entry.directory })) });
     failed.push(...accounts.failed);
   } else if (profiles.status === "failed") failed.push({ label: "Accounts", message: profiles.diagnostic });
   if (instructions.status === "failed") failed.push({ label: INSTRUCTIONS, message: instructions.diagnostic });
@@ -67,6 +73,12 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: instructions.snapshot, label: INSTRUCTIONS, items: plan.items });
     failed.push(...plan.failed);
     notCarried.push(...plan.notCarried);
+  }
+  if (skills.status === "failed") failed.push({ label: "Skills", message: skills.diagnostic });
+  else {
+    const plan = await planSkills(skills.records, { ...options, sourceKey, accountIds: accounts?.accountIds, profileIds: profiles.status === "read" ? profiles.records.sourceIds : [] });
+    planned.push({ snapshot: skills.snapshot, label: "Skills", items: plan.items });
+    failed.push(...plan.failed);
   }
   let clientLocal: StateImportClientLocal = {};
   if (preferences.status === "failed") failed.push({ label: PREFERENCES, message: preferences.diagnostic });
@@ -107,7 +119,12 @@ export const planImport = async (stores: SourceStores, options: Omit<PlanInstruc
     planned.push({ snapshot: browser.snapshot, label: "Browser policy", items: policy.items, notCarried: pairings });
     failed.push(...policy.failed);
   }
-  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal }, stores.reportStores);
+  const bankPlan = banks.status === "read" ? await planBanks(banks.records, { ...options, sourceKey, accountIds: accounts?.accountIds }) : null;
+  if (bankPlan !== null && banks.status === "read") {
+    planned.push({ snapshot: banks.snapshot, ...(profiles.status === "read" && bankPlan.items.length > 0 && { dependencies: [profiles.snapshot] }), label: BANK_REGISTRY_LABEL, items: bankPlan.items });
+    failed.push(...bankPlan.failed);
+  } else if (banks.status === "failed") failed.push({ label: "Bank registry", message: banks.diagnostic });
+  return includeReportStores({ sourceKey, stores: planned, failed, notCarried, clientLocal, accountIds: accounts?.accountIds ?? new Map(), ...(bankPlan !== null && { repairs: bankPlan.repairs }) }, stores.reportStores);
 };
 
 /** Omission-only stores still participate in byte consistency and scrubbed store failures. */
@@ -165,13 +182,14 @@ const NOTHING_CARRIED: StateImportCarried = {
 
 /** The report of a plan: for a dry run, what it would carry; for an import, what `applied` says it carried and what failed. */
 export const reportOf = (plan: ImportPlan, applied: ItemsApplied | null): StateImportReport => {
-  const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false) : applied.carried;
+  const carriedItems = applied === null ? itemsOf(plan).filter((item) => item.counted !== false && item.previewFailure === undefined) : applied.carried;
+  const heldDrafts = applied === null ? itemsOf(plan).filter((item) => item.kind === "draft" && item.counted === false).length : applied.heldDrafts ?? 0;
   return {
-    carried: { ...NOTHING_CARRIED, routines: carriedItems.filter((item) => item.kind === "routine").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
+    carried: { ...NOTHING_CARRIED, banks: carriedItems.filter((item) => item.kind === "bank").length, skillSources: carriedItems.filter((item) => item.kind === "skill-source" && item.contributes?.() !== false).length, alwaysOnSkills: carriedItems.filter((item) => item.kind === "skill-always-on" && item.contributes?.() !== false).length, routines: carriedItems.filter((item) => item.kind === "routine").length, archived: carriedItems.filter((item) => item.kind === "archive").length, pins: carriedItems.filter((item) => item.kind === "pin").length, groups: carriedItems.filter((item) => item.kind === "group").length, drafts: carriedItems.filter((item) => item.kind === "draft").length, accounts: carriedItems.filter((item) => item.kind === "account" && item.contributes?.() !== false).length, instructions: carriedItems.filter((item) => item.kind === "instruction").length, forgeAccounts: carriedItems.filter((item) => item.kind === "forge-account").length, devSites: carriedItems.filter((item) => item.kind === "dev-site").length, keyManagerConnections: carriedItems.filter((item) => item.kind === "key-manager-connection").length },
     reEnter: [...(plan.repairs?.(applied === null) ?? [])],
     later: plan.stores.flatMap((store) => store.later ?? []),
-    notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? [])],
-    failed: [...plan.failed, ...(applied?.failed ?? [])],
+    notCarried: [...plan.notCarried, ...plan.stores.flatMap((store) => store.notCarried ?? []), ...(heldDrafts > 0 ? [{ label: "Held drafts", count: heldDrafts, step: null }] : [])],
+    failed: [...plan.failed, ...(applied === null ? itemsOf(plan).flatMap((item) => item.previewFailure === undefined ? [] : [item.previewFailure]) : applied.failed)],
     clientLocal: plan.clientLocal,
     dryRun: applied === null,
   };

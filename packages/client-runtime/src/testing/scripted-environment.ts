@@ -184,7 +184,7 @@ export interface ScriptedEnvironment {
    */
   readonly addSignIn?: { readonly started: boolean; readonly message: string | null };
   /**
-   * What `accounts.probe` reads of the machine's own Claude directory, `/home/seth/.claude`, which `accounts.adopt`
+   * What `accounts.probe` reads of the machine's own Claude directory, `/home/milo/.claude`, which `accounts.adopt`
    * adopts while it is there and signed in: preset not there.
    */
   readonly ambient?: Partial<AmbientProbe>;
@@ -461,7 +461,7 @@ const summaryOf = (clock: ManualClock, partial: Partial<SessionSummary>, index: 
     unsettledAt: null,
     snoozedUntil: null,
     snoozedAt: null,
-    workspace: { kind: "directory", path: "/home/seth/code" },
+    workspace: { kind: "directory", path: "/home/milo/code" },
     repositoryIdentity: null,
     workspaceMissingSince: null,
     activity: { state: "idle", since: at },
@@ -1438,7 +1438,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
       id: `account-${i + 1}`,
       provider: "claude",
       label: `account ${i + 1}`,
-      directory: { kind: "adopted", path: `/home/seth/.account-${i + 1}` },
+      directory: { kind: "adopted", path: `/home/milo/.account-${i + 1}` },
       identity: null,
       status: { state: "signed-in", checkedAt: null, detail: null },
       createdAt: clock.now().toISOString(),
@@ -1456,7 +1456,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   // The account store's commands (claude-adapter spec, "The account store"): each change said with `account.updated`.
   let ambient = checked(AmbientProbe, {
     provider: "claude",
-    directory: "/home/seth/.claude",
+    directory: "/home/milo/.claude",
     present: false,
     signedIn: false,
     identity: null,
@@ -1556,7 +1556,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
   };
   const startSignIn = (accountId: string): SignIn => {
     const account = accounts.find((a) => a.id === accountId);
-    const directory = account?.directory.path ?? "/home/seth/.agent-harness/accounts/new";
+    const directory = account?.directory.path ?? "/home/milo/.agent-harness/accounts/new";
     const startedAt = clock.now();
     signIn = checked(SignIn, {
       accountId,
@@ -1584,7 +1584,7 @@ const scripted = (clock: ManualClock, spec: ScriptedEnvironment, index: number) 
     const id = ++accountsMinted;
     const label = String(params["label"]);
     const running = runningSignIn();
-    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/seth/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
+    const account = accountOf({ id: `account-${id}`, label, directory: { kind: "owned", path: `/home/milo/.agent-harness/accounts/${id}` }, status: { state: "signed-out", checkedAt: null, detail: null } }, accounts.length);
     accounts.push(account);
     const start =
       spec.addSignIn ?? (running === null ? { started: true, message: null } : { started: false, message: `${heldMessage(running)} Sign ${label} in with accounts.signin.start once it has.` });

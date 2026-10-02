@@ -17,7 +17,7 @@ import type { Tx } from "../event-log/event-log.js";
  * Undo takes the newest completed record, by number and, among one call's
  * files, by path descending; consuming it drops its bytes, and the record
  * stays, so `diffs.session` can leave its change out. A session keeps the
- * bytes of its newest 50 restorable records within 16 MiB: past either, the
+ * bytes of its newest 50 restorable records (including absence) within 16 MiB: past either, the
  * oldest lose them and become unrestorable (`evicted`). Since undo never
  * passes the newest unrestorable record, every completed record older than
  * it can never be undone, and is removed.
@@ -96,8 +96,10 @@ export interface FileChangeTable {
   record(changeId: string): (ChangeRecord & { readonly state: string }) | null;
   /** Marks the record undone and drops its bytes. */
   consume(tx: Tx, changeId: string): void;
-  /** The tool calls whose changes in the session were undone. */
+  /** The tool calls whose files were all undone. */
   undoneCalls(sessionId: string): ReadonlySet<string>;
+  /** The consumed paths of each tool call, including calls whose other files remain. */
+  undonePaths(sessionId: string): ReadonlyMap<string, ReadonlySet<string>>;
   /** Removes every record of the session: its purge. */
   purgeSession(tx: Tx, sessionId: string): void;
   journal(tx: Tx, entry: JournalEntry): void;
@@ -157,7 +159,7 @@ export const createFileChangeTable = (sql: Sql, requireTx: (tx: Tx) => void): Fi
   /** Drops the bytes of the records past the session's bounds, then removes every completed record behind the newest unrestorable one. */
   const holdToBounds = (sessionId: string): void => {
     const holding = sql.all<{ change_id: string; bytes: number }>(
-      `SELECT change_id, length(pre) AS bytes FROM file_changes WHERE session_id = ? AND state = 'completed' AND pre IS NOT NULL ${NEWEST_FIRST}`,
+      `SELECT change_id, COALESCE(length(pre), 0) AS bytes FROM file_changes WHERE session_id = ? AND state = 'completed' AND unrestorable IS NULL AND (pre IS NOT NULL OR existed = 0) ${NEWEST_FIRST}`,
       sessionId,
     );
     let kept = 0;
@@ -268,7 +270,23 @@ export const createFileChangeTable = (sql: Sql, requireTx: (tx: Tx) => void): Fi
       sql.run("UPDATE file_changes SET state = 'consumed', pre = NULL, pre_mode = NULL WHERE change_id = ?", changeId);
     },
     undoneCalls: (sessionId) =>
-      new Set(sql.all<{ tool_call_id: string }>("SELECT DISTINCT tool_call_id FROM file_changes WHERE session_id = ? AND state = 'consumed'", sessionId).map((row) => row.tool_call_id)),
+      new Set(
+        sql.all<{ tool_call_id: string }>(
+          `SELECT DISTINCT tool_call_id FROM file_changes AS consumed WHERE session_id = ? AND state = 'consumed'
+             AND NOT EXISTS (SELECT 1 FROM file_changes AS remaining WHERE remaining.session_id = consumed.session_id
+               AND remaining.tool_call_id = consumed.tool_call_id AND remaining.state != 'consumed')`,
+          sessionId,
+        ).map((row) => row.tool_call_id),
+      ),
+    undonePaths(sessionId) {
+      const byCall = new Map<string, Set<string>>();
+      for (const row of sql.all<{ tool_call_id: string; path: string }>("SELECT tool_call_id, path FROM file_changes WHERE session_id = ? AND state = 'consumed'", sessionId)) {
+        const paths = byCall.get(row.tool_call_id) ?? new Set<string>();
+        paths.add(row.path);
+        byCall.set(row.tool_call_id, paths);
+      }
+      return byCall;
+    },
     purgeSession(tx, sessionId) {
       requireTx(tx);
       sql.run("DELETE FROM file_changes WHERE session_id = ?", sessionId);

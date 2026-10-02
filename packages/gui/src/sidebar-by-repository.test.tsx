@@ -18,8 +18,8 @@ import { LAPTOP_ID, TRAIN, desk, drag, drawn, heading, inUtc, laptop, lineOf, re
 inUtc();
 
 const HARNESS = "https://git.systemtech.dev/david/agent-harness";
-const SITE_ON_GITHUB = "https://github.com/brandsolidate/site";
-const SITE_ON_FORGE = "https://git.example.test/brandsolidate/site";
+const SITE_ON_GITHUB = "https://github.com/meadowstudios/site";
+const SITE_ON_FORGE = "https://git.example.test/meadowstudios/site";
 
 /** The fixtures' sessions, each given the repository identity its title names here, else none. */
 const identified = (sessions: ScriptedEnvironment["sessions"], identities: Readonly<Record<string, string>>) =>
@@ -43,19 +43,19 @@ describe("the switch", () => {
   it("shows the sidebar by repository or by groups, and the choice is presentation that survives a remount", async () => {
     const app = await settled(await inRepositories());
     expect(byRepository().getAttribute("aria-checked")).toBe("false");
-    expect(drawn()).toContain("▾ Brandsolidate");
+    expect(drawn()).toContain("▾ Meadowstudios");
 
     await app.user.click(byRepository());
     expect(drawn()).toEqual([
       "▾ Pinned",
       "  Pinned one",
       "  Laptop pin",
-      "▾ git.example.test/brandsolidate/site",
+      "▾ git.example.test/meadowstudios/site",
       "  Brand on laptop",
       "▾ david/agent-harness",
       "  Fix the rail #wip",
       "  Train tidy ?2",
-      "▾ github.com/brandsolidate/site",
+      "▾ github.com/meadowstudios/site",
       "  Brand copy",
       "desk · no repository",
       "  Spare",
@@ -72,7 +72,7 @@ describe("the switch", () => {
     expect(drawn()).toContain("▾ david/agent-harness");
 
     await app.user.click(byRepository());
-    expect(drawn()).toContain("▾ Brandsolidate");
+    expect(drawn()).toContain("▾ Meadowstudios");
     expect(drawn()).not.toContain("▾ david/agent-harness");
   });
 });
@@ -94,9 +94,9 @@ describe("a repository's heading", () => {
 
   it("is labelled with the identity's path, and with the host when two headings share a path", async () => {
     await settled(await inRepositories({ presentation: { sidebarView: "repositories" } }));
-    expect(within(region("github.com/brandsolidate/site")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand copy"]);
-    expect(within(region("git.example.test/brandsolidate/site")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand on laptop"]);
-    expect(within(sidebar()).queryByRole("region", { name: "brandsolidate/site" })).toBeNull();
+    expect(within(region("github.com/meadowstudios/site")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand copy"]);
+    expect(within(region("git.example.test/meadowstudios/site")).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Brand on laptop"]);
+    expect(within(sidebar()).queryByRole("region", { name: "meadowstudios/site" })).toBeNull();
     expect(within(sidebar()).queryByRole("region", { name: "git.systemtech.dev/david/agent-harness" })).toBeNull();
   });
 
@@ -149,7 +149,7 @@ describe("an environment's last heading", () => {
     expect(within(desk).getAllByRole("listitem").map((line) => line.textContent?.trim())).toEqual(["Spare"]);
     expect(within(desk).getAllByRole("img")[0]?.style.color).toBe("var(--environment-teal)");
     const headings = drawn().filter((line) => !line.startsWith("  "));
-    expect(headings.indexOf("desk · no repository")).toBeGreaterThan(headings.indexOf("▾ github.com/brandsolidate/site"));
+    expect(headings.indexOf("desk · no repository")).toBeGreaterThan(headings.indexOf("▾ github.com/meadowstudios/site"));
     expect(headings.indexOf("laptop · no repository")).toBe(headings.indexOf("desk · no repository") + 1);
     expect(within(region("laptop · no repository")).queryAllByRole("listitem")).toEqual([]);
   });

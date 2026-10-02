@@ -89,15 +89,15 @@ describe("repositories", () => {
 
   it("creates one under an organisation after reading it, the user's own when the organisation named is the user's login, and nothing when the organisation cannot be read", async () => {
     const { t, forge } = await withAccount();
-    forge.answer(TOKEN, "GET /api/v1/orgs/systemtech", { status: 200, body: { username: "systemtech" } });
-    forge.answer(TOKEN, "POST /api/v1/orgs/systemtech/repos", { status: 201, body: repositoryBody(forge, "systemtech/team-bank") });
+    forge.answer(TOKEN, "GET /api/v1/orgs/exampleorg", { status: 200, body: { username: "exampleorg" } });
+    forge.answer(TOKEN, "POST /api/v1/orgs/exampleorg/repos", { status: 201, body: repositoryBody(forge, "exampleorg/team-bank") });
     forge.answer(TOKEN, "POST /api/v1/user/repos", { status: 201, body: repositoryBody(forge, "david/bank") });
     forge.answer(TOKEN, "GET /api/v1/orgs/elsewhere", { status: 404, body: { message: "Not Found" } });
     const from = forge.requests.length;
 
-    expect(await t.env.forge.repositories.create({ organisation: "systemtech", name: "team-bank", private: true, purpose: "create a team bank" })).toMatchObject({
+    expect(await t.env.forge.repositories.create({ organisation: "exampleorg", name: "team-bank", private: true, purpose: "create a team bank" })).toMatchObject({
       outcome: "done",
-      value: { fullName: "systemtech/team-bank" },
+      value: { fullName: "exampleorg/team-bank" },
     });
     expect(await t.env.forge.repositories.create({ organisation: "David", name: "bank", private: true, purpose: "create a bank" })).toMatchObject({
       outcome: "done",
@@ -109,8 +109,8 @@ describe("repositories", () => {
       message: `The forge at ${forge.origin} answered HTTP 404: Not Found.`,
     });
     expect(forge.requests.slice(from).map((request) => `${request.method} ${request.path}`)).toEqual([
-      "GET /api/v1/orgs/systemtech",
-      "POST /api/v1/orgs/systemtech/repos",
+      "GET /api/v1/orgs/exampleorg",
+      "POST /api/v1/orgs/exampleorg/repos",
       "POST /api/v1/user/repos",
       "GET /api/v1/orgs/elsewhere",
     ]);
@@ -118,20 +118,20 @@ describe("repositories", () => {
 
   it("learns createRepository failed on a 404 after its target was read, verified on a success, and failed again on a 403, one event for each change with its status", async () => {
     const { t, forge, client, account } = await withAccount();
-    forge.answer(TOKEN, "GET /api/v1/orgs/systemtech", { status: 200, body: {} });
+    forge.answer(TOKEN, "GET /api/v1/orgs/exampleorg", { status: 200, body: {} });
     const from = t.env.log.head();
-    const create = () => t.env.forge.repositories.create({ organisation: "systemtech", name: "bank", private: true, purpose: "create a bank" });
+    const create = () => t.env.forge.repositories.create({ organisation: "exampleorg", name: "bank", private: true, purpose: "create a bank" });
     const createRepository = async () => (await list(client))[0]?.capabilities.createRepository;
 
-    forge.answer(TOKEN, "POST /api/v1/orgs/systemtech/repos", { status: 404 });
+    forge.answer(TOKEN, "POST /api/v1/orgs/exampleorg/repos", { status: 404 });
     expect(await create()).toMatchObject({ outcome: "failed", status: 404 });
     expect(await createRepository()).toEqual({ state: "failed", verifiedAt: null, status: 404 });
     // A refusal that says nothing of the capability (a name taken) teaches nothing.
-    forge.answer(TOKEN, "POST /api/v1/orgs/systemtech/repos", { status: 409, body: { message: "The repository with the same name already exists." } });
+    forge.answer(TOKEN, "POST /api/v1/orgs/exampleorg/repos", { status: 409, body: { message: "The repository with the same name already exists." } });
     expect(await create()).toMatchObject({ outcome: "failed", status: 409 });
-    forge.answer(TOKEN, "POST /api/v1/orgs/systemtech/repos", { status: 201, body: repositoryBody(forge, "systemtech/bank") });
+    forge.answer(TOKEN, "POST /api/v1/orgs/exampleorg/repos", { status: 201, body: repositoryBody(forge, "exampleorg/bank") });
     expect(await create()).toMatchObject({ outcome: "done" });
-    forge.answer(TOKEN, "POST /api/v1/orgs/systemtech/repos", { status: 403, body: { message: "token does not have at least one of required scope(s)" } });
+    forge.answer(TOKEN, "POST /api/v1/orgs/exampleorg/repos", { status: 403, body: { message: "token does not have at least one of required scope(s)" } });
     expect(await create()).toMatchObject({ outcome: "failed", status: 403 });
     expect(await create()).toMatchObject({ outcome: "failed", status: 403 });
 

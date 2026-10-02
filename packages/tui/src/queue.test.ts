@@ -36,7 +36,7 @@ const SOME_MESSAGE = "0199a200-0000-4000-8000-000000000003";
 
 const launch = async (environment: Partial<ScriptedEnvironment> = {}, extra: Partial<Parameters<typeof renderApp>[0]> = {}) => {
   const app = await renderApp({
-    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }], ...environment }] },
+    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }], ...environment }] },
     flags: { session: SESSION },
     ...extra,
   });

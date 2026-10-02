@@ -236,9 +236,9 @@ describe("the presentation", () => {
     const first = await openPresentation(documents);
     expect(first.values.read()).toMatchObject({ sidebarShown: true, collapsedHeadings: {} });
     first.set("sidebarShown", false);
-    first.set("collapsedHeadings", { "group:brandsolidate": true, "shelf:settled": false });
+    first.set("collapsedHeadings", { "group:meadowstudios": true, "shelf:settled": false });
     await first.close();
-    expect((await openPresentation(documents)).values.read()).toMatchObject({ sidebarShown: false, collapsedHeadings: { "group:brandsolidate": true, "shelf:settled": false } });
+    expect((await openPresentation(documents)).values.read()).toMatchObject({ sidebarShown: false, collapsedHeadings: { "group:meadowstudios": true, "shelf:settled": false } });
 
     const reported: unknown[] = [];
     const odd = inMemoryDocuments();

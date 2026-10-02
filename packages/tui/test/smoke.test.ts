@@ -55,7 +55,7 @@ const noService: LocalService = {
  * environment's check of a new session's directory wants (#325).
  */
 const terminal = (dataDir: string, stateDir: string, tty: string, session?: string) => {
-  const platform = nodePlatform({ stateDir, dataDir, version: "0.0.0-smoke", identity: { user: "seth", host: "desk", tty } });
+  const platform = nodePlatform({ stateDir, dataDir, version: "0.0.0-smoke", identity: { user: "milo", host: "desk", tty } });
   const host = createRuntimeHost(() => createRuntime(platform));
   let ids = 0;
   const app = render(
@@ -128,8 +128,8 @@ describe("the terminal UI through the real spine", { concurrent: false, timeout:
     const [local] = runtime.connections.list.read();
     const listed = await runtime.requests.call(local?.environmentId ?? "", "access.sessions.list", { live: true });
     if (!listed.ok) throw new Error(listed.error.message);
-    const terminals = listed.result.sessions.filter((s) => s.kind === "tui" && s.local && s.label.startsWith("seth@desk:"));
-    expect(terminals.map((s) => s.label).sort()).toEqual(["seth@desk:pts/1", "seth@desk:pts/2"]);
+    const terminals = listed.result.sessions.filter((s) => s.kind === "tui" && s.local && s.label.startsWith("milo@desk:"));
+    expect(terminals.map((s) => s.label).sort()).toEqual(["milo@desk:pts/1", "milo@desk:pts/2"]);
     expect(one.host.current.read().connections.list.read()[0]?.phase).toBe("ready");
     expect(two.host.current.read().connections.list.read()[0]?.phase).toBe("ready");
   });

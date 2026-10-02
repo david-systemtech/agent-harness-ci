@@ -96,7 +96,7 @@ describe("the headings", () => {
 
   it("come pinned, the merged groups, each environment's ungrouped sessions, snoozed with wake times, then settled and the archive folded", () => {
     const pinned = row("laptop", { title: "Pinned on the laptop" });
-    const grouped = [row("desk", { title: "Brand on the desk" }, { groupName: "Brandsolidate" }), row("laptop", { title: "Brand on the laptop" }, { groupName: "brandsolidate" })];
+    const grouped = [row("desk", { title: "Brand on the desk" }, { groupName: "Meadowstudios" }), row("laptop", { title: "Brand on the laptop" }, { groupName: "meadowstudios" })];
     const loose = row("desk", { title: "Loose" });
     const snoozed = row("desk", { title: "Later", snoozedUntil: "2026-09-24T14:00:00.000Z" });
     const settled = row("desk", { title: "Done" });
@@ -110,14 +110,14 @@ describe("the headings", () => {
           snoozed: [snoozed],
           settled: [settled],
           archived: [archived],
-          groups: [group("brandsolidate", "Brandsolidate", grouped)],
+          groups: [group("meadowstudios", "Meadowstudios", grouped)],
         }),
       }),
     );
     expect(read(headings)).toEqual([
       "▾ Pinned",
       "  Pinned on the laptop",
-      "▾ Brandsolidate",
+      "▾ Meadowstudios",
       "  Brand on the desk",
       "  Brand on the laptop",
       "desk",
@@ -131,7 +131,7 @@ describe("the headings", () => {
     ]);
     expect(headings.map((heading) => heading.key)).toEqual([
       "block:pinned",
-      "group:brandsolidate",
+      "group:meadowstudios",
       "environment:desk",
       "environment:laptop",
       "shelf:snoozed",
@@ -254,7 +254,7 @@ describe("by repository", () => {
 
   it("come pinned, one per repository across environments under the list's label, each environment's sessions with no identity last, then the shelves", () => {
     const pinned = row("desk", { title: "Pinned", repositoryIdentity: SITE });
-    const onDesk = row("desk", { title: "Harness on the desk", repositoryIdentity: HARNESS }, { groupName: "Brandsolidate" });
+    const onDesk = row("desk", { title: "Harness on the desk", repositoryIdentity: HARNESS }, { groupName: "Meadowstudios" });
     const onLaptop = row("laptop", { title: "Harness on the laptop", repositoryIdentity: HARNESS });
     const site = row("laptop", { title: "Site", repositoryIdentity: SITE });
     const loose = row("desk", { title: "Loose", repositoryIdentity: null });
@@ -267,7 +267,7 @@ describe("by repository", () => {
           pinned: [pinned],
           active: [onDesk, onLaptop, site, loose],
           archived: [archived],
-          groups: [group("brandsolidate", "Brandsolidate", [onDesk])],
+          groups: [group("meadowstudios", "Meadowstudios", [onDesk])],
           repositories: [repository(HARNESS, "david/agent-harness", [onDesk, onLaptop]), repository(SITE, "david/site", [site])],
         }),
         folded: { "shelf:archive": false },

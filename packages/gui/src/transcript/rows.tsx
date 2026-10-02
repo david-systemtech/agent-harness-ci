@@ -3,6 +3,7 @@ import {
   checkStatus,
   endWords,
   environmentMessage,
+  fileUndoWords,
   oneLine,
   promptsIn,
   turnFacts,
@@ -87,6 +88,8 @@ export const TranscriptRowView = ({ row, facts }: { readonly row: TranscriptRow;
           )}
         </article>
       );
+    case "file-undo":
+      return <p className="text-[0.85em] text-ink-muted"><Marked text={fileUndoWords(row.entry)} /></p>;
     case "check":
       return (
         <article aria-label="Workspace check" className="flex flex-col gap-1 text-[0.85em] text-ink-muted">

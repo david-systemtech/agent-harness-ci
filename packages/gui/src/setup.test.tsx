@@ -513,7 +513,7 @@ describe("a step's named actions on their targets", () => {
     await app.user.click(within(forges).getByRole("button", { name: `${action === "install" ? "Install" : "Update"} gh in a tool terminal` }));
     const terminal = await within(forges).findByRole("region", { name: `${action === "install" ? "Installing" : "Updating"} GitHub CLI` });
     expect(desk.requests("tools.run").map((request) => request.params)).toEqual([{ commandId: expect.any(String), id: expect.any(String), tool: "gh", action }]);
-    await waitFor(() => expect(terminal.textContent).toContain("[sudo] password for seth:"));
+    await waitFor(() => expect(terminal.textContent).toContain("[sudo] password for milo:"));
     act(() => (terminal.querySelector("textarea") as HTMLTextAreaElement).focus());
     await app.user.keyboard("password-for-tests{Enter}");
     expect(await within(terminal).findByText("· exit 0")).toBeDefined();

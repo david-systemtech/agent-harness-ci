@@ -17,7 +17,7 @@ const connectionId = "9b2f4c1e-3d5a-4b6c-8d7e-0f1a2b3c4d5e";
 const otherId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const environmentId = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
 const at = "2026-09-24T01:02:03.456Z";
-const address = "https://bao.systemtech.dev:8200";
+const address = "https://bao.example.com:8200";
 const ca = "-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----\n";
 const entry = `key-manager:${connectionId}:${otherId}`;
 const approle = { method: "approle", roleId: "role-id-for-tests", secretId: "secret-id-for-tests" };
@@ -26,7 +26,7 @@ const token = { method: "token", token: "token-for-tests" };
 const signedIn = { kind: "signed-in", since: at, message: "Signed in to OpenBao as approle." };
 const awaiting = { kind: "awaiting-sign-in", since: at, message: "No credential on this environment: sign in in Set up, Key manager." };
 const tokenInformation = { displayName: "approle", policies: ["default", "agent-read"], ttlSeconds: 3600, renewable: true, expiresAt: at };
-const copiedFrom = { environmentId, environmentName: "SYSTEM-SERVER" };
+const copiedFrom = { environmentId, environmentName: "SAMPLE-SERVER" };
 const policies = [
   { name: "default", writes: "no" },
   { name: "agent-read", writes: "possibly" },
@@ -127,7 +127,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
   "key-managers/reference-provider-unavailable-error.json": { valid: [{ code: "provider_unavailable", message: "SDK unavailable for tests", data: { connectionId } }], invalid: [{ code: "provider_unavailable", message: "SDK unavailable for tests", data: {} }] },
   "key-managers/address.json": {
     valid: [address, "http://100.101.102.103:8200", "https://api.doppler.com"],
-    invalid: ["https://bao.systemtech.dev:8200/", "https://bao.systemtech.dev:443", "https://Bao.example.com", "bao.systemtech.dev:8200", "https://bao.example.com/v1", ""],
+    invalid: ["https://bao.example.com:8200/", "https://bao.example.com:443", "https://Bao.example.com", "bao.example.com:8200", "https://bao.example.com/v1", ""],
   },
   "key-managers/auth-method.json": { valid: ["approle", "userpass", "token"], invalid: ["AppRole", "oidc", ""] },
   "key-managers/mount.json": { valid: ["approle", "agents/approle"], invalid: ["", "/approle", "approle/", "a//b"] },
@@ -267,7 +267,7 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     invalid: [{ code: "verification_failed", message: "m", data: { connectionId } }, { code: "verification_failed", message: "m", data: { connectionId, reason: "expired" } }, { code: "sealed", message: "m", data: { connectionId, reason: "rejected" } }],
   },
   "errors/unreachable.json": {
-    valid: [{ code: "unreachable", message: "OpenBao at https://bao.systemtech.dev:8200 could not be reached.", data: { connectionId } }],
+    valid: [{ code: "unreachable", message: "OpenBao at https://bao.example.com:8200 could not be reached.", data: { connectionId } }],
     invalid: [{ code: "unreachable", message: "m", data: {} }, { code: "sealed", message: "m", data: { connectionId } }],
   },
   "errors/sealed.json": { valid: [{ code: "sealed", message: "OpenBao is sealed.", data: { connectionId } }], invalid: [{ code: "sealed", message: "m", data: { connectionId: "bao" } }] },
@@ -286,8 +286,8 @@ export const keyManagerSchemaFixtures: Record<string, Fixtures> = {
     ],
   },
   "key-managers/errors/address_unreachable.json": {
-    valid: [{ code: "unreachable", message: "https://bao.systemtech.dev:8200 could not be reached: connect ECONNREFUSED.", data: { address } }],
-    invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { address: "bao.systemtech.dev" } }],
+    valid: [{ code: "unreachable", message: "https://bao.example.com:8200 could not be reached: connect ECONNREFUSED.", data: { address } }],
+    invalid: [{ code: "unreachable", message: "m", data: { connectionId } }, { code: "unreachable", message: "m", data: { address: "bao.example.com" } }],
   },
   "key-managers/reference-display.json": {
     valid: [display, { provider: "doppler", label: null, locator: "FORGE_TOKEN (project harness, config prd)" }],

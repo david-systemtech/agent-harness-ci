@@ -123,6 +123,8 @@ export interface ComposerHost {
   readonly editText: (text: string) => Promise<string | undefined>;
   /** One line under the composer. */
   readonly say: (line: string) => void;
+  /** Empty Enter: start sending an offered check failure; true when initiated. */
+  readonly sendFailure?: (() => boolean) | undefined;
   /**
    * Enter with something typed: the host runs it, a command or a message.
    * `raw` is the text as it stands in the box (a command is read from it),
@@ -204,6 +206,7 @@ export const useComposer = (host: ComposerHost): Composer => {
     const state = box.current;
     const raw = state.editor.text;
     const message = outgoing(state);
+    if (raw.length === 0 && message.attachments.length === 0) return latest.current.sendFailure?.() ?? false;
     if (raw.trim().length === 0 && message.attachments.length === 0) return false;
     if (latest.current.submit(raw, message)) set(sent(box.current));
     return true;

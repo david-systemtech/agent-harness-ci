@@ -28,7 +28,7 @@ const REVIEW_TREE = "/data/worktrees/harness-0a1b2c3d/review";
 const HARNESS = "https://git.systemtech.dev/david/agent-harness";
 const at = (hours: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + hours * 3_600_000).toISOString();
 
-const WORK = { id: "account-1", label: "Work", identity: { provider: "claude", email: "seth@work.test", organisation: null } } as const;
+const WORK = { id: "account-1", label: "Work", identity: { provider: "claude", email: "milo@work.test", organisation: null } } as const;
 const OPUS = { accountId: "account-1", live: true, models: [{ id: "claude-opus-5", family: "opus", tier: 3, efforts: [], label: "Opus 5" }] };
 
 /** What desk's directories hold: its sessions' directories, a repository with a branch another worktree holds, and more to browse. */
@@ -43,12 +43,12 @@ const FOLDERS: ScriptedEnvironment["folders"] = {
       ],
     },
   },
-  "/home/seth/notes": {},
-  "/home/seth/code": { truncated: true },
-  "/home/seth/code/tools": { repository: { identity: null, branch: "trunk" } },
-  "/home/seth/code/site": {},
-  "/home/seth/.config": {},
-  "/home/seth/locked": { unreadable: true },
+  "/home/milo/notes": {},
+  "/home/milo/code": { truncated: true },
+  "/home/milo/code/tools": { repository: { identity: null, branch: "trunk" } },
+  "/home/milo/code/site": {},
+  "/home/milo/.config": {},
+  "/home/milo/locked": { unreadable: true },
 };
 
 const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => ({
@@ -60,7 +60,7 @@ const desk = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => 
   folders: FOLDERS,
   sessions: [
     { title: "Fix the rail", workspace: { kind: "directory", path: "/work/harness" }, repositoryIdentity: HARNESS, lastActivityAt: at(0) },
-    { title: "Notes", workspace: { kind: "directory", path: "/home/seth/notes" }, lastActivityAt: at(-5) },
+    { title: "Notes", workspace: { kind: "directory", path: "/home/milo/notes" }, lastActivityAt: at(-5) },
     {
       id: REVIEW,
       title: "Review it",
@@ -80,7 +80,7 @@ const laptop = (extra: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment =
   environmentId: LAPTOP_ID,
   accounts: [WORK],
   models: [OPUS],
-  sessions: [{ title: "Train tidy", workspace: { kind: "directory", path: "/home/seth/train" }, lastActivityAt: at(-1) }],
+  sessions: [{ title: "Train tidy", workspace: { kind: "directory", path: "/home/milo/train" }, lastActivityAt: at(-1) }],
   ...extra,
 });
 
@@ -147,37 +147,37 @@ describe("browsing", () => {
     const app = await launch();
     await openPicker(app);
     await app.user.click(within(picker()).getByRole("button", { name: "Browse desk…" }));
-    await waitFor(() => expect(heading()).toBe("Browse desk: /home/seth"));
+    await waitFor(() => expect(heading()).toBe("Browse desk: /home/milo"));
     expect(listed()).toEqual([".. up to /home", "code/", "locked/", "notes/"]);
     expect(params(app, "desk", "workspaces.browse")).toEqual([{}]);
 
     await app.user.click(within(picker()).getByRole("switch", { name: "Dot-directories" }));
     await waitFor(() => expect(listed()).toEqual([".. up to /home", ".config/", "code/", "locked/", "notes/"]));
-    expect(params(app, "desk", "workspaces.browse")[1]).toEqual({ path: "/home/seth", hidden: true });
+    expect(params(app, "desk", "workspaces.browse")[1]).toEqual({ path: "/home/milo", hidden: true });
 
     await app.user.click(within(picker()).getByRole("button", { name: "locked/" }));
-    await waitFor(() => expect(pickerLine()).toBe("desk cannot list /home/seth/locked."));
+    await waitFor(() => expect(pickerLine()).toBe("desk cannot list /home/milo/locked."));
     await app.user.click(within(picker()).getByRole("button", { name: "Back" }));
-    await waitFor(() => expect(heading()).toBe("Browse desk: /home/seth"));
+    await waitFor(() => expect(heading()).toBe("Browse desk: /home/milo"));
 
     await app.user.click(within(picker()).getByRole("button", { name: "code/" }));
-    await waitFor(() => expect(heading()).toBe("Browse desk: /home/seth/code"));
-    await waitFor(() => expect(listed()).toEqual([".. up to /home/seth", "site/", "tools/ repository"]));
+    await waitFor(() => expect(heading()).toBe("Browse desk: /home/milo/code"));
+    await waitFor(() => expect(listed()).toEqual([".. up to /home/milo", "site/", "tools/ repository"]));
     expect(pickerLine()).toBe("Only the first 1,000 directories are listed: type a path to reach the rest.");
     await app.user.click(within(picker()).getByRole("button", { name: /^\.\./ }));
-    await waitFor(() => expect(heading()).toBe("Browse desk: /home/seth"));
+    await waitFor(() => expect(heading()).toBe("Browse desk: /home/milo"));
     await app.user.click(within(picker()).getByRole("button", { name: "code/" }));
     await app.user.click(await within(picker()).findByRole("button", { name: /^tools\// }));
-    await waitFor(() => expect(heading()).toBe("Browse desk: /home/seth/code/tools"));
+    await waitFor(() => expect(heading()).toBe("Browse desk: /home/milo/code/tools"));
 
-    await app.user.click(within(picker()).getByRole("button", { name: "Work in /home/seth/code/tools" }));
+    await app.user.click(within(picker()).getByRole("button", { name: "Work in /home/milo/code/tools" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Where it works on / })).toBeNull());
     expect(workspaceChip().getAttribute("aria-label")).toBe("Workspace: directory tools");
-    expect(params(app, "desk", "workspaces.inspect")).toEqual([{ path: "/home/seth/code/tools" }]);
+    expect(params(app, "desk", "workspaces.inspect")).toEqual([{ path: "/home/milo/code/tools" }]);
 
     act(() => within(surface()).getByRole("textbox", { name: "Message" }).focus());
     await app.user.keyboard("Look around{Enter}");
-    await waitFor(() => expect(params(app, "desk", "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "directory", path: "/home/seth/code/tools" } })]));
+    await waitFor(() => expect(params(app, "desk", "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "directory", path: "/home/milo/code/tools" } })]));
   });
 
   it("starts from a path typed on the picker", async () => {
@@ -186,7 +186,7 @@ describe("browsing", () => {
     act(() => within(picker()).getByRole("textbox", { name: "A directory on desk" }).focus());
     await app.user.keyboard("~/code");
     await app.user.click(within(picker()).getByRole("button", { name: "Browse from ~/code…" }));
-    await waitFor(() => expect(heading()).toBe("Browse desk: /home/seth/code"));
+    await waitFor(() => expect(heading()).toBe("Browse desk: /home/milo/code"));
     expect(params(app, "desk", "workspaces.browse")).toEqual([{ path: "~/code" }]);
   });
 });
@@ -194,20 +194,20 @@ describe("browsing", () => {
 describe("the local directory dialog", () => {
   it("is offered beside Browse on the local environment, and its path is checked by the environment like any other: a refusal is one line on the picker, which stays open", async () => {
     const shell = fakeShell();
-    const picked = ["/home/seth/gone", "/home/seth/code"];
+    const picked = ["/home/milo/gone", "/home/milo/code"];
     shell.answer("dialogs.openDirectory", async () => picked.shift());
     const app = await launch({ shell });
     await openPicker(app);
     await app.user.click(within(picker()).getByRole("button", { name: "Pick on this computer…" }));
-    await waitFor(() => expect(pickerLine()).toBe("/home/seth/gone does not exist on desk."));
+    await waitFor(() => expect(pickerLine()).toBe("/home/milo/gone does not exist on desk."));
     expect(shell.calls.filter(([member]) => member === "dialogs.openDirectory")).toEqual([["dialogs.openDirectory", { title: "Where the session works on desk" }]]);
-    expect(params(app, "desk", "workspaces.inspect")).toEqual([{ path: "/home/seth/gone" }]);
+    expect(params(app, "desk", "workspaces.inspect")).toEqual([{ path: "/home/milo/gone" }]);
     expect(workspaceChip().getAttribute("aria-label")).toBe("Workspace: directory harness");
 
     await app.user.click(within(picker()).getByRole("button", { name: "Pick on this computer…" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /^Where it works on / })).toBeNull());
     expect(workspaceChip().getAttribute("aria-label")).toBe("Workspace: directory code");
-    expect(workspaceChip().getAttribute("title")).toBe("/home/seth/code");
+    expect(workspaceChip().getAttribute("title")).toBe("/home/milo/code");
 
     // Another machine's directories are not this computer's: laptop's picker has no dialog.
     await openPicker(app, "laptop");
@@ -301,7 +301,7 @@ describe("a worktree", () => {
     await app.user.click(within(picker()).getByRole("button", { name: "Browse desk…" }));
     await app.user.click(await within(picker()).findByRole("button", { name: "code/" }));
     await app.user.click(await within(picker()).findByRole("button", { name: /^tools\// }));
-    await app.user.click(await within(picker()).findByRole("button", { name: "Make the worktree from /home/seth/code/tools" }));
+    await app.user.click(await within(picker()).findByRole("button", { name: "Make the worktree from /home/milo/code/tools" }));
     await waitFor(() => expect(heading()).toBe("A worktree of tools on desk: its branch"));
     await waitFor(() => expect(branches()[0]).toMatch(/^New branch agent-harness\/[0-9a-f]{8} from trunk$/));
     await app.user.click(within(picker()).getByRole("button", { name: /^New branch agent-harness\// }));
@@ -365,10 +365,10 @@ describe("a session whose workspace is missing", () => {
     expect(within(picker()).getByRole("heading").textContent).toBe("Where it works on desk");
     // The gone directory is shown and not offered.
     expect(within(picker()).getByRole("button", { name: /^\/srv\/old/ }).hasAttribute("disabled")).toBe(true);
-    await app.user.click(within(picker()).getByRole("button", { name: /^\/home\/seth\/notes/ }));
+    await app.user.click(within(picker()).getByRole("button", { name: /^\/home\/milo\/notes/ }));
     await waitFor(() => expect(within(pane()).getByRole("textbox", { name: "Message" })).toBeDefined());
     expect(params(app, "desk", "sessions.setWorkspace")).toEqual([
-      expect.objectContaining({ sessionId: oldId(app), workspace: { kind: "directory", path: "/home/seth/notes" } }),
+      expect.objectContaining({ sessionId: oldId(app), workspace: { kind: "directory", path: "/home/milo/notes" } }),
     ]);
     expect(screen.queryByRole("dialog", { name: /^Where it works on / })).toBeNull();
     expect(within(pane()).queryByText(GONE)).toBeNull();

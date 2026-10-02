@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { rename, unlink } from "node:fs/promises";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { editFile, end, fakeAdapter, fileTool, gate, say, type Script, type ScriptControls } from "../../test/fake-adapter.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -10,6 +11,7 @@ import { deleteSession, purgeSession } from "../../test/sessions.js";
 import { sessionIn } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
 import type { AdapterEvent } from "../adapter/contract.js";
+import { claudeToolAccess } from "../adapters/claude/gate-access.js";
 
 /**
  * File undo through the primary seam (switch-over spec, "Phase-D commands
@@ -18,6 +20,11 @@ import type { AdapterEvent } from "../adapter/contract.js";
  * `files.undo` over the typed wire, asserted on the workspace's bytes and
  * modes and on the session's log.
  */
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rename: vi.fn(actual.rename), unlink: vi.fn(actual.unlink) };
+});
 
 const { onCleanup, tempDir } = useCleanups();
 
@@ -75,7 +82,7 @@ const refusal = async (client: WireClient, sessionId: string): Promise<{ code: s
   return { code: receipt.error.code, data: receipt.error.data };
 };
 
-/** A `Write` of `path`: a tool whose change is recorded, and not restored yet. */
+/** A `Write` of `path` through the blocking observation seam. */
 const writeCall = (controls: ScriptControls, path: string, content: string) =>
   fileTool(controls, { tool: "Write", input: { file_path: path, content }, paths: [path], write: () => writeFileSync(path, content) });
 
@@ -173,17 +180,17 @@ describe("files.undo", () => {
       sessionId,
       playing(
         (controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" }),
-        (controls) => writeCall(controls, join(root, "b.txt"), "B\n"),
+        (controls) => writeCall(controls, join(root, "b.txt"), "B\0\n"),
       ),
     );
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       expect(await refusal(client, sessionId)).toEqual({
         code: "conflict",
-        data: { reason: "snapshot_unavailable", sessionId, changeId: expect.any(String), path: "b.txt", unrestorable: "unknown" },
+        data: { reason: "snapshot_unavailable", sessionId, changeId: expect.any(String), path: "b.txt", unrestorable: "binary" },
       });
     }
-    expect([readFileSync(join(root, "a.txt"), "utf8"), readFileSync(join(root, "b.txt"), "utf8")]).toEqual(["A\n", "B\n"]);
+    expect([readFileSync(join(root, "a.txt"), "utf8"), readFileSync(join(root, "b.txt"), "utf8")]).toEqual(["A\n", "B\0\n"]);
   });
 
   it("cannot restore an Edit of a binary file, nor one past 2 MiB", async () => {
@@ -295,19 +302,149 @@ describe("files.undo", () => {
     });
   });
 
-  it("cannot restore yet an Edit that created its file, nor another recognised tool's change", async () => {
-    const { t, client, root, sessionId } = await setUp();
-    await runScript(
-      t,
-      client,
-      sessionId,
-      playing((controls) =>
-        fileTool(controls, { input: { file_path: "new.txt", old_string: "", new_string: "n\n" }, paths: ["new.txt"], write: () => writeFileSync(join(root, "new.txt"), "n\n") }),
-      ),
-    );
-    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "new.txt", unrestorable: "unknown" });
-    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("n\n");
+  it("undoes newest completions before multi-file ties in reverse path order, consuming only that file's diff", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "z.txt": "z\n" });
+    await runScript(t, client, sessionId, playing(
+      (controls) => fileTool(controls, {
+        tool: "MultiEdit", toolCallId: "toolu_many",
+        input: { edits: [
+          { file_path: join(root, "z.txt"), old_string: "z", new_string: "Z" },
+          { file_path: "a.txt", old_string: "a", new_string: "A" },
+          { file_path: "a.txt", old_string: "A", new_string: "AA" },
+        ] },
+        paths: [join(root, "z.txt"), "a.txt", "a.txt"],
+        write: () => { writeFileSync(join(root, "z.txt"), "Z\n"); writeFileSync(join(root, "a.txt"), "AA\n"); },
+      }),
+      (controls) => writeCall(controls, join(root, "a.txt"), "latest\n"),
+    ));
+    const paths = async () => (await client.request("diffs.session", { sessionId })).files.map((file) => file.path).sort();
+    expect(await paths()).toEqual(["a.txt", "z.txt"]);
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("AA\n");
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("z.txt");
+    expect(await paths()).toEqual(["a.txt"]);
+    expect(readFileSync(join(root, "z.txt"), "utf8")).toBe("z\n");
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(await paths()).toEqual([]);
+    expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
   });
+
+  it.each([false, true])("undoes only targeted MultiEdit files when its unused shared path exists: %s", async (sharedExists) => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n", ...(sharedExists ? { "z-unused.txt": "untouched\n" } : {}) });
+    const input = {
+      file_path: "z-unused.txt",
+      edits: [
+        { file_path: "a.txt", old_string: "a", new_string: "A" },
+        { file_path: "b.txt", old_string: "b", new_string: "B" },
+      ],
+    };
+    const access = claudeToolAccess("MultiEdit", input);
+    if (access.kind !== "write") throw new Error("MultiEdit must be a write.");
+    await runScript(t, client, sessionId, playing((controls) => fileTool(controls, {
+      tool: "MultiEdit", input, paths: access.paths,
+      write: () => { writeFileSync(join(root, "a.txt"), "A\n"); writeFileSync(join(root, "b.txt"), "B\n"); },
+    })));
+
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("b.txt");
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(readFileSync(join(root, "b.txt"), "utf8")).toBe("b\n");
+    expect(existsSync(join(root, "z-unused.txt"))).toBe(sharedExists);
+    if (sharedExists) expect(readFileSync(join(root, "z-unused.txt"), "utf8")).toBe("untouched\n");
+  });
+
+  it("consumes the diff of one multi-file path reached through an in-workspace symlink", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "z.txt": "z\n" });
+    symlinkSync(join(root, "z.txt"), join(root, "linked.txt"));
+    await runScript(t, client, sessionId, playing((controls) => fileTool(controls, {
+      tool: "MultiEdit", input: { edits: [{ file_path: "a.txt", old_string: "a", new_string: "A" }, { file_path: "linked.txt", old_string: "z", new_string: "Z" }] },
+      paths: ["a.txt", "linked.txt"], write: () => { writeFileSync(join(root, "a.txt"), "A\n"); writeFileSync(join(root, "linked.txt"), "Z\n"); },
+    })));
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("z.txt");
+    expect(readFileSync(join(root, "linked.txt"), "utf8")).toBe("z\n");
+    expect((await client.request("diffs.session", { sessionId })).files.map((file) => file.path)).toEqual(["a.txt"]);
+  });
+
+  it.each(["Edit", "MultiEdit", "Write", "NotebookEdit"])("deletes a file %s created and records one content-free completion on receipt replay", async (tool) => {
+    const { t, client, root, sessionId } = await setUp();
+    const path = tool === "NotebookEdit" ? "new.ipynb" : "new.txt";
+    const content = tool === "NotebookEdit" ? '{"cells":[],"nbformat":4}\n' : "created\n";
+    await runScript(t, client, sessionId, playing((controls) => fileTool(controls, {
+      tool,
+      input: tool === "NotebookEdit" ? { notebook_path: path, new_source: "" } : { file_path: path, content, old_string: "", new_string: content, edits: [] },
+      paths: [path],
+      write: () => writeFileSync(join(root, path), content),
+    })));
+    const commandId = randomUUID();
+    const first = await undo(client, sessionId, commandId);
+    expect(first).toMatchObject({ receipt: { status: "accepted" }, result: { path, action: "deleted" } });
+    expect(existsSync(join(root, path))).toBe(false);
+    expect(await undo(client, sessionId, commandId)).toEqual({ receipt: first.receipt });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([first.result]);
+    expect((await client.request("diffs.session", { sessionId })).files).toEqual([]);
+  });
+
+  it.each(["MultiEdit", "Write", "NotebookEdit"])("restores the complete bytes and mode overwritten by %s", async (tool) => {
+    const before = '{"cells":[{"source":["print(1)"],"outputs":[]}],"nbformat":4}\n';
+    const after = '{"cells":[{"source":["print(2)"],"outputs":[{"text":"2"}]}],"nbformat":4}\n';
+    const { t, client, root, sessionId } = await setUp({ "book.ipynb": before });
+    const path = join(root, "book.ipynb");
+    chmodSync(path, 0o640);
+    await runScript(t, client, sessionId, playing((controls) => fileTool(controls, {
+      tool,
+      input: tool === "NotebookEdit" ? { notebook_path: path, new_source: "print(2)" } : { file_path: path, content: after, edits: [{ old_string: "print(1)", new_string: "print(2)" }] },
+      paths: [path], write: () => { writeFileSync(path, after); chmodSync(path, 0o600); },
+    })));
+    const answer = await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+    expect(answer).toMatchObject({ path: "book.ipynb", action: "restored" });
+    expect(readFileSync(path, "utf8")).toBe(before);
+    expect(modeOf(path)).toBe(0o640);
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([answer]);
+  });
+
+  it("keeps a created file changed externally and never skips it for an older candidate", async () => {
+    const { t, client, root, sessionId } = await setUp({ "old.txt": "old\n" });
+    await runScript(t, client, sessionId, playing(
+      (controls) => editFile(controls, { path: "old.txt", oldString: "old", newString: "OLD" }),
+      (controls) => writeCall(controls, join(root, "new.txt"), "created\n"),
+    ));
+    writeFileSync(join(root, "new.txt"), "changed by a shell\n");
+    const head = t.env.log.head();
+    for (let attempt = 0; attempt < 2; attempt += 1) expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "file_changed", path: "new.txt" });
+    expect(t.env.log.head()).toBe(head);
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("changed by a shell\n");
+    expect(readFileSync(join(root, "old.txt"), "utf8")).toBe("OLD\n");
+  });
+
+  it.each(["MultiEdit", "Write", "NotebookEdit"])("discards a failed %s, leaving only the earlier successful change", async (tool) => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n" });
+    await runScript(t, client, sessionId, playing(
+      (controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" }),
+      (controls) => fileTool(controls, { tool, input: { file_path: "b.txt", notebook_path: "b.txt" }, paths: ["b.txt"], write: () => { throw new Error("The tool failed."); } }),
+    ));
+    expect((await client.apply("files.undo", { commandId: randomUUID(), sessionId })).path).toBe("a.txt");
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(existsSync(join(root, "b.txt"))).toBe(false);
+    expect((await refusal(client, sessionId)).data.reason).toBe("nothing_to_undo");
+  });
+
+  it.each(["MultiEdit", "NotebookEdit"])("marks a %s's newest unavailable file explicitly and never skips to an older candidate", async (tool) => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "z.ipynb": "text\n" });
+    await runScript(t, client, sessionId, playing(
+      (controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" }),
+      (controls) => fileTool(controls, {
+        tool,
+        input: tool === "MultiEdit" ? { edits: [{ file_path: "a.txt", old_string: "A", new_string: "A" }, { file_path: "z.ipynb", old_string: "text", new_string: "binary" }] } : { notebook_path: "z.ipynb", new_source: "x".repeat(2 * 1024 * 1024 + 1) },
+        paths: tool === "MultiEdit" ? ["a.txt", "z.ipynb"] : ["z.ipynb"],
+        write: () => writeFileSync(join(root, "z.ipynb"), tool === "MultiEdit" ? "binary\0" : "x".repeat(2 * 1024 * 1024 + 1)),
+      }),
+    ));
+    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "z.ipynb", unrestorable: tool === "MultiEdit" ? "binary" : "oversized" });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("A\n");
+  });
+
 });
 
 describe("files.undo beside the rest of the session", () => {
@@ -352,7 +489,11 @@ describe("files.undo beside the rest of the session", () => {
       ),
     );
     const answers = await Promise.all([client.apply("files.undo", { commandId: randomUUID(), sessionId }), client.apply("files.undo", { commandId: randomUUID(), sessionId })]);
-    expect(answers.map((answer) => answer.path)).toEqual(["b.txt", "a.txt"]);
+    // Concurrent requests need not acquire the workspace turn in Promise.all order.
+    expect(answers.map((answer) => answer.path).sort()).toEqual(["a.txt", "b.txt"]);
+    expect(answers.map((answer) => answer.action)).toEqual(["restored", "restored"]);
+    expect(new Set(answers.map((answer) => answer.changeId)).size).toBe(2);
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([...answers].sort((a, b) => b.path.localeCompare(a.path)));
     expect([readFileSync(join(root, "a.txt"), "utf8"), readFileSync(join(root, "b.txt"), "utf8")]).toEqual(["a\n", "b\n"]);
   });
 
@@ -402,6 +543,47 @@ describe("files.undo's receipts and its journal", () => {
     return { t, client, token, root, sessionId, dataDir };
   };
 
+  it.each(["before", "after", "recreated"])("settles a deletion interrupted %s applying it on restart and replays its one receipt", async (phase) => {
+    const stopped = stopHere();
+    const dataDir = join(tempDir("agent-harness-delete-data-"), "data");
+    const { t, root, sessionId } = await setUp({}, { dataDir, fileUndoHooks: phase === "before" ? { beforeRename: stopped.hook } : { afterRename: stopped.hook } });
+    const { token } = await t.bootstrap();
+    const client = await t.client({ token });
+    await runScript(t, client, sessionId, playing((controls) => writeCall(controls, join(root, "new.txt"), "created\n")));
+    const commandId = randomUUID();
+    void undo(client, sessionId, commandId).catch(() => undefined);
+    await stopped.reached;
+    expect(existsSync(join(root, "new.txt"))).toBe(phase === "before");
+    await t.close();
+    if (phase === "recreated") writeFileSync(join(root, "new.txt"), "external\n");
+
+    const later = await start({ dataDir, clock: t.clock });
+    const laterClient = await later.client({ token });
+    const answer = await undo(laterClient, sessionId, commandId);
+    if (phase === "recreated") {
+      expect(answer.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "file_changed", path: "new.txt" } } });
+      expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("external\n");
+      expect(eventsOf(later, sessionId, "files.undo-finished")).toEqual([]);
+      expect((await refusal(laterClient, sessionId)).data).toMatchObject({ reason: "file_changed", path: "new.txt" });
+    } else {
+      expect(answer.receipt.status).toBe("accepted");
+      const events = eventsOf(later, sessionId, "files.undo-finished");
+      expect(events).toEqual([{ changeId: expect.any(String), path: "new.txt", action: "deleted" }]);
+      expect(existsSync(join(root, "new.txt"))).toBe(false);
+      expect(await undo(laterClient, sessionId, commandId)).toEqual({ receipt: answer.receipt });
+      expect(eventsOf(later, sessionId, "files.undo-finished")).toEqual(events);
+      expect(readdirSync(root)).toEqual([]);
+    }
+  });
+
+  it("checks the post-image again immediately before deleting a created file", async () => {
+    const { t, client, root, sessionId } = await setUp({}, { fileUndoHooks: { beforeRename: async () => { writeFileSync(join(root, "new.txt"), "external\n"); } } });
+    await runScript(t, client, sessionId, playing((controls) => writeCall(controls, join(root, "new.txt"), "created\n")));
+    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "file_changed", path: "new.txt" });
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("external\n");
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+  });
+
   it("answers a retry of the same command from its receipt, writing nothing again", async () => {
     const { t, client, root, sessionId } = await edited();
     const commandId = randomUUID();
@@ -416,33 +598,38 @@ describe("files.undo's receipts and its journal", () => {
   });
 
   it("removes the scratch file and journal before reporting a failed rename, leaving the change for a retry", async () => {
-    let target = "";
-    let failOnce = true;
-    const { t, client, root, sessionId } = await edited({
-      fileUndoHooks: {
-        beforeRename: async () => {
-          if (!failOnce) return;
-          failOnce = false;
-          rmSync(target);
-          mkdirSync(target);
-        },
-      },
-    });
-    target = join(root, "a.txt");
+    const { t, client, root, sessionId } = await edited();
+    const target = join(root, "a.txt");
     const commandId = randomUUID();
+    vi.mocked(rename).mockRejectedValueOnce(new Error("The rename failed."));
 
     await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
 
     expect(readdirSync(root)).toEqual(["a.txt"]);
-    expect(statSync(target).isDirectory()).toBe(true);
+    expect(readFileSync(target, "utf8")).toBe("b\n");
     expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
     expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
     expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
-    rmSync(target, { recursive: true });
-    writeFileSync(target, "b\n");
     const again = await undo(client, sessionId, commandId);
     expect(again.result).toEqual({ changeId: expect.any(String), path: "a.txt", action: "restored" });
     expect(readFileSync(target, "utf8")).toBe("a\n");
+  });
+
+  it("removes the journal when deleting a created file fails, leaving the file and change for a retry", async () => {
+    const { t, client, root, sessionId } = await setUp();
+    const target = join(root, "new.txt");
+    await runScript(t, client, sessionId, playing((controls) => writeCall(controls, target, "created\n")));
+    const commandId = randomUUID();
+    vi.mocked(unlink).mockRejectedValueOnce(new Error("The deletion failed."));
+
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+
+    expect(readFileSync(target, "utf8")).toBe("created\n");
+    expect(t.env.log.fileChanges.allJournaled()).toEqual([]);
+    expect(t.env.log.fileChanges.newest(sessionId)).toMatchObject({ state: "completed" });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([]);
+    expect((await undo(client, sessionId, commandId)).result).toMatchObject({ path: "new.txt", action: "deleted" });
+    expect(existsSync(target)).toBe(false);
   });
 
   it("records a restore an earlier attempt of the command applied once, without writing again", async () => {

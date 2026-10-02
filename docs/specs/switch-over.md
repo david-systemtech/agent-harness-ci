@@ -1,18 +1,18 @@
-# Spec: Switch-over: state import, Hermes cut-over, Seth on the TUI, the existing server stopped
+# Spec: Switch-over: state import, Hermes cut-over, Milo on the TUI, the existing server stopped
 
 Milestone 1, phase D. Date: 2026-10-02. Implements ADRs 0017, 0015, 0021, 0022, 0036 and 0037, with the owning decisions in ADRs 0003, 0004, 0006, 0008, 0010, 0013, 0016, 0018, 0020 and 0027 to 0035. Ticket: [#94](https://git.systemtech.dev:5526/david/agent-harness/issues/94).
 
-Inputs: #94, #34, #29, #56, #39, #152, #88 and #90, including comments, Resolutions and corrections; all sixteen peer specifications and Further Notes, contracts and seams at main `1410d314ceb30f26aabdf7a39fe3f52d4490136c`, command contracts rechecked at `9228bd71d31e9e839447b09bb77531a68a71065c`; archived Hermes inventory (#9, Hermes `d3b25b5`, cortex `da0a22e`, home-lab `0cc2abd`) and surfaces audit (#11, `443cf2e`, Ink 7.1.1); Cortex's fleet, corrections, Hermes plan, milestone, Carry over and routines memories. Verify observations live.
+Inputs: #94, #34, #29, #56, #39, #152, #88 and #90, including comments, Resolutions and corrections; all sixteen peer specifications and Further Notes, contracts and seams at main `1410d314ceb30f26aabdf7a39fe3f52d4490136c`, command contracts rechecked at `9228bd71d31e9e839447b09bb77531a68a71065c`; Hermes inventory and surfaces audit; private operational inventory, switch-over decisions and routine records. Verify observations live.
 
 ## Problem Statement
 
-David needs a verifiable switch-over. Desktop preferences, terminal preferences and provider tags split organisation state. The surfaces audit (#11) found invisible Routine sessions, two schedulers and no Connection ceiling; Hermes inventory (#9) found unexecuted client tools and uncertain auxiliary calls. Default-directory-only import misses SYSTEM-SERVER's listed Claude directories (#56, ADR 0036). Daily use requires visible omissions, recoverable import, readable lazy history and per-machine acceptance before stopping the existing server.
+David needs a verifiable switch-over. Desktop preferences, terminal preferences and provider tags split organisation state. The surfaces audit (#11) found invisible Routine sessions, two schedulers and no Connection ceiling; Hermes inventory (#9) found unexecuted client tools and uncertain auxiliary calls. Default-directory-only import misses SAMPLE-SERVER's listed Claude directories (#56, ADR 0036). Daily use requires visible omissions, recoverable import, readable lazy history and per-machine acceptance before stopping the existing server.
 
 ## Solution
 
 Carry over detects source data and terminal state on each machine. David previews four report groups, imports through owning services, finishes Set up and enables Routines manually. Adopted accounts keep their directories; Imported sessions appear immediately with history loaded on first open. Re-runs add new items and retry failures without overwriting harness edits.
 
-The Hermes butler alone switches to SYSTEM-SERVER, retaining its Claude billing identity and bypass Ceiling; the librarian stays parked. Seth gets all four phase-D commands, with `/undo` and `/check` in both Clients. Reviewed cortex and brandsolidate migrations land on switch-over day after Albert's heads-up; CLI `bank` verbs replace cerebro. Acceptance records daily workflows, health, contract checks and stopping evidence. David supplies the day and operators.
+The Hermes butler alone switches to SAMPLE-SERVER, retaining its Claude billing identity and bypass Ceiling; the librarian stays parked. Milo gets all four phase-D commands, with `/undo` and `/check` in both Clients. Reviewed notebook and meadowstudios migrations land on switch-over day after the team owner's heads-up; CLI `bank` verbs replace cerebro. Acceptance records daily workflows, health, contract checks and stopping evidence. David supplies the day and operators.
 
 ## User Stories
 
@@ -24,23 +24,23 @@ The Hermes butler alone switches to SYSTEM-SERVER, retaining its Claude billing 
 6. As David, I want archive, pins and Groups imported once, so that every Client sees the same organisation state.
 7. As David, I want Credential sources mapped without copying plaintext secrets, so that sign-in has an explicit repair step.
 8. As David, I want imported Routines disabled, so that two schedulers cannot fire the same work.
-9. As Seth, I want a one-time import of prompt history, snippets and after-edit commands, so that terminal habits remain available.
-10. As Seth, I want my pins and drafts owned by the Environment, so that the GUI sees changes immediately.
+9. As Milo, I want a one-time import of prompt history, snippets and after-edit commands, so that terminal habits remain available.
+10. As Milo, I want my pins and drafts owned by the Environment, so that the GUI sees changes immediately.
 11. As David, I want anchored fork, rewind and undo in both Clients, so that recovery works on the Claude Adapter.
 12. As David, I want read-now and withdraw to preserve queued text, so that messages survive.
 13. As David, I want the GUI to ship without a default stop key, so that Esc and copying do not stop a Run.
-14. As the Hermes butler, I want SYSTEM-SERVER with my current Claude billing identity and bypass Ceiling, so that routing changes without changing my Account.
+14. As the Hermes butler, I want SAMPLE-SERVER with my current Claude billing identity and bypass Ceiling, so that routing changes without changing my Account.
 15. As the Hermes butler, I want client-tool round trips and auxiliary calls verified, so that chat is functional beyond a greeting.
 16. As David, I want the librarian to remain parked, so that switch-over does not revive work I disabled.
 17. As David, I want signed webhook delivery proved independently, so that a Routine result can reach Hermes when configured.
-18. As Albert, I want a heads-up issue before the team Bank moves, so that shared work can be reconciled.
+18. As a team owner, I want a heads-up issue before the team Bank moves, so that shared work can be reconciled.
 19. As a Bank owner, I want reviewed migrations and green vendored validators, so that links survive.
 20. As Set up, I want all eleven Steps registered with working Health checks, so that skipped features remain honest.
 21. As David, I want a record of the existing server stopped on every covered machine, so that milestone 1 has one auditable done.
-22. As Seth, I want `-p` to print one answer without a screen, so that shell pipelines work.
-23. As Seth, I want `ls` to list stored Sessions here or across directories, so that I can select one from the shell.
-24. As Seth, I want `/undo` in both Clients to restore the last agent file change safely, so that my own subsequent edits survive.
-25. As Seth, I want `/check` in both Clients to run project checks after edits and offer failures, so that I choose what to send back.
+22. As Milo, I want `-p` to print one answer without a screen, so that shell pipelines work.
+23. As Milo, I want `ls` to list stored Sessions here or across directories, so that I can select one from the shell.
+24. As Milo, I want `/undo` in both Clients to restore the last agent file change safely, so that my own subsequent edits survive.
+25. As Milo, I want `/check` in both Clients to run project checks after edits and offer failures, so that I choose what to send back.
 26. As David, I want a week of normal use and every enabled Routine to fire on schedule before sign-off, so that acceptance covers real operation.
 27. As David, I want all sources and backups kept until I approve deletion, so that recovery and lazy history remain available.
 
@@ -74,7 +74,7 @@ Add internal listed-directory adoption; do not widen ambient `accounts.adopt` in
 
 Run Carry over per adopted Account and each secondary source, with the Skills tick on by default when items exist, preserving the tracked-checkout offer. History is appended once on first open, including subagent transcripts; missing Workspaces remain listed and read-only until replaced. Keep source directories readable for pending lazy history and first continuation after stopping the existing server (#39, #56).
 
-After provider-session mapping, union archive tags/source keys; import program/bridge ledger origins, ephemeral connection Workspaces and Routine firings archived. Union desktop Account-qualified pins and terminal bare ids. Qualified keys use Account mapping; bare ids require one imported Session. Unknown/ambiguous references are not carried. Merge normalised Group names, preserving source order and appending after existing Groups without reordering. Use shelf companions/import timestamps. Fill only empty drafts, rechecked at commit; distinguish held/ambiguous/invalid reports (ADRs 0003/0036).
+After provider-session mapping, union archive tags/source keys; import program/bridge ledger origins, ephemeral connection Workspaces archived. Routine firings nobody continued import archived; a firing whose SDK-reported first prompt is a person’s later prompt imports active, with no extra transcript reads (#756, David’s 2026-10-02 decision). Union desktop Account-qualified pins and terminal bare ids. Qualified keys use Account mapping; bare ids require one imported Session. Unknown/ambiguous references are not carried. Merge normalised Group names, preserving source order and appending after existing Groups without reordering. Use shelf companions/import timestamps. Fill only empty drafts, rechecked at commit; distinguish held/ambiguous/invalid reports (ADRs 0003/0036).
 
 ### Other state and local presentation
 
@@ -114,21 +114,21 @@ Session snapshots carry each check as a `check` transcript item at its `checks.s
 
 ### Hermes cut-over and Bank migration
 
-Pair only the butler on SYSTEM-SERVER as `program` with `read`, `sessions:write`, `runs:drive` and #29's `bypassPermissions` Ceiling. Store its credential in OpenBao's agents namespace. Preserve current Claude Account identity/subscription billing; verify identity and Account-qualified id with live `GET /v1/models`, never saved settings. Scopes do not limit model discovery to one Account; model selection identifies the borrowed Account. Other programs keep `acceptEdits` (ADRs 0015/0006).
+Pair only the butler on SAMPLE-SERVER as `program` with `read`, `sessions:write`, `runs:drive` and #29's `bypassPermissions` Ceiling. Store its credential in the configured OpenBao connection's base. Preserve current Claude Account identity/subscription billing; verify identity and Account-qualified id with live `GET /v1/models`, never saved settings. Scopes do not limit model discovery to one Account; model selection identifies the borrowed Account. Other programs keep `acceptEdits` (ADRs 0015/0006).
 
-Update deployment code to SYSTEM-SERVER's harness URL and built `agent-harness` namespace, without inventing an alias. Set `permissionMode: bypassPermissions`, supported `thinking`, appended `systemPrompt`, required `ignoreUnsupported`, `attended: false`. Preserve fresh scratch Sessions where no `sessionId` is sent. Hermes runs caller tools and returns matching `tool_call_id` on the same `agent-harness.sessionId`/credential, never as fresh user messages. Prove streaming, tool round trip, two-turn chat, model/effort routing, `/keep` and `/save` (#29, #9).
+Update deployment code to SAMPLE-SERVER's harness URL and built `agent-harness` namespace, without inventing an alias. Set `permissionMode: bypassPermissions`, supported `thinking`, appended `systemPrompt`, required `ignoreUnsupported`, `attended: false`. Preserve fresh scratch Sessions where no `sessionId` is sent. Hermes runs caller tools and returns matching `tool_call_id` on the same `agent-harness.sessionId`/credential, never as fresh user messages. Prove streaming, tool round trip, two-turn chat, model/effort routing, `/keep` and `/save` (#29, #9).
 
-Configure compression/auxiliary calls explicitly; overrides need not inherit. Keep title generation off until effort/unsupported parameters pass. Retain `v2026.9.24`, butler-only scope and parked librarian; verify deployment inventory live. Cortex remains durable memory; Hermes profiles/memory/cron are not imported. Retirement/native Matrix/Slack remain milestone 3 (#29).
+Configure compression/auxiliary calls explicitly; overrides need not inherit. Keep title generation off until effort/unsupported parameters pass. Retain the privately recorded Hermes version pin, butler-only scope and parked librarian; verify deployment inventory live. Notebook remains durable memory; Hermes profiles/memory/cron are not imported. Retirement/native Matrix/Slack remain milestone 3 (#29).
 
-A configured Routine webhook uses the built Standard Webhooks signature and a delivery-only Hermes route. Prove signature verification, Matrix destination and idempotent retries. Do not enable the parked netdata routes; the current fleet record says they are disabled. Preserve Matrix rooms and Tuwunel.
+A configured Routine webhook uses the built Standard Webhooks signature and a delivery-only Hermes route. Prove signature verification, Matrix destination and idempotent retries. Preserve existing alert routes in their configured state and preserve Matrix rooms. Record deployment-specific selections in the private acceptance record.
 
-Record clean Bank heads/reconcile branches. `banks.migrate {bankId, dryRun}` previews then prepares reviewed PRs. Cortex gains org metadata, manifest, renamed keys, repository identities, topics and orientation pointers. Brandsolidate uses team org, brands as projects, systems as areas, holding facts under holding; `SYSTEM.md` becomes `AREA.md`. Preserve memory names/pointers, remove generated indexes/obsolete keys, vendor validation for each forge (ADR 0037, #90).
+Record clean Bank heads/reconcile branches. `banks.migrate {bankId, dryRun}` previews then prepares reviewed PRs. Notebook gains org metadata, manifest, renamed keys, repository identities, topics and orientation pointers. Meadowstudios uses team org, brands as projects, systems as areas, holding facts under holding; `SYSTEM.md` becomes `AREA.md`. Preserve memory names/pointers, remove generated indexes/obsolete keys, vendor validation for each forge (ADR 0037, #90).
 
-Before brandsolidate lands, its heads-up issue tells Albert moves/day/open-work effects. Both PRs need owner review and green vendored validation on landing heads. Land together on switch-over day, sync checkouts, prove harness read/search/reviewed write. Replace cerebro with CLI `bank`, including terminal Claude's local grant; retain source checkouts/PR links (#90).
+Before meadowstudios lands, its heads-up issue tells the team owner moves/day/open-work effects. Both PRs need owner review and green vendored validation on landing heads. Land together on switch-over day, sync checkouts, prove harness read/search/reviewed write. Replace cerebro with CLI `bank`, including terminal Claude's local grant; retain source checkouts/PR links (#90).
 
 ### Operational order and milestone-1 done
 
-Acceptance rows per machine/Environment: OS user, folders, Accounts, operator, preview/application reports, repairs, Bank heads, Pairings, enabled Routines, evidence links. David supplies complete coverage/operators: SYSTEM-SERVER/container, all David/Seth desktops/terminal folders, SYSTEM-MNL Hermes. Include no-source machines; unknown coverage blocks done (ADR 0017).
+Acceptance rows per machine/Environment: OS user, folders, Accounts, operator, preview/application reports, repairs, Bank heads, Pairings, enabled Routines, evidence links. David supplies complete coverage/operators: SAMPLE-SERVER/container, all David/Milo desktops/terminal folders, EXAMPLE-VM Hermes. Include no-source machines; unknown coverage blocks done (ADR 0017).
 
 Order: inventory/backups; preview/repair; quiesce source work/schedulers; final preview/apply; finish Set up/prepare Bank PRs; switch/prove Hermes; Client acceptance; land reviewed Bank migrations that day; manually enable Routines with source schedules disabled; stop existing desktop/server, disable autostart/updaters, verify after restart. Preparation pauses do not count as retirement. Preserve source/lazy-history folders; no concurrent turns against shared adopted sign-in.
 
@@ -141,7 +141,7 @@ Each workstream owes acceptance evidence; historical build debts require reconci
 | #78 Environment | Non-root installation, identity across restart, Pairing/revocation, replay and receipts; reconnecting Clients keep live Runs. |
 | #79 Session state | ADR 0003 session-field contract, Groups/pins/archive/drafts seen identically by two Clients; lazy import and re-run preserve edits. |
 | #80 Client runtime | Outbox and recovery evidence; drive commands fail immediately offline; capability reasons and import notices reach both Clients. |
-| #81 TUI | Seth's terminal/tmux acceptance; build all four phase-D commands (`-p`, `ls`, `/undo`, `/check`), print/list exits and formats, file guards/check offers and GUI parity; defaults, incremental rendering, editor/diff workflows and labelled gaps. |
+| #81 TUI | Milo's terminal/tmux acceptance; build all four phase-D commands (`-p`, `ls`, `/undo`, `/check`), print/list exits and formats, file guards/check offers and GUI parity; defaults, incremental rendering, editor/diff workflows and labelled gaps. |
 | #82 Claude Adapter | Listed-directory adoption, secondary-source history and continuation, process reuse, subscription billing, client-tool round trips and queue operations. |
 | #83 Permissions | Ceiling clamps, unattended denials/review, Trust gate and containment on deployed platforms; signed-in `auto` availability and known git-write gaps recorded. |
 | #84 GUI/Desktop shell | Seven Panes and native shell checks per deployed OS, shortcut Settings, no default stop key, `/undo` and `/check` parity, and the phase-D theme picker. |
@@ -150,7 +150,7 @@ Each workstream owes acceptance evidence; historical build debts require reconci
 | #87 Forge | Origins/aliases, helper injection under containment, Bank git credentials and owner-review reads; primary Forge and release channel reachable. |
 | #88 Set up | Contract check for all eleven `STEP_ORDER` ids registered, budgets/cadences/triggers/skip checks; Health checks callable and results subscribed per Environment. |
 | #89 Skills/Instructions | Source sync and Readiness, imported copies/scopes, trusted repository loading and stable instruction composition including Banks. |
-| #90 Banks | BankService handlers and five Set up card methods, scope seams/read exemption, reviewed cortex and brandsolidate migrations, each Bank's vendored validator green, CLI `bank` replacement. |
+| #90 Banks | BankService handlers and five Set up card methods, scope seams/read exemption, reviewed notebook and meadowstudios migrations, each Bank's vendored validator green, CLI `bank` replacement. |
 | #91 Key managers | Re-entered sign-ins, references, child-token permissions and renewal/revocation, locked-screen/keychain behavior, scrub checks and CLI minimums. |
 | #92 Routines | Disabled import and deliberate enable, pre-check/no-change, silence, kept output/delivery; upstream-watch hand-off with one scheduler and no duplicate Monday. |
 | #93 Browser | Fresh local Pairing, real-Chrome extension/relay and snapshot checklist, headless availability by deployment and imported page policy; completions defaults remain honest. |
@@ -160,7 +160,7 @@ The eleven ordered ids are `account`, `carry-over`, `your-machines`, `forges`, `
 
 In both TUI and GUI on Claude, demonstrate fork from a user-message anchor while its source continues, draft and organisation inheritance, rewind with later history hidden, undo before another Run, and refusal during a live Run. Demonstrate read-now consuming the whole queue exactly once and withdraw returning unread text to the Session draft; late withdrawal is refused. Check the TUI's Esc/Ctrl+C defaults, Ctrl+Enter and empty-composer Up, row `w`/`f`, and `/rewind undo`. In a fresh GUI configuration Esc leaves a Run running and Ctrl+C copies; Stop and its palette action work, and Ctrl+C cannot be bound to stop. ADR 0022's parity contract must name these behaviors (#152 corrections).
 
-Prove David's daily Sessions across the inventory and Seth's normal TUI workflow, including four commands/GUI parity. Final sign-off follows one week of normal use after cut-over and at least one scheduled Firing of each enabled Routine. Run-now does not substitute; wait past the week for schedules still unfired. Resolve not-carried/re-enter entries; deferred providers belong to milestone 2. Record release-head CI/manual checks and inapplicable platforms; required unrun checks block done. Prove no source listener/process/scheduler, disabled restart paths and successful harness Client/Hermes exchange afterwards. David signs acceptance; the spec completes no deployment.
+Prove David's daily Sessions across the inventory and Milo's normal TUI workflow, including four commands/GUI parity. Final sign-off follows one week of normal use after cut-over and at least one scheduled Firing of each enabled Routine. Run-now does not substitute; wait past the week for schedules still unfired. Resolve not-carried/re-enter entries; deferred providers belong to milestone 2. Record release-head CI/manual checks and inapplicable platforms; required unrun checks block done. Prove no source listener/process/scheduler, disabled restart paths and successful harness Client/Hermes exchange afterwards. David signs acceptance; the spec completes no deployment.
 
 ### What this workstream does not decide
 
@@ -170,7 +170,7 @@ The acceptance table names each owning workstream. #94 specifies import orchestr
 
 Use Vitest at the typed wire, projections and CLI, observing fixture bytes/results rather than private mappings. Primary seam: in-process Environment, scratch directory, loopback port 0, scripted fake Provider/manual clock, typed client over real WebSocket. Use fixture stores, git Banks, fake Forge and signed loopback receiver, never user data.
 
-Cover detection precedence, absent/malformed/unreadable stores, terminal-only sources, flags/scopes; unchanged preview/application counts and zero preview domain writes; replanning/changed-store refusal; SYSTEM-SERVER without ambient sign-in; duplicate identities/ties, secondary history/continuation; ambiguous references, archived program/Routine Sessions, empty-only drafts and preserved Groups/edits.
+Cover detection precedence, absent/malformed/unreadable stores, terminal-only sources, flags/scopes; unchanged preview/application counts and zero preview domain writes; replanning/changed-store refusal; SAMPLE-SERVER without ambient sign-in; duplicate identities/ties, secondary history/continuation; ambiguous references, archived program/Routine Sessions, empty-only drafts and preserved Groups/edits.
 
 Crash after an item commits, restart and re-run: no duplicate target appears. Inject a service failure; retain earlier success and retry failures. Concurrent Clients get `import_in_progress`. Receipt retries do nothing; fresh commands report the plan. Deleted mapped targets stay deleted. Read lazy history from the secondary fixture exactly once with credentials supplied only from the winning Account.
 
@@ -190,8 +190,8 @@ Chosen defaults: serial imports, item mappings/child receipts, source-byte consi
 
 Before building, verify pinned-SDK listed-directory/secondary-source continuation without credential copies and blocking pre/post tool hooks for undo; derive source fixtures from audited writers; reconcile Bank handler/review/credential debts, interrupted-import health and atomic TUI persistence. Before execution, prove Hermes auxiliary overrides, continuation, `/keep`/`/save` and pinned deployment. Failures block acceptance.
 
-David decided on 2026-10-02: build all four commands in phase D; switch only the butler to SYSTEM-SERVER using its current Claude billing identity and bypass Ceiling, checking model ids live; require one week of normal use and a scheduled Firing of every enabled Routine before sign-off; retain sources, backups and lazy history until his deletion approval, never automatically.
+David decided on 2026-10-02: build all four commands in phase D; switch only the butler to SAMPLE-SERVER using its current Claude billing identity and bypass Ceiling, checking model ids live; require one week of normal use and a scheduled Firing of every enabled Routine before sign-off; retain sources, backups and lazy history until his deletion approval, never automatically.
 
-Research: Cortex archives #9/#11. No installs, builds, tests, browsers or live actions were run.
+Research: Notebook archives #9/#11. No installs, builds, tests, browsers or live actions were run.
 
 Still David's before live actions: switch-over date (both Bank migrations land that day) and complete machine inventory/operators. Live actions await that record.

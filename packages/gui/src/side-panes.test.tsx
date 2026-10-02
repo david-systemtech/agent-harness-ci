@@ -108,7 +108,7 @@ describe("the Files pane", () => {
 
   it("goes where /files <path> names in the workspace, a file or a directory, and refuses a path outside it in the pane's line", async () => {
     const { app } = await opened();
-    await write(app, "/files /home/seth/code/README.md{Enter}");
+    await write(app, "/files /home/milo/code/README.md{Enter}");
     expect(await within(pane("Files")).findByRole("heading", { name: "README.md · 11 bytes" })).toBeDefined();
 
     await write(app, "/files src/files{Enter}");

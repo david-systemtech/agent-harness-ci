@@ -190,7 +190,7 @@ export const fakeShell = (): FakeShell => {
       throw new TypeError("fetch failed");
     },
     "network.allow": async () => undefined,
-    system: async () => ({ platform: "linux", architecture: "x64", hostname: "desk", user: "seth" }),
+    system: async () => ({ platform: "linux", architecture: "x64", hostname: "desk", user: "milo" }),
     // A computer whose gh is signed in nowhere until the test scripts a token.
     "gh.token": async () => undefined,
     // A camera the person closes before it reads a code, until the test scripts one it reads.

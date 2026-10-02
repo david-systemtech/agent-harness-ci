@@ -121,7 +121,7 @@ describe("the sign-in the card follows", () => {
     url: "https://claude.ai/oauth/authorize?code=true",
     startedAt: "2026-09-25T09:00:00.000Z",
     expiresAt: "2026-09-25T09:10:00.000Z",
-    fallback: { posix: "CLAUDE_CONFIG_DIR='/home/seth/a' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = 'C:\\a'; & 'claude' auth login" },
+    fallback: { posix: "CLAUDE_CONFIG_DIR='/home/milo/a' claude auth login", powershell: "$env:CLAUDE_CONFIG_DIR = 'C:\\a'; & 'claude' auth login" },
     error: null,
     ...fields,
   });
@@ -136,8 +136,8 @@ describe("the sign-in the card follows", () => {
   });
 
   it("offers PowerShell's fallback where the account's directory is a Windows path, the POSIX shell's otherwise", () => {
-    expect(fallbackOf(signIn(), "C:\\Users\\seth\\a")).toBe(signIn().fallback.powershell);
-    expect(fallbackOf(signIn(), "/home/seth/a")).toBe(signIn().fallback.posix);
+    expect(fallbackOf(signIn(), "C:\\Users\\milo\\a")).toBe(signIn().fallback.powershell);
+    expect(fallbackOf(signIn(), "/home/milo/a")).toBe(signIn().fallback.posix);
     expect(fallbackOf(signIn(), undefined)).toBe(signIn().fallback.posix);
   });
 });

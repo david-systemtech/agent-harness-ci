@@ -26,7 +26,7 @@ const SESSION = "0199aa00-0000-4000-8000-000000000001";
 /** The local environment with one session, opened, a run going on it. */
 const opened = async (extra: Partial<Parameters<typeof renderApp>[0]> = {}) => {
   const app = await renderApp({
-    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }] }] },
+    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }] }] },
     flags: { session: SESSION },
     ...extra,
   });
@@ -140,9 +140,9 @@ describe("the permission card", () => {
       {
         kind: "denylist",
         toolName: "Read",
-        input: { file_path: "/home/seth/.ssh/id_ed25519" },
-        summary: "Read: /home/seth/.ssh/id_ed25519",
-        denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/seth/.ssh/id_ed25519" }],
+        input: { file_path: "/home/milo/.ssh/id_ed25519" },
+        summary: "Read: /home/milo/.ssh/id_ed25519",
+        denylist: [{ section: "paths", entry: { id: "ssh", pattern: "~/.ssh/**", note: "", enabled: true, preset: true }, matched: "/home/milo/.ssh/id_ed25519" }],
       },
       "⛔ Denylist",
     );
@@ -179,7 +179,7 @@ describe("the question card", () => {
 
   it("ticks several options with Space on a multi-select question, then walks to the next, and answers them all", async () => {
     const { app, env } = await opened();
-    await park(app, env, questions, "Checks");
+    await park(app, env, questions, "? Checks");
     expect(app.frame()).toContain("Which checks?");
     expect(app.frame()).toContain("1/2");
     await app.press(KEY.space, KEY.down, KEY.down, KEY.space);
@@ -198,7 +198,7 @@ describe("the question card", () => {
 
   it("skips the question on Esc, which denies it", async () => {
     const { app, env } = await opened();
-    await park(app, env, questions, "Checks");
+    await park(app, env, questions, "? Checks");
     await app.press(KEY.esc);
     await app.waitUntil(() => answersSent(env).length === 1, "an answer sent");
     expect(answersSent(env)[0]).toEqual({ commandId: expect.any(String), promptId: expect.any(String), sessionId: SESSION, decision: "deny" });

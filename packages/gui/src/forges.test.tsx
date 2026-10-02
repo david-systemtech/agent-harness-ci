@@ -195,7 +195,7 @@ describe("Add from this computer's gh", () => {
     await app.user.type(within(add).getByRole("textbox", { name: "URL" }), "https://github.com");
     await app.user.click(within(add).getByRole("button", { name: "Use the gh signed in on this computer" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a forge on desk" })).toBeNull());
-    expect(facts(await card("https://github.com"))["Credential"]).toBe("The gh token seth@desk handed over once: it will not follow gh's rotations.");
+    expect(facts(await card("https://github.com"))["Credential"]).toBe("The gh token milo@desk handed over once: it will not follow gh's rotations.");
 
     expect(shell.calls.filter(([member]) => member === "gh.token")).toEqual([
       ["gh.token", "git.example.test"],

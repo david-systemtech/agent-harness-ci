@@ -74,7 +74,7 @@ describe("the modes", () => {
       protocolVersion: 1,
       capabilities: [],
       environmentId: "0f8fad5b-d9cb-469f-a165-70867728950e",
-      environmentName: "SYSTEM-SERVER",
+      environmentName: "SAMPLE-SERVER",
       clientSessionId: "cs-1",
       scopes: ["read"],
       ceiling: "acceptEdits",

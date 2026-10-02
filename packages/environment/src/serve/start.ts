@@ -186,7 +186,7 @@ import { createPreCheckRunner } from "../routines/pre-check.js";
 import { prepareScriptsDirectory, scriptsDirectory } from "../routines/scripts-directory.js";
 import { createRoutineWorkspaces } from "../routines/workspace.js";
 import { forkRewindMethods } from "../sessions/fork-rewind.js";
-import { groupMethods } from "../sessions/group-methods.js";
+import { groupMethods, createImportedGroup } from "../sessions/group-methods.js";
 import { sessionMethods } from "../sessions/methods.js";
 import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
@@ -222,7 +222,7 @@ import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { sourceAccountInventories } from "../state-import/inventory.js";
 import { directoryInventory } from "../carry-over/directory-inventory.js";
-import { carryOverMethods } from "../carry-over/methods.js";
+import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
@@ -1769,6 +1769,20 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
     inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
   });
+  const skillHandlers = skillsMethods({
+    log,
+    trust: (place) => trustStore.of(place),
+    nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
+    environmentId: record.id,
+    own: ownSkills,
+    defaultAccountId: () => accounts.defaultId(),
+    accounts: listedAccounts,
+    carryOver: carrySkills,
+    probe: skillProbes.probe,
+    sources: skillSources,
+    sync: skillSync,
+  });
+  const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
   const routineHandlers = routineMethods({
     log,
     clock: now,
@@ -1797,6 +1811,16 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     orientation: readOrientation,
   });
   const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
+  const sessionHandlers = sessionMethods({
+      log,
+      clock: now,
+      deletion,
+      resolver: workspaceResolver,
+      // An imported session's history, appended the first time a client opens it (#579).
+      beforeOpen: importedHistory.beforeOpen,
+      validateRunParameters: host.validateSessionInput,
+      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
+    });
   const table = createMethodTable({
     ...lifecycle.handlers,
     // The snapshot, sent when replay from the cursor is out of bounds: the status now, the look (#323), and every step's cached
@@ -1812,16 +1836,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The generic settings (#117), on the environment's settings stream.
     ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
-    ...sessionMethods({
-      log,
-      clock: now,
-      deletion,
-      resolver: workspaceResolver,
-      // An imported session's history, appended the first time a client opens it (#579).
-      beforeOpen: importedHistory.beforeOpen,
-      validateRunParameters: host.validateSessionInput,
-      clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
-    }),
+    ...sessionHandlers,
     // A missing session given another workspace (#328), from a request the create's resolver serves.
     ...setWorkspaceMethods({ log, host, resolver: workspaceResolver, availability, autoMemory }),
     ...groupMethods({ log, clock: now }),
@@ -1834,7 +1849,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
-    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability, beforeContinuation: (sessionId) => importedHistory.beforeContinuation(sessionId) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
@@ -1881,19 +1896,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // The skill set (#494): skills.get, and the own directory's create and remove.
     // Carry over's skills half (#513): an adopted account's skills and commands, and the machine's ~/.agents/skills, copied
     // into the own directory, a checkout among them offered as a source. The choices (#501), on the skills stream.
-    ...skillsMethods({
-      log,
-      trust: (place) => trustStore.of(place),
-      nativeRoots: (accountId) => accountId === null ? [] : host.account(accountId)?.descriptor.nativeSkillRoots ?? [],
-      environmentId: record.id,
-      own: ownSkills,
-      defaultAccountId: () => accounts.defaultId(),
-      accounts: listedAccounts,
-      carryOver: carrySkills,
-      probe: skillProbes.probe,
-      sources: skillSources,
-      sync: skillSync,
-    }),
+    ...skillHandlers,
     // Readiness (#510): each member of the set a run would have, checked in its workspace against its sidecar or the
     // overlay, a tool on the PATH runs get, which is the host environment's.
     ...skillReadinessMethods({
@@ -1920,26 +1923,30 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
     // into the auto memory's directories in the queue key changes take, the skills tick and the rest of the inventory (#580).
-    ...carryOverMethods({
-      log,
-      environmentId: record.id,
-      host,
-      availability,
-      identityAt: (path) => environmentResolver.identityAt(path),
-      autoMemory,
-      skills: carrySkills,
-      home: carryOverHome,
-      stateImportInventory: importInventory,
-    }),
+    ...carryOver.methods,
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
       machine: stateImportSource,
       log,
       environmentId: record.id,
+      createGroup: createImportedGroup(log, now),
+      setDraft: sessionHandlers["sessions.setDraft"],
+      setGroup: sessionHandlers["sessions.setGroup"],
+      archive: sessionHandlers["sessions.archive"],
+      pin: sessionHandlers["sessions.pin"],
       coordinator: stateImports,
+      sources: skillSources,
+      forgeAccounts: () => verifiedOrigins(forge.list()),
+      setAlwaysOn: skillHandlers["skills.setAlwaysOn"],
+      knownSkillNames: async () => {
+        const [own, sources] = await Promise.all([ownSkills.read(), skillSources.read()]);
+        return new Set([...own, ...sources.members].flatMap((member) => member.name !== null && member.problems.length === 0 ? [member.name] : []));
+      },
       accounts,
       listSessions: listImportSessions,
+      carryOver,
       createInstruction: instructionHandlers["instructions.create"],
+      banks: bankService,
       directoryRules: environmentResolver,
       timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
       checkRoutineImport: routineHandlers["routines.checkImport"],
