@@ -1,23 +1,13 @@
-import {
-  CHAT_COMPLETIONS_PATH,
-  COMPLETIONS_NAMESPACE,
-  ChatCompletionChunk,
-  CompletionsErrorBody,
-  CompletionsModelList,
-  MODELS_PATH,
-  type CompletionsModel,
-  type CompletionUsage,
-  type Mode,
-  type RunEndReason,
-} from "@agent-harness/contracts";
-import type { ConnectionCredential } from "@agent-harness/client-runtime";
+import { CHAT_COMPLETIONS_PATH, COMPLETIONS_NAMESPACE, CompletionsModelList, MODELS_PATH, type CompletionsModel, type Mode } from "@agent-harness/contracts";
+import type { ConnectionCredential, Observable, SessionProjection } from "@agent-harness/client-runtime";
 import type { SelectionOutcome, TerminalSelection } from "../startup/selection.js";
 import { nameOf } from "../view.js";
-import { formatWriter, narrator, type FormatWriter, type Narrator, type PrintFormat } from "./output.js";
+import { AnswerAbandoned, readAnswer, refusalOf, type Head, type Learned } from "./answer.js";
+import { cancelTurn, readerOf } from "./cancel.js";
 import { PrintFailure } from "./failure.js";
 import { listedModel } from "./model.js";
+import { formatWriter, narrator, type PrintFormat } from "./output.js";
 import { targetOf, type Target } from "./session.js";
-import { eventData } from "./sse.js";
 
 /**
  * `agent-harness tui -p` (docs/specs/switch-over.md, "Phase-D commands and
@@ -52,61 +42,25 @@ export interface PrintIo {
   readonly fetch: typeof globalThis.fetch;
 }
 
-/** What the print has learned, for its result. */
-interface Learned {
-  environmentId: string | null;
-  sessionId: string | null;
-  runId: string | null;
-  text: string;
-  usage: CompletionUsage | null;
-  reason: RunEndReason;
-  error: string | null;
-  /** The answer ended with its run completed, and nothing it sent still waits. */
-  completed: boolean;
-}
-
-/** The surface's refusal of a request, in its words, with the session and run it names; else the status. */
-const refusalOf = async (response: Response, learned: Learned, what: string): Promise<PrintFailure> => {
-  const parsed = CompletionsErrorBody.safeParse(await response.json().catch(() => null));
-  if (!parsed.success) return new PrintFailure(`${what} answered ${response.status}.`);
-  const fields = parsed.data[COMPLETIONS_NAMESPACE];
-  if (fields?.sessionId !== undefined) learned.sessionId = fields.sessionId;
-  if (fields?.runId !== undefined) learned.runId = fields.runId;
-  if (fields?.ended !== undefined) learned.reason = fields.ended.reason;
-  return new PrintFailure(parsed.data.error.message);
-};
-
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** A request of the completions routes; a network failure is the environment out of reach. */
-const ask = async (io: PrintIo, environment: string, url: string, init: RequestInit): Promise<Response> => {
+/** A request of the completions routes; a network failure is the environment out of reach, an abort the print let go of. */
+const ask = async (io: PrintIo, environment: string, url: string, init: RequestInit & { readonly signal: AbortSignal }): Promise<Response> => {
   try {
     return await io.fetch(url, init);
   } catch (error) {
+    if (init.signal.aborted) throw new AnswerAbandoned();
     throw new PrintFailure(`${environment} could not be reached: ${messageOf(error)}.`);
   }
 };
 
 /** `GET /v1/models` on the environment, as its credential may read it. */
-const listModels = async (io: PrintIo, environment: string, credential: ConnectionCredential, learned: Learned): Promise<readonly CompletionsModel[]> => {
-  const response = await ask(io, environment, `${credential.origin}${MODELS_PATH}`, { headers: { authorization: `Bearer ${credential.token}` } });
+const listModels = async (io: PrintIo, environment: string, credential: ConnectionCredential, learned: Learned, signal: AbortSignal): Promise<readonly CompletionsModel[]> => {
+  const response = await ask(io, environment, `${credential.origin}${MODELS_PATH}`, { headers: { authorization: `Bearer ${credential.token}` }, signal });
   if (!response.ok) throw await refusalOf(response, learned, environment);
   const listing = CompletionsModelList.safeParse(await response.json().catch(() => null));
   if (!listing.success) throw new PrintFailure(`${environment} listed its models in a shape this terminal does not read.`);
   return listing.data.data;
-};
-
-/** One event's data, parsed as JSON and read as a chunk. */
-const chunkOf = (data: string): { readonly raw: unknown; readonly chunk: ChatCompletionChunk } => {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(data);
-  } catch {
-    throw new PrintFailure("The answer sent something that is not JSON.");
-  }
-  const parsed = ChatCompletionChunk.safeParse(raw);
-  if (!parsed.success) throw new PrintFailure("The answer sent something that is not a completion chunk.");
-  return { raw, chunk: parsed.data };
 };
 
 /**
@@ -126,79 +80,94 @@ const accountFor = async (
   return { id: account.value.id, label: account.value.label, model: model.value?.id };
 };
 
-/** Reads the streamed answer into `learned`, handing each chunk to `writer` as it comes. */
-const readAnswer = async (body: ReadableStream<Uint8Array>, environment: string, learned: Learned, writer: FormatWriter, narrate: Narrator): Promise<void> => {
-  let finished = false;
-  /** The final chunk's error: said once the usage after it is read too. */
-  let failed: string | undefined;
-  const events = eventData(body);
-  for (;;) {
-    let next: IteratorResult<string>;
-    try {
-      next = await events.next();
-    } catch (error) {
-      throw new PrintFailure(`The answer from ${environment} broke off: ${messageOf(error)}.`);
-    }
-    if (next.done === true) break;
-    let raw: unknown;
-    let chunk: ChatCompletionChunk;
-    try {
-      ({ raw, chunk } = chunkOf(next.value));
-    } catch (error) {
-      await events.return();
-      throw error;
-    }
-    const fields = chunk[COMPLETIONS_NAMESPACE];
-    if (fields.sessionId !== undefined) learned.sessionId = fields.sessionId;
-    if (fields.runId !== undefined) learned.runId = fields.runId;
-    const choice = chunk.choices[0];
-    const content = choice?.delta.content;
-    if (content !== undefined) learned.text += content;
-    if (chunk.usage !== undefined) learned.usage = chunk.usage;
-    writer.chunk(raw, content);
-    if (fields.clamped != null) narrate.clamped(fields.clamped);
-    if (fields.ignored !== undefined) narrate.ignored(fields.ignored);
-    if (fields.activity !== undefined) narrate.activity(fields.activity);
-    if (choice?.finish_reason == null) continue;
-    finished = true;
-    if (fields.ended !== undefined) learned.reason = fields.ended.reason;
-    learned.completed = choice.finish_reason === "stop" && fields.ended?.reason === "completed" && fields.waiting === undefined;
-    failed = chunk.error?.message ?? (fields.waiting === undefined ? undefined : "The message still waits in the session's queue: no run has read it.");
-  }
-  if (!finished) throw new PrintFailure("The answer ended before its run did.");
-  if (failed !== undefined) throw new PrintFailure(failed);
-};
+/** The turn as the completions surface takes it (claude-adapter spec; #1179): the user's message, streamed with usage, unattended, no tools of the caller's. */
+const turnBody = (request: PrintRequest, model: CompletionsModel, target: Target) => ({
+  model: model.id,
+  messages: [{ role: "user", content: request.prompt }],
+  stream: true,
+  stream_options: { include_usage: true },
+  [COMPLETIONS_NAMESPACE]: {
+    ...(target.sessionId === null ? target.workspace !== undefined && { workspace: target.workspace } : { sessionId: target.sessionId }),
+    ...(request.mode !== undefined && { permissionMode: request.mode }),
+    ...(request.effort !== undefined && { thinking: request.effort }),
+    attended: false,
+  },
+});
+
+/** Why a print stopped before its answer's end: SIGINT, or standard output closing. */
+type Stop = "interrupted" | "output-closed";
 
 /**
  * Prints one answer: chooses the environment with `select`, sends the
  * prompt and writes what comes back in the format asked for; resolves to
- * the exit code. Whatever it started is closed by then.
+ * the exit code: 0 for a completed turn, 1 for anything else, 2 for
+ * selectors that cannot work together, 130 after SIGINT. SIGINT takes the
+ * turn back (`cancelTurn`) before the answer is let go of; standard output
+ * closing lets it go at once, the turn going on. Whatever the print started
+ * is closed by the time it resolves.
  */
 export const printAnswer = async (select: () => Promise<SelectionOutcome>, request: PrintRequest, io: PrintIo): Promise<number> => {
   const startedAt = performance.now();
-  const writer = formatWriter(request.format, io.stdout);
-  const learned: Learned = { environmentId: null, sessionId: null, runId: null, text: "", usage: null, reason: "error", error: null, completed: false };
-  const end = (code: number): number => {
-    const { completed, ...result } = learned;
-    writer.end({ type: "result", ...result, durationMs: Math.round(performance.now() - startedAt) }, completed);
-    return code;
+  const learned: Learned = { environmentId: null, sessionId: null, runId: null, text: "", usage: null, reason: "error", error: null, finished: false, completed: false };
+  let stopped: Stop | null = null;
+  const writer = formatWriter(request.format, (text) => {
+    if (stopped !== "output-closed") io.stdout(text);
+  });
+  const end = (exit: number): number => {
+    const { environmentId, sessionId, runId, text, usage, reason, error } = learned;
+    writer.end({ type: "result", environmentId, sessionId, runId, text, usage, durationMs: Math.round(performance.now() - startedAt), reason, error }, learned.completed);
+    return exit;
   };
+  const say = (line: string) => io.stderr(`${line}\n`);
   const fail = (message: string, exit: 1 | 2 = 1): number => {
     learned.error = message;
-    io.stderr(`${message}\n`);
+    say(message);
     return end(exit);
   };
+
+  // A stop lets go of what the print waits on; after SIGINT on a turn sent, once the turn is taken back.
+  const letGo = new AbortController();
+  const stoppedBy = new Promise<Stop>((resolve) => {
+    void io.interrupted.then(() => resolve("interrupted"));
+    void io.outputClosed.then(() => resolve("output-closed"));
+  });
+  const abandoned = new Promise<never>((_, reject) => letGo.signal.addEventListener("abort", () => reject(new AnswerAbandoned())));
+  abandoned.catch(() => undefined);
+  /** A step before the turn is sent, given up when the print is let go of. */
+  const until = <T>(step: Promise<T>): Promise<T> => Promise.race([step, abandoned]);
+  /** Set once the turn is sent: settles with what the answer's first chunk says of it, or null when the answer ends with nothing to take back. */
+  let headed: Promise<Head | null> | undefined;
+  let cancelled: Promise<string | null> = Promise.resolve(null);
+  let over = false;
 
   const outcome = await select();
   if (!outcome.ok) return fail(outcome.message);
   const { selection } = outcome;
-  learned.environmentId = selection.environment.environmentId;
+  const environmentId = selection.environment.environmentId;
+  learned.environmentId = environmentId;
+  let following: { readonly session: Observable<SessionProjection>; readonly stop: () => void } | undefined;
+  let turn: Head | undefined;
+  /** A queued turn's run is the one that read its message, once the session's stream says which. */
+  const readBy = () => {
+    if (turn?.delivery === "queued" && following !== undefined) learned.runId = readerOf(following.session.read(), turn.messageId) ?? learned.runId;
+  };
+  let answered: () => void = () => undefined;
+  const answerOver = new Promise<void>((resolve) => (answered = resolve));
+  void stoppedBy.then((why) => {
+    if (over) return;
+    stopped = why;
+    if (why === "interrupted" && headed !== undefined) {
+      cancelled = headed.then((head) => (head === null || following === undefined ? null : cancelTurn(selection.runtime, environmentId, head, following.session, answerOver)));
+      void cancelled.finally(() => letGo.abort());
+    } else letGo.abort();
+  });
+
   try {
     const { credential } = selection;
     const environment = nameOf(selection.environment);
-    const target = await targetOf(selection);
-    const account = await accountFor(selection, target, environment);
-    const listing = await listModels(io, environment, credential, learned);
+    const target = await until(targetOf(selection));
+    const account = await until(accountFor(selection, target, environment));
+    const listing = await listModels(io, environment, credential, learned, letGo.signal);
     const model = listedModel(listing, account.id, request.model, account.model);
     if (model === undefined) {
       const label = account.label ?? listing.find((entry) => entry[COMPLETIONS_NAMESPACE].accountId === account.id)?.[COMPLETIONS_NAMESPACE].account ?? account.id;
@@ -208,30 +177,64 @@ export const printAnswer = async (select: () => Promise<SelectionOutcome>, reque
           : `${environment} offers ${label} no model ${request.model}: GET ${MODELS_PATH} lists what each account offers.`,
       );
     }
-    const body = {
-      model: model.id,
-      messages: [{ role: "user", content: request.prompt }],
-      stream: true,
-      stream_options: { include_usage: true },
-      [COMPLETIONS_NAMESPACE]: {
-        ...(target.sessionId === null ? target.workspace !== undefined && { workspace: target.workspace } : { sessionId: target.sessionId }),
-        ...(request.mode !== undefined && { permissionMode: request.mode }),
-        ...(request.effort !== undefined && { thinking: request.effort }),
-        attended: false,
-      },
-    };
+    if (stopped !== null) throw new AnswerAbandoned();
+
+    let heard: (head: Head | null) => void = () => undefined;
+    headed = new Promise((resolve) => (heard = resolve));
     const response = await ask(io, environment, `${credential.origin}${CHAT_COMPLETIONS_PATH}`, {
       method: "POST",
       headers: { authorization: `Bearer ${credential.token}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(turnBody(request, model, target)),
+      signal: letGo.signal,
+    }).catch((error: unknown) => {
+      heard(null);
+      throw error;
     });
-    if (!response.ok || response.body === null) throw await refusalOf(response, learned, environment);
-    await readAnswer(response.body, environment, learned, writer, narrator(io.stderr));
+    if (!response.ok || response.body === null) {
+      heard(null);
+      throw await refusalOf(response, learned, environment);
+    }
+    try {
+      await readAnswer(response.body, {
+        environment,
+        learned,
+        writer,
+        narrate: narrator(io.stderr),
+        signal: letGo.signal,
+        head: (head) => {
+          // Where the turn's message went is the session's own stream's to say from here on.
+          const session = selection.runtime.projections.session(environmentId, head.sessionId);
+          following = { session, stop: session.subscribe(() => undefined) };
+          turn = head;
+          heard(head);
+        },
+      });
+    } finally {
+      heard(null);
+      answered();
+    }
+    if (stopped !== null) throw new AnswerAbandoned();
+    over = true;
+    readBy();
     return end(learned.completed ? 0 : 1);
   } catch (error) {
+    if (stopped === "output-closed") {
+      say("Standard output closed before the answer was printed in full.");
+      return 1;
+    }
+    if (stopped === "interrupted") {
+      const sentence = await cancelled;
+      readBy();
+      if (!learned.finished) learned.reason = "interrupted";
+      learned.error = sentence ?? (error instanceof PrintFailure ? error.message : "Interrupted before the turn was sent.");
+      say(learned.error);
+      return end(130);
+    }
     if (error instanceof PrintFailure) return fail(error.message, error.exit);
     throw error;
   } finally {
+    over = true;
+    following?.stop();
     await selection.close();
   }
 };

@@ -545,3 +545,167 @@ describe("a print that fails", () => {
     expect(resultOf(printing.stdout())).toMatchObject({ environmentId: DESK, sessionId: null, usage: null, reason: "error", error: `desk could not be reached: fetch failed: nothing answers at ${environment.wire.origin}/v1/models.` });
   });
 });
+
+/** A message sent to a session whose run `liveRunId` is live, queued as the surface's `runs.send` queues it; its id. */
+const queueTurn = (environment: EnvironmentHandle, sessionId: string, liveRunId: string, n: number): string => {
+  const messageId = `0199a200-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  environment.emit(sessionId, "message.sent", { runId: liveRunId, messageId, text: "Say hello", attachments: [], delivery: "queued", heldBy: "environment", ceiling: "bypassPermissions" });
+  return messageId;
+};
+
+/** The first chunk of an answer to a turn queued to a live run. */
+const queuedHead = (sessionId: string, liveRunId: string, messageId: string) =>
+  chunkOf(3, { role: true, ext: { sessionId, runId: liveRunId, messageId, delivery: "queued", mode: "acceptEdits", clamped: null, ignored: [] } });
+
+/** The run ids of every command `method` the environment was sent, in order. */
+const commanded = (environment: EnvironmentHandle, method: string, field: string) => environment.requests(method).map((request) => (request.params as Record<string, unknown>)[field]);
+
+describe("a turn that meets another run", () => {
+  it("waits in the session's queue behind a run another client started after the preflight, and is answered by the run that reads it", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "json" }, { session: sessionId });
+    const turn = await http.turn();
+    // Another client's run started since the preflight read the session idle: the turn is queued to it.
+    const theirs = environment.startRun(sessionId, "Their turn");
+    const messageId = queueTurn(environment, sessionId, theirs.runId, 1);
+    const answer = turn.open();
+    answer.chunk(queuedHead(sessionId, theirs.runId, messageId));
+    environment.endRun(sessionId, theirs.runId);
+    const reader = environment.liveRun(sessionId) as string;
+    expect(reader).not.toBe(theirs.runId);
+    answer.chunk(chunkOf(9, { content: "Hello." }));
+    environment.endRun(sessionId, reader);
+    completed(answer, 10);
+
+    expect(await printing.exit).toBe(0);
+    // The run that read the message, as the session's stream says, not the one it waited behind.
+    expect(resultOf(printing.stdout())).toMatchObject({ sessionId, runId: reader, text: "Hello.", reason: "completed", error: null });
+    expect(environment.requests("runs.withdraw")).toEqual([]);
+    expect(environment.requests("runs.interrupt")).toEqual([]);
+  });
+});
+
+describe("SIGINT", () => {
+  it("withdraws the turn's own message while no run has read it, leaving the run it waited behind alone", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "json" }, { session: sessionId });
+    const turn = await http.turn();
+    const theirs = environment.startRun(sessionId, "Their turn");
+    const messageId = queueTurn(environment, sessionId, theirs.runId, 1);
+    const answer = turn.open();
+    answer.chunk(queuedHead(sessionId, theirs.runId, messageId));
+    printing.interrupt();
+
+    expect(await printing.exit).toBe(130);
+    expect(commanded(environment, "runs.withdraw", "messageId")).toEqual([messageId]);
+    expect(environment.requests("runs.interrupt")).toEqual([]);
+    expect(environment.liveRun(sessionId)).toBe(theirs.runId);
+    expect(environment.summary(sessionId).draft).toBe("Say hello");
+    expect(answer.abandoned()).toBe(true);
+    const message = "Interrupted: the message was withdrawn before any run read it; its text is the session's draft.";
+    expect(printing.stderr()).toBe(`${message}\n`);
+    expect(resultOf(printing.stdout())).toMatchObject({ sessionId, runId: theirs.runId, text: "", usage: null, reason: "interrupted", error: message });
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+
+  it("interrupts the run the turn started, once it has, and only that run", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http);
+    const turn = await http.turn();
+    // SIGINT before the answer says anything: the printer waits to learn where the turn went.
+    printing.interrupt();
+    const run = environment.startRun(sessionId, "Say hello");
+    const answer = turn.open();
+    answer.chunk(headOf(environment, sessionId, run));
+    answer.chunk(chunkOf(4, { content: "Hel" }));
+
+    expect(await printing.exit).toBe(130);
+    expect(commanded(environment, "runs.interrupt", "runId")).toEqual([run.runId]);
+    expect(environment.requests("runs.withdraw")).toEqual([]);
+    expect(environment.liveRun(sessionId)).toBeUndefined();
+    expect(printing.stdout()).toBe("Hel\n");
+    expect(printing.stderr()).toBe(`Interrupted: run ${run.runId} was stopped.\n`);
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+
+  it("interrupts the run that read a queued turn's message, never the one it waited behind", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "stream-json" }, { session: sessionId });
+    const turn = await http.turn();
+    const theirs = environment.startRun(sessionId, "Their turn");
+    const messageId = queueTurn(environment, sessionId, theirs.runId, 1);
+    const answer = turn.open();
+    answer.chunk(queuedHead(sessionId, theirs.runId, messageId));
+    environment.endRun(sessionId, theirs.runId);
+    const reader = environment.liveRun(sessionId) as string;
+    answer.chunk(chunkOf(9, { content: "Hel" }));
+    printing.interrupt();
+
+    expect(await printing.exit).toBe(130);
+    expect(commanded(environment, "runs.interrupt", "runId")).toEqual([reader]);
+    expect(environment.liveRun(sessionId)).toBeUndefined();
+    const rows = printing.stdout().trimEnd().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(rows.at(-1)).toMatchObject({ type: "result", runId: reader, text: "Hel", reason: "interrupted", error: `Interrupted: run ${reader} was stopped.` });
+  });
+
+  it("before the turn is sent stops the print there: nothing is sent, and what it started is closed", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    // The new-session card's preset waits on the settings, which never answer.
+    environment.wire.answer("settings.get", () => new Promise(() => undefined));
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "json" });
+    await new Promise<void>((resolve) => {
+      const waitForSettings = () => (environment.requests("settings.get").length > 0 ? resolve() : setImmediate(waitForSettings));
+      waitForSettings();
+    });
+    printing.interrupt();
+
+    expect(await printing.exit).toBe(130);
+    expect(http.sent()).toEqual([]);
+    expect(resultOf(printing.stdout())).toMatchObject({ environmentId: DESK, sessionId: null, reason: "interrupted", error: "Interrupted before the turn was sent." });
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+});
+
+describe("standard output closing", () => {
+  it("ends the print with exit 1, the turn neither sent again nor stopped, and nothing more written", async () => {
+    const on = await machine(desk);
+    const environment = on.world.environment("desk");
+    const sessionId = environment.sessionId(0);
+    const http = fakeCompletions(environment.wire.origin, [OPUS]);
+    const printing = print(on, http, { format: "stream-json" });
+    const turn = await http.turn();
+    const run = environment.startRun(sessionId, "Say hello");
+    const answer = turn.open();
+    answer.chunk(headOf(environment, sessionId, run));
+    answer.chunk(chunkOf(4, { content: "Hel" }));
+    await new Promise<void>((resolve) => {
+      const waitForRows = () => (printing.stdout().split("\n").length > 2 ? resolve() : setImmediate(waitForRows));
+      waitForRows();
+    });
+    const written = printing.stdout();
+    printing.closeOutput();
+
+    expect(await printing.exit).toBe(1);
+    expect(printing.stdout()).toBe(written);
+    expect(printing.stderr()).toBe("Standard output closed before the answer was printed in full.\n");
+    expect(answer.abandoned()).toBe(true);
+    expect(http.sent().filter((sent) => sent.method === "POST")).toHaveLength(1);
+    expect(environment.requests("runs.interrupt")).toEqual([]);
+    expect(environment.liveRun(sessionId)).toBe(run.runId);
+    expect(openSockets(on)).toEqual(noneOpen(on));
+  });
+});
