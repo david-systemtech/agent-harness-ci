@@ -4,8 +4,12 @@ The image job can download the lockfile-pinned Linux x64 SDK from a generic
 package linked to this repository. It verifies SHA-512 before supplying the
 archive to Docker. Missing credentials, HTTP errors, timeouts, an unrecognised
 lockfile pin and integrity mismatches warn and fall back to npm. The Dockerfile
-checks that the SDK binary resolves after the production install, including in
-public builds, and fails rather than shipping an image without it.
+checks that the SDK binary for Node's `process.arch` resolves after the production
+install, including in public builds, and fails rather than shipping an image
+without it. Plain Dockerfile builds retain their host architecture (including
+arm64); the release and pull-request image jobs explicitly build linux/amd64.
+Resolution failures include the underlying error to explain a missing package
+or incompatible package exports.
 
 The generic package is seeded per pinned version; dependency updates do not
 upload it automatically. After updating the SDK pin:

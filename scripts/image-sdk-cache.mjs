@@ -119,9 +119,9 @@ snapshots:
 function checkSdk() {
   try {
     const sdk = createRequire(resolve("packages/environment/package.json")).resolve("@anthropic-ai/claude-agent-sdk");
-    createRequire(sdk).resolve("@anthropic-ai/claude-agent-sdk-linux-x64/claude");
-  } catch {
-    throw new Error("image dependencies: required Linux SDK is missing; refusing to build an image without the agent binary");
+    createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`);
+  } catch (error) {
+    throw new Error(`image dependencies: required Linux SDK is missing for ${process.arch}: ${error.message}; refusing to build an image without the agent binary`, { cause: error });
   }
 }
 

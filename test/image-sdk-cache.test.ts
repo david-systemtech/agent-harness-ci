@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 
 const packageManager = (JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { packageManager: string }).packageManager;
@@ -162,20 +163,26 @@ packages:
   expect(source.requests).toHaveLength(2);
 });
 
-it("fails the image check when the optional SDK binary was skipped, and passes when it resolves", async () => {
+it.each(["x64", "arm64"])("checks the SDK binary for %s and preserves the cause when it was skipped", async (arch) => {
   const f = fixture(Buffer.from("unused archive"));
   const sdk = join(f.dir, "node_modules", "@anthropic-ai", "claude-agent-sdk");
   mkdirSync(sdk, { recursive: true });
   writeFileSync(join(sdk, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", main: "sdk.js" }));
   writeFileSync(join(sdk, "sdk.js"), "");
-  const missing = await f.invoke(["check"]);
+  const architecture = join(f.dir, "architecture.mjs");
+  writeFileSync(architecture, `import process from "node:process"; Object.defineProperty(process, "arch", { value: ${JSON.stringify(arch)} });\n`);
+  const env = { NODE_OPTIONS: `--import=${pathToFileURL(architecture).href}` };
+  const missing = await f.invoke(["check"], env);
   expect(missing.code).toBe(1);
   expect(missing.stderr).toContain("required Linux SDK is missing");
-  const native = join(f.dir, "node_modules", "@anthropic-ai", "claude-agent-sdk-linux-x64");
+  const name = `claude-agent-sdk-linux-${arch}`;
+  const native = join(f.dir, "node_modules", "@anthropic-ai", name);
   mkdirSync(native, { recursive: true });
-  writeFileSync(join(native, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk-linux-x64" }));
+  writeFileSync(join(native, "package.json"), JSON.stringify({ name: `@anthropic-ai/${name}` }));
   writeFileSync(join(native, "claude"), "fixture binary");
-  expect((await f.invoke(["check"])).code).toBe(0);
+  const present = await f.invoke(["check"], env);
+  expect(present.code, present.stderr).toBe(0);
+  expect(missing.stderr).toContain(`Cannot find module '@anthropic-ai/${name}/claude'`);
 });
 
 it("warns and falls back to npm when the cache cannot read the lockfile pin", async () => {
