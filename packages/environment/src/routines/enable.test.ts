@@ -65,7 +65,7 @@ it("revalidates Account permission availability even when the Routine inherits i
   expect((await client.request("routines.enable", { commandId: randomUUID(), routineId })).receipt).toMatchObject({ status: "rejected", error: { data: { attention: ["clamped"] } } });
 });
 
-it.each(["edit", "document replacement"])("keeps the enable gate when an %s tries to turn a disabled Routine on", async (through) => {
+it.each(["edit", "document replacement"])("keeps the enable gate when the %s tries to turn a disabled Routine on", async (through) => {
   const t = await startTestEnvironment();
   onCleanup(() => t.close());
   const client = await t.client();
