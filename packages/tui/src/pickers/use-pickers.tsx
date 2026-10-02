@@ -753,9 +753,9 @@ export const usePickers = (host: PickersHost): Pickers => {
         case "modes":
         case "containment":
           return list("sets", "close");
-        case "usage":
         case "setup":
           return `${list("runs the action", "close")} · ${k("picker.preview")} next action`;
+        case "usage":
         case "review":
           return `${k("pager.line")} ${k("pager.halfDown")} ${k("pager.halfUp")} scroll · ${k("pager.close")} close`;
         case "settings":

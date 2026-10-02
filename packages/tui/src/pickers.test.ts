@@ -387,6 +387,9 @@ describe("/usage", () => {
     await app.waitFor(/5-hour\s+█*░* ?61% out\s+resets \d\d:\d\d/);
     expect(app.frame()).toMatch(/Week\s+█*░* ?10%/);
     expect(app.frame()).toContain("seth@home.test · personal on desk");
+    expect(app.frame()).toContain("scroll");
+    expect(app.frame()).not.toContain("runs the action");
+    expect(app.frame()).not.toContain("next action");
     expect(app.frame()).toContain("Not signed in.");
   });
 });
