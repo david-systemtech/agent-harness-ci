@@ -152,6 +152,22 @@ connecting or removing a camera for this check.
    provide the member. A camera on Windows or Linux scans the same QR without
    relying on Chromium's BarcodeDetector.
 
+## The theme picker (#1194)
+
+On every platform, with the window connected to this machine's environment:
+
+1. **A live preview.** In Settings, Theme, choose Ember: the whole window
+   repaints in its orange accent at once, with no white frame and no
+   content-policy error in the console; Cancel paints the saved theme back.
+   Quit while a preview shows and start again: the window opens on the saved
+   theme's Canvas, never the preview's.
+2. **Export.** Export, then Download `<name>.json`: the OS saves the file
+   (asking where, or into its downloads folder), and it holds the theme's
+   name and seven seeds and nothing else.
+3. **Import.** Import opens the OS's file dialog filtered to JSON; choosing
+   the exported file previews it, and a file that is not a theme file is
+   refused with its reason, nothing saved.
+
 ## The terminal pane under the content policy (#409, #486)
 
 On every platform, with the window connected to an environment (this
