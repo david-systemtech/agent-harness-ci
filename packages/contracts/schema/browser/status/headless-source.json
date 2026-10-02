@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeadlessSource",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "endpoint"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^(?:https?|wss?):\\/\\/[^\\s/?#]+(?:[/?#]\\S*)?$",
+          "description": "The CDP address browser.headless.endpoint names."
+        }
+      },
+      "required": [
+        "kind",
+        "endpoint"
+      ],
+      "description": "An operator's browser beside the environment, reached at its CDP address."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "launched"
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Chromium or Chrome the environment launches: browser.headless.executable, else the first found in the platform's usual locations and PATH."
+        }
+      },
+      "required": [
+        "kind",
+        "executable"
+      ],
+      "description": "A Chromium or Chrome the environment launches itself under new headless, over a pipe, with a throwaway profile."
+    }
+  ],
+  "description": "Where the headless browser comes from."
+}

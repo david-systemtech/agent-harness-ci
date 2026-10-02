@@ -4,6 +4,10 @@ export * from "./access-log.js";
 export * from "./accounts.js";
 export * from "./actions.js";
 export * from "./adapter.js";
+export * from "./bank-templates.js";
+export * from "./banks.js";
+export * from "./bank-join.js";
+export * from "./bank-registry.js";
 export * from "./bootstrap.js";
 export * from "./browser-bridge.js";
 export * from "./browser-choice.js";
@@ -15,6 +19,7 @@ export * from "./browser-status.js";
 export * from "./credential-settings.js";
 export * from "./calendar.js";
 export * from "./carry-over.js";
+export * from "./client-calls.js";
 export * from "./state-import.js";
 export * from "./catalogue.js";
 export * from "./catalogue-data.js";
@@ -61,6 +66,8 @@ export * from "./routines.js";
 export * from "./schedule.js";
 export * from "./schedule-cases.js";
 export * from "./shape-rules.js";
+export * from "./silence.js";
+export * from "./silence-cases.js";
 export * from "./skill-rule-cases.js";
 export * from "./skill-rules.js";
 export * from "./skills.js";
@@ -92,6 +99,7 @@ export {
   Timestamp,
 } from "./primitives.js";
 export type { MintedPairing } from "./methods/access.js";
+export { BankIndexConflict, BankReadOnlyError, BankRequiredError, ValidationFailedError } from "./methods/banks.js";
 export {
   AliasIdentityMismatchError,
   ForgeAccountMissingError,
@@ -141,6 +149,7 @@ export * from "./sessions.js";
 export * from "./settings.js";
 export * from "./settings-rows.js";
 export * from "./setup.js";
+export * from "./setup-minted.js";
 export * from "./setup-prompts.js";
 export * from "./steps.js";
 export * from "./summary-fields.js";
@@ -154,3 +163,5 @@ export * from "./usage.js";
 export * from "./webhook-signature.js";
 export * from "./workspaces.js";
 export * from "./write-commands.js";
+
+export * from "./memory-drafts.js";

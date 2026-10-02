@@ -164,16 +164,21 @@ describe("routines.endpoints.set", () => {
     expect(endpointEvents(t).map((event) => event.payload)).toEqual([{ name: "alerts", url: `${target.origin}/hook`, secretKind: "missing" }]);
   });
 
-  it("answers a key-manager reference as the secret unsupported, recording nothing", async () => {
-    const t = await start();
+  it("records a key-manager reference without resolving it and lists only its display form, preserving it across URL edits and restart", async () => {
+    const dataDir = dataDirectory();
+    const t = await start({ dataDir });
     const client = await t.client();
     const reference = { provider: "openbao" as const, connectionId: randomUUID(), mount: "personal", path: "agents/hermes", key: "secret" };
+    const display = { provider: "openbao", label: null, locator: "personal/agents/hermes (key secret)" };
 
-    const refused = await refusal(set(client, { name: "hermes", url: "https://hermes.example.com/hook", secret: { kind: "reference", reference } }));
-
-    expect(refused).toMatchObject({ code: "invalid_params", data: { reason: "unsupported", issues: [{ path: ["secret"] }] } });
-    expect(await list(client)).toEqual([]);
-    expect(endpointEvents(t)).toEqual([]);
+    const answer = await made(client, { name: "hermes", url: "https://hermes.example.com/hook", secret: { kind: "reference", reference } });
+    expect(answer).toMatchObject({ secretKind: "reference", reference: display });
+    expect(endpointEvents(t)[0]?.payload).toMatchObject({ secretKind: "reference", reference });
+    await made(client, { name: "hermes", url: "https://hermes.example.com/new" });
+    expect(await list(client)).toMatchObject([{ secretKind: "reference", reference: display }]);
+    await t.close();
+    const restarted = await start({ dataDir });
+    expect(await list(await restarted.client())).toMatchObject([{ url: "https://hermes.example.com/new", secretKind: "reference", reference: display }]);
   });
 
   it("refuses a whsec_ secret whose rest is not base64, naming neither it nor anything of it", async () => {

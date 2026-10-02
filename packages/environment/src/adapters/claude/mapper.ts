@@ -44,6 +44,8 @@ export interface MapperState {
   providerSessionId: string | null;
   /** Set by the end: nothing is mapped after it. */
   ended: boolean;
+  completed: boolean;
+  suggested: boolean;
   /** Set by an interrupt, so the ending reads as one whatever the provider calls it. */
   interruptRequested: boolean;
   readonly openTools: Map<string, OpenTool>;
@@ -63,6 +65,8 @@ export const createMapperState = (options: { readonly ledger: TaskLedger; readon
   linked: false,
   providerSessionId: null,
   ended: false,
+  completed: false,
+  suggested: false,
   interruptRequested: false,
   openTools: new Map(),
   closedTools: new Set(),
@@ -100,9 +104,16 @@ const toJsonObject = (value: unknown): JsonObject => {
  * it (`{type: image, source: {type: base64, media_type, data}}`, what the
  * CLI hands the model for an MCP tool's image) as its media type and size
  * (`recordedImage`), never its bytes, which the model read and the log never
- * holds; everything else as it is.
+ * holds. A structured Read image or PDF (#621) keeps its file metadata with the
+ * base64 replaced by the returned media type and byte size; everything else
+ * as it is.
  */
-const withoutImageBytes = (output: unknown): unknown => {
+const withoutFileBytes = (output: unknown): unknown => {
+  if (isRecord(output) && (output["type"] === "image" || output["type"] === "pdf") && isRecord(output["file"]) && typeof output["file"]["base64"] === "string") {
+    const { base64, ...file } = output["file"];
+    const mediaType = output["type"] === "pdf" ? "application/pdf" : typeof file["type"] === "string" ? file["type"] : "application/octet-stream";
+    return { ...output, file: { ...file, mediaType, size: Buffer.byteLength(base64, "base64") } };
+  }
   if (!Array.isArray(output)) return output;
   return output.map((block: unknown) => {
     if (!isRecord(block) || block["type"] !== "image" || !isRecord(block["source"])) return block;
@@ -139,7 +150,7 @@ const endTool = (state: MapperState, id: string, status: "ok" | "error" | "cance
   if (open === undefined) return [];
   state.openTools.delete(id);
   state.closedTools.add(id);
-  return [event("tool.ended", { toolCallId: id, status, output: toJson(withoutImageBytes(output)) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
+  return [event("tool.ended", { toolCallId: id, status, output: toJson(withoutFileBytes(output)) as never, durationMs: Math.max(0, state.now() - open.startedAt) })];
 };
 
 /** The kind of reason a denial report names (`decision_reason_type`), as the harness's deciders read it: anything else is the provider's own. */
@@ -351,6 +362,7 @@ const modelUsage = (raw: unknown): ModelUsage[] => {
 export const endTurn = (state: MapperState, end: Omit<RunEnd, "type">): AdapterEvent[] => {
   if (state.ended) return [];
   state.ended = true;
+  state.completed = end.reason === "completed";
   const events: AdapterEvent[] = [];
   for (const id of [...state.openTools.keys()]) events.push(...endTool(state, id, "cancelled", null));
   for (const [itemId, item] of state.openItems) {
@@ -400,12 +412,18 @@ const tasksChanged = (state: MapperState): TranscriptEvent[] => (state.ledger.di
 /**
  * One SDK message as the transcript events it means for the turn `state`
  * belongs to. The ledger reads every message, ended turn or not, so work
- * that outlives a turn is known to the next; nothing else is mapped once the
+ * that outlives a turn is known to the next; only its prompt suggestion is mapped once the
  * turn has ended.
  */
 export const mapSdkMessage = (message: unknown, state: MapperState): AdapterEvent[] => {
   if (!isRecord(message)) return [];
   state.ledger.observe(message);
+  if (message["type"] === "prompt_suggestion") {
+    const suggestion = text(message["suggestion"]);
+    if (!state.completed || state.suggested || suggestion === null || suggestion.trim() === "") return [];
+    state.suggested = true;
+    return [event("run.suggested", { suggestion })];
+  }
   if (state.ended) return [];
   switch (message["type"]) {
     case "system":

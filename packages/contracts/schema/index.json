@@ -643,6 +643,10 @@
       "title": "SessionHistoryImportedPayload"
     },
     {
+      "path": "sessions/events/run.suggested.json",
+      "title": "RunSuggestedPayload"
+    },
+    {
       "path": "sessions/events/run.ended.json",
       "title": "RunEndedPayload"
     },
@@ -1071,6 +1075,18 @@
       "title": "OnePasswordReference"
     },
     {
+      "path": "key-managers/bitwarden-move-locator.json",
+      "title": "BitwardenMoveLocator"
+    },
+    {
+      "path": "key-managers/move-locator.json",
+      "title": "KeyManagerMoveLocator"
+    },
+    {
+      "path": "key-managers/reference-provider-unavailable-error.json",
+      "title": "ReferenceProviderUnavailableError"
+    },
+    {
       "path": "key-managers/bitwarden-reference.json",
       "title": "BitwardenReference"
     },
@@ -1415,6 +1431,194 @@
       "title": "RepositoryIdentity"
     },
     {
+      "path": "banks/scope-segment.json",
+      "title": "MemoryScopeSegment"
+    },
+    {
+      "path": "banks/draft-scope.json",
+      "title": "MemoryDraftScope"
+    },
+    {
+      "path": "banks/tools/search.json",
+      "title": "MemorySearchInput"
+    },
+    {
+      "path": "banks/tools/read.json",
+      "title": "MemoryReadInput"
+    },
+    {
+      "path": "banks/tools/promote.json",
+      "title": "MemoryPromoteInput"
+    },
+    {
+      "path": "banks/promote-result.json",
+      "title": "MemoryPromoteResult"
+    },
+    {
+      "path": "banks/events/bank.drafts-consumed.json",
+      "title": "BankDraftsConsumedPayload"
+    },
+    {
+      "path": "banks/tools/draft.json",
+      "title": "MemoryDraftInput"
+    },
+    {
+      "path": "banks/tools/retire.json",
+      "title": "MemoryRetireInput"
+    },
+    {
+      "path": "banks/draft.json",
+      "title": "BankDraft"
+    },
+    {
+      "path": "banks/events/bank.draft-queued.json",
+      "title": "BankDraftQueuedPayload"
+    },
+    {
+      "path": "banks/name.json",
+      "title": "BankName"
+    },
+    {
+      "path": "banks/manifest.json",
+      "title": "BankManifest"
+    },
+    {
+      "path": "banks/org-file.json",
+      "title": "OrgFile"
+    },
+    {
+      "path": "banks/scope-file.json",
+      "title": "ScopeFile"
+    },
+    {
+      "path": "banks/memory.json",
+      "title": "MemoryFrontmatter"
+    },
+    {
+      "path": "banks/rule-id.json",
+      "title": "BankRuleId"
+    },
+    {
+      "path": "banks/validator-rule.json",
+      "title": "BankValidatorRule"
+    },
+    {
+      "path": "banks/finding.json",
+      "title": "BankFinding"
+    },
+    {
+      "path": "banks/verdict.json",
+      "title": "BankVerdict"
+    },
+    {
+      "path": "banks/id.json",
+      "title": "BankId"
+    },
+    {
+      "path": "banks/role.json",
+      "title": "BankRole"
+    },
+    {
+      "path": "banks/folder-pointer.json",
+      "title": "BankFolderPointer"
+    },
+    {
+      "path": "banks/account-scope.json",
+      "title": "BankAccountScope"
+    },
+    {
+      "path": "banks/repository-scope.json",
+      "title": "BankRepositoryScope"
+    },
+    {
+      "path": "banks/location.json",
+      "title": "BankLocation"
+    },
+    {
+      "path": "banks/merge-override.json",
+      "title": "BankMergeOverride"
+    },
+    {
+      "path": "banks/credential-source.json",
+      "title": "BankCredentialSource"
+    },
+    {
+      "path": "banks/copied-from.json",
+      "title": "BankCopiedFrom"
+    },
+    {
+      "path": "banks/reachability.json",
+      "title": "BankReachability"
+    },
+    {
+      "path": "banks/manifest-status.json",
+      "title": "BankManifestStatus"
+    },
+    {
+      "path": "banks/landing-status.json",
+      "title": "BankLandingStatus"
+    },
+    {
+      "path": "banks/status.json",
+      "title": "BankStatus"
+    },
+    {
+      "path": "banks/entry.json",
+      "title": "BankEntry"
+    },
+    {
+      "path": "banks/record.json",
+      "title": "BankRecord"
+    },
+    {
+      "path": "banks/join-preview.json",
+      "title": "BankJoinPreview"
+    },
+    {
+      "path": "banks/conflict-reason.json",
+      "title": "BankConflictReason"
+    },
+    {
+      "path": "banks/index-conflict.json",
+      "title": "BankIndexConflict"
+    },
+    {
+      "path": "banks/events/bank.added.json",
+      "title": "BankAddedPayload"
+    },
+    {
+      "path": "banks/events/bank.updated.json",
+      "title": "BankUpdatedPayload"
+    },
+    {
+      "path": "banks/events/bank.pinned.json",
+      "title": "BankPinnedPayload"
+    },
+    {
+      "path": "banks/events/bank.forgotten.json",
+      "title": "BankForgottenPayload"
+    },
+    {
+      "path": "banks/events/bank.synced.json",
+      "title": "BankSyncedPayload"
+    },
+    {
+      "path": "banks/events/bank.verified.json",
+      "title": "BankVerifiedPayload"
+    },
+    {
+      "path": "banks/events/bank.landed.json",
+      "title": "BankLandedPayload"
+    },
+    {
+      "path": "banks/events/bank.landing-failed.json",
+      "title": "BankLandingFailedPayload"
+    },
+    {
+      "path": "banks/events/bank.awaiting-review.json",
+      "title": "BankAwaitingReviewPayload"
+    },
+    {
       "path": "skills/name.json",
       "title": "SkillName"
     },
@@ -1497,6 +1701,10 @@
     {
       "path": "skills/events/skills.source-removed.json",
       "title": "SkillsSourceRemovedPayload"
+    },
+    {
+      "path": "skills/events/skills.source-follow-set.json",
+      "title": "SkillsSourceFollowSetPayload"
     },
     {
       "path": "skills/view-member.json",
@@ -1617,6 +1825,22 @@
     {
       "path": "skills/source-add-conflict.json",
       "title": "SkillSourceAddConflict"
+    },
+    {
+      "path": "skills/source-no-skills.json",
+      "title": "SkillSourceNoSkills"
+    },
+    {
+      "path": "skills/source-pull-conflict.json",
+      "title": "SkillSourcePullConflict"
+    },
+    {
+      "path": "skills/source-follow-conflict.json",
+      "title": "SkillSourceFollowConflict"
+    },
+    {
+      "path": "skills/source-sync.json",
+      "title": "SkillSourceSync"
     },
     {
       "path": "skills/readiness/fix.json",
@@ -2155,6 +2379,10 @@
       "title": "DenylistTestKind"
     },
     {
+      "path": "permissions/notices/denylist.updated.json",
+      "title": "DenylistUpdatedPayload"
+    },
+    {
       "path": "permissions/listed-prompt.json",
       "title": "ListedPrompt"
     },
@@ -2175,6 +2403,10 @@
       "title": "ReviewRun"
     },
     {
+      "path": "permissions/notices/review.updated.json",
+      "title": "ReviewUpdatedPayload"
+    },
+    {
       "path": "instructions/layer.json",
       "title": "InstructionLayer"
     },
@@ -2185,6 +2417,10 @@
     {
       "path": "instructions/manifest-layer.json",
       "title": "InstructionManifestLayer"
+    },
+    {
+      "path": "instructions/always-on-chooser.json",
+      "title": "AlwaysOnChooser"
     },
     {
       "path": "instructions/always-on-skill.json",
@@ -3095,6 +3331,10 @@
       "title": "PromptVariant"
     },
     {
+      "path": "setup/minted-payload.json",
+      "title": "SetupMintedPayload"
+    },
+    {
       "path": "browser/page-driver-kind.json",
       "title": "PageDriverKind"
     },
@@ -3335,6 +3575,14 @@
       "title": "ExtensionFolderStatus"
     },
     {
+      "path": "browser/status/headless-source.json",
+      "title": "HeadlessSource"
+    },
+    {
+      "path": "browser/status/headless.json",
+      "title": "HeadlessBrowserStatus"
+    },
+    {
       "path": "browser/status/status.json",
       "title": "BrowserStatus"
     },
@@ -3381,6 +3629,30 @@
     {
       "path": "browser/chrome-updated.json",
       "title": "ChromeUpdatedPayload"
+    },
+    {
+      "path": "client-calls/call-id.json",
+      "title": "ClientCallId"
+    },
+    {
+      "path": "client-calls/browser-dock.json",
+      "title": "BrowserDockCall"
+    },
+    {
+      "path": "client-calls/browser-chrome-list.json",
+      "title": "BrowserChromeListCall"
+    },
+    {
+      "path": "client-calls/browser-chrome-list-result.json",
+      "title": "BrowserChromeListResult"
+    },
+    {
+      "path": "client-calls/browser-chrome.json",
+      "title": "BrowserChromeCall"
+    },
+    {
+      "path": "client-calls/call.json",
+      "title": "ClientCallPayload"
     },
     {
       "path": "settings/events/settings.updated.json",
@@ -3485,6 +3757,18 @@
     {
       "path": "errors/forge_account_missing.json",
       "title": "ForgeAccountMissingError"
+    },
+    {
+      "path": "errors/bank_required.json",
+      "title": "BankRequiredError"
+    },
+    {
+      "path": "errors/bank_read_only.json",
+      "title": "BankReadOnlyError"
+    },
+    {
+      "path": "errors/validation_failed.json",
+      "title": "ValidationFailedError"
     },
     {
       "path": "errors/kind_unsupported.json",
@@ -5027,6 +5311,206 @@
       "title": "forge.pullRequests.refresh error"
     },
     {
+      "path": "methods/banks.list/params.json",
+      "title": "banks.list params"
+    },
+    {
+      "path": "methods/banks.list/result.json",
+      "title": "banks.list result"
+    },
+    {
+      "path": "methods/banks.list/error.json",
+      "title": "banks.list error"
+    },
+    {
+      "path": "methods/banks.join.preview/params.json",
+      "title": "banks.join.preview params"
+    },
+    {
+      "path": "methods/banks.join.preview/result.json",
+      "title": "banks.join.preview result"
+    },
+    {
+      "path": "methods/banks.join.preview/error.json",
+      "title": "banks.join.preview error"
+    },
+    {
+      "path": "methods/banks.join/params.json",
+      "title": "banks.join params"
+    },
+    {
+      "path": "methods/banks.join/result.json",
+      "title": "banks.join result"
+    },
+    {
+      "path": "methods/banks.join/response.json",
+      "title": "banks.join response"
+    },
+    {
+      "path": "methods/banks.join/error.json",
+      "title": "banks.join error"
+    },
+    {
+      "path": "methods/banks.drafts.list/params.json",
+      "title": "banks.drafts.list params"
+    },
+    {
+      "path": "methods/banks.drafts.list/result.json",
+      "title": "banks.drafts.list result"
+    },
+    {
+      "path": "methods/banks.drafts.list/error.json",
+      "title": "banks.drafts.list error"
+    },
+    {
+      "path": "methods/banks.get/params.json",
+      "title": "banks.get params"
+    },
+    {
+      "path": "methods/banks.get/result.json",
+      "title": "banks.get result"
+    },
+    {
+      "path": "methods/banks.get/error.json",
+      "title": "banks.get error"
+    },
+    {
+      "path": "methods/banks.register/params.json",
+      "title": "banks.register params"
+    },
+    {
+      "path": "methods/banks.register/result.json",
+      "title": "banks.register result"
+    },
+    {
+      "path": "methods/banks.register/response.json",
+      "title": "banks.register response"
+    },
+    {
+      "path": "methods/banks.register/error.json",
+      "title": "banks.register error"
+    },
+    {
+      "path": "methods/banks.credential.set/params.json",
+      "title": "banks.credential.set params"
+    },
+    {
+      "path": "methods/banks.credential.set/result.json",
+      "title": "banks.credential.set result"
+    },
+    {
+      "path": "methods/banks.credential.set/response.json",
+      "title": "banks.credential.set response"
+    },
+    {
+      "path": "methods/banks.credential.set/error.json",
+      "title": "banks.credential.set error"
+    },
+    {
+      "path": "methods/banks.credential.swap/params.json",
+      "title": "banks.credential.swap params"
+    },
+    {
+      "path": "methods/banks.credential.swap/result.json",
+      "title": "banks.credential.swap result"
+    },
+    {
+      "path": "methods/banks.credential.swap/response.json",
+      "title": "banks.credential.swap response"
+    },
+    {
+      "path": "methods/banks.credential.swap/error.json",
+      "title": "banks.credential.swap error"
+    },
+    {
+      "path": "methods/banks.create/params.json",
+      "title": "banks.create params"
+    },
+    {
+      "path": "methods/banks.create/result.json",
+      "title": "banks.create result"
+    },
+    {
+      "path": "methods/banks.create/response.json",
+      "title": "banks.create response"
+    },
+    {
+      "path": "methods/banks.create/error.json",
+      "title": "banks.create error"
+    },
+    {
+      "path": "methods/banks.verify/params.json",
+      "title": "banks.verify params"
+    },
+    {
+      "path": "methods/banks.verify/result.json",
+      "title": "banks.verify result"
+    },
+    {
+      "path": "methods/banks.verify/error.json",
+      "title": "banks.verify error"
+    },
+    {
+      "path": "methods/banks.registry.update/params.json",
+      "title": "banks.registry.update params"
+    },
+    {
+      "path": "methods/banks.registry.update/result.json",
+      "title": "banks.registry.update result"
+    },
+    {
+      "path": "methods/banks.registry.update/response.json",
+      "title": "banks.registry.update response"
+    },
+    {
+      "path": "methods/banks.registry.update/error.json",
+      "title": "banks.registry.update error"
+    },
+    {
+      "path": "methods/banks.pin/params.json",
+      "title": "banks.pin params"
+    },
+    {
+      "path": "methods/banks.pin/result.json",
+      "title": "banks.pin result"
+    },
+    {
+      "path": "methods/banks.pin/response.json",
+      "title": "banks.pin response"
+    },
+    {
+      "path": "methods/banks.pin/error.json",
+      "title": "banks.pin error"
+    },
+    {
+      "path": "methods/banks.forget/params.json",
+      "title": "banks.forget params"
+    },
+    {
+      "path": "methods/banks.forget/result.json",
+      "title": "banks.forget result"
+    },
+    {
+      "path": "methods/banks.forget/response.json",
+      "title": "banks.forget response"
+    },
+    {
+      "path": "methods/banks.forget/error.json",
+      "title": "banks.forget error"
+    },
+    {
+      "path": "methods/banks.sync/params.json",
+      "title": "banks.sync params"
+    },
+    {
+      "path": "methods/banks.sync/result.json",
+      "title": "banks.sync result"
+    },
+    {
+      "path": "methods/banks.sync/error.json",
+      "title": "banks.sync error"
+    },
+    {
       "path": "methods/keyManagers.list/params.json",
       "title": "keyManagers.list params"
     },
@@ -5625,6 +6109,22 @@
     {
       "path": "methods/terminals.open/error.json",
       "title": "terminals.open error"
+    },
+    {
+      "path": "methods/terminals.run/params.json",
+      "title": "terminals.run params"
+    },
+    {
+      "path": "methods/terminals.run/result.json",
+      "title": "terminals.run result"
+    },
+    {
+      "path": "methods/terminals.run/response.json",
+      "title": "terminals.run response"
+    },
+    {
+      "path": "methods/terminals.run/error.json",
+      "title": "terminals.run error"
     },
     {
       "path": "methods/terminals.write/params.json",
@@ -6247,6 +6747,38 @@
       "title": "skills.sources.remove error"
     },
     {
+      "path": "methods/skills.sources.pull/params.json",
+      "title": "skills.sources.pull params"
+    },
+    {
+      "path": "methods/skills.sources.pull/result.json",
+      "title": "skills.sources.pull result"
+    },
+    {
+      "path": "methods/skills.sources.pull/response.json",
+      "title": "skills.sources.pull response"
+    },
+    {
+      "path": "methods/skills.sources.pull/error.json",
+      "title": "skills.sources.pull error"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/params.json",
+      "title": "skills.sources.setFollow params"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/result.json",
+      "title": "skills.sources.setFollow result"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/response.json",
+      "title": "skills.sources.setFollow response"
+    },
+    {
+      "path": "methods/skills.sources.setFollow/error.json",
+      "title": "skills.sources.setFollow error"
+    },
+    {
       "path": "methods/skills.readiness/params.json",
       "title": "skills.readiness params"
     },
@@ -6393,6 +6925,18 @@
     {
       "path": "methods/browser.chromes.perform/error.json",
       "title": "browser.chromes.perform error"
+    },
+    {
+      "path": "methods/client.answer/params.json",
+      "title": "client.answer params"
+    },
+    {
+      "path": "methods/client.answer/result.json",
+      "title": "client.answer result"
+    },
+    {
+      "path": "methods/client.answer/error.json",
+      "title": "client.answer error"
     }
   ],
   "cases": [
@@ -6427,6 +6971,10 @@
     {
       "path": "cases/schedule-due-times.json",
       "title": "Schedule due times"
+    },
+    {
+      "path": "cases/silence.json",
+      "title": "Silence"
     }
   ],
   "data": [
@@ -6474,6 +7022,11 @@
       "path": "data/catalogue-instructions.json",
       "title": "Catalogue instructions",
       "schema": "catalogue/instruction-entry.json"
+    },
+    {
+      "path": "data/bank-validator-rules.json",
+      "title": "Bank validator rules",
+      "schema": "banks/validator-rule.json"
     }
   ],
   "methods": [
@@ -7437,6 +7990,140 @@
       "error": "methods/forge.pullRequests.refresh/error.json"
     },
     {
+      "name": "banks.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.list/params.json",
+      "result": "methods/banks.list/result.json",
+      "error": "methods/banks.list/error.json"
+    },
+    {
+      "name": "banks.join.preview",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.join.preview/params.json",
+      "result": "methods/banks.join.preview/result.json",
+      "error": "methods/banks.join.preview/error.json"
+    },
+    {
+      "name": "banks.join",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.join/params.json",
+      "result": "methods/banks.join/result.json",
+      "response": "methods/banks.join/response.json",
+      "error": "methods/banks.join/error.json"
+    },
+    {
+      "name": "banks.drafts.list",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.drafts.list/params.json",
+      "result": "methods/banks.drafts.list/result.json",
+      "error": "methods/banks.drafts.list/error.json"
+    },
+    {
+      "name": "banks.get",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.get/params.json",
+      "result": "methods/banks.get/result.json",
+      "error": "methods/banks.get/error.json"
+    },
+    {
+      "name": "banks.register",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.register/params.json",
+      "result": "methods/banks.register/result.json",
+      "response": "methods/banks.register/response.json",
+      "error": "methods/banks.register/error.json"
+    },
+    {
+      "name": "banks.credential.set",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.credential.set/params.json",
+      "result": "methods/banks.credential.set/result.json",
+      "response": "methods/banks.credential.set/response.json",
+      "error": "methods/banks.credential.set/error.json"
+    },
+    {
+      "name": "banks.credential.swap",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.credential.swap/params.json",
+      "result": "methods/banks.credential.swap/result.json",
+      "response": "methods/banks.credential.swap/response.json",
+      "error": "methods/banks.credential.swap/error.json"
+    },
+    {
+      "name": "banks.create",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.create/params.json",
+      "result": "methods/banks.create/result.json",
+      "response": "methods/banks.create/response.json",
+      "error": "methods/banks.create/error.json"
+    },
+    {
+      "name": "banks.verify",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.verify/params.json",
+      "result": "methods/banks.verify/result.json",
+      "error": "methods/banks.verify/error.json"
+    },
+    {
+      "name": "banks.registry.update",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.registry.update/params.json",
+      "result": "methods/banks.registry.update/result.json",
+      "response": "methods/banks.registry.update/response.json",
+      "error": "methods/banks.registry.update/error.json"
+    },
+    {
+      "name": "banks.pin",
+      "scope": "runs:drive",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.pin/params.json",
+      "result": "methods/banks.pin/result.json",
+      "response": "methods/banks.pin/response.json",
+      "error": "methods/banks.pin/error.json"
+    },
+    {
+      "name": "banks.forget",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.forget/params.json",
+      "result": "methods/banks.forget/result.json",
+      "response": "methods/banks.forget/response.json",
+      "error": "methods/banks.forget/error.json"
+    },
+    {
+      "name": "banks.sync",
+      "scope": "read",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/banks.sync/params.json",
+      "result": "methods/banks.sync/result.json",
+      "error": "methods/banks.sync/error.json"
+    },
+    {
       "name": "keyManagers.list",
       "scope": "read",
       "kind": "query",
@@ -7837,6 +8524,16 @@
       "result": "methods/terminals.open/result.json",
       "response": "methods/terminals.open/response.json",
       "error": "methods/terminals.open/error.json"
+    },
+    {
+      "name": "terminals.run",
+      "scope": "terminal",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/terminals.run/params.json",
+      "result": "methods/terminals.run/result.json",
+      "response": "methods/terminals.run/response.json",
+      "error": "methods/terminals.run/error.json"
     },
     {
       "name": "terminals.write",
@@ -8258,6 +8955,26 @@
       "error": "methods/skills.sources.remove/error.json"
     },
     {
+      "name": "skills.sources.pull",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.sources.pull/params.json",
+      "result": "methods/skills.sources.pull/result.json",
+      "response": "methods/skills.sources.pull/response.json",
+      "error": "methods/skills.sources.pull/error.json"
+    },
+    {
+      "name": "skills.sources.setFollow",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/skills.sources.setFollow/params.json",
+      "result": "methods/skills.sources.setFollow/result.json",
+      "response": "methods/skills.sources.setFollow/response.json",
+      "error": "methods/skills.sources.setFollow/error.json"
+    },
+    {
       "name": "skills.readiness",
       "scope": "read",
       "kind": "query",
@@ -8359,6 +9076,15 @@
       "params": "methods/browser.chromes.perform/params.json",
       "result": "methods/browser.chromes.perform/result.json",
       "error": "methods/browser.chromes.perform/error.json"
+    },
+    {
+      "name": "client.answer",
+      "scope": "runs:drive",
+      "kind": "query",
+      "stream": false,
+      "params": "methods/client.answer/params.json",
+      "result": "methods/client.answer/result.json",
+      "error": "methods/client.answer/error.json"
     }
   ]
 }

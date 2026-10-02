@@ -100,6 +100,14 @@ export interface ConsoleMessage {
   readonly sourceId: string;
 }
 
+/** The frame and kind of media Electron is checking or asking to open. */
+export interface MediaPermissionDetails {
+  readonly isMainFrame: boolean;
+  readonly requestingUrl?: string;
+  readonly mediaType?: string;
+  readonly mediaTypes?: readonly string[];
+}
+
 /** The window's page: `BrowserWindow.webContents`. */
 export interface ElectronContents {
   /**
@@ -112,14 +120,63 @@ export interface ElectronContents {
   on(name: "console-message", listener: (details: ConsoleMessage) => void): unknown;
   setWindowOpenHandler(handler: (details: { readonly url: string }) => { action: "deny" }): void;
   send(channel: string, ...args: unknown[]): void;
-  /** The window's Chromium profile; the desktop reads its request hook only. */
-  readonly session: { readonly webRequest: { onBeforeRequest(listener: RequestListener): void } };
+  /** The window's Chromium profile: request lockdown and camera permission handlers. */
+  readonly session: {
+    readonly webRequest: { onBeforeRequest(listener: RequestListener): void };
+    setPermissionCheckHandler(handler: (contents: ElectronContents | null, permission: string, origin: string, details: MediaPermissionDetails) => boolean): void;
+    setPermissionRequestHandler(handler: (contents: ElectronContents, permission: string, answer: (allowed: boolean) => void, details: MediaPermissionDetails) => void): void;
+  };
 }
 
 /** The window the renderer loads in: `BrowserWindow`. */
 export interface ElectronBrowserWindow extends ElectronWindow {
+  addWebView(view: ElectronWebView): void;
+  removeWebView(view: ElectronWebView): void;
+  on(name: "closed", listener: () => void): unknown;
   readonly webContents: ElectronContents;
   loadURL(url: string): Promise<void>;
+}
+
+/** A dock page's rectangle in the window's content coordinates. */
+export interface ViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A sandboxed page beside the renderer, with no preload. */
+export interface ViewOptions {
+  webPreferences: {
+    partition: string;
+    sandbox: boolean;
+    contextIsolation: boolean;
+    nodeIntegration: boolean;
+    webSecurity: boolean;
+    allowRunningInsecureContent: boolean;
+  };
+}
+export interface ElectronDebugger {
+  isAttached(): boolean;
+  attach(version: string): void;
+  detach(): void;
+  sendCommand(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<Record<string, unknown>>;
+  on(name: "message", listener: (details: unknown, method: string, params: Record<string, unknown>, sessionId?: string) => void): unknown;
+  on(name: "detach", listener: (details: unknown, reason: string) => void): unknown;
+}
+export interface ElectronWebView {
+  readonly webContents: ElectronContents & {
+    readonly debugger: ElectronDebugger;
+    loadURL(url: string): Promise<void>;
+    close(): void;
+    getURL(): string;
+    reload(): void;
+    navigationHistory: { canGoBack(): boolean; canGoForward(): boolean; goBack(): void; goForward(): void };
+    on(name: "before-input-event", listener: (details: Refusable, input: { readonly type: string; readonly key: string; readonly code: string; readonly control: boolean; readonly meta: boolean; readonly shift: boolean; readonly alt: boolean }) => void): unknown;
+    on(name: "did-navigate" | "did-navigate-in-page" | "did-stop-loading", listener: () => void): unknown;
+  };
+  setBounds(bounds: ViewBounds): void;
+  setVisible(visible: boolean): void;
 }
 
 /** The `BrowserWindow` options the desktop sets. */
@@ -153,7 +210,10 @@ export interface ElectronDialog {
     window: ElectronWindow,
     options: { title?: string; filters?: DialogFilter[]; properties: ("openFile" | "openDirectory" | "multiSelections" | "createDirectory")[] },
   ): Promise<{ canceled: boolean; filePaths: string[] }>;
-  showSaveDialog(window: ElectronWindow, options: { title?: string; defaultPath?: string; filters?: DialogFilter[] }): Promise<{ canceled: boolean; filePath?: string }>;
+  showSaveDialog(
+    window: ElectronWindow,
+    options: { title?: string; defaultPath?: string; filters?: DialogFilter[] },
+  ): Promise<{ canceled: boolean; filePath?: string }>;
 }
 
 /** One item on the clipboard: the media types it offers, and each one's content. */
@@ -223,4 +283,5 @@ export interface DesktopElectron {
   readonly notification: ElectronNotifications;
   /** `new BrowserWindow(options)`. */
   openWindow(options: WindowOptions): ElectronBrowserWindow;
+  openWebView(options: ViewOptions): ElectronWebView;
 }

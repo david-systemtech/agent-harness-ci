@@ -23,6 +23,7 @@ import { uuidv4, uuidv7 } from "../ids.js";
 import type { Notices } from "../notices.js";
 import { writable, type Observable } from "../observable.js";
 import type { Clock, DocumentStore, Timer } from "../platform.js";
+import type { BrowserChip } from "../projections/new-session.js";
 import type { SessionRunsView } from "../projections/runs.js";
 import type { SessionProjection } from "../projections/session.js";
 import type { VerbReason } from "../projections/verbs.js";
@@ -30,7 +31,7 @@ import type { ListData } from "../streams/kinds.js";
 import type { StreamState } from "../streams/stream.js";
 import { decodeOutbox, encodeOutbox, outboxDocument, type OutboxEntry } from "./entries.js";
 import { reachable, type EnvironmentOutbox, type OutboxView, type OverlayRecord } from "./overlay.js";
-import { overlayOf, reasonOf, targetOf, verbOf, type Target } from "./rules.js";
+import { overlayOf, reasonOf, routineOf, targetOf, verbOf, type Target } from "./rules.js";
 import { createStopFirst } from "./stop-first.js";
 
 export { STOP_WAIT_MS } from "./stop-first.js";
@@ -188,13 +189,10 @@ export interface Commands {
    * `title` (the source's title carried without one). Answers the fork's id
    * with the fork's answer; a refused fork raises its notice as any refused
    * command does. The environment writes an anchored fork's draft, the
-   * message's text; a hand-off (an account and no anchor) has none written,
-   * so once the fork is accepted the source's draft, as this client shows it
-   * when the fork is asked for (a draft still waiting its second included),
-   * is sent as the fork's (`sessions.setDraft`). A source with no draft that
-   * is a fork this runtime made at a message, which no run of it has read
-   * yet, carries that message's text instead: the environment writes no
-   * draft for a fork of it (#273).
+   * message's text, including an inherited anchor (#273). Once an unanchored
+   * hand-off is accepted, the source's current draft, as this client shows
+   * it when asked (one still waiting its second included), is sent as the
+   * fork's (`sessions.setDraft`) when nonempty.
    */
   fork(environmentId: string, sessionId: string, options?: ForkOptions): Promise<ForkAnswer>;
   /**
@@ -204,7 +202,10 @@ export interface Commands {
    * client-minted id when the environment has no group of that name, as
    * `moveToGroup` does; then `sessions.create` with a client-minted id, in
    * that group; then, once the environment has accepted it,
-   * `connections.setLastUsed`. Answers the new session's id with the
+   * `connections.setLastUsed`. The browser chip goes with the create as
+   * the session's first browser, chosen by the reach default while the
+   * chip holds its preset and by a person once it was changed; a chip
+   * holding none sends nothing. Answers the new session's id with the
    * create's answer, a refusal with its reason and data (a workspace's
    * `problem`, a worktree's branch reason); a group create refused leaves its
    * notice and the create its own. The renderer sends the first message once
@@ -230,6 +231,8 @@ export interface StartSessionChoice {
   readonly model?: string;
   /** The name of the merged heading in focus: the session goes into the environment's group of that name (names equal ignoring case and white space), made first when it has none. */
   readonly groupName?: string;
+  /** The browser chip (`projections.newSession`'s `browser`): its value, and why it holds it. */
+  readonly browser?: Pick<BrowserChip, "value" | "reason">;
 }
 
 /** What `commands.startSession` did: the id minted for the session, with the create's answer. The session stands only when that answer is ok. */
@@ -290,6 +293,10 @@ export interface OutboxHost {
   readonly lists: Observable<ReadonlyMap<string, StreamState<ListData>>>;
   /** The environment's list as it shows now, overlay and all: what a command's optimistic change is reckoned against. */
   shown(environmentId: string): ListData | null;
+  /** The name of routine `routineId` (in lowercase) as the environment last listed it (the request cache's `routines.list`), read without fetching; null when it is not held. */
+  routineName(environmentId: string, routineId: string): string | null;
+  /** The environment accepted a `routines.create`, told before its entry leaves: `projections.routines` shows it until the environment's list does (#910). */
+  routineCreated(environmentId: string, params: CommandParams<"routines.create">): void;
   /** The environment's time now. */
   now(environmentId: string): Date;
   /** What the runtime holds of a session, read without subscribing anything: its transcript, runs and draft. */
@@ -360,6 +367,7 @@ const admission = (method: CommandMethodName, record: ConnectionRecord | undefin
 const labelAtDispatch = (method: string, params: Readonly<Record<string, unknown>>, target: Target | null, shown: ListData | null): string | null => {
   if (method === "sessions.create") return typeof params["title"] === "string" ? params["title"] : "a new session";
   if (method === "groups.create") return typeof params["name"] === "string" ? normaliseGroupName(params["name"]) : null;
+  if (method === "routines.create") return (params["definition"] as ParamsOf<"routines.create">["definition"]).name;
   if (target === null) return null;
   return (target.kind === "session" ? shown?.sessions.get(target.id)?.title : shown?.groups.get(target.id)?.name) ?? null;
 };
@@ -454,12 +462,17 @@ export const createOutbox = (host: OutboxHost): Outbox => {
   const forgottenAnswer = (commandId: string, environmentId: string): Answer =>
     failure(commandId, "forgotten", `${nameOf(environmentId)} was removed from this client, and its outbox with it.`);
 
-  /** What a notice calls the entry's target: its title or name as the list confirms it now, else as it was when dispatched. */
+  /**
+   * What a notice calls the entry's target: its title or name as the list confirms it now, else as it was when dispatched;
+   * a routine's name as last listed, else as its create named it; else the environment's name (an import making routines).
+   */
   const labelOf = (entry: OutboxEntry): string => {
     const data = host.lists.read().get(entry.environmentId)?.data;
     const { target } = entry;
     if (target?.kind === "session") return data?.sessions.get(target.id)?.title ?? entry.label ?? "a session";
     if (target?.kind === "group") return data?.groups.get(target.id)?.name ?? entry.label ?? "a group";
+    const routineId = routineOf(entry.method, entry.params);
+    if (routineId !== null) return host.routineName(entry.environmentId, routineId) ?? entry.label ?? nameOf(entry.environmentId);
     return nameOf(entry.environmentId);
   };
 
@@ -650,8 +663,10 @@ export const createOutbox = (host: OutboxHost): Outbox => {
    */
   const ownEarlierAttempt = (entry: OutboxEntry, receipt: RejectedReceipt) => {
     if (entry.attempts < 2) return false;
-    if (entry.method === "groups.create" || entry.method === "sessions.create") return receipt.reason === "conflict" && receipt.error.data?.["reason"] === "exists";
-    return (entry.method === "sessions.delete" || entry.method === "sessions.purge" || entry.method === "groups.delete") && receipt.reason === "not_found";
+    if (entry.method === "groups.create" || entry.method === "sessions.create" || entry.method === "routines.create") {
+      return receipt.reason === "conflict" && receipt.error.data?.["reason"] === "exists";
+    }
+    return (entry.method === "sessions.delete" || entry.method === "sessions.purge" || entry.method === "groups.delete" || entry.method === "routines.delete") && receipt.reason === "not_found";
   };
 
   const answered = (environmentId: string, commandId: string, response: ResponseFrame) => {
@@ -685,6 +700,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
 
   /** Accepted: the entry leaves, its overlay stays until the list's cursor reaches the receipt's sequence. */
   const acknowledge = (entry: OutboxEntry, receipt: AcceptedReceipt, result: unknown) => {
+    if (entry.method === "routines.create") host.routineCreated(entry.environmentId, entry.params as CommandParams<"routines.create">);
     remove(entry, (overlay) => ({ ...overlay, sequence: receipt.sequence }));
     settleOverlays(entry.environmentId);
     answer(entry.commandId, { ok: true, commandId: entry.commandId, receipt, ...(result !== undefined && { result: result as ResultOf<CommandMethodName> }) });
@@ -763,6 +779,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       if (closed) return answer(commandId, failure(commandId, "closed", "The client runtime closed before the command was kept."));
       const shown = host.shown(environmentId);
       const target = targetOf(method, stored);
+      const routineId = routineOf(method, stored);
       const entry: OutboxEntry = {
         commandId,
         environmentId,
@@ -774,7 +791,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         sentOn: null,
         state: "queued",
         overlay: spec.scope === "sessions:write" ? overlayOf(method, stored, shown, host.now(environmentId).toISOString()) : null,
-        label: labelAtDispatch(method, stored, target, shown),
+        label: labelAtDispatch(method, stored, target, shown) ?? (routineId === null ? null : host.routineName(environmentId, routineId)),
       };
       const kind = (SESSION_WRITE_COMMANDS as Readonly<Record<string, (typeof SESSION_WRITE_COMMANDS)[SessionWriteMethodName]>>)[method];
       const queue = outboxOf(environmentId).entries;
@@ -826,25 +843,13 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     return message?.kind === "user-message" ? message.text : null;
   };
 
-  /** A session as the outbox's maps key it. */
-  const sessionKey = (environmentId: string, sessionId: string): string => `${environmentId} ${sessionId.toLowerCase()}`;
-
-  /** The forks `fork` made at a message, with its text: what a hand-off of one carries while no run of it has read that message. */
-  const branches = new Map<string, string>();
-
-  /**
-   * What a hand-off of a session carries onto the fork: the session's draft
-   * as this client shows it (a draft still waiting its second laid over);
-   * with none, for a fork this runtime made at a message no run of it has
-   * read yet, that message's text, the draft emptied to hand it off (#273).
-   */
+  /** The session's draft as this client shows it, including one still waiting its second. */
   const handOffDraft = (environmentId: string, sessionId: string): string | null => {
     const held = host.held(environmentId, sessionId);
     // The list's, which lays a waiting draft over as the held session's does; the held session's only for one the list lacks.
     const listed = host.shown(environmentId)?.sessions.get(sessionId.toLowerCase());
     const own = listed !== undefined ? listed.draft : held.draft;
-    if (own !== null && own.length > 0) return own;
-    return held.runs.length > 0 ? null : (branches.get(sessionKey(environmentId, sessionId)) ?? null);
+    return own !== null && own.length > 0 ? own : null;
   };
 
   const rewind = async (environmentId: string, sessionId: string, messageId: string): Promise<RewindAnswer> => {
@@ -960,7 +965,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
       return move.enqueue() as Promise<DispatchAnswer<"sessions.setGroup">>;
     },
     async startSession(environmentId, choice) {
-      const { workspace, account, model, groupName } = choice;
+      const { workspace, account, model, groupName, browser } = choice;
       const sessionId = choice.id ?? uuidv4();
       const group = groupName === undefined ? null : groupNamed(environmentId, groupName);
       if (group?.create != null && "refused" in group.create) return { sessionId, answer: group.create.refused as DispatchAnswer<"sessions.create"> };
@@ -970,6 +975,7 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         ...(account !== undefined && { account }),
         ...(model !== undefined && { model }),
         ...(group !== null && { groupId: group.groupId }),
+        ...(browser?.value != null && { browser: { value: browser.value, chosenBy: browser.reason === "chosen" ? "person" : "reach" } }),
       });
       if ("refused" in create) return { sessionId, answer: create.refused as DispatchAnswer<"sessions.create"> };
       // In this order, so the group is made first; the create is answered, the group's answer is its notice if refused.
@@ -984,9 +990,8 @@ export const createOutbox = (host: OutboxHost): Outbox => {
     async fork(environmentId, sessionId, options = {}) {
       const { anchor, account, title } = options;
       const id = uuidv4();
-      // Read now: the source's transcript and draft may move on while the fork is under way.
+      // Read now: the source's draft may move on while the fork is under way.
       const carried = account !== undefined && anchor === undefined ? handOffDraft(environmentId, sessionId) : null;
-      const anchorText = anchor === undefined ? null : messageText(environmentId, sessionId, anchor);
       const answer = await dispatch(environmentId, "sessions.fork", {
         sessionId,
         id,
@@ -995,7 +1000,6 @@ export const createOutbox = (host: OutboxHost): Outbox => {
         ...(title !== undefined && { title }),
       });
       if (answer.ok) {
-        if (anchorText !== null && anchorText.length > 0) branches.set(sessionKey(environmentId, id), anchorText);
         // Sent only once the fork exists, so a fork the environment refused leaves one notice, its own.
         if (carried !== null) void dispatch(environmentId, "sessions.setDraft", { sessionId: id, draft: carried.slice(0, MAX_DRAFT_LENGTH) });
       }

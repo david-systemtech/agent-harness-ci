@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   INSTRUCTION_LAYERS,
+  type AlwaysOnChooser,
   type InstructionLayer,
   type InstructionLeftOut,
   type InstructionManifest,
   type InstructionManifestLayer,
 } from "@agent-harness/contracts";
 import type { ComposedInstructions, InstructionComposer, InstructionPart, InstructionScope } from "../adapter/seams.js";
+import { splitFrontmatter } from "../skills/reader.js";
 import { projectParts } from "./project-layer.js";
 
 /**
@@ -40,10 +44,9 @@ import { projectParts } from "./project-layer.js";
  *
  * An account whose adapter's instruction channel is `none` is handed no
  * text: every part is listed in the manifest as left out, `channel-none`.
- * Under a channel's character cap, owned instructions are left out last
- * first until the text fits, each listed as left out, `over-cap`; a text
- * still over the cap with none left is handed as it is, since nothing else
- * is cut here (always-on skills, which go first, are #507's).
+ * Under a channel's character cap, always-on skills are left out last
+ * first, then owned instructions, each listed as left out, `over-cap`; a
+ * text still over the cap with none left is handed as it is.
  * Beside the text, the answer holds its parts and the manifest: per layer
  * its parts' ids, versions and characters, the always-on skills, the skill
  * set's fingerprint, the registries the orientation block could not read,
@@ -95,6 +98,32 @@ const PART_SEPARATOR = "\n\n";
 
 const nothing = (): readonly LayerPart[] => [];
 
+/**
+ * Enabled account members first, then the run's extra names, each name
+ * once, with who made it always-on: its account, else the actor that
+ * started the run (a routine's skills, a completions request's, #531).
+ */
+const alwaysOnParts = async (scope: InstructionScope) => {
+  const accounts = scope.skillSet.members.filter((member) => member.alwaysOn).map((member) => member.name);
+  const names = [...new Set([...accounts, ...scope.alwaysOn])];
+  return Promise.all(names.flatMap((name) => {
+    const chosenBy: AlwaysOnChooser = accounts.includes(name) ? "account" : scope.origin;
+    const member = scope.skillSet.members.find((entry) => entry.name === name);
+    if (member === undefined) return [];
+    const file = member.file ?? (scope.skillSet.generation === null ? null : join(scope.skillSet.generation, "skills", name, "SKILL.md"));
+    if (file === null) return [];
+    return [readFile(file, "utf8").then((markdown) => {
+      const body = splitFrontmatter(markdown).body.trim();
+      const cut = body.length > 60_000 ? `\n\n[Body cut at 60,000 characters; read ${file} for the rest.]` : "";
+      return {
+        id: name, version: member.commit ?? null, title: name,
+        text: `# Always-on skill: ${name}\n\nFollow this skill for the whole session; its files are relative to its folder${member.native ? "" : " in the generation"} (${dirname(file)}).\n\n${body.slice(0, 60_000)}${cut}`,
+        origin: member.origin, commit: member.commit ?? null, chosenBy,
+      };
+    })];
+  }));
+};
+
 const noOrientation = (): OrientationAnswer => ({ text: "", unreadRegistries: [] });
 
 /** The orientation block as the user layer's first part; none while it is blank. */
@@ -129,24 +158,25 @@ export const composeInstructions =
   (layers: InstructionLayers = {}): InstructionComposer =>
   async (scope) => {
     const orientationOn = layers.orientationOn ?? (() => true);
-    const [orientation, owned, teamBank, project, session, persona] = await Promise.all([
+    const [orientation, owned, teamBank, project, session, persona, alwaysOn] = await Promise.all([
       orientationOn() ? (layers.orientation ?? noOrientation)(scope) : noOrientation(),
       (layers.owned ?? nothing)(scope),
       (layers.teamBank ?? nothing)(scope),
       projectParts(scope),
       (layers.session ?? nothing)(scope),
       (layers.persona ?? nothing)(scope),
+      alwaysOnParts(scope),
     ]);
     const ownedParts = owned.map(ownedPart);
     /** The parts in the layers' order with the first `kept` owned instructions, the blank ones left out. */
-    const composedWith = (kept: number): InstructionPart[] => {
+    const composedWith = (kept: number, keptSkills = alwaysOn.length): InstructionPart[] => {
       const given: Readonly<Record<InstructionLayer, readonly LayerPart[]>> = {
         user: [...orientationParts(orientation), ...standing(ownedParts.slice(0, kept))],
         "team-bank": teamBank,
         project,
         session,
         persona,
-        "always-on": [],
+        "always-on": alwaysOn.slice(0, keptSkills).map(({ id, version, title, text }) => ({ id, version, title, text })),
       };
       return INSTRUCTION_LAYERS.flatMap((layer) => given[layer].filter((part) => part.text.trim() !== "").map((part) => ({ ...part, layer })));
     };
@@ -156,17 +186,22 @@ export const composeInstructions =
       parts = [];
       leftOut = composedWith(ownedParts.length).map(({ layer, id }) => ({ layer, id, reason: "channel-none" }));
     } else {
-      // Under the cap, owned instructions are left out last first until the text fits.
+      // Under the cap, always-on skills go last first, then owned instructions.
       const cap = scope.channel.maxCharacters;
       let kept = ownedParts.length;
-      while (cap !== null && kept > 0 && joined(composedWith(kept)).length > cap) kept -= 1;
-      parts = composedWith(kept);
-      leftOut = ownedParts.slice(kept).map(({ id }) => ({ layer: "user", id, reason: "over-cap" }));
+      let keptSkills = alwaysOn.length;
+      while (cap !== null && keptSkills > 0 && joined(composedWith(kept, keptSkills)).length > cap) keptSkills -= 1;
+      while (cap !== null && kept > 0 && joined(composedWith(kept, keptSkills)).length > cap) kept -= 1;
+      parts = composedWith(kept, keptSkills);
+      leftOut = [
+        ...alwaysOn.slice(keptSkills).map(({ id }): InstructionLeftOut => ({ layer: "always-on", id, reason: "over-cap" })),
+        ...ownedParts.slice(kept).map(({ id }): InstructionLeftOut => ({ layer: "user", id, reason: "over-cap" })),
+      ];
     }
     const manifest: InstructionManifest = {
       channel: scope.channel.kind,
       layers: manifestLayers(parts),
-      alwaysOn: [],
+      alwaysOn: alwaysOn.filter(({ id }) => parts.some((part) => part.layer === "always-on" && part.id === id)).map(({ id, origin, commit, chosenBy }) => ({ name: id, origin, commit, chosenBy })),
       skillSetFingerprint: scope.skillSet.fingerprint,
       unreadRegistries: [...orientation.unreadRegistries],
       leftOut,

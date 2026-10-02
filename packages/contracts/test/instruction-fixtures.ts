@@ -28,6 +28,7 @@ const alwaysOnSkill = {
   name: "grilling",
   origin: { kind: "repository", repository: "https://github.com/mattpocock/skills", path: "skills/grilling" },
   commit: "0123456789abcdef0123456789abcdef01234567",
+  chosenBy: "account",
 };
 
 /** A composition with two layers, an unread registry and nothing left out. */
@@ -81,11 +82,14 @@ export const instructionSchemaFixtures: Record<string, Fixtures> = {
     valid: [userLayer, { layer: "persona", characters: 30, parts: [{ id: "reviewer", version: null, characters: 30 }] }],
     invalid: [{ layer: "user", characters: 42, parts: [] }, { layer: "user", characters: 0, parts: [orientationPart] }, { layer: "bank", characters: 42, parts: [orientationPart] }],
   },
+  "instructions/always-on-chooser.json": { valid: ["account", "routine", "completions"], invalid: ["person", ""] },
   "instructions/always-on-skill.json": {
-    valid: [alwaysOnSkill, { name: "unslop", origin: null, commit: null }],
+    valid: [alwaysOnSkill, { name: "unslop", origin: null, commit: null, chosenBy: "routine" }],
     invalid: [
-      { name: "", origin: null, commit: null },
-      { name: "grilling", origin: null },
+      { name: "", origin: null, commit: null, chosenBy: "account" },
+      { name: "grilling", origin: null, chosenBy: "account" },
+      { name: "unslop", origin: null, commit: null },
+      { ...alwaysOnSkill, chosenBy: "person" },
       { ...alwaysOnSkill, name: "Grilling" },
       { ...alwaysOnSkill, origin: "https://github.com/mattpocock/skills" },
       { ...alwaysOnSkill, commit: "0123abc" },

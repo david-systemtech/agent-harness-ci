@@ -242,7 +242,7 @@ export const routinesImport = defineMethod({
     yaml: Yaml,
     routineIds: setOf(RoutineId).min(1).optional().meta({ description: "The ids the documents' routines are made under, one per document in order, each once; the environment mints them when absent." }),
     routineId: RoutineId.optional().meta({ description: "The routine whose definition the one document replaces; never with routineIds." }),
-    movedFrom: MoveTarget.optional().meta({
+    movedFrom: MoveTarget.extend({ definitionSequence: z.int().positive().optional().meta({ description: "The source definition's event sequence as read before the move, for settlement without comparing clocks." }) }).optional().meta({
       description: "The routine a move copies, which the routines made link to; absent for an import that is no move. With routineId it records nothing: the replaced routine keeps its own links.",
     }),
   })

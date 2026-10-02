@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { bundledVersion, installContextAt, makeTempDir, snapshot, stubRunner, tree, type Answer } from "../../test/service-helpers.js";
 import { runCli, type CliContext } from "../cli.js";
 import { writeServiceState } from "../launch/state.js";
+import { CommandTimeoutError, STOP_COMMAND_TIMEOUT_MS } from "./runner.js";
 
 let cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -55,6 +56,14 @@ const harness = (
 };
 
 const unitPath = (home: string) => join(home, ".config", "systemd", "user", "agent-harness.service");
+
+/** What the service managers say of a service that runs, and of one that does not (launchd: not loaded). */
+const running: Answer = (_, args) => (args[0] === "print" ? { stdout: "gui/501/agent-harness = {\n\tstate = running\n}\n" } : undefined);
+const stopped: Answer = (_, args) => (args[0] === "print" ? { code: 113 } : args.includes("is-active") ? { code: 3, stdout: "inactive\n" } : undefined);
+/** Whether a command stops the service, waiting while it drains. */
+const stopsTheService = (args: readonly string[]) => args.includes("--now") || args[0] === "bootout";
+
+const DRAIN_NOTICE = "Stopping the service, waiting up to 30 minutes for any running runs to finish.\n";
 const plistPath = (home: string) => join(home, "Library", "LaunchAgents", "agent-harness.plist");
 
 /** The paths under `home` that are neither inside `dataDir` nor one of its ancestors. */
@@ -214,6 +223,67 @@ describe("agent-harness service uninstall", () => {
     expect(await cli.run("service", "uninstall")).toBe(0);
     expect(cli.out()).toBe("No service is installed.\n");
     expect(cli.calls).toEqual([]);
+  });
+
+  it.each(["linux", "darwin"] as const)(
+    "on %s says, before it stops a running service, that it waits up to 30 minutes for running runs to finish",
+    async (platform) => {
+      const home = tempHome();
+      expect(await harness(platform, { home, answer: stopped }).run("service", "install")).toBe(0);
+      let saidBeforeTheStop: string | undefined;
+      const cli = harness(platform, {
+        home,
+        answer: (command, args) => {
+          if (stopsTheService(args)) saidBeforeTheStop = cli.out();
+          return running(command, args);
+        },
+      });
+
+      expect(await cli.run("service", "uninstall")).toBe(0);
+
+      expect(saidBeforeTheStop).toBe(DRAIN_NOTICE);
+      expect(cli.out().startsWith(`${DRAIN_NOTICE}Removed `)).toBe(true);
+    },
+  );
+
+  it("says nothing of a wait when the service is not running", async () => {
+    const home = tempHome();
+    expect(await harness("linux", { home, answer: stopped }).run("service", "install")).toBe(0);
+    const cli = harness("linux", { home, answer: stopped });
+
+    expect(await cli.run("service", "uninstall")).toBe(0);
+
+    expect(cli.out()).toMatch(/^Removed /);
+  });
+
+  it("says nothing of a wait on Windows, where Task Scheduler ends a running task without a drain", async () => {
+    const home = tempHome();
+    const cli = harness("win32", { home, answer: (_, args) => (args.includes("CSV") ? { stdout: '"\\agent-harness","N/A","Running"\r\n' } : undefined) });
+
+    // Named, since the default is a Windows path this POSIX runner cannot write to.
+    expect(await cli.run("service", "uninstall", "--data-dir", join(home, "data"))).toBe(0);
+
+    expect(cli.calls).toContain("schtasks /End /TN agent-harness");
+    expect(cli.out()).toMatch(/^Removed /);
+  });
+
+  it("says in one sentence, and exits 1, when the stop outlives even the wait it was given", async () => {
+    const home = tempHome();
+    expect(await harness("linux", { home, answer: stopped }).run("service", "install")).toBe(0);
+    const cli = harness("linux", {
+      home,
+      answer: (_, args) => {
+        if (stopsTheService(args)) throw new CommandTimeoutError(STOP_COMMAND_TIMEOUT_MS);
+        return undefined;
+      },
+    });
+
+    expect(await cli.run("service", "uninstall")).toBe(1);
+
+    expect(cli.err()).toBe(
+      "systemctl --user disable --now agent-harness.service did not finish within 32 minutes, so the service may still be stopping: " +
+        "`agent-harness service status` says whether it still runs.\n",
+    );
   });
 });
 
@@ -426,7 +496,7 @@ describe("agent-harness service status", () => {
   });
 
   it("uninstall of a service from before the launcher names only the definition it removed", async () => {
-    const cli = harness("linux");
+    const cli = harness("linux", { answer: stopped });
     const dataDir = join(cli.home, ".local", "state", "agent-harness");
     mkdirSync(dataDir, { recursive: true });
     mkdirSync(dirname(unitPath(cli.home)), { recursive: true });

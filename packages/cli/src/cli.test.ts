@@ -136,16 +136,16 @@ describe("agent-harness serve", () => {
     await expect(fetch(address)).rejects.toThrow();
   });
 
-  it("drains and exits 0 when the launcher's channel asks it to, having answered that it is idle", async () => {
+  it("drains and exits 0 when the launcher's channel asks it to, having answered its idle query: busy for the idle window after the start (#445)", async () => {
     const cli = harness();
     const exit = runCli(["serve", "--data-dir", join(tempDir(), "data"), "--port", "0"], cli.context);
     await vi.waitFor(() => expect(cli.out()).toMatch(/\n$/), SERVE_WAIT);
     expect(cli.ask({ type: "idle?" })).toEqual({
       type: "idle",
       readiness: "ready",
-      activity: { state: "idle" },
+      activity: { state: "busy", reason: "recent-activity", busyUntil: expect.any(String) as unknown as string },
       updatesManagedOutside: false,
-      binding: { tailnet: null, lan: null, lanAddresses: [] },
+      binding: { tailnet: null, tailnetFound: null, lan: null, lanAddresses: [] },
     });
     expect(cli.ask({ type: "drain?" })).toMatchObject({ type: "draining", trigger: "launcher" });
     expect(await exit).toBe(0);

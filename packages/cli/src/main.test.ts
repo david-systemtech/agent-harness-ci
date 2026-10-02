@@ -158,8 +158,13 @@ describe.skipIf(runningAsRoot || process.platform === "win32")("agent-harness se
     child.send({ type: "committed" });
     await ready;
     child.send({ type: "idle?" });
-    // A launcher is present, so updates are not managed outside, container or not.
-    expect(await nth(1)).toEqual({ type: "idle", readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false });
+    // A launcher is present, so updates are not managed outside, container or not; the start holds it busy for the idle window (#445).
+    expect(await nth(1)).toEqual({
+      type: "idle",
+      readiness: "ready",
+      activity: { state: "busy", reason: "recent-activity", busyUntil: expect.any(String) as string },
+      updatesManagedOutside: false,
+    });
     child.send({ type: "drain?" });
     expect(await nth(2)).toMatchObject({ type: "draining", drainingSince: expect.any(String) as string, trigger: "launcher" });
     expect(await exited).toBe(0);

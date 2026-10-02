@@ -22,7 +22,11 @@ import type { CdpParams } from "../cdp/session.js";
  * starting to load and committing (`Page`), and, a turn later, its lifecycle
  * and load events. Isolated worlds are execution contexts it numbers; an
  * in-page function called in one is answered by the test by the function's
- * name, and a world whose document has gone answers as Chromium does.
+ * name, and a world whose document has gone answers as Chromium does. A
+ * frame's owner element (its iframe) is a node it numbers, which resolves
+ * into its parent frame's world as an object a function can be called on.
+ * Each browser context keeps the cookies its pages' documents set, so a
+ * page in one context reads none of another's.
  */
 
 /** A command the peer was sent. */
@@ -49,10 +53,14 @@ export interface ScriptedFrame {
 export interface InPageCall {
   /** The function's name, from its declaration (`function locateElement(…)` is `locateElement`). */
   readonly name: string;
+  /** The declaration as sent, which a test may run in a page of its own (a jsdom window) to answer as the page would. */
+  readonly declaration: string;
   readonly args: readonly unknown[];
   readonly frame: ScriptedFrame;
   /** The isolated world's name, as the driver made it. */
   readonly worldName: string;
+  /** For a function called on a frame's owner element (its iframe, `this`): the frame it holds. */
+  readonly owner?: ScriptedFrame;
 }
 
 /** A command as an answer sees it. */
@@ -90,6 +98,8 @@ export interface ScriptedDocument {
   readonly servedFrom?: string;
   /** The frames it holds, in document order: a same-site frame in the page's own process, a cross-site one as a child target. */
   readonly frames?: readonly { readonly url: string; readonly crossSite?: boolean }[];
+  /** The cookies its response sets for its host, kept in the browser context of the page that loads it. */
+  readonly cookies?: readonly { readonly name: string; readonly value: string }[];
 }
 
 /** A target of the peer's model: a page, or a cross-site frame's own process. */
@@ -124,7 +134,7 @@ export interface ScriptedCdpPeer {
   sentOf(method: string): SentCommand[];
   /** Answers `method` from now on as given, in place of the stock answer. */
   answer(method: string, answer: CommandAnswer): void;
-  /** Answers the in-page function called `name` from now on (stock: undefined). */
+  /** Answers the in-page function called `name` from now on (stock: undefined); what `answer` throws comes back as Chrome sends a page's exception, described by its stack. */
   inPage(name: string, answer: (call: InPageCall) => unknown): void;
   /** Describes what an address serves: its title, a redirect, where it is served from, its frames. */
   document(url: string, document: ScriptedDocument): void;
@@ -191,6 +201,12 @@ interface TargetModel {
   heldLoad: (() => void) | undefined;
 }
 
+/** A frame's owner element, as `DOM.getFrameOwner` numbers it: the frame it holds, and the frame whose document holds it. */
+interface OwnerModel {
+  readonly owned: ScriptedFrame;
+  readonly parentFrameId: string;
+}
+
 interface WorldModel {
   readonly target: TargetModel;
   readonly frameId: string;
@@ -224,6 +240,12 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
   const sessions = new Map<string, SessionModel>();
   const targets = new Map<string, TargetModel>();
   const worlds = new Map<number, WorldModel>();
+  const owners = new Map<number, OwnerModel>();
+  /** Owner elements resolved into a world, by object id. */
+  const objects = new Map<string, { readonly contextId: number; readonly owner: OwnerModel }>();
+  /** Each browser context's cookies, by host and name. */
+  const browserContexts = new Set<string>();
+  const jars = new Map<string, Map<string, { readonly name: string; readonly value: string; readonly domain: string }>>();
   let holding = false;
   let counter = 0;
   const next = (prefix: string): string => `${prefix}-${++counter}`;
@@ -444,6 +466,9 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
     for (const child of target.children.filter((candidate) => candidate.parentFrameId === frameId)) closeTarget(child);
     frame.url = final;
     frame.loaderId = loaderId;
+    const jar = jars.get(target.browserContextId) ?? new Map();
+    jars.set(target.browserContextId, jar);
+    for (const cookie of documents.get(final)?.cookies ?? []) jar.set(`${hostOf(final)} ${cookie.name}`, { ...cookie, domain: hostOf(final) });
     if (main) target.title = documents.get(final)?.title ?? "";
     for (const session of sessionsOn(target)) {
       if (session.domains.has("Page")) emitOn(session, "Page.frameNavigated", { frame: frameParams(frame), type: "Navigation" });
@@ -489,10 +514,17 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
       switch (method) {
         case "Browser.getVersion":
           return { protocolVersion: "1.3", product: "ScriptedChromium/1.0", revision: "0", userAgent: "ScriptedChromium", jsVersion: "0" };
-        case "Target.createBrowserContext":
-          return { browserContextId: next("CONTEXT").toUpperCase() };
+        case "Target.getBrowserContexts":
+          return { browserContextIds: [...browserContexts] };
+        case "Target.createBrowserContext": {
+          const browserContextId = next("CONTEXT").toUpperCase();
+          browserContexts.add(browserContextId);
+          return { browserContextId };
+        }
         case "Target.disposeBrowserContext":
+          browserContexts.delete(params.browserContextId as string);
           for (const target of [...targets.values()]) if (target.browserContextId === params.browserContextId) closeTarget(target);
+          jars.delete(params.browserContextId as string);
           return {};
         case "Target.createTarget": {
           const target = newTarget("page", typeof params.browserContextId === "string" ? params.browserContextId : "DEFAULT");
@@ -539,6 +571,8 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
     }
     const target = session.target;
     switch (method) {
+      case "Runtime.getHeapUsage":
+        return { usedSize: 0, totalSize: 0 };
       case "Page.enable":
       case "Runtime.enable":
       case "Log.enable":
@@ -605,18 +639,54 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
         worlds.set(executionContextId, { target, frameId: frame.id, loaderId: frame.loaderId, name: typeof params.worldName === "string" ? params.worldName : "" });
         return { executionContextId };
       }
-      case "Runtime.callFunctionOn": {
+      case "DOM.getFrameOwner": {
+        const local = target.frames.find((candidate) => candidate.id === params.frameId && candidate.parentId !== undefined);
+        const child = target.children.find((candidate) => candidate.targetId === params.frameId);
+        const owner: OwnerModel | undefined = local
+          ? { owned: { ...local, targetId: target.targetId }, parentFrameId: local.parentId as string }
+          : child
+            ? { owned: { ...(child.frames[0] as FrameModel), targetId: child.targetId }, parentFrameId: child.parentFrameId as string }
+            : undefined;
+        if (!owner) throw new CdpFailure("Frame with the given id was not found.");
+        const backendNodeId = ++counter;
+        owners.set(backendNodeId, owner);
+        return { backendNodeId };
+      }
+      case "DOM.resolveNode": {
         const world = worlds.get(params.executionContextId as number);
+        const owner = owners.get(params.backendNodeId as number);
+        if (!world || world.target !== target) throw new CdpFailure("Cannot find context with specified id");
+        if (!owner || owner.parentFrameId !== world.frameId) throw new CdpFailure("No node with given id found");
+        const objectId = next("NODE");
+        objects.set(objectId, { contextId: params.executionContextId as number, owner });
+        return { object: { type: "object", subtype: "node", className: "HTMLIFrameElement", description: "iframe", objectId } };
+      }
+      case "Runtime.releaseObject":
+        objects.delete(params.objectId as string);
+        return {};
+      case "Runtime.callFunctionOn": {
+        const object = typeof params.objectId === "string" ? objects.get(params.objectId) : undefined;
+        if (typeof params.objectId === "string" && !object) throw new CdpFailure("Could not find object with given id");
+        const world = worlds.get(object ? object.contextId : (params.executionContextId as number));
         const frame = world && world.target === target ? target.frames.find((candidate) => candidate.id === world.frameId) : undefined;
         if (!world || !frame || frame.loaderId !== world.loaderId) throw new CdpFailure("Cannot find context with specified id");
         const declaration = String(params.functionDeclaration);
         const args = Array.isArray(params.arguments) ? params.arguments.map((argument: { value?: unknown }) => argument.value) : [];
         const answer = inPageAnswers.get(functionName(declaration));
         try {
-          const value = answer?.({ name: functionName(declaration), args, frame: { ...frame, targetId: target.targetId }, worldName: world.name });
+          const value = answer?.({
+            name: functionName(declaration),
+            declaration,
+            args,
+            frame: { ...frame, targetId: target.targetId },
+            worldName: world.name,
+            ...(object && { owner: object.owner.owned }),
+          });
           return { result: remoteValue(value) };
         } catch (error) {
-          const description = `Error: ${error instanceof Error ? error.message : String(error)}`;
+          // V8 describes an error by its stack, its name and message first; an error made in a jsdom window is not this realm's `Error`.
+          const stack = (error as { stack?: unknown } | null)?.stack;
+          const description = typeof stack === "string" ? stack : `Error: ${String(error)}`;
           return {
             result: { type: "object", subtype: "error", className: "Error", description },
             exceptionDetails: { exceptionId: 1, text: "Uncaught", lineNumber: 0, columnNumber: 0, exception: { type: "object", subtype: "error", className: "Error", description } },
@@ -625,8 +695,13 @@ export const scriptedCdpPeer = (): ScriptedCdpPeer => {
       }
       case "Runtime.evaluate":
         return { result: { type: "undefined" } };
-      case "Network.getCookies":
-        return { cookies: [] };
+      case "Network.getCookies": {
+        const hosts = new Set((Array.isArray(params.urls) ? (params.urls as string[]) : [target.frames[0]?.url ?? ""]).map(hostOf));
+        const kept = [...(jars.get(target.browserContextId)?.values() ?? [])].filter((cookie) => hosts.has(cookie.domain));
+        return {
+          cookies: kept.map((cookie) => ({ ...cookie, path: "/", expires: -1, size: cookie.name.length + cookie.value.length, httpOnly: false, secure: true, session: true })),
+        };
+      }
     }
     throw new CdpFailure(`'${method}' wasn't found`, -32601);
   };

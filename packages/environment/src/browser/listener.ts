@@ -61,6 +61,9 @@ const MAX_FRAME_BYTES = BRIDGE_MESSAGE_MAX_CHARS * 3;
 /** How a socket that ends a conversation is closed: a policy violation, after the `refused` that says why. */
 const REFUSED_CLOSE_CODE = 1008;
 
+/** An environment failure keeps the pairing: no `refused`, so the extension retries with its credential. */
+const ENVIRONMENT_FAILURE_CLOSE_CODE = 1011;
+
 /** How long the close waits for the extensions' sockets to close before it cuts them, as the wire's does. */
 const CLOSE_GRACE_MS = 1000;
 
@@ -89,7 +92,7 @@ export type ChromeCallAnswer =
 export interface ChromeDesk {
   /** A `pair` on a socket that announced `announce`; `open` says whether the socket is still there to hear the answer. */
   pair(pair: { readonly code: string; readonly name: string }, announce: Announce, open: () => boolean): Promise<PairAnswer>;
-  /** The proof `mac` of the hello's Chrome on `nonce`: true, or the sentence the socket is refused with. */
+  /** The proof `mac` of the hello's Chrome on `nonce`: true, or the sentence the socket is refused with. The listener logs a throw and closes with 1011, preserving the pairing. */
   prove(hello: Hello, nonce: string, mac: string): Promise<true | string>;
   /** The hello's Chrome proved itself and holds this socket now; a failure to record it is logged. */
   connected(hello: Hello): void;
@@ -192,7 +195,10 @@ export const createExtensionListener = (options: ExtensionListenerOptions): Exte
     try {
       proved = await chromes.prove(conversation.hello, conversation.nonce, mac);
     } catch (error) {
-      proved = `The proof could not be checked: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`Checking the proof of the Chrome ${conversation.hello.chromeId.toLowerCase()} failed:`, error);
+      // A failed check says nothing about the credential; a refusal would make Chrome forget it.
+      if (isOpen(socket)) socket.close(ENVIRONMENT_FAILURE_CLOSE_CODE);
+      return;
     }
     if (!isOpen(socket)) return;
     if (proved !== true) return refuse(socket, proved);

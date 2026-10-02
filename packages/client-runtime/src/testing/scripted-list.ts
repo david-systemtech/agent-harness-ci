@@ -4,6 +4,7 @@ import {
   LIST_PATCH_KEY,
   SESSION_STREAM_KIND,
   SessionSummary,
+  SessionBrowser,
   normaliseGroupName,
   type EventEnvelope,
   type Group,
@@ -95,6 +96,7 @@ export const LIST_COMMANDS = [
   "sessions.delete",
   "sessions.restore",
   "sessions.setWorkspace",
+  "sessions.setBrowser",
   "groups.create",
   "groups.rename",
   "groups.delete",
@@ -294,6 +296,8 @@ export const scriptedList = (options: ScriptedListOptions): ScriptedList => {
         add(deleted.summary, commandId, "session.restored");
         return accepted({ summary: deleted.summary });
       }
+      case "sessions.setBrowser":
+        return set(id, { browser: SessionBrowser.nullable().parse(params["browser"]) }, commandId, "session.browser.set");
       case "sessions.setWorkspace": {
         // As the environment decides it (#328): only a missing session with no run live is given another workspace.
         if (!session) return noSession();

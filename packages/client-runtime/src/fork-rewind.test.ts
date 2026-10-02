@@ -3,7 +3,9 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { end, fakeAdapter, gate, say, type FakeAdapterOptions, type Script } from "../../environment/test/fake-adapter.js";
 import { workspace } from "../../environment/test/sessions.js";
 import type { TestEnvironment } from "../../environment/test/helper.js";
-import { useHarness } from "../test/harness.js";
+import { manualClock } from "../../environment/test/clock.js";
+import { createCompactionSweep } from "../../environment/src/sessions/compaction.js";
+import { holds, useHarness } from "../test/harness.js";
 import { STOP_WAIT_MS, type RewindAnswer } from "./outbox/outbox.js";
 import type { Runtime } from "./runtime.js";
 import { fakeShell, inMemoryPlatform, type InMemoryPlatform } from "./testing/in-memory-platform.js";
@@ -97,6 +99,67 @@ const start = async (options: FakeAdapterOptions = {}) => {
 };
 
 describe("commands.fork", () => {
+  it.each(["events", "bytes"] as const)("opens a fork past the replay %s bound on the same forked row as event replay", async (bound) => {
+    const { t, adapter, runtime, env, sessionId, session, messageId, send } = await start();
+    await send("Fix the receipts");
+    await send("Then the tests");
+    const anchor = messageId("Then the tests");
+    const forked = await runtime.commands.fork(env, sessionId, { anchor });
+    expect(forked.answer).toMatchObject({ ok: true });
+    adapter.nextScripts.push(() => [...(bound === "events" ? Array.from({ length: 1001 }, (_, i) => say(`Reply ${i}`)) : [say("x".repeat(8 * 1024 * 1024))]), end()]);
+    const answer = await runtime.commands.dispatch(env, "runs.start", { sessionId: forked.sessionId, text: "Continue the fork" });
+    expect(answer).toMatchObject({ ok: true });
+    await adapter.reached(3);
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: forked.sessionId }).at(-1)?.type).toBe("run.ended"), EVENTUALLY);
+    expect(t.env.log.replayBound({ kind: "session", id: forked.sessionId }, 0).withinBound).toBe(false);
+
+    const fork = runtime.projections.session(env, forked.sessionId);
+    onTestFinished(fork.subscribe(() => undefined));
+    await holds(fork, (value) => value.freshness === "live");
+    const entry = fork.read().items[0];
+    expect(entry).toEqual({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor });
+    if (entry?.kind !== "forked") throw new Error("The snapshot lost the forked row.");
+    expect(forkedFrom(entry, session.read())).toEqual({ title: "Receipts", anchor: "Then the tests" });
+  });
+
+  it.each([
+    { anchored: true, olderFold: false },
+    { anchored: false, olderFold: false },
+    { anchored: true, olderFold: true },
+  ])("opens a compacted fork on its forked row ($anchored anchored, $olderFold older fold), keeping it through later live events", async ({ anchored, olderFold }) => {
+    const { t, adapter, runtime, env, sessionId, session, messageId, send } = await start();
+    await send("Fix the receipts");
+    await send("Then the tests");
+    const anchor = anchored ? messageId("Then the tests") : null;
+    const forked = await runtime.commands.fork(env, sessionId, anchor === null ? {} : { anchor });
+    expect(forked.answer).toMatchObject({ ok: true });
+    expect(await runtime.commands.dispatch(env, "runs.start", { sessionId: forked.sessionId, text: "Continue the fork" })).toMatchObject({ ok: true });
+    await adapter.reached(3);
+    await vi.waitFor(() => expect(t.env.log.readStream({ kind: "session", id: forked.sessionId }).at(-1)?.type).toBe("run.ended"), EVENTUALLY);
+    // A separate held clock ages the sweep without advancing the environment's socket timers.
+    const clock = manualClock(new Date(t.clock.now().getTime() + 91 * 24 * 60 * 60 * 1000).toISOString());
+    expect(createCompactionSweep({ log: t.env.log, clock }).sweep().compacted).toContain(forked.sessionId);
+    const compacted = t.env.log.readSnapshot({ kind: "session", id: forked.sessionId });
+    if (compacted === null) throw new Error("The fork was not compacted.");
+    if (olderFold) {
+      // A compaction made before the forked item existed still retains session.forked in the log.
+      const parts = compacted.payload as { items: { kind: string }[] };
+      t.env.log.atomically((tx) => t.env.log.compactStream(compacted.stream, { sequence: compacted.sequence, payload: { ...parts, items: parts.items.filter((item) => item.kind !== "forked") }, remove: [] }, { tx }));
+    }
+
+    const fork = runtime.projections.session(env, forked.sessionId);
+    onTestFinished(fork.subscribe(() => undefined));
+    await holds(fork, (value) => value.freshness === "live");
+    const entry = fork.read().items[0];
+    expect(entry).toEqual({ kind: "forked", sequence: expect.any(Number), fromSessionId: sessionId, atMessageId: anchor });
+    if (entry?.kind !== "forked") throw new Error("The compaction lost the forked row.");
+    expect(forkedFrom(entry, session.read())).toEqual({ title: "Receipts", anchor: anchored ? "Then the tests" : null });
+
+    expect(await runtime.commands.dispatch(env, "runs.start", { sessionId: forked.sessionId, text: "After compaction" })).toMatchObject({ ok: true });
+    await holds(fork, (value) => value.runs.length === 2 && value.runs.at(-1)?.state === "ended");
+    expect(fork.read().items.filter((item) => item.kind === "forked")).toEqual([entry]);
+  });
+
   it("forks at a message through the outbox, answering the fork's id; the fork opens on its forked entry, the message's text its draft", async () => {
     const { runtime, env, sessionId, session, messageId, send, events } = await start();
     await send("Fix the receipts");
@@ -143,7 +206,7 @@ describe("commands.fork", () => {
     expect(drafts(anchored.sessionId)).toEqual(["Fix the receipts"]);
   });
 
-  it("carries the prompt a branch was made at onto its hand-off while no run has read it, the draft emptied to hand it off", async () => {
+  it("receives the inherited anchor's draft in the hand-off response after the branch draft is emptied", async () => {
     const { runtime, env, sessionId, messageId, send, events, settled } = await start();
     await send("Fix the receipts");
     await send("Then the tests");
@@ -153,7 +216,7 @@ describe("commands.fork", () => {
     onTestFinished(fork.subscribe(() => undefined));
     await vi.waitFor(() => expect(fork.read().draft).toBe("Then the tests"), EVENTUALLY);
     // The composer emptied to type the hand-off, and the environment has it: the branch's own draft is empty, so only the
-    // prompt it was made at can be carried.
+    // environment can restore the prompt it was made at.
     runtime.drafts.set(env, branch.sessionId, null);
     runtime.drafts.flush();
     await settled();
@@ -161,7 +224,7 @@ describe("commands.fork", () => {
     await vi.waitFor(() => expect(fork.read().draft).toBeNull(), EVENTUALLY);
 
     const handedOff = await runtime.commands.fork(env, branch.sessionId, { account: WORK });
-    expect(handedOff.answer).toMatchObject({ ok: true });
+    expect(handedOff.answer).toMatchObject({ ok: true, result: { summary: { draft: "Then the tests" } } });
     await settled();
     expect(events(handedOff.sessionId).filter((event) => event.type === "session.draft-set").map((event) => (event.payload as { draft: string }).draft)).toEqual(["Then the tests"]);
   });

@@ -1,7 +1,9 @@
 import {
+  BANK_EVENT_PAYLOADS,
   FORGE_EVENT_PAYLOADS,
   KEY_MANAGER_EVENT_PAYLOADS,
   KEY_MANAGER_MOVE_EVENT_PAYLOADS,
+  banksDraftsList,
   isCommand,
   isMethodName,
   registry,
@@ -25,7 +27,9 @@ import type { Clock, Timer } from "./platform.js";
  * (`access.*`), which are never queued. A `sessions:write` or `runs:drive`
  * command is refused (`outbox`): every one goes through the outbox's
  * `commands.dispatch`, so none can skip its command-id and receipt rules
- * by being sent here. It asks `capability` first and
+ * by being sent here. A query is sent whatever its scope: one at
+ * `runs:drive` (`routines.testPreCheck`, #532) records nothing, so it has
+ * no command id and nothing for a receipt to guard. It asks `capability` first and
  * answers absent-with-reason at once when the connection cannot take it,
  * so nothing is ever held for later (a connection not yet `ready` is
  * `unreachable`, the specification's word, whatever phase it is in); it
@@ -40,7 +44,7 @@ import type { Clock, Timer } from "./platform.js";
 /** How long a request waits for its answer. A chosen default (the specification's 30 seconds). */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
-/** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` call). */
+/** The scopes whose commands only the outbox sends (docs/specs/client-runtime.md: every `sessions:write` and `runs:drive` command). */
 const OUTBOX_SCOPES: ReadonlySet<Scope> = new Set<Scope>(["sessions:write", "runs:drive"]);
 
 /**
@@ -127,7 +131,7 @@ export const createRequests = (host: RequestsHost): Pick<Requests, "call"> => ({
     const timeoutMs = host.timeoutMs ?? REQUEST_TIMEOUT_MS;
     const entry = registry[method];
     if (entry.kind === "stream") return failed("unsupported", `${method} is a subscription; the runtime subscribes to it itself.`);
-    if (OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
+    if (isCommand(entry) && OUTBOX_SCOPES.has(entry.scope)) return failed("outbox", `${method} is a ${entry.scope} command; it is sent through the outbox, never as a direct request.`);
     const capability = host.capability(environmentId, method);
     // A connection on its way to `ready` (connecting, starting, updating) holds nothing for later: it is unreachable now.
     if (capability.status === "absent") return failed(capability.reason === "not-ready" ? "unreachable" : capability.reason, capability.message);
@@ -172,6 +176,9 @@ const TRUST_REFRESH_NOTICES: readonly string[] = ["trust.updated", "forge.accoun
 /** Every forge account event: an account added, updated, verified or removed. */
 const FORGE_ACCOUNT_EVENTS: readonly string[] = Object.keys(FORGE_EVENT_PAYLOADS).filter((type) => type.startsWith("forge.account."));
 
+/** Every bank event that changes a record (#1025): all but a session's pin and a landing awaiting review, which no record holds. */
+const BANK_RECORD_EVENTS: readonly string[] = Object.keys(BANK_EVENT_PAYLOADS).filter((type) => type !== "bank.pinned" && type !== "bank.awaiting-review");
+
 /**
  * What changes the user layer's rows or a preview's text: an owned instruction, the orientation switch (a setting), an
  * account, which every row carries and the block names, what the block's forges and key managers sections read: a
@@ -186,6 +193,24 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
   ...KEY_MANAGER_EVENTS,
   "tools.updated",
   "environment.known-environments-updated",
+];
+
+/**
+ * What changes a routine's listing: the routine itself (`routine.updated`: a command, a firing, a skip, a delivery
+ * attempt), and what its effective mode and attention are read from as the environment holds it now, with no save: an
+ * account or a sign-in (`account_missing`, `account_signed_out`, `model_unavailable`, the account's modes), the skill set
+ * (`skill_unknown`), an endpoint (`endpoint_missing`, `endpoint_needs_secret`) and the settings (the unattended mode a
+ * routine with none asks for, and so `clamped`).
+ */
+const ROUTINE_LIST_REFRESH_NOTICES: readonly string[] = [
+  "routine.updated",
+  "routine.delivery-failed",
+  "routine.endpoint-set",
+  "routine.endpoint-removed",
+  "account.updated",
+  "signin.updated",
+  "skills.updated",
+  "settings.changed",
 ];
 
 /**
@@ -209,7 +234,8 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * (`skills.updated`, a command or a read of the own directory, #494) or an
  * account (the view lists the accounts, and a removal drops the choices
  * naming one, #501) `skills.get` and `skills.readiness` (#510: the set
- * checked, and the account's provider); a trust decision recorded or revoked (`trust.updated`,
+ * checked, and the account's provider); repository trust and forge alias changes
+ * also refresh both, since they change the repository layer (#517). A trust decision recorded or revoked (`trust.updated`,
  * #500) `trust.get` and `trust.list`, as does a forge account added,
  * updated, verified or removed, since a key is read on the canonical host
  * of a verified alias; the skill set changing, the trust or an account (a
@@ -236,14 +262,27 @@ const INSTRUCTION_REFRESH_NOTICES: readonly string[] = [
  * skill set changing (`skills.updated`, whose own directory the skills
  * count is read against, #580) Carry over's inventory, whose new sessions,
  * memory and skills they change; a state import
- * ending (`state-import.finished`, #581) the state import's detection; and a
+ * ending (`state-import.finished`, #581) the state import's detection, adopted accounts and Carry over inventories; and a
  * paired Chrome's pairing, rename, unpairing, connection, disconnection or
  * version report (`chrome.updated`, #548) `browser.chromes.list`, and
- * `browser.status`, whose unpaired flag a pairing clears; and a drain
- * beginning (`environment.draining`, #417) `environment.status`.
+ * `browser.status`, whose unpaired flag a pairing clears, as settings
+ * changing do its headless part (`browser.headless.*`, which the browser
+ * picker's default reads, #561); a drain
+ * beginning (`environment.draining`, #417) `environment.status`; a
+ * routine changing (`routine.updated`, #532) every `routines.history` and
+ * `routines.list`, as does what its listing's mode and attention are read
+ * from (`ROUTINE_LIST_REFRESH_NOTICES`); a webhook endpoint made,
+ * replaced or removed (`routine.endpoint-set`, `routine.endpoint-removed`)
+ * or a delivery failed finally (`routine.delivery-failed`, which also refreshes
+ * routines and history) `routines.endpoints.list`; the denylist changing
+ * (`denylist.updated`, #811) `permissions.denylist.get` and
+ * `permissions.settings.get`, which counts each section's entries; and the
+ * Unattended review changing (`review.updated`, #811: a decision in a run
+ * it lists, the watermark moved, a session holding one deleted or
+ * restored) `permissions.review.list`.
  */
 export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, readonly string[]>>> = {
-  "accounts.list": ["account.updated", "signin.updated"],
+  "accounts.list": ["account.updated", "signin.updated", "state-import.finished"],
   "models.list": ["account.updated", "signin.updated"],
   "accounts.probe": ["account.updated", "signin.updated"],
   "accounts.usage": ["usage.updated", "account.updated", "signin.updated"],
@@ -252,11 +291,16 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "accounts.signin.get": ["signin.updated"],
   "updates.status": ["environment.update-pending", "environment.update-started", "environment.updated", "environment.update-failed", "environment.update-cancelled"],
   "forge.accounts.list": FORGE_ACCOUNT_EVENTS,
+  "banks.list": BANK_RECORD_EVENTS,
+  "banks.get": BANK_RECORD_EVENTS,
+  [banksDraftsList.name]: ["bank.draft-queued", "bank.drafts-consumed"],
   "forge.gh.probe": ["tools.updated"],
   "settings.get": ["settings.changed"],
-  "permissions.settings.get": ["settings.changed"],
-  "skills.get": ["skills.updated", "account.updated"],
-  "skills.readiness": ["skills.updated", "account.updated"],
+  "permissions.settings.get": ["settings.changed", "denylist.updated"],
+  "permissions.denylist.get": ["denylist.updated"],
+  "permissions.review.list": ["review.updated"],
+  "skills.get": ["skills.updated", "account.updated", ...TRUST_REFRESH_NOTICES],
+  "skills.readiness": ["skills.updated", "account.updated", ...TRUST_REFRESH_NOTICES],
   "trust.get": TRUST_REFRESH_NOTICES,
   "trust.list": TRUST_REFRESH_NOTICES,
   "commands.list": ["skills.updated", ...TRUST_REFRESH_NOTICES, "account.updated"],
@@ -264,13 +308,16 @@ export const QUERY_REFRESH_NOTICES: Partial<Readonly<Record<QueryMethodName, rea
   "instructions.preview": INSTRUCTION_REFRESH_NOTICES,
   "instructions.diff": ["instructions.updated"],
   "keyManagers.list": [...KEY_MANAGER_EVENTS, "tools.updated"],
-  "keyManagers.move.list": [...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
+  "keyManagers.move.list": [...BANK_RECORD_EVENTS, ...KEY_MANAGER_EVENTS, "forge.account.added", "forge.account.updated", "forge.account.removed"],
   "tools.list": ["tools.updated"],
-  "browser.status": ["extension.seen", "chrome.updated"],
+  "browser.status": ["extension.seen", "chrome.updated", "settings.changed"],
   "browser.chromes.list": ["chrome.updated"],
-  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated"],
+  "carryOver.inventory": ["carry-over.imported", "carry-over.memory-assigned", "skills.updated", "state-import.finished"],
   "stateImport.detect": ["state-import.finished"],
   "environment.status": ["environment.draining"],
+  "routines.list": ROUTINE_LIST_REFRESH_NOTICES,
+  "routines.history": ["routine.updated", "routine.delivery-failed"],
+  "routines.endpoints.list": ["routine.endpoint-set", "routine.endpoint-removed", "routine.updated", "routine.delivery-failed"],
 };
 
 export interface RequestCache {
@@ -287,6 +334,8 @@ export interface RequestCache {
   askedAt<N extends QueryMethodName>(environmentId: string, method: N, params: ParamsOf<N>): number | null;
   /** An event applied to the environment's own stream, which this client had not seen: a matching notice fetches again. */
   noticed(environmentId: string, type: string): void;
+  /** A session changed the account or workspace its cached skill set and trust resolve against (#517). */
+  sessionChanged(environmentId: string, sessionId: string, type: string): void;
   /** Lets go of an environment's answers: it was removed. */
   forget(environmentId: string): void;
   close(): void;
@@ -317,7 +366,7 @@ interface Cached {
 const NOTHING_YET: CachedAnswer<QueryMethodName> = { result: null, fetchedAt: null, error: null, loading: false };
 
 /** A value's JSON with every object's keys in order, so params written in any order are one key. */
-const canonical = (value: unknown): string => {
+export const canonical = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (typeof value === "object" && value !== null) {
     const fields = Object.entries(value as Record<string, unknown>).filter(([, v]) => v !== undefined);
@@ -488,6 +537,17 @@ export const createRequestCache = (host: {
       for (const entry of entries.values()) {
         if (entry.environmentId !== environmentId) continue;
         if (CACHE_REFRESH_NOTICES.includes(type) || (QUERY_REFRESH_NOTICES[entry.method] ?? []).includes(type)) refresh(entry);
+      }
+    },
+    sessionChanged(environmentId, sessionId, type) {
+      const methods: readonly QueryMethodName[] =
+        type === "session.workspace-set"
+          ? ["skills.get", "skills.readiness", "trust.get", "commands.list"]
+          : type === "run.started"
+            ? ["skills.get", "skills.readiness", "commands.list"]
+            : [];
+      for (const entry of entries.values()) {
+        if (entry.environmentId === environmentId && typeof entry.params["sessionId"] === "string" && entry.params["sessionId"].toLowerCase() === sessionId.toLowerCase() && methods.includes(entry.method)) refresh(entry);
       }
     },
     forget(environmentId) {

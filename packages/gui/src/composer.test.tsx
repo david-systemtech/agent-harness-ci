@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DRAFT_DEBOUNCE_MS } from "@agent-harness/client-runtime";
-import { fakeShell } from "@agent-harness/client-runtime/testing";
+import { fakeShell, type FakeShell } from "@agent-harness/client-runtime/testing";
 import { MAX_ATTACHMENT_BYTES } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
 import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
@@ -194,15 +194,31 @@ const chips = () => {
   return list === null ? [] : within(list).getAllByRole("listitem").map((chip) => chip.firstChild?.textContent);
 };
 
+/** The recording fake shell without its file dialogs, as a browser tab has none: `shell.dialogs` absent with `no-shell`. */
+const withoutDialogs = () => ({ ...fakeShell(), dialogs: undefined }) as unknown as FakeShell;
+
+/** The page's own file picker, which jsdom never opens: user-event's `upload` chooses files in it. */
+const picker = () => screen.getByLabelText("Files to attach") as HTMLInputElement;
+
+/** How many times the page's picker has been opened (clicked) since this was called. */
+const pickerOpens = () => {
+  let opens = 0;
+  picker().addEventListener("click", () => opens++);
+  return () => opens;
+};
+
 describe("attachments", () => {
   it("come by the shell's file dialog, show as chips, and go with the message", async () => {
     const shell = fakeShell();
     shell.answer("dialogs.openFileContents", async () => [{ name: "shot.png", size: PNG.length, bytes: PNG }]);
     const { app, env, session } = await opened({}, shell);
+    const opens = pickerOpens();
 
     await app.user.click(screen.getByRole("button", { name: "Attach files" }));
     await waitFor(() => expect(chips()).toEqual(["shot.png"]));
     expect(shell.calls).toContainEqual(["dialogs.openFileContents", expect.objectContaining({ multiple: true, maxBytes: MAX_ATTACHMENT_BYTES })]);
+    // The desktop's shell has a file dialog, so the page's own picker is never opened.
+    expect(opens()).toBe(0);
 
     await write(app, "What is this?{Enter}");
     await waitFor(() =>
@@ -211,6 +227,38 @@ describe("attachments", () => {
       ]),
     );
     expect(chips()).toEqual([]);
+  });
+
+  it("come by the page's own file picker where the shell has no file dialog (a browser tab), Attach files opening it", async () => {
+    const { app, env, session } = await opened({}, withoutDialogs());
+    const opens = pickerOpens();
+
+    await app.user.click(screen.getByRole("button", { name: "Attach files" }));
+    expect(opens()).toBe(1);
+    await app.user.upload(picker(), [new File([PNG], "picked.png", { type: "image/png" })]);
+    await waitFor(() => expect(chips()).toEqual(["picked.png"]));
+
+    await write(app, "What is this?{Enter}");
+    await waitFor(() =>
+      expect(sent(env, "runs.start")).toEqual([
+        expect.objectContaining({ sessionId: session, text: "What is this?", attachments: [{ kind: "image", name: "picked.png", mediaType: "image/png", data: PNG_DATA }] }),
+      ]),
+    );
+  });
+
+  it("come by the page's picker from /attach too, what it chose meeting the wire's cap and the provider's input flags as a drop's does", async () => {
+    const { app } = await opened({ provider: { imageInput: true, fileInput: false } }, withoutDialogs());
+    await waitFor(() => expect(app.environment("desk").requests("providers.list").length).toBeGreaterThan(0));
+    const opens = pickerOpens();
+
+    await write(app, "/attach{Enter}");
+    expect(opens()).toBe(1);
+    const movie = new File([PNG], "screen.mov", { type: "video/quicktime" });
+    // Past the wire's cap without holding 31 MB: a file that large is refused by its size, never read.
+    Object.defineProperty(movie, "size", { value: 31 * 1024 * 1024 });
+    await app.user.upload(picker(), [new File([PNG], "shot.png", { type: "image/png" }), new File(["%PD"], "notes.pdf", { type: "application/pdf" }), movie]);
+    await screen.findByText("Claude takes images but no other files: notes.pdf was not attached. screen.mov is 31 MB; the limit is 20 MB.");
+    expect(chips()).toEqual(["shot.png"]);
   });
 
   it("come by a drop on the composer, and wait there for the message", async () => {

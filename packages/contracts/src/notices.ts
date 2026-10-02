@@ -1,8 +1,21 @@
+import { BankDraftQueuedPayload, BankDraftsConsumedPayload } from "./memory-drafts.js";
 import { z } from "zod";
 import { AccountUpdatedPayload, SignIn, SignInExecutableChosenPayload } from "./accounts.js";
+import {
+  BankAddedPayload,
+  BankAwaitingReviewPayload,
+  BankForgottenPayload,
+  BankLandedPayload,
+  BankLandingFailedPayload,
+  BankPinnedPayload,
+  BankSyncedPayload,
+  BankUpdatedPayload,
+  BankVerifiedPayload,
+} from "./bank-registry.js";
 import { ChromeUpdatedPayload } from "./browser-chromes.js";
 import { ExtensionSeenPayload } from "./browser-status.js";
 import { CarryOverImportedPayload, CarryOverMemoryAssignedPayload } from "./carry-over.js";
+import { ClientCallPayload } from "./client-calls.js";
 import { StateImportFinishedPayload } from "./state-import.js";
 import { EnvironmentColourSetPayload, EnvironmentIconSetPayload, EnvironmentRenamedPayload } from "./environment-look.js";
 import { ProtocolVersion } from "./flags.js";
@@ -33,6 +46,8 @@ import { DrainStarted } from "./lifecycle.js";
 import { ToolRunFinishedPayload, ToolRunStartedPayload } from "./managed-tool-commands.js";
 import { ToolsUpdatedPayload } from "./managed-tools.js";
 import { DecidedBy, PromptDecisionValue, PromptKind, PROMPT_SUMMARY_MAX } from "./prompts.js";
+import { DenylistUpdatedPayload } from "./denylist.js";
+import { ReviewUpdatedPayload } from "./permissions.js";
 import { RunId } from "./adapter.js";
 import {
   RoutineDeliveredPayload,
@@ -97,6 +112,10 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "prompt.parked",
   "prompt.resolved",
   "usage.updated",
+  // The denylist changed, and the Unattended review did: each on a stream no client follows whole (the access log, a
+  // session's, the settings stream), so a client's cached answers of them wait on these (#811).
+  "denylist.updated",
+  "review.updated",
   // The ForgeService's own events, which its store is kept from (#310).
   "forge.account.added",
   "forge.account.updated",
@@ -106,6 +125,19 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   "forge.account.git-rejected",
   "forge.account.removed",
   "forge.origin-missing",
+  // The BankService's own events, which the BankRegistry is kept from (#1025); bank.updated is also a notice a client
+  // refreshes banks.list and banks.get on.
+  "bank.added",
+  "bank.draft-queued",
+  "bank.drafts-consumed",
+  "bank.updated",
+  "bank.pinned",
+  "bank.forgotten",
+  "bank.synced",
+  "bank.verified",
+  "bank.landed",
+  "bank.landing-failed",
+  "bank.awaiting-review",
   // The key-manager connections' own events (#365, #366, #371), Move's (#371) and a stored value
   // copied to paste by hand (#372).
   "key-manager.connection.added",
@@ -152,6 +184,9 @@ export const ENVIRONMENT_NOTICE_TYPES = [
   // A paired Chrome paired, renamed or unpaired, connected or disconnected, or reporting another
   // extension version (#548).
   "chrome.updated",
+  // A call addressed to the client session that started a run: a verb on a Chrome paired with another
+  // environment, relayed through that client (#554).
+  "client.call",
 ] as const;
 
 /**
@@ -180,6 +215,8 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "prompt.parked": "A run waits for a person's answer.",
   "prompt.resolved": "A parked prompt was answered.",
   "usage.updated": "An account's plan-usage reading changed; a client refreshes what it caches of the readings.",
+  "denylist.updated": "The denylist changed; a client reads permissions.denylist.get and permissions.settings.get again.",
+  "review.updated": "The Unattended review changed; a client reads permissions.review.list again.",
   "forge.account.added": "A forge account was added; a client refreshes what it caches of the forge accounts.",
   "forge.account.updated": "A forge account's slug, aliases or credential changed; a client refreshes what it caches of the forge accounts.",
   "forge.account.primary-set": "A forge account became the primary forge; a client refreshes what it caches of the forge accounts.",
@@ -188,6 +225,17 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "forge.account.git-rejected": "git refused a forge account's credential; a client refreshes what it caches of the forge accounts.",
   "forge.account.removed": "A forge account was removed; a client refreshes what it caches of the forge accounts.",
   "forge.origin-missing": "A harness operation was refused on an origin no forge account covers; a client refreshes what it caches of the forge accounts.",
+  "bank.drafts-consumed": "A landing consumed its queue snapshot; clients refresh banks.drafts.list.",
+  "bank.draft-queued": "A session queued a validated draft or retirement; clients refresh banks.drafts.list.",
+  "bank.added": "A bank was registered, created or joined; a client refreshes what it caches of the banks.",
+  "bank.updated": "A bank's registry settings, sync status or what its BANK.md names changed; a client refreshes what it caches of the banks.",
+  "bank.pinned": "A session pinned or unpinned a folder of a bank.",
+  "bank.forgotten": "A bank left the registry; a client refreshes what it caches of the banks.",
+  "bank.synced": "A sync moved a bank's checkout to a new head; a client refreshes what it caches of the banks.",
+  "bank.verified": "A verification found a bank's status changed; a client refreshes what it caches of the banks.",
+  "bank.landed": "Drafts landed on a bank's main; a client refreshes what it caches of the banks.",
+  "bank.landing-failed": "A landing on a bank failed; a client refreshes what it caches of the banks.",
+  "bank.awaiting-review": "A landing on a bank waits for an owner's review in a pull request; no bank's record changes.",
   "key-manager.connection.added": "A key-manager connection was added; a client refreshes what it caches of the key-manager connections.",
   "key-manager.connection.signed-in": "A key-manager connection's sign-in ended; a client refreshes what it caches of the key-manager connections.",
   "key-manager.connection.signed-out": "A key-manager connection was signed out; a client refreshes what it caches of the key-manager connections.",
@@ -219,6 +267,7 @@ export const ENVIRONMENT_NOTICE_GLOSSES: { readonly [Type in (typeof ENVIRONMENT
   "state-import.finished": "A state import ended, with its report and what failed; a client reads stateImport.detect again.",
   "workspace.kept": "A worktree stayed, unlocked, when the last session naming it was purged; the client raises a notice naming it and why.",
   "chrome.updated": "A paired Chrome was paired, renamed or unpaired, connected, disconnected or reported another extension version; a client reads browser.chromes.list and browser.status again.",
+  "client.call": "A call addressed to one client session, which answers it with client.answer before its deadline; every other client leaves it alone.",
 };
 
 /**
@@ -346,6 +395,17 @@ const UsageUpdated = z
 const describedNotice = <const T extends string, P extends z.ZodType>(type: T, payload: P, description: string) =>
   z.object({ type: z.literal(type), payload }).meta({ description });
 
+const DenylistUpdated = describedNotice(
+  "denylist.updated",
+  DenylistUpdatedPayload,
+  "The denylist changed through permissions.denylist.set or restorePresets, in the transaction of the access log's denylist.changed events: the sections that changed, whose entries and counts a client reads again.",
+);
+const ReviewUpdated = describedNotice(
+  "review.updated",
+  ReviewUpdatedPayload,
+  "The Unattended review changed once something committed: a run it lists was decided in, it was seen, or a session holding runs it lists was deleted or restored; a client reads permissions.review.list again.",
+);
+
 const ForgeAccountAdded = describedNotice("forge.account.added", ForgeAccountAddedPayload, "A forge account was added: its origin, kind, slug, identity, credential source, primary flag and problem.");
 const ForgeAccountUpdated = describedNotice("forge.account.updated", ForgeAccountUpdatedPayload, "A forge account's slug, aliases or credential changed.");
 const ForgeAccountPrimarySet = describedNotice("forge.account.primary-set", ForgeAccountPrimarySetPayload, "A forge account became the primary forge, and the one that was is cleared.");
@@ -358,6 +418,15 @@ const ForgeAccountCapabilityLearned = describedNotice(
 const ForgeAccountGitRejected = describedNotice("forge.account.git-rejected", ForgeAccountGitRejectedPayload, "git refused a forge account's credential.");
 const ForgeAccountRemoved = describedNotice("forge.account.removed", ForgeAccountRemovedPayload, "A forge account was removed.");
 const ForgeOriginMissing = describedNotice("forge.origin-missing", ForgeOriginMissingPayload, "A harness operation was refused on an origin no forge account covers.");
+const BankAdded = describedNotice("bank.added", BankAddedPayload, "A bank was registered, created or joined: its registry entry, whole.");
+const BankUpdated = describedNotice("bank.updated", BankUpdatedPayload, "A bank's registry settings, sync status or what its BANK.md names changed: the fields that changed.");
+const BankPinned = describedNotice("bank.pinned", BankPinnedPayload, "A session pinned or unpinned a folder of a bank.");
+const BankForgotten = describedNotice("bank.forgotten", BankForgottenPayload, "A bank left the registry, its checkout removed or kept.");
+const BankSynced = describedNotice("bank.synced", BankSyncedPayload, "A sync moved a bank's checkout to a new head of main.");
+const BankVerified = describedNotice("bank.verified", BankVerifiedPayload, "A verification found a bank's status changed, as system:banks.");
+const BankLanded = describedNotice("bank.landed", BankLandedPayload, "Drafts landed on a bank's main.");
+const BankLandingFailed = describedNotice("bank.landing-failed", BankLandingFailedPayload, "A landing on a bank failed at a step of the Lander.");
+const BankAwaitingReview = describedNotice("bank.awaiting-review", BankAwaitingReviewPayload, "A landing on a bank waits for an owner's review in a pull request.");
 const KeyManagerConnectionAdded = describedNotice(
   "key-manager.connection.added",
   KeyManagerConnectionAddedPayload,
@@ -465,6 +534,12 @@ const ChromeUpdated = describedNotice(
   "A paired Chrome was paired, renamed or unpaired, connected or disconnected, or reported another extension version: which, its name and what changed.",
 );
 
+const ClientCall = describedNotice(
+  "client.call",
+  ClientCallPayload,
+  "A call addressed to the client session that started a run: a verb on a Chrome paired with another environment, its arguments and its deadline, never its answer.",
+);
+
 const WorkspaceKept = describedNotice(
   "workspace.kept",
   WorkspaceKeptPayload,
@@ -495,6 +570,8 @@ export const EnvironmentNotice = z
     PromptParked,
     PromptResolved,
     UsageUpdated,
+    DenylistUpdated,
+    ReviewUpdated,
     ForgeAccountAdded,
     ForgeAccountUpdated,
     ForgeAccountPrimarySet,
@@ -503,6 +580,17 @@ export const EnvironmentNotice = z
     ForgeAccountGitRejected,
     ForgeAccountRemoved,
     ForgeOriginMissing,
+    describedNotice("bank.drafts-consumed", BankDraftsConsumedPayload, "A landing consumed the queued changes it verified on main."),
+    describedNotice("bank.draft-queued", BankDraftQueuedPayload, "A session queued a validated draft or retirement for its bank."),
+    BankAdded,
+    BankUpdated,
+    BankPinned,
+    BankForgotten,
+    BankSynced,
+    BankVerified,
+    BankLanded,
+    BankLandingFailed,
+    BankAwaitingReview,
     KeyManagerConnectionAdded,
     KeyManagerConnectionSignedIn,
     KeyManagerConnectionSignedOut,
@@ -534,6 +622,7 @@ export const EnvironmentNotice = z
     StateImportFinished,
     WorkspaceKept,
     ChromeUpdated,
+    ClientCall,
   ])
   .meta({
     description:

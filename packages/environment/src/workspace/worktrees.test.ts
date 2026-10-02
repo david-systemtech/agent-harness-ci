@@ -9,6 +9,8 @@ import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions
 import { create, get, refusal } from "../../test/sessions.js";
 import { branchesOf, git, worktreesOf } from "../../test/workspaces.js";
 import { worktreeCheckout } from "../adapters/claude/workspace.js";
+import { createWorkspaceResolver, type Resolution, type WorkspaceResolver } from "./resolver.js";
+import { workspaceRoots } from "./roots.js";
 
 /**
  * Worktree workspaces (workspace-picker spec, "The resolver", Worktree;
@@ -564,6 +566,53 @@ describe("a worktree create that is not accepted", () => {
     const retried = await create(client, { commandId, id, workspace });
     expect(retried.receipt.status).toBe("accepted");
     expect(worktreesOf(checkout).map((worktree) => worktree.branch)).toEqual(["refs/heads/main", `refs/heads/${presetBranch(id)}`]);
+  });
+});
+
+describe("a worktree create sent again under its command id while its prepare still runs", () => {
+  it("is answered from the first's receipt, its own prepare never run: both accepted, with one worktree and one branch (#448)", async () => {
+    const checkout = repository();
+    // The environment's own resolver, its first resolve held once it has made the worktree and its branch, as a large checkout holds it.
+    let made!: () => void;
+    const madeFirst = new Promise<void>((resolve) => (made = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const resolutions: Promise<Resolution>[] = [];
+    let real: WorkspaceResolver | undefined;
+    const t: TestEnvironment = await start({
+      workspaceResolver: {
+        resolve: async (request, sessionId) => {
+          real ??= createWorkspaceResolver({ log: t.env.log, dataDir: t.dataDir, roots: workspaceRoots(t.dataDir) });
+          const resolution = Promise.resolve(real.resolve(request, sessionId));
+          resolutions.push(resolution);
+          if (resolutions.length > 1) return resolution;
+          const answer = await resolution;
+          made();
+          await released;
+          return answer;
+        },
+      },
+    });
+    onCleanup(() => release());
+    // Two sockets of one client session: the helper's default, which every client naming no token shares.
+    const [first, second] = [await t.client(), await t.client()];
+    const id = randomUUID();
+    const commandId = randomUUID();
+    const workspace = { kind: "worktree", repository: checkout } as const;
+    const firstAnswer = create(first, { commandId, id, workspace });
+    await madeFirst;
+    // The outbox sending the create again on the next ready, the first socket having dropped meanwhile.
+    const secondAnswer = create(second, { commandId, id, workspace });
+    // Answered after the create on its socket, so the create has reached dispatch; whatever it prepared has finished before the first goes on.
+    await second.request("environment.status", {});
+    await Promise.all(resolutions.slice(1));
+    release();
+    const [one, two] = await Promise.all([firstAnswer, secondAnswer]);
+    expect(one.receipt.status, JSON.stringify(one.receipt)).toBe("accepted");
+    expect(two).toEqual({ id, receipt: one.receipt });
+    expect(resolutions).toHaveLength(1);
+    expect(worktreesOf(checkout).map((worktree) => worktree.branch)).toEqual(["refs/heads/main", `refs/heads/${presetBranch(id)}`]);
+    expect(branchesOf(checkout)).toEqual([presetBranch(id), "main"]);
   });
 });
 

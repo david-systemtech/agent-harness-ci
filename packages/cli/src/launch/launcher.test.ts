@@ -1135,6 +1135,10 @@ describe.runIf(posix)("the launcher handing over to a newer launcher", () => {
       launcherVersion: "0.4.0",
       failedHandover: { toVersion: "0.5.0", at: "2026-09-28T12:00:00.000Z" },
     });
+    await until("the failed handover is reported to the environment", () => heardOf(running, "versions").length > 0);
+    expect(heardOf(running, "versions").map((event) => event.message)).toEqual([
+      { type: "versions", id: 1, installed: ["0.4.0", "0.5.0"], launcherVersion: "0.4.0", launcherProtocol: LAUNCHER_PROTOCOL, failedHandoverVersion: "0.5.0" },
+    ]);
     expect(handoverFiles(dataDir)).toEqual({ "launcher-version": "0.4.0\n", "launcher-handover": null, "launcher-handover-starts": null });
     expect(running.log()[0]).toBe(
       "launcher: the handover to the launcher of 0.5.0 failed: it was not confirmed, and the launcher entry started this launcher again, which runs on",

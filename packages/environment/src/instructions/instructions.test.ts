@@ -174,7 +174,7 @@ describe("a run's launch", () => {
 });
 
 describe("the instruction scope", () => {
-  it("carries the session, account and workspace, the trust key undecided, the skill set the run is handed, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
+  it("carries the session, account, workspace and repository identity, the trust key undecided, the skill set the run is handed, the origin, the containment level, the injection answer and its level, no bot, no extra always-on names, and the account's channel and whether its adapter loads project instructions itself", async () => {
     const orientation = testOrientation();
     const identity = "https://git.example/david/receipts";
     const t = await start(orientation, {}, { workspaceResolver: scriptedResolver(() => ({ workspace, repositoryIdentity: identity })) });
@@ -192,6 +192,7 @@ describe("the instruction scope", () => {
         sessionId: id,
         accountId: "claude-max",
         workspace,
+        repositoryIdentity: identity,
         trust: { key: { kind: "identity", value: identity }, decision: "undecided" },
         // The own directory holds nothing: the set resolved is empty, with nothing to link, and has its fingerprint.
         skillSet: { generation: null, fingerprint: expect.stringMatching(/^[0-9a-f]{32}$/), members: [], hiddenNativeNames: [] },

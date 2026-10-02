@@ -1,3 +1,4 @@
+import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
@@ -11,6 +12,7 @@ import {
   type CompletionsModelList,
   type EnvironmentReadiness,
   type Scope,
+  type SessionBrowserSetPayload,
   type WireError,
   type Workspace,
   type WorkspaceRequest,
@@ -26,7 +28,7 @@ import type { Clock, Timer } from "../serve/clock.js";
 import { BodyTooLargeError, bearerToken, readBody, sendJson, type RouteHandler } from "../serve/http.js";
 import type { MethodTable } from "../serve/methods.js";
 import { appendDecided } from "../sessions/companions.js";
-import { decideSetBrowser, decideTag, type FirstBrowser } from "../sessions/decider.js";
+import { decideTag, type FirstBrowser } from "../sessions/decider.js";
 import { createSessionIn } from "../sessions/methods.js";
 import { readSessionState, type Reader } from "../sessions/session-reads.js";
 import { sessionStream } from "../sessions/streams.js";
@@ -389,10 +391,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     clientSession: VerifiedClientSession,
     target: Target,
     place: Place | null,
+    skills: { readonly names: readonly string[]; readonly ignored: readonly string[] },
+    slash?: SlashScope,
   ): Begun => {
     const { sessionId, fresh, forked } = target;
     const clientActor = formatActor({ kind: "client_session", id: clientSession.id });
-    const ignored = [...turn.ignored];
+    const ignored = [...turn.ignored, ...skills.ignored];
     if (!fresh && turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
     // A session the turn makes has no browser unless the request asks for the headless one, since a program brings its own
     // tools (#550); a session it continues keeps its own.
@@ -421,8 +425,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         const tagged = decideTag(readSessionState(reader, sessionId), { sessionId, tag: COMPLETIONS_TAG });
         if (tagged.rejected === undefined) appendDecided(log, sessionStream(sessionId), tagged, { tx, actor: clientActor });
         if (forked) {
-          const chosen = decideSetBrowser(readSessionState(reader, sessionId), { sessionId, browser: browser.value, chosenBy: browser.chosenBy });
-          if (chosen.rejected === undefined) appendDecided(log, sessionStream(sessionId), chosen, { tx, actor: clientActor });
+          // A fork inherits its source's browser. Record the program's own choice even when the value is the same,
+          // so the latest browser event names the completions chooser rather than the source's.
+          const payload: SessionBrowserSetPayload = { browser: browser.value, chosenBy: browser.chosenBy };
+          log.append(sessionStream(sessionId), [{ type: "session.browser.set", payload }], { tx, actor: clientActor });
         }
       }
       const actor = actorFor(turn, clientSession);
@@ -434,7 +440,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
 
       if (facts.live !== null) {
         // A run is live: the turn is a queued message (ADR 0022), and the answer follows the run that reads it (#138).
-        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments });
+        const sent = sendIn(log, host, tx, { actor: COMPLETIONS_ACTOR }, { sessionId, actor, origin: "completions", text, attachments, slash });
         if (sent.rejected !== undefined) throw refused(sent.rejected);
         // What a live run cannot take is said to be ignored. Its model first: whichever run reads the message runs on the
         // live run's (the live run, a run of its queue, which takes the model of the run before it, or a turn its provider
@@ -445,6 +451,10 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         if (answeredIn !== model.id) ignored.push("model");
         if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
         ignored.push(...turn.instructionSources);
+        for (const index of (turn.extension.alwaysOnSkills ?? []).keys()) {
+          const path = `${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`;
+          if (!ignored.includes(path)) ignored.push(path);
+        }
         if (turn.effortParam !== null) ignored.push(turn.effortParam);
         if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
         ignored.push(...liveToolsIgnored(turn, sessionId));
@@ -467,10 +477,12 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         origin: "completions",
         text,
         attachments,
+        slash,
         model: model.model.id,
         effort: turn.effort ?? undefined,
         mode: turn.extension.permissionMode ?? undefined,
         appendedInstructions: turn.appendedInstructions,
+        alwaysOn: skills.names,
         clientTools: turn.tools.served,
       });
       if (started.rejected !== undefined) throw refused(started.rejected);
@@ -626,7 +638,30 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     const follower = follow(where.sessionId);
     let begun: Begun;
     try {
-      begun = begin(turn, model, clientSession, where, place);
+      const text = where.fresh ? withPreamble(turn.earlier, turn.text) : turn.text;
+      const names: string[] = [];
+      const ignored: string[] = [];
+      const asked = turn.extension.alwaysOnSkills ?? [];
+      let slash: PreparedSlash | undefined;
+      do {
+        slash = text.startsWith("/") ? await host.prepareSlash(place === null ? where.sessionId : {
+          accountId: model.account.id, workspace: place.workspace, repositoryIdentity: place.repositoryIdentity,
+        }) : undefined;
+        names.length = 0;
+        ignored.length = 0;
+        if (asked.length > 0) {
+          const live = host.startFacts(where.sessionId, actorFor(turn, clientSession)).live !== null;
+          // A slash turn already resolved the set its run will use; its extra names must use that same set.
+          const scope = live ? null : slash ?? await host.previewScope(place === null ? { sessionId: where.sessionId } : { accountId: model.account.id, workspace: place.workspace });
+          for (const [index, name] of asked.entries()) {
+            if (scope?.skillSet.members.some((member) => member.name === name)) names.push(name);
+            else ignored.push(`${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`);
+          }
+        }
+        ready(true);
+        if (exchange.gone) { follower.stop(); await place?.discard(); return; }
+      } while (slash?.isCurrent() === false);
+      begun = begin(turn, model, clientSession, where, place, { names, ignored }, slash);
     } catch (error) {
       follower.stop();
       await place?.discard();
@@ -695,6 +730,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
     if (requested?.id !== answeredIn) ignored.push("model");
     if (turn.extension.permissionMode !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.permissionMode`);
     ignored.push(...turn.instructionSources);
+    ignored.push(...(turn.extension.alwaysOnSkills ?? []).map((_, index) => `${COMPLETIONS_NAMESPACE}.alwaysOnSkills.${index}`));
     if (turn.effortParam !== null) ignored.push(turn.effortParam);
     if (turn.extension.attendedSet) ignored.push(`${COMPLETIONS_NAMESPACE}.attended`);
     if (turn.extension.workspace !== null) ignored.push(`${COMPLETIONS_NAMESPACE}.workspace`);
@@ -793,6 +829,7 @@ export const createCompletionsSurface = (options: CompletionsSurfaceOptions): Co
         sessionId: begun.sessionId,
         runId: begun.runId,
         ...(ended.ended !== null && { ended: { reason: ended.ended.reason, cause: ended.ended.cause } }),
+        ...(ended.waiting !== null && { waiting: ended.waiting }),
       };
       if (ended.error !== null) {
         const reason = ended.ended?.reason;

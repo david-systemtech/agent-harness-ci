@@ -98,13 +98,15 @@ describe("a repository whose root is one skill (ADR 0029's root-skill test)", ()
       addedAt: expect.any(String),
       commit,
       skillCount: 1,
+      sync: { outcome: "ok", since: source.addedAt },
+      attemptedAt: source.addedAt,
     });
 
     const { id } = await create(client);
     await runIn(t, client, id);
     const set = lastSet(t);
     expect(set.members).toEqual([
-      { name: "unslop", description: "Remove AI writing patterns.", origin: { kind: "repository", repository: "https://skills.test/theclaymethod/unslop", path: "." }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+      { name: "unslop", description: "Remove AI writing patterns.", origin: { kind: "repository", repository: "https://skills.test/theclaymethod/unslop", path: "." }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "unslop", "SKILL.md"), commit },
     ]);
     const link = join(set.generation as string, "skills", "unslop");
     expect(readlinkSync(link)).toBe(join(t.dataDir, "skills", "snapshots", source.id, commit));
@@ -238,7 +240,7 @@ describe("an added source", () => {
     await runIn(t, client, id);
     const set = lastSet(t);
     expect(set.members).toEqual([
-      { name: "tdd", description: "The tdd skill.", origin: { kind: "repository", repository: "https://skills.test/mattpocock/skills", path: "skills/engineering/tdd" }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false },
+      { name: "tdd", description: "The tdd skill.", origin: { kind: "repository", repository: "https://skills.test/mattpocock/skills", path: "skills/engineering/tdd" }, invocation: "model+slash", userInvocable: true, argumentHint: null, native: false, alwaysOn: false, file: join(set.generation as string, "skills", "tdd", "SKILL.md"), commit },
     ]);
     expect(readlinkSync(join(set.generation as string, "skills", "tdd"))).toBe(join(snapshot, "skills", "engineering", "tdd"));
     // A later commit upstream changes nothing a run reads: only a sync moves a source.
@@ -248,7 +250,7 @@ describe("an added source", () => {
     expect(readFileSync(join(set.generation as string, "skills", "tdd", "SKILL.md"), "utf8")).toBe(skill("tdd"));
   });
 
-  it("is listed by skills.get with its URL, identity, folder, follow, commit and skill count, its members in its layer", async () => {
+  it("is listed by skills.get with its URL, identity, folder, follow, commit and skill count, its add as its last sync and attempt, its members in its layer", async () => {
     const forge = skillRepositories(tempDir);
     const commit = forge.commit("mattpocock/skills", { "skills/engineering/tdd/SKILL.md": skill("tdd"), "skills/engineering/review/SKILL.md": skill("review") });
     const { client } = await start(forge);
@@ -267,6 +269,8 @@ describe("an added source", () => {
         addedAt: source.addedAt,
         commit,
         skillCount: 2,
+        sync: { outcome: "ok", since: source.addedAt },
+        attemptedAt: source.addedAt,
       },
     ]);
     expect(members.map((member) => [member.name, member.path, member.layer, member.shadowedBy])).toEqual([

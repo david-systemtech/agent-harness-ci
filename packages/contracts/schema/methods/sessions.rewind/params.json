@@ -19,7 +19,7 @@
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-      "description": "The user message to rewind to: it and everything after it are hidden."
+      "description": "The user message to rewind to: it and everything after it are hidden. An imported-history message is refused with conflict reason imported_history."
     }
   },
   "required": [

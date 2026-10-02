@@ -113,6 +113,8 @@ describe("its entries", () => {
       "New session in a new paneCtrl+Shift+N",
       "Show or hide the sidebarCtrl+B",
       "Show or hide the terminalCtrl+J",
+      "Choose the session browser for the next run",
+      "Show or hide the browserCtrl+Shift+B",
       "Split the focused pane to the rightCtrl+\\",
       "Split the focused pane downwardsCtrl+Shift+\\",
       "Open or close SettingsCtrl+,",
@@ -284,13 +286,17 @@ describe("choosing an entry", () => {
     expect(highlighted()).toBe("Show or hide the sidebarCtrl+B");
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Show or hide the terminalCtrl+J");
+    await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("Choose the session browser for the next run");
+    await app.user.keyboard("{ArrowDown}");
+    expect(highlighted()).toBe("Show or hide the browserCtrl+Shift+B");
     await app.user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
     expect(highlighted()).toBe("Open or close SettingsCtrl+,");
     await app.user.keyboard("{ArrowDown}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
     await app.user.keyboard("{ArrowDown}{ArrowUp}");
     expect(highlighted()).toMatch(/^Show or hide the run's details/);
-    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
+    await app.user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowUp}{Enter}");
     expect(await screen.findByRole("search", { name: "Find in the conversation" })).toBeTruthy();
   });
 });
@@ -300,14 +306,16 @@ describe("an entry that cannot be done now", () => {
   const dim = (option: HTMLElement) => option.getAttribute("aria-disabled") === "true";
 
   it("stays, dim with the shell's reason, and choosing it does nothing", async () => {
-    const shell = { ...fakeShell(), dialogs: undefined } as unknown as FakeShell;
+    const shell = { ...fakeShell(), clipboard: undefined, dialogs: undefined } as unknown as FakeShell;
     const { app } = await opened({}, shell);
     await inComposer(app, "{Control>}k{/Control}");
-    const attach = entry("/attach");
-    expect(dim(attach)).toBe(true);
-    expect(attach.textContent).toBe("/attachSend an image or file with the next messageThis client cannot open the system's file dialogs: its shell has no shell.dialogs.");
+    const paste = entry("Paste an image");
+    expect(dim(paste)).toBe(true);
+    expect(paste.textContent).toBe("Paste an image, or the text thereCtrl+VThis client cannot use the clipboard: its shell has no shell.clipboard.");
+    // Without the shell's file dialogs, /attach opens the page's own file picker (#484), so it is offered.
+    expect(dim(entry("/attach"))).toBe(false);
 
-    await app.user.click(attach);
+    await app.user.click(paste);
     expect(palette()).not.toBeNull();
   });
 

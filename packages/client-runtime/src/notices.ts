@@ -52,6 +52,7 @@ export type NoticeKind =
   | "forge"
   | "key-manager"
   | "routine"
+  | "routine-delivery-failed"
   | "workspace-kept"
   | "command-rejected"
   | "command-dropped";

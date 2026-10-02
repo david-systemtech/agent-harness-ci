@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AlwaysOnChooser",
+  "type": "string",
+  "enum": [
+    "account",
+    "client",
+    "routine",
+    "bot",
+    "completions"
+  ],
+  "description": "Who made a skill always-on for a run: account (its account's always-on choice); else, for the run's extra always-on names, the kind of actor the run is for: routine (the routine's skills), completions (a request's alwaysOnSkills), client (a person's read-now run that took a completions request's names from the run before it) or bot."
+}

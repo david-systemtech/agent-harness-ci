@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   getSessionMessages as sdkGetSessionMessages,
   getSubagentMessages as sdkGetSubagentMessages,
+  importSessionToStore as sdkImportSessionToStore,
   listSessions as sdkListSessions,
   listSubagents as sdkListSubagents,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -16,7 +17,7 @@ import { withControlQuery } from "./control-query.js";
 import { CLAUDE_PROVIDER, ambientConfigDirectory, claudeCredentials, readClaudeStatus, type CommandRunner, type HostEnvironment } from "./credentials.js";
 import { bundledExecutable } from "./executable.js";
 import { mirrorUserTitle, readGeneratedTitle, readStoredSession, readSubagentTranscript, resolveForkPoint, storedHolds, type ClaudeSessionStore } from "./history.js";
-import { readDirectoryHistory } from "./imported-history.js";
+import { readDirectoryHistory, seedStoreFromDirectory } from "./imported-history.js";
 import { createLoginRefresher, reachedPlanLimits, type RefreshOutcome } from "./login-refresh.js";
 import { catalogueOf, staticCatalogue } from "./models.js";
 import { CLAUDE_MODES, claudeEffort, claudeMode } from "./options.js";
@@ -57,6 +58,8 @@ export const CLAUDE_DESCRIPTOR: AdapterDescriptor = {
   interactivePrompts: true,
   partialMessages: true,
   providerQueue: true,
+  // The pinned SDK exposes cancelAsyncMessage at run time (sdk-surface.test.ts).
+  withdraw: true,
   steering: true,
   resume: true,
   fork: true,
@@ -277,6 +280,18 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
     descriptor: descriptorFor(store !== undefined),
     credentials: claudeCredentials,
     status,
+    ...(store !== undefined && {
+      seedSessionStore: async (account: AccountRef, sessionId: string, providerSessionId: string) => {
+        await seedStoreFromDirectory({
+          queue,
+          directory: configDirectory(account),
+          harnessSessionId: sessionId,
+          providerSessionId,
+          store,
+          importSessionToStore: (id, scoped) => sdkImportSessionToStore(id, scoped),
+        });
+      },
+    }),
     async hasHistoryBefore(account, sessionId, providerSessionId, messageId) {
       const stored = await readStoredSession({ queue, harnessSessionId: sessionId, directory: configDirectory(account), providerSessionId, sessionStore: store ?? null, getSessionMessages: sdkGetSessionMessages });
       if (resolveForkPoint(stored, messageId) !== null) return true;
@@ -360,7 +375,8 @@ export const createClaudeAdapter = (options: ClaudeAdapterOptions = {}): ClaudeA
      * The CLI's own transcript of the session: every run names its project
      * directory after the harness session, so under each account's directory
      * it is `projects/<session id>` (the first run's file, and anything a kept
-     * process wrote there). A store-backed resume leaves nothing there, the
+     * process wrote there), including every provider session's nested
+     * `tool-results` image copies (#622). A store-backed resume leaves nothing there, the
      * SDK deleting its temporary directory; the store's rows go with every
      * purge anyway. Synchronous and idempotent, as the purge needs.
      */

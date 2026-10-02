@@ -38,6 +38,7 @@ export const KEY_MANAGER_METHOD_WORDS: Readonly<Record<KeyManagerAuthMethod, str
 
 /** What each status is called, before its since-time. */
 export const KEY_MANAGER_STATUS_WORDS: Readonly<Record<KeyManagerStatusKind, string>> = {
+  "provider-unavailable": "Provider unavailable",
   "awaiting-sign-in": "Awaiting a sign-in",
   "signing-in": "Signing in",
   "signed-in": "Signed in",
@@ -55,6 +56,7 @@ export const KEY_MANAGER_STATUS_WORDS: Readonly<Record<KeyManagerStatusKind, str
  * asks nothing.
  */
 export const KEY_MANAGER_STATUS_ADVICE: Readonly<Record<KeyManagerStatusKind, string | null>> = {
+  "provider-unavailable": "Use an environment with a supported Bitwarden SDK, then Verify now.",
   "awaiting-sign-in": "Sign in to give this environment its credential.",
   "signing-in": null,
   "signed-in": null,

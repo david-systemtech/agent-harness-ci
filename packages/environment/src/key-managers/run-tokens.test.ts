@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { registry } from "@agent-harness/contracts";
@@ -10,7 +10,7 @@ import type { ManualClock } from "../../test/clock.js";
 import type { AdapterEvent } from "../adapter/contract.js";
 import type { InjectionAnswer } from "../adapter/process-environment.js";
 import { end, fakeAdapter, runCommand, say } from "../../test/fake-adapter.js";
-import { baoHash, baoSaw, installFakeBao } from "../../test/fake-bao.js";
+import { baoHash, baoSaw, installFakeBao, installFakeOpenBaoCli } from "../../test/fake-bao.js";
 import { startFakeOpenBao, testCertificates, type FakeOpenBao } from "../../test/fake-openbao.js";
 import { fakePty } from "../../test/fake-pty.js";
 import { saidBack, saidBackOnceHeld } from "../../test/forge.js";
@@ -32,6 +32,7 @@ import {
   update,
   verify,
 } from "../../test/key-manager-connections.js";
+import { untilEvent } from "../../test/routines.js";
 import { create } from "../../test/sessions.js";
 import { openTerminal, terminalCommand } from "../../test/terminals.js";
 import type { WireClient } from "../../test/wire-client.js";
@@ -88,14 +89,12 @@ const connected = async (client: WireClient, bao: FakeOpenBao) => {
   return connection;
 };
 
-const ended = (t: TestEnvironment, sessionId: string) => t.env.log.readStream({ kind: "session", id: sessionId }).filter((event) => event.type === "run.ended");
-
 /** Starts a run on the session and waits for its end. */
 const runTo = async (t: TestEnvironment, client: WireClient, sessionId: string, text = "Fix the receipts"): Promise<void> => {
-  const before = ended(t, sessionId).length;
   const answer = registry["runs.start"].response.parse(await client.request("runs.start", { commandId: randomUUID(), sessionId, text }));
   if (answer.result === undefined) throw new Error(`runs.start was refused: ${JSON.stringify(answer.receipt)}`);
-  await vi.waitFor(() => expect(ended(t, sessionId)).toHaveLength(before + 1));
+  const { runId } = answer.result;
+  await untilEvent(t, { kind: "session", id: sessionId }, (event) => event.type === "run.ended" && event.payload["runId"] === runId);
 };
 
 /** What the session's latest process was spawned with. */
@@ -105,7 +104,7 @@ const spawnedWith = async (t: TestEnvironment, sessionId: string): Promise<Reado
   return process.supplied;
 };
 
-/** The harness-owned empty configuration the block names for both CLIs. */
+/** The harness-owned configuration the block names for both CLIs. */
 const configOf = (t: TestEnvironment): string => join(t.env.dataDir, "key-manager-cli", "openbao.hcl");
 
 /** The block's variables in one family, as the spec lists them. */
@@ -153,7 +152,7 @@ describe("the OpenBao block", () => {
     expect(bao.created).toEqual([]);
   });
 
-  it("gives a provider process, in both the BAO_ and VAULT_ families, the address, a run token and the pinned CA, every stray variable shadowed and a harness-owned empty configuration, and forces no output format", async () => {
+  it("gives a provider process, in both the BAO_ and VAULT_ families, the address, a run token and the pinned CA, every stray variable shadowed and a harness-owned configuration, and forces no output format", async () => {
     const { t, bao, client } = await withOpenBao();
     await connected(client, bao);
     const session = await create(client);
@@ -164,7 +163,6 @@ describe("the OpenBao block", () => {
     expect(bao.created).toHaveLength(1);
     expect(env).toEqual(block({ address: bao.address, token: bao.created[0] ?? "", ca: bao.ca, config: configOf(t) }));
     expect(Object.keys(env).filter((name) => name.endsWith("_FORMAT"))).toEqual([]);
-    expect(readFileSync(configOf(t), "utf8")).toBe("");
   });
 });
 
@@ -505,6 +503,30 @@ describe("a login that cannot mint", () => {
   });
 });
 
+describe("an empty run token", () => {
+  it("reaches no token from bao or vault, never what ~/.vault-token holds: the configuration names the harness's token helper, which answers none", async () => {
+    const { t, bao, client } = await withOpenBao();
+    // A login that cannot mint: its holders are given an empty token.
+    bao.approle(ROLE_ID, SECRET_ID, { policies: ["default", "reader"], ttlSeconds: 7200 });
+    await connected(client, bao);
+    // A machine where someone once signed in with the CLI.
+    const home = tempDir();
+    writeFileSync(join(home, ".vault-token"), "token-for-tests");
+    const bin = join(tempDir(), "bin");
+    const clis = [installFakeOpenBaoCli(bin, "bao"), installFakeOpenBaoCli(bin, "vault")];
+    const session = await create(client);
+    t.adapter.nextScripts.push(async function* (controls) {
+      for (const name of ["bao", "vault"]) yield* runCommand(controls, `${name} token lookup`, { env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home } });
+      yield end();
+    });
+
+    await runTo(t, client, session.id);
+
+    expect((await spawnedWith(t, session.id))["BAO_TOKEN"]).toBe("");
+    for (const cli of clis) expect(cli.calls().map((call) => call.token)).toEqual([null]);
+  });
+});
+
 describe("a spawn while a connection signs in", () => {
   /** A connection added and verified on an environment that has stopped, and a fake OpenBao whose AppRole login is held until `answer` is called. */
   const heldAtRestart = async (options: TestEnvironmentOptions = {}) => {
@@ -660,15 +682,16 @@ describe("where the block and the run token go", () => {
 });
 
 describe("the harness-owned configuration", () => {
-  it("is left out of the denylist's data-directory preset, by the gate and in an unattended run's projection, so a contained run's CLI can read it", async () => {
+  it("is left out of the denylist's data-directory preset with its token helper, by the gate and in an unattended run's projection, so a contained run's CLI can read and run them", async () => {
     const { t, client } = await withOpenBao();
     const matches = async (path: string) => registry["permissions.denylist.test"].result.parse(await client.request("permissions.denylist.test", { kind: "path", value: path })).matches;
     expect(await matches(configOf(t))).toEqual([]);
+    expect(await matches(join(t.env.dataDir, "key-manager-cli", "openbao-token-helper"))).toEqual([]);
     expect(await matches(join(t.env.dataDir, "environment.db"))).not.toEqual([]);
     const session = await create(client);
 
-    t.env.startRun({ sessionId: session.id, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
-    await vi.waitFor(() => expect(ended(t, session.id)).toHaveLength(1));
+    const { runId } = t.env.startRun({ sessionId: session.id, text: "Nightly", actor: { kind: "routine", name: "nightly", ceiling: "acceptEdits", clientSessionId: null }, actorId: "routine-nightly" });
+    await untilEvent(t, { kind: "session", id: session.id }, (event) => event.type === "run.ended" && event.payload["runId"] === runId);
 
     const projected = t.adapter.lastRun().input.denylist;
     expect(projected?.paths).toContain(t.env.dataDir);

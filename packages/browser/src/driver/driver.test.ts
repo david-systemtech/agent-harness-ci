@@ -18,6 +18,9 @@ const withField = (peer: Driven["peer"], editable = true): void => {
 
 const mouse = (peer: Driven["peer"]) => peer.sentOf("Input.dispatchMouseEvent").map(({ params }) => params);
 
+/** An in-page function's name, from the declaration the driver sent. */
+const nameOf = (declaration: unknown): string | undefined => /^function (\w+)/.exec(String(declaration))?.[1];
+
 describe.each(["web-socket", "pipe"] as const)("the page driver over %s", (wire) => {
   it("enables only Page at attach: open, navigate, screenshot, click and type send no Runtime.enable, Log.enable or Network.enable", async () => {
     const { peer, perform } = await driven({ wire });
@@ -32,6 +35,13 @@ describe.each(["web-socket", "pipe"] as const)("the page driver over %s", (wire)
 });
 
 describe("lazy domains", () => {
+  it.each(["console", "network", "cookies", "evaluate", "screenshot"] as const)("answers %s with the top frame's address after the page navigated on its own", async (verb) => {
+    const { perform, page } = await driven({ kind: "headless" });
+    await perform("open", { url: "https://example.com/before" });
+    page().navigate("https://example.com/redirected");
+    expect(await perform(verb, (verb === "evaluate" ? { expression: "1" } : {}) as never)).toMatchObject({ ok: true, value: { url: "https://example.com/redirected" } });
+  });
+
   it.each(["console", "network", "cookies", "storage", "evaluate"] as const)("turn on Runtime, Log and Network with the first %s verb, and only once", async (verb) => {
     const { peer, perform } = await driven({ kind: "headless" });
     await perform("open", { url: "https://example.com/" });
@@ -111,9 +121,18 @@ describe("isolated worlds", () => {
     const worlds = peer.sentOf("Page.createIsolatedWorld");
     expect(worlds.map(({ params }) => params.worldName)).toEqual(["agent-harness", "agent-harness"]);
     const calls = peer.sentOf("Runtime.callFunctionOn");
-    expect(calls).toHaveLength(3);
+    // Each verb's own functions, and after each the check for a challenge on the page it left.
+    expect(calls.map(({ params }) => nameOf(params.functionDeclaration))).toEqual([
+      "pageChallenge",
+      "locateElement",
+      "pageChallenge",
+      "pageChallenge",
+      "locateElement",
+      "selectFieldContents",
+      "pageChallenge",
+    ]);
     // The world is made again for the new document: the first one went with the page it was made in.
-    expect(calls.map(({ params }) => params.executionContextId)).toEqual([1, 2, 2]);
+    expect(calls.map(({ params }) => params.executionContextId)).toEqual([1, 1, 1, 2, 2, 2, 2]);
     expect(calls.every(({ params }) => params.returnByValue === true && typeof params.functionDeclaration === "string")).toBe(true);
     expect(peer.sentOf("Runtime.evaluate")).toEqual([]);
   });
@@ -130,7 +149,8 @@ describe("isolated worlds", () => {
     });
     expect(await perform("click", { target: { selector: "#go" } })).toMatchObject({ ok: true });
     expect(peer.sentOf("Page.createIsolatedWorld")).toHaveLength(2);
-    expect(calls).toBe(2);
+    // The element located in the world made again, then the page the click left checked for a challenge.
+    expect(calls).toBe(3);
   });
 
   it("answers a sentence when the world is gone a second time, never throwing", async () => {
@@ -152,7 +172,7 @@ describe("open, navigate and screenshot", () => {
     const { peer, perform } = await driven();
     await perform("open", {});
     expect(peer.sentOf("Emulation.setDeviceMetricsOverride")[0]?.params).toEqual({ width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-    expect(await perform("screenshot", {})).toEqual({ ok: true, value: { mimeType: "image/jpeg", data: SCRIPTED_SCREENSHOT } });
+    expect(await perform("screenshot", {})).toEqual({ ok: true, value: { url: "about:blank", mimeType: "image/jpeg", data: SCRIPTED_SCREENSHOT } });
     expect(peer.sentOf("Page.captureScreenshot")[0]?.params).toEqual({ format: "jpeg", quality: 70 });
   });
 
@@ -242,14 +262,6 @@ describe("open, navigate and screenshot", () => {
     }
     expect(peer.sentOf("Page.navigate")).toEqual([]);
   });
-
-  it("says an action's snapshot cannot come with its answer yet", async () => {
-    const { perform } = await driven();
-    expect(await perform("open", { url: "https://example.com/", snapshot: { filter: "interactive", maxChars: 12_000 } })).toMatchObject({
-      ok: true,
-      notice: "No snapshot came with this answer: this browser cannot take one yet.",
-    });
-  });
 });
 
 describe("click and type by selector", () => {
@@ -258,8 +270,8 @@ describe("click and type by selector", () => {
     withField(peer, false);
     await perform("open", { url: "https://example.com/" });
     expect(await perform("click", { target: { selector: "button.buy" } })).toEqual({ ok: true, value: { url: "https://example.com/", title: "" } });
-    expect(peer.sentOf("Runtime.callFunctionOn")[0]?.params.arguments).toEqual([{ value: "button.buy" }]);
-    expect(String(peer.sentOf("Runtime.callFunctionOn")[0]?.params.functionDeclaration)).toMatch(/^function locateElement\(/);
+    const [located] = peer.sentOf("Runtime.callFunctionOn").filter(({ params }) => nameOf(params.functionDeclaration) === "locateElement");
+    expect(located?.params.arguments).toEqual([{ value: { selector: "button.buy" } }]);
     expect(mouse(peer)).toEqual([
       { type: "mouseMoved", x: 320, y: 240 },
       { type: "mousePressed", x: 320, y: 240, button: "left", buttons: 1, clickCount: 1 },
@@ -284,11 +296,11 @@ describe("click and type by selector", () => {
     withField(peer);
     await perform("open", { url: "https://example.com/" });
     expect(await perform("type", { target: { selector: "#email" }, text: "ada@example.com" })).toMatchObject({ ok: true });
-    const calls = peer.sentOf("Runtime.callFunctionOn").map(({ params }) => String(params.functionDeclaration).match(/^function (\w+)/)?.[1]);
-    expect(calls).toEqual(["locateElement", "selectFieldContents"]);
+    const calls = peer.sentOf("Runtime.callFunctionOn").map(({ params }) => nameOf(params.functionDeclaration));
+    expect(calls).toEqual(["pageChallenge", "locateElement", "selectFieldContents", "pageChallenge"]);
     expect(mouse(peer).map((event) => event.type)).toEqual(["mouseMoved", "mousePressed", "mouseReleased"]);
-    const order = peer.sent.map((command) => command.method);
-    expect(order.lastIndexOf("Runtime.callFunctionOn")).toBeLessThan(order.indexOf("Input.insertText"));
+    const order = peer.sent.map((command) => (command.method === "Runtime.callFunctionOn" ? nameOf(command.params.functionDeclaration) : command.method));
+    expect(order.indexOf("selectFieldContents")).toBeLessThan(order.indexOf("Input.insertText"));
     expect(peer.sentOf("Input.insertText")[0]?.params).toEqual({ text: "ada@example.com" });
   });
 
@@ -307,17 +319,18 @@ describe("click and type by selector", () => {
   it("answers a sentence for a selector that matches nothing, one that is not valid, an element with nothing visible, and one that takes no text", async () => {
     const { peer, perform } = await driven();
     await perform("open", { url: "https://example.com/" });
-    peer.inPage("locateElement", ({ args }) =>
-      args[0] === "#missing"
+    peer.inPage("locateElement", ({ args }) => {
+      const { selector } = args[0] as { selector: string };
+      return selector === "#missing"
         ? { kind: "none" }
-        : args[0] === "p["
+        : selector === "p["
           ? { kind: "invalid", message: "'p[' is not a valid selector." }
-          : args[0] === "#hidden"
+          : selector === "#hidden"
             ? { kind: "hidden" }
-            : args[0] === "#under"
+            : selector === "#under"
               ? { kind: "covered", by: "div#banner.cookie" }
-              : { kind: "found", x: 1, y: 1, editable: false },
-    );
+              : { kind: "found", x: 1, y: 1, editable: false };
+    });
     expect(await perform("click", { target: { selector: "#missing" } })).toEqual({ ok: false, reason: "No element on the page matches the CSS selector #missing." });
     expect(await perform("click", { target: { selector: "p[" } })).toEqual({ ok: false, reason: "The CSS selector p[ is not valid: 'p[' is not a valid selector." });
     expect(await perform("click", { target: { selector: "#hidden" } })).toEqual({ ok: false, reason: "The element matching #hidden has no visible part on the page to act on." });
@@ -327,18 +340,6 @@ describe("click and type by selector", () => {
     });
     expect(await perform("type", { target: { selector: "#label" }, text: "x" })).toEqual({ ok: false, reason: "The element matching #label does not take typed text." });
     expect(mouse(peer)).toEqual([]);
-  });
-
-  it("says refs need a snapshot, which this browser cannot take yet", async () => {
-    const { perform } = await driven();
-    await perform("open", {});
-    const reason = "Refs come from snapshots, which this browser cannot take yet: name the element by a CSS selector instead.";
-    expect(await perform("click", { target: { ref: "e12" } })).toEqual({ ok: false, reason });
-    expect(await perform("type", { target: { ref: "e12" }, text: "x" })).toEqual({ ok: false, reason });
-    expect(await perform("scroll", { to: { ref: "e12" } })).toEqual({ ok: false, reason });
-    expect(await perform("waitFor", { until: { ref: "e12" } })).toEqual({ ok: false, reason });
-    expect(await perform("snapshot", {})).toEqual({ ok: false, reason: "This browser cannot take a snapshot yet. Take a screenshot to see the page." });
-    expect(await perform("read", {})).toEqual({ ok: false, reason: "This browser cannot read a page as text yet. Take a screenshot to see the page." });
   });
 });
 
@@ -406,7 +407,7 @@ describe("click at a point, scroll and wait", () => {
     shown = true;
     clock.advance(250);
     expect(await answer).toEqual({ ok: true, value: { url: "about:blank", title: "" } });
-    expect(peer.sentOf("Runtime.callFunctionOn")).toHaveLength(2);
+    expect(peer.sentOf("Runtime.callFunctionOn").filter(({ params }) => nameOf(params.functionDeclaration) === "showsText")).toHaveLength(2);
   });
 
   it("finds text only a cross-site frame shows, reading every frame of the page", async () => {
@@ -478,13 +479,16 @@ describe("the deep verbs under the host's policy", () => {
     });
     expect(await perform("console", {})).toEqual({
       ok: true,
-      value: [
-        { level: "warn", text: "cart is 3 Object", source: "https://example.com/app.js:42", at: "2026-09-30T08:00:00.000Z" },
-        { level: "exception", text: "TypeError: x is undefined", source: "https://example.com/app.js:10", at: "2026-09-30T08:00:00.001Z" },
-        { level: "error", text: "Failed to load resource: 404", source: "https://example.com/missing.png:?", at: "2026-09-30T08:00:00.002Z" },
-      ],
+      value: {
+        url: "https://example.com/",
+        entries: [
+          { level: "warn", text: "cart is 3 Object", source: "https://example.com/app.js:42", at: "2026-09-30T08:00:00.000Z" },
+          { level: "exception", text: "TypeError: x is undefined", source: "https://example.com/app.js:10", at: "2026-09-30T08:00:00.001Z" },
+          { level: "error", text: "Failed to load resource: 404", source: "https://example.com/missing.png:?", at: "2026-09-30T08:00:00.002Z" },
+        ],
+      },
     });
-    expect(await perform("console", {})).toEqual({ ok: true, value: [] });
+    expect(await perform("console", {})).toEqual({ ok: true, value: { url: "https://example.com/", entries: [] } });
   });
 
   it("keeps the latest 1,000 console lines between two reads, and says how many older ones went", async () => {
@@ -496,8 +500,8 @@ describe("the deep verbs under the host's policy", () => {
     });
     const answer = await perform("console", {});
     if (!answer.ok) throw new Error(answer.reason);
-    expect(answer.value).toHaveLength(1_000);
-    expect(answer.value[0]?.text).toBe("line 6");
+    expect(answer.value.entries).toHaveLength(1_000);
+    expect(answer.value.entries[0]?.text).toBe("line 6");
     expect(answer.notice).toBe("The 5 oldest lines were dropped: the browser keeps the latest 1,000 between two reads.");
   });
 
@@ -512,7 +516,7 @@ describe("the deep verbs under the host's policy", () => {
     await perform("screenshot", {});
     const answer = await perform("network", {});
     if (!answer.ok) throw new Error(answer.reason);
-    expect([answer.value.length, answer.value[0]?.url, answer.notice]).toEqual([
+    expect([answer.value.entries.length, answer.value.entries[0]?.url, answer.notice]).toEqual([
       1_000,
       "https://example.com/4",
       "The 3 oldest requests were dropped: the browser keeps the latest 1,000 between two reads.",
@@ -524,7 +528,7 @@ describe("the deep verbs under the host's policy", () => {
     await perform("open", { url: "https://example.com/" });
     expect(await perform("network", {})).toEqual({
       ok: true,
-      value: [],
+      value: { url: "https://example.com/", entries: [] },
       notice: "The network is recorded from this call on: ask again after the page has done what you want to see.",
     });
     await perform("navigate", { url: "https://example.com/next" });
@@ -537,7 +541,7 @@ describe("the deep verbs under the host's policy", () => {
     peer.emit("Network.loadingFailed", { requestId: "r2", timestamp: 10.1, errorText: "net::ERR_BLOCKED_BY_CLIENT", blockedReason: "inspector" }, session);
     request("r3", "https://example.com/ok.css");
     peer.emit("Network.responseReceived", { requestId: "r3", timestamp: 10, type: "Stylesheet", response: { url: "https://example.com/ok.css", status: 200 } }, session);
-    await expect.poll(async () => ((await perform("network", { failedOnly: true })) as { value: unknown[] }).value, { timeout: 30_000 }).toEqual([
+    await expect.poll(async () => ((await perform("network", { failedOnly: true })) as { value: { entries: unknown[] } }).value.entries, { timeout: 30_000 }).toEqual([
       { method: "GET", url: "https://example.com/api/cart", resourceType: "xhr", status: 500, durationMs: 500, at: "2026-09-30T08:00:00.000Z" },
       { method: "GET", url: "https://tracker.example/pixel", resourceType: "xhr", durationMs: expect.closeTo(100, 5), failure: "net::ERR_BLOCKED_BY_CLIENT (blocked: inspector)", at: "2026-09-30T08:00:00.000Z" },
     ]);
@@ -554,17 +558,20 @@ describe("the deep verbs under the host's policy", () => {
     await perform("open", { url: "https://shop.example/" });
     expect(await perform("cookies", {})).toEqual({
       ok: true,
-      value: [
-        { name: "sid", domain: "shop.example", path: "/", httpOnly: true, secure: true, sameSite: "Lax" },
-        { name: "pref", domain: ".shop.example", path: "/", expires: "2026-09-30T08:00:00.000Z", httpOnly: false, secure: false },
-      ],
+      value: {
+        url: "https://shop.example/",
+        entries: [
+          { name: "sid", domain: "shop.example", path: "/", httpOnly: true, secure: true, sameSite: "Lax" },
+          { name: "pref", domain: ".shop.example", path: "/", expires: "2026-09-30T08:00:00.000Z", httpOnly: false, secure: false },
+        ],
+      },
       notice: "Cookie values are left out: shop.example is not a dev site. Add it to browser.devSites, or turn on browser.deepReadEverywhere, to read them.",
     });
     expect(peer.sentOf("Network.getCookies")[0]?.params).toEqual({ urls: ["https://shop.example/"] });
     setPolicy({ ...plainPolicy, devSites: ["shop.example"] });
-    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: [{ name: "sid", value: "value-for-tests" }, { name: "pref", value: "dark" }] });
+    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: { url: "https://shop.example/", entries: [{ name: "sid", value: "value-for-tests" }, { name: "pref", value: "dark" }] } });
     setPolicy({ ...plainPolicy, deepReadEverywhere: true });
-    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: [{ value: "value-for-tests" }, { value: "dark" }] });
+    expect(await perform("cookies", {})).toMatchObject({ ok: true, value: { url: "https://shop.example/", entries: [{ value: "value-for-tests" }, { value: "dark" }] } });
   });
 
   it("reads storage only where deep reads are allowed, else answers a sentence naming the settings", async () => {
@@ -594,7 +601,7 @@ describe("the deep verbs under the host's policy", () => {
         ? { result: { type: "object" }, exceptionDetails: { text: "Uncaught", exception: { description: "ReferenceError: boom is not defined" } } }
         : { result: { type: "object", value: { items: 3 } } },
     );
-    expect(await perform("evaluate", { expression: "window.store.cart" })).toEqual({ ok: true, value: { result: { items: 3 } } });
+    expect(await perform("evaluate", { expression: "window.store.cart" })).toEqual({ ok: true, value: { url: "https://shop.example/", result: { items: 3 } } });
     expect(peer.sentOf("Runtime.evaluate")[0]?.params).toEqual({ expression: "window.store.cart", returnByValue: true, awaitPromise: true });
     expect(peer.sentOf("Runtime.evaluate")[0]?.params).not.toHaveProperty("contextId");
     expect(await perform("evaluate", { expression: "boom()" })).toEqual({ ok: false, reason: "The expression threw: ReferenceError: boom is not defined" });
@@ -604,7 +611,7 @@ describe("the deep verbs under the host's policy", () => {
     const { peer, perform } = await driven({ kind: "headless" });
     peer.answer("Network.getCookies", () => ({ cookies: [{ name: "sid", value: "value-for-tests", domain: "shop.example", path: "/", expires: -1, httpOnly: true, secure: true, session: true }] }));
     await perform("open", { url: "https://shop.example/" });
-    expect(await perform("cookies", {})).toEqual({ ok: true, value: [{ name: "sid", value: "value-for-tests", domain: "shop.example", path: "/", httpOnly: true, secure: true }] });
+    expect(await perform("cookies", {})).toEqual({ ok: true, value: { url: "https://shop.example/", entries: [{ name: "sid", value: "value-for-tests", domain: "shop.example", path: "/", httpOnly: true, secure: true }] } });
     expect(await perform("storage", {})).toMatchObject({ ok: true });
     expect(await perform("evaluate", { expression: "1" })).toMatchObject({ ok: true });
   });
@@ -775,6 +782,29 @@ describe("the frame judge", () => {
     expect(await perform("screenshot", {})).toMatchObject({ ok: false, denylist: { frame: "sub-frame" } });
   });
 
+  it("judges the address each frame has now before every verb, so a policy that came to list the page refuses the next verb with the address and the entry", async () => {
+    const { peer, perform, setPolicy } = await driven();
+    await perform("open", { url: "https://shop.example/" });
+    setPolicy({ ...plainPolicy, browserDomains: [listed("shop.example")] });
+    expect(await perform("screenshot", {})).toEqual({
+      ok: false,
+      reason: "The page is at https://shop.example/, which the denylist's browser section lists (shop.example), so it was stopped at about:blank. Only the person can allow it.",
+      denylist: { frame: "top-level", match: { section: "browserDomains", entry: listed("shop.example"), matched: "https://shop.example/" } },
+    });
+
+    setPolicy(plainPolicy);
+    peer.document("https://news.example/", { frames: [{ url: "https://pay.example/embed", crossSite: true }] });
+    expect(await perform("navigate", { url: "https://news.example/" })).toMatchObject({ ok: true });
+    setPolicy({ ...plainPolicy, browserDomains: [listed("pay.example")] });
+    expect(await perform("screenshot", {})).toEqual({
+      ok: false,
+      reason: "A frame of the page is at https://pay.example/embed, which the denylist's browser section lists (pay.example), so the whole page was stopped at about:blank.",
+      denylist: { frame: "sub-frame", match: { section: "browserDomains", entry: listed("pay.example"), matched: "https://pay.example/embed" } },
+    });
+    await expect.poll(() => blanked(peer), { timeout: 20_000 }).toBe(2);
+    expect(await perform("screenshot", {})).toMatchObject({ ok: true });
+  });
+
   it("opens the host a one-time allowance names, once: its frames stand while it is the page, and the next arrival there is judged afresh", async () => {
     const { peer, perform, page } = await driven({ policy: guarded });
     peer.document("https://www.paypal.com/signin", { title: "Log in", frames: [{ url: "https://www.paypal.com/risk", crossSite: true }] });
@@ -823,6 +853,20 @@ describe("the frame judge", () => {
       ok: false,
       reason: "https://rebinding.example/ was served from 10.0.0.5, an internal address. The page was stopped at about:blank.",
     });
+  });
+
+  it("puts an address the agent named to the host's own check before the browser opens it, after the denylist, and opens nothing it refuses", async () => {
+    const checked: string[] = [];
+    const beforeNavigation = async (url: string) => {
+      checked.push(url);
+      return url.includes("intranet") ? `${url} resolves to 10.0.0.5, a private address.` : null;
+    };
+    const { peer, perform } = await driven({ kind: "headless", policy: { ...plainPolicy, browserDomains: [listed("paypal.com")] }, beforeNavigation });
+    expect(await perform("open", { url: "intranet.example" })).toEqual({ ok: false, reason: "https://intranet.example resolves to 10.0.0.5, a private address." });
+    expect(await perform("navigate", { url: "https://paypal.com/" })).toMatchObject({ ok: false, denylist: { frame: "top-level" } });
+    expect(peer.sentOf("Page.navigate")).toEqual([]);
+    expect(await perform("navigate", { url: "https://news.example/" })).toMatchObject({ ok: true, value: { url: "https://news.example/" } });
+    expect(checked).toEqual(["https://intranet.example", "https://news.example/"]);
   });
 
   it("gives the host's rule a document no server served with no address, not the one the frame's last document came from", async () => {

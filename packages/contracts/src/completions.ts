@@ -87,7 +87,7 @@ export const CompletionsExtension = z
     alwaysOnSkills: z
       .array(z.string().min(1))
       .nullish()
-      .meta({ description: "Accepted and reported as ignored on the first chunk until the skill set (ticket 89) honours it." }),
+      .meta({ description: "Extra always-on skill names for this turn, after the account’s choices; only enabled names join the run, and other names are reported in agent-harness.ignored at their array paths." }),
     forkSession: z.boolean().nullish().meta({ description: "Run the turn on a fork of sessionId rather than on sessionId itself." }),
     rewindToMessageId: MessageId.nullish().meta({ description: "Rewind sessionId to this user message before the turn runs." }),
     attachments: z.array(AttachmentInput).max(20).nullish().meta({ description: "Images or files sent with the trailing user message." }),
@@ -292,10 +292,10 @@ export const CompletionsAnswerExtension = z
       }),
     mode: Mode.optional().meta({ description: "The mode the run the answer follows is in." }),
     clamped: CompletionsClamp.nullable().optional().meta({ description: "The permissionMode asked for and lowered; null when nothing was." }),
-    ignored: z.array(z.string().min(1)).optional().meta({ description: "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills." }),
+    ignored: z.array(z.string().min(1)).optional().meta({ description: "The parameters and fields accepted and ignored, as request paths: temperature, agent-harness.alwaysOnSkills.0." }),
     activity: CompletionsActivity.optional(),
     ended: CompletionsRunEnd.optional(),
-    waiting: MessageId.optional().meta({ description: "The turn's queued message still waits in the session's queue: the run it was sent to ended before reading it." }),
+    waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue: the run it was sent to, or a run launched with it, ended before reading it." }),
   })
   .meta({ description: "The harness's fields on an answer or a chunk." });
 export type CompletionsAnswerExtension = z.infer<typeof CompletionsAnswerExtension>;
@@ -327,9 +327,14 @@ export const CompletionsErrorBody = z
   .object({
     error: CompletionsErrorDetail,
     [COMPLETIONS_NAMESPACE]: z
-      .object({ sessionId: SessionId.optional(), runId: RunId.optional(), ended: CompletionsRunEnd.optional() })
+      .object({
+        sessionId: SessionId.optional(),
+        runId: RunId.optional(),
+        ended: CompletionsRunEnd.optional(),
+        waiting: MessageId.optional().meta({ description: "The turn's message still waits in the session's queue, for a run to read it: do not send it again." }),
+      })
       .optional()
-      .meta({ description: "The session and run a failed turn ran on, when it got that far." }),
+      .meta({ description: "The session and run a failed turn ran on, when it got that far, and its message when it still waits." }),
   })
   .meta({ description: "An OpenAI-style error body." });
 export type CompletionsErrorBody = z.infer<typeof CompletionsErrorBody>;

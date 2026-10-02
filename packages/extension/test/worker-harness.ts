@@ -4,7 +4,7 @@ import { extensionManifest } from "../src/manifest.js";
 import { startWorker, type RunningWorker } from "../src/service-worker.js";
 import type { WorkerStatus } from "../src/status.js";
 import type { StoredPairing } from "../src/stored.js";
-import { fakeChrome, type FakeChrome } from "./fake-chrome.js";
+import { fakeChrome, type FakeChrome, type FakeChromeOptions } from "./fake-chrome.js";
 import { manualClock, type ManualClock } from "./manual-clock.js";
 import { ownFolder, scriptedEnvironment, WAIT_MS, type OwnFolder, type PeerSocket, type ScriptedEnvironment } from "./scripted-environment.js";
 
@@ -38,8 +38,9 @@ export const workerHarness = () => {
     return environment;
   };
 
-  const setUp = async (options: { readonly started?: boolean } = {}): Promise<Setup> => {
-    const chrome = fakeChrome(extensionManifest("1.2.3-test"));
+  const setUp = async (options: { readonly started?: boolean; readonly chrome?: FakeChromeOptions } = {}): Promise<Setup> => {
+    const chrome = fakeChrome(extensionManifest("1.2.3-test"), options.chrome);
+    cleanups.push(() => chrome.close());
     const clock = manualClock();
     const folder = ownFolder();
     cleanups.push(() => folder.remove());
@@ -83,8 +84,8 @@ export const workerHarness = () => {
   });
 
   /** A setup whose Chrome holds a pairing with its environment, and the worker started. */
-  const setUpPaired = async (): Promise<Setup> => {
-    const setup = await setUp({ started: false });
+  const setUpPaired = async (chrome?: FakeChromeOptions): Promise<Setup> => {
+    const setup = await setUp({ started: false, ...(chrome && { chrome }) });
     await setup.chrome.storage.local.set({ pairing: pairingWith(setup.environment) });
     setup.start();
     return setup;

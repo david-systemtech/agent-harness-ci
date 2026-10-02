@@ -46,6 +46,7 @@ export const capabilities = {
   interactivePrompts: true,
   partialMessages: true,
   providerQueue: true,
+  withdraw: true,
   steering: true,
   resume: true,
   fork: true,
@@ -122,6 +123,7 @@ const payloads: Record<string, Fixtures> = {
     ],
     invalid: [{ ...runStarted, runId: v1 }, { ...runStarted, origin: "phone" }, { ...runStarted, mode: "plan" }, { ...runStarted, queuedMessageIds: ["m-1"] }],
   },
+  "run.suggested": { valid: [{ runId, suggestion: "Add a regression test" }], invalid: [{ runId, suggestion: "" }, { suggestion: "Offer" }] },
   "run.ended": {
     valid: [
       runEnded,
@@ -410,7 +412,10 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
     valid: [runSummary, runningSummary],
     invalid: [{ ...runSummary, state: "done" }, { ...runSummary, startedAt: "then" }, { runId, state: "ended" }],
   },
-  "transcript/transcript-item.json": { valid: [...items, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." }], invalid: [
+  "transcript/transcript-item.json": { valid: [...items, { kind: "history-unreadable", sequence: 2, message: "No transcript of provider-session-1 is in /home/david/.claude any more." },
+      { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: messageId },
+      { kind: "forked", sequence: 2, fromSessionId: freshSummary.id, atMessageId: null },
+    ], invalid: [
       { sequence: 3 },
       { kind: "plan-card" },
       { kind: 3, sequence: 3 },
@@ -420,6 +425,8 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
       { kind: "tool-call", sequence: 3, runId, toolCallId: "t-1" },
       { kind: "prompt", sequence: 3, runId, promptId: "toolu_1", prompt: { kind: "permission" }, answer: null },
       { kind: "history-unreadable", sequence: 2, message: "" },
+      { kind: "forked", sequence: 2, fromSessionId: "missing-session", atMessageId: null },
+      { kind: "forked", sequence: 2, fromSessionId: freshSummary.id },
     ],
   },
   "transcript/parked-prompt.json": { valid: [parkedPrompt], invalid: [{ ...parkedPrompt, promptId: "" }, { ...parkedPrompt, prompt: "Allow?" }, { ...parkedPrompt, prompt: { kind: "permission", toolName: "Bash" } }] },
@@ -435,9 +442,10 @@ export const runSchemaFixtures: Record<string, Fixtures> = {
   },
   "transcript/session-snapshot.json": {
     // The last valid one is an environment's from before #260, with no rewinds or instructions: read as none standing, and none.
-    valid: [snapshot, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
+    valid: [snapshot, { ...snapshot, suggestion: { runId, suggestion: "Run the tests" } }, { ...snapshot, suggestion: null }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [], rewinds: [] }, { sequence: 0, summary: freshSummary, runs: [], items: [], parkedPrompts: [] }],
     invalid: [
       { sequence: 13, summary: freshSummary, transcript: {} },
+      { ...snapshot, suggestion: { runId, suggestion: "" } },
       { ...snapshot, runs: [{}] },
       { ...snapshot, items: [{ sequence: 1 }] },
       { ...snapshot, instructions: "t".repeat(20001) },

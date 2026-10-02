@@ -59,6 +59,8 @@ export interface Wire {
   open(): void;
   /** How many sockets are open. */
   sockets(): number;
+  /** Whether a socket authenticated as the client session is open, and not closing after a `bye`. */
+  holds(clientSessionId: string): boolean;
   /** How many subscriptions are open, across every socket. */
   subscriptions(): number;
   /**
@@ -364,6 +366,7 @@ export const createWire = (options: WireOptions): Wire => {
     },
 
     sockets: () => open.size,
+    holds: (clientSessionId) => [...open].some((socket) => socket.phase === "authenticated" && socket.clientSession?.id === clientSessionId),
     subscriptions: () => subscriptions.count(),
 
     // A drain's last step (serve/lifecycle.ts): its runs have finished or been cut, and every socket hears the same bye.

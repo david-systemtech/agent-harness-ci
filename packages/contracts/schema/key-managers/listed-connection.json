@@ -169,7 +169,7 @@
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
-          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount; for 1Password a vault's name (harness), each entry an item in it."
         },
         {
           "type": "null"
@@ -184,13 +184,13 @@
           "minLength": 1,
           "maxLength": 256,
           "pattern": "^[^/\\p{Cc}]+(?:\\/[^/\\p{Cc}]+)*$",
-          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount."
+          "description": "Where Move keeps the harness's secrets on the connection, each entry one level below it: for OpenBao or Vault a KV mount and exactly one project segment (personal/harness), so an entry sits two levels under its mount; for 1Password a vault's name (harness), each entry an item in it."
         },
         {
           "type": "null"
         }
       ],
-      "description": "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification. Null once a base path is set, and while the provider suggests none."
+      "description": "While no base path is set, the one the provider suggests: for OpenBao, harness on the first KV mount the login can write (personal/harness), read at each verification; for 1Password, the vault harness. Null once a base path is set, and while the provider suggests none."
     },
     "injects": {
       "type": "boolean",
@@ -202,7 +202,7 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "The names of the variables every provider process and terminal receives from this connection while it injects (for OpenBao, its block in both the BAO_ and VAULT_ families); names only, never a value. Empty for a connection that does not inject, or whose provider's block this version does not give yet."
+      "description": "The names of the variables every provider process and terminal receives from this connection while it injects (for OpenBao, its block in both the BAO_ and VAULT_ families; for 1Password, the OP_ block); names only, never a value. Empty for a connection that does not inject, or whose provider's block this version does not give yet."
     },
     "status": {
       "type": "object",
@@ -217,9 +217,10 @@
             "expired",
             "unreachable",
             "sealed",
-            "certificate-rejected"
+            "certificate-rejected",
+            "provider-unavailable"
           ],
-          "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only) or certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's)."
+          "description": "Where a key-manager connection stands: awaiting-sign-in (no credential here: a copy, an import, or signed out), signing-in (a login is under way), signed-in, credential-rejected (sign in again), expired (a token login past its maximum life), unreachable, sealed (OpenBao only), certificate-rejected (the key manager's certificate does not verify against the pinned CA, or with none pinned the system's), or provider-unavailable (the provider cannot load on this environment)."
         },
         "since": {
           "type": "string",
@@ -302,7 +303,7 @@
       "description": "What the login's lookup said of its token; null while it is not signed in."
     },
     "canMint": {
-      "description": "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them.",
+      "description": "Whether the login can mint run tokens: its capabilities on the token-create path, or its token role's, include update; null until a verification has read them, and for a provider that mints none (1Password, whose runs are given the connection's own token).",
       "type": [
         "boolean",
         "null"
@@ -444,7 +445,7 @@
               "type": "null"
             }
           ],
-          "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry for npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
+          "description": "The newest release known, from the source matching its install method (the Homebrew API for homebrew, WinGet's manifests for winget, the npm registry's configured update-channel dist-tag for claude on npm), else the vendor's release feed (GitHub releases for bao, doppler, bws and gh; Claude Code's configured update channel for claude; 1Password's update feed for op; HashiCorp's releases API for vault): fetched by the environment at most once a day, when a client asks tools.list to refresh, and cached on the environment. Null while none is known, and when it is not installed. A version behind it is update-available."
         },
         "minimum": {
           "anyOf": [

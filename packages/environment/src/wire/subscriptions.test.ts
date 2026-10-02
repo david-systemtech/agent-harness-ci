@@ -708,12 +708,13 @@ describe("environment.subscribe", () => {
       subscription,
       sequence: events.at(-1)?.sequence,
       payload: {
-        status: { readiness: "ready", activity: { state: "idle" }, updatesManagedOutside: false },
+        // Busy for the idle window after its start (#445).
+        status: { readiness: "ready", activity: { state: "busy", reason: "recent-activity" }, updatesManagedOutside: false },
         environment: { name: "desk", icon: "server", colour: presetColour(t.env.id) },
       },
     });
     const { setup } = registry["environment.subscribe"].result.parse(snapshot.payload);
-    expect(setup?.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"]);
+    expect(setup?.map((result) => result.step)).toEqual(["account", "carry-over", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"]);
     await frame(client, subscription, "synchronized");
     expect(shape(client, subscription)).toEqual(["subscribed", "snapshot", "synchronized"]);
   });

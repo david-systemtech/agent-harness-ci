@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BankSyncedPayload",
+  "type": "object",
+  "properties": {
+    "bankId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+      "description": "A bank's id: a version 4 UUID the registering client mints, kept in lowercase."
+    },
+    "head": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$",
+      "description": "A commit's full id."
+    },
+    "previousHead": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$",
+          "description": "A commit's full id."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "bankId",
+    "head",
+    "previousHead"
+  ],
+  "description": "bank.synced: a sync moved the bank's checkout to a new head of main."
+}

@@ -8,7 +8,7 @@ import { Timestamp } from "./primitives.js";
 import { RepositoryIdentity } from "./repository-identity.js";
 import { PRODUCT_NAME } from "./product.js";
 import {
-  SKILL_REPOSITORY_ROOTS,
+  NATIVE_SKILL_ROOTS,
   SkillInvocation,
   SkillMemberProblem,
   SkillMemberWarning,
@@ -158,7 +158,7 @@ export const SkillLayer = z
     z
       .object({
         kind: z.literal("repository"),
-        root: z.enum(SKILL_REPOSITORY_ROOTS).meta({ description: "The root the member lies under: .claude/skills, which wins a name over .agents/skills." }),
+        root: z.enum(NATIVE_SKILL_ROOTS).meta({ description: "The repository root the member lies under: .claude/skills before .agents/skills, then .claude/commands." }),
         directory: SkillSourceFolder.meta({
           description: "The directory holding that root, from the repository's root: the workspace directory or one of its parents, . for the repository's root; a nearer one wins a name.",
         }),
@@ -253,6 +253,20 @@ export type SkillSetMember = z.infer<typeof SkillSetMember>;
 // A source's events ---------------------------------------------------------------
 
 /**
+ * Why a probe could not reach the repository, `conflict` reason
+ * `unreachable`'s `data.problem`: the forge refused the credential or asked
+ * for one no forge account gives (`authentication`), there is no such
+ * repository or branch (`not_found`), the host could not be reached in time
+ * (`network`), or git failed otherwise (`git_failed`, with its `fatal:` line).
+ */
+export const SKILL_PROBE_PROBLEMS = ["authentication", "not_found", "network", "git_failed"] as const;
+export const SkillProbeProblem = z.enum(SKILL_PROBE_PROBLEMS).meta({
+  description:
+    "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line).",
+});
+export type SkillProbeProblem = z.infer<typeof SkillProbeProblem>;
+
+/**
  * A member as the reader reads it in a repository's folder (skills spec,
  * "Skill sources"): its name, its folder from the folder read (`.` when that
  * folder is itself the skill), its description, its invocation and its
@@ -278,20 +292,58 @@ export const SkillsSourceAddedPayload = SkillSource.omit({ addedBy: true, addedA
 export type SkillsSourceAddedPayload = z.infer<typeof SkillsSourceAddedPayload>;
 
 /**
- * `skills.source-synced`: a source's folder was exported at a commit into
- * its snapshot (an immutable, read-only copy under the data directory), and
- * these are the members the snapshot yields; the source's members in the
- * set are read from it from now on.
+ * `skills.source-synced`: what a sync of a source came to (skills spec,
+ * "Skill sources"; ADR 0029), appended only when the commit, the members or
+ * the outcome change. `ok`: the folder was exported at the commit into its
+ * snapshot, now current, with the members it yields. `failed`: the fetch
+ * could not reach the repository, for the probe's problem. `layout_moved`:
+ * the folder yields no valid member at the commit fetched; the folders that
+ * would. Either of those leaves the last good snapshot current.
  */
 export const SkillsSourceSyncedPayload = z
-  .object({
-    sourceId: SkillSourceId,
-    outcome: z.literal("ok").meta({ description: "ok: the folder was exported at the commit into the source's snapshot, which is now current." }),
-    commit: GitCommit.meta({ description: "The commit the folder was exported at: the current snapshot's." }),
-    members: z.array(SkillSourceMember).meta({ description: "The members the snapshot yields as the reader reads them, invalid ones with their problems, in name order." }),
-  })
-  .meta({ description: "skills.source-synced: a source's folder was exported at a commit into its snapshot, now current, with the members it yields." });
+  .discriminatedUnion("outcome", [
+    z
+      .object({
+        sourceId: SkillSourceId,
+        outcome: z.literal("ok").meta({ description: "ok: the folder was exported at the commit into the source's snapshot, which is now current." }),
+        commit: GitCommit.meta({ description: "The commit the folder was exported at: the current snapshot's." }),
+        members: z.array(SkillSourceMember).meta({ description: "The members the snapshot yields as the reader reads them, invalid ones with their problems, in name order." }),
+      })
+      .meta({ description: "The folder was exported at the commit into the source's snapshot, now current, with the members it yields." }),
+    z
+      .object({
+        sourceId: SkillSourceId,
+        outcome: z.literal("failed").meta({ description: "failed: the fetch could not reach the repository; the last good snapshot stays current." }),
+        problem: SkillProbeProblem,
+        line: z.string().min(1).meta({ description: "What git said when the outcome began, its fatal: line where it wrote one, scrubbed of every secret." }),
+      })
+      .meta({ description: "The fetch could not reach the repository, for the probe's problem; the last good snapshot stays current." }),
+    z
+      .object({
+        sourceId: SkillSourceId,
+        outcome: z.literal("layout_moved").meta({ description: "layout_moved: the folder yields no valid member at the commit fetched; the last good snapshot stays current." }),
+        commit: GitCommit.meta({ description: "The commit fetched, at which the folder yields no valid member." }),
+        folders: z.array(SkillSourceFolder).meta({
+          description: "The folders at that commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none.",
+        }),
+      })
+      .meta({ description: "The folder yields no valid member at the commit fetched, with the folders that would; the last good snapshot stays current." }),
+  ])
+  .meta({
+    description:
+      "skills.source-synced: what a sync of a source came to, appended only when the commit, the members or the outcome change: ok (the folder exported at a commit into its snapshot, now current, with its members), failed (the fetch could not reach the repository, the probe's problem) or layout_moved (no valid member at the commit fetched; the folders that would). Failed and layout_moved leave the last good snapshot current.",
+  });
 export type SkillsSourceSyncedPayload = z.infer<typeof SkillsSourceSyncedPayload>;
+
+/**
+ * `skills.source-follow-set`: what a source follows now (skills spec, "Pin
+ * and remove"): pinned at a commit, which never syncs, or a branch, which
+ * syncs at once and from then on.
+ */
+export const SkillsSourceFollowSetPayload = z
+  .object({ sourceId: SkillSourceId, follow: SkillSourceFollow })
+  .meta({ description: "skills.source-follow-set: what a source follows now: pinned at a commit, which never syncs, or a branch, which syncs at once and from then on." });
+export type SkillsSourceFollowSetPayload = z.infer<typeof SkillsSourceFollowSetPayload>;
 
 /** `skills.source-removed`: the environment no longer tracks the source, whose members leave every account's set. */
 export const SkillsSourceRemovedPayload = z
@@ -363,13 +415,14 @@ export const SKILLS_EVENT_TYPES = {
   "skills.source-added": { list: false, payload: SkillsSourceAddedPayload },
   "skills.source-synced": { list: false, payload: SkillsSourceSyncedPayload },
   "skills.source-removed": { list: false, payload: SkillsSourceRemovedPayload },
+  "skills.source-follow-set": { list: false, payload: SkillsSourceFollowSetPayload },
 } as const satisfies Record<string, EventTypeEntry>;
 
 export type SkillsEventType = keyof typeof SKILLS_EVENT_TYPES;
 export const SkillsEventType = z
   .enum(Object.keys(SKILLS_EVENT_TYPES) as [SkillsEventType, ...SkillsEventType[]])
   .meta({
-    description: "The event types of the skills stream: skills.enabled-set and skills.always-on-set, the choices; skills.source-added, skills.source-synced and skills.source-removed, the sources.",
+    description: "The event types of the skills stream: skills.enabled-set and skills.always-on-set, the choices; skills.source-added, skills.source-synced, skills.source-removed and skills.source-follow-set, the sources.",
   });
 
 // The view ---------------------------------------------------------------------------
@@ -381,6 +434,7 @@ export const SkillsEventType = z
  * problem, nothing shadows it and it is on.
  */
 export const SkillsViewMember = SkillSetMember.extend({
+  native: z.boolean().default(false).meta({ description: "Whether the session account's adapter loads this repository member itself under trust." }),
   enabled: z.boolean().meta({
     description: "Whether its name is on for the view's account: the whole environment's choice, else the account's, else on. Off leaves it out of the set.",
   }),
@@ -392,16 +446,58 @@ export const SkillsViewMember = SkillSetMember.extend({
 });
 export type SkillsViewMember = z.infer<typeof SkillsViewMember>;
 
+/** When a source's last sync's outcome began: the time of the `skills.source-synced` that recorded it. */
+const syncSince = Timestamp.meta({ description: "When the outcome began: the time of the skills.source-synced that recorded it, the source's add for its first." });
+
+/**
+ * What a source's last sync came to, as `skills.get` lists it (skills spec,
+ * "Skill sources"): the outcome the latest `skills.source-synced` recorded
+ * and when it began. A source that failed or whose layout moved keeps its
+ * last good snapshot, and says why here.
+ */
+export const SkillSourceSync = z
+  .discriminatedUnion("outcome", [
+    z.object({ outcome: z.literal("ok"), since: syncSince }).meta({ description: "ok: the current snapshot is the commit the last sync fetched." }),
+    z
+      .object({
+        outcome: z.literal("failed"),
+        since: syncSince,
+        problem: SkillProbeProblem,
+        line: z.string().min(1).meta({ description: "What git said when the outcome began, its fatal: line where it wrote one, scrubbed of every secret." }),
+      })
+      .meta({ description: "failed: the fetch could not reach the repository, for the probe's problem; the last good snapshot stays current." }),
+    z
+      .object({
+        outcome: z.literal("layout_moved"),
+        since: syncSince,
+        commit: GitCommit.meta({ description: "The commit fetched, at which the folder yields no valid member." }),
+        folders: z.array(SkillSourceFolder).meta({ description: "The folders at that commit a source would read skills from, as the probe finds them; empty for none." }),
+      })
+      .meta({ description: "layout_moved: the folder yields no valid member at the commit fetched, with the folders that would; the last good snapshot stays current." }),
+  ])
+  .meta({
+    description:
+      "What a source's last sync came to and since when: ok; failed, with the probe's problem and what git said; or layout_moved, with the commit fetched and the folders that would yield skills. Failed and layout_moved keep the last good snapshot current.",
+  });
+export type SkillSourceSync = z.infer<typeof SkillSourceSync>;
+
 /**
  * A source as `skills.get` lists it (skills spec, "Wire summary"): its
- * record, and the commit of its current snapshot with how many valid
- * members that snapshot yields.
+ * record, the commit of its current snapshot with how many valid members
+ * that snapshot yields, what its last sync came to, and when a sync or
+ * fetch of it last ended, which is kept outside the log.
  */
 export const SkillsViewSource = SkillSource.extend({
   commit: GitCommit.meta({ description: "The commit of its current snapshot, whose members are the ones in the set." }),
   skillCount: z.int().nonnegative().meta({ description: "How many valid members its current snapshot yields." }),
+  sync: SkillSourceSync,
+  attemptedAt: Timestamp.nullable().meta({
+    description:
+      "When a fetch of the source (its add, a sync or a pin at a commit) last ended, whatever it came to; null when none has since the environment started. Kept outside the log: an unchanged sync moves it and appends nothing.",
+  }),
 }).meta({
-  description: "A skill source as skills.get lists it: its URL, identity, folder, what it follows, its position and who added it when, the commit of its current snapshot and how many skills that snapshot yields.",
+  description:
+    "A skill source as skills.get lists it: its URL, identity, folder, what it follows, its position and who added it when, the commit of its current snapshot and how many skills that snapshot yields, what its last sync came to, and when a fetch of it last ended.",
 });
 export type SkillsViewSource = z.infer<typeof SkillsViewSource>;
 
@@ -528,20 +624,6 @@ export const SkillsProbeResult = z
   });
 export type SkillsProbeResult = z.infer<typeof SkillsProbeResult>;
 
-/**
- * Why a probe could not reach the repository, `conflict` reason
- * `unreachable`'s `data.problem`: the forge refused the credential or asked
- * for one no forge account gives (`authentication`), there is no such
- * repository or branch (`not_found`), the host could not be reached in time
- * (`network`), or git failed otherwise (`git_failed`, with its `fatal:` line).
- */
-export const SKILL_PROBE_PROBLEMS = ["authentication", "not_found", "network", "git_failed"] as const;
-export const SkillProbeProblem = z.enum(SKILL_PROBE_PROBLEMS).meta({
-  description:
-    "Why skills.probe could not reach the repository: authentication (the forge refused the credential, or asked for one no forge account gives), not_found (no such repository or branch), network (the host could not be reached in time), git_failed (git failed otherwise; data.line holds its fatal: line).",
-});
-export type SkillProbeProblem = z.infer<typeof SkillProbeProblem>;
-
 /** `conflict`'s data when a probe could not reach the repository. */
 export const SkillProbeUnreachable = z
   .object({
@@ -552,6 +634,17 @@ export const SkillProbeUnreachable = z
   })
   .meta({ description: "The data of skills.probe's conflict, reason unreachable: the problem, what git said, and the origin." });
 export type SkillProbeUnreachable = z.infer<typeof SkillProbeUnreachable>;
+
+/** `conflict`'s data when the folder a source would read yields no valid member at the commit: the folders that would. */
+export const SkillSourceNoSkills = z
+  .object({
+    reason: z.literal("no_skills"),
+    folders: z.array(SkillSourceFolder).meta({
+      description: "The folders at the commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none.",
+    }),
+  })
+  .meta({ description: "The folder yields no valid member at the commit; the folders that would." });
+export type SkillSourceNoSkills = z.infer<typeof SkillSourceNoSkills>;
 
 /**
  * `conflict`'s data when `skills.sources.add` is refused (skills spec,
@@ -564,14 +657,7 @@ export type SkillProbeUnreachable = z.infer<typeof SkillProbeUnreachable>;
 export const SkillSourceAddConflict = z
   .discriminatedUnion("reason", [
     SkillProbeUnreachable,
-    z
-      .object({
-        reason: z.literal("no_skills"),
-        folders: z.array(SkillSourceFolder).meta({
-          description: "The folders at the commit a source would read skills from, as the probe finds them: . first when the root is itself a skill, then each folder whose children hold SKILL.md; empty for none.",
-        }),
-      })
-      .meta({ description: "The folder yields no valid member at the commit; the folders that would." }),
+    SkillSourceNoSkills,
     z
       .object({ reason: z.literal("source_limit"), limit: z.int().positive().meta({ description: "The most sources an environment tracks: twenty." }) })
       .meta({ description: "The environment already tracks the most sources it may." }),
@@ -584,6 +670,29 @@ export const SkillSourceAddConflict = z
       "The data of skills.sources.add's conflict: unreachable (the repository could not be reached, as the probe says), no_skills (the folder yields no skill; the folders that would), source_limit (twenty sources already) or duplicate (a source with the same identity and folder, named).",
   });
 export type SkillSourceAddConflict = z.infer<typeof SkillSourceAddConflict>;
+
+/** `conflict`'s data when `skills.sources.pull` is refused: the source is pinned, so it never syncs (skills spec, "Pin and remove"). */
+export const SkillSourcePullConflict = z
+  .object({
+    reason: z.literal("pinned"),
+    commit: GitCommit.meta({ description: "The commit the source is pinned to." }),
+  })
+  .meta({ description: "The data of skills.sources.pull's conflict: pinned, the source never syncs until it is unpinned; the commit it is pinned to." });
+export type SkillSourcePullConflict = z.infer<typeof SkillSourcePullConflict>;
+
+/**
+ * `conflict`'s data when `skills.sources.setFollow` is refused (skills
+ * spec, "Pin and remove"): the commit named could not be fetched, as the
+ * probe says (`unreachable`), or the source's folder yields no valid member
+ * at it (`no_skills`, with the folders that would).
+ */
+export const SkillSourceFollowConflict = z
+  .discriminatedUnion("reason", [SkillProbeUnreachable, SkillSourceNoSkills])
+  .meta({
+    description:
+      "The data of skills.sources.setFollow's conflict when it pins at a commit: unreachable (the commit could not be fetched, as the probe says) or no_skills (the source's folder yields no skill at it; the folders that would).",
+  });
+export type SkillSourceFollowConflict = z.infer<typeof SkillSourceFollowConflict>;
 
 // Carry over ------------------------------------------------------------------------
 
@@ -703,6 +812,8 @@ export const RunSkillSetMember = z
       description: "Whether it lies in a root the account's adapter loads itself under trust (Claude: a trusted repository's .claude/skills and its commands), and so is not in the generation.",
     }),
     alwaysOn: z.boolean().meta({ description: "Whether the run's account made it always-on, so its body rides the run's standing instructions." }),
+    file: AbsolutePath.optional().meta({ description: "The member’s Markdown file, through its generation when linked, else its native file; used to read always-on bodies." }),
+    commit: GitCommit.nullable().optional().meta({ description: "The source snapshot commit; null for members linked live." }),
   })
   .meta({
     description:

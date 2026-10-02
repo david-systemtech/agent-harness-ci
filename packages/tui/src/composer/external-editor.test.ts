@@ -16,7 +16,7 @@ import { basename, dirname, join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { editInExternalEditor, openInExternalEditor, splitCommand, type SpawnLike, type SpawnOptionsLike } from "./external-editor.js";
+import { ROUTINE_FILE, editInExternalEditor, openInExternalEditor, splitCommand, type SpawnLike, type SpawnOptionsLike } from "./external-editor.js";
 
 interface SpawnCall {
   readonly file: string;
@@ -134,6 +134,15 @@ describe("editInExternalEditor", () => {
     expect(basename(dirname(path)).startsWith("agent-harness-edit-")).toBe(true);
     // Written before the editor ran, or the editor would have opened an empty file.
     expect(contents).toBe("the first draft");
+  });
+
+  it("opens a routine's YAML as routine.yaml, which the editor reads as YAML (#533)", async () => {
+    const editor = fakeEditor({ save: "kind: routine\nname: Nightly\n" });
+
+    const result = await editInExternalEditor("kind: routine\n", { env: { VISUAL: "nvim" }, spawn: editor.spawn, tmpdir: inTemp, file: ROUTINE_FILE });
+
+    expect(basename(editor.calls[0]?.args.at(-1) ?? "")).toBe("routine.yaml");
+    expect(result).toEqual({ ok: true, text: "kind: routine\nname: Nightly" });
   });
 
   it("strips exactly one trailing newline, CRLF included", async () => {

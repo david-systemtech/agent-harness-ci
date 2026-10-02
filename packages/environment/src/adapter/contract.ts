@@ -16,6 +16,7 @@ import type {
   PromptKind,
   PromptQuestion,
   RunError,
+  RunSuggestion,
   RunSkillSet,
   RunSkillSetMember,
   TranscriptPayload,
@@ -359,6 +360,16 @@ export interface RunContainment {
    * directory, the repository's `.git` above a directory below its root; #322), read as the run starts.
    */
   readonly writable: readonly string[];
+  /**
+   * What a run may not write or make though it lies in the writable set, as absolute paths (#791): at a workspace level, in
+   * the git directory of the repository holding the workspace (the one `writable` ends with when it lies outside the workspace,
+   * else the workspace's own `.git`), its `hooks`, its `config` and the per-worktree `config.worktree` (the main worktree's
+   * beside `config`, each linked worktree's under `worktrees/<name>/`), there or not, since the user's own git runs what they
+   * name outside containment; then the same in each submodule's git directory under its `modules` and in theirs in turn
+   * (#933), as listed then; and each attached bank checkout (#1038), including one nested under the workspace.
+   * Read as the run starts; empty at `off`.
+   */
+  readonly readOnly: readonly string[];
   /** Whether the model's commands and the provider's fetch and search tools may reach any host: false only at `workspace-no-network`. */
   readonly network: boolean;
 }
@@ -374,7 +385,7 @@ export interface RunContainment {
 export interface RunDenylist {
   /** The path section's enabled entries, absolute: `~` read as the environment's home directory. */
   readonly paths: readonly string[];
-  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces. */
+  /** The directories the path section's entries leave out (the matcher's exemption): the containment directories and the scratch workspaces; a file among them (the launcher's service state, which git's credential helper reads, #705) is left out alone. */
   readonly exempt: readonly string[];
   /** The command-pattern section's enabled entries, as written. */
   readonly commandPatterns: readonly string[];
@@ -385,9 +396,14 @@ export interface RunDenylist {
  * supplied (#307): the variables to put into its environment, and their
  * release, which its stop calls (a secret minted for it disposed, a token
  * revoked). Neither is ever written to disk, to the log or into argv.
+ * Beside them, the directories made for the holder alone that the tools
+ * it is given write in (a key-manager CLI's configuration directory,
+ * #1119): a contained run's commands may write them beside its writable
+ * set, since the holder's release deletes them. None when absent.
  */
 export interface SuppliedVariables {
   readonly variables: Readonly<Record<string, string>>;
+  readonly writable?: readonly string[];
   release(): void;
 }
 
@@ -402,8 +418,10 @@ export interface SuppliedVariables {
  * nothing is supplied; and `supply`, which answers them. An adapter adds the
  * key to what its process was spawned with, so a run whose key differs from
  * its live process's is served by a fresh one, as for changed instructions;
- * it calls `supply` once per spawn, before the process starts, and layers
- * the variables over its own scrubbed environment. The host releases them
+ * it calls `supply` once per spawn, before the process starts, layers
+ * the variables over its own scrubbed environment, and lets a contained
+ * run's commands write the directories supplied as the holder's own
+ * (#1119). The host releases them
  * as the pool stops the process, whatever stops it, or as the session's
  * next spawn replaces it; a release runs once, and an adapter need not call it.
  */
@@ -425,6 +443,8 @@ export interface RunInput {
   readonly runId: string;
   readonly account: AccountRef;
   readonly workspace: Workspace;
+  /** Bank checkouts attached for reading; file tools may not write them, and containment grants no write access. Changes require a fresh provider process. */
+  readonly additionalDirectories?: readonly string[];
   readonly repositoryIdentity: string | null;
   readonly model: string;
   readonly effort: string | null;
@@ -601,7 +621,14 @@ export type ToolAccess =
   | { readonly kind: "shell"; readonly command: string }
   | { readonly kind: "fetch"; readonly urls: readonly string[] }
   | { readonly kind: "search"; readonly query: string; readonly domains?: readonly string[] }
-  | { readonly kind: "browse"; readonly urls: readonly string[] }
+  | {
+      readonly kind: "browse";
+      readonly urls: readonly string[];
+      /** A frame's match under the browser's own environment policy. */
+      readonly match?: DenylistMatch;
+      readonly frame?: "top-level" | "sub-frame";
+      readonly environmentId?: string;
+    }
   | { readonly kind: "other" };
 
 /**
@@ -612,6 +639,8 @@ export type ToolAccess =
  * receive).
  */
 export interface GatedToolCall {
+  /** The adapter verified this call belongs to an in-process server whose tools run outside the environment. */
+  readonly external?: boolean;
   readonly toolCallId: string;
   readonly tool: string;
   readonly summary: string;
@@ -689,6 +718,7 @@ export interface ToolGate {
 
 /** The types a run's events may be: the transcript types an adapter produces. The run's start and end, and the messages sent to it, are the host's. */
 export const ADAPTER_EVENT_TYPES = [
+  "run.suggested",
   "message.delivered",
   "assistant.delta",
   "assistant.text",
@@ -777,7 +807,7 @@ export interface AdapterRun {
   interrupt(): Promise<{ readonly stillQueued: readonly string[] }>;
   /**
    * Takes back one message the provider holds in its queue, by the id it was
-   * handed under (`providerQueue`; Claude's cancel-by-id control, ADR 0022):
+   * handed under (`withdraw`; Claude's cancel-by-id control, ADR 0022):
    * `withdrawn` when the provider cancelled it, so no turn will read it;
    * false when the provider no longer holds it, having read it (or never
    * had it). The host calls it only for a message the log says the provider
@@ -876,6 +906,8 @@ export interface RunContext {
    * failed check is logged.
    */
   reportIdentity(identity: AccountIdentity): void;
+  /** A prediction delivered after the turn's end, while the process keeps reading. The host accepts only its latest completed run. */
+  reportSuggestion?(suggestion: RunSuggestion): void;
   /**
    * The provider found the run's account unable to sign in (Claude: the
    * refresh of an expired login before a cold resume failed, #229): the
@@ -967,6 +999,13 @@ export interface Adapter {
    * never creates, links or deletes anything there.
    */
   readHistory?(account: AccountRef, providerSessionId: string): Promise<readonly HistoryEvent[] | null>;
+  /**
+   * Copies an imported provider conversation from its original account into
+   * the store under the harness session before a fork copies that session's
+   * rows. Reads the account's directory only; does nothing when already stored.
+   * Absent for adapters that keep their own conversations without this store.
+   */
+  seedSessionStore?(account: AccountRef, sessionId: string, providerSessionId: string): Promise<void>;
   /**
    * Whether a fork or rewind can continue stored history before this
    * message. Read before the command's transaction; absent for adapters

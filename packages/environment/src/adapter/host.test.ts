@@ -203,6 +203,7 @@ describe("a run's event stream", () => {
       runId,
       accountId: "acct",
       workspace: { kind: "directory", path: "/work" },
+      repositoryIdentity: null,
       clientTools: [],
       browser: { kind: "none" },
     });
@@ -963,6 +964,30 @@ describe("the host's own bookkeeping", () => {
     const runId = startRun(t);
     await untilEnded(t, runId);
     expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "interrupted", cause: null });
+  });
+
+  it("ends interrupted for the cause its interrupt names, timeout for a routine's firing past its limit, the first interrupt's cause standing", async () => {
+    const held = gate();
+    const answer = gate();
+    const t = await setup(
+      fakeAdapter({
+        holdInterruptAnswers: answer,
+        script: async function* () {
+          yield say("Working");
+          await held.opened;
+          yield end();
+        },
+      }),
+    );
+    const runId = startRun(t);
+    await vi.waitFor(() => expect(eventsOf(t).some((event) => event.type === "assistant.text")).toBe(true));
+    t.host.interrupt(runId, "timeout");
+    // A person's interrupt while the limit's is under way changes nothing.
+    t.host.interrupt(runId);
+    answer.open();
+    await untilEnded(t, runId);
+    expect(endsOf(t, runId)[0]?.payload).toMatchObject({ reason: "interrupted", cause: "timeout" });
+    held.open();
   });
 
   it("clamps a run of the environment's queue to the ceiling of every sender, not only the last run's starter", async () => {

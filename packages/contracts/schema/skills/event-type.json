@@ -7,7 +7,8 @@
     "skills.always-on-set",
     "skills.source-added",
     "skills.source-synced",
-    "skills.source-removed"
+    "skills.source-removed",
+    "skills.source-follow-set"
   ],
-  "description": "The event types of the skills stream: skills.enabled-set and skills.always-on-set, the choices; skills.source-added, skills.source-synced and skills.source-removed, the sources."
+  "description": "The event types of the skills stream: skills.enabled-set and skills.always-on-set, the choices; skills.source-added, skills.source-synced, skills.source-removed and skills.source-follow-set, the sources."
 }

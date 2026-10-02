@@ -205,7 +205,7 @@ describe("setup.mint", () => {
     const full = { commandId, step: "permissions", subject: "bank-1", variant: "revise", account: "claude-max", model: "opus", effort: "high" };
     expect(mint.params.parse(full)).toEqual(full);
     expect(mint.params.safeParse({ commandId, step: "permissions", variant: "again" }).success).toBe(false);
-    expect(mint.params.safeParse({ commandId, step: "memory-bank", variant: "first" }).success).toBe(REGISTERED_STEP_IDS.includes("memory-bank" as never));
+    expect(mint.params.safeParse({ commandId, step: "skills", variant: "first" }).success).toBe(REGISTERED_STEP_IDS.includes("skills" as never));
     const sessionId = "0b8a3c52-2f5e-4c09-9a6f-1c2d3e4f5a6b";
     expect(mint.result.parse({ sessionId })).toEqual({ sessionId });
   });

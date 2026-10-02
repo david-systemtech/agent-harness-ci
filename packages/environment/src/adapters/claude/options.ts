@@ -14,6 +14,7 @@ import type {
   Settings,
 } from "@anthropic-ai/claude-agent-sdk";
 import { isInProcess, type RunInput } from "../../adapter/contract.js";
+import { GIT_PROGRAM_DENY_WRITE } from "../../permissions/git-program-paths.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
 import { hostToolServer, serverRule } from "./host-tools.js";
 
@@ -77,6 +78,8 @@ export interface RunOptionsInput {
   readonly hostEnv: HostEnvironment;
   /** What the run's process environment supplied this spawn (#307), layered over the scrubbed environment. */
   readonly supplied: Readonly<Record<string, string>>;
+  /** The directories it supplied as the holder's own to write (#1119), which a contained run's commands may write beside its writable set. */
+  readonly suppliedWritable: readonly string[];
   /** The account's config directory, resolved: the ambient default for an account with none. */
   readonly configDirectory: string;
   /** The SDK's bundled binary; null leaves the SDK to find it itself. */
@@ -152,27 +155,34 @@ const hooksOf = (preToolUse: HookCallback, onStop: HookCallback | undefined): Pa
 });
 
 /**
- * The shell side of the run's containment, as the SDK's sandbox (permissions
- * spec, "Enforcement for Claude"): none at `off`; at both workspace levels
- * enabled, failing the run rather than running a command unsandboxed, with
- * no way for the model to ask its way out (`allowUnsandboxedCommands`) and no
- * approval for being sandboxed (`autoAllowBashIfSandboxed`: containment
- * changes where a command may reach, never whether it asks). A command may
- * write in the run's writable set (the workspace is the CLI's working
- * directory already). The network is open at `workspace`, local binding
- * included; the pinned sandbox cannot name "any domain", so it asks the
- * host about each new host, which the adapter answers itself once the gate
- * lets the host through (`process.ts`, #140's verify note). At
- * `workspace-no-network` it is closed: no domain, no unix socket, no local
- * binding, and a host outside the (empty) list is refused without asking.
- * On an unattended run the denylist's paths are unreadable to a command,
- * the directories the denylist leaves out read again.
+ * The shell side of the run's containment, as the SDK's sandbox
+ * (permissions spec, "Enforcement for Claude"): none at `off`; at both
+ * workspace levels enabled, failing the run rather than running a command
+ * unsandboxed, with no way for the model to ask its way out
+ * (`allowUnsandboxedCommands`) and no approval for being sandboxed
+ * (`autoAllowBashIfSandboxed`: containment changes where a command may
+ * reach, never whether it asks). A command may write in the run's writable
+ * set (the workspace is the CLI's working directory already) and in the
+ * directories the spawn was supplied as its holder's own (a key-manager
+ * CLI's configuration directory, #1119), less what the run may not write
+ * inside them (`denyWrite`, which the sandbox puts above `allowWrite`: the
+ * repository git directory's hooks and config, #791, plus recursive git
+ * program paths under Seatbelt, #1094). The
+ * network is open at `workspace`, local binding included; the pinned
+ * sandbox cannot name "any domain", so it asks the host about each new
+ * host, which the adapter answers itself once the gate lets the host
+ * through (`process.ts`, #140's verify note). At `workspace-no-network` it
+ * is closed: no domain, no unix socket, no local binding, and a host
+ * outside the (empty) list is refused without asking. On an unattended run
+ * the denylist's paths are unreadable to a command, the directories the
+ * denylist leaves out read again.
  */
-export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): SandboxSettings | null => {
+export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">, suppliedWritable: readonly string[]): SandboxSettings | null => {
   const { containment, denylist } = run;
   if (containment.level === "off") return null;
   const denyRead = denylist?.paths ?? [];
   const allowRead = denyRead.length > 0 ? (denylist?.exempt ?? []) : [];
+  const denyWrite = [...containment.readOnly, ...(containment.mechanism === "seatbelt" ? GIT_PROGRAM_DENY_WRITE : [])];
   return {
     enabled: true,
     failIfUnavailable: true,
@@ -182,7 +192,8 @@ export const sandboxOf = (run: Pick<RunInput, "containment" | "denylist">): Sand
       ? { allowLocalBinding: true }
       : { allowedDomains: [], strictAllowlist: true, allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: {
-      allowWrite: [...containment.writable],
+      allowWrite: [...containment.writable, ...suppliedWritable],
+      ...(denyWrite.length > 0 && { denyWrite }),
       ...(denyRead.length > 0 && { denyRead: [...denyRead] }),
       ...(allowRead.length > 0 && { allowRead: [...allowRead] }),
     },
@@ -261,7 +272,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   const servers = mcpServers(run);
   const allowed = allowedTools(run);
   const settingSources: SettingSource[] = run.trusted ? ["project"] : [];
-  const sandbox = sandboxOf(run);
+  const sandbox = sandboxOf(run, input.suppliedWritable);
   const disallowedTools = disallowedShell(run.denylist);
   const plugins = skillPlugins(run.skillSet);
   const settings = flagSettings(input.autoMemoryDirectory, run.skillSet);
@@ -273,6 +284,7 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
   }, input.supplied);
   return {
     cwd: run.workspace.path,
+    ...(run.additionalDirectories !== undefined && run.additionalDirectories.length > 0 && { additionalDirectories: [...run.additionalDirectories] }),
     // Only for a trusted repository: an untrusted one loads nothing of its project, from the branch or from its checkout.
     ...(run.trusted && input.checkoutRoot !== null && { projectConfigRoot: input.checkoutRoot }),
     env,
@@ -298,9 +310,13 @@ export const buildRunOptions = (input: RunOptionsInput): Options => {
     ...(allowed.length > 0 && { allowedTools: allowed }),
     ...(plugins.length > 0 && { plugins }),
     ...(settings !== null && { settings }),
+    // The store mirrors successful local writes; disabling persistence would disable resume from the store (#622).
+    // Tool image copies follow these local transcripts and are removed by deleteTranscript when the purge asks for it.
+    persistSession: true,
     ...(input.sessionStore !== null && { sessionStore: input.sessionStore }),
     ...continuation(run, input.resumePoint),
     includePartialMessages: true,
+    promptSuggestions: true,
     // An SDK-driven CLI otherwise returns every thinking block empty; the transcript shows reasoning.
     extraArgs: { "thinking-display": "summarized" },
   };

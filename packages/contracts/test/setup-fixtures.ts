@@ -71,7 +71,7 @@ export const forgeRejected = {
 };
 
 export const setupSchemaFixtures: Record<string, Fixtures> = {
-  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "key-manager", "instructions", "browser", "permissions", "appearance"], invalid: ["memory-bank", "Permissions", ""] },
+  "setup/registered-step-id.json": { valid: ["account", "your-machines", "forges", "key-manager", "memory-bank", "skills", "instructions", "browser", "permissions", "appearance"], invalid: ["unknown-step", "Permissions", ""] },
   "setup/action.json": {
     valid: ["restore", "check-again", "set-up-this-machine", "start-service", "import-again", "try-again", "write-it-myself", "start-over", "revise"],
     invalid: ["Restore", "reboot", "try again", ""],
@@ -141,16 +141,31 @@ export const setupSchemaFixtures: Record<string, Fixtures> = {
     valid: ["first", "revise"],
     invalid: ["again", "", "First"],
   },
+  "setup/minted-payload.json": {
+    valid: [
+      { step: "instructions", subject: null, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "bank-1", label: "Personal" }, variant: "revise" },
+    ],
+    invalid: [
+      { step: "unknown-step", subject: null, variant: "first" },
+      { step: "instructions", subject: null, variant: "again" },
+      { step: "instructions", variant: "first" },
+      { step: "memory-bank", subject: { kind: "workspace", id: "bank-1", label: "Personal" }, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "", label: "Personal" }, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "bank-1", label: "" }, variant: "first" },
+      { step: "memory-bank", subject: { kind: "bank", id: "bank-1" }, variant: "first" },
+    ],
+  },
 };
 
 export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   "setup.check": {
-    params: { valid: [{}, { step: "permissions" }, { step: "forges" }, { step: "key-manager" }], invalid: [{ step: "memory-bank" }, { step: "" }, { step: ["permissions"] }] },
+    params: { valid: [{}, { step: "permissions" }, { step: "forges" }, { step: "key-manager" }, { step: "memory-bank" }, { step: "skills" }], invalid: [{ step: "unknown-step" }, { step: "" }, { step: ["permissions"] }] },
     result: {
       valid: [
         { results: [] },
         { results: [done, needsAttention, timedOut, signedOutResult] },
-        { results: [skipped, { ...skipped, step: "memory-bank", reason: "No bank is registered." }, done] },
+        { results: [skipped, { ...skipped, step: "skills", reason: "Nothing is tracked and the own directory is empty." }, done] },
         // A later milestone's step passed over, and a verb this version lacks left out (#693).
         { results: [done, { ...done, step: "housekeeping" }, { ...needsAttention, actions: ["reboot"] }] },
       ],
@@ -162,12 +177,14 @@ export const setupMethodFixtures: Record<string, { params: Fixtures; result: Fix
       valid: [
         { commandId: mintCommandId, step: "instructions", variant: "first" },
         { commandId: mintCommandId, step: "instructions", subject: "bank-1", variant: "revise", account: "claude-max", model: "opus", effort: "high" },
+        { commandId: mintCommandId, step: "memory-bank", subject: "bank-1", variant: "first" },
+        { commandId: mintCommandId, step: "skills", variant: "first" },
       ],
       invalid: [
         { step: "instructions", variant: "first" },
         { commandId: mintCommandId, step: "instructions" },
         { commandId: mintCommandId, step: "instructions", variant: "again" },
-        { commandId: mintCommandId, step: "memory-bank", variant: "first" },
+        { commandId: mintCommandId, step: "unknown-step", variant: "first" },
         { commandId: mintCommandId, step: "instructions", subject: "", variant: "first" },
       ],
     },

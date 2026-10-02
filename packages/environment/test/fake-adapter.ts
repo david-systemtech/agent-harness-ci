@@ -152,6 +152,8 @@ export interface FakeProcessRecord {
   readonly key: string;
   /** Settles with the variables its spawn was supplied, which its scripted commands run in (`runCommand`). */
   readonly supplied: Promise<Readonly<Record<string, string>>>;
+  /** Settles with the directories its spawn was supplied as the holder's own to write (#1119), none when it was supplied none. */
+  readonly writable: Promise<readonly string[]>;
   /** The instruction text it was spawned with, fixed for its life: a run handed other text is served by a fresh process. */
   readonly instructions: string;
   /** Whether it was spawned for a trusted repository, fixed for its life as Claude's project settings are: a run with the other answer is served by a fresh process (#500). */
@@ -693,6 +695,7 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
     interactivePrompts: true,
     partialMessages: true,
     providerQueue: true,
+    withdraw: true,
     steering: true,
     resume: true,
     fork: false,
@@ -753,14 +756,18 @@ export const fakeAdapter = (options: FakeAdapterOptions = {}): FakeAdapter => {
 
   /** Starts a process cold for the run: its process environment supplied once, for this spawn. */
   const spawn = (input: RunInput): FakeProcessRecord => {
-    const supplied = input.processEnvironment.supply().then((answer) => answer.variables);
+    const answer = input.processEnvironment.supply();
+    const supplied = answer.then((given) => given.variables);
+    const writable = answer.then((given) => given.writable ?? []);
     // A script that never asks for the variables leaves a failed supply unheard: it is not an unhandled rejection.
     supplied.catch(() => undefined);
+    writable.catch(() => undefined);
     const process: FakeProcessRecord = {
       sessionId: input.sessionId,
       runs: 0,
       key: input.processEnvironment.key,
       supplied,
+      writable,
       instructions: input.instructions,
       trusted: input.trusted,
       fingerprint: input.skillSet.fingerprint,

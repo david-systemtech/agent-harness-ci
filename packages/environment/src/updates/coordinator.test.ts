@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  ARTEFACT_CLI_ENTRY,
+  ARTEFACT_CLI_PACKAGE,
   OUTCOME_RECORD_FILE,
   PROTOCOL_VERSION,
   SCOPES,
   STAGING_DIRECTORY,
+  artefactNode,
   type EnvironmentMessage,
   type OutcomeRecord,
   type ParamsOf,
@@ -14,7 +17,7 @@ import {
   type UpdatePendingPayload,
 } from "@agent-harness/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { serverArtefact } from "../../test/artefacts.js";
+import { serverArtefact, unpackedServerArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { MANUAL_CLOCK_START } from "../../test/clock.js";
 import { ask, fakeAdapter, gate } from "../../test/fake-adapter.js";
@@ -101,6 +104,33 @@ describe("updates.apply with an artefact", () => {
     const pending: UpdatePendingPayload = { updateId: updateId as string, toVersion: TARGET, source: "request", since: at(0), deferUntil: at(24 * HOUR) };
     expect(updateNotices(t)).toEqual([{ type: "environment.update-pending", payload: pending }]);
   });
+
+  it("from a local client session, takes the folder an artefact is unpacked in: copied whole into the staging area, its modes and links as they are, and the folder left in place (#789)", async () => {
+    let staged: { readonly mode: number; readonly link: string } | undefined;
+    const t = await start({
+      launch: {
+        install: (request) => {
+          expect(request.staged).toBe(join(t.dataDir, STAGING_DIRECTORY, TARGET));
+          staged = { mode: statSync(join(request.staged, "bin", "agent-harness")).mode & 0o777, link: readlinkSync(join(request.staged, "bin", "harness")) };
+          return { type: "installed" };
+        },
+      },
+    });
+    const client = await t.client();
+    busy(t);
+    const folder = unpackedServerArtefact(tempDir("agent-harness-unpacked-"), TARGET);
+    // A relative link stays one: never a link back into the folder copied from.
+    symlinkSync("agent-harness", join(folder, "bin", "harness"));
+    // The source's own mode, not a literal: the umask masks the fixture's creation mode.
+    const mode = statSync(join(folder, "bin", "agent-harness")).mode & 0o777;
+
+    const answer = await apply(client, { version: TARGET, artefactPath: folder, when: "idle" });
+
+    expect(answer.receipt).toMatchObject({ status: "accepted", changed: true });
+    expect(staged).toEqual({ mode, link: "agent-harness" });
+    expect(readdirSync(folder).sort()).toEqual(["VERSION", "bin", "node", "packages"]);
+    expect(updateNotices(t)).toEqual([{ type: "environment.update-pending", payload: expect.objectContaining({ updateId: answer.result?.updateId, toVersion: TARGET }) }]);
+  });
 });
 
 /** Sets update settings through the one method that writes them. */
@@ -150,13 +180,15 @@ describe("updates.apply's refusals", () => {
     expect(await pendingOf(client)).toEqual({ state: "current" });
   });
 
-  it("refuses an artefact path from a paired client session, forbidden with the reason local, before anything is unpacked or asked", async () => {
+  it("refuses an artefact path from a paired client session, an archive or a folder, forbidden with the reason local, before anything is unpacked, copied or asked", async () => {
     const t = await start();
     const paired = await t.client({ token: (await t.pair({ scopes: SCOPES })).token });
 
-    const answer = await apply(paired, { version: TARGET, artefactPath: artefact(), when: "now" });
+    for (const artefactPath of [artefact(), unpackedServerArtefact(tempDir("agent-harness-unpacked-"), TARGET)]) {
+      const answer = await apply(paired, { version: TARGET, artefactPath, when: "now" });
 
-    expect(answer.receipt).toMatchObject({ status: "rejected", reason: "forbidden", error: { data: { scope: "admin", reason: "local" } } });
+      expect(answer.receipt, artefactPath).toMatchObject({ status: "rejected", reason: "forbidden", error: { data: { scope: "admin", reason: "local" } } });
+    }
     expect(t.launcher.received.filter((message) => message.type === "install?")).toEqual([]);
     expect(existsSync(join(t.dataDir, STAGING_DIRECTORY))).toBe(false);
   });
@@ -194,6 +226,33 @@ describe("updates.apply's refusals", () => {
       data: { issues: [expect.objectContaining({ path: ["artefactPath"] })] },
     });
     expect(readdirSync(join(t.dataDir, STAGING_DIRECTORY))).toEqual([]);
+    expect(t.launcher.received.filter((message) => message.type === "install?")).toEqual([]);
+  });
+
+  it("refuses a folder that holds no server artefact of the version asked, invalid_params on artefactPath, before anything is copied or asked (#789)", async () => {
+    const t = await start();
+    const client = await t.client();
+    const folder = (version: string, without?: readonly string[]): string => {
+      const made = unpackedServerArtefact(tempDir("agent-harness-unpacked-"), version);
+      if (without !== undefined) rmSync(join(made, ...without));
+      return made;
+    };
+    const cases = [
+      { artefactPath: folder("0.4.9"), says: "declares 0.4.9" },
+      { artefactPath: folder(TARGET, ARTEFACT_CLI_PACKAGE), says: "declares no release version" },
+      { artefactPath: folder(TARGET, artefactNode(process.platform)), says: "has no Node" },
+      { artefactPath: folder(TARGET, ARTEFACT_CLI_ENTRY), says: "has no CLI entry" },
+      // A folder of anything else, such as a home folder named by mistake, is never copied.
+      { artefactPath: tempDir("agent-harness-home-"), says: "has no Node" },
+    ];
+    for (const { artefactPath, says } of cases) {
+      const refused = await refusal(apply(client, { version: TARGET, artefactPath, when: "idle" }));
+      expect(refused, says).toMatchObject({ code: "invalid_params", data: { issues: [{ path: ["artefactPath"] }] } });
+      const [issue] = refused.data.issues as readonly { readonly message: string }[];
+      expect(issue?.message, says).toContain(`${artefactPath} is not a server artefact of ${TARGET}: `);
+      expect(issue?.message, says).toContain(says);
+    }
+    expect(existsSync(join(t.dataDir, STAGING_DIRECTORY)) ? readdirSync(join(t.dataDir, STAGING_DIRECTORY)) : []).toEqual([]);
     expect(t.launcher.received.filter((message) => message.type === "install?")).toEqual([]);
   });
 
@@ -285,6 +344,23 @@ describe("the pending update", () => {
     expect(await pendingOf(client)).toMatchObject({ state: "waiting" });
     again.clock.advance(1);
     expect(await pendingOf(client)).toMatchObject({ state: "draining", updateId, cause: "cap" });
+  });
+
+  it("read back from the log after a start, waits the idle window from the start before it drains, as after a run: the start counts as activity (#445)", async () => {
+    const dataDir = join(tempDir(), "data");
+    const { t, updateId } = await pendingUpdate({ dataDir });
+    t.clock.advance(3 * HOUR);
+    // The stop cuts the run that held it: the new start's registry knows no run.
+    await t.close();
+
+    const again = await start({ dataDir, clock: t.clock });
+    const client = await again.client();
+    expect(await pendingOf(client)).toMatchObject({ state: "waiting", updateId, waitsOn: { reason: "recent-activity", until: at(3 * HOUR + 10 * MINUTE) } });
+    again.clock.advance(9 * MINUTE);
+    expect(await pendingOf(client)).toMatchObject({ state: "waiting", updateId });
+    expect(updateNotices(again).map((notice) => notice.type)).toEqual(["environment.update-pending"]);
+    again.clock.advance(MINUTE);
+    expect(updateNotices(again).at(-1)).toEqual({ type: "environment.update-started", payload: { updateId, fromVersion: RUNNING, toVersion: TARGET, cause: "idle" } });
   });
 
   it("keeps its since when a newer artefact replaces it, under a new update id", async () => {

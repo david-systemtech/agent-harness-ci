@@ -157,16 +157,26 @@ export interface TestEnvironmentOptions {
   readonly managedTools?: EnvironmentOptions["managedTools"];
   /** The key-manager registry's resolve seam (`test/key-managers.ts` scripts one); preset: the environment's own, over its connections. */
   readonly keyManagers?: EnvironmentOptions["keyManagers"];
+  /** The scripted Bitwarden SDK loader; preset: the environment's official SDK loader. */
+  readonly bitwardenSdk?: EnvironmentOptions["bitwardenSdk"];
   /** How long a key-manager connection's verification, a certificate preview, or a reference's read or list may take; preset: the environment's ten seconds. */
   readonly keyManagerTimeoutMs?: EnvironmentOptions["keyManagerTimeoutMs"];
+  /** The 1Password SDK double (#378); preset: the official SDK, which no test signs in to. */
+  readonly onePasswordSdk?: EnvironmentOptions["onePasswordSdk"];
   /** The vault the environment holds; preset: the file vault in the data directory on every platform, so no test reaches the OS keychain. */
   readonly vault?: EnvironmentOptions["vault"];
   /** The Move sources registered at start (`test/move-sources.ts` scripts one); preset: the environment's own, the forge's. */
   readonly moveSources?: EnvironmentOptions["moveSources"];
   /** The command git names as its credential helper, before `git-credential <slug>`; preset none. */
   readonly harnessCommand?: EnvironmentOptions["harnessCommand"];
+  /** What that command reads as it runs, beyond its own words (the shim's service state and versions directory); preset none. */
+  readonly harnessReads?: EnvironmentOptions["harnessReads"];
   /** Configuration the harness's git is given after its own (`insteadOf` to a local bare repository); preset none. */
   readonly harnessGitConfig?: EnvironmentOptions["harnessGitConfig"];
+  /** What the skills' git calls go through (#499); preset none. */
+  readonly skillsGit?: EnvironmentOptions["skillsGit"];
+  /** What the banks' git fetches go through (#1037); preset none. */
+  readonly banksGit?: EnvironmentOptions["banksGit"];
   /** Reads the bundled Claude Code's version; preset: `TEST_CLAUDE_CODE_VERSION`, so no test runs the real binary. */
   readonly claudeCodeVersion?: EnvironmentOptions["claudeCodeVersion"];
   /**
@@ -189,10 +199,18 @@ export interface TestEnvironmentOptions {
   /**
    * The extension's folder and listener (#547), each part over the helper's
    * preset: `TEST_EXTENSION` as the built extension carried, and the
-   * listener's preferred port 0, so a test never takes 47615.
+   * listener's preferred port 0, so a test never takes 47615. And the
+   * headless browser's (#555): no file is an executable it can run, a launch
+   * throws, and no name resolves, so no test finds, launches or reaches a
+   * browser unless it gives its own (the scripted CDP peer).
    */
   readonly browser?: EnvironmentOptions["browser"];
 }
+
+/** The launcher a test environment's headless browser has unless a test gives its own: none, since no test may launch a browser. */
+const refusingLaunch = (): never => {
+  throw new Error("A test environment launches no browser.");
+};
 
 /** The release source a test environment reads unless told otherwise: a loopback port nothing listens on, so a check fails at once, unreachable. */
 export const NO_RELEASE_SOURCE = { origin: "http://127.0.0.1:1", kind: "forgejo", repository: "david/agent-harness" } as const;
@@ -390,19 +408,24 @@ export const startTestEnvironment = async (options: TestEnvironmentOptions = {})
       releaseOrigins: UNREACHABLE_RELEASE_ORIGINS,
       ...options.managedTools,
     },
+    ...(options.bitwardenSdk !== undefined && { bitwardenSdk: options.bitwardenSdk }),
     ...(options.keyManagers !== undefined && { keyManagers: options.keyManagers }),
     ...(options.keyManagerTimeoutMs !== undefined && { keyManagerTimeoutMs: options.keyManagerTimeoutMs }),
+    ...(options.onePasswordSdk !== undefined && { onePasswordSdk: options.onePasswordSdk }),
     vault: options.vault ?? fileVault(join(dataDir, VAULT_FILE)),
     ...(options.moveSources !== undefined && { moveSources: options.moveSources }),
     ...(options.harnessCommand !== undefined && { harnessCommand: options.harnessCommand }),
+    ...(options.harnessReads !== undefined && { harnessReads: options.harnessReads }),
     ...(options.harnessGitConfig !== undefined && { harnessGitConfig: options.harnessGitConfig }),
+    ...(options.banksGit !== undefined && { banksGit: options.banksGit }),
+    ...(options.skillsGit !== undefined && { skillsGit: options.skillsGit }),
     claudeCodeVersion: options.claudeCodeVersion ?? (async () => TEST_CLAUDE_CODE_VERSION),
     releaseSource: options.releaseSource ?? NO_RELEASE_SOURCE,
     ...(options.launcherProtocol !== undefined && { launcherProtocol: options.launcherProtocol }),
     ...(options.setupSteps !== undefined && { setupSteps: options.setupSteps }),
     signInProcess: { spawn: refusingSpawn, bundled: TEST_BUNDLED_CLAUDE, hostEnv: { PATH: "/usr/bin" }, ...options.signInProcess },
     webRead: { resolve: noResolver, dial: loopbackDialer, ...options.webRead },
-    browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, ...options.browser },
+    browser: { extensionSource: TEST_EXTENSION, ports: TEST_EXTENSION_PORTS, isExecutable: () => false, launch: refusingLaunch, resolve: noResolver, ...options.browser },
   };
   let env: EnvironmentHandle;
   try {

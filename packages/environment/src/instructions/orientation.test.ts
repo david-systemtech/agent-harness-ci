@@ -176,7 +176,8 @@ describe("the OrientationRenderer", () => {
     const stalled: OrientationSection = {
       name: "banks",
       title: "Banks",
-      render: () => {
+      render: (scope) => {
+        if (scope.sessionId === null) return [];
         asked += 1;
         return new Promise<never>(() => undefined);
       },
@@ -251,7 +252,7 @@ describe("the OrientationRenderer", () => {
 
   it("renders a section whose provider answers within the second", async () => {
     let answer: ((content: readonly string[]) => void) | undefined;
-    const slow: OrientationSection = { name: "banks", title: "Banks", render: () => new Promise((resolve) => (answer = resolve)) };
+    const slow: OrientationSection = { name: "banks", title: "Banks", render: (scope) => scope.sessionId === null ? [] : new Promise((resolve) => (answer = resolve)) };
     const t = await start({ orientationSections: [slow] });
     const client = await t.client();
     const session = await create(client);
@@ -426,6 +427,8 @@ describe("the instruction scope", () => {
     await client.request("instructions.preview", { accountId: "claude-max", workspace });
 
     expect(asked).toEqual([session.id, session.id, null]);
-    expect(scopes.map((scope) => scope.injection)).toEqual(Array.from({ length: 3 }, () => ({ answer: "allow", level: { kind: "environment" } })));
+    // The startup health render also carries the local injection setting, without asking the process seam.
+    expect(scopes.map((scope) => scope.sessionId)).toEqual([null, session.id, session.id, null]);
+    expect(scopes.map((scope) => scope.injection)).toEqual(Array.from({ length: 4 }, () => ({ answer: "allow", level: { kind: "environment" } })));
   });
 });

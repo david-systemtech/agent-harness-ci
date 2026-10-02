@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { UPDATE_PATH, UpdateAnswer, UpdateError, type ClientSessionCredential } from "@agent-harness/contracts";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { STAGING_DIRECTORY, UPDATE_PATH, UpdateAnswer, UpdateError, type ClientSessionCredential } from "@agent-harness/contracts";
 import { describe, expect, it } from "vitest";
-import { serverArtefact } from "../../test/artefacts.js";
+import { serverArtefact, unpackedServerArtefact } from "../../test/artefacts.js";
 import { useCleanups } from "../../test/cleanups.js";
 import { startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
 import { testLauncher, type TestLauncherOptions } from "../../test/launcher.js";
 import { startFakeReleaseSource, type FakeRelease, type FakeReleaseSource } from "../../test/release-source.js";
+import type { WireClient } from "../../test/wire-client.js";
 
 /**
  * `POST /api/update` (launcher-update spec, "Across a protocol gap"; #353)
@@ -62,6 +64,12 @@ const withReleases = async (options: Parameters<typeof start>[1] = {}) => {
   return { fake, t, client, admin: admin.token };
 };
 
+/** Idle a minute in: the idle window set to a minute, past the one its start holds (#445), before the first scheduled check at two. */
+const idleNow = async (t: TestEnvironment, client: WireClient): Promise<void> => {
+  await client.request("updates.settings.set", { commandId: randomUUID(), values: { "updates.idleWindowMinutes": 1 } });
+  t.clock.advance(60_000);
+};
+
 const release = (version: string): FakeRelease => ({ version, artefact: readFileSync(serverArtefact(tempDir("agent-harness-artefact-"), version)) });
 
 const updateNotices = (t: TestEnvironment) =>
@@ -88,8 +96,9 @@ describe("POST /api/update with a token holding admin", () => {
   });
 
   it("drains at once when the environment is idle, as updates.apply with when idle does, and says who asked", async () => {
-    const { fake, t, admin } = await withReleases();
+    const { fake, t, client, admin } = await withReleases();
     fake.publish(release("0.5.0"));
+    await idleNow(t, client);
 
     const taken = UpdateAnswer.parse((await post(t, admin, { version: "0.5.0" })).body);
 
@@ -98,14 +107,16 @@ describe("POST /api/update with a token holding admin", () => {
     expect(t.env.readiness()).toBe("draining");
   });
 
-  it("takes an artefact path from a local client session", async () => {
-    const { t } = await withReleases();
-    const local = await t.bootstrap("desktop");
+  it("takes an artefact path from a local client session: an archive, or the folder it is unpacked in, as the desktop carries it (#789)", async () => {
+    for (const artefactPath of [serverArtefact(tempDir(), "0.5.0"), unpackedServerArtefact(tempDir(), "0.5.0")]) {
+      const { t } = await withReleases();
+      const local = await t.bootstrap("desktop");
 
-    const answered = await post(t, local.token, { version: "0.5.0", artefactPath: serverArtefact(tempDir(), "0.5.0") });
+      const answered = await post(t, local.token, { version: "0.5.0", artefactPath });
 
-    expect(answered.status).toBe(200);
-    expect(UpdateAnswer.parse(answered.body)).toMatchObject({ toVersion: "0.5.0" });
+      expect(answered.status, artefactPath).toBe(200);
+      expect(UpdateAnswer.parse(answered.body)).toMatchObject({ toVersion: "0.5.0" });
+    }
   });
 
   it("answers while the wire refuses the client for a protocol it does not speak", async () => {
@@ -174,14 +185,17 @@ describe("POST /api/update refuses", () => {
     expect(updateNotices(t)).toEqual([]);
   });
 
-  it("an artefact path from a paired session as forbidden with reason local, staging nothing", async () => {
+  it("an artefact path from a paired session as forbidden with reason local, an archive or a folder, staging nothing", async () => {
     const { t, admin } = await withReleases();
 
-    const answered = await post(t, admin, { version: "0.5.0", artefactPath: serverArtefact(tempDir(), "0.5.0") });
+    for (const artefactPath of [serverArtefact(tempDir(), "0.5.0"), unpackedServerArtefact(tempDir(), "0.5.0")]) {
+      const answered = await post(t, admin, { version: "0.5.0", artefactPath });
 
-    expect(answered.status).toBe(403);
-    expect(refusalOf(answered)).toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
+      expect(answered.status, artefactPath).toBe(403);
+      expect(refusalOf(answered)).toMatchObject({ code: "forbidden", data: { scope: "admin", reason: "local" } });
+    }
     expect(t.launcher.received.filter((message) => message.type === "install?")).toEqual([]);
+    expect(existsSync(join(t.dataDir, STAGING_DIRECTORY))).toBe(false);
     expect(updateNotices(t)).toEqual([]);
   });
 
@@ -236,8 +250,9 @@ describe("POST /api/update refuses", () => {
   });
 
   it("a draining environment as unavailable, naming it", async () => {
-    const { fake, t, admin } = await withReleases();
+    const { fake, t, client, admin } = await withReleases();
     fake.publish(release("0.5.0"));
+    await idleNow(t, client);
     expect((await post(t, admin, { version: "0.5.0" })).status).toBe(200);
     expect(t.env.readiness()).toBe("draining");
 

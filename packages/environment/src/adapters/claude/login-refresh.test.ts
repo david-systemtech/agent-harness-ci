@@ -223,6 +223,7 @@ const runInput = (directory: string, overrides: Partial<RunInput> = {}): RunInpu
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,

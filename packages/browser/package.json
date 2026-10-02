@@ -19,8 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agent-harness/contracts": "workspace:*",
-    "@mozilla/readability": "^0.6.0"
+    "@agent-harness/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

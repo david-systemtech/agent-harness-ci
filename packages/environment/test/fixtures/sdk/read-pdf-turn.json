@@ -1,0 +1,58 @@
+{
+  "source": "Shaped after FileReadOutput in Agent SDK 0.3.283 sdk-tools.d.ts and SDK user/assistant messages. The payload is a fake 12-byte PDF header, not a complete PDF; no parser is exercised.",
+  "messages": [
+    {
+      "type": "assistant",
+      "message": {
+        "id": "msg_read_pdf",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_read_pdf",
+            "name": "Read",
+            "input": {
+              "file_path": "/work/repo/report.pdf"
+            }
+          }
+        ]
+      },
+      "parent_tool_use_id": null,
+      "session_id": "s",
+      "uuid": "read-pdf-start"
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_read_pdf",
+            "content": [
+              {
+                "type": "document",
+                "source": {
+                  "type": "base64",
+                  "media_type": "application/pdf",
+                  "data": "JVBERi0xLjcKRU9G"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "tool_use_result": {
+        "type": "pdf",
+        "file": {
+          "filePath": "/work/repo/report.pdf",
+          "base64": "JVBERi0xLjcKRU9G",
+          "originalSize": 12
+        }
+      },
+      "parent_tool_use_id": null,
+      "session_id": "s",
+      "uuid": "read-pdf-end"
+    }
+  ]
+}

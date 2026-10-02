@@ -96,6 +96,7 @@ const runInput = (overrides: Partial<RunInput> = {}): RunInput => ({
     scratchDirectory: "/data/containment/session/scratch",
     temporaryDirectory: "/data/containment/session/tmp",
     writable: ["/work/repo", "/data/containment/session/scratch", "/data/containment/session/tmp"],
+    readOnly: [],
     network: true,
   },
   denylist: null,
@@ -416,6 +417,13 @@ describe("the transcript delete", () => {
       mkdirSync(join(directory, "projects", SESSION), { recursive: true });
       writeFileSync(join(directory, "projects", SESSION, `${PROVIDER}.jsonl`), "{}\n");
       mkdirSync(join(directory, "projects", FORK), { recursive: true });
+      for (const sessionId of [SESSION, FORK]) {
+        const results = join(directory, "projects", sessionId, PROVIDER, "tool-results");
+        mkdirSync(results, { recursive: true });
+        for (const extension of ["jpeg", "png", "gif", "webp"]) {
+          writeFileSync(join(results, `mcp-browser-blob-1-test.${extension}`), "image-for-tests");
+        }
+      }
     }
     const adapter = adapterWith();
     const accounts = [
@@ -427,6 +435,7 @@ describe("the transcript delete", () => {
     for (const directory of [work, other]) {
       expect(existsSync(join(directory, "projects", SESSION))).toBe(false);
       expect(existsSync(join(directory, "projects", FORK))).toBe(true);
+      expect(existsSync(join(directory, "projects", FORK, PROVIDER, "tool-results", "mcp-browser-blob-1-test.png"))).toBe(true);
     }
     expect(() => adapter.deleteTranscript?.("../..", accounts)).toThrow();
   });

@@ -74,11 +74,32 @@ describe("a turn of text and thinking", () => {
     expect(mapSdkMessage(init, state)).toEqual([]);
   });
 
-  it("maps nothing after the turn's end", () => {
+  it("maps no transcript content after the turn's end", () => {
     const { state } = setup();
     const messages = fixture("text-turn");
     mapAll(messages, state);
     expect(mapAll(messages, state)).toEqual([]);
+  });
+});
+
+describe("a prompt suggestion (#251)", () => {
+  it("maps one nonempty prediction only after a completed result, without reopening the turn", () => {
+    const { state } = setup();
+    const offer = { type: "prompt_suggestion", suggestion: "Run the tests", session_id: "provider-session", uuid: "message-id" };
+    expect(mapSdkMessage(offer, state)).toEqual([]);
+    mapAll(fixture("text-turn"), state);
+    expect(mapSdkMessage({ ...offer, suggestion: "  " }, state)).toEqual([]);
+    expect(mapSdkMessage(offer, state)).toEqual([{ type: "run.suggested", payload: { suggestion: "Run the tests" } }]);
+    expect(mapSdkMessage(offer, state)).toEqual([]);
+    expect(state.ended).toBe(true);
+  });
+
+  it("offers no prediction after an interrupted or failed turn", () => {
+    for (const reason of ["interrupted", "error"] as const) {
+      const { state } = setup();
+      endTurn(state, { reason });
+      expect(mapSdkMessage({ type: "prompt_suggestion", suggestion: "Run the tests" }, state)).toEqual([]);
+    }
   });
 });
 
@@ -206,6 +227,68 @@ describe("an image in a tool's result (#540)", () => {
       [{ type: "text", text: "First." }, { type: "image", mediaType: "image/png", size: 73 }],
       [{ type: "text", text: "Second." }],
     ]);
+  });
+});
+
+describe("a structured Read result (#621)", () => {
+  it.each([
+    { type: "text", file: { filePath: "/work/repo/readme.txt", content: "hello", numLines: 1, startLine: 1, totalLines: 1 }, artifactRead: { slug: "readme", ver: "1" } },
+    { type: "parts", file: { filePath: "/work/repo/report.pdf", originalSize: 4096, count: 2, outputDir: "/work/pages" } },
+    { type: "provider-extension", file: { base64: "opaque provider field" } },
+  ])("keeps a $type result's structured fields unchanged", (output) => {
+    const { state } = setup();
+    mapSdkMessage(fixture("read-image-turn")[0], state);
+    const events = mapSdkMessage(
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_read_image", content: "fallback" }] }, tool_use_result: output },
+      state,
+    );
+    expect(events).toEqual([{ type: "tool.ended", payload: { toolCallId: "toolu_read_image", status: "ok", output, durationMs: 0 } }]);
+  });
+
+  it("records a PDF's media type, byte size and path without its bytes", () => {
+    const { state } = setup();
+    const events = mapAll(fixture("read-pdf-turn"), state);
+    expect(events.filter((event) => event.type === "tool.ended")).toEqual([
+      {
+        type: "tool.ended",
+        payload: {
+          toolCallId: "toolu_read_pdf",
+          status: "ok",
+          output: { type: "pdf", file: { filePath: "/work/repo/report.pdf", originalSize: 12, mediaType: "application/pdf", size: 12 } },
+          durationMs: 0,
+        },
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("JVBERi0xLjcKRU9G");
+  });
+
+  it("records a resized image's media type, byte size and original metadata without its bytes", () => {
+    const { state } = setup();
+    const messages = fixture("read-image-turn");
+    const before = JSON.stringify(messages);
+    const events = mapAll(messages, state);
+    expect(events.filter((event) => event.type === "tool.ended")).toEqual([
+      {
+        type: "tool.ended",
+        payload: {
+          toolCallId: "toolu_read_image",
+          status: "ok",
+          output: {
+            type: "image",
+            file: {
+              type: "image/png",
+              mediaType: "image/png",
+              size: 73,
+              originalSize: 1024,
+              dimensions: { originalWidth: 16, originalHeight: 16, displayWidth: 4, displayHeight: 4 },
+            },
+          },
+          durationMs: 0,
+        },
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("base64");
+    expect(JSON.stringify(messages)).toBe(before);
   });
 });
 

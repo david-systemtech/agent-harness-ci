@@ -1,3 +1,4 @@
+import { memoryDraftSchemaFixtures, memoryDraftMethodFixtures } from "./memory-draft-fixtures.js";
 /**
  * Instances the contract tests share: a valid and a malformed frame of every
  * kind, and a valid and an invalid instance of every exported schema. A frame
@@ -8,7 +9,10 @@
  */
 import { BYPASS_SENTENCE, FRAME_TYPES, SHARED_ERROR_CODES, methodPath, methods, type FrameType } from "../src/index.js";
 import { accountMethodFixtures, accountSchemaFixtures } from "./account-fixtures.js";
+import { bankSchemaFixtures } from "./bank-fixtures.js";
+import { bankRegistryMethodFixtures, bankRegistrySchemaFixtures } from "./bank-registry-fixtures.js";
 import { browserMethodFixtures, browserSchemaFixtures } from "./browser-fixtures.js";
+import { clientCallMethodFixtures, clientCallSchemaFixtures } from "./client-call-fixtures.js";
 import { catalogueSchemaFixtures } from "./catalogue-fixtures.js";
 import { completionsSchemaFixtures } from "./completions-fixtures.js";
 import { forgeMethodFixtures, forgeSchemaFixtures } from "./forge-fixtures.js";
@@ -559,8 +563,11 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...readinessMethodFixtures,
   ...trustMethodFixtures,
   ...browserMethodFixtures,
+  ...clientCallMethodFixtures,
   ...carryOverMethodFixtures,
   ...stateImportMethodFixtures,
+  ...bankRegistryMethodFixtures,
+  ...memoryDraftMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -794,6 +801,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "prompt.parked",
       "prompt.resolved",
       "usage.updated",
+      "denylist.updated",
+      "review.updated",
       "settings.changed",
       "setup.result-changed",
       "skills.updated",
@@ -843,6 +852,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow", decidedBy: "cs-1" } },
       { type: "usage.updated", payload: { accountId: "claude-max", identity: { provider: "claude", email: "david@example.com", organisation: null } } },
+      { type: "denylist.updated", payload: { sections: ["paths", "hosts"] } },
+      { type: "review.updated", payload: {} },
       { type: "settings.changed", payload: { keys: ["appearance.theme", "permissions.containment.default"] } },
       { type: "setup.result-changed", payload: forgeRejected },
       { type: "skills.updated", payload: {} },
@@ -894,6 +905,8 @@ export const schemaFixtures: Record<string, Fixtures> = {
       { type: "prompt.parked", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", kind: "tool", title: "t", summary: "s" } },
       { type: "prompt.resolved", payload: { sessionId: otherUuid, runId: thirdUuid, promptId: "toolu_1", decision: "allow" } },
       { type: "usage.updated", payload: { accountId: "claude-max" } },
+      { type: "denylist.updated", payload: { sections: [] } },
+      { type: "review.updated", payload: null },
       { type: "settings.changed", payload: { keys: [] } },
       { type: "settings.changed", payload: { values: { "appearance.theme": null } } },
       { type: "setup.result-changed", payload: { ...forgeRejected, checkedAt: undefined } },
@@ -1013,6 +1026,9 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...managedToolSchemaFixtures,
   ...networkSchemaFixtures,
   ...skillSchemaFixtures,
+  ...bankSchemaFixtures,
+  ...bankRegistrySchemaFixtures,
+  ...memoryDraftSchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
@@ -1027,6 +1043,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,
   ...browserSchemaFixtures,
+  ...clientCallSchemaFixtures,
   ...routineSchemaFixtures,
   ...methodSchemaFixtures,
 };
