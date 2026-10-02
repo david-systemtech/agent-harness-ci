@@ -316,6 +316,7 @@ describe("carryOver.run's memory", () => {
     const ofHarness = new Set([found.harnessFolder, ...folders]);
 
     const inventory = await client.request("carryOver.inventory", { accountId: ACCOUNT });
+    if (!("accountId" in inventory)) throw new Error("Expected the Account inventory.");
     const dry = await run(client, { dryRun: true });
     const real = await run(client);
 
@@ -337,6 +338,7 @@ describe("carryOver.run's memory", () => {
     });
 
     const inventory = await client.request("carryOver.inventory", { accountId: ACCOUNT });
+    if (!("accountId" in inventory)) throw new Error("Expected the Account inventory.");
     const answer = await run(client);
 
     expect(inventory.memory).toMatchObject({ folders: 3, new: 1 });
@@ -396,7 +398,9 @@ describe("carryOver.assignMemory", () => {
     const frame = await watcher.next((f): f is EventFrame => f.type === "event" && f.subscription === subscription && f.event.type === "carry-over.memory-assigned");
     expect(frame.event).toMatchObject({ streamKind: "environment", payload: { accountId: ACCOUNT, repositoryIdentity: PICKED, copy }, actor: { kind: "client_session", id: client.hello.clientSessionId } });
 
-    expect((await client.request("carryOver.inventory", { accountId: ACCOUNT })).memory).toEqual({ folders: 3, repositories: 3, unmappable: [], new: 2 });
+    const inventory = await client.request("carryOver.inventory", { accountId: ACCOUNT });
+    if (!("accountId" in inventory)) throw new Error("Expected the Account inventory.");
+    expect(inventory.memory).toEqual({ folders: 3, repositories: 3, unmappable: [], new: 2 });
     const rerun = await run(client);
     expect(rerun.result?.memory.unmappable).toEqual([]);
     expect(rerun.result?.memory.folders.find((folder) => folder.path === lost)).toMatchObject({ key: PICKED, outcome: "kept" });

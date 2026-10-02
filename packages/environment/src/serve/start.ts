@@ -213,6 +213,8 @@ import { createSkillProbes } from "../skills/probe.js";
 import { createSkillSources, readSkillSources, readSkillSourceIdentities, skillSourcesProjector } from "../skills/sources.js";
 import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
+import { sourceAccountInventories } from "../state-import/inventory.js";
+import { directoryInventory } from "../carry-over/directory-inventory.js";
 import { carryOverMethods } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
@@ -1734,6 +1736,17 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   if (options.moveSources === undefined) moves.register(endpoints.moveSource);
   // The environment's accounts now, each with its adapter's descriptor: what the Instructions and Skills panes say of each one's channel.
   const listedAccounts = () => accounts.list().map(({ id, label, provider }) => ({ id, label, provider, descriptor: accounts.facts(id)?.descriptor ?? null }));
+  // Read only listed directories: source use selects Accounts, and the shared inventory previews them before adoption.
+  const listImportSessions = (directory: string) => {
+    const adapter = host.adapters.get("claude");
+    if (adapter?.listSessions === undefined) throw new Error("The Claude adapter cannot list source use.");
+    return adapter.listSessions({ id: "state-import-preview", directory });
+  };
+  const importInventory = sourceAccountInventories({
+    log, accounts, machine: stateImportSource, coordinator: stateImports, listSessions: listImportSessions,
+    inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
+  });
+  const settingsHandlers = settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() });
   // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
   const instructionHandlers = instructionMethods({
     host,
@@ -1759,7 +1772,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       result: { projectors: [...log.rebuildProjections()], sequence: log.head() },
     }),
     // The generic settings (#117), on the environment's settings stream.
-    ...settingsMethods({ log, environmentId: record.id, onChange: (keys) => settleSweep.settingsChanged(keys), presets: settingsPresets() }),
+    ...settingsHandlers,
     ...accessMethods({ pairings, clientSessions, accessLog }),
     ...sessionMethods({
       log,
@@ -1887,6 +1900,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       autoMemory,
       skills: carrySkills,
       home: carryOverHome,
+      stateImportInventory: importInventory,
     }),
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
@@ -1894,6 +1908,9 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       log,
       environmentId: record.id,
       coordinator: stateImports,
+      accounts,
+      listSessions: listImportSessions,
+      updateSettings: settingsHandlers["settings.update"],
       createInstruction: instructionHandlers["instructions.create"],
       ...(options.stateImportHooks !== undefined && { hooks: options.stateImportHooks }),
     }),
