@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION } from "@agent-harness/environment";
+import { readLocalTerminalSource } from "@agent-harness/environment/terminal-source";
 import type { LocalService, ServiceOutcome, TuiOptions } from "@agent-harness/tui";
+import type { ScreenlessOptions, SelectionOutcome } from "@agent-harness/tui/screenless";
 import { parseOptions, UsageError } from "./args.js";
 import { discoverEnvironment } from "./discover.js";
 import { service, serviceInstalled, servicePort, type ServiceContext } from "./service/verbs.js";
@@ -15,7 +17,7 @@ import { service, serviceInstalled, servicePort, type ServiceContext } from "./s
  * the service-down offer runs. The `-p` and `ls` flags are not carried.
  */
 
-export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]`;
+export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>] [--import-terminal-state]`;
 
 /** The terminal UI's entry point: `runTui`, loaded only when `tui` runs, so `serve` never loads Ink and React. */
 export type RunTui = (options: TuiOptions) => Promise<number>;
@@ -25,7 +27,7 @@ export interface TuiContext extends Pick<ServiceContext, "fetch" | "user" | "sea
   readonly runTui?: RunTui | undefined;
 }
 
-type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings">;
+type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings" | "terminalSource">;
 
 const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
   if (value !== undefined && value.trim() === "") throw new UsageError(`${flag} takes a value; got an empty one.`);
@@ -39,12 +41,14 @@ const parseTui = (args: readonly string[]): TuiFlags => {
     continue: { type: "boolean", short: "c" },
     cwd: { type: "string" },
     keybindings: { type: "string" },
+    "import-terminal-state": { type: "boolean" },
   });
   const session = nonEmpty("--session", values.session);
   if (session !== undefined && values.continue) throw new UsageError("--session and -c each name the session to open; give one.");
   const cwd = nonEmpty("--cwd", values.cwd);
   const keybindings = nonEmpty("--keybindings", values.keybindings);
   return {
+    ...(values["import-terminal-state"] ? { terminalSource: readLocalTerminalSource } : {}),
     environment: nonEmpty("--environment", values.environment),
     session,
     continueLatest: values.continue ?? false,
@@ -92,12 +96,36 @@ export const localService = (context: TuiContext, dataDir: string): LocalService
   },
 });
 
+/** The data directory `serve` and the service verbs use when given none, where the local environment's grant file is; the service seam's install context in tests. */
+const localDataDirectory = (context: Pick<TuiContext, "seams">): string => {
+  const installContext = context.seams.installContext;
+  return installContext ? defaultDataDirectory(installContext) : defaultDataDirectory();
+};
+
 /** `tui`: runs the terminal UI until it quits, and exits with its code. */
 export const tui = async (args: readonly string[], context: TuiContext): Promise<number> => {
   const flags = parseTui(args);
-  // The data directory `serve` and the service verbs use when given none; the service seam's install context in tests.
-  const installContext = context.seams.installContext;
-  const dataDir = installContext ? defaultDataDirectory(installContext) : defaultDataDirectory();
+  const dataDir = localDataDirectory(context);
   const runTui = context.runTui ?? (await import("@agent-harness/tui")).runTui;
   return runTui({ ...flags, dataDir, version: HARNESS_VERSION, services: localService(context, dataDir) });
+};
+
+/** The selectors `tui` takes that name an environment, a session and a directory. */
+export type SelectionFlags = Pick<ScreenlessOptions, "environment" | "session" | "continueLatest" | "cwd">;
+
+/**
+ * The environment `tui` would show, chosen without a screen for a verb that
+ * prints rather than draws (docs/specs/switch-over.md, "Phase-D commands
+ * and parity": `tui -p` and `ls`; #1178): the terminal UI's screenless
+ * entry, loaded alone so neither Ink nor React is, on the data directory
+ * and version `tui` hands over. It needs no terminal; a fault the runtime
+ * can hand no caller goes to `report`, and the caller closes the selection
+ * it is handed.
+ */
+export const selectEnvironment = async (
+  flags: SelectionFlags,
+  context: Pick<TuiContext, "seams"> & { readonly report: (line: string) => void },
+): Promise<SelectionOutcome> => {
+  const { selectTerminalEnvironment } = await import("@agent-harness/tui/screenless");
+  return selectTerminalEnvironment({ ...flags, dataDir: localDataDirectory(context), version: HARNESS_VERSION, report: context.report });
 };

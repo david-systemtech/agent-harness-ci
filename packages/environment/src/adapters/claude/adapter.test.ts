@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { EMPTY_RUN_SKILL_SET, type AccountIdentity, type RunSkillSet } from "@agent-harness/contracts";
@@ -346,20 +346,38 @@ describe("a run", () => {
   });
 });
 
+/** A checkout with one commit and a linked worktree of it holding a directory below its root, under a temporary `root`. */
+const linkedWorktree = () => {
+  const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+  const checkout = join(root, "app");
+  git(root, "init", "-q", checkout);
+  git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
+  const worktree = join(root, "worktree");
+  git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
+  const below = join(worktree, "packages", "web");
+  mkdirSync(below, { recursive: true });
+  return { root, checkout, worktree, below };
+};
+
 describe("a run in a worktree", () => {
   it("takes the project settings of the worktree's main checkout when the repository is trusted, and none when it is not", async () => {
-    const root = mkdtempSync(join(tmpdir(), "agent-harness-repository-"));
+    const { root, checkout, worktree } = linkedWorktree();
     try {
-      const checkout = join(root, "app");
-      git(root, "init", "-q", checkout);
-      git(checkout, "commit", "-q", "--allow-empty", "-m", "first");
-      const worktree = join(root, "worktree");
-      git(checkout, "worktree", "add", "-q", "-b", "fix", worktree);
       const workspace = { kind: "worktree", path: worktree, repository: checkout, branch: "fix" } as const;
       adapterWith().createRun(runInput({ trusted: true, workspace }), contextWith());
       expect((await started()).options).toMatchObject({ cwd: worktree, projectConfigRoot: checkout });
       adapterWith().createRun(runInput({ trusted: false, workspace }), contextWith());
       expect((await started(2)).options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("takes the main checkout's project settings for a workspace below the worktree's root too", async () => {
+    const { root, checkout, below } = linkedWorktree();
+    try {
+      adapterWith().createRun(runInput({ trusted: true, workspace: { kind: "directory", path: below } }), contextWith());
+      expect((await started()).options).toMatchObject({ cwd: below, projectConfigRoot: checkout });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1982,6 +2000,26 @@ describe("a turn the provider opens on its own", () => {
     expect(await asked).toMatchObject({ behavior: "allow" });
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
+
+  it("ends a subagent's prompt turn with the transport error when the process dies under its parked prompt, not completed", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const asked = query.canUseTool("Bash", { command: "npm test" }, { toolUseID: "toolu_sub", agentID: "agent-1" });
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const promptTurn = context.adopted[0] as ProviderTurn;
+    promptTurn.onAdopted?.("run-prompt");
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    const read = reading(promptTurn);
+    query.fail(new Error("the CLI exited with code 1"));
+    expect(await asked).toMatchObject({ behavior: "deny" });
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "transport", message: expect.stringContaining("exited with code 1") }) })]);
+  });
 });
 
 describe("plan usage", () => {
@@ -2282,6 +2320,49 @@ describe("a run that joins a kept process", () => {
     expect(read.events).toEqual([]);
     clock.advance(1);
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
+  });
+
+  it("withdraws the prompt of a run the open timeout ends, and what was sent onto it, so a CLI that opens late does not run them", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const followUp = message("And this");
+    await run.send(followUp);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId, followUp.messageId]);
+  });
+
+  it("does not ask for the prompt again when the open timeout ends a run whose prompt the CLI will not give back", async () => {
+    fake.controls = { cancelled: () => false };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    const [end] = ends(await read.done);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
+    expect(end).toEqual(expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("may still run it") }) }));
+    expect(JSON.stringify(end)).not.toContain("send again");
+  });
+
+  it("withdraws the prompt of a run it ends when the CLI sends init and then nothing", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
   });
 
   it("withdraws what was sent onto a run that has not opened with its prompt, and hands those messages back", async () => {
@@ -2647,6 +2728,24 @@ describe("the unsampled queries", () => {
     expect(fake.last().options.settingSources).toEqual([]);
     expect(fake.last().options).not.toHaveProperty("plugins");
     expect(fake.last().options).not.toHaveProperty("settings");
+  });
+
+  it("lists commands in a worktree, or below its root, from its main checkout's project configuration as a run there loads it, and from none untrusted", async () => {
+    fake.controls = { supportedCommands: async () => [] };
+    const { root, checkout, worktree, below } = linkedWorktree();
+    try {
+      const adapter = adapterWith();
+      for (const path of [worktree, below]) {
+        await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+        expect(fake.last().options).toMatchObject({ cwd: path, settingSources: ["project"], projectConfigRoot: checkout });
+      }
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: worktree }, { trusted: false, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+      await adapter.commands({ id: "work", directory: "/d" }, { kind: "directory", path: checkout }, { trusted: true, skillSet: EMPTY_RUN_SKILL_SET });
+      expect(fake.last().options).not.toHaveProperty("projectConfigRoot");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("answers a member's invocation: /agent-harness:<name> for one the generation links, /<name> for a native one", () => {
