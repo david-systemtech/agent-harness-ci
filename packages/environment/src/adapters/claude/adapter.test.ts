@@ -2000,6 +2000,26 @@ describe("a turn the provider opens on its own", () => {
     expect(await asked).toMatchObject({ behavior: "allow" });
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "completed" })]);
   });
+
+  it("ends a subagent's prompt turn with the transport error when the process dies under its parked prompt, not completed", async () => {
+    const adapter = adapterWith();
+    const context = contextWith();
+    const input = runInput();
+    const run = adapter.createRun(input, context);
+    const query = await started();
+    query.emit(sdk.init(PROVIDER_SESSION), sdk.replyStart("msg_1", [input.prompt[0]?.messageId as string]), sdk.tasks({ task_id: "task_1" }), sdk.result(PROVIDER_SESSION));
+    await drain(run);
+    run.release();
+    const asked = query.canUseTool("Bash", { command: "npm test" }, { toolUseID: "toolu_sub", agentID: "agent-1" });
+    await vi.waitFor(() => expect(context.adopted).toHaveLength(1));
+    const promptTurn = context.adopted[0] as ProviderTurn;
+    promptTurn.onAdopted?.("run-prompt");
+    await vi.waitFor(() => expect(context.asked).toHaveLength(1));
+    const read = reading(promptTurn);
+    query.fail(new Error("the CLI exited with code 1"));
+    expect(await asked).toMatchObject({ behavior: "deny" });
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "transport", message: expect.stringContaining("exited with code 1") }) })]);
+  });
 });
 
 describe("plan usage", () => {
@@ -2300,6 +2320,49 @@ describe("a run that joins a kept process", () => {
     expect(read.events).toEqual([]);
     clock.advance(1);
     expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened" }) })]);
+  });
+
+  it("withdraws the prompt of a run the open timeout ends, and what was sent onto it, so a CLI that opens late does not run them", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const followUp = message("And this");
+    await run.send(followUp);
+    await query.promptsPushed(2);
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId, followUp.messageId]);
+  });
+
+  it("does not ask for the prompt again when the open timeout ends a run whose prompt the CLI will not give back", async () => {
+    fake.controls = { cancelled: () => false };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    const [end] = ends(await read.done);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
+    expect(end).toEqual(expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("may still run it") }) }));
+    expect(JSON.stringify(end)).not.toContain("send again");
+  });
+
+  it("withdraws the prompt of a run it ends when the CLI sends init and then nothing", async () => {
+    fake.controls = { cancelled: () => true };
+    const adapter = adapterWith();
+    const input = runInput();
+    const run = adapter.createRun(input, contextWith());
+    const query = await started();
+    const read = reading(run);
+    query.emit(sdk.init(PROVIDER_SESSION));
+    await flush();
+    clock.advance(DEFAULT_TIMINGS.openTimeoutMs);
+    expect(ends(await read.done)).toEqual([expect.objectContaining({ reason: "error", error: expect.objectContaining({ code: "not_opened", message: expect.stringContaining("send again") }) })]);
+    expect(query.cancelRequests).toEqual([input.prompt[0]?.messageId]);
   });
 
   it("withdraws what was sent onto a run that has not opened with its prompt, and hands those messages back", async () => {

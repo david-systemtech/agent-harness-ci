@@ -100,6 +100,7 @@ import { previewLine } from "./files/documents.js";
 import { readFile, rowDiff, sessionDiff, systemDiffFilter, type DiffFilter, type Page, type Paged } from "./files/views.js";
 import { ListCard } from "./pickers/cards.js";
 import type { Panel, PanelRow } from "./pickers/panel.js";
+import { setupHeader } from "./pickers/panel.js";
 import { usePickers } from "./pickers/use-pickers.js";
 import { createFrameScheduler } from "./frames.js";
 import { helpLines } from "./help.js";
@@ -145,7 +146,7 @@ import { useForkRewind } from "./session/use-fork-rewind.js";
 import { useFollow, useSession, type Opened } from "./session/use-session.js";
 import { runInfoLines } from "./status/run-info.js";
 import { codeBlocks, exportMarkdown, timelineLine, turnsOf } from "./transcript/export.js";
-import { lineText, rowLines, transcriptLines, type Line as TranscriptLine } from "./transcript/lines.js";
+import { lineText, rowLines, transcriptLines, wrap, type Line as TranscriptLine } from "./transcript/lines.js";
 import { StatusLine } from "./status/status-line.js";
 import { useStatus } from "./status/use-status.js";
 import { editCalls, rowFile } from "./transcript/targets.js";
@@ -505,6 +506,15 @@ export const App = (props: AppProps) => {
   // The session on screen.
   const session = useSession(runtime, clock, request);
   const { opened, projection } = session;
+  const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
+  /** The environment the header and the status line are about: the open session's, else the current one. */
+  const headerView = sessionView ?? current;
+  const headerEnvironment = headerView?.environmentId;
+  const headerSetup = useMemo(() => headerEnvironment === undefined ? undefined : runtime.projections.setup(headerEnvironment), [runtime, headerEnvironment]);
+  useFollow(headerView?.flags.includes("setup") ? headerSetup : undefined, request);
+  const setupSummary = headerSetup && headerView ? setupHeader(headerSetup.read(), nameOf(headerView)) : undefined;
+  const setupSummaryRows = setupSummary === undefined ? 0 : wrap([{ text: setupSummary }], size.columns).length;
+
   // The open session's workspace, when the environment has found it gone (#328): read from its list row, as the rail's.
   const openRow = opened ? list.rows.find((row) => row.environmentId === opened.environmentId && row.summary.id === opened.sessionId) : undefined;
   const gone = openRow?.summary.workspaceMissingSince != null ? openRow.summary.workspace.path : undefined;
@@ -539,7 +549,9 @@ export const App = (props: AppProps) => {
   // Every key's bytes, heard for the pane (`paneKey`, below); false when this Ink cannot hand them over, and the pane is refused.
   const paneKey = useRef<(bytes: string) => void>(() => undefined);
   const hearsKeys = useRawInput((bytes) => paneKey.current(bytes));
-  const paneOpen = terminal.pane !== null && opened !== null && terminal.pane.environmentId === opened.environmentId && terminal.pane.sessionId === opened.sessionId;
+  const paneOpen = terminal.pane !== null && (terminal.pane.sessionId === null
+    ? views.some((view) => view.environmentId === terminal.pane?.environmentId)
+    : opened !== null && terminal.pane.environmentId === opened.environmentId && terminal.pane.sessionId === opened.sessionId);
   useEffect(() => {
     if (terminal.pane !== null && !paneOpen) terminal.close();
   }, [paneOpen, terminal.pane]);
@@ -556,7 +568,7 @@ export const App = (props: AppProps) => {
   const focused: Focus = (focus === "sidebar" && !railListed) || (focus === "terminal" && !paneOpen) || (focus === "delegated" && tasks.length === 0) ? "composer" : focus;
   // The pane's terminal is as wide as the column beside the rail (the help overlay's taking the width is no resize) and two
   // fifths of the frame tall, within the column.
-  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows) };
+  const paneSize = { cols: Math.max(20, size.columns - (railDrawn ? RAIL_WIDTH : 0)), rows: terminalPaneRows(size.rows - setupSummaryRows) };
   useEffect(() => terminal.resize(paneSize), [paneSize.cols, paneSize.rows]);
   useEffect(() => {
     if (focus !== focused) setFocus(focused);
@@ -671,6 +683,10 @@ export const App = (props: AppProps) => {
           return;
         }
         say(pairingLine(outcome, runtime.projections.environments.read()));
+        if (outcome.status === "paired") {
+          const environments = new Set([outcome.environmentId, opened?.environmentId ?? current?.environmentId]);
+          for (const environmentId of environments) if (environmentId !== undefined) void runtime.setup.check(environmentId, "your-machines");
+        }
       },
       (error: unknown) => say(`Not paired: ${messageOf(error)}`),
     );
@@ -885,9 +901,6 @@ export const App = (props: AppProps) => {
     stop ? `${keys(id)} stop and ${words}` : `${keys(id)} ${words}${availability?.status === "absent" ? ` (${availability.message})` : ""}`;
   // The accounts, models, permissions, settings and Set up commands (#147): their cards are the screen's, their memory of a
   // session's next runs (a model and effort, a containment level, an account handed off onto) is theirs.
-  const sessionView = opened ? views.find((v) => v.environmentId === opened.environmentId) : undefined;
-  /** The environment the header and the status line are about: the open session's, else the current one. */
-  const headerView = sessionView ?? current;
   const runInfoEnvironment = screen.card.kind === "lines" && screen.card.which === "run-info" ? opened?.environmentId : undefined;
   const runInfoAccounts = useMemo(() => runInfoEnvironment === undefined ? undefined : runtime.projections.accounts(runInfoEnvironment), [runtime, runInfoEnvironment]);
   useFollow(runInfoAccounts, request);
@@ -905,6 +918,16 @@ export const App = (props: AppProps) => {
     say,
     ask: (asked) => update({ question: asked }),
     openSession: (next) => open(next),
+    startService: (environmentId) => {
+      if (views.find((view) => view.environmentId === environmentId)?.kind !== "local") return say("Start the service on that environment's machine.");
+      update({ card: { kind: "none" } });
+      startService();
+    },
+    openTool: (environmentId, run) => {
+      update({ card: { kind: "none" } });
+      terminal.watchTool(environmentId, run.terminal.id, run.command, paneSize, { cols: run.terminal.cols, rows: run.terminal.rows });
+      setFocus("terminal");
+    },
     newCommandId: props.newCommandId,
     keys,
   });
@@ -1718,7 +1741,7 @@ export const App = (props: AppProps) => {
 
   // The help overlay's body, and the pager's: the frame less the header, the three lines, the composer and the status line
   // under the card, and the card's title and foot.
-  const helpHeight = Math.max(1, size.rows - 9);
+  const helpHeight = Math.max(1, size.rows - 9 - setupSummaryRows);
   const helpMaxTop = Math.max(0, help.length - helpHeight);
   // A taller terminal, or a shorter map after `/reload`, leaves less to scroll: the overlay's place is clamped to it.
   useEffect(() => {
@@ -1947,6 +1970,10 @@ export const App = (props: AppProps) => {
       "app.handoff": () => pickers.run({ name: "handoff", argument: "" }),
       ...rail.handlers,
       ...routines.handlers,
+      "picker.preview": () => {
+        if (card.kind !== "panel" || card.panel.kind !== "setup") return false;
+        return update({ card: { kind: "panel", panel: pickers.nextSetupAction(card.panel, 1) } });
+      },
       "app.focus.next": () => (card.kind === "none" ? setFocus(nextFocus(focused, stops)) : false),
       "delegated.enter": () => (tasks.length > 0 ? setFocus("delegated") : false),
       "delegated.move": (pressed) => {
@@ -2372,7 +2399,7 @@ export const App = (props: AppProps) => {
   const railInPane = !railDrawn && railListed && focused === "sidebar" && card.kind === "none" && !promptShown;
   // The rows the rail and a picker have: the frame less the header and the six lines under the pane (the two lines, the
   // composer, the status line's two and the activity line).
-  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN);
+  const paneRows = Math.max(1, size.rows - OUTSIDE_COLUMN - setupSummaryRows);
   const listHint = (verb: string, leave: string) => `${keys("picker.move")} move · ${keys("picker.choose")} ${verb} · ${keys("picker.leave")} ${leave}`;
   /** The permission card's legend: the keys the card answers, in the map in force; the note's line takes Enter, Tab and Esc as they are. */
   const cardHint = (kind: PromptKind, lineOpen: boolean): string => {
@@ -2465,6 +2492,7 @@ export const App = (props: AppProps) => {
         startingService={startingService}
         workspace={openSummary ? `${openSummary.title} · ${workspaceLabel(openSummary.workspace)}` : props.flags.workspace}
       />
+      {setupSummary !== undefined && <Line text={setupSummary} color={TERMINAL_ROLES.warning} />}
       <Box flexGrow={1} flexDirection="row" overflow="hidden">
         {showRail && (
           <RailView lines={rail.lines} cursor={rail.cursor} focused={focused === "sidebar" && !cardHasKeys} filter={rail.filter} height={paneRows} width={RAIL_WIDTH} />
