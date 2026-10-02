@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createRuntime } from "@agent-harness/client-runtime";
-import { inMemoryPlatform, manualClock, type InMemoryPlatform } from "@agent-harness/client-runtime/testing";
+import { inMemoryPlatform, manualClock, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
 import { scriptedWorld, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { listSessions, type ListIo, type ListRequest } from "./screenless.js";
-import { selectOn } from "./startup/selection.js";
+import { selectOn, type TerminalSelection } from "./startup/selection.js";
 
 // Listing draws nothing: Ink or React imported anywhere under it fails the import.
 vi.mock("ink", () => {
@@ -33,6 +33,7 @@ const id = (n: number) => `0199aa00-0000-4000-8000-${String(n).padStart(12, "0")
 interface Machine {
   readonly world: ScriptedWorld;
   readonly platform: InMemoryPlatform;
+  readonly clock: ManualClock;
 }
 
 /** This machine's terminal over `script`, each `paired` environment paired once before, as `/pair` saves it. */
@@ -47,7 +48,7 @@ const machine = async (script: Script): Promise<Machine> => {
     for (const spec of paired) expect(await earlier.connections.add({ link: world.environment(spec.name).wire.link })).toMatchObject({ status: "paired" });
     await earlier.close();
   }
-  return { world, platform };
+  return { world, platform, clock };
 };
 
 /** A directory on this machine, made for the test and removed after it. */
@@ -57,13 +58,26 @@ const directory = (): string => {
   return path;
 };
 
+interface Invocation extends Partial<ListRequest>, Partial<Pick<ListIo, "platform">> {
+  readonly currentDirectory: string;
+  /** `--environment`. */
+  readonly environment?: string;
+  /** What happens on the environment once it is chosen and before it is read, through the selection's runtime. */
+  readonly meanwhile?: (selection: TerminalSelection) => Promise<void>;
+}
+
 /** What `ls` printed and exited with, run in `currentDirectory` on what the machine saved. */
-const list = async (on: Machine, request: Partial<ListRequest> & Pick<ListIo, "currentDirectory">, environment?: string) => {
+const list = async (on: Machine, invocation: Invocation) => {
   let stdout = "";
   let stderr = "";
-  const { currentDirectory, platform, ...flags } = { platform: "linux" as const, ...request };
+  const { currentDirectory, platform, environment, meanwhile, ...flags } = { platform: "linux" as const, ...invocation };
+  const select = async () => {
+    const outcome = await selectOn(on.platform, { environment, currentDirectory });
+    if (outcome.ok) await meanwhile?.(outcome.selection);
+    return outcome;
+  };
   const code = await listSessions(
-    () => selectOn(on.platform, { environment, currentDirectory }),
+    select,
     { all: false, json: false, ...flags },
     { stdout: (text) => void (stdout += text), stderr: (text) => void (stderr += text), currentDirectory, platform },
   );
@@ -99,5 +113,54 @@ describe("agent-harness ls", () => {
       stderr: "",
     });
     expect(on.world.environment("desk").requests("sessions.list")).toHaveLength(1);
+  });
+
+  it("lists every directory's sessions with --all, archived, settled and snoozed ones among them and a deleted one not, ties by id", async () => {
+    const titled = (n: number, title: string, path: string, updatedAt = "2026-09-01T00:00:00.000Z") => ({
+      id: id(n),
+      title,
+      updatedAt,
+      workspace: { kind: "directory" as const, path },
+    });
+    const on = await machine({
+      environments: [
+        {
+          name: "desk",
+          reach: "local",
+          environmentId: DESK,
+          // The two updated at one instant, spelt two ways, the higher id first.
+          sessions: [
+            titled(8, "Tied, higher id", "/srv/e", "2026-09-24T00:02:00Z"),
+            titled(7, "Tied, lower id", "/srv/f", "2026-09-24T00:02:00.000Z"),
+            titled(1, "Archived", "/srv/a"),
+            titled(2, "Settled", "/srv/b"),
+            titled(3, "Snoozed", "/srv/c"),
+            titled(4, "Deleted", "/srv/d"),
+          ],
+        },
+      ],
+    });
+    const filed = async ({ runtime }: TerminalSelection) => {
+      const accepted = { ok: true };
+      expect(await runtime.commands.dispatch(DESK, "sessions.archive", { sessionId: id(1) })).toMatchObject(accepted);
+      on.clock.advance(60_000);
+      expect(await runtime.commands.dispatch(DESK, "sessions.settle", { sessionId: id(2) })).toMatchObject(accepted);
+      on.clock.advance(120_000);
+      expect(await runtime.commands.dispatch(DESK, "sessions.snooze", { sessionId: id(3), until: "2026-12-01T00:00:00.000Z" })).toMatchObject(accepted);
+      expect(await runtime.commands.dispatch(DESK, "sessions.delete", { sessionId: id(4) })).toMatchObject(accepted);
+    };
+
+    expect(await list(on, { currentDirectory: directory(), all: true, meanwhile: filed })).toEqual({
+      code: 0,
+      stdout: [
+        `${id(3)}  2026-09-24T00:03:00.000Z  -  Snoozed`,
+        `${id(7)}  2026-09-24T00:02:00.000Z  -  Tied, lower id`,
+        `${id(8)}  2026-09-24T00:02:00.000Z  -  Tied, higher id`,
+        `${id(2)}  2026-09-24T00:01:00.000Z  -  Settled`,
+        `${id(1)}  2026-09-24T00:00:00.000Z  -  Archived`,
+        "",
+      ].join("\n"),
+      stderr: "",
+    });
   });
 });
