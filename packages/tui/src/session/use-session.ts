@@ -29,8 +29,7 @@ import { markOf, planDelta, type PlanMark } from "../transcript/plan.js";
  * `capability`, its provider's descriptor and its `/` menu's listing (its
  * skills and the provider's own commands, `commands.list`, #503) from the
  * request cache, and how long each running call has been quiet. A fork's source is
- * followed too while the fork opens on its `forked` entry, for what that row
- * names (#390). Which session is open is client-local presentation, held in
+ * followed too while the fork opens on its `forked` entry, for what an older row without copied history names (#390, #242). Which session is open is client-local presentation, held in
  * memory only.
  */
 
@@ -84,9 +83,9 @@ export const useSession = (runtime: Runtime, clock: Clock, request: () => void):
 
   const projection = view?.read();
   const summary = projection?.summary ?? null;
-  // A fork's source, followed while the fork opens on its `forked` entry: its title and the prompt the fork was taken at.
+  // Older forks need their source for labels; a copied seed is independent of it (#242).
   const forked = projection?.items.find((item): item is ForkedEntry => item.kind === "forked");
-  const sourceId = forked?.fromSessionId;
+  const sourceId = forked?.history === undefined ? forked?.fromSessionId : undefined;
   const source = useMemo(
     () => (environmentId !== undefined && sourceId !== undefined ? runtime.projections.session(environmentId, sourceId) : undefined),
     [runtime, environmentId, sourceId],

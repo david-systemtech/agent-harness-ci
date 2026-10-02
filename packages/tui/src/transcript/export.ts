@@ -74,8 +74,12 @@ const rowMarkdown = (row: Row, forked?: ForkedFrom): string => {
       // A cut with nothing to show is the line alone: an empty text split is one empty line, which would quote as a bare `>`.
       return [`_Rewound to ${oneLine(row.entry.text, 200)}: what the rewind cut follows._`, ...(cut.length > 0 ? [quoted] : [])].join("\n\n");
     }
-    case "forked":
-      return `_Forked from ${forked?.title ?? "another session"}${forked?.anchor != null ? ` at ${oneLine(forked.anchor, 200)}` : ""}._`;
+    case "forked": {
+      const from = row.entry.history ?? forked;
+      const copied = row.rows.map((inner) => rowMarkdown(inner)).filter((text) => text.length > 0).join("\n\n");
+      const note = `_Forked from ${from?.title ?? "another session"}${from?.anchor != null ? ` at ${oneLine(from.anchor, 200)}` : ""}._`;
+      return [note, copied].filter((text) => text.length > 0).join("\n\n");
+    }
     case "update-interrupted":
       return `_${updateInterruptedText(row.entry)}_`;
     case "history-unreadable":
