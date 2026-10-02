@@ -1770,6 +1770,21 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     inventory: directoryInventory({ log, adapters: host.adapters, looks: { look: (path) => availability.look(path), identityAt: (path) => environmentResolver.identityAt(path) }, autoMemory, skills: carrySkills, home: carryOverHome }),
   });
   const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
+  const routineHandlers = routineMethods({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    accounts,
+    ceilingOf: (id) => clientSessions.ceiling(id),
+    firings,
+    workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+    scripts,
+    denylisted: denylistedHost,
+    readSkillSet,
+  });
+
   // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
   const instructionHandlers = instructionMethods({
     host,
@@ -1849,20 +1864,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
-    ...routineMethods({
-      log,
-      clock: now,
-      environmentId: record.id,
-      environmentName: () => look.read().name,
-      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-      accounts,
-      ceilingOf: (id) => clientSessions.ceiling(id),
-      firings,
-      workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
-      scripts,
-      denylisted: denylistedHost,
-      readSkillSet,
-    }),
+    ...routineHandlers,
     ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
@@ -1930,6 +1932,10 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       listSessions: listImportSessions,
       carryOver,
       createInstruction: instructionHandlers["instructions.create"],
+      directoryRules: environmentResolver,
+      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      checkRoutineImport: routineHandlers["routines.checkImport"],
+      importRoutine: routineHandlers["routines.import"],
       forge,
       managers: keyManagerConnections,
       getSettings: settingsHandlers["settings.get"],

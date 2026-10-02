@@ -195,7 +195,7 @@ export const StateImportStartedPayload = z
 export type StateImportStartedPayload = z.infer<typeof StateImportStartedPayload>;
 
 /** The kinds of item a state import carries, each written through the service that owns it. */
-export const StateImportItemKind = z.enum(["instruction", "account", "account-default", "session", "forge-account", "key-manager-connection", "dev-site", "page-policy"]).meta({ description: "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy." });
+export const StateImportItemKind = z.enum(["instruction", "account", "account-default", "session", "forge-account", "key-manager-connection", "dev-site", "page-policy", "routine"]).meta({ description: "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy or a disabled local Routine." });
 export type StateImportItemKind = z.infer<typeof StateImportItemKind>;
 
 /**

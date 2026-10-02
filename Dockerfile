@@ -60,8 +60,9 @@ USER agent-harness
 WORKDIR /work
 VOLUME ["/data", "/work"]
 # The environment's port (DEFAULT_PORT). It binds loopback and the tailnet
-# address, never the wildcard address, so the compose file shares the host's
-# network rather than publishing this.
+# address, never the wildcard address, so the compose file shares the Linux
+# host's network rather than publishing this. The detector reads tailscale0
+# without a tailscale CLI or daemon socket; host setup is in compose.yaml.
 EXPOSE 7433
 ENTRYPOINT ["agent-harness"]
 CMD ["serve", "--data-dir", "/data"]
