@@ -158,10 +158,10 @@ describe("auth and hello", () => {
     expect(client.hello).toEqual({
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
-      // The forge accounts (#310), the key-manager connections (#365), the Managed tools registry (#373), the Workspace checks
-      // (#1187), the bank registry (#1025), Set up's results (#569) and the state import's run (#1165); the containment flags
-      // only where the probe found a level enforceable.
-      capabilities: ["forge", "keyManagers", "managedTools", "workspaceChecks", "banks", "setup", "stateImport"],
+      // The forge accounts (#310), the key-manager connections (#365), the Managed tools registry (#373), file undo (#1183),
+      // the Workspace checks (#1187), the bank registry (#1025), Set up's results (#569) and the state import's run (#1165);
+      // the containment flags only where the probe found a level enforceable.
+      capabilities: ["forge", "keyManagers", "managedTools", "fileUndo", "workspaceChecks", "banks", "setup", "stateImport"],
       environmentId: t.env.id,
       environmentName: "desk",
       // Its icon and colour (#323), which until set are the platform's and a hash of its id's.
