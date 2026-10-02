@@ -333,6 +333,22 @@ describe("a theme file", () => {
     expect(themeWrites(app, "desk")).toEqual([]);
   });
 
+  it("is read the same way from the page's own file picker, which a browser tab without the shell's dialog opens", async () => {
+    const app = await opened();
+    const picker = await openTheme(app);
+    await within(picker).findByText("Default, on desk");
+    const page = within(picker).getByLabelText("Theme file to import") as HTMLInputElement;
+    await app.user.upload(page, new File([themeFile(LAGOON)], "Lagoon.json", { type: "application/json" }));
+    await paintedWith(LAGOON);
+    expect(controls(picker).checked()).toEqual(["Lagoon"]);
+
+    await app.user.upload(page, new File(['{"name": "Lagoon"}'], "half.json", { type: "application/json" }));
+    expect(await within(picker).findByText("Not imported: The file is not a theme file: one holds a name and the seven seeds, and nothing else.")).toBeDefined();
+    // A refused file leaves the candidate it found as it was.
+    expect(controls(picker).checked()).toEqual(["Lagoon"]);
+    expect(themeWrites(app, "desk")).toEqual([]);
+  });
+
   it("too large to be one is refused unread", async () => {
     const app = await opened();
     const picker = await openTheme(app);
@@ -384,6 +400,7 @@ describe("on the Appearance card", () => {
     const card = within(checklist).getByRole("region", { name: "Appearance" });
     const picker = within(card).getByRole("region", { name: "The environment's theme" });
     expect(await within(picker).findByText("Default, on laptop")).toBeDefined();
+    for (const seed of THEME_SEED_NAMES) for (const part of ["hue", "chroma"]) expect(controls(picker).slider(`${seed} ${part}`).disabled).toBe(false);
 
     await app.user.click(controls(picker).radio("Lagoon"));
     await paintedWith(LAGOON);
