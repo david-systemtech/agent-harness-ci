@@ -291,6 +291,10 @@ export const runCli = async (args: readonly string[], overrides: Partial<CliCont
     if (args[0] === "update") return await update(args.slice(1), { stdout: context.stdout, stderr: context.stderr, stdin: context.stdin ?? readStandardInput, net: netOf(context) });
     if (args[0] === "tui") {
       return await tui(args.slice(1), {
+        stdout: context.stdout,
+        stderr: context.stderr,
+        stopRequested: context.stopRequested,
+        outputClosed: context.outputClosed,
         fetch: context.fetch ?? fetch,
         user: context.environment?.user ?? processUserCheck(),
         seams: context.service ?? {},

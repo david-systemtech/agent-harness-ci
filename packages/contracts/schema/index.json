@@ -1431,6 +1431,14 @@
       "title": "RepositoryIdentity"
     },
     {
+      "path": "banks/migration-choices.json",
+      "title": "BankMigrationChoices"
+    },
+    {
+      "path": "banks/migration-report.json",
+      "title": "BankMigrationReport"
+    },
+    {
       "path": "banks/split-pointer.json",
       "title": "BankSplitPointer"
     },
@@ -5387,6 +5395,22 @@
       "title": "banks.split.apply error"
     },
     {
+      "path": "methods/banks.migrate/params.json",
+      "title": "banks.migrate params"
+    },
+    {
+      "path": "methods/banks.migrate/result.json",
+      "title": "banks.migrate result"
+    },
+    {
+      "path": "methods/banks.migrate/response.json",
+      "title": "banks.migrate response"
+    },
+    {
+      "path": "methods/banks.migrate/error.json",
+      "title": "banks.migrate error"
+    },
+    {
       "path": "methods/banks.join.preview/params.json",
       "title": "banks.join.preview params"
     },
@@ -5549,6 +5573,22 @@
     {
       "path": "methods/banks.create/error.json",
       "title": "banks.create error"
+    },
+    {
+      "path": "methods/banks.publish/params.json",
+      "title": "banks.publish params"
+    },
+    {
+      "path": "methods/banks.publish/result.json",
+      "title": "banks.publish result"
+    },
+    {
+      "path": "methods/banks.publish/response.json",
+      "title": "banks.publish response"
+    },
+    {
+      "path": "methods/banks.publish/error.json",
+      "title": "banks.publish error"
     },
     {
       "path": "methods/banks.verify/params.json",
@@ -8130,6 +8170,16 @@
       "error": "methods/banks.split.apply/error.json"
     },
     {
+      "name": "banks.migrate",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.migrate/params.json",
+      "result": "methods/banks.migrate/result.json",
+      "response": "methods/banks.migrate/response.json",
+      "error": "methods/banks.migrate/error.json"
+    },
+    {
       "name": "banks.join.preview",
       "scope": "read",
       "kind": "query",
@@ -8241,6 +8291,16 @@
       "result": "methods/banks.create/result.json",
       "response": "methods/banks.create/response.json",
       "error": "methods/banks.create/error.json"
+    },
+    {
+      "name": "banks.publish",
+      "scope": "admin",
+      "kind": "command",
+      "stream": false,
+      "params": "methods/banks.publish/params.json",
+      "result": "methods/banks.publish/result.json",
+      "response": "methods/banks.publish/response.json",
+      "error": "methods/banks.publish/error.json"
     },
     {
       "name": "banks.verify",

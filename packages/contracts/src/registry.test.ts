@@ -251,11 +251,13 @@ describe("the method registry", () => {
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
       "banks.split.apply",
+      "banks.migrate",
       "banks.join",
       "banks.register",
       "banks.credential.set",
       "banks.credential.swap",
       "banks.create",
+      "banks.publish",
       "banks.registry.update",
       "banks.pin",
       "banks.forget",
@@ -488,6 +490,7 @@ describe("the method registry", () => {
       | "forge.pullRequests.refresh"
       | "banks.split.propose"
       | "banks.split.apply"
+      | "banks.migrate"
       | "banks.join"
       | "banks.join.preview"
       | "banks.drafts.list"
@@ -504,6 +507,7 @@ describe("the method registry", () => {
       | "banks.credential.set"
       | "banks.credential.swap"
       | "banks.create"
+      | "banks.publish"
       | "banks.verify"
       | "banks.sync"
       | "keyManagers.list"
