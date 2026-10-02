@@ -3,6 +3,7 @@ import type { ForgeService } from "../forge/forge-service.js";
 import { planCredentials } from "./credentials.js";
 import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, type StateImportFinishedPayload, type StateImportReport } from "@agent-harness/contracts";
+import type { PlanSkillsOptions } from "./skills.js";
 import type { CarryOverService } from "../carry-over/methods.js";
 import type { AccountService } from "../accounts/account-service.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
@@ -43,7 +44,7 @@ export interface StateImportHooks {
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
 
-export interface StateImportOptions extends Pick<PlanRoutinesOptions, "directoryRules" | "timeZone" | "checkRoutineImport" | "importRoutine"> {
+export interface StateImportOptions extends Omit<PlanSkillsOptions, "sourceKey">, Pick<PlanRoutinesOptions, "directoryRules" | "timeZone" | "checkRoutineImport" | "importRoutine"> {
   /** The machine the source reader looks at: this process's environment, platform and home. */
   readonly machine: SourceMachine;
   readonly log: EventLog;

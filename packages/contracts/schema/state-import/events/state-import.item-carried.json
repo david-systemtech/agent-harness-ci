@@ -35,9 +35,11 @@
         "key-manager-connection",
         "dev-site",
         "page-policy",
-        "routine"
+        "routine",
+        "skill-source",
+        "skill-always-on"
       ],
-      "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy or a disabled local Routine."
+      "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site, the local evaluate-everywhere policy, a tracked Skill repository, an Account Skill choice or a disabled local Routine."
     },
     "sourceDirectory": {
       "description": "The canonical listed Claude directory retained as an import source for an Account or Session mapping, including a secondary directory. No credentials.",
