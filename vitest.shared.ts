@@ -14,6 +14,8 @@ export const packageProject = (name: string, overrides: UserWorkspaceConfig = {}
       ssr: { resolve: { conditions: ["@agent-harness/source", "module", "node", "development|production"] } },
       resolve: { conditions: ["@agent-harness/source", "module", "browser", "development|production"] },
       test: {
+    // Preserve mock histories across tests, as before Vitest 5 changed the default.
+    clearMocks: false,
     // Spawning tsx or running ESLint takes seconds on a loaded CI runner; 5 s flapped there.
     testTimeout: 30_000, name, include: ["src/**/*.test.ts"] },
     }),
