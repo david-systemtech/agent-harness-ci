@@ -749,7 +749,7 @@ export const usePickers = (host: PickersHost): Pickers => {
           return <LinesCard title="Plan usage, pooled by account identity" hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
         }
         case "setup": {
-          const lines = setup ? setupLines(setup.read(), nameFor(card.environmentId), card.checking, card.failed, liveSetup).flatMap(text) : [];
+          const lines = setup ? setupLines(setup.read(), nameFor(card.environmentId), card.checking, card.failed, liveSetup, runtime.environmentNow(card.environmentId)).flatMap(text) : [];
           drawn.current = { lines: lines.length, height: size.height };
           return <LinesCard title={`Set up on ${nameFor(card.environmentId)}`} hint={hint} lines={lines} top={Math.min(card.top, Math.max(0, lines.length - size.height))} height={size.height} />;
         }

@@ -694,6 +694,7 @@ describe("/setup", () => {
     env.setSetup({ permissions: { state: "needs-attention", reason: "Containment is unavailable." } });
     env.passSetup(["permissions"]);
     await app.waitFor(/Permissions.*needs attention.*Containment is unavailable\./);
+    await app.waitFor(/Containment is unavailable\. \(unchanged since 00:00\)/);
     expect(env.requests("setup.check")).toHaveLength(1);
     await app.press(KEY.esc);
     await app.waitFor("Nothing said yet.");

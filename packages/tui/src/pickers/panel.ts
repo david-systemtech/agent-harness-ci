@@ -260,7 +260,7 @@ export const reviewLines = (answer: ReviewAnswer, titleOf: (sessionId: string) =
 };
 
 /** The Set up summary from the runtime's shared checklist, with the steps kept in registry order. */
-export const setupLines = (view: SetupView, name: string, checking: boolean, failed: string | null, live: boolean): readonly (readonly Span[])[] => {
+export const setupLines = (view: SetupView, name: string, checking: boolean, failed: string | null, live: boolean, now: Date): readonly (readonly Span[])[] => {
   const reach = setupReachWords(view.reach, name);
   return [
     [{ text: countsWords(view.counts) }],
@@ -269,10 +269,10 @@ export const setupLines = (view: SetupView, name: string, checking: boolean, fai
     ...(failed === null ? [] : [[{ text: `Set up could not be checked: ${failed}`, color: TERMINAL_ROLES.warning }]]),
     ...view.steps.map((step): readonly Span[] => {
       const state = step.result?.state;
-      if (state === undefined) return [{ text: `${step.label}: ${stepLine(step)}`, dim: true }];
+      if (state === undefined) return [{ text: `${step.label}: ${stepLine(step, now)}`, dim: true }];
       const attention = state === "needs-attention";
       return [{
-        text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${stepLine(step)}` : ""}`,
+        text: `${attention ? "!" : state === "done" ? "●" : "○"} ${step.label}: ${STEP_STATE_WORDS[state]}${attention || step.pending || step.result?.stale || step.result?.olderThanCadence ? ` — ${stepLine(step, now)}` : ""}`,
         dim: state === "skipped",
         ...(attention && { color: TERMINAL_ROLES.warning }),
       }];
