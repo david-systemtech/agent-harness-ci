@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
@@ -245,4 +245,148 @@ describe("files.undo", () => {
     expect(await client.apply("files.undo", { commandId: randomUUID(), sessionId })).toMatchObject({ path: "real/a.txt", action: "restored" });
     expect(readFileSync(join(root, "real", "a.txt"), "utf8")).toBe("a\n");
   });
+
+  it("cannot restore a change an imported session's history made, older than every change a run made since", async () => {
+    const { t, client, root, sessionId } = await setUp({ "a.txt": "a\n", "b.txt": "b\n" });
+    const imported = randomUUID();
+    const input = { file_path: join(root, "b.txt"), old_string: "x", new_string: "b" };
+    t.env.log.append(
+      { kind: "session", id: sessionId },
+      [
+        { type: "tool.started", payload: { runId: imported, toolCallId: "toolu_imported", name: "Edit", input, title: null, agentId: null, parentToolCallId: null } },
+        { type: "tool.ended", payload: { runId: imported, toolCallId: "toolu_imported", status: "ok", output: "done", durationMs: 1 } },
+        { type: "session.history-imported", payload: { runId: imported, providerSessionId: "provider-session-1", outcome: "appended", message: null } },
+      ],
+      { actor: "system:carry-over" },
+    );
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "A" })));
+
+    await client.apply("files.undo", { commandId: randomUUID(), sessionId });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(await refusal(client, sessionId)).toEqual({
+      code: "conflict",
+      data: { reason: "snapshot_unavailable", sessionId, unrestorable: "imported_history", toolCallId: "toolu_imported" },
+    });
+  });
+
+  it("cannot restore yet an Edit that created its file, nor another recognised tool's change", async () => {
+    const { t, client, root, sessionId } = await setUp();
+    await runScript(
+      t,
+      client,
+      sessionId,
+      playing((controls) =>
+        fileTool(controls, { input: { file_path: "new.txt", old_string: "", new_string: "n\n" }, paths: ["new.txt"], write: () => writeFileSync(join(root, "new.txt"), "n\n") }),
+      ),
+    );
+    expect((await refusal(client, sessionId)).data).toMatchObject({ reason: "snapshot_unavailable", path: "new.txt", unrestorable: "unknown" });
+    expect(readFileSync(join(root, "new.txt"), "utf8")).toBe("n\n");
+  });
 });
+
+describe("files.undo's receipts and its journal", () => {
+  /** A held step of a restore: `reached` settles when the restore gets there; it then waits forever, as a process killed there would. */
+  const stopHere = () => {
+    let reach!: () => void;
+    const reached = new Promise<void>((resolve) => (reach = resolve));
+    return { reached, hook: () => { reach(); return new Promise<void>(() => undefined); } };
+  };
+
+  /** A workspace with one Edit of a.txt, "a" to "b", in a session, on a data directory of the test's own, with a client session's token. */
+  const edited = async (options: TestEnvironmentOptions = {}) => {
+    const dataDir = join(tempDir("agent-harness-undo-data-"), "data");
+    const { t, root, sessionId } = await setUp({ "a.txt": "a\n" }, { dataDir, ...options });
+    const { token } = await t.bootstrap();
+    const client = await t.client({ token });
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "b" })));
+    return { t, client, token, root, sessionId, dataDir };
+  };
+
+  it("answers a retry of the same command from its receipt, writing nothing again", async () => {
+    const { t, client, root, sessionId } = await edited();
+    const commandId = randomUUID();
+    const first = await undo(client, sessionId, commandId);
+    expect(first.receipt.status).toBe("accepted");
+    await runScript(t, client, sessionId, playing((controls) => editFile(controls, { path: "a.txt", oldString: "a", newString: "c" })));
+
+    const again = await undo(client, sessionId, commandId);
+    expect(again).toEqual({ receipt: first.receipt });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("c\n");
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toHaveLength(1);
+  });
+
+  it("records a restore an earlier attempt of the command applied once, without writing again", async () => {
+    let failOnce = true;
+    const { t, client, root, sessionId } = await edited({
+      fileUndoHooks: {
+        afterRename: async () => {
+          if (!failOnce) return;
+          failOnce = false;
+          throw new Error("The commit did not happen.");
+        },
+      },
+    });
+    const commandId = randomUUID();
+    await expect(undo(client, sessionId, commandId)).rejects.toMatchObject({ code: "internal" });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    // The retry finds the file restored: it records the restore, where running afresh would find the file changed.
+    const again = await undo(client, sessionId, commandId);
+    expect(again).toEqual({ receipt: expect.objectContaining({ status: "accepted" }), result: { changeId: expect.any(String), path: "a.txt", action: "restored" } });
+    expect(eventsOf(t, sessionId, "files.undo-finished")).toEqual([again.result]);
+  });
+
+  it("recognises on restart a restore a stop cut after its rename, records it once, and answers the retry from that receipt", async () => {
+    const renamed = stopHere();
+    const { t, client, token, root, sessionId, dataDir } = await edited({ fileUndoHooks: { afterRename: renamed.hook } });
+    const commandId = randomUUID();
+    void undo(client, sessionId, commandId).catch(() => undefined);
+    await renamed.reached;
+    await t.close();
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+
+    const later = await start({ dataDir, clock: t.clock });
+    const events = eventsOf(later, sessionId, "files.undo-finished");
+    expect(events).toEqual([{ changeId: expect.any(String), path: "a.txt", action: "restored" }]);
+    const retried = await undo(await later.client({ token }), sessionId, commandId);
+    expect(retried).toEqual({ receipt: expect.objectContaining({ status: "accepted" }) });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+    expect(eventsOf(later, sessionId, "files.undo-finished")).toEqual(events);
+    expect(readdirSync(root)).toEqual(["a.txt"]);
+  });
+
+  it("drops on restart a restore a stop cut before its rename, so the retry restores once", async () => {
+    const renaming = stopHere();
+    const { t, client, token, root, sessionId, dataDir } = await edited({ fileUndoHooks: { beforeRename: renaming.hook } });
+    const commandId = randomUUID();
+    void undo(client, sessionId, commandId).catch(() => undefined);
+    await renaming.reached;
+    await t.close();
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("b\n");
+
+    const later = await start({ dataDir, clock: t.clock });
+    expect(eventsOf(later, sessionId, "files.undo-finished")).toEqual([]);
+    expect(readdirSync(root)).toEqual(["a.txt"]);
+    const retried = await undo(await later.client({ token }), sessionId, commandId);
+    expect(retried.result).toEqual({ changeId: expect.any(String), path: "a.txt", action: "restored" });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+  });
+
+  it("refuses on restart a cut restore whose file was edited meanwhile, and leaves the file and the change as they are", async () => {
+    const renamed = stopHere();
+    const { t, client, token, root, sessionId, dataDir } = await edited({ fileUndoHooks: { afterRename: renamed.hook } });
+    const commandId = randomUUID();
+    void undo(client, sessionId, commandId).catch(() => undefined);
+    await renamed.reached;
+    await t.close();
+    writeFileSync(join(root, "a.txt"), "edited while it was down\n");
+
+    const later = await start({ dataDir, clock: t.clock });
+    const laterClient = await later.client({ token });
+    const retried = await undo(laterClient, sessionId, commandId);
+    expect(retried.receipt).toMatchObject({ status: "rejected", error: { code: "conflict", data: { reason: "file_changed", path: "a.txt" } } });
+    expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("edited while it was down\n");
+    expect(eventsOf(later, sessionId, "files.undo-finished")).toEqual([]);
+    expect((await refusal(laterClient, sessionId)).data).toMatchObject({ reason: "file_changed", path: "a.txt" });
+  });
+});
+
