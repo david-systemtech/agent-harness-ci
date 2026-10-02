@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
-const workflow = readFileSync(join(root, ".github/workflows/release.yml"), "utf8");
+const workflow = readFileSync(join(root, "public/.github-workflows/release.yml"), "utf8");
 const lines = workflow.split("\n");
 const run = promisify(execFile);
 const jobs = new Map<string, string[]>();
@@ -28,7 +28,7 @@ let scratch: string | undefined;
 afterEach(() => { if (scratch) rmSync(scratch, { recursive: true, force: true }); });
 
 describe("the public GitHub release workflow", () => {
-  it("runs only for v tags or manual dry runs, and Forgejo no longer runs for a tag", () => {
+  it("runs only for public v tags or manual dry runs, and Forgejo no longer runs for a tag", () => {
     expect(lines.slice(lines.indexOf("on:") + 1, lines.indexOf("permissions:"))).toEqual([
       "  push:", '    tags: ["v*"]', "  workflow_dispatch:", "",
     ]);

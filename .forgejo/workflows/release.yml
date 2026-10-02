@@ -1,5 +1,5 @@
 # Manual recovery only: select a v tag when dispatching. Tag pushes publish
-# through .github/workflows/release.yml on the public GitHub mirror (#1258).
+# through the public GitHub snapshot's release workflow (#1258, #1275).
 name: release
 
 on:

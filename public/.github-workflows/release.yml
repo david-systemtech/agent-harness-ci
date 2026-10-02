@@ -1,4 +1,5 @@
-# Forgejo's push mirror carries v tags here. Branch pushes register no run.
+# The snapshot publisher installs this overlay in the public repository's workflows.
+# Its version tags start releases; branch pushes register no run.
 # Manual dispatch builds all assets with a synthetic version, without publishing.
 name: release
 

@@ -8,7 +8,7 @@
  * a tag's real run is the service-install checklist's Release section.
  */
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -75,6 +75,16 @@ const pnpmCalledBy = async (step: string, env: NodeJS.ProcessEnv): Promise<strin
 };
 
 describe("the release workflow", () => {
+  it("keeps the hosted release in the public overlay and no workflow files in the private root", () => {
+    const hosted = readFileSync(join(root, "public/.github-workflows/release.yml"), "utf8");
+    expect(hosted).toContain('    tags: ["v*"]');
+    expect(hosted).toContain("  workflow_dispatch:");
+    const privateWorkflows = join(root, ".github", "workflows");
+    expect(existsSync(privateWorkflows)
+      ? readdirSync(privateWorkflows, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile())
+      : []).toEqual([]);
+  });
+
   it("checks, before anything is built or pushed, that the tag's release is unpublished, then runs typecheck, lint, test and the schema export's check", () => {
     const check = job("check");
     expect(check).toContain("    runs-on: ci");

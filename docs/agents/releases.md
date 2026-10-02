@@ -1,10 +1,18 @@
 # Cutting a release
 
 Forgejo (`david/agent-harness` at `git.systemtech.dev:5526`) is the development
-origin. Its push mirror carries every branch and tag to GitHub's public
-`david-systemtech/agent-harness` repository. GitHub builds and publishes releases;
+origin. The snapshot publisher (#1275, PR #1277) publishes a cleaned tree and
+version tags to GitHub's public `david-systemtech/agent-harness` repository.
+Private history and branches stay on Forgejo. GitHub builds and publishes releases;
 branch pushes start no release jobs. No stored release secret is needed: the
 workflow uses `GITHUB_TOKEN` with `contents: write` and `packages: write`.
+
+The private tree stores the release workflow at `public/.github-workflows/release.yml`,
+outside the root GitHub workflow directory. The snapshot publisher installs it as
+`.github/workflows/release.yml` in the public repository, whose push uses a token
+with `workflow` scope. Keep the private root free of GitHub workflow files: its CI
+relay can push the private tree without a credential change. This publish token
+is separate from the workflow's own token used to upload releases and images.
 
 Before the first public release, complete the pre-publication secret audit and
 make the GitHub repository public, as decided on #1258. GHCR packages start
@@ -13,7 +21,9 @@ private even for a public repository: the owner must make the new
 not change repository or package settings. This makes release and image reads
 available without an account.
 
-1. Choose a merged main commit with green CI. Verify the mirror has that commit.
+1. Choose a merged main commit with green CI. Follow the snapshot publisher's
+   procedure to publish its cleaned tree to the public repository without a tag.
+   Verify that snapshot includes the installed release workflow.
 2. For a build rehearsal, manually dispatch GitHub's **release** workflow on
    that commit's branch. Dispatch always uses `v0.0.0-ci.<run number>`, even on
    a stable tag, and builds every server artefact, desktop installer and the
@@ -21,7 +31,7 @@ available without an account.
    workflow artifact (kept seven days), check `release.json` and its SHA-256
    sidecars, and run the desktop and service-install checklists on real machines.
    Its image digest belongs to that local build; it cannot be pulled from GHCR.
-3. Tag the chosen commit on Forgejo and push the tag to `origin`:
+3. Tag the chosen private commit on Forgejo and push the tag to `origin`:
 
    ```sh
    git tag -a v1.2.3 <commit> -m "Release v1.2.3"
@@ -30,7 +40,9 @@ available without an account.
 
    Use `v1.2.3-beta.1` for a prerelease. The tag must be a semantic version
    without build metadata (`+...`), since the image uses that version as its tag.
-4. Wait for the mirror to carry the tag and GitHub's **release** workflow to
+   Use the snapshot publisher to publish that ref and version tag to the public
+   repository. Its public tag points to the cleaned snapshot, not private history.
+4. Wait for the public tag's GitHub **release** workflow to
    finish. It checks the release is unpublished before building; builds the
    versioned linux/amd64 image and pushes it to
    `ghcr.io/david-systemtech/agent-harness:<version>`; builds the macOS zip,

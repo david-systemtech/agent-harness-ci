@@ -130,10 +130,12 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   real run downloads Node's archives and packs three artefacts of about 160 MB each, which
   the release workflow does. What only a machine of each platform proves is the Server
   artefacts section of `docs/agents/service-install-checklist.md`. The release workflow
-  (`.github/workflows/release.yml`, #1258) builds mirrored `v*` tags on hosted GitHub
+  (`public/.github-workflows/release.yml`, #1258) builds public `v*` tags on hosted GitHub
   runners, publishes the complete GitHub release and pushes its versioned image to GHCR.
+  The snapshot publisher (#1275, PR #1277) installs this overlay as `.github/workflows/release.yml`
+  in the public repository using a push token with `workflow` scope; the private root holds no workflows.
   Manual dispatch builds all assets with a synthetic version without publishing; Forgejo's
-  release workflow is manual recovery only. For tagging, mirror checks, dry runs and public
+  release workflow is manual recovery only. For tagging, snapshot checks, dry runs and public
   visibility, read `docs/agents/releases.md`. Its publish step uses `pnpm --filter
   agent-harness publish-release` (`scripts/release/publish.ts`, notes from `notes.ts`),
   tested against the fake release API in `packages/cli/test/fake-forgejo-releases.ts`.
@@ -218,9 +220,9 @@ pnpm comes from the `packageManager` pin through `corepack enable`.
   running it against a real Docker host is the checklist's Host-side updater
   section. The image's job, `.forgejo/scripts/image.sh` (a pull request's
   build in `.forgejo/workflows/image.yml`, manual recovery in Forgejo's release workflow),
-  is tested by `test/image-script.test.ts` against a fake `docker`. Mirrored `v` tags
-  build and push to GHCR in `.github/workflows/release.yml`; a pull from the registry
-  are the checklist's Release image section. Never build or run an image on
+  is tested by `test/image-script.test.ts` against a fake `docker`. Public `v` tags
+  build and push to GHCR through `public/.github-workflows/release.yml`; a pull from the registry
+  is the checklist's Release image section. Never build or run an image on
   the shared agent box, nor run the updater there.
 - Four local lint rules live in `eslint-rules/`. Two enforce ADR 0003 and 0004:
   `agent-harness/no-client-organisation-state` (its allowlisted modules and the
