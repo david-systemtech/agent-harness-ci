@@ -3,6 +3,7 @@ import { ACCESS_EVENT_PAYLOADS, ACCESS_EVENT_TYPES, ACCESS_STREAM_KIND } from ".
 import { ACCOUNT_EVENT_TYPES, ACCOUNT_STREAM_KIND } from "./accounts.js";
 import { BANK_SESSION_EVENT_TYPES } from "./bank-use.js";
 import { CHROME_EVENT_TYPES, CHROME_STREAM_KIND } from "./browser-chromes.js";
+import { FILE_UNDO_SESSION_EVENT_TYPES } from "./file-undo.js";
 import { INSTRUCTION_SESSION_EVENT_TYPES, INSTRUCTIONS_EVENT_TYPES, INSTRUCTIONS_STREAM_KIND } from "./instructions.js";
 import { ENVIRONMENT_NOTICE_TYPES, ENVIRONMENT_STREAM_KIND, EnvironmentNotice } from "./notices.js";
 import { PERMISSION_SESSION_EVENT_TYPES } from "./permissions.js";
@@ -76,6 +77,7 @@ const sessionEventTypes = {
   ...BROWSER_SESSION_EVENT_TYPES,
   ...SETUP_SESSION_EVENT_TYPES,
   ...BANK_SESSION_EVENT_TYPES,
+  ...FILE_UNDO_SESSION_EVENT_TYPES,
 } as const;
 
 /** Every event type, by the kind of stream it goes on. */

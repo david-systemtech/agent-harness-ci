@@ -88,6 +88,7 @@ import type {
   AdapterDescriptor,
   AdapterRun,
   AttachmentData,
+  FileChangeObserver,
   PermissionBroker,
   ProcessEnvironment,
   PromptDecision,
@@ -328,6 +329,12 @@ export interface AdapterHostOptions {
    * with no data directory.
    */
   readonly attachmentStage?: AttachmentStage;
+  /**
+   * The observer of each run's recognised file tools (#1183,
+   * `RunContext.fileChanges`), made for the run as it launches, with its
+   * session and the workspace it runs in. Preset: none, nothing observed.
+   */
+  readonly fileChanges?: (run: { readonly sessionId: string; readonly runId: string; readonly workspace: string }) => FileChangeObserver;
 }
 
 /** The attachments of one message waiting to be read, with the session it was sent to. Never logged. */
@@ -1369,6 +1376,9 @@ export const createAdapterHost = (options: AdapterHostOptions): AdapterHost => {
     broker: brokerFor(entry.sessionId),
     gate: gateFor(gatedRun(entry)),
     process: pool.port(entry.sessionId),
+    ...(options.fileChanges !== undefined && {
+      fileChanges: options.fileChanges({ sessionId: entry.sessionId, runId: entry.runId, workspace: entry.plan.workspace.path }),
+    }),
     adopt: (turn) => adopt(entry, turn),
     reportSuggestion: ({ runId, suggestion }) => {
       if (closing) return;
