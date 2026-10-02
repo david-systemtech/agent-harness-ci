@@ -1,3 +1,4 @@
+export { BankMigrationChoices, BankMigrationReport } from "./bank-migration.js";
 export { PRODUCT_NAME } from "./product.js";
 
 export * from "./access-log.js";
