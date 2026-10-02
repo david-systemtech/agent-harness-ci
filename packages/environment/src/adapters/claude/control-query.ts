@@ -2,7 +2,7 @@ import type { RunSkillSet } from "@agent-harness/contracts";
 import { query as sdkQuery, type Options, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Clock } from "../../serve/clock.js";
 import { composeRunEnvironment, type HostEnvironment } from "./credentials.js";
-import { CLIENT_APP, flagSettings, skillPlugins } from "./options.js";
+import { CLIENT_APP, flagSettings, projectOptions, skillPlugins } from "./options.js";
 
 /**
  * A query that is never sampled (the models fetch and the plan-usage read,
@@ -30,6 +30,8 @@ export interface ControlQueryOptions {
   readonly skillSet?: RunSkillSet;
   /** Whether the workspace's repository passed the trust gate: its project settings then load, as a run's would. */
   readonly trusted?: boolean;
+  /** The main checkout of the linked worktree `cwd` lies in, whose project configuration a trusted run there loads (#998). */
+  readonly checkoutRoot?: string | null;
   readonly timeoutMs: number;
 }
 
@@ -59,7 +61,7 @@ export const withControlQuery = async <T>(options: ControlQueryOptions, ask: (qu
     cwd: options.cwd,
     env: composeRunEnvironment(options.hostEnv, options.directory, { CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP }),
     abortController: abort,
-    settingSources: options.trusted === true ? ["project"] : [],
+    ...projectOptions(options.trusted === true, options.checkoutRoot ?? null),
     strictMcpConfig: true,
     includePartialMessages: false,
     // Nothing is said, so nothing is kept: no transcript file for a query that never ran a turn.

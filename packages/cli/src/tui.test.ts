@@ -116,6 +116,11 @@ describe("agent-harness tui", () => {
     });
   });
 
+  it("accepts --import-terminal-state and supplies the local source reader only on request", async () => {
+    expect((await harness().launch()).terminalSource).toBeUndefined();
+    expect((await harness().launch("--import-terminal-state")).terminalSource).toBeTypeOf("function");
+  });
+
   it("takes -c, and --continue, for the newest session whose workspace is the current directory", async () => {
     expect(await harness().launch("-c")).toMatchObject({ continueLatest: true });
     expect(await harness().launch("--continue")).toMatchObject({ continueLatest: true });
@@ -139,7 +144,7 @@ describe("agent-harness tui", () => {
       const cli = harness();
       expect(await cli.run(...args), args.join(" ")).toBe(2);
       expect(cli.err(), args.join(" ")).toContain(
-        "agent-harness tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]",
+        "agent-harness tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>] [--import-terminal-state]",
       );
       expect(cli.launched).toEqual([]);
     }

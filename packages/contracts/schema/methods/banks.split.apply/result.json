@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "banks.split.apply result",
+  "type": "object",
+  "properties": {
+    "landing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "landed"
+            },
+            "bank": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+            },
+            "pullRequest": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "present",
+                      "removed"
+                    ],
+                    "description": "Verified main state: the written file is present with its exact content, or the retired file is removed."
+                  }
+                },
+                "required": [
+                  "path",
+                  "state"
+                ]
+              }
+            }
+          },
+          "required": [
+            "state",
+            "bank",
+            "pullRequest",
+            "files"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "awaiting-review"
+            },
+            "bank": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+            },
+            "pullRequest": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "const": "pending"
+                  }
+                },
+                "required": [
+                  "path",
+                  "state"
+                ]
+              }
+            }
+          },
+          "required": [
+            "state",
+            "bank",
+            "pullRequest",
+            "files"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "const": "failed"
+            },
+            "bank": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "description": "A bank's name: 1 to 40 characters of lower-case letters, digits and single hyphens between them, unique per environment."
+            },
+            "step": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "bank",
+            "step",
+            "reason"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "landing"
+  ]
+}

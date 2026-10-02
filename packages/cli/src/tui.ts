@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { PRODUCT_NAME } from "@agent-harness/contracts";
 import { defaultDataDirectory, HARNESS_VERSION } from "@agent-harness/environment";
+import { readLocalTerminalSource } from "@agent-harness/environment/terminal-source";
 import type { LocalService, ServiceOutcome, TuiOptions } from "@agent-harness/tui";
 import type { ScreenlessOptions, SelectionOutcome } from "@agent-harness/tui/screenless";
 import { parseOptions, UsageError } from "./args.js";
@@ -16,7 +17,7 @@ import { service, serviceInstalled, servicePort, type ServiceContext } from "./s
  * the service-down offer runs. The `-p` and `ls` flags are not carried.
  */
 
-export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>]`;
+export const TUI_USAGE = `${PRODUCT_NAME} tui [--environment <name or id>] [--session <id> | -c] [--cwd <path>] [--keybindings <file>] [--import-terminal-state]`;
 
 /** The terminal UI's entry point: `runTui`, loaded only when `tui` runs, so `serve` never loads Ink and React. */
 export type RunTui = (options: TuiOptions) => Promise<number>;
@@ -26,7 +27,7 @@ export interface TuiContext extends Pick<ServiceContext, "fetch" | "user" | "sea
   readonly runTui?: RunTui | undefined;
 }
 
-type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings">;
+type TuiFlags = Pick<TuiOptions, "environment" | "session" | "continueLatest" | "cwd" | "keybindings" | "terminalSource">;
 
 export const nonEmpty = (flag: string, value: string | undefined): string | undefined => {
   if (value !== undefined && value.trim() === "") throw new UsageError(`${flag} takes a value; got an empty one.`);
@@ -40,12 +41,14 @@ const parseTui = (args: readonly string[]): TuiFlags => {
     continue: { type: "boolean", short: "c" },
     cwd: { type: "string" },
     keybindings: { type: "string" },
+    "import-terminal-state": { type: "boolean" },
   });
   const session = nonEmpty("--session", values.session);
   if (session !== undefined && values.continue) throw new UsageError("--session and -c each name the session to open; give one.");
   const cwd = nonEmpty("--cwd", values.cwd);
   const keybindings = nonEmpty("--keybindings", values.keybindings);
   return {
+    ...(values["import-terminal-state"] ? { terminalSource: readLocalTerminalSource } : {}),
     environment: nonEmpty("--environment", values.environment),
     session,
     continueLatest: values.continue ?? false,
