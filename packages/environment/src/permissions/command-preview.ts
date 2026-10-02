@@ -456,16 +456,19 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** Reserved words can place a compound command where an ordinary argument cannot. */
 const BRACE_GROUP_PREFIXES = new Set(['time', '!', 'if', 'then', 'elif', 'else', 'while', 'until', 'do']);
-const braceGroupPosition = (words: readonly Word[]): boolean => words.every((word, index) =>
-  !word.quoted && (ASSIGNMENT.test(word.text) || BRACE_GROUP_PREFIXES.has(word.text)
-    || (word.text === '-p' && words[index - 1]?.text === 'time')));
-
+const braceGroupPosition = (words: readonly Word[]): boolean => {
+  const functionWord = words.at(-2);
+  const prefix = functionWord?.text === 'function' && !functionWord.quoted ? words.slice(0, -2) : words;
+  return prefix.every((word, index) => !word.quoted && (ASSIGNMENT.test(word.text) || BRACE_GROUP_PREFIXES.has(word.text)
+    || (word.text === '-p' && prefix[index - 1]?.text === 'time')));
+};
 
 /** Wrappers that are not themselves the command, and are worth seeing through. */
-const PREFIXES = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'xargs']);
+const PREFIXES = new Set(['sudo', 'doas', 'env', 'command', 'nohup', 'time', 'xargs', 'exec', 'timeout', 'busybox']);
 
 /** Prefix options that swallow the next word, so the command is not mistaken for their value. */
 const PREFIX_VALUE_FLAGS = new Set(['-u', '-g', '-C', '--user', '--chdir', '-I']);
+const TIMEOUT_VALUE_FLAGS = new Set(['-k', '-s', '--kill-after', '--signal']);
 const XARGS_VALUE_FLAGS = new Set(['-n', '-P', '-L', '-a', '-s', '-d', '-E', '--max-args', '--max-procs', '--max-lines', '--arg-file', '--max-chars', '--delimiter']);
 
 /** git's own options, before the subcommand. Those that take a separate value. */
@@ -537,11 +540,16 @@ function invocationOf(segment: Segment): { readonly name: string; readonly args:
     if (!PREFIXES.has(name)) return { name, args: words.slice(1), inputTargets };
     if (name === 'xargs') inputTargets = true;
     let at = 1;
+    const executionWrapper = name === 'exec' || name === 'timeout' || name === 'busybox';
     while (at < words.length) {
       const word = words[at];
-      if (word === undefined || !isFlag(word)) break;
-      at += PREFIX_VALUE_FLAGS.has(word.text) || (name === 'xargs' && XARGS_VALUE_FLAGS.has(word.text)) ? 2 : 1;
+      if (word === undefined || !(isFlag(word) || (executionWrapper && /^-./.test(word.text)))) break;
+      if (word.text === '--') { at += 1; break; }
+      const takesValue = PREFIX_VALUE_FLAGS.has(word.text) || (name === 'xargs' && XARGS_VALUE_FLAGS.has(word.text))
+        || (name === 'exec' && word.text === '-a') || (name === 'timeout' && TIMEOUT_VALUE_FLAGS.has(word.text));
+      at += takesValue ? 2 : 1;
     }
+    if (name === 'timeout') at += 1; // The duration precedes the wrapped command.
     words = words.slice(at);
   }
   return null;

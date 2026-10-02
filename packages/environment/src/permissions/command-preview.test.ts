@@ -171,10 +171,10 @@ describe('reading a command line', () => {
     expect(destructiveParts('cat <>log.txt; rm keep.txt')[0]?.targets).toEqual(['keep.txt']);
   });
   it('warns about brace groups while leaving quoted groups and brace data quiet', () => {
-    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }', 'time { rm -rf build; }', 'time -p { rm -rf build; }', 'time ! { rm -rf build; }', '! { rm -rf build; }', 'if { rm -rf build; }; then echo done; fi', 'while { rm -rf build; }; do echo done; done', 'if true; then { rm -rf build; }; fi']) {
+    for (const command of ['{ rm -rf build; }', 'echo ready; { rm -rf build; }', 'X=1 { rm -rf build; }', 'time { rm -rf build; }', 'time -p { rm -rf build; }', 'time ! { rm -rf build; }', '! { rm -rf build; }', 'if { rm -rf build; }; then echo done; fi', 'while { rm -rf build; }; do echo done; done', 'if true; then { rm -rf build; }; fi', 'function f { rm -rf build; }; f']) {
       expect(kinds(command)).toEqual(['indirect-shell']);
     }
-    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}', 'echo time { rm -rf build \\; }', 'time echo { rm -rf build \\; }', '"time" { rm -rf build \\; }']) {
+    for (const command of ["echo '{ rm -rf build; }'", 'echo "{ rm -rf build; }"', 'echo {rm,-rf,build}', 'echo \\{ rm -rf build \\}', 'echo time { rm -rf build \\; }', 'time echo { rm -rf build \\; }', '"time" { rm -rf build \\; }', "echo 'function f { rm -rf build; }; f'"]) {
       expect(destructiveParts(command)).toEqual([]);
     }
     expect(destructiveParts('rm build/{a,b}')[0]?.targets).toEqual(['build/{a,b}']);
@@ -196,6 +196,14 @@ describe('reading a command line', () => {
       expect(kinds(command)).toEqual(['indirect-shell']);
     }
     for (const command of ['eval', "echo 'eval rm -rf build'", "echo \"sh -c 'rm -rf build'\"", "sh script.sh 'rm -rf build'", "sh script.sh '-c' 'rm -rf build'", "sh -- -c 'rm -rf build'", "bash -o noclobber script.sh 'rm -rf build'"]) {
+      expect(destructiveParts(command)).toEqual([]);
+    }
+  });
+  it('sees shell command options through execution wrappers without treating wrapper values as commands', () => {
+    for (const command of ["exec sh -c 'rm -rf build'", "exec -a label sh -c 'rm -rf build'", "exec '--' sh '-c' 'rm -rf build'", "timeout 10 sh -c 'rm -rf build'", "timeout -k 2 10 sh -c 'rm -rf build'", "timeout '--signal' 'TERM' -- 10 sh -c 'rm -rf build'", "busybox sh -c 'rm -rf build'", "busybox ash -c 'rm -rf build'", "exec env X=1 timeout -s TERM 10 busybox sh -c 'rm -rf build'"]) {
+      expect(kinds(command)).toEqual(['indirect-shell']);
+    }
+    for (const command of ["echo \"exec sh -c 'rm -rf build'\"", "exec '-a' sh echo '-c' 'rm -rf build'", "timeout 10 sh script.sh '-c' 'rm -rf build'", "busybox echo sh '-c' 'rm -rf build'"]) {
       expect(destructiveParts(command)).toEqual([]);
     }
   });
