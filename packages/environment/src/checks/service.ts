@@ -16,8 +16,9 @@ import {
 import { formatActor, type EventEnvelope, type EventLog } from "../event-log/event-log.js";
 import type { ScrubRegistry } from "../scrub/registry.js";
 import type { Clock, Timer } from "../serve/clock.js";
-import type { CommandRejection, MethodHandlers } from "../serve/methods.js";
+import type { CommandRejection, MethodHandler, MethodHandlers } from "../serve/methods.js";
 import { sessionNotFound } from "../sessions/decider.js";
+import type { Reader } from "../sessions/session-tables.js";
 import { sessionStream } from "../sessions/streams.js";
 import type { CommandTerminals } from "../terminals/service.js";
 import { requireSessionWorkspace, sessionWorkspace, sessionWorkspaceStatus } from "../workspace/session.js";
@@ -135,7 +136,7 @@ const failureOf = (exit: TerminalExitedPayload, timedOut: boolean): CheckFailure
 
 export const createWorkspaceChecks = (options: WorkspaceChecksOptions): WorkspaceChecks => {
   const { log, clock, terminals } = options;
-  const reader = { all: <Row>(sql: string, ...params: readonly (string | number | null)[]) => log.read<Row>(sql, ...params) };
+  const reader: Reader = { all: (sql, ...params) => log.read(sql, ...params) };
   const environmentStream = { kind: ENVIRONMENT_STREAM_KIND, id: options.environmentId };
   /** The check running in each canonical directory. */
   const running = new Map<string, Running>();
@@ -156,6 +157,25 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     }
   };
 
+  /**
+   * What a check command's prepare finds of the session: the directory
+   * checks key its workspace by (null when gone, or not answering), and
+   * whether the session still records the workspace that was found from,
+   * so a command whose session moved meanwhile is prepared again.
+   */
+  const locate = async (sessionId: string): Promise<{ readonly workspace: string | null; readonly isCurrent: () => boolean }> => {
+    const recorded = sessionWorkspace(log, sessionId);
+    const workspace = recorded === null ? null : await located(sessionId, recorded);
+    return { workspace, isCurrent: () => sessionWorkspace(log, sessionId) === recorded };
+  };
+
+  /** The located directory a check command decides on, as its transaction finds the session; refused when the session or the directory is gone. */
+  const checkable = (sessionId: string, workspace: string | null): { readonly workspace: string } | { readonly rejected: CommandRejection<"not_found" | "conflict"> } => {
+    const path = sessionWorkspace(log, sessionId);
+    if (path === null) return { rejected: sessionNotFound(sessionId) };
+    return workspace === null ? { rejected: workspaceMissing(path) } : { workspace };
+  };
+
   /** Appends `checks.finished` on the check's session, unless a purge has taken the session; a failed append is said. */
   const record = (sessionId: string, finished: ChecksFinishedPayload): void => {
     if (log.read("SELECT 1 FROM sessions WHERE id = ?", sessionId).length === 0) return;
@@ -166,7 +186,7 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     }
   };
 
-  /** What `check` recorded as it ends: its kept output and how it ended. */
+  /** Records how `check` ended, with its kept output, and frees its directory; once. */
   const finish = (check: Running, ended: Pick<ChecksFinishedPayload, "exitCode" | "signal" | "timedOut" | "failure">): void => {
     if (check.finished) return;
     check.finished = true;
@@ -214,35 +234,33 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
     "checks.set": {
       prepare: async (asked) => {
         const sessionId = asked.sessionId.toLowerCase();
-        const recorded = sessionWorkspace(log, sessionId);
-        const workspace = recorded === null ? null : await located(sessionId, recorded);
-        return (params) => {
-          if (sessionWorkspace(log, sessionId) === null) return { aggregate: environmentStream, rejected: sessionNotFound(sessionId) };
-          if (workspace === null) return { aggregate: environmentStream, rejected: workspaceMissing(recorded ?? "") };
-          const result: WorkspaceCheck = { workspace, command: params.command };
-          if ((readWorkspaceCheck(reader, workspace)?.command ?? null) === params.command) return { aggregate: environmentStream, result };
+        const prepared = await locate(sessionId);
+        const set: MethodHandler<"checks.set"> = (params) => {
+          const found = checkable(sessionId, prepared.workspace);
+          if ("rejected" in found) return { aggregate: environmentStream, rejected: found.rejected };
+          const result: WorkspaceCheck = { workspace: found.workspace, command: params.command };
+          if ((readWorkspaceCheck(reader, found.workspace)?.command ?? null) === params.command) return { aggregate: environmentStream, result };
           return { aggregate: environmentStream, result, events: [{ type: "checks.changed", payload: result }] };
         };
+        return Object.assign(set, { isCurrent: prepared.isCurrent });
       },
     },
 
     "checks.run": {
       prepare: async (asked) => {
         const sessionId = asked.sessionId.toLowerCase();
-        const recorded = sessionWorkspace(log, sessionId);
-        const workspace = recorded === null ? null : await located(sessionId, recorded);
-        return (_params, context) => {
-          const aggregate = sessionStream(sessionId);
-          if (sessionWorkspace(log, sessionId) === null) return { aggregate, rejected: sessionNotFound(sessionId) };
-          if (workspace === null) return { aggregate, rejected: workspaceMissing(recorded ?? "") };
+        const aggregate = sessionStream(sessionId);
+        const prepared = await locate(sessionId);
+        const run: MethodHandler<"checks.run"> = (_params, context) => {
+          const found = checkable(sessionId, prepared.workspace);
+          if ("rejected" in found) return { aggregate, rejected: found.rejected };
+          const { workspace } = found;
           const command = readWorkspaceCheck(reader, workspace)?.command ?? null;
           if (command === null) return { aggregate, rejected: conflict("check_unset", `No check command is set for ${workspace}.`, { workspace }) };
           const busy = running.get(workspace);
           if (busy !== undefined) {
-            return {
-              aggregate,
-              rejected: conflict("check_running", `A check of ${workspace} is running in terminal ${busy.started.terminalId}; one runs at a time.`, { workspace, terminalId: busy.started.terminalId }),
-            };
+            const { terminalId } = busy.started;
+            return { aggregate, rejected: conflict("check_running", `A check of ${workspace} is running in terminal ${terminalId}; one runs at a time.`, { workspace, terminalId }) };
           }
           const started: ChecksStartedPayload = { terminalId: randomUUID(), command, sourceRunId: null };
           const check: Running = { workspace, sessionId, started, output: outputTail(), timedOut: false, timer: undefined, finished: false };
@@ -251,6 +269,7 @@ export const createWorkspaceChecks = (options: WorkspaceChecksOptions): Workspac
           context.tx.afterCommit(() => begin(check));
           return { aggregate, result: { terminalId: started.terminalId }, events: [{ type: "checks.started", payload: started }] };
         };
+        return Object.assign(run, { isCurrent: prepared.isCurrent });
       },
     },
   };
