@@ -160,7 +160,7 @@ describe("auth and hello", () => {
       protocolVersion: PROTOCOL_VERSION,
       // The forge accounts (#310), the key-manager connections (#365), the Managed tools registry (#373), the bank registry
       // (#1025) and Set up's results (#569); the containment flags only where the probe found a level enforceable.
-      capabilities: ["forge", "keyManagers", "managedTools", "banks", "setup"],
+      capabilities: ["forge", "keyManagers", "managedTools", "workspaceChecks", "banks", "setup"],
       environmentId: t.env.id,
       environmentName: "desk",
       // Its icon and colour (#323), which until set are the platform's and a hash of its id's.

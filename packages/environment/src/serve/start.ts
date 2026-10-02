@@ -190,6 +190,8 @@ import { sessionListProjector } from "../sessions/session-list.js";
 import { knownRepositoryIdentities, type Reader } from "../sessions/session-tables.js";
 import { baseEnvironment } from "../terminals/shell.js";
 import { createTerminalService, type ToolTerminals } from "../terminals/service.js";
+import { createWorkspaceChecks } from "../checks/service.js";
+import { checksProjector } from "../checks/store.js";
 import type { TerminalsOptions } from "../terminals/terminals.js";
 import { chromesProjector } from "../browser/chromes.js";
 import { createBrowserService } from "../browser/service.js";
@@ -903,6 +905,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       skillChoicesProjector,
       skillSourcesProjector,
       chromesProjector,
+      checksProjector,
       ...(options.projectors ?? []),
     ]) {
       log.registerProjector(projector);
@@ -1498,6 +1501,11 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     },
   });
   closers.push(() => terminalService.close());
+  // Workspace checks (#1187): each directory's command, run in the session's terminals as terminals.run runs one; closed
+  // before the terminals, so a check the stop cuts short is recorded interrupted. A check a crash cut is recorded as it starts.
+  const workspaceChecks = createWorkspaceChecks({ log, clock, environmentId: record.id, terminals: terminalService.commands, scrub });
+  closers.push(() => workspaceChecks.close());
+  capabilities.push("workspaceChecks");
   // Install and Update in a tool terminal (#376): closed before the terminals, so a run the stop cuts short is recorded finished.
   const toolRunner = createToolRunner({
     tools: managedTools,
@@ -1813,6 +1821,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
     ...terminalService.handlers,
+    ...workspaceChecks.handlers,
     // Browsing and inspecting the environment's directories (#331) read a path by the environment's own resolver.
     ...workspaceMethods({
       log,
