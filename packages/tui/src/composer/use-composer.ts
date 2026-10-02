@@ -123,13 +123,14 @@ export interface ComposerHost {
   readonly editText: (text: string) => Promise<string | undefined>;
   /** One line under the composer. */
   readonly say: (line: string) => void;
+  /** Empty Enter: start sending an offered check failure; true when initiated. */
+  readonly sendFailure?: (() => boolean) | undefined;
   /**
    * Enter with something typed: the host runs it, a command or a message.
    * `raw` is the text as it stands in the box (a command is read from it),
    * `message` what would go to the agent. True when it went, and the box
    * empties.
    */
-  readonly sendFailure?: (() => boolean) | undefined;
   readonly submit: (raw: string, message: { readonly text: string; readonly attachments: readonly AttachmentInput[] }) => boolean;
   /** A path chosen from the `@` list, for the pick memory. */
   readonly picked: (path: string) => void;
