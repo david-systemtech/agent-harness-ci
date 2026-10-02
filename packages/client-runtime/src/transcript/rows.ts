@@ -5,6 +5,7 @@ import type {
   CheckEntry,
   CommandEntry,
   ForkedEntry,
+  FileUndoEntry,
   HistoryUnreadableEntry,
   OpaqueEntry,
   PromptEntry,
@@ -63,6 +64,7 @@ import { isLiveTask } from "./tasks.js";
  */
 
 export type TranscriptRow =
+  | { readonly kind: "file-undo"; readonly id: string; readonly runId: null; readonly entry: FileUndoEntry }
   | { readonly kind: "user"; readonly id: string; readonly runId: string; readonly entry: UserMessageEntry }
   | { readonly kind: "update-interrupted"; readonly id: string; readonly runId: null; readonly entry: UpdateInterruptedEntry }
   | { readonly kind: "assistant"; readonly id: string; readonly runId: string; readonly entry: AssistantEntry }
@@ -179,6 +181,9 @@ export const transcriptRows = (view: Pick<SessionProjection, "items" | "runs">):
         break;
       case "tasks":
         // Delegated work is the strip's, not a row.
+        break;
+      case "file-undo":
+        push({ kind: "file-undo", id: `file-undo:${entry.changeId}`, runId: null, entry });
         break;
       case "opaque":
         push({ kind: "opaque", id: `opaque:${entry.sequence}`, runId: null, entry });

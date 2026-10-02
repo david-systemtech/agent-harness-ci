@@ -6,6 +6,7 @@ import {
   describeActivity,
   endWords,
   environmentMessage,
+  fileUndoWords,
   folded,
   formatDuration,
   oneLine,
@@ -419,6 +420,8 @@ export const rowLines = (row: Row, context: LineContext): Line[] => {
     }
     case "turn":
       return turnLines(row.id, row.run, context);
+    case "file-undo":
+      return wrap([{ text: `${INDENT}· ${fileUndoWords(row.entry)} ${row.entry.changeId}`, color: TERMINAL_ROLES.success }], width).map((spans) => ({ row: row.id, spans }));
     case "opaque":
       return [{ row: row.id, spans: [{ text: `${INDENT}· ${row.entry.type}: an event this version does not show`, dim: true }] }];
     case "rewound":
