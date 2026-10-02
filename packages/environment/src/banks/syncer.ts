@@ -2,7 +2,7 @@ import { ContractError, type BankEntry, type BankRecord } from "@agent-harness/c
 import type { ForgeGitAnswer, ForgeGitRequest } from "../forge/harness-git.js";
 import type { Clock, Timer } from "../serve/clock.js";
 import { runGit } from "../workspace/git.js";
-import type { BankService } from "./bank-service.js";
+import { REGISTERED_SYNC_BLOCKED, type BankService } from "./bank-service.js";
 
 /** The banks spec's shared before-run budget, stale boundary and idle cadence. */
 const STALE_MS = 60_000;
@@ -42,6 +42,29 @@ export const createBankSyncer = (options: { readonly banks: BankService; readonl
     if (controller.signal.aborted) return;
     if (answer.outcome === "refused" || !answer.git.ok || answer.git.timedOut || answer.git.truncated) {
       await banks.recordSync(bank.id, { problem: answer.outcome === "refused" ? answer.error.message : "Fetching the bank's main failed." });
+      return;
+    }
+    // Adopted paths, including older records, retain the owner's work.
+    if (bank.checkoutOwnership !== "managed") {
+      const status = await local(["status", "--porcelain", "--untracked-files=no"]);
+      const ancestor = await local(["merge-base", "--is-ancestor", "HEAD", MAIN]);
+      let problem: string | null = null;
+      if (!status.ok || status.timedOut || status.truncated) problem = "The tracked files could not be checked. Check the checkout with git status and retry Pull now.";
+      else if (status.stdout.length !== 0) problem = "Tracked files have local changes. Commit or stash them, then retry Pull now.";
+      else if (!ancestor.ok || ancestor.timedOut || ancestor.truncated) problem = "Local commits cannot fast-forward to origin/main. Reconcile them with origin/main, then retry Pull now.";
+      else {
+        // Git refuses an obstructing untracked file; no reset or clean may follow a refusal.
+        const forward = await local(["-c", "merge.autostash=false", "merge", "--ff-only", "--no-overwrite-ignore", MAIN]);
+        if (!forward.ok || forward.timedOut || forward.truncated) problem = "The fast-forward was refused. Check git status, move any obstructing untracked or ignored files, then retry Pull now.";
+      }
+      if (controller.signal.aborted) return;
+      const head = problem === null ? await local(["rev-parse", "HEAD"]) : null;
+      if (controller.signal.aborted) return;
+      if (head === null || !head.ok || head.timedOut || head.truncated) {
+        await banks.recordSync(bank.id, { problem: `${REGISTERED_SYNC_BLOCKED} ${bank.checkout}: ${problem ?? "The refreshed head could not be read. Check the checkout and retry Pull now."}` });
+        return;
+      }
+      await banks.recordSync(bank.id, { head: head.stdout.toString("utf8").trim(), previousHead: previous.ok ? previous.stdout.toString("utf8").trim() : null });
       return;
     }
     // An owned checkout has no authored changes: divergence or a dirty worktree is reset, never merged.

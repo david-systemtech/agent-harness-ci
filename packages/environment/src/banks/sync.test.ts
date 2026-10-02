@@ -20,8 +20,8 @@ import { git } from "../../test/workspaces.js";
 
 const { tempDir, onCleanup } = useCleanups();
 
-/** A fixture remote and its owned checkout, reached by the harness helper's canonical URL. */
-const start = async (options: TestEnvironmentOptions = {}, scopes: Partial<ParamsOf<"banks.register">>[] = [{}]) => {
+/** A fixture remote and its registered or managed checkout, reached by the harness helper's canonical URL. */
+const start = async (options: TestEnvironmentOptions = {}, scopes: Partial<ParamsOf<"banks.register">>[] = [{}], ownership: "registered" | "managed" = "registered") => {
   const forge = await startFakeForge();
   onCleanup(() => forge.close());
   forge.user(TOKEN, DAVID);
@@ -55,9 +55,11 @@ const start = async (options: TestEnvironmentOptions = {}, scopes: Partial<Param
   await added(client, { url: forge.origin, kind: "forgejo" });
   const banks = [];
   for (const fixture of fixtures) {
-    const answer = await client.request("banks.register", { commandId: randomUUID(), bankId: randomUUID(), path: fixture.checkout, role: "read-write", accounts: "all", repositories: "all", defaultFor: [], ...fixture.scope });
+    const answer = ownership === "managed"
+      ? await client.request("banks.join", { commandId: randomUUID(), bankId: randomUUID(), url: fixture.url, accounts: [], repositories: "all" })
+      : await client.request("banks.register", { commandId: randomUUID(), bankId: randomUUID(), path: fixture.checkout, role: "read-write", accounts: "all", repositories: "all", defaultFor: [], ...fixture.scope });
     if (answer.result === undefined) throw new Error("The fixture bank did not register.");
-    banks.push({ ...fixture, bank: answer.result.bank });
+    banks.push({ ...fixture, checkout: answer.result.bank.checkout, bank: answer.result.bank });
   }
   return { t, client, forge, banks, ...banks[0]! };
 };
@@ -96,7 +98,129 @@ const run = async (t: TestEnvironment, client: WireClient) => {
 const events = (t: TestEnvironment, after: number): EventEnvelope[] => t.env.log.readStream({ kind: "environment", id: t.env.id }, after).filter((event) => event.type.startsWith("bank."));
 const pull = async (client: WireClient, bank: BankRecord) => (await client.request("banks.sync", { bankId: bank.id })).banks.find((record) => record.id === bank.id);
 
+/** Work belonging to the retained checkout's owner, including files git normally hides. */
+const retainWork = (checkout: string, committed = false) => {
+  writeFileSync(join(checkout, "BANK.md"), PERSONAL_BANK["BANK.md"]!.replace("private memory", "retained memory"));
+  if (committed) {
+    git(checkout, "add", "BANK.md");
+    git(checkout, "commit", "--quiet", "-m", "Retain local history.");
+  }
+  writeFileSync(join(checkout, "untracked.md"), "Retained untracked work.");
+  writeFileSync(join(checkout, ".git", "info", "exclude"), "ignored.md\n");
+  writeFileSync(join(checkout, "ignored.md"), "Retained ignored work.");
+  const head = git(checkout, "rev-parse", "HEAD").trim();
+  const status = git(checkout, "status", "--porcelain", "--ignored");
+  return () => {
+    expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(head);
+    expect(git(checkout, "status", "--porcelain", "--ignored")).toBe(status);
+    expect(readFileSync(join(checkout, "BANK.md"), "utf8")).toContain("retained memory");
+    expect(readFileSync(join(checkout, "untracked.md"), "utf8")).toBe("Retained untracked work.");
+    expect(readFileSync(join(checkout, "ignored.md"), "utf8")).toBe("Retained ignored work.");
+  };
+};
+
+const advanceRemote = (remote: string) => {
+  writeFileSync(join(remote, "remote.md"), "New remote work.");
+  git(remote, "add", "remote.md");
+  git(remote, "commit", "--quiet", "-m", "Advance remote main.");
+};
+
 describe("banks.sync", () => {
+  it("preserves a registered checkout's dirty tracked, untracked and ignored work and reports Health", async () => {
+    const { t, client, bank, remote, checkout } = await start();
+    const previousHead = git(checkout, "rev-parse", "HEAD").trim();
+    writeFileSync(join(checkout, "BANK.md"), "Retained tracked work.");
+    writeFileSync(join(checkout, "untracked.md"), "Retained untracked work.");
+    writeFileSync(join(checkout, ".git", "info", "exclude"), "ignored.md\n");
+    writeFileSync(join(checkout, "ignored.md"), "Retained ignored work.");
+    writeFileSync(join(remote, "remote.md"), "New remote work.");
+    git(remote, "add", "remote.md");
+    git(remote, "commit", "--quiet", "-m", "Advance remote main.");
+    const from = t.env.log.head();
+
+    const synced = await pull(client, bank);
+
+    expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(previousHead);
+    expect(readFileSync(join(checkout, "BANK.md"), "utf8")).toBe("Retained tracked work.");
+    expect(readFileSync(join(checkout, "untracked.md"), "utf8")).toBe("Retained untracked work.");
+    expect(readFileSync(join(checkout, "ignored.md"), "utf8")).toBe("Retained ignored work.");
+    expect(synced?.status.lastSync).toBeNull();
+    expect(synced?.status.reachable).toMatchObject({ state: "unreachable", reason: expect.stringMatching(/commit or stash/i) });
+    expect(events(t, from).filter((event) => event.type === "bank.synced")).toEqual([]);
+    const health = await client.request("setup.check", { step: "memory-bank" });
+    expect(health.results).toEqual(expect.arrayContaining([expect.objectContaining({
+      failing: expect.arrayContaining(["memory-bank.reachable"]),
+      reason: expect.stringMatching(/commit or stash/i),
+    })]));
+
+    git(checkout, "checkout", "--", "BANK.md");
+    expect((await pull(client, bank))?.status.reachable.state).toBe("reachable");
+    expect((await client.request("setup.check", { step: "memory-bank" })).results[0]?.state).toBe("done");
+    expect(readFileSync(join(checkout, "untracked.md"), "utf8")).toBe("Retained untracked work.");
+    expect(readFileSync(join(checkout, "ignored.md"), "utf8")).toBe("Retained ignored work.");
+  });
+
+  it("preserves staged tracked work even when merge autostash is configured", async () => {
+    const { client, bank, remote, checkout } = await start();
+    git(checkout, "config", "merge.autostash", "true");
+    writeFileSync(join(checkout, "BANK.md"), "Retained staged work.");
+    git(checkout, "add", "BANK.md");
+    const staged = git(checkout, "diff", "--cached");
+    const head = git(checkout, "rev-parse", "HEAD");
+    advanceRemote(remote);
+
+    const synced = await pull(client, bank);
+
+    expect(git(checkout, "rev-parse", "HEAD")).toBe(head);
+    expect(git(checkout, "diff", "--cached")).toBe(staged);
+    expect(readFileSync(join(checkout, "BANK.md"), "utf8")).toBe("Retained staged work.");
+    expect(synced?.status.reachable.state).toBe("unreachable");
+  });
+
+  it.each([false, true])("preserves registered commits when remote main has advanced: %s", async (remoteMoved) => {
+    const { client, bank, remote, checkout } = await start();
+    const preserved = retainWork(checkout, true);
+    if (remoteMoved) advanceRemote(remote);
+
+    const synced = await pull(client, bank);
+
+    preserved();
+    expect(synced?.status.reachable).toMatchObject({ state: "unreachable", reason: expect.stringContaining("Reconcile them with origin/main") });
+    const health = await client.request("setup.check", { step: "memory-bank" });
+    expect(health.results[0]).toMatchObject({ state: "needs-attention", failing: ["memory-bank.reachable"] });
+  });
+
+  it("fast-forwards a clean registered checkout without cleaning untracked or ignored files", async () => {
+    const { t, client, bank, remote, checkout } = await start();
+    writeFileSync(join(checkout, "untracked.md"), "Retained untracked work.");
+    writeFileSync(join(checkout, ".git", "info", "exclude"), "ignored.md\n");
+    writeFileSync(join(checkout, "ignored.md"), "Retained ignored work.");
+    advanceRemote(remote);
+
+    const synced = await pull(client, bank);
+
+    expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(git(remote, "rev-parse", "HEAD").trim());
+    expect(synced?.status.lastSync).toBe(t.clock.now().toISOString());
+    expect(synced?.status.reachable.state).toBe("reachable");
+    expect(readFileSync(join(checkout, "untracked.md"), "utf8")).toBe("Retained untracked work.");
+    expect(readFileSync(join(checkout, "ignored.md"), "utf8")).toBe("Retained ignored work.");
+  });
+
+  it.each([false, true])("refuses a fast-forward over an obstructing retained file, ignored: %s", async (ignored) => {
+    const { client, bank, remote, checkout } = await start();
+    const previousHead = git(checkout, "rev-parse", "HEAD").trim();
+    writeFileSync(join(checkout, "remote.md"), "Retained work at the incoming path.");
+    if (ignored) writeFileSync(join(checkout, ".git", "info", "exclude"), "remote.md\n");
+    advanceRemote(remote);
+
+    const synced = await pull(client, bank);
+
+    expect(git(checkout, "rev-parse", "HEAD").trim()).toBe(previousHead);
+    expect(readFileSync(join(checkout, "remote.md"), "utf8")).toBe("Retained work at the incoming path.");
+    expect(synced?.status.reachable).toMatchObject({ state: "unreachable", reason: expect.stringContaining("obstructing untracked or ignored files") });
+    expect((await client.request("setup.check", { step: "memory-bank" })).results[0]?.state).toBe("needs-attention");
+  });
+
   it("syncs another bank while checkout work is held and continues after that work fails", async () => {
     const { t, client, banks } = await start({}, [{}, {}]);
     let release!: () => void;
@@ -162,7 +286,7 @@ describe("banks.sync", () => {
   });
 
   it("resets an owned checkout with local commits to remote main, including when main has no new commit", async () => {
-    const { client, bank, remote, checkout } = await start();
+    const { client, bank, remote, checkout } = await start({}, [{}], "managed");
     writeFileSync(join(checkout, "local.md"), "A change made outside the bank's write path.");
     git(checkout, "add", "local.md");
     git(checkout, "commit", "--quiet", "-m", "An unowned change.");
@@ -172,7 +296,7 @@ describe("banks.sync", () => {
   });
 
   it.each([false, true])("discards tracked, untracked and ignored edits on Pull now when remote main moved: %s", async (remoteMoved) => {
-    const { t, client, bank, remote, checkout } = await start();
+    const { t, client, bank, remote, checkout } = await start({}, [{}], "managed");
     writeFileSync(join(checkout, ".git", "info", "exclude"), "ignored/\n");
     writeFileSync(join(checkout, "BANK.md"), "An edit made outside the bank's write path.");
     writeFileSync(join(checkout, "untracked.md"), "An untracked edit.");
@@ -223,7 +347,7 @@ describe("banks.sync", () => {
   });
 
   it("resets divergent history to main without creating a merge commit", async () => {
-    const { client, bank, remote, checkout } = await start();
+    const { client, bank, remote, checkout } = await start({}, [{}], "managed");
     writeFileSync(join(checkout, "local.md"), "A local branch of history.");
     git(checkout, "add", "local.md");
     git(checkout, "commit", "--quiet", "-m", "The local change.");
@@ -257,6 +381,18 @@ describe("banks.sync", () => {
 });
 
 describe("before a run", () => {
+  it.each([false, true])("preserves retained work before composing a run, committed: %s", async (committed) => {
+    const { t, client, bank, remote, checkout } = await start();
+    const preserved = retainWork(checkout, committed);
+    advanceRemote(remote);
+
+    await (await run(t, client))();
+
+    preserved();
+    expect(t.adapter.runs).toHaveLength(1);
+    expect((await client.request("banks.get", { bankId: bank.id })).bank.status.reachable.state).toBe("unreachable");
+  });
+
   it("finishes a fast fetch before composing the run's instructions", async () => {
     const checkout: { path?: string } = {};
     const composedHeads: string[] = [];
@@ -355,6 +491,29 @@ describe("before a run", () => {
 });
 
 describe("idle sync", () => {
+  it.each([false, true])("preserves retained work at startup and on the idle scheduler, committed: %s", async (committed) => {
+    const observed = observedGit();
+    const fixture = await start();
+    const { t, bank, remote, checkout } = fixture;
+    const preserved = retainWork(checkout, committed);
+    advanceRemote(remote);
+    await t.close();
+    const restarted = await startTestEnvironment({ dataDir: t.dataDir, clock: t.clock, harnessCommand: [process.execPath], harnessGitConfig: [[`url.${pathToFileURL(remote).href}.insteadOf`, fixture.url]], banksGit: observed.wrap });
+    onCleanup(() => restarted.close());
+    const client = await restarted.client();
+    await until(async () => expect((await client.request("banks.get", { bankId: bank.id })).bank.status.reachable.state).toBe("unreachable"));
+    preserved();
+    const from = restarted.env.log.head();
+    expect(observed.requests).toHaveLength(1);
+    restarted.clock.advance(30 * 60_000);
+    await until(() => expect(observed.requests).toHaveLength(2));
+    await pull(client, bank);
+    expect(events(restarted, from).filter((event) => event.type === "bank.synced")).toEqual([]);
+    preserved();
+    expect(restarted.adapter.runs).toEqual([]);
+    expect((await client.request("setup.check", { step: "memory-bank" })).results[0]?.state).toBe("needs-attention");
+  });
+
   it("fetches on startup and again at thirty minutes without a run, publishing refreshed records", async () => {
     const observed = observedGit();
     const fixture = await start({ banksGit: observed.wrap });
