@@ -585,7 +585,7 @@ const HistoryUnreadableItem = z
   .meta({ description: "The line an imported session shows where its history could not be read from the account's directory (session.history-imported, outcome unreadable)." });
 
 /** The item kinds this version of the contracts knows; an item of one of them is held to its schema, never kept opaque. */
-export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "check", "tasks", "prompt", "history-unreadable", "forked", "update-interrupted", "file-undo"] as const;
+export const KNOWN_ITEM_KINDS = ["user-message", "assistant-text", "assistant-thinking", "tool-call", "command", "check", "tasks", "prompt", "history-unreadable", "file-undo", "forked", "update-interrupted"] as const;
 
 /**
  * An item of a kind this version of the contracts does not know (ADR 0001):
