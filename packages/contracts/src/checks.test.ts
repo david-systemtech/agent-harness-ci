@@ -90,6 +90,12 @@ describe("checks.started and checks.finished", () => {
     expect(ChecksStartedPayload.parse({ ...started, sourceRunId: RUN })).toEqual({ ...started, sourceRunId: RUN });
     expect(ChecksFinishedPayload.parse(finished)).toEqual(finished);
     expect(ChecksFinishedPayload.safeParse({ ...finished, output: "x".repeat(CHECK_OUTPUT_MAX_BYTES + 1) }).success).toBe(false);
+    // The bound is in UTF-8 bytes, as the environment cuts the output: three-byte characters reach it at a third of the length.
+    const third = Math.floor(CHECK_OUTPUT_MAX_BYTES / 3);
+    const atBound = "€".repeat(third) + "x".repeat(CHECK_OUTPUT_MAX_BYTES - 3 * third);
+    expect(ChecksFinishedPayload.safeParse({ ...finished, output: atBound }).success).toBe(true);
+    expect(ChecksFinishedPayload.safeParse({ ...finished, output: `${atBound}x` }).success).toBe(false);
+    expect(ChecksFinishedPayload.safeParse({ ...finished, output: "€".repeat(third + 1) }).success).toBe(false);
     expect(ChecksFinishedPayload.safeParse({ ...finished, failure: "skipped" }).success).toBe(false);
     expect(CHECK_TIMEOUT_MS).toBe(120_000);
     expect(CHECK_OUTPUT_MAX_BYTES).toBe(64 * 1024);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RunId } from "./adapter.js";
+import { utf8Bytes } from "./banks.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { AbsolutePath } from "./sessions.js";
 import { TerminalId } from "./terminals.js";
@@ -87,6 +88,8 @@ export const ChecksFinishedPayload = z
     output: z
       .string()
       .max(CHECK_OUTPUT_MAX_BYTES)
+      // The maxLength bounds its characters; the bound is in UTF-8 bytes, as the environment cuts it.
+      .refine((output) => utf8Bytes(output) <= CHECK_OUTPUT_MAX_BYTES, { message: `A check's output is at most ${CHECK_OUTPUT_MAX_BYTES} bytes in UTF-8.` })
       .meta({ description: "The check's terminal output, scrubbed of registered values: its last 64 KiB (UTF-8) when more came." }),
     truncated: z.boolean().meta({ description: "Whether earlier output was dropped to keep the last 64 KiB." }),
     exitCode: z.int().nullable().meta({ description: "The command's exit code; null when it timed out or failed without exiting." }),
