@@ -251,6 +251,7 @@ describe("the method registry", () => {
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
       "banks.split.apply",
+      "banks.migrate",
       "banks.join",
       "banks.register",
       "banks.credential.set",
@@ -488,6 +489,7 @@ describe("the method registry", () => {
       | "forge.pullRequests.refresh"
       | "banks.split.propose"
       | "banks.split.apply"
+      | "banks.migrate"
       | "banks.join"
       | "banks.join.preview"
       | "banks.drafts.list"
