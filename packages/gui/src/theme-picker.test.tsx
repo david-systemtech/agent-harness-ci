@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DEFAULT_THEME, THEME_SEED_NAMES, type Theme } from "@agent-harness/contracts";
-import { SHIPPED_THEMES, cssVariables, derive, readThemeFile, themeFile, type LadderName } from "@agent-harness/theme";
+import { SHIPPED_THEMES, cssVariables, derive, readThemeFile, themeFile, windowBackground, type LadderName } from "@agent-harness/theme";
 import { beforeEach, describe, expect, it } from "vitest";
 import { renderApp, type RenderedApp, type ScriptedEnvironment } from "../test/harness.js";
 
@@ -111,6 +111,11 @@ describe("the shipped themes", () => {
     // Light or dark is this client's own: the preview paints whichever ladder it prefers.
     await app.user.click(within(screen.getByRole("region", { name: "Settings" })).getByRole("radio", { name: "Light" }));
     await paintedWith(LAGOON, "light");
+
+    // The window background, which the next launch opens on, stays the saved theme's while a preview shows.
+    const handed = app.shell.calls.filter(([member]) => member === "window.setBackgroundColour").map(([, colour]) => colour);
+    expect(handed.at(-1)).toBe(windowBackground(derive(DEFAULT_THEME).light));
+    for (const previewed of [EMBER, LAGOON]) for (const ladder of ["light", "dark"] as const) expect(handed).not.toContain(windowBackground(derive(previewed)[ladder]));
 
     await app.user.click(ui.button("Cancel"));
     await paintedWith(DEFAULT_THEME, "light");

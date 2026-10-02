@@ -105,6 +105,11 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
     });
   };
 
+  const cancel = () => {
+    setSaid(undefined);
+    setCandidate(undefined);
+  };
+
   const named = shown !== undefined && ThemeName.safeParse(shown.name).success;
   return (
     <div className="flex flex-col gap-3">
@@ -140,7 +145,7 @@ export const ThemePicker = ({ view }: { readonly view: EnvironmentView }) => {
             <Button tone="primary" disabled={!writable || !changed || !named || saving} onClick={save}>
               Save
             </Button>
-            <Button disabled={!changed} onClick={() => (setCandidate(undefined), setSaid(undefined))}>
+            <Button disabled={!changed} onClick={cancel}>
               Cancel
             </Button>
             <Button disabled={!writable} onClick={importFile}>
