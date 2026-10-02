@@ -1,3 +1,5 @@
+import { planOrganisation, type OrganisationOwners } from "./organisation.js";
+import { readOrganisationStores } from "./source/organisation.js";
 import type { KeyManagerConnections } from "../key-managers/connections.js";
 import type { ForgeService } from "../forge/forge-service.js";
 import { planCredentials } from "./credentials.js";
@@ -10,8 +12,8 @@ import { formatActor, type EventLog } from "../event-log/event-log.js";
 import type { CommandRejection, MethodHandler, MethodHandlers, PreparedCommand } from "../serve/methods.js";
 import type { SettingsHandlers } from "../settings/methods.js";
 import type { ImportCoordinator } from "./coordinator.js";
-import { applyItems, stateImportStream, type ImportItem } from "./items.js";
-import { emptyPlan, includeReportStores, itemsOf, planImport, recheckStores, reportOf } from "./plan.js";
+import { applyItems, stateImportStream, mappedTarget, type ImportItem } from "./items.js";
+import { emptyPlan, includeReportStores, itemsOf, planImport, recheckStores, reportOf, directoriesOf, type ImportPlan } from "./plan.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
 import { carryListedSources } from "./sessions.js";
 import { readSourceStores } from "./source/stores.js";
@@ -42,7 +44,7 @@ export interface StateImportHooks {
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
 
-export interface StateImportOptions {
+export interface StateImportOptions extends OrganisationOwners {
   /** The machine the source reader looks at: this process's environment, platform and home. */
   readonly machine: SourceMachine;
   readonly log: EventLog;
@@ -89,13 +91,39 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
             : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, updateSettings: options.updateSettings, listSessions: options.listSessions, get: options.getSettings, update: options.updateSettings });
         const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
-        const combined = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };
+        const combined: ImportPlan = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };
+        const organisationStores = await readOrganisationStores(dataFolder?.path ?? null, terminalFolder?.path ?? null);
+        const listed = (await Promise.all(directoriesOf(combined).map(async (entry) => {
+          const accountId = combined.accountIds?.get(entry.sourceId);
+          if (accountId === undefined) return [];
+          try { return (await options.listSessions(entry.directory)).map((session) => ({ accountId, profileId: entry.sourceId, session })); }
+          catch { return []; } // Carry over owns listing failures and their repair diagnostics.
+        }))).flat();
+        const withOrganisation: ImportPlan = {
+          ...combined,
+          stores: [...combined.stores, ...organisationStores.flatMap((store) => store.read.status === "read" ? [{ snapshot: store.read.snapshot, label: store.label, items: [], dependencies: [
+            ...(Object.values(store.read.records).some((entries) => Array.isArray(entries) && entries.length > 0) ? combined.stores.filter((s) => s.label === "Accounts").map((s) => s.snapshot) : []),
+            ...(store.store === "organisation.ledger" ? organisationStores.filter((s) => s.store === "organisation.routines").map((s) => s.read.snapshot) : []),
+          ] }] : [])],
+          failed: [...combined.failed, ...organisationStores.flatMap((store) => store.read.status === "failed" ? [{ label: store.label, message: store.read.diagnostic }] : [])],
+        };
+        const organisation = (preview: boolean, plan: ImportPlan) => {
+          const accountIds = preview ? plan.accountIds ?? new Map<string, string>() : new Map([...plan.accountIds?.keys() ?? []].flatMap((sourceId) => {
+            const target = mappedTarget(log, { sourceKey: plan.sourceKey, store: "profiles", sourceId });
+            return target === undefined ? [] : [[sourceId, target] as const];
+          }));
+          return planOrganisation(organisationStores.filter((store) => plan.stores.some((s) => s.snapshot === store.read.snapshot)), { ...options, sourceKey: plan.sourceKey, accountIds, listed: listed.flatMap((entry) => {
+            const accountId = directoriesOf(plan).some((source) => source.sourceId === entry.profileId) ? accountIds.get(entry.profileId) : undefined;
+            return accountId === undefined ? [] : [{ ...entry, accountId }];
+          }), preview });
+        };
         if (dryRun) {
-          const report = reportOf(combined, null);
+          const org = organisation(true, withOrganisation);
+          const report = reportOf({ ...withOrganisation, stores: [...withOrganisation.stores, { snapshot: { path: "", digest: null }, label: "Organisation", items: org.items }], notCarried: [...withOrganisation.notCarried, ...org.notCarried] }, null);
           return () => ({ aggregate: environmentStream, result: report });
         }
         await hooks?.planned?.();
-        const plan = await recheckStores(combined);
+        const plan = await recheckStores(withOrganisation);
         applying();
         const actor = formatActor({ kind: "client_session", id: caller.clientSession.id });
         const attribution = { actor, commandId: importId, correlationId: importId };
@@ -109,7 +137,13 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           afterItem: (item) => hooks?.carried?.({ kind: item.kind, sourceId: item.sourceId }),
         });
         const carryFailures = await carryListedSources(plan, { log, accounts: options.accounts, carryOver: options.carryOver, caller, actor, importId, afterSource: (sourceId) => hooks?.carried?.({ kind: "session", sourceId }) });
-        const report = reportOf(plan, { ...applied, failed: [...applied.failed, ...carryFailures] });
+        // Carry over can await provider/filesystem work; check these bytes again immediately before organisation application.
+        const isOrganisationStore = (store: ImportPlan["stores"][number]) => organisationStores.some((source) => source.read.snapshot === store.snapshot);
+        const organisationPart = await recheckStores({ ...plan, stores: plan.stores.filter(isOrganisationStore) });
+        const organisationPlan = { ...plan, stores: [...plan.stores.filter((store) => !isOrganisationStore(store)), ...organisationPart.stores], failed: organisationPart.failed };
+        const org = organisation(false, organisationPlan);
+        const organisationApplied = await applyItems(org.items, { log, environmentId: options.environmentId, importId, caller, actor, afterItem: (item) => hooks?.carried?.(item) });
+        const report = reportOf({ ...organisationPlan, notCarried: [...organisationPlan.notCarried, ...org.notCarried] }, { carried: [...applied.carried, ...organisationApplied.carried], heldDrafts: organisationApplied.heldDrafts ?? 0, failed: [...applied.failed, ...carryFailures, ...organisationApplied.failed] });
         return (_params, command) => {
           const finished = { type: "state-import.finished", payload: finishedPayload(report) };
           log.append(environmentStream, [finished], { tx: command.tx, actor: command.actor, commandId: command.commandId, correlationId: importId });

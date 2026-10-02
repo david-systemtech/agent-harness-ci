@@ -10,7 +10,12 @@
     "page-policy",
     "account",
     "account-default",
-    "session"
+    "session",
+    "archive",
+    "pin",
+    "group",
+    "group-membership",
+    "draft"
   ],
-  "description": "The kind of item a state import carried: an owned instruction, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
+  "description": "The owning service kind for a carried instruction, Account/default, provider Session, archive or active decision, pin, Group/membership, draft, Forge account, Key-manager connection or page policy."
 }

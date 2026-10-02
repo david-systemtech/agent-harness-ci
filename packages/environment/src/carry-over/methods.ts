@@ -35,6 +35,7 @@ import {
   findDirectories,
   listingFailed,
   heldProviderSessions,
+  importedSessionSourceId,
   importedTitle,
   importsArchived,
   listAccountSessions,
@@ -176,15 +177,15 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
       const payload: SessionArchivedPayload = { archivedAt: session.lastModified };
       log.append(sessionStream(sessionId), [{ type: "session.archived", payload }], attribution);
     }
-    if (importedSource !== undefined) recordMapping(importedSource, session.providerSessionId, sessionId, attribution);
+    if (importedSource !== undefined) recordMapping(importedSource, accountId, session.providerSessionId, sessionId, attribution);
     return null;
   };
 
-  const mappingKey = (source: CarryOverSource, sourceId: string): ItemKey => ({ sourceKey: source.sourceKey, store: "provider-sessions", sourceId });
-  const recordMapping = (source: CarryOverSource, providerSessionId: string, targetId: string, attribution: AppendOptions & { readonly tx: Tx }): void => {
-    if (mappedTarget(log, mappingKey(source, providerSessionId)) !== undefined) return;
+  const mappingKey = (source: CarryOverSource, accountId: string, providerSessionId: string): ItemKey => ({ sourceKey: source.sourceKey, store: "provider-sessions", sourceId: importedSessionSourceId(accountId, providerSessionId) });
+  const recordMapping = (source: CarryOverSource, accountId: string, providerSessionId: string, targetId: string, attribution: AppendOptions & { readonly tx: Tx }): void => {
+    if (mappedTarget(log, mappingKey(source, accountId, providerSessionId)) !== undefined) return;
     log.append(stateImportStream(options.environmentId), [{ type: "state-import.item-carried", payload: {
-      ...mappingKey(source, providerSessionId), kind: "session", targetId, sourceDirectory: source.directory, importId: source.importId, origin: "import",
+      ...mappingKey(source, accountId, providerSessionId), kind: "session", targetId, sourceDirectory: source.directory, importId: source.importId, origin: "import",
     } }], { ...attribution, correlationId: source.importId });
   };
 
@@ -219,7 +220,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
         failed.push({ providerSessionId: null, message: listingFailed(source.account, error) });
       }
       // Held ones are not looked at; the transaction asks again, for an import that committed meanwhile.
-      const held = heldProviderSessions(reader, importedSource?.sourceKey);
+      const held = heldProviderSessions(reader, importedSource?.sourceKey, accountId);
       const candidates = sessions.filter((session) => !held.has(session.providerSessionId));
       const directories = await findDirectories(
         candidates.map((session) => session.workingDirectory),
@@ -244,7 +245,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
         const attribution = { tx: command.tx, actor: command.actor, commandId: command.commandId };
         const live = sourceOf(accountId);
         if ("code" in live) return { aggregate: environmentStream, rejected: live };
-        const heldNow = heldProviderSessions(reader, importedSource?.sourceKey);
+        const heldNow = heldProviderSessions(reader, importedSource?.sourceKey, accountId);
         const failures = [...failed];
         const counts = { listed: sessions.length, imported: 0, archived: 0, missingDirectory: 0, held: sessions.length - candidates.length };
         for (const { session, directory } of planned) {
@@ -265,8 +266,8 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
         }
         // Remember already continued/imported harness Sessions too, before a later purge can remove their provider link.
         if (!dryRun && importedSource !== undefined) for (const session of sessions) {
-          const rows = reader.all<{ id: string }>("SELECT id FROM sessions WHERE json_extract(origin, '$.providerSessionId') = ? UNION SELECT session_id AS id FROM runs WHERE provider_session_id = ?", session.providerSessionId, session.providerSessionId);
-          if (rows[0] !== undefined) recordMapping(importedSource, session.providerSessionId, rows[0].id, attribution);
+          const rows = reader.all<{ id: string }>("SELECT id FROM sessions WHERE json_extract(origin, '$.providerSessionId') = ? AND json_extract(origin, '$.accountId') = ? UNION SELECT session_id AS id FROM runs WHERE provider_session_id = ? AND account_id = ?", session.providerSessionId, accountId, session.providerSessionId, accountId);
+          if (rows[0] !== undefined) recordMapping(importedSource, accountId, session.providerSessionId, rows[0].id, attribution);
         }
         let skillsReport: SkillsCarryOverReport | undefined;
         if (skills !== null) {
@@ -293,7 +294,7 @@ export const createCarryOver = (options: CarryOverOptions): CarryOverService => 
   };
 
   const run: PreparedCommand<"carryOver.run"> = {
-    prepare: (params, context) => options.coordinator.exclusive(params.commandId, params.dryRun, () => prepareRun(params, context)) ?? (() => ({ aggregate: environmentStream, rejected: { code: "conflict", message: "An import is under way; retry once it finishes.", data: { reason: "import_in_progress" } } })),
+    prepare: (params, context) => options.coordinator.exclusive(params.commandId, params.dryRun, () => prepareRun(params, context)) ?? (() => ({ aggregate: environmentStream, rejected: { code: "conflict", message: "An import is under way; retry once it finishes.", data: { reason: "import_in_progress", accountId: params.accountId } } })),
   };
 
   const assignMemory: PreparedCommand<"carryOver.assignMemory"> = {

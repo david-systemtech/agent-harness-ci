@@ -100,6 +100,7 @@ export interface ImportItem extends ItemKey {
 export interface ItemsApplied {
   readonly carried: readonly ImportItem[];
   readonly failed: readonly StateImportFailure[];
+  readonly heldDrafts?: number;
 }
 
 export interface ApplyItemsOptions {
@@ -129,6 +130,7 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
   const stream = stateImportStream(options.environmentId);
   const carried: ImportItem[] = [];
   const failed: StateImportFailure[] = [];
+  let heldDrafts = 0;
   for (const item of items) {
     const commandId = itemCommandId(importId, item);
     let outcome: "carried" | "held" | StateImportFailure;
@@ -154,8 +156,9 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
     }
     if (outcome === "carried") carried.push(item);
     else if (outcome !== "held") failed.push(outcome);
+    else if (item.kind === "draft") heldDrafts++;
     // Outside the catch: what this throws stops the import, as a crash between two items would.
     if (outcome === "carried") await options.afterItem?.(item);
   }
-  return { carried, failed };
+  return { carried, failed, ...(heldDrafts > 0 && { heldDrafts }) };
 };
