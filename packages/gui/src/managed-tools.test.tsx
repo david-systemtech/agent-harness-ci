@@ -25,8 +25,8 @@ const FLAGGED = ["managedTools"] as const;
 const ROWS: NonNullable<NonNullable<ScriptedEnvironment["keyManagers"]>["tools"]> = [
   {
     tool: "claude",
-    path: "/home/seth/.local/bin/claude",
-    realpath: "/home/seth/.local/share/claude/versions/2.1.283",
+    path: "/home/milo/.local/bin/claude",
+    realpath: "/home/milo/.local/share/claude/versions/2.1.283",
     version: "2.1.283",
     latest: "2.1.285",
     minimum: null,
@@ -38,7 +38,7 @@ const ROWS: NonNullable<NonNullable<ScriptedEnvironment["keyManagers"]>["tools"]
   { tool: "vault", version: "1.13.2", latest: "1.18.0", minimum: "1.14.0", method: "manual", status: "below-minimum", action: "copy", command: null },
   {
     tool: "doppler",
-    path: "/home/seth/.local/share/mise/shims/doppler",
+    path: "/home/milo/.local/share/mise/shims/doppler",
     version: "3.80.0",
     latest: "3.80.0",
     minimum: "3.76.0",
@@ -164,7 +164,7 @@ describe("About's Managed tools", () => {
     const app = await opened({
       managedTools: {
         verifications: {
-          gh: { outcome: "passed", reason: "gh is signed in to github.com as seth." },
+          gh: { outcome: "passed", reason: "gh is signed in to github.com as milo." },
           vault: { outcome: "failed", reason: "OpenBao at https://bao.home.test:8200 is sealed." },
         },
       },
@@ -172,7 +172,7 @@ describe("About's Managed tools", () => {
     await openAbout(app);
     const gh = await row("GitHub CLI");
     await app.user.click(within(gh).getByRole("button", { name: "Verify" }));
-    expect(await within(gh).findByText("Verified: gh is signed in to github.com as seth.")).toBeDefined();
+    expect(await within(gh).findByText("Verified: gh is signed in to github.com as milo.")).toBeDefined();
 
     const vault = await row("Vault CLI");
     await app.user.click(within(vault).getByRole("button", { name: "Verify" }));
@@ -210,7 +210,7 @@ describe("About's Managed tools", () => {
 
     const terminal = await toolTerminal("Installing OpenBao CLI");
     expect(within(terminal).getByText("sudo apt-get install openbao")).toBeDefined();
-    await waitFor(() => expect(screenOf(terminal)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for seth:"]));
+    await waitFor(() => expect(screenOf(terminal)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for milo:"]));
     const desk = app.environment("desk");
     const [run] = desk.requests("tools.run");
     expect(run?.params).toEqual({ commandId: expect.any(String), tool: "bao", action: "install", id: expect.any(String) });
@@ -248,7 +248,7 @@ describe("About's Managed tools", () => {
     await app.user.click(screen.getByRole("button", { name: "Close Settings" }));
     await openAbout(app);
     const again = await toolTerminal("Installing OpenBao CLI");
-    await waitFor(() => expect(screenOf(again)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for seth:"]));
+    await waitFor(() => expect(screenOf(again)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for milo:"]));
     const before = subscribed();
 
     // The section drawn anew while the run is under way (a probe's tools.updated) keeps the one pane, the focus still in it.
@@ -258,7 +258,7 @@ describe("About's Managed tools", () => {
     await waitFor(() => expect(facts(ghAgain)).toMatchObject({ Latest: "2.65.0" }));
     expect(subscribed()).toBe(before);
     expect(again.contains(document.activeElement)).toBe(true);
-    expect(screenOf(again)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for seth:"]);
+    expect(screenOf(again)).toEqual(["$ sudo apt-get install openbao", "[sudo] password for milo:"]);
 
     // Its run finished, the pane stays, saying how it ended, until its Close closes the terminal.
     await typeInto(app, again, "password-for-tests{Enter}");

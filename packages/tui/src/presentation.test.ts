@@ -27,17 +27,17 @@ describe("collapsedHeadings", () => {
     const presentation = inMemoryPresentation();
     const seen: unknown[] = [];
     presentation.collapsedHeadings.subscribe((value) => seen.push(value));
-    presentation.setFolded("group:brandsolidate", true);
+    presentation.setFolded("group:meadowstudios", true);
     presentation.setFolded("shelf:settled", false);
-    expect(presentation.collapsedHeadings.read()).toEqual({ "group:brandsolidate": true, "shelf:settled": false });
+    expect(presentation.collapsedHeadings.read()).toEqual({ "group:meadowstudios": true, "shelf:settled": false });
     expect(seen).toHaveLength(2);
   });
 
   it("is written whole to the state directory under its one key, and read back at the next launch", () => {
     const dir = stateDir();
-    presentationFile(dir).setFolded("group:brandsolidate", true);
-    expect(JSON.parse(readFileSync(join(dir, PRESENTATION_FILE), "utf8"))).toEqual({ format: 1, collapsedHeadings: { "group:brandsolidate": true } });
-    expect(presentationFile(dir).collapsedHeadings.read()).toEqual({ "group:brandsolidate": true });
+    presentationFile(dir).setFolded("group:meadowstudios", true);
+    expect(JSON.parse(readFileSync(join(dir, PRESENTATION_FILE), "utf8"))).toEqual({ format: 1, collapsedHeadings: { "group:meadowstudios": true } });
+    expect(presentationFile(dir).collapsedHeadings.read()).toEqual({ "group:meadowstudios": true });
   });
 
   it("drops the folds a keep refuses as it writes the document, so a gone group's fold does not stay behind", () => {

@@ -59,10 +59,10 @@ describe("a tag", () => {
 });
 
 describe("the groups a session can be moved into", () => {
-  const groups = [heading("Brandsolidate", [["desk", "g1"], ["laptop", "g2", "brandsolidate"]]), heading("Ops", [["desk", "g3"]]), heading("Archery", [["laptop", "g4"]])];
+  const groups = [heading("Meadowstudios", [["desk", "g1"], ["laptop", "g2", "meadowstudios"]]), heading("Ops", [["desk", "g3"]]), heading("Archery", [["laptop", "g4"]])];
 
   it("are every merged heading the typing matches, the one it is in marked, then a new one typed, then no group while it is in one", () => {
-    const inBrand = row("laptop", { groupId: "g2" }, "brandsolidate");
+    const inBrand = row("laptop", { groupId: "g2" }, "meadowstudios");
     expect(groupChoices(groups, inBrand, "")).toEqual({
       listed: [
         { heading: groups[0], here: true },
@@ -91,7 +91,7 @@ describe("a merged heading's rename and delete", () => {
         return Promise.resolve({ ok: false, commandId: null, error: { code: "unreachable", message: `${environmentId} said no.` } });
       },
     };
-    const brand = heading("Brandsolidate", [["desk", "g1"], ["laptop", "g2", "brandsolidate"]]);
+    const brand = heading("Meadowstudios", [["desk", "g1"], ["laptop", "g2", "meadowstudios"]]);
     const answers = await changeHeading(commands, brand, { rename: "Brand work" });
     expect(answers.map((answer) => !answer.ok && answer.error.message)).toEqual(["desk said no.", "laptop said no."]);
     await changeHeading(commands, brand, { delete: true });

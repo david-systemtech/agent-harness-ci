@@ -59,7 +59,7 @@ describe("reading what David pastes or types", () => {
 describe("pairing with an environment", () => {
   it("pairs from a link: reads discovery, exchanges the code with kind and label, keeps the token, writes the record, connects", async () => {
     const t = await harness.environment({ name: "desk" });
-    const platform = inMemoryPlatform({ kind: "tui", label: "Seth's laptop" });
+    const platform = inMemoryPlatform({ kind: "tui", label: "Milo's laptop" });
     const runtime = harness.runtime(platform);
     await runtime.start();
     const { link } = await t.createPairing();
@@ -81,7 +81,7 @@ describe("pairing with an environment", () => {
     expect(JSON.stringify(platform.documents.entries())).not.toContain(token);
     const admin = await t.client();
     const { sessions } = await admin.apply("access.sessions.list", { live: true });
-    expect(sessions.find((s) => s.id === record?.clientSessionId)).toMatchObject({ kind: "tui", label: "Seth's laptop", local: false });
+    expect(sessions.find((s) => s.id === record?.clientSessionId)).toMatchObject({ kind: "tui", label: "Milo's laptop", local: false });
   });
 
   it("pairs from an address and the short code", async () => {

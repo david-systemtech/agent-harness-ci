@@ -31,7 +31,7 @@ const PANE = { cols: 72, rows: 11 };
 
 const opened = async (extra: Partial<Parameters<typeof renderApp>[0]["script"]["environments"][number]> = {}, keymap?: Keymap) => {
   const app = await renderApp({
-    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } }], ...extra }] },
+    script: { environments: [{ name: "desk", reach: "local", sessions: [{ title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } }], ...extra }] },
     flags: { session: SESSION },
     ...(keymap && { keymap }),
   });
@@ -572,8 +572,8 @@ describe("a shell line", () => {
   it("sends a !! command's output to nobody when its session is no longer open, and leaves a later line alone", async () => {
     const { app, env } = await opened({
       sessions: [
-        { title: "Receipts", workspace: { kind: "directory", path: "/home/seth/receipts" } },
-        { title: "Parser", workspace: { kind: "directory", path: "/home/seth/parser" } },
+        { title: "Receipts", workspace: { kind: "directory", path: "/home/milo/receipts" } },
+        { title: "Parser", workspace: { kind: "directory", path: "/home/milo/parser" } },
       ],
       oneOff: () => ({ output: "slow\n" }),
     });

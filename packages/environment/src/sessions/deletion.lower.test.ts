@@ -57,7 +57,7 @@ const tables = (log: EventLog) => ({
  */
 const seed = (log: EventLog) => {
   const receipts = [purged, kept].map((id, i) =>
-    log.command({ actor, commandId: `0f8fad5b-d9cb-469f-a165-7086772895${i}e` }, () => ({ aggregate: stream(id), result: {}, events: [created(["wip", "Seth"])] })),
+    log.command({ actor, commandId: `0f8fad5b-d9cb-469f-a165-7086772895${i}e` }, () => ({ aggregate: stream(id), result: {}, events: [created(["wip", "Milo"])] })),
   );
   for (const id of [purged, kept]) {
     log.append(stream(id), [{ type: "session.archived", payload: { archivedAt: START } }, { type: "transcript.chunk", payload: { text: "hi" } }], { actor });

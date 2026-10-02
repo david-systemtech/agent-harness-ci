@@ -213,7 +213,7 @@ describe("forge.accounts.add", () => {
   it("answers invalid_params for a slug outside the rule, a URL that is no remote, and GitLab", async () => {
     const { forge, client } = await withForge();
 
-    for (const slug of ["Work", "git-systemtech", "", "x".repeat(41)]) {
+    for (const slug of ["Work", "git-example", "", "x".repeat(41)]) {
       expect(await refusal(add(client, { url: forge.origin, kind: "forgejo", slug })), slug).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["slug"] })] } });
     }
     expect(await refusal(add(client, { url: "/work/agent-harness", kind: "forgejo" }))).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["url"] })] } });

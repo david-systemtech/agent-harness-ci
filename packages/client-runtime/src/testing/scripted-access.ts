@@ -120,7 +120,7 @@ export const scriptedAccess = (host: AccessHost): ScriptedAccessHandle => {
     const credential = wire.credential();
     return credential === undefined
       ? undefined
-      : clientSessionOf(clock, { id: credential.clientSessionId, kind: "tui", label: "seth@desk:pts/3", local: host.local, ceiling: credential.ceiling }, others.length);
+      : clientSessionOf(clock, { id: credential.clientSessionId, kind: "tui", label: "milo@desk:pts/3", local: host.local, ceiling: credential.ceiling }, others.length);
   };
   const clientSessions = (): ClientSessionRow[] => {
     const mine = own();

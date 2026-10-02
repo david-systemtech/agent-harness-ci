@@ -25,7 +25,7 @@ const member: SkillsViewMember = {
   choices: [],
 };
 const initial = (): SkillsView => ({
-  ownDirectory: "/home/seth/skills/own",
+  ownDirectory: "/home/milo/skills/own",
   sources: [],
   choices: [],
   accountId: "writer",
@@ -61,7 +61,7 @@ const pane = () => within(screen.getByRole("region", { name: "Settings" })).getB
 describe("the Skills row", () => {
   it("reads the own directory from the runtime and shows a created skill after the environment's notice", async () => {
     const { app, update } = await opened();
-    await within(pane()).findByText("/home/seth/skills/own");
+    await within(pane()).findByText("/home/milo/skills/own");
     expect(within(pane()).getByText("Draft a clear note.")).toBeDefined();
     await app.user.type(within(pane()).getByRole("textbox", { name: "Skill name" }), "release");
     await app.user.type(within(pane()).getByRole("textbox", { name: "Skill description" }), "Prepare a release.");

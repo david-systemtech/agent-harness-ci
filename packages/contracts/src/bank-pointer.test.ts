@@ -16,27 +16,27 @@ describe("the bank pointer syntax", () => {
   });
 
   it("reads a bank named with a trailing colon, or with spaces round it, as the bank, and prints its one form", () => {
-    expect(parseBankPointer("cortex:")).toEqual({ kind: "bank", bank: "cortex" });
-    expect(parseBankPointer("  cortex:homelab/  ")).toEqual({ kind: "folder", bank: "cortex", path: "homelab/" });
-    expect(formatBankPointer({ kind: "bank", bank: "cortex" })).toBe("cortex");
+    expect(parseBankPointer("notebook:")).toEqual({ kind: "bank", bank: "notebook" });
+    expect(parseBankPointer("  notebook:homelab/  ")).toEqual({ kind: "folder", bank: "notebook", path: "homelab/" });
+    expect(formatBankPointer({ kind: "bank", bank: "notebook" })).toBe("notebook");
   });
 
   it.each([
     "",
-    "Cortex",
-    "cortex:Backup Schedule",
-    "cortex:/homelab/",
-    "cortex:homelab//",
-    "cortex:memories/",
-    "cortex:homelab/memories/",
-    "cortex:homelab/gamingpc/memories/",
-    "cortex:homelab/gamingpc/memories/Deploys/",
-    "cortex:homelab/gamingpc/memories/llm/extra/",
-    "cortex:homelab/gamingpc/rx6800/extra/",
-    "cortex:homelab/memories/llm/",
-    "cortex:homelab/gamingpc/rx6800/memories/llm/extra/",
-    "cortex:homelab:gamingpc/",
-    "cortex:home lab/",
+    "Notebook",
+    "notebook:Backup Schedule",
+    "notebook:/homelab/",
+    "notebook:homelab//",
+    "notebook:memories/",
+    "notebook:homelab/memories/",
+    "notebook:homelab/gamingpc/memories/",
+    "notebook:homelab/gamingpc/memories/Deploys/",
+    "notebook:homelab/gamingpc/memories/llm/extra/",
+    "notebook:homelab/gamingpc/rx6800/extra/",
+    "notebook:homelab/memories/llm/",
+    "notebook:homelab/gamingpc/rx6800/memories/llm/extra/",
+    "notebook:homelab:gamingpc/",
+    "notebook:home lab/",
     "a-bank-name-of-forty-one-characters-long-x:fact",
   ])("refuses %j, which names no bank, folder, topic or memory", (text) => {
     expect(parseBankPointer(text)).toBeNull();

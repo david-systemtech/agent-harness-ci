@@ -98,7 +98,7 @@ export interface ScriptedToolsHandle {
 }
 
 /** The prompt `sudo` prints, for the scripted home's user. */
-export const SUDO_PROMPT = "[sudo] password for seth: ";
+export const SUDO_PROMPT = "[sudo] password for milo: ";
 
 /** A row the script gives, over a tool installed by apt at 2.1.1. */
 const rowOf = (row: ScriptedToolRow): ManagedToolRow =>

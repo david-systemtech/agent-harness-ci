@@ -32,7 +32,7 @@ const WAITING: PendingUpdate = {
 };
 
 /** A desktop build of 0.6.0 as the local environment stages it. */
-const STAGED = { path: "/home/seth/.local/state/agent-harness/desktop/0.6.0/agent-harness-0.6.0.pacman", version: "0.6.0", sha256: "a".repeat(64) };
+const STAGED = { path: "/home/milo/.local/state/agent-harness/desktop/0.6.0/agent-harness-0.6.0.pacman", version: "0.6.0", sha256: "a".repeat(64) };
 
 /** The window over `desk` alone, ready, with no session open. */
 const opened = async (desk: Partial<ScriptedEnvironment> = {}, options: RenderOptions = {}) => {

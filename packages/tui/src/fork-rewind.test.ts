@@ -38,7 +38,7 @@ const launch = async (environment: Partial<ScriptedEnvironment> = {}) => {
           name: "desk",
           reach: "local",
           groups: [{ name: "Money" }],
-          sessions: [{ title: "Receipts", tags: ["billing"], groupId: GROUP, workspace: { kind: "directory", path: "/home/seth/receipts" } }],
+          sessions: [{ title: "Receipts", tags: ["billing"], groupId: GROUP, workspace: { kind: "directory", path: "/home/milo/receipts" } }],
           accounts: [{ label: "work" }, { label: "personal" }],
           ...environment,
         },
@@ -106,7 +106,7 @@ describe("live-source fork parity", () => {
   it("forks from a user row without stopping the source and keeps its inherited state and copied history independent", async () => {
     const { app, env } = await launch({ sessions: [{ title: "Receipts", tags: ["billing"], groupId: GROUP,
       accountId: "account-1", pinnedAt: "2026-10-01T00:00:00.000Z", pinOrderKey: "b", settledAt: "2026-10-01T00:00:00.000Z",
-      workspace: { kind: "directory", path: "/home/seth/receipts" } }] });
+      workspace: { kind: "directory", path: "/home/milo/receipts" } }] });
     await converse(app, env, "Fix the receipts");
     await send(app, "Add the tests");
     await app.waitFor("steer or queue a message");
@@ -123,7 +123,7 @@ describe("live-source fork parity", () => {
     expect(env.liveRun(SESSION)).toBe(runId);
     const fork = app.runtime().projections.session(env.environmentId, forkId(env));
     expect(fork.read().summary).toMatchObject({ title: "Receipts", titleSource: "generated", tags: ["billing"], groupId: GROUP,
-      accountId: "account-1", draft: "Add the tests", workspace: { kind: "directory", path: "/home/seth/receipts" },
+      accountId: "account-1", draft: "Add the tests", workspace: { kind: "directory", path: "/home/milo/receipts" },
       pinnedAt: null, pinOrderKey: null, archivedAt: null, settledAt: null });
     env.emit(SESSION, "session.title-set", { title: "Source renamed", source: "user" }, { fields: { title: "Source renamed", titleSource: "user" } });
     env.emit(SESSION, "assistant.text", { runId, itemId: "later", text: "Still working on the source.", aborted: false });
@@ -678,7 +678,7 @@ describe("a rewind to the first prompt", () => {
     expect(params(env, "sessions.create")).toEqual([expect.objectContaining({ workspace: { kind: "session", sessionId: SESSION } })]);
     await app.waitFor("Nothing said yet.");
     await app.waitUntil(() => composerRow(app).includes("Fix the receipts"), "the first prompt as the new session's draft");
-    expect(app.frame()).toContain("/home/seth/receipts");
+    expect(app.frame()).toContain("/home/milo/receipts");
   });
 });
 

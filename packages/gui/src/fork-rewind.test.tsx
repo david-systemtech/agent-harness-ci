@@ -16,8 +16,8 @@ import { renderApp, type EnvironmentHandle, type RenderedApp, type ScriptedEnvir
  * explicit source link. Driven through the harness over the scripted environment.
  */
 
-const WORK = { provider: "claude", email: "seth@work.test", organisation: null };
-const HOME = { provider: "claude", email: "seth@home.test", organisation: null };
+const WORK = { provider: "claude", email: "milo@work.test", organisation: null };
+const HOME = { provider: "claude", email: "milo@home.test", organisation: null };
 
 /** The local environment with one session, "Receipts", on the account "work", opened in the pane. */
 const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
@@ -30,7 +30,7 @@ const opened = async (more: Partial<ScriptedEnvironment> = {}) => {
           { id: "account-1", label: "work", identity: WORK },
           { id: "account-2", label: "personal", identity: HOME },
         ],
-        sessions: [{ title: "Receipts", accountId: "account-1", workspace: { kind: "directory", path: "/home/seth/receipts" } }],
+        sessions: [{ title: "Receipts", accountId: "account-1", workspace: { kind: "directory", path: "/home/milo/receipts" } }],
         ...more,
       },
     ],
@@ -161,7 +161,7 @@ describe("live-source fork parity", () => {
       groups: [{ id: "0199bb00-0000-4000-8000-000000000001", name: "Money" }],
       sessions: [{ title: "Receipts", accountId: "account-1", tags: ["billing"], groupId: "0199bb00-0000-4000-8000-000000000001",
         pinnedAt: "2026-10-01T00:00:00.000Z", pinOrderKey: "b", settledAt: "2026-10-01T00:00:00.000Z",
-        workspace: { kind: "directory", path: "/home/seth/receipts" } }],
+        workspace: { kind: "directory", path: "/home/milo/receipts" } }],
     });
     await converse(env, session, transcript, "Fix the receipts");
     const { runId, messageId } = env.startRun(session, "Add the tests");
@@ -179,7 +179,7 @@ describe("live-source fork parity", () => {
     const fork = app.runtime.projections.session(env.environmentId, forkId);
     expect(fork.read().summary).toMatchObject({ title: "Receipts", titleSource: "generated", tags: ["billing"],
       groupId: "0199bb00-0000-4000-8000-000000000001", accountId: "account-1", draft: "Add the tests",
-      workspace: { kind: "directory", path: "/home/seth/receipts" }, pinnedAt: null, pinOrderKey: null, archivedAt: null, settledAt: null });
+      workspace: { kind: "directory", path: "/home/milo/receipts" }, pinnedAt: null, pinOrderKey: null, archivedAt: null, settledAt: null });
 
     // The source changes after the copy; neither its new title nor its ongoing output changes the fork.
     env.emit(session, "session.title-set", { title: "Source renamed", source: "user" }, { fields: { title: "Source renamed", titleSource: "user" } });
@@ -432,7 +432,7 @@ describe("a rewind to the first message", () => {
     const started = String(sent(env, "sessions.create")[0]?.["id"]);
     await waitFor(() => expect(inPane(app)).toEqual({ environmentId: env.environmentId, sessionId: started }));
     await waitFor(() => expect(box().value).toBe("Fix the receipts"));
-    expect(paneLine()).toBe("Fix the receipts was the first prompt, with nothing before it: a new session in /home/seth/receipts starts with it as its draft.");
+    expect(paneLine()).toBe("Fix the receipts was the first prompt, with nothing before it: a new session in /home/milo/receipts starts with it as its draft.");
     // The source is as it was: nothing rewound.
     expect(env.events(session).map((event) => event.type)).not.toContain("session.rewound");
   });

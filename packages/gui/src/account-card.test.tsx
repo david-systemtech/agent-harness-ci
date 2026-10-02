@@ -14,8 +14,8 @@ import { renderApp, type RenderOptions, type RenderedApp, type ScriptedEnvironme
  * over one scripted environment, `desk`, this machine's.
  */
 
-/** Who seth signs in as. */
-const SETH: AccountIdentity = { provider: "claude", email: "seth@example.test", organisation: null };
+/** Who milo signs in as. */
+const MILO: AccountIdentity = { provider: "claude", email: "milo@example.test", organisation: null };
 
 /** Set up as the whole window. */
 const checklist = () => screen.getByRole("region", { name: "Set up" });
@@ -60,9 +60,9 @@ const opened = async (given: Partial<ScriptedEnvironment> = {}, options: RenderO
 describe("the Account card in Set up", () => {
   it("asks accounts.probe and offers this machine's Claude Code sign-in first, then adopts it with accounts.adopt as a row with its label, identity, status and Sign in again", async () => {
     // An environment with a second provider: the card draws Claude's parts alone until milestone 2 (ADR 0016).
-    const app = await opened({ ambient: { present: true, signedIn: true, identity: SETH }, providers: [{}, { provider: "codex", displayName: "Codex" }] });
+    const app = await opened({ ambient: { present: true, signedIn: true, identity: MILO }, providers: [{}, { provider: "codex", displayName: "Codex" }] });
     const desk = app.environment("desk");
-    const offer = await within(step()).findByRole("region", { name: "Use the Claude Code sign-in on desk's machine (seth@example.test)" });
+    const offer = await within(step()).findByRole("region", { name: "Use the Claude Code sign-in on desk's machine (milo@example.test)" });
     expect(desk.requests("accounts.probe").length).toBeGreaterThan(0);
     expect(within(step()).queryByText(/codex|local model/i)).toBeNull();
     expect(within(step()).queryByRole("combobox", { name: /provider/i })).toBeNull();
@@ -71,10 +71,10 @@ describe("the Account card in Set up", () => {
     expect(offer.compareDocumentPosition(another) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
-    expect(await within(step()).findByText("Adopted seth@example.test on desk.")).toBeDefined();
+    expect(await within(step()).findByText("Adopted milo@example.test on desk.")).toBeDefined();
     expect(desk.requests("accounts.adopt")).toHaveLength(1);
-    const row = await within(step()).findByRole("region", { name: "seth@example.test" });
-    expect(facts(row)).toMatchObject({ Identity: "seth@example.test", Status: "signed in" });
+    const row = await within(step()).findByRole("region", { name: "milo@example.test" });
+    expect(facts(row)).toMatchObject({ Identity: "milo@example.test", Status: "signed in" });
     expect(within(row).getByRole("button", { name: "Sign in again" })).toBeDefined();
     await waitFor(() => expect(within(step()).queryByRole("region", { name: /^Use the Claude Code sign-in/ })).toBeNull());
   });
@@ -116,7 +116,7 @@ describe("the Account card in Set up", () => {
     await opened({
       scopes: ["read", "sessions:write", "runs:drive", "terminal"],
       accounts: [{ label: "personal", status: { state: "expired", checkedAt: null, detail: null } }],
-      ambient: { present: true, signedIn: true, identity: SETH },
+      ambient: { present: true, signedIn: true, identity: MILO },
       models: MODELS,
     });
     const card = step();
@@ -137,7 +137,7 @@ describe("the Account card in Set up", () => {
   });
 
   it("signs in another account: a label, accounts.add, then the URL, the code and the fallback command, with the sign-in's ten-minute countdown", async () => {
-    const app = await opened({ accounts: [{ label: "personal", identity: SETH }] });
+    const app = await opened({ accounts: [{ label: "personal", identity: MILO }] });
     const desk = app.environment("desk");
     const card = step();
     await app.user.click(within(card).getByRole("button", { name: "Sign in another account" }));
@@ -148,7 +148,7 @@ describe("the Account card in Set up", () => {
 
     desk.signIn("awaiting-code", { url: "https://claude.test/oauth/authorize?state=for-tests" });
     expect(await within(signing).findByText("https://claude.test/oauth/authorize?state=for-tests")).toBeDefined();
-    expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/seth/.agent-harness/accounts/2' claude auth login")).toBeDefined();
+    expect(within(signing).getByText("CLAUDE_CONFIG_DIR='/home/milo/.agent-harness/accounts/2' claude auth login")).toBeDefined();
     expect(within(signing).getByRole("timer").textContent).toBe("10m 0s left to sign in.");
     act(() => app.clock.advance(61_000));
     await waitFor(() => expect(within(signing).getByRole("timer").textContent).toBe("8m 59s left to sign in."));
@@ -208,12 +208,12 @@ describe("the Account card's defaults", () => {
   });
 
   it("presets the family the first signed-in account's catalogue ranks highest at high effort when both are unset, once", async () => {
-    const app = await opened({ ambient: { present: true, signedIn: true, identity: SETH }, models: MODELS });
+    const app = await opened({ ambient: { present: true, signedIn: true, identity: MILO }, models: MODELS });
     const desk = app.environment("desk");
     const offer = await within(step()).findByRole("region", { name: /^Use the Claude Code sign-in/ });
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
     await waitFor(() => expect(writes(app)).toEqual([{ "accounts.defaultModelFamily": "opus", "accounts.defaultEffort": "high" }]));
-    expect(await within(defaults()).findByText("Model family set to opus at high effort, the strongest seth@example.test offers.")).toBeDefined();
+    expect(await within(defaults()).findByText("Model family set to opus at high effort, the strongest milo@example.test offers.")).toBeDefined();
     await waitFor(() => expect(chosen(within(defaults()).getByRole("combobox", { name: "Model family" }))).toBe("opus: Claude Opus 5 (claude-opus-5)"));
     expect(chosen(within(defaults()).getByRole("combobox", { name: "Effort" }))).toBe("high");
 
@@ -233,11 +233,11 @@ describe("the Account card's defaults", () => {
   });
 
   it("never writes over a family or effort already set", async () => {
-    const app = await opened({ ambient: { present: true, signedIn: true, identity: SETH }, models: MODELS, settings: { "accounts.defaultEffort": "medium" } });
+    const app = await opened({ ambient: { present: true, signedIn: true, identity: MILO }, models: MODELS, settings: { "accounts.defaultEffort": "medium" } });
     const offer = await within(step()).findByRole("region", { name: /^Use the Claude Code sign-in/ });
     await app.user.click(within(offer).getByRole("button", { name: "Adopt" }));
-    expect(await within(step()).findByText("Adopted seth@example.test on desk.")).toBeDefined();
-    await within(step()).findByRole("region", { name: "seth@example.test" });
+    expect(await within(step()).findByText("Adopted milo@example.test on desk.")).toBeDefined();
+    await within(step()).findByRole("region", { name: "milo@example.test" });
     await waitFor(() => expect(chosen(within(defaults()).getByRole("combobox", { name: "Effort" }))).toBe("medium"));
     expect(writes(app)).toEqual([]);
   });

@@ -32,7 +32,7 @@ import { composeInstructions, instructionsDigest, type InstructionLayers } from 
 const { onCleanup } = useCleanups();
 
 /** An orientation seam a test drives: its text, the registries it could not read, a stall each composition waits on while set, and the scopes it was asked for. */
-const testOrientation = (text = "You are on SYSTEM-SERVER, a Linux machine.") => {
+const testOrientation = (text = "You are on SAMPLE-SERVER, a Linux machine.") => {
   const state = {
     text,
     unread: ["forges"] as string[],
@@ -123,7 +123,7 @@ describe("a run's launch", () => {
     await untilEnded(t, id, runId);
     expect(typesOf(t, id, runId)).toEqual(["run.started", "run.policy.resolved", "run.browser.resolved", "message.sent", "run.instructions.composed", "assistant.text", "run.ended"]);
     expect(composedOf(t, id, runId)).toMatchObject({ actor: "system:adapter-host", correlationId: runId });
-    expect(t.adapter.lastRun().input.instructions).toBe("You are on SYSTEM-SERVER, a Linux machine.");
+    expect(t.adapter.lastRun().input.instructions).toBe("You are on SAMPLE-SERVER, a Linux machine.");
   });
 
   it("ends a run interrupted while it composes as an interrupt ends one, starting no provider process, and its message is the next run's", async () => {
@@ -232,7 +232,7 @@ describe("the composition", () => {
     const { runId } = await startRun(client, id);
     await untilEnded(t, id, runId);
 
-    const text = "You are on SYSTEM-SERVER, a Linux machine.\n\nAnswer in French.";
+    const text = "You are on SAMPLE-SERVER, a Linux machine.\n\nAnswer in French.";
     expect(t.adapter.lastRun().input.instructions).toBe(text);
     const payload = composedOf(t, id, runId)?.payload as RunInstructionsComposedPayload;
     expect(payload).toEqual({
@@ -263,7 +263,7 @@ describe("the composition", () => {
         layers: {
           persona: () => [part("reviewer", "You review.")],
           session: () => [part("blank", "  "), part("note", "Be brief.")],
-          teamBank: () => [part("brandsolidate", "Brands live in the brandsolidate bank.")],
+          teamBank: () => [part("meadowstudios", "Brands live in the meadowstudios bank.")],
         },
       },
     );
@@ -272,7 +272,7 @@ describe("the composition", () => {
     const completions = t.env.startRun({ sessionId: id, text: "From a bot", actor: { kind: "completions", attended: false, ceiling: "acceptEdits", clientSessionId: null } });
     await untilEnded(t, id, completions.runId);
     expect(t.adapter.lastRun().input.instructions).toBe(
-      ["You are on SYSTEM-SERVER, a Linux machine.", "Brands live in the brandsolidate bank.", "Be brief.", "You review."].join("\n\n"),
+      ["You are on SAMPLE-SERVER, a Linux machine.", "Brands live in the meadowstudios bank.", "Be brief.", "You review."].join("\n\n"),
     );
     expect((composedOf(t, id, completions.runId)?.payload as RunInstructionsComposedPayload).manifest.layers.map((layer) => layer.layer)).toEqual([
       "user",
@@ -292,7 +292,7 @@ describe("the composition", () => {
     t.clock.advance(60 * 60 * 1000);
     const second = await startRun(client, id, "Two");
     await untilEnded(t, id, second.runId);
-    orientation.state.text = "You are on SYSTEM-SERVER, a Linux machine. OpenBao is sealed since 2026-09-24 01:02 UTC.";
+    orientation.state.text = "You are on SAMPLE-SERVER, a Linux machine. OpenBao is sealed since 2026-09-24 01:02 UTC.";
     const third = await startRun(client, id, "Three");
     await untilEnded(t, id, third.runId);
 
@@ -338,7 +338,7 @@ describe("instructions.preview", () => {
 
     const answer = await preview(reader, { sessionId: id });
     expect(answer.parts).toEqual([
-      { layer: "user", id: "orientation", title: "Orientation", text: "You are on SYSTEM-SERVER, a Linux machine." },
+      { layer: "user", id: "orientation", title: "Orientation", text: "You are on SAMPLE-SERVER, a Linux machine." },
       { layer: "session", id: "session-note", title: "Instructions for this session", text: "Answer in French." },
     ]);
     expect(answer.manifest.unreadRegistries).toEqual(["forges"]);
@@ -362,7 +362,7 @@ describe("instructions.preview", () => {
     const { runId } = await startRun(client, id);
     await untilEnded(t, id, runId);
     expect(t.adapter.lastRun().input.instructions).toBe(answer.text);
-    expect(answer.text).toBe("You are on SYSTEM-SERVER, a Linux machine.");
+    expect(answer.text).toBe("You are on SAMPLE-SERVER, a Linux machine.");
   });
 
   it("refuses a session or an account not on the environment not_found, and a request naming both invalid_params", async () => {

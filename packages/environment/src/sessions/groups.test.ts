@@ -96,9 +96,9 @@ describe("groups.create", () => {
     const { client, list } = await withList(t);
     const id = randomUUID();
 
-    const answer = await command(client, "groups.create", { id, name: "Brandsolidate" });
+    const answer = await command(client, "groups.create", { id, name: "Meadowstudios" });
 
-    const expected = groupAt(id, "Brandsolidate", at(60_000));
+    const expected = groupAt(id, "Meadowstudios", at(60_000));
     expect(answer).toEqual({ receipt: { status: "accepted", sequence: t.env.log.head(), changed: true }, result: { group: expected } });
     const event = await list.next();
     expect(event).toMatchObject({
@@ -108,7 +108,7 @@ describe("groups.create", () => {
       streamId: id,
       occurredAt: at(60_000),
       actor: { kind: "client_session", id: client.hello.clientSessionId },
-      payload: { name: "Brandsolidate", orderKey: null },
+      payload: { name: "Meadowstudios", orderKey: null },
     });
     expect(groupPatchOf(event)).toEqual({ op: "add", group: expected });
     expect(await listGroups(client)).toEqual([expected]);
@@ -126,12 +126,12 @@ describe("groups.create", () => {
   it("trims the name and collapses its white space, in the event, the patch and the list", async () => {
     const t = await start();
     const { client, list } = await withList(t);
-    const { id, result } = await createGroup(client, { name: "  Cool \t Jams\n  and  friends  " });
-    expect(result?.group.name).toBe("Cool Jams and friends");
+    const { id, result } = await createGroup(client, { name: "  Moon \t Gems\n  and  friends  " });
+    expect(result?.group.name).toBe("Moon Gems and friends");
     const event = await list.next();
-    expect(event.payload).toEqual({ name: "Cool Jams and friends", orderKey: null });
-    expect(groupPatchOf(event)).toMatchObject({ op: "add", group: { id, name: "Cool Jams and friends" } });
-    expect((await listGroups(client)).map((group) => group.name)).toEqual(["Cool Jams and friends"]);
+    expect(event.payload).toEqual({ name: "Moon Gems and friends", orderKey: null });
+    expect(groupPatchOf(event)).toMatchObject({ op: "add", group: { id, name: "Moon Gems and friends" } });
+    expect((await listGroups(client)).map((group) => group.name)).toEqual(["Moon Gems and friends"]);
   });
 
   it("refuses a name that is empty, all white space, over 80 characters once trimmed, or holding a control or zero-width character invalid_params; 80 is taken, white space around it not counted", async () => {
@@ -152,9 +152,9 @@ describe("groups.create", () => {
   it("is conflict with reason name_taken when another group has the name ignoring case and white space, and appends nothing", async () => {
     const t = await start();
     const client = await t.client();
-    const { id } = await createGroup(client, { name: "Brand solidate" });
-    for (const name of ["Brand solidate", "BRAND SOLIDATE", "  brand   Solidate "]) {
-      await expectRejected(t, "conflict", { reason: "name_taken", name: name.trim().replace(/\s+/g, " "), heldName: "Brand solidate", groupId: id }, () =>
+    const { id } = await createGroup(client, { name: "Meadow studios" });
+    for (const name of ["Meadow studios", "MEADOW STUDIOS", "  meadow   Studios "]) {
+      await expectRejected(t, "conflict", { reason: "name_taken", name: name.trim().replace(/\s+/g, " "), heldName: "Meadow studios", groupId: id }, () =>
         command(client, "groups.create", { id: randomUUID(), name }),
       );
     }
@@ -212,16 +212,16 @@ describe("groups.rename", () => {
   it("changes nothing when the name normalises to the one it has; a rename that changes only the case is a rename", async () => {
     const t = await start();
     const client = await t.client();
-    const { id } = await createGroup(client, { name: "Brandsolidate" });
+    const { id } = await createGroup(client, { name: "Meadowstudios" });
     const list = await listStream(client, t.env.log.head());
-    await expectNoOp(t, () => command(client, "groups.rename", { groupId: id, name: " Brandsolidate  " }));
+    await expectNoOp(t, () => command(client, "groups.rename", { groupId: id, name: " Meadowstudios  " }));
 
-    await command(client, "groups.rename", { groupId: id, name: "BrandSolidate" });
+    await command(client, "groups.rename", { groupId: id, name: "MeadowStudios" });
 
     const event = await list.next();
-    expect(event).toMatchObject({ type: "group.renamed", payload: { name: "BrandSolidate" } });
-    expect(groupPatchOf(event)).toMatchObject({ op: "set", groupId: id, fields: { name: "BrandSolidate" } });
-    expect((await listGroups(client)).map((group) => group.name)).toEqual(["BrandSolidate"]);
+    expect(event).toMatchObject({ type: "group.renamed", payload: { name: "MeadowStudios" } });
+    expect(groupPatchOf(event)).toMatchObject({ op: "set", groupId: id, fields: { name: "MeadowStudios" } });
+    expect((await listGroups(client)).map((group) => group.name)).toEqual(["MeadowStudios"]);
   });
 
   it("is conflict with reason name_taken when another group has the name ignoring case", async () => {
@@ -706,11 +706,11 @@ describe("verify first: an outbox run chaining groups.create and sessions.setGro
     const client = await t.client();
     const other = await pairSecond(t);
     const { id: sessionId } = await create(client);
-    const { id: taken } = await createGroup(other, { name: "Brandsolidate" });
+    const { id: taken } = await createGroup(other, { name: "Meadowstudios" });
     const groupId = randomUUID();
 
     const [created, set] = await sendAll(client, [
-      ["groups.create", { commandId: uuidv7(), id: groupId, name: "brandsolidate" }],
+      ["groups.create", { commandId: uuidv7(), id: groupId, name: "meadowstudios" }],
       ["sessions.setGroup", { commandId: uuidv7(), sessionId, groupId }],
     ]);
 

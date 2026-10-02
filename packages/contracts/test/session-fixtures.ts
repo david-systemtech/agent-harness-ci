@@ -39,7 +39,7 @@ const workspaceRequests = [
 /** Workspace requests no environment takes: relative, a kind that is not a request, both branches, a session not by its id. */
 const invalidWorkspaceRequests = [
   { kind: "directory", path: "work/agent-harness" },
-  { kind: "directory", path: "~seth/work" },
+  { kind: "directory", path: "~milo/work" },
   { kind: "directory" },
   { kind: "worktree" },
   { kind: "worktree", repository: "/work/agent-harness", branch: "main", newBranch: {} },
@@ -101,7 +101,7 @@ const fullSummary = {
   pinnedAt: at,
   pinOrderKey: "m",
   activeOrderKey: "c",
-  tags: ["review", "Seth", "wip"],
+  tags: ["Milo", "review", "wip"],
   groupId,
   settledAt: later,
   settledOverride: "settled",
@@ -144,7 +144,7 @@ const invalidSummaries = [
   { ...freshSummary, draft: "" },
 ];
 
-const group = { id: groupId, name: "Brandsolidate", orderKey: null, createdAt: at, updatedAt: at };
+const group = { id: groupId, name: "Meadowstudios", orderKey: null, createdAt: at, updatedAt: at };
 const invalidGroups = [{ ...group, name: "" }, { ...group, name: "x".repeat(81) }, { ...group, orderKey: "a" }, { ...group, id: "g-1" }];
 
 const deleted = { ...freshSummary, deletedAt: later, purgeAt: "2026-10-29T09:00:00.000Z" };
@@ -193,7 +193,7 @@ const eventPayloads: Record<string, Fixtures> = {
   "session.pin-reordered": { valid: [{ pinOrderKey: "mb" }], invalid: [{}, { pinOrderKey: null }] },
   "session.active-reordered": { valid: [{ activeOrderKey: "c" }, { activeOrderKey: null }], invalid: [{}, { activeOrderKey: "" }] },
   "session.tagged": { valid: [{ tag: "wip" }], invalid: [{}, { tag: "" }] },
-  "session.untagged": { valid: [{ tag: "Seth" }], invalid: [{ tag: 1 }, { tag: "x".repeat(41) }] },
+  "session.untagged": { valid: [{ tag: "Milo" }], invalid: [{ tag: 1 }, { tag: "x".repeat(41) }] },
   "session.browser.set": {
     valid: [...browsers.map((browser) => ({ browser, chosenBy: "person" })), { browser: null, chosenBy: "person" }, { browser: browsers[0], chosenBy: "agent" }, { browser: browsers[1], chosenBy: "reach" }, { browser: { kind: "none" }, chosenBy: "completions" }],
     invalid: [{ browser: browsers[0] }, { browser: browsers[0], chosenBy: "routine" }, { browser: { kind: "firefox" }, chosenBy: "person" }],
@@ -257,8 +257,8 @@ const eventPayloads: Record<string, Fixtures> = {
     invalid: [{}, { workspace }, { workspace: { kind: "scratch" }, repositoryIdentity: null }, { workspace, repositoryIdentity: "" }],
   },
   "group.created": {
-    valid: [{ name: "Brandsolidate", orderKey: null }, { name: "Cool-Jams", orderKey: "m" }],
-    invalid: [{ name: "Brandsolidate" }, { name: "", orderKey: null }],
+    valid: [{ name: "Meadowstudios", orderKey: null }, { name: "Moon-Gems", orderKey: "m" }],
+    invalid: [{ name: "Meadowstudios" }, { name: "", orderKey: null }],
   },
   "group.renamed": { valid: [{ name: "Brands" }], invalid: [{}, { name: " " }] },
   "group.reordered": { valid: [{ orderKey: "d" }], invalid: [{}, { orderKey: "da" }] },
@@ -276,13 +276,13 @@ export const sessionSchemaFixtures: Record<string, Fixtures> = {
     invalid: ["", "   ", "x".repeat(201), ` ${"x".repeat(201)} `],
   },
   "sessions/tag.json": {
-    valid: ["wip", "Seth", "x".repeat(40), ` ${"x".repeat(40)}  `, "two words", "naïve", "日本語"],
+    valid: ["wip", "Milo", "x".repeat(40), ` ${"x".repeat(40)}  `, "two words", "naïve", "日本語"],
     invalid: ["", " ", "x".repeat(41), "a\tb", "a\u0085b", "a\u0000b", "\u200B", "a\u200Bb", "\uFEFF", "a\uFEFFb"],
   },
   "sessions/draft.json": { valid: ["", "Now the retention sweep", "x".repeat(65_536)], invalid: [null, "x".repeat(65_537)] },
   "sessions/stored-draft.json": { valid: [null, "Now the retention sweep", "x".repeat(65_536)], invalid: ["", "x".repeat(65_537), 7] },
   "sessions/group-name.json": {
-    valid: ["Brandsolidate", "x".repeat(80), ` ${"x".repeat(80)} `, "Cool \t Jams\n and friends", "naïve", "日本語"],
+    valid: ["Meadowstudios", "x".repeat(80), ` ${"x".repeat(80)} `, "Moon \t Gems\n and friends", "naïve", "日本語"],
     invalid: ["", "  ", "x".repeat(81), "a\u0000b", "a\u001Bb", "a\u0085b", "\u200B", "a\u200Bb", "\u200B\u200B", "\uFEFF", "a\uFEFFb", "a\u2060b"],
   },
   "sessions/title-source.json": { valid: ["user", "generated", "default"], invalid: ["prompt", "provider", ""] },
@@ -388,7 +388,7 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
     params: {
       valid: [
         { commandId, id: sessionId, workspace },
-        { commandId, id: sessionId, title: "Fix it", tags: ["wip", "Seth"], groupId, workspace, account: "claude-max", model: "opus", mode: "plan" },
+        { commandId, id: sessionId, title: "Fix it", tags: ["wip", "Milo"], groupId, workspace, account: "claude-max", model: "opus", mode: "plan" },
         { commandId, id: sessionId, groupId: null, workspace },
         ...browsers.map((value) => ({ commandId, id: sessionId, workspace, browser: { value, chosenBy: "person" } })),
         { commandId, id: sessionId, workspace, browser: { value: browsers[1], chosenBy: "reach" } },
@@ -519,8 +519,8 @@ export const sessionMethodFixtures: Record<string, { params: Fixtures; result: F
   },
   "groups.create": {
     params: {
-      valid: [{ commandId, id: groupId, name: "Brandsolidate" }, { commandId, id: groupId, name: "Brandsolidate", orderKey: "m" }],
-      invalid: [{ commandId, name: "Brandsolidate" }, { commandId, id: groupId, name: "" }, { commandId, id: groupId, name: "x".repeat(81) }],
+      valid: [{ commandId, id: groupId, name: "Meadowstudios" }, { commandId, id: groupId, name: "Meadowstudios", orderKey: "m" }],
+      invalid: [{ commandId, name: "Meadowstudios" }, { commandId, id: groupId, name: "" }, { commandId, id: groupId, name: "x".repeat(81) }],
     },
     result: groupResult,
   },

@@ -659,7 +659,7 @@ describe("the Forges step's row (#589)", () => {
     expect(machineGhAbsence(probe({ installed: false, version: null, meetsMinimum: false }), "desk")).toBe("desk has no gh to read a token from.");
     expect(machineGhAbsence(probe({ version: null, meetsMinimum: false }), "desk")).toBe("The gh on desk is of a version it does not say, older than 2.40.0, the oldest a forge account reads.");
     expect(machineGhAbsence(probe({}), "desk")).toBe("The gh on desk is signed in to no host: run gh auth login there, or paste a token.");
-    const signedIn = probe({ accounts: [account("github.com", "seth", false), account("github.com", "david", true), account("ghe.example.test:8443", "dvd", false)] });
+    const signedIn = probe({ accounts: [account("github.com", "milo", false), account("github.com", "david", true), account("ghe.example.test:8443", "dvd", false)] });
     expect(machineGhAbsence(signedIn, "desk")).toBeNull();
     expect(machineGhLogin(signedIn, "github.com")).toBe("david");
     expect(machineGhLogin(signedIn, "ghe.example.test:8443")).toBe("dvd");

@@ -46,7 +46,7 @@ export const platformOn = (os: ShellPlatform, overrides: Partial<DesktopPlatform
   os,
   architecture: "arm64",
   hostname: "desk",
-  user: "seth",
+  user: "milo",
   argv: ["/opt/agent-harness/agent-harness"],
   executable: "/opt/agent-harness/agent-harness",
   paths: { data: scratch(), environment: scratch(), renderer: rendererBuild(), preload: "/opt/agent-harness/resources/preload.cjs" },

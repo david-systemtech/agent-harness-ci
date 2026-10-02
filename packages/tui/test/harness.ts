@@ -300,7 +300,7 @@ export const appUnderTest = async (options: RenderOptions): Promise<AppUnderTest
   const grant = world.grant ?? NO_GRANT_FILE;
   const platform =
     options.platform ??
-    inMemoryPlatform({ clock, kind: "tui", label: "seth@desk:pts/3", version: options.version ?? FAKE_HARNESS_VERSION, fetch: world.fetch, webSocket: world.webSocket, grant });
+    inMemoryPlatform({ clock, kind: "tui", label: "milo@desk:pts/3", version: options.version ?? FAKE_HARNESS_VERSION, fetch: world.fetch, webSocket: world.webSocket, grant });
   const onPlatform: InMemoryPlatform = options.platform ? { ...platform, fetch: world.fetch, webSocket: world.webSocket, grant } : platform;
   const make = (): Runtime =>
     options.protocolVersion === undefined ? createRuntime(onPlatform) : runtimeSpeaking(onPlatform, options.protocolVersion);

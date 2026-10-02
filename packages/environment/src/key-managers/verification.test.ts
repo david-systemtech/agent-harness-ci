@@ -196,7 +196,7 @@ describe("keyManagers.connections.verify", () => {
 
   it("never verifies a connection with no credential", async () => {
     const { bao, client } = await withOpenBao();
-    const copy = await added(client, { address: bao.address, ca: bao.ca, method: "approle", copiedFrom: { environmentId: randomUUID(), environmentName: "SYSTEM-SERVER" } });
+    const copy = await added(client, { address: bao.address, ca: bao.ca, method: "approle", copiedFrom: { environmentId: randomUUID(), environmentName: "SAMPLE-SERVER" } });
 
     expect(await verify(client)).toEqual([copy]);
     expect(bao.requests).toEqual([]);
@@ -370,7 +370,7 @@ describe("keyManagers.connections.setPolicies", () => {
   it("refuses a policy the login does not hold, and a connection whose login was never looked up, as invalid_params; one the environment does not hold as not_found", async () => {
     const { bao, client } = await withOpenBao();
     const connection = await connected({ bao, client });
-    const copy = await added(client, { address: "https://bao.example.com:8200", method: "approle", ticks: ["default"], copiedFrom: { environmentId: randomUUID(), environmentName: "SYSTEM-SERVER" } });
+    const copy = await added(client, { address: "https://bao.example.com:8200", method: "approle", ticks: ["default"], copiedFrom: { environmentId: randomUUID(), environmentName: "SAMPLE-SERVER" } });
 
     expect(await refusal(setPolicies(client, connection.id, ["agent-read", "admin"]))).toMatchObject({ code: "invalid_params", data: { issues: [expect.objectContaining({ path: ["ticks", 1] })] } });
     expect(await refusal(setPolicies(client, connection.id, ["root"]))).toMatchObject({ code: "invalid_params" });

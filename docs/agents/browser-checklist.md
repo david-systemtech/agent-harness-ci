@@ -11,14 +11,13 @@ machine that allows browsers, as an ordinary user, and record the result in
 the pull request that changes the driver or its in-page functions. When no
 such machine is at hand, the pull request says so and lists the suite as not
 run; it stays owed until someone runs it. Never launch a browser on the
-shared agent box (SYSTEM-SERVER's container): it has taken out-of-memory
+shared agent box (SAMPLE-SERVER's container): it has taken out-of-memory
 kills from browsers before.
 
 ## Where
 
 A machine with Chromium or Google Chrome installed and memory to spare: a
-browser container on MNL with the headless browser's limits, or David's own
-machine. Not as root: Chromium refuses to start its sandbox as root, and the
+browser container with the headless browser's limits, or a local machine. Not as root: Chromium refuses to start its sandbox as root, and the
 suite never turns the sandbox off.
 
 ## Run
@@ -77,7 +76,7 @@ Record the date, the machine and its platform, the browser and its version
 ## The relay (#554)
 
 What the browser relay adds per verb (the browser spec's "Verify first", item
-5): a run on SYSTEM-SERVER started from the desktop window drives David's
+5): a run on SAMPLE-SERVER started from the desktop window drives David's
 Chrome, paired with his desktop's environment, through the window's runtime.
 The relay's tests run two in-process environments and the fake extension; only
 David's machines time it.
@@ -88,7 +87,7 @@ fixed page open in it:
 1. **Direct**: a session on the desktop's environment whose browser is that
    Chrome. In one run, ten of each of `browser_open`, `browser_snapshot`,
    `browser_click`, `browser_read` and `browser_screenshot` on the page.
-2. **Relayed**: the same from a session on SYSTEM-SERVER started from the same
+2. **Relayed**: the same from a session on SAMPLE-SERVER started from the same
    desktop window, its browser that Chrome.
 3. For each verb on each path, read each call's time from its `tool.started`
    to its `tool.ended` in the session's transcript, and note the median and

@@ -15,8 +15,8 @@ import { glyphOf } from "./connections/environment-glyphs.js";
  * models, usage readings and runs.
  */
 
-const WORK = { provider: "claude", email: "seth@work.test", organisation: null };
-const HOME = { provider: "claude", email: "seth@home.test", organisation: null };
+const WORK = { provider: "claude", email: "milo@work.test", organisation: null };
+const HOME = { provider: "claude", email: "milo@home.test", organisation: null };
 
 /** The session's environment: two accounts, the session on the first, the containment default `workspace`. */
 const desk = (more: Partial<ScriptedEnvironment> = {}): ScriptedEnvironment => ({
@@ -68,7 +68,7 @@ describe("the status line", () => {
     const { runId } = env.startRun(session, "Fix the receipts", [], { model: "claude-opus-4", effort: "high" });
     env.endRun(session, runId);
     const line = await screen.findByRole("region", { name: "Status line" });
-    expect(await within(line).findByRole("button", { name: "Account: work seth@work.test" })).toBeTruthy();
+    expect(await within(line).findByRole("button", { name: "Account: work milo@work.test" })).toBeTruthy();
     expect(within(line).getByText("desk")).toBeTruthy();
     expect(within(line).getByRole("button", { name: "Model: claude-opus-4 high" }).textContent).toBe("claude-opus-4 high");
     expect(within(line).getByRole("button", { name: "Mode: ⏸ auto" }).textContent).toBe("⏸ auto");
@@ -192,7 +192,7 @@ describe("run info", () => {
     const info = await screen.findByRole("region", { name: "The latest run" });
     const fact = (term: string) => within(info).getByText(term).nextElementSibling?.textContent;
     expect(fact("Started by")).toBe("client, attended");
-    await waitFor(() => expect(fact("Account")).toBe("work (seth@work.test)"));
+    await waitFor(() => expect(fact("Account")).toBe("work (milo@work.test)"));
     expect(fact("Model")).toBe("claude-opus-4");
     expect(fact("Effort")).toBe("high");
     expect(fact("Mode")).toBe("auto, clamped from bypassPermissions to the ceiling auto");

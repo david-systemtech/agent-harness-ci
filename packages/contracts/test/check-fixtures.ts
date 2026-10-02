@@ -16,7 +16,7 @@ const sessionId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 const terminalId = "4d3c2b1a-9e8f-4a7b-8c6d-5e4f3a2b1c0d";
 const runId = "3f2a1c4e-8b7d-4e6f-9a0b-1c2d3e4f5a6b";
 const command = "pnpm typecheck && pnpm lint";
-const check = { workspace: "/home/seth/project", command };
+const check = { workspace: "/home/milo/project", command };
 const cleared = { ...check, command: null };
 const started = { terminalId, command, sourceRunId: null };
 const finished = { ...started, output: "Found 1 error.\r\n", truncated: false, exitCode: 2, signal: null, timedOut: false, failure: null };
@@ -31,7 +31,7 @@ export const checkSchemaFixtures: Record<string, Fixtures> = {
   "checks/check-command.json": { valid: [command, "  make check\n"], invalid: ["", " \n\t", 7] },
   "checks/workspace-check.json": { valid: [check, cleared, { ...check, workspace: "C:\\work\\project" }], invalid: [{ workspace: "project", command }, { command }, { ...check, command: "" }] },
   "checks/check-failure.json": { valid: ["launch_failed", "closed", "interrupted"], invalid: ["timeout", ""] },
-  "checks/notices/checks.changed.json": { valid: [check, cleared], invalid: [{ ...check, command: " " }, { workspace: "/home/seth/project" }] },
+  "checks/notices/checks.changed.json": { valid: [check, cleared], invalid: [{ ...check, command: " " }, { workspace: "/home/milo/project" }] },
   "checks/notices/checks.failures-reset.json": { valid: [{ workspace: check.workspace }], invalid: [{}, { workspace: "relative" }] },
   "sessions/events/checks.edit-observed.json": { valid: [{ runId, workspace: check.workspace }], invalid: [{ runId }, { runId: "run", workspace: check.workspace }] },
   "sessions/events/checks.started.json": { valid: [started, { ...started, sourceRunId: runId }], invalid: [{ ...started, terminalId: "t-1" }, { terminalId, command }, { ...started, command: "" }] },
@@ -58,7 +58,7 @@ export const checkMethodFixtures: Record<string, { params: Fixtures; result: Fix
       valid: [{ commandId, sessionId, command }, { commandId, sessionId, command: null }],
       invalid: [{ commandId, sessionId }, { sessionId, command }, { commandId, sessionId, command: "" }, { commandId, sessionId, command: "\n" }],
     },
-    result: { valid: [check, cleared], invalid: [{ workspace: "/home/seth/project" }, {}] },
+    result: { valid: [check, cleared], invalid: [{ workspace: "/home/milo/project" }, {}] },
   },
   "checks.run": {
     params: { valid: [{ commandId, sessionId }], invalid: [{ commandId }, { sessionId }] },

@@ -42,8 +42,8 @@ describe("first launch through the grant", () => {
   });
 
   it("shows the workspace in the header", async () => {
-    const app = await launch({ script: { environments: [{ name: "desk", reach: "local" }] }, flags: { workspace: "~/code/brandsolidate" } });
-    expect(app.frame().split("\n")[0]).toContain("~/code/brandsolidate");
+    const app = await launch({ script: { environments: [{ name: "desk", reach: "local" }] }, flags: { workspace: "~/code/meadowstudios" } });
+    expect(app.frame().split("\n")[0]).toContain("~/code/meadowstudios");
   });
 });
 

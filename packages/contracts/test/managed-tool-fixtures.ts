@@ -48,8 +48,8 @@ const warning = { issue: "Running native installation but config install method 
 const doctorRead = { outcome: "read", method: "npm", fields: [field, { name: "Config install method", value: "unknown" }], warnings: [warning] };
 const doctorFailed = { outcome: "failed", reason: "claude doctor gave no answer within 30 s." };
 const detail = { tool: "claude", row: claude, doctor: doctorRead };
-const passed = { tool: "bao", outcome: "passed", reason: "bao looked up its run token at https://bao.systemtech.dev:8200: policies default, agent-read." };
-const sealed = { tool: "vault", outcome: "failed", reason: "OpenBao at https://bao.systemtech.dev:8200 is sealed: unseal it, then verify again." };
+const passed = { tool: "bao", outcome: "passed", reason: "bao looked up its run token at https://bao.example.com:8200: policies default, agent-read." };
+const sealed = { tool: "vault", outcome: "failed", reason: "OpenBao at https://bao.example.com:8200 is sealed: unseal it, then verify again." };
 const notInstalled = { tool: "gh", outcome: "not-installed", reason: "gh is not installed on this environment." };
 
 const commandId = "0f8fad5b-d9cb-469f-a165-70867728950e";

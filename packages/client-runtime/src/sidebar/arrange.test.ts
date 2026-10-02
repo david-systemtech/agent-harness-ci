@@ -158,13 +158,13 @@ describe("dropOnto: a session dropped on a row or a heading", () => {
   });
 
   it("moves a session dropped on a group, its heading or its rows, into it; one already in it stays", () => {
-    const inside = row("laptop", { groupId: "g-laptop" }, { groupName: "brandsolidate" });
-    const heading = folding("group", [inside], "Brandsolidate", merged("Brandsolidate", [["desk", "g-desk"], ["laptop", "g-laptop"]]));
+    const inside = row("laptop", { groupId: "g-laptop" }, { groupName: "meadowstudios" });
+    const heading = folding("group", [inside], "Meadowstudios", merged("Meadowstudios", [["desk", "g-desk"], ["laptop", "g-laptop"]]));
     const loose = active("desk", null);
-    expect(dropOnto(loose, { kind: "heading", heading })).toEqual({ kind: "group", row: loose, name: "Brandsolidate" });
-    expect(dropOnto(loose, { kind: "row", heading, at: 0 })).toEqual({ kind: "group", row: loose, name: "Brandsolidate" });
+    expect(dropOnto(loose, { kind: "heading", heading })).toEqual({ kind: "group", row: loose, name: "Meadowstudios" });
+    expect(dropOnto(loose, { kind: "row", heading, at: 0 })).toEqual({ kind: "group", row: loose, name: "Meadowstudios" });
     // In the group and pinned: it is in the group already, and a drop moves nothing.
-    const pinnedInside = row("desk", { groupId: "g-desk", pinnedAt: "2026-09-24T00:00:00.000Z" }, { groupName: "Brandsolidate" });
+    const pinnedInside = row("desk", { groupId: "g-desk", pinnedAt: "2026-09-24T00:00:00.000Z" }, { groupName: "Meadowstudios" });
     expect(dropOnto(pinnedInside, { kind: "heading", heading })).toEqual({ kind: "unchanged" });
   });
 

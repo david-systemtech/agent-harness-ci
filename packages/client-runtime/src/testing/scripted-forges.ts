@@ -91,7 +91,7 @@ export interface ForgesHost {
 export const FORGE_COMMANDS: readonly string[] = ["forge.accounts.add", "forge.accounts.update", "forge.accounts.remove", "forge.accounts.setPrimary"];
 
 /** The label the scripted environment knows the calling client session by. */
-const CLIENT_LABEL = "seth@desk";
+const CLIENT_LABEL = "milo@desk";
 
 /** The reads a verification probes, found verified. */
 const readsVerified = (at: string): ForgeCapabilities => ({

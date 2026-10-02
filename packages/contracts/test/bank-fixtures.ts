@@ -27,7 +27,7 @@ const finding = {
 const memory = { name: "backup-schedule", description: "When a backup is missing - the nightly schedule and its logs", metadata: { type: "project" } };
 
 export const bankSchemaFixtures: Record<string, Fixtures> = {
-  "banks/name.json": { valid: ["cortex", "maya-memory", "a".repeat(40)], invalid: ["Cortex", "maya_memory", "-maya", "a".repeat(41), ""] },
+  "banks/name.json": { valid: ["notebook", "maya-memory", "a".repeat(40)], invalid: ["Notebook", "maya_memory", "-maya", "a".repeat(41), ""] },
   "banks/manifest.json": {
     valid: [personalManifest(), teamManifest(), personalManifest({ root: "orgs", write: { ...(personalManifest().write as object), land: "commit" } })],
     invalid: [
