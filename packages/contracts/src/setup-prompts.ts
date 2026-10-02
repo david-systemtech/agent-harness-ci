@@ -74,6 +74,7 @@ export const stepPrompt = <Facts>(definition: StepPromptDefinition<Facts>): Step
 const DescribeBankFacts = z.object({
   name: z.string().min(1),
   kind: z.enum(BANK_KINDS),
+  localOnly: z.boolean().optional(),
   entities: z.array(z.object({ name: z.string().min(1), aliases: z.array(z.string().min(1)) })),
   scopes: z.array(z.string().min(1)),
 });
@@ -144,8 +145,9 @@ const WORKTREE = "You work in a worktree of the bank on a branch of its own, so 
 
 const VALIDATE = `When the bank holds .agent-harness/validate.mjs, run it with node before you commit.`;
 
-const LANDING =
-  "Commit on this branch, then land it through the bank's review path: push the branch and open a pull request against main. BANK.md is a reviewed change, so the pull request waits for an owner's review.";
+const landing = ({ localOnly }: DescribeBankFacts): string => localOnly === true
+  ? "Commit on this branch. The environment lands the committed describe artefacts on main through the BankService when the run completes."
+  : "Commit on this branch, then land it through the bank's review path: push the branch and open a pull request against main. BANK.md is a reviewed change, so the pull request waits for an owner's review.";
 
 /**
  * The Memory bank step's describe prompt (ADR 0019, ADR 0035, ADR 0037;
@@ -166,7 +168,7 @@ const describeBank = stepPrompt({
       `Ask me ${ASK_PURPOSE} before you write. Then write BANK.md at the root of this worktree so it passes the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
       homeRules(facts),
       scopeLine(facts),
-      `${VALIDATE} ${LANDING}`,
+      `${VALIDATE} ${landing(facts)}`,
     ].join("\n\n"),
   revise: (facts) =>
     [
@@ -175,7 +177,7 @@ const describeBank = stepPrompt({
       `Leave BANK.md passing the bank validator, version ${BANK_VALIDATOR.version}:\n${manifestRules(facts)}`,
       homeRules(facts),
       scopeLine(facts),
-      `${VALIDATE} ${LANDING}`,
+      `${VALIDATE} ${landing(facts)}`,
     ].join("\n\n"),
   example: {
     name: "david-memory",

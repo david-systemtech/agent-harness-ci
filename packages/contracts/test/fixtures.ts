@@ -1,3 +1,4 @@
+import { bankMigrationSchemaFixtures, bankMigrationMethodFixtures } from "./bank-migration-fixtures.js";
 import { bankSplitSchemaFixtures, bankSplitMethodFixtures } from "./bank-split-fixtures.js";
 import { memoryDraftSchemaFixtures, memoryDraftMethodFixtures } from "./memory-draft-fixtures.js";
 /**
@@ -34,6 +35,7 @@ import { settingsRowSchemaFixtures } from "./settings-row-fixtures.js";
 import { forgeRejected, setupMethodFixtures, setupSchemaFixtures } from "./setup-fixtures.js";
 import { skillMethodFixtures, skillSchemaFixtures } from "./skill-fixtures.js";
 import { terminalMethodFixtures, terminalSchemaFixtures } from "./terminal-fixtures.js";
+import { checkMethodFixtures, checkSchemaFixtures, checksChangedNotice } from "./check-fixtures.js";
 import { themeSchemaFixtures } from "./theme-fixtures.js";
 import { trustMethodFixtures, trustSchemaFixtures } from "./trust-fixtures.js";
 import { carryOverMethodFixtures, carryOverSchemaFixtures } from "./carry-over-fixtures.js";
@@ -557,6 +559,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...managedToolMethodFixtures,
   ...usageMethodFixtures,
   ...terminalMethodFixtures,
+  ...checkMethodFixtures,
   ...workspaceMethodFixtures,
   ...updateMethodFixtures,
   ...routineMethodFixtures,
@@ -570,6 +573,7 @@ const methodFixtures: Record<string, { params: Fixtures; result: Fixtures }> = {
   ...bankRegistryMethodFixtures,
   ...memoryDraftMethodFixtures,
   ...bankSplitMethodFixtures,
+  ...bankMigrationMethodFixtures,
 };
 
 /** Receipts as a command's response carries them: accepted with a change, a no-op, and a rejection. */
@@ -814,6 +818,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       "carry-over.imported",
       "carry-over.memory-assigned",
       "state-import.finished",
+      "checks.changed",
       "workspace.kept",
       "chrome.updated",
     ],
@@ -880,6 +885,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       toolsUpdatedNotice.valid,
       ...toolRunNotices.valid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "0.4.2" } },
+      checksChangedNotice.valid,
       { type: "workspace.kept", payload: workspaceKept },
       { type: "workspace.kept", payload: { ...workspaceKept, branch: null, reason: "git_failed" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "connected" } },
@@ -919,6 +925,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
       toolsUpdatedNotice.invalid,
       ...toolRunNotices.invalid,
       { type: "extension.seen", payload: { protocolVersion: 2, extensionVersion: "" } },
+      checksChangedNotice.invalid,
       { type: "workspace.kept", payload: { ...workspaceKept, reason: "dirty" } },
       { type: "chrome.updated", payload: { chromeId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", name: "Work", change: "proved" } },
       validEnvelope,
@@ -1032,6 +1039,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...bankRegistrySchemaFixtures,
   ...memoryDraftSchemaFixtures,
   ...bankSplitSchemaFixtures,
+  ...bankMigrationSchemaFixtures,
   ...readinessSchemaFixtures,
   ...catalogueSchemaFixtures,
   ...trustSchemaFixtures,
@@ -1042,6 +1050,7 @@ export const schemaFixtures: Record<string, Fixtures> = {
   ...knownEnvironmentSchemaFixtures,
   ...usageSchemaFixtures,
   ...terminalSchemaFixtures,
+  ...checkSchemaFixtures,
   ...workspaceSchemaFixtures,
   ...completionsSchemaFixtures,
   ...updateSchemaFixtures,

@@ -250,3 +250,20 @@ export const banksCreate = defineMethod({
   result: z.object({ bank: BankRecord }),
   errors: [ValidationFailedError, SecretShapedError, ForgeAccountMissingError, CredentialUnavailableError, VerificationFailedError, ForgeUnreachableError, KindUnsupportedError],
 });
+
+/** Publishes a local bank's history, then holds its first remote policy change for owner review. */
+export const banksPublish = defineMethod({
+  name: "banks.publish",
+  scope: "admin",
+  kind: "command",
+  params: commandParams({
+    bankId: BankId,
+    transferIssues: z.boolean().optional().meta({ description: "Explicit choice to copy follow-up files into the new repository's tracker; absent or false only offers them." }),
+  }),
+  result: z.object({
+    bank: BankRecord,
+    review: z.object({ state: z.literal("awaiting-review"), bank: BankName, pullRequest: z.string().min(1), files: z.array(z.object({ path: z.string().min(1), state: z.literal("pending") })) }),
+    followUps: z.array(z.object({ path: z.string().min(1), title: z.string().min(1), body: z.string(), issue: z.string().min(1).nullable() })).meta({ description: "Follow-ups offered for transfer, preserving their Markdown and done-when checklist; issue is the tracker URL only when transfer was chosen." }),
+  }),
+  errors: [BankReadOnlyError, ValidationFailedError, SecretShapedError, ForgeAccountMissingError, CredentialUnavailableError, VerificationFailedError, ForgeUnreachableError, KindUnsupportedError],
+});

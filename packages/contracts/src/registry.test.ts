@@ -251,11 +251,13 @@ describe("the method registry", () => {
       "forge.pullRequests.link",
       "forge.pullRequests.unlink",
       "banks.split.apply",
+      "banks.migrate",
       "banks.join",
       "banks.register",
       "banks.credential.set",
       "banks.credential.swap",
       "banks.create",
+      "banks.publish",
       "banks.registry.update",
       "banks.pin",
       "banks.forget",
@@ -287,6 +289,8 @@ describe("the method registry", () => {
       "terminals.write",
       "terminals.resize",
       "terminals.close",
+      "checks.set",
+      "checks.run",
       "updates.apply",
       "updates.cancel",
       "updates.settings.set",
@@ -488,6 +492,7 @@ describe("the method registry", () => {
       | "forge.pullRequests.refresh"
       | "banks.split.propose"
       | "banks.split.apply"
+      | "banks.migrate"
       | "banks.join"
       | "banks.join.preview"
       | "banks.drafts.list"
@@ -504,6 +509,7 @@ describe("the method registry", () => {
       | "banks.credential.set"
       | "banks.credential.swap"
       | "banks.create"
+      | "banks.publish"
       | "banks.verify"
       | "banks.sync"
       | "keyManagers.list"
@@ -554,6 +560,9 @@ describe("the method registry", () => {
       | "terminals.close"
       | "terminals.list"
       | "terminals.subscribe"
+      | "checks.get"
+      | "checks.set"
+      | "checks.run"
       | "files.list"
       | "files.read"
       | "diffs.workingTree"

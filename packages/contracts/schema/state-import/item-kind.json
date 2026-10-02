@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateImportItemKind",
+  "type": "string",
+  "enum": [
+    "instruction",
+    "dev-site",
+    "page-policy"
+  ],
+  "description": "The kind of item a state import carried: an owned instruction, a dev site or the local evaluate-everywhere policy."
+}

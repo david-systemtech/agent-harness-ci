@@ -5,7 +5,7 @@ import { themeMeetsRules } from "../appearance/contrast.js";
 import type { BankRecords } from "../banks/records.js";
 import { memoryBankStateChecks } from "../banks/step-checks.js";
 import type { BrowserService } from "../browser/service.js";
-import { carryOverStateChecks } from "../carry-over/step-checks.js";
+import { carryOverStateChecks, type CarryOverStateChecksOptions } from "../carry-over/step-checks.js";
 import { instructionsStateChecks } from "../instructions/step-checks.js";
 import type { OrientationAnswer } from "../instructions/composer.js";
 import type { EventLog } from "../event-log/event-log.js";
@@ -70,6 +70,8 @@ export interface StateChecksOptions {
   readonly adapters: Pick<AdapterRegistry, "get">;
   /** Whether a source data folder or terminal-client state folder is on this machine (`stateImport.detect`). */
   readonly detectStateImport: () => Promise<StateImportDetection>;
+  /** The state import's, for Carry over's last import: the environment's id and the import under way. */
+  readonly stateImport: CarryOverStateChecksOptions["stateImport"];
   /** What containment can enforce here, as the start's probe found it (#133). */
   readonly containment: ContainmentReport;
   /** Whether the environment runs as root: what `permissions.settings.get` answers. */
@@ -127,7 +129,7 @@ export const environmentStateChecks = (options: StateChecksOptions): StateChecke
     ...skillsStateChecks(options.skills),
     ...instructionsStateChecks(options.orientation),
     ...accountStateChecks({ accounts: options.accounts }),
-    ...carryOverStateChecks({ accounts: options.accounts, adapters: options.adapters, reader, detect: options.detectStateImport }),
+    ...carryOverStateChecks({ accounts: options.accounts, adapters: options.adapters, reader, detect: options.detectStateImport, stateImport: options.stateImport }),
     "your-machines.not-root": () => runsAsNonRoot(report().isRoot),
     "your-machines.release-channel": options.releaseChannel,
     "your-machines.updates": options.updates,
