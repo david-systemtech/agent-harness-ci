@@ -6,12 +6,14 @@
     "instruction",
     "account",
     "account-default",
+    "session",
     "forge-account",
     "key-manager-connection",
     "dev-site",
     "page-policy",
+    "routine",
     "skill-source",
     "skill-always-on"
   ],
-  "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a Forge account, a Key-manager connection, a dev site, the local evaluate-everywhere policy, a tracked Skill repository or an Account Skill choice."
+  "description": "The kind of item a state import carried: an owned instruction, a profile mapping, the mapped active profile, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site, the local evaluate-everywhere policy, a tracked Skill repository, an Account Skill choice or a disabled local Routine."
 }

@@ -51,6 +51,37 @@ const contained = (workspace: string): RunContainment => ({
 });
 
 describe("the preview's budget and workspace boundary", () => {
+  it.each(["mkfs.ext2", "mkfs.ext3", "mkfs.ext4", "mkfs.xfs", "mkfs.btrfs", "mkfs.vfat", "mkfs.fat", "mkfs.msdos", "mkfs.exfat", "mkfs.ntfs", "mkntfs", "mke2fs"])("previews %s with scoped target details without running a formatter", async (name) => {
+    const workspace = await tempDir();
+    const target = join(workspace, "disk.img");
+    await writeFile(target, "keep this");
+    const programs: string[] = [];
+    const inspected: string[] = [];
+    for (const executable of [name, `/usr/sbin/${name}`]) {
+      expect(await previewLines("permission", { input: { command: `${executable} disk.img` } }, {
+        workspace, clock: manualClock(), containment: contained(workspace),
+      }, {
+        execFile: async (file) => { programs.push(file); throw new Error("No formatter should run"); },
+        stat: async (path) => { inspected.push(path); return nodeBlastDeps.stat(path); },
+      })).toEqual(["⚠ no dry run for this one; it would overwrite 1 path", "  disk.img — 9 B"]);
+    }
+    expect(inspected).toEqual([target, target]);
+    expect(programs).toEqual([]);
+    expect(await readFile(target, "utf8")).toBe("keep this");
+  });
+
+  it("keeps filesystem-maker targets outside the workspace unavailable without inspecting them", async () => {
+    const workspace = await tempDir();
+    const outside = await tempDir();
+    const inspected: string[] = [];
+    expect(await previewLines("permission", { input: { command: `/usr/sbin/mkfs.ext4 '${join(outside, "disk.img")}'` } }, {
+      workspace, clock: manualClock(), containment: contained(workspace),
+    }, {
+      stat: async (path) => { inspected.push(path); return { directory: false, size: 9 }; },
+    })).toBeNull();
+    expect(inspected).toEqual([]);
+  });
+
   it.each(["EACCES", "EIO"])("reports unavailable reads (%s) through the broker preview boundary", async (code) => {
     const workspace = await tempDir();
     await mkdir(join(workspace, "build", "nested"), { recursive: true });

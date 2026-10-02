@@ -222,7 +222,7 @@ import { createSkillSync } from "../skills/sync.js";
 import { trustMethods } from "../trust/methods.js";
 import { sourceAccountInventories } from "../state-import/inventory.js";
 import { directoryInventory } from "../carry-over/directory-inventory.js";
-import { carryOverMethods } from "../carry-over/methods.js";
+import { createCarryOver } from "../carry-over/methods.js";
 import { createImportCoordinator } from "../state-import/coordinator.js";
 import { stateImportProjector } from "../state-import/items.js";
 import { stateImportMethods, type StateImportHooks } from "../state-import/methods.js";
@@ -1782,6 +1782,22 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     sources: skillSources,
     sync: skillSync,
   });
+  const carryOver = createCarryOver({ log, environmentId: record.id, host, availability, identityAt: (path) => environmentResolver.identityAt(path), autoMemory, skills: carrySkills, home: carryOverHome, stateImportInventory: importInventory, coordinator: stateImports });
+  const routineHandlers = routineMethods({
+    log,
+    clock: now,
+    environmentId: record.id,
+    environmentName: () => look.read().name,
+    timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    accounts,
+    ceilingOf: (id) => clientSessions.ceiling(id),
+    firings,
+    workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
+    scripts,
+    denylisted: denylistedHost,
+    readSkillSet,
+  });
+
   // The owned instructions' methods (#505), whose create command the state import carries each instruction through (#1165).
   const instructionHandlers = instructionMethods({
     host,
@@ -1832,7 +1848,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       validateRunParameters: host.validateSessionInput,
       clampSessionMode: sessionModeClamp({ host, ceilingOf: (id) => clientSessions.ceiling(id) }),
     }),
-    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability }),
+    ...runMethods({ log, host, ceilingOf: (id) => clientSessions.ceiling(id), availability, beforeContinuation: (sessionId) => importedHistory.beforeContinuation(sessionId) }),
     ...permissionMethods({ log, host, accessLog, clock, environmentId: record.id, ceilingOf: (id) => clientSessions.ceiling(id), containment, isRoot }),
     ...promptMethods({ log, host, environmentId: record.id }),
     ...reviewMethods({ log, environmentId: record.id }),
@@ -1861,20 +1877,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     ...keyManagerMethods(keyManagerConnections, references, moves, managedTools, options.keyManagerTimeoutMs),
     ...managedToolsMethods(managedTools, toolDoctor, toolVerifier, toolRunner),
     // The routine store's commands and list (#521), on each routine's own stream; run now and the history (#523).
-    ...routineMethods({
-      log,
-      clock: now,
-      environmentId: record.id,
-      environmentName: () => look.read().name,
-      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-      accounts,
-      ceilingOf: (id) => clientSessions.ceiling(id),
-      firings,
-      workspaces: createRoutineWorkspaces({ directoryRules: environmentResolver, checkoutIndex }),
-      scripts,
-      denylisted: denylistedHost,
-      readSkillSet,
-    }),
+    ...routineHandlers,
     ...preCheckMethods({ log, clock: now, scripts, preChecks }),
     ...endpoints.handlers,
     ...usageMethods({ pool: usagePool, accounts, clock }),
@@ -1919,17 +1922,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
     // Carry over's session import (#578): an adopted account's sessions counted and imported, each working directory looked
     // at through the availability watcher and given the identity the environment's resolver finds there. Its memory, copied
     // into the auto memory's directories in the queue key changes take, the skills tick and the rest of the inventory (#580).
-    ...carryOverMethods({
-      log,
-      environmentId: record.id,
-      host,
-      availability,
-      identityAt: (path) => environmentResolver.identityAt(path),
-      autoMemory,
-      skills: carrySkills,
-      home: carryOverHome,
-      stateImportInventory: importInventory,
-    }),
+    ...carryOver.methods,
     // The state import's detection (#581) and its run (#1165), behind the stateImport flag.
     ...stateImportMethods({
       machine: stateImportSource,
@@ -1945,7 +1938,12 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
       },
       accounts,
       listSessions: listImportSessions,
+      carryOver,
       createInstruction: instructionHandlers["instructions.create"],
+      directoryRules: environmentResolver,
+      timeZone: options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      checkRoutineImport: routineHandlers["routines.checkImport"],
+      importRoutine: routineHandlers["routines.import"],
       forge,
       managers: keyManagerConnections,
       getSettings: settingsHandlers["settings.get"],

@@ -4,6 +4,7 @@ import { planCredentials } from "./credentials.js";
 import { realpath } from "node:fs/promises";
 import { ENVIRONMENT_STREAM_KIND, type StateImportFinishedPayload, type StateImportReport } from "@agent-harness/contracts";
 import type { PlanSkillsOptions } from "./skills.js";
+import type { CarryOverService } from "../carry-over/methods.js";
 import type { AccountService } from "../accounts/account-service.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
 import { formatActor, type EventLog } from "../event-log/event-log.js";
@@ -11,8 +12,10 @@ import type { CommandRejection, MethodHandler, MethodHandlers, PreparedCommand }
 import type { SettingsHandlers } from "../settings/methods.js";
 import type { ImportCoordinator } from "./coordinator.js";
 import { applyItems, stateImportStream, type ImportItem } from "./items.js";
+import type { PlanRoutinesOptions } from "./routines.js";
 import { emptyPlan, includeReportStores, itemsOf, planImport, recheckStores, reportOf } from "./plan.js";
 import { detectSource, type SourceMachine } from "./source/folders.js";
+import { carryListedSources } from "./sessions.js";
 import { readSourceStores } from "./source/stores.js";
 import { readSourceFileFrecency } from "./source/report-stores.js";
 
@@ -41,7 +44,7 @@ export interface StateImportHooks {
   readonly carried?: (item: Pick<ImportItem, "kind" | "sourceId">) => void | Promise<void>;
 }
 
-export interface StateImportOptions extends Omit<PlanSkillsOptions, "sourceKey"> {
+export interface StateImportOptions extends Omit<PlanSkillsOptions, "sourceKey">, Pick<PlanRoutinesOptions, "directoryRules" | "timeZone" | "checkRoutineImport" | "importRoutine"> {
   /** The machine the source reader looks at: this process's environment, platform and home. */
   readonly machine: SourceMachine;
   readonly log: EventLog;
@@ -50,6 +53,7 @@ export interface StateImportOptions extends Omit<PlanSkillsOptions, "sourceKey">
   /** The environment's one import coordinator. */
   readonly coordinator: ImportCoordinator;
   readonly accounts: AccountService;
+  readonly carryOver: CarryOverService;
   readonly listSessions: (directory: string) => Promise<readonly ProviderSessionInfo[]>;
   /** The Instructions service's create command, which carries each instruction. */
   readonly createInstruction: MethodHandler<"instructions.create">;
@@ -84,7 +88,7 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
         const dataPlan =
           dataFolder === null
             ? emptyPlan(await realpath(folder.path).catch(() => folder.path))
-            : await planImport(await readSourceStores(dataFolder.path), { log, create: options.createInstruction, accounts: options.accounts, listSessions: options.listSessions, get: options.getSettings, update: options.updateSettings, sources: options.sources, environmentId: options.environmentId, forgeAccounts: options.forgeAccounts, setAlwaysOn: options.setAlwaysOn, knownSkillNames: options.knownSkillNames });
+            : await planImport(await readSourceStores(dataFolder.path), { ...options, caller, create: options.createInstruction, get: options.getSettings, update: options.updateSettings });
         const planned = terminalFolder === null ? dataPlan : includeReportStores(dataPlan, [await readSourceFileFrecency(terminalFolder.path)]);
         const credentials = dataFolder === null ? null : await planCredentials(planned.sourceKey, log, options.forge, options.managers);
         const combined = credentials === null ? planned : { ...planned, stores: [...planned.stores, ...credentials.stores], failed: [...planned.failed, ...credentials.failed], notCarried: [...planned.notCarried, ...credentials.notCarried], repairs: credentials.repairs };
@@ -106,7 +110,8 @@ export const stateImportMethods = (options: StateImportOptions): MethodHandlers 
           actor,
           afterItem: (item) => hooks?.carried?.({ kind: item.kind, sourceId: item.sourceId }),
         });
-        const report = reportOf(plan, applied);
+        const carryFailures = await carryListedSources(plan, { log, accounts: options.accounts, carryOver: options.carryOver, caller, actor, importId, afterSource: (sourceId) => hooks?.carried?.({ kind: "session", sourceId }) });
+        const report = reportOf(plan, { ...applied, failed: [...applied.failed, ...carryFailures] });
         return (_params, command) => {
           const finished = { type: "state-import.finished", payload: finishedPayload(report) };
           log.append(environmentStream, [finished], { tx: command.tx, actor: command.actor, commandId: command.commandId, correlationId: importId });

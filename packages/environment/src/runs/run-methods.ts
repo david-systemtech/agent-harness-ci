@@ -1,6 +1,6 @@
 import type { PreparedSlash, SlashScope } from "../adapter/slash-resolution.js";
 import { randomUUID } from "node:crypto";
-import type { AttachmentInput, Mode, RunOrigin, RunPolicy, SendResponse } from "@agent-harness/contracts";
+import { ContractError, type AttachmentInput, type Mode, type RunOrigin, type RunPolicy, type SendResponse } from "@agent-harness/contracts";
 import type { RunAdmission } from "../serve/run-registry.js";
 import type { AdapterHost } from "../adapter/host.js";
 import type { ClientTool } from "../adapter/seams.js";
@@ -41,6 +41,7 @@ import { readRun, readSessionFacts, taskStatus } from "./run-reads.js";
 
 export interface RunMethodsOptions {
   readonly log: EventLog;
+  readonly beforeContinuation?: (sessionId: string) => Promise<string | null>;
   readonly host: AdapterHost;
   /**
    * A client session's ceiling as it is now: a change by
@@ -184,6 +185,10 @@ export const runMethods = (options: RunMethodsOptions): MethodHandlers => {
       const sessionId = params.sessionId.toLowerCase();
       if (sessionWorkspace(log, sessionId) === null) return handler;
       await availability.check(sessionId);
+      if (host.runActive(sessionId) === null) {
+        const unavailable = await options.beforeContinuation?.(sessionId);
+        if (unavailable != null) throw new ContractError({ code: "conflict", message: unavailable, data: { reason: "import_source_unavailable" } });
+      }
       const text = "text" in params ? params.text : null;
       let slash: PreparedSlash | undefined;
       if (typeof text === "string" && text.startsWith("/")) {
