@@ -4,10 +4,12 @@
   "type": "string",
   "enum": [
     "instruction",
+    "account",
+    "account-default",
     "forge-account",
     "key-manager-connection",
     "dev-site",
     "page-policy"
   ],
-  "description": "The kind of item a state import carried: an owned instruction, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
+  "description": "The kind of item a state import carried: an owned instruction, an Account mapping or default, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy."
 }
