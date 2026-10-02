@@ -28,3 +28,12 @@ export const parseName = (value: string | undefined): string | undefined => {
   if (/[\r\n]/.test(value)) throw new UsageError("--name takes the environment's name on one line; got a line break in it.");
   return value;
 };
+
+/** The options and positionals of one verb: an unknown option is a `UsageError`, and the verb judges its positionals. */
+export const parseVerb = <const Options extends ParseArgsOptionsConfig>(args: readonly string[], options: Options) => {
+  try {
+    return parseArgs({ args: [...args], options, strict: true, allowPositionals: true });
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : String(error));
+  }
+};
