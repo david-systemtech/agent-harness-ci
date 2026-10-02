@@ -36,5 +36,5 @@
     "command",
     "sourceRunId"
   ],
-  "description": "checks.started: a Workspace check began in the terminal named, running the command named; the source run is null for a manual check."
+  "description": "checks.started: a Workspace check attempt began with the terminal id and command named; a refused automatic attempt finishes without opening its terminal; the source run is null for a manual check."
 }

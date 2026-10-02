@@ -8645,6 +8645,12 @@
                 }
               ],
               "description": "The directory's check command, verbatim; null when none is set."
+            },
+            "failureResetSequence": {
+              "description": "Supplied by checks.get: the latest durable directory reset cutoff; offers finishing at or before it are stale. Absent from older Environments.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
             }
           },
           "required": [
@@ -8659,6 +8665,34 @@
         "payload"
       ],
       "description": "A Workspace directory's check command was set, changed or cleared by the client session the event's actor names: the canonical directory and its command, null once cleared."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "checks.failures-reset"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "workspace": {
+              "type": "string",
+              "pattern": "^(?:\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)",
+              "description": "An absolute path as the environment's operating system writes it: from /, a drive (C:\\) or a share (\\\\)."
+            }
+          },
+          "required": [
+            "workspace"
+          ],
+          "description": "checks.failures-reset: clear stale failure-send offers for this canonical Workspace directory; a check passed or a manual check began."
+        }
+      },
+      "required": [
+        "type",
+        "payload"
+      ],
+      "description": "A manual check began or a check passed: clear failure-send offers in every Session of the canonical directory."
     },
     {
       "type": "object",

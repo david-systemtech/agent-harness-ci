@@ -512,6 +512,10 @@
         "result": {
           "type": "object",
           "properties": {
+            "offerFailure": {
+              "description": "Whether this failure may be offered for an explicit send; false for passes, stale commands and identical failures already offered in this directory. Missing on older events.",
+              "type": "boolean"
+            },
             "output": {
               "type": "string",
               "maxLength": 65536,
@@ -577,6 +581,12 @@
             "timedOut",
             "failure"
           ]
+        },
+        "finishedSequence": {
+          "description": "The checks.finished event sequence, used to order directory-wide failure resets; absent in older snapshots.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
         }
       },
       "required": [
@@ -1922,6 +1932,10 @@
                       "result": {
                         "type": "object",
                         "properties": {
+                          "offerFailure": {
+                            "description": "Whether this failure may be offered for an explicit send; false for passes, stale commands and identical failures already offered in this directory. Missing on older events.",
+                            "type": "boolean"
+                          },
                           "output": {
                             "type": "string",
                             "maxLength": 65536,
@@ -1987,6 +2001,12 @@
                           "timedOut",
                           "failure"
                         ]
+                      },
+                      "finishedSequence": {
+                        "description": "The checks.finished event sequence, used to order directory-wide failure resets; absent in older snapshots.",
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
                       }
                     },
                     "required": [

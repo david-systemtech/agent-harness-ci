@@ -1525,7 +1525,7 @@ export const startEnvironment = async (options: EnvironmentOptions = {}): Promis
   closers.push(() => terminalService.close());
   // Workspace checks (#1187): each directory's command, run in the session's terminals as terminals.run runs one; closed
   // before the terminals, so a check the stop cuts short is recorded interrupted. A check a crash cut is recorded as it starts.
-  const workspaceChecks = createWorkspaceChecks({ log, clock, environmentId: record.id, terminals: terminalService.commands, scrub });
+  const workspaceChecks = createWorkspaceChecks({ log, clock, environmentId: record.id, terminals: terminalService.commands, scrub, canRun: (id) => clientSessions.list({ live: true }).some((client) => client.id === id && client.scopes.includes("terminal")) });
   closers.push(() => workspaceChecks.close());
   capabilities.push("workspaceChecks");
   // Install and Update in a tool terminal (#376): closed before the terminals, so a run the stop cuts short is recorded finished.

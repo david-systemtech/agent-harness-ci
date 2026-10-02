@@ -436,9 +436,10 @@ export const foldTranscript = (events: Iterable<EventEnvelope>, from?: Transcrip
         break;
       }
       case "checks.finished": {
-        const { terminalId, output, truncated, exitCode, signal, timedOut, failure } = event.payload as ChecksFinishedPayload;
+        const { terminalId, output, truncated, exitCode, signal, timedOut, failure, offerFailure } = event.payload as ChecksFinishedPayload;
+        const result = { output, truncated, exitCode, signal, timedOut, failure, ...(offerFailure === undefined ? {} : { offerFailure }) };
         const check = checks.get(terminalId);
-        if (check !== undefined) Object.assign(check, { state: "finished", result: { output, truncated, exitCode, signal, timedOut, failure } });
+        if (check !== undefined) Object.assign(check, { state: "finished", result, finishedSequence: sequence });
         break;
       }
       case "tasks.changed": {

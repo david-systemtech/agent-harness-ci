@@ -30,6 +30,10 @@
       ],
       "description": "The run whose edits set the check off; null for a manual check."
     },
+    "offerFailure": {
+      "description": "Whether this failure may be offered for an explicit send; false for passes, stale commands and identical failures already offered in this directory. Missing on older events.",
+      "type": "boolean"
+    },
     "output": {
       "type": "string",
       "maxLength": 65536,

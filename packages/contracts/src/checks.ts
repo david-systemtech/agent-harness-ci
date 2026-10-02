@@ -4,10 +4,11 @@ import { utf8Bytes } from "./banks.js";
 import type { EventTypeEntry } from "./event-types.js";
 import { AbsolutePath } from "./sessions.js";
 import { TerminalId } from "./terminals.js";
+import { Sequence } from "./primitives.js";
 
 /**
  * Workspace checks (switch-over spec, "Phase-D commands and parity",
- * Checks; #1187): one shell command per Workspace directory, which the
+ * Checks; #1187, #1188): one shell command per Workspace directory, which the
  * Environment keeps keyed by the directory's canonical path (its real path,
  * symlinks resolved), so every Session and Client in that directory shares
  * it, and which survives a restart. The environment runs it in a session's
@@ -46,6 +47,7 @@ export const WorkspaceCheck = z
   .object({
     workspace: AbsolutePath.meta({ description: "The session's Workspace directory as checks are keyed: its real path, symlinks resolved." }),
     command: CheckCommand.nullable().meta({ description: "The directory's check command, verbatim; null when none is set." }),
+    failureResetSequence: Sequence.optional().meta({ description: "Supplied by checks.get: the latest durable directory reset cutoff; offers finishing at or before it are stale. Absent from older Environments." }),
   })
   .meta({ description: "A Workspace directory's check: the canonical directory and its command, null when none is set." });
 export type WorkspaceCheck = z.infer<typeof WorkspaceCheck>;
@@ -55,6 +57,10 @@ export const ChecksChangedPayload = WorkspaceCheck.meta({
   description: "checks.changed: a Workspace directory's check command was set, changed or cleared (null); a client reads checks.get again for sessions in that directory.",
 });
 export type ChecksChangedPayload = z.infer<typeof ChecksChangedPayload>;
+
+/** Clears failure-send offers in every Session of a directory on a pass or manual now. Command changes/off clear them through checks.changed. */
+export const ChecksFailuresResetPayload = z.object({ workspace: AbsolutePath }).meta({ description: "checks.failures-reset: clear stale failure-send offers for this canonical Workspace directory; a check passed or a manual check began." });
+export type ChecksFailuresResetPayload = z.infer<typeof ChecksFailuresResetPayload>;
 
 /**
  * Why a check ended without its command's exit: its terminal could not
@@ -75,16 +81,17 @@ const checkPart = {
   sourceRunId: RunId.nullable().meta({ description: "The run whose edits set the check off; null for a manual check." }),
 };
 
-/** `checks.started`: a check's terminal opened, running the directory's command. */
+/** `checks.started`: a check attempt began; a refused automatic attempt finishes explicitly without opening its terminal. */
 export const ChecksStartedPayload = z
   .object(checkPart)
-  .meta({ description: "checks.started: a Workspace check began in the terminal named, running the command named; the source run is null for a manual check." });
+  .meta({ description: "checks.started: a Workspace check attempt began with the terminal id and command named; a refused automatic attempt finishes without opening its terminal; the source run is null for a manual check." });
 export type ChecksStartedPayload = z.infer<typeof ChecksStartedPayload>;
 
 /** `checks.finished`: how a check ended, once, after its `checks.started`. */
 export const ChecksFinishedPayload = z
   .object({
     ...checkPart,
+    offerFailure: z.boolean().optional().meta({ description: "Whether this failure may be offered for an explicit send; false for passes, stale commands and identical failures already offered in this directory. Missing on older events." }),
     output: z
       .string()
       .max(CHECK_OUTPUT_MAX_BYTES)
@@ -109,6 +116,7 @@ export const checkPassed = (finished: Pick<ChecksFinishedPayload, "exitCode" | "
 
 /** The check events of the `session` stream: unlisted, so the session list never changes with them. */
 export const CHECK_SESSION_EVENT_TYPES = {
+  "checks.edit-observed": { list: false, payload: z.object({ runId: RunId, workspace: AbsolutePath }).meta({ description: "A successful recognised file edit observed through the blocking tool hook, independent of undo snapshot availability; scheduling waits for this Run to complete." }) },
   "checks.started": { list: false, payload: ChecksStartedPayload },
   "checks.finished": { list: false, payload: ChecksFinishedPayload },
 } as const satisfies Record<string, EventTypeEntry>;

@@ -179,7 +179,11 @@ it("invalidates changed commands and manual now resets identical automatic failu
   expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull();
   act(() => env.emit(session, "checks.finished", { ...finished, sourceRunId: RUN, terminalId: "0199aa00-0000-4000-8000-000000000007" }));
   await screen.findByRole("button", { name: "Send failure" });
-  env.wire.answer("checks.run", () => ({ result: { receipt: { status: "accepted", sequence: 3, changed: true }, result: { terminalId: "0199aa00-0000-4000-8000-000000000008" } } }));
+  env.wire.answer("checks.run", () => {
+    const terminalId = "0199aa00-0000-4000-8000-000000000008";
+    const event = env.emit(session, "checks.started", { ...started, terminalId });
+    return { result: { receipt: { status: "accepted", sequence: event.sequence, changed: true }, result: { terminalId } } };
+  });
   await enter(app, "/check now");
   await screen.findByText("Check running on the Environment.");
   expect(screen.queryByRole("button", { name: "Send failure" })).toBeNull();

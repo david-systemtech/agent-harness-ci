@@ -2,7 +2,7 @@ import { CHECK_OUTPUT_MAX_BYTES, CHECK_TIMEOUT_MS, type EventEnvelope, type Even
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useCleanups } from "../../test/cleanups.js";
 import { fakePty, type FakePty } from "../../test/fake-pty.js";
 import { restartAfter, startTestEnvironment, type TestEnvironment, type TestEnvironmentOptions } from "../../test/helper.js";
@@ -68,19 +68,19 @@ describe("a Workspace directory's check command", () => {
     const workspace = realpathSync(dir);
     const here = await sessionIn(first, dir);
     const throughLink = await sessionIn(second, link);
-    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command: null });
+    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command: null, failureResetSequence: expect.any(Number) });
 
     const head = t.env.log.head();
     const command = "  pnpm typecheck && pnpm exec vitest run 'a b.test.ts' \\\n  --maxWorkers=2\n";
     expect(await first.apply("checks.set", { commandId: randomUUID(), sessionId: here, command })).toEqual({ workspace, command });
-    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command });
+    expect(await second.request("checks.get", { sessionId: throughLink })).toEqual({ workspace, command, failureResetSequence: expect.any(Number) });
     // Setting the command it has changes nothing.
     expect(await second.request("checks.set", { commandId: randomUUID(), sessionId: throughLink, command })).toMatchObject({ receipt: { status: "accepted", changed: false }, result: { workspace, command } });
     const notices = await noticesOf(second, "checks.changed", head);
     expect(notices.map(({ payload, actor }) => ({ payload, actor }))).toEqual([{ payload: { workspace, command }, actor: { kind: "client_session", id: first.hello.clientSessionId } }]);
 
     const back = await restartAfter(t, 0, (options) => start(options));
-    expect(await (await back.client()).request("checks.get", { sessionId: here })).toEqual({ workspace, command });
+    expect(await (await back.client()).request("checks.get", { sessionId: here })).toEqual({ workspace, command, failureResetSequence: expect.any(Number) });
   });
 
   it("is read, its directory gone, under the real path it was set by, for a session recorded through a link to it or to a folder above it", async () => {
@@ -100,7 +100,7 @@ describe("a Workspace directory's check command", () => {
     rmSync(dir, { recursive: true });
     for (const sessionId of [throughLink, belowLink]) {
       expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toMatchObject({ data: { reason: "workspace_missing" } });
-      expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check" });
+      expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check", failureResetSequence: expect.any(Number) });
     }
   });
 });
@@ -125,6 +125,7 @@ describe("a manual check", () => {
       terminalId,
       command,
       sourceRunId: null,
+      offerFailure: true,
       output: "src/a.ts(1,1): error TS2322\n",
       truncated: false,
       exitCode: 2,
@@ -178,7 +179,7 @@ describe("checks.run's refusals", () => {
     expect(refusalOf(await client.request("checks.run", { commandId: randomUUID(), sessionId }))).toEqual(missing);
     expect(refusalOf(await client.request("checks.set", { commandId: randomUUID(), sessionId, command: "make other" }))).toEqual(missing);
     // The directory gone, get answers the real path it had and that path's command.
-    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check" });
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: "make check", failureResetSequence: expect.any(Number) });
     expect(t.run.spawned).toEqual([]);
 
     const unknown = randomUUID();
@@ -205,6 +206,7 @@ describe("how a check ends", () => {
       terminalId,
       command,
       sourceRunId: null,
+      offerFailure: true,
       output: "watching for changes\n",
       truncated: false,
       exitCode: null,
@@ -282,7 +284,7 @@ describe("a running check", () => {
     shell.print("ok\n");
     shell.exit(0);
     expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, command, output: "ok\n", exitCode: 0, failure: null });
-    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: null });
+    expect(await client.request("checks.get", { sessionId })).toEqual({ workspace, command: null, failureResetSequence: expect.any(Number) });
   });
 
   it("is recorded interrupted when the environment stops under it, and after the restart nothing runs again, a retried command answered from its receipt", async () => {
@@ -302,7 +304,7 @@ describe("a running check", () => {
     const again = await back.client({ token });
     const { subscription } = await again.subscribe("sessions.subscribeSession", { sessionId, afterSequence: 0 });
     const finished = await again.next((frame): frame is EventFrame => frame.type === "event" && frame.subscription === subscription && frame.event.type === "checks.finished");
-    expect(finished.event.payload).toEqual({ terminalId, command, sourceRunId: null, output: "half way\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
+    expect(finished.event.payload).toEqual({ terminalId, command, sourceRunId: null, offerFailure: true, output: "half way\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" });
     expect(await again.request("checks.run", params)).toEqual({ receipt: first.receipt });
     expect(back.run.spawned).toEqual([]);
   });
@@ -325,4 +327,40 @@ describe("a running check", () => {
     await again.apply("checks.run", { commandId: randomUUID(), sessionId });
     expect(back.run.spawned.map((shell) => shell.args)).toEqual([["-c", command]]);
   });
+});
+
+
+it("keeps a passing result and closes its terminal when the failure-reset notice cannot be recorded", async () => {
+  const t = await start();
+  const { client, sessionId } = await checkedSession(t, "make check");
+  const events = await sessionEvents(t, client, sessionId);
+  const { terminalId } = await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+  const shell = await t.run.spawnedAt(0);
+  const append = t.env.log.append.bind(t.env.log);
+  const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const fault = vi.spyOn(t.env.log, "append").mockImplementation((stream, inputs, options) => {
+    if (inputs.some((input) => input.type === "checks.failures-reset")) throw new Error("The disk is full.");
+    return append(stream, inputs, options);
+  });
+  onCleanup(() => { fault.mockRestore(); quiet.mockRestore(); });
+  shell.exit(0);
+  expect((await events.next("checks.finished")).payload).toMatchObject({ terminalId, exitCode: 0, failure: null });
+  expect(await client.request("terminals.list", { sessionId })).toEqual({ terminals: [] });
+  expect(quiet).toHaveBeenCalled();
+});
+
+
+it("keeps the directory failure-reset cutoff through projection rebuild and restart", async () => {
+  const t = await start({ dataDir: tempDir("agent-harness-check-reset-") });
+  const { client, sessionId } = await checkedSession(t, "make check");
+  const events = await sessionEvents(t, client, sessionId);
+  await client.apply("checks.run", { commandId: randomUUID(), sessionId });
+  (await t.run.spawnedAt(0)).exit(0);
+  const finished = await events.next("checks.finished");
+  const value = await client.request("checks.get", { sessionId });
+  expect(value.failureResetSequence).toBeGreaterThanOrEqual(finished.sequence);
+  t.env.log.rebuildProjections();
+  expect(await client.request("checks.get", { sessionId })).toEqual(value);
+  const back = await restartAfter(t, 0, (options) => start(options));
+  expect(await (await back.client()).request("checks.get", { sessionId })).toEqual(value);
 });

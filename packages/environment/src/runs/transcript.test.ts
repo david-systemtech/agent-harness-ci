@@ -104,7 +104,7 @@ describe("the transcript fold", () => {
     const result = { output: "Interrupted\n", truncated: false, exitCode: null, signal: null, timedOut: false, failure: "interrupted" };
     const finish = event("checks.finished", { ...check, ...result });
     const after = foldTranscript([finish], storedTranscriptParts(before));
-    expect(after.items).toEqual([{ kind: "check", sequence: start.sequence, ...check, state: "finished", result }]);
+    expect(after.items).toEqual([{ kind: "check", sequence: start.sequence, ...check, state: "finished", finishedSequence: finish.sequence, result }]);
     expect(before).toEqual(saved);
     expect(after).toEqual(foldTranscript([start, finish]));
   });
@@ -118,7 +118,7 @@ describe("the transcript fold", () => {
     const next = event("checks.started", running);
     const parts = foldTranscript([start, finish, next]);
     expect(parts.items).toEqual([
-      { kind: "check", sequence: start.sequence, ...check, state: "finished", result },
+      { kind: "check", sequence: start.sequence, ...check, state: "finished", finishedSequence: finish.sequence, result },
       { kind: "check", sequence: next.sequence, ...running, state: "running", result: null },
     ]);
     expect(SessionSnapshot.safeParse({ sequence, summary, ...parts }).success).toBe(true);

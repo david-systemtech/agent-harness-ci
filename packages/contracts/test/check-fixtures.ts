@@ -29,18 +29,22 @@ export const checksChangedNotice = {
 
 export const checkSchemaFixtures: Record<string, Fixtures> = {
   "checks/check-command.json": { valid: [command, "  make check\n"], invalid: ["", " \n\t", 7] },
-  "checks/workspace-check.json": { valid: [check, cleared, { ...check, workspace: "C:\\work\\project" }], invalid: [{ workspace: "project", command }, { command }, { ...check, command: "" }] },
+  "checks/workspace-check.json": { valid: [check, cleared, { ...check, failureResetSequence: 7 }, { ...check, workspace: "C:\\work\\project" }], invalid: [{ workspace: "project", command }, { command }, { ...check, command: "" }, { ...check, failureResetSequence: -1 }] },
   "checks/check-failure.json": { valid: ["launch_failed", "closed", "interrupted"], invalid: ["timeout", ""] },
   "checks/notices/checks.changed.json": { valid: [check, cleared], invalid: [{ ...check, command: " " }, { workspace: "/home/milo/project" }] },
+  "checks/notices/checks.failures-reset.json": { valid: [{ workspace: check.workspace }], invalid: [{}, { workspace: "relative" }] },
+  "sessions/events/checks.edit-observed.json": { valid: [{ runId, workspace: check.workspace }], invalid: [{ runId }, { runId: "run", workspace: check.workspace }] },
   "sessions/events/checks.started.json": { valid: [started, { ...started, sourceRunId: runId }], invalid: [{ ...started, terminalId: "t-1" }, { terminalId, command }, { ...started, command: "" }] },
   "sessions/events/checks.finished.json": {
     valid: [
       finished,
+      { ...finished, offerFailure: true },
+      { ...finished, offerFailure: false },
       { ...finished, exitCode: null, timedOut: true, truncated: true },
       { ...finished, exitCode: null, failure: "interrupted", output: "" },
       { ...finished, sourceRunId: runId, exitCode: 0 },
     ],
-    invalid: [started, { ...finished, failure: "timeout" }, { ...finished, exitCode: 1.5 }, { ...finished, timedOut: undefined }],
+    invalid: [{ ...finished, offerFailure: "yes" }, started, { ...finished, failure: "timeout" }, { ...finished, exitCode: 1.5 }, { ...finished, timedOut: undefined }],
   },
 };
 
@@ -61,3 +65,8 @@ export const checkMethodFixtures: Record<string, { params: Fixtures; result: Fix
     result: { valid: [{ terminalId }], invalid: [{}, { terminalId: "t-1" }] },
   },
 };
+
+export const checksFailuresResetNotice = {
+  valid: { type: "checks.failures-reset", payload: { workspace: check.workspace } },
+  invalid: { type: "checks.failures-reset", payload: {} },
+} as const;

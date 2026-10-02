@@ -22,7 +22,7 @@ describe("Workspace checks in the shared session projection", () => {
       ["session.rewind-undone", { toMessageId: FIXTURE_MESSAGE, rewindSequence: 3 }],
     ]);
     const expected = reduceSession(empty, events).items;
-    expect(expected[1]).toEqual({ kind: "check", sequence: 2, ...check, state: "finished", result });
+    expect(expected[1]).toEqual({ kind: "check", sequence: 2, ...check, state: "finished", finishedSequence: 4, result });
     for (let boundary = 0; boundary <= events.length; boundary += 1) {
       const snapshot = { ...empty, ...foldTranscript(logged(events.slice(0, boundary))) };
       expect(reduceSession(snapshot, events.slice(boundary)).items, `snapshot after ${boundary} events`).toEqual(expected);
@@ -51,7 +51,7 @@ describe("Workspace checks in the shared session projection", () => {
     const snapshot = { ...empty, ...foldTranscript(logged(events.slice(0, 1))) };
     const before = structuredClone(snapshot);
     const caughtUp = reduceSession(snapshot, events.slice(1));
-    expect(caughtUp.items).toEqual([{ kind: "check", sequence: 1, ...check, state: "finished", result: outcome }]);
+    expect(caughtUp.items).toEqual([{ kind: "check", sequence: 1, ...check, state: "finished", finishedSequence: 2, result: outcome }]);
     expect(caughtUp.items).toEqual(reduceSession(empty, events).items);
     expect(snapshot).toEqual(before);
   });
@@ -63,7 +63,7 @@ describe("Workspace checks in the shared session projection", () => {
     const cached = kind.decode(kind.encode(kind.fromSnapshot(snapshot)));
     const caughtUp = reduceSession(cached.snapshot, []);
     expect(caughtUp.items).toEqual([
-      { kind: "check", sequence: 1, ...check, state: "finished", result },
+      { kind: "check", sequence: 1, ...check, state: "finished", finishedSequence: 2, result },
       { kind: "check", sequence: 3, ...running, state: "running", result: null },
     ]);
     expect(caughtUp.items).toEqual(reduceSession(empty, events).items);

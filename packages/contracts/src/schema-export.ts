@@ -566,7 +566,7 @@ import {
 import { Mode, ModeAvailability } from "./permissions-modes.js";
 import { BrowserChooser, SessionBrowser } from "./browser-choice.js";
 import { BROWSER_SESSION_EVENT_TYPES, BrowserResolutionReason, RunBrowserResolution } from "./session-browser.js";
-import { CHECK_SESSION_EVENT_TYPES, CheckCommand, CheckFailure, ChecksChangedPayload, WorkspaceCheck } from "./checks.js";
+import { CHECK_SESSION_EVENT_TYPES, CheckCommand, CheckFailure, ChecksChangedPayload, ChecksFailuresResetPayload, WorkspaceCheck } from "./checks.js";
 import { BrowserOnCreate } from "./methods/sessions.js";
 import { FileChangeId, FileChangeUnrestorableReason, FileUndoAction, FileUndoConflictReason, FilesUndoFinishedPayload } from "./file-undo.js";
 import { Denylist, DenylistEntry, DenylistInput, DenylistMatch, DenylistSection, DenylistTestKind, DenylistUpdatedPayload, HostPattern } from "./denylist.js";
@@ -1409,6 +1409,7 @@ export const exportedSchemas = (): ExportedSchema[] => [
   { path: "checks/workspace-check.json", title: "WorkspaceCheck", schema: WorkspaceCheck },
   { path: "checks/check-failure.json", title: "CheckFailure", schema: CheckFailure },
   { path: "checks/notices/checks.changed.json", title: "ChecksChangedPayload", schema: ChecksChangedPayload },
+  { path: "checks/notices/checks.failures-reset.json", title: "ChecksFailuresResetPayload", schema: ChecksFailuresResetPayload },
   { path: "settings/settings-key.json", title: "SettingsKey", schema: SettingsKeyName },
   { path: "settings/idle-span-unit.json", title: "IdleSpanUnit", schema: IdleSpanUnit },
   { path: "settings/idle-span.json", title: "IdleSpan", schema: IdleSpan },

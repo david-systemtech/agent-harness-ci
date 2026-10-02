@@ -687,6 +687,10 @@
       "title": "RunBrowserResolvedPayload"
     },
     {
+      "path": "sessions/events/checks.edit-observed.json",
+      "title": "ChecksEditObservedPayload"
+    },
+    {
       "path": "sessions/events/checks.started.json",
       "title": "ChecksStartedPayload"
     },
@@ -2853,6 +2857,10 @@
     {
       "path": "checks/notices/checks.changed.json",
       "title": "ChecksChangedPayload"
+    },
+    {
+      "path": "checks/notices/checks.failures-reset.json",
+      "title": "ChecksFailuresResetPayload"
     },
     {
       "path": "settings/settings-key.json",

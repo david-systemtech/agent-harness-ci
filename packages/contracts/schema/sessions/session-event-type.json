@@ -65,6 +65,7 @@
     "setup.minted",
     "session.bank-used",
     "files.undo-finished",
+    "checks.edit-observed",
     "checks.started",
     "checks.finished"
   ],
