@@ -8,6 +8,7 @@ import {
   type CarryOverMemoryImported,
   type SessionArchivedPayload,
   type SkillsCarryOverReport,
+  type StateImportAccountInventories,
 } from "@agent-harness/contracts";
 import { readMemoryFolders } from "../adapters/claude/adopted-directory.js";
 import type { ProviderSessionInfo } from "../adapter/contract.js";
@@ -68,6 +69,7 @@ import {
 
 export interface CarryOverOptions {
   readonly log: EventLog;
+  readonly stateImportInventory?: () => Promise<StateImportAccountInventories>;
   /** The environment's id: its stream's, where `carry-over.imported` goes. */
   readonly environmentId: string;
   /** The accounts and their adapters: the host's. */
@@ -161,7 +163,12 @@ export const carryOverMethods = (options: CarryOverOptions): MethodHandlers => {
     return null;
   };
 
-  const inventory: MethodHandler<"carryOver.inventory"> = async ({ accountId }) => {
+  const inventory: MethodHandler<"carryOver.inventory"> = async (params) => {
+    if ("source" in params) {
+      if (options.stateImportInventory === undefined) throw new ContractError({ code: "unsupported", message: "State import previews are unavailable.", data: {} });
+      return options.stateImportInventory();
+    }
+    const { accountId } = params;
     const source = sourceOf(accountId);
     if ("code" in source) throw new ContractError(source);
     return planInventory({ provider: source.adapter.descriptor.provider, account: { ...source.account, directory: source.directory } });

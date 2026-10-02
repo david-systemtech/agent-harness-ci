@@ -301,6 +301,27 @@ const desktopBuilds = (): OtherAsset[] => {
 };
 
 describe("the release's other assets", { timeout: BUILD_MS }, () => {
+  it("writes a complete GitHub release manifest with all platforms, desktops and the exact ghcr image", async () => {
+    build = fixtureBuild();
+    const assets = [...otherAssets(), ...desktopBuilds()];
+    const windowsInstall = join(build.out, "..", "install.ps1");
+    writeFileSync(windowsInstall, "Write-Output install\n");
+    assets.push({ kind: "install-script", path: windowsInstall });
+    const image = { reference: "ghcr.io/david-systemtech/agent-harness:1.2.3-beta.2", digest: `sha256:${"0".repeat(64)}` };
+    await buildRelease(build.options({ tag: "v1.2.3-beta.2", image, assets }), build.seams);
+    const manifest = ReleaseManifest.parse(JSON.parse(text(join(build.out, "release.json"))));
+    expect(manifest).toMatchObject({ version: "1.2.3-beta.2", image });
+    expect(manifest.assets.map(({ name }) => name).sort()).toEqual([
+      "agent-harness-linux-x64.tar.gz", "agent-harness-darwin-arm64.tar.gz", "agent-harness-win32-x64.zip",
+      "agent-harness-desktop-darwin-arm64.zip", "agent-harness-desktop-win32-x64-setup.exe", "agent-harness-desktop-linux-x64.pacman",
+      "agent-harness-schema.tar.gz", "install.sh", "install.ps1", "compose.yaml", "host-updater.sh",
+    ].sort());
+    for (const name of [...manifest.assets.map(({ name }) => name), "release.json"]) {
+      expect(execFileSync("sha256sum", ["-c", `${name}.sha256`], { cwd: build.out, encoding: "utf8" })).toBe(`${name}: OK\n`);
+    }
+    expect(text(join(build.out, "compose.yaml"))).toContain(image.reference);
+  });
+
   it("are written beside the artefacts with a sidecar each, a folder packed as agent-harness-<kind>.tar.gz, and listed in release.json after them with their kind, no platform and the format their name says", async () => {
     build = fixtureBuild();
     await buildRelease(build.options({ platforms: ["linux-x64"], assets: otherAssets() }), build.seams);

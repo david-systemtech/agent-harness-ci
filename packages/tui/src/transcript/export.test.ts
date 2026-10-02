@@ -215,3 +215,10 @@ describe("update cuts in /export", () => {
     expect(exported).toContain("Check the current state, then continue.");
   });
 });
+
+describe("file undo in /export", () => {
+  it("exports the completed change id, path and action without file contents", () => {
+    const text = exportMarkdown({ items: [{ kind: "file-undo", sequence: 1, changeId: "0199aa00-0000-4000-8000-000000000002", path: "src/app.ts", action: "restored" }], runs: [], summary: null }, { environment: "desk", at: new Date("2026-09-25T10:00:00.000Z") });
+    expect(text).toContain("_File undo: restored src/app.ts. 0199aa00-0000-4000-8000-000000000002_");
+  });
+});
