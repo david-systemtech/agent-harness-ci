@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { createRuntime } from "@agent-harness/client-runtime";
+import { createRuntime, type Observable } from "@agent-harness/client-runtime";
 import { inMemoryPlatform, manualClock, type InMemoryPlatform, type ManualClock } from "@agent-harness/client-runtime/testing";
+import { flush } from "@agent-harness/client-runtime/testing/fake-wire";
 import { scriptedWorld, type Script, type ScriptedWorld } from "@agent-harness/client-runtime/testing/scripted-environment";
 import { listSessions, type ListIo, type ListRequest } from "./screenless.js";
 import { selectOn, type TerminalSelection } from "./startup/selection.js";
@@ -61,6 +62,17 @@ const directory = (): string => {
   onTestFinished(() => rmSync(path, { recursive: true, force: true }));
   return path;
 };
+
+/** Settles once `observable` reads as `done` would have it, now or on a value to come. */
+const until = <T>(observable: Observable<T>, done: (value: T) => boolean): Promise<void> =>
+  new Promise((resolve) => {
+    if (done(observable.read())) return resolve();
+    const stop = observable.subscribe((value) => {
+      if (!done(value)) return;
+      stop();
+      resolve();
+    });
+  });
 
 interface Invocation extends Partial<ListRequest>, Partial<Pick<ListIo, "platform">> {
   readonly currentDirectory: string;
@@ -345,5 +357,49 @@ describe("agent-harness ls", () => {
       expect((await list(on, { currentDirectory: here, cwd })).stdout, cwd).toBe(there1);
       expect((await list(on, { currentDirectory: here, cwd, platform: "darwin" })).stdout, `${cwd} on macOS`).toBe(there1 + there2);
     }
+  });
+
+  it("exits 1 with why on standard error and prints no row when the environment cannot be chosen, or refuses or fails the read", async () => {
+    const here = directory();
+    const on = await machine({
+      environments: [
+        { name: "desk", reach: "local", environmentId: DESK, sessions: [{ id: id(1), title: "Here", workspace: at(here) }] },
+        { name: "laptop", reach: "paired", environmentId: LAPTOP, scopes: ["sessions:write"], sessions: [{ id: id(2), title: "There", workspace: at("/srv/there") }] },
+      ],
+    });
+    const desk = on.world.environment("desk");
+    const failed = (stderr: string) => ({ code: 1, stdout: "", stderr: `${stderr}\n` });
+
+    expect(await list(on, { currentDirectory: here, environment: "nowhere" })).toEqual(failed("No environment named nowhere is known here."));
+    expect(await list(on, { currentDirectory: here, environment: "laptop", all: true })).toEqual(
+      failed("The sessions on laptop could not be read: This client was paired with laptop without the read scope."),
+    );
+
+    desk.wire.answer("sessions.list", () => ({ error: { code: "internal", message: "The database is locked.", data: {} } }));
+    expect(await list(on, { currentDirectory: here })).toEqual(failed("The sessions on desk could not be read: The database is locked."));
+
+    desk.wire.answer("sessions.list", () => ({ result: { sequence: 1, sessions: [{ id: id(1), title: "Half a summary" }] } }));
+    expect(await list(on, { currentDirectory: here })).toEqual(failed("The sessions on desk could not be read: The environment's answer to sessions.list is not the method's."));
+  });
+
+  it("prints none of the sessions the runtime already holds when the environment drops before it answers", async () => {
+    const here = directory();
+    const on = await machine({
+      environments: [{ name: "desk", reach: "local", environmentId: DESK, sessions: [{ id: id(1), title: "Here", workspace: at(here) }] }],
+    });
+    const desk = on.world.environment("desk");
+    const dropped = async ({ runtime }: TerminalSelection) => {
+      // The session list this client follows holds the session, live, before the link goes.
+      await until(runtime.projections.sessionList, (view) => view.rows.some((row) => row.summary.id === id(1)) && view.environments[0]?.freshness === "live");
+      desk.wire.discovery("unreachable");
+      desk.wire.server.drop();
+      await flush();
+    };
+
+    const { code, stdout, stderr } = await list(on, { currentDirectory: here, meanwhile: dropped });
+
+    expect({ code, stdout }).toEqual({ code: 1, stdout: "" });
+    expect(stderr).toMatch(/^The sessions on desk could not be read: .+\n$/);
+    expect(desk.requests("sessions.list")).toEqual([]);
   });
 });
