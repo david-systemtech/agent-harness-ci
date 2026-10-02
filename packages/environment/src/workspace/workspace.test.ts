@@ -534,6 +534,28 @@ describe("diffs.session", () => {
     expect(headerOf(4)).toBe("--- a/..y/in.txt");
   });
 
+  it.each([false, true])("includes a MultiEdit's shared path only when an edit targets it (shared: %s)", async (shared) => {
+    const adapter = fakeAdapter();
+    const t = await start({ adapter });
+    const client = await t.client();
+    const root = tempDir("agent-harness-workspace-");
+    const sessionId = await sessionIn(client, root);
+    adapter.nextScripts.push(editingScript([{
+      name: "MultiEdit",
+      input: {
+        file_path: "default.txt",
+        edits: [
+          { file_path: "a.txt", old_string: "a", new_string: "A" },
+          { ...(shared ? {} : { file_path: "b.txt" }), old_string: "b", new_string: "B" },
+          { file_path: "incomplete.txt" },
+        ],
+      },
+    }]));
+    await runToEnd(t, client, sessionId);
+
+    expect((await client.request("diffs.session", { sessionId })).files.map((file) => file.path)).toEqual(["a.txt", shared ? "default.txt" : "b.txt"]);
+  });
+
   it("folds the session's file-editing tool calls that ended ok into a diff per file, in the order first changed, with the calls behind each", async () => {
     const adapter = fakeAdapter();
     const t = await start({ adapter });

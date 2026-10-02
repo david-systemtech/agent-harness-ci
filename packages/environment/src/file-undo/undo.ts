@@ -155,7 +155,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
   const fileChanged = (change: ChangeRecord): Refusal =>
     conflict("file_changed", `${change.path} has changed since the change being undone; it is left as it is.`, { sessionId: change.sessionId, changeId: change.changeId, path: change.path });
 
-/** Whether the file holds exactly what the change's call left: its bytes and mode, at the same plain path. */
+  /** Whether the file holds exactly what the change's call left: its bytes and mode, at the same plain path. */
   const holdsPostImage = async (change: ChangeRecord, target: string): Promise<boolean> => {
     const now = await readFileState(target);
     return (await isPlainFile(target)) && leftByTheCall(change, now);
@@ -203,7 +203,7 @@ export const createFileUndo = ({ log, host, writes, hooks }: FileUndoOptions): F
     const recorded = sessionWorkspaceStatus(log, change.sessionId)?.path;
     const realRoot = recorded === undefined ? null : await realpath(recorded).catch(() => null);
     if (realRoot === null) return { kind: "unknown" };
-const target = join(realRoot, change.path);
+    const target = join(realRoot, change.path);
     const now = await readFileState(target);
     if (!change.existed && now.kind === "absent" && (await realpath(dirname(target)).catch(() => null)) === dirname(target)) return { kind: "restored", change };
     if (change.existed && now.kind === "kept" && now.bytes.equals(change.pre as Buffer) && (await isPlainFile(target))) return { kind: "restored", change };
