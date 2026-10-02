@@ -70,7 +70,7 @@ export const workspaceMethods = ({ log, availability, directoryRules, worktreesR
       // The runs' tool calls from the compaction snapshot, if any, folded on with the remaining stream.
       const { items } = sessionTranscript(log, sessionId);
       // A change files.undo took back is not the session's any more (#1183).
-      return sessionDiff(real === undefined || real === recorded ? [recorded] : [recorded, real], items, log.fileChanges.undoneCalls(sessionId));
+      return sessionDiff(real === undefined || real === recorded ? [recorded] : [recorded, real], items, log.fileChanges.undoneCalls(sessionId), log.fileChanges.undonePaths(sessionId));
     },
   };
 };
