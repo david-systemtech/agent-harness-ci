@@ -13,7 +13,9 @@
     "key-manager-connection",
     "dev-site",
     "page-policy",
-    "routine"
+    "routine",
+    "skill-source",
+    "skill-always-on"
   ],
-  "description": "The kind of item a state import carried: an owned instruction, a Bank registry entry or default, an Account mapping or default, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy or a disabled local Routine."
+  "description": "The kind of item a state import carried: an owned instruction, a Bank registry entry or default, an Account mapping or default, a provider Session mapping retained after purge, a Forge account, a Key-manager connection, a dev site or the local evaluate-everywhere policy a disabled local Routine, a tracked Skill repository or an Account Skill choice."
 }

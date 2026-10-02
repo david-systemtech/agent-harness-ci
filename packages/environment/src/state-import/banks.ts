@@ -53,7 +53,8 @@ export const planBanks = async (records: SourceBanks, options: PlanBanksOptions)
     const id = derivedUuid("state-import.bank", sourceKey, bank.sourceId);
     items.push({
       ...keyOf(bank.sourceId), kind: "bank", label,
-      prepare: async (caller, commandId) => {
+      prepare: async (caller) => {
+        const { commandId } = caller;
         const scope = scopeOf(bank, false);
         const refusal = () => ({ aggregate: { kind: "state-import", id: sourceKey }, rejected: { code: "conflict" as const, message: "Its profile scope has no live mapped Account; repair the scope and import again." } });
         if (scope === null) return refusal;

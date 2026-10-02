@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { STATE_IMPORT_STREAM_KIND, type StateImportFailure, type StateImportItemCarriedPayload, type StateImportItemKind } from "@agent-harness/contracts";
+import { ContractError, STATE_IMPORT_STREAM_KIND, type StateImportFailure, type StateImportItemCarriedPayload, type StateImportItemKind } from "@agent-harness/contracts";
 import type { EventLog, Projector, StreamRef } from "../event-log/event-log.js";
-import type { CommandAnswer, CommandContext, MethodContext, PrepareContext } from "../serve/methods.js";
+import type { CommandAnswer, CommandContext, MethodContext, PrepareContext, Undo } from "../serve/methods.js";
 
 /**
  * The state import's item protocol (switch-over spec, "Preview, application
@@ -87,20 +87,23 @@ interface ImportItemKey extends ItemKey {
   readonly kind: StateImportItemKind;
   /** The item as the report names it when it fails. */
   readonly label: string;
-  /** Whether this item adds a report count; alias/reused Account mappings do not. */
+  /** Whether this item adds a report count; aliases and reused targets do not. */
   readonly contributes?: () => boolean;
   readonly sourceDirectory?: string;
   /** Read-only owner checks immediately before this child's transaction; null permits it, a message fails it independently. */
   readonly validate?: () => Promise<string | null>;
+  /** Preview cannot fetch sources: report a name not yet known without reserving it. */
+  readonly previewFailure?: StateImportFailure;
   /** False in a preview when the owner will reuse a target; apply answers its actual carried count at commit. */
   readonly counted?: boolean;
 }
 
 /** Prepared owners finish bounded filesystem/provider reads before the item transaction. */
 type ImportApply = (context: CommandContext) => CommandAnswer<{ readonly targetId: string; readonly carried?: boolean }>;
+type ImportPrepare = (context: PrepareContext & { readonly commandId: string }) => Promise<ImportApply>;
 export type ImportItem = ImportItemKey & (
-  | { readonly apply: ImportApply; readonly prepare?: never }
-  | { readonly apply?: never; readonly prepare: (caller: PrepareContext, commandId: string) => Promise<ImportApply> }
+  | { readonly apply: ImportApply; readonly prepare?: ImportPrepare }
+  | { readonly apply?: never; readonly prepare: ImportPrepare }
 );
 
 /** What applying a plan's items did: those carried, and those that failed, each with why. */
@@ -139,13 +142,13 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
   for (const item of items) {
     const commandId = itemCommandId(importId, item);
     let outcome: "carried" | "held" | StateImportFailure;
-    const undos: (() => void | Promise<void>)[] = [];
+    if (mappedTarget(log, item) !== undefined) continue;
+    const undos: Undo[] = [];
+    let accepted = false;
     try {
-      // A mapped item stays held even if its source or target conditions changed.
-      if (mappedTarget(log, item) !== undefined) continue;
       const refusal = item.validate === undefined ? null : await item.validate();
       if (refusal != null) { failed.push({ label: item.label, message: refusal }); continue; }
-      const apply = item.prepare === undefined ? item.apply : await item.prepare({ ...caller, onUndo: (undo) => undos.push(undo) }, commandId);
+      const apply = item.prepare === undefined ? item.apply : await item.prepare({ ...caller, commandId, onUndo: (undo) => void undos.push(undo) });
       const run = log.command<{ readonly carried: boolean }>({ actor, commandId }, (tx) => {
         if (mappedTarget(log, item) !== undefined) return { aggregate: stream, result: { carried: false } };
         const answer = apply({ ...caller, commandId, actor, tx });
@@ -158,14 +161,18 @@ export const applyItems = async (items: readonly ImportItem[], options: ApplyIte
         log.append(stream, [{ type: "state-import.item-carried", payload: { ...payload } }], { tx, actor, commandId, correlationId: importId });
         return { aggregate: answer.aggregate, result: { carried: answer.result.carried !== false }, ...(answer.events !== undefined && { events: answer.events }) };
       });
+      accepted = run.receipt.status === "accepted";
       if (run.receipt.status === "rejected") outcome = { label: item.label, message: run.receipt.error.message };
       // A receipt from before (a retry of this import) answers for an item whose command already ran: it is held now.
       else outcome = !run.replayed && run.result?.carried === true ? "carried" : "held";
     } catch (thrown) {
       console.error(`Carrying ${item.kind} ${item.sourceId} failed:`, thrown);
-      outcome = { label: item.label, message: "The environment failed while carrying it: a re-run tries it again." };
+      outcome = { label: item.label, message: thrown instanceof ContractError ? thrown.message : "The environment failed while carrying it: a re-run tries it again." };
     }
-    if (outcome !== "carried") for (const undo of undos.reverse()) await undo();
+    if (!accepted) for (const undo of undos.reverse()) {
+      try { await undo(); }
+      catch { console.error(`Cleaning up a refused ${item.kind} failed.`); }
+    }
     if (outcome === "carried") carried.push(item);
     else if (outcome !== "held") failed.push(outcome);
     // Outside the catch: what this throws stops the import, as a crash between two items would.
